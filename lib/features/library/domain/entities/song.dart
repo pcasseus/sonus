@@ -1,0 +1,67 @@
+class Song {
+  const Song({
+    required this.id,
+    required this.artistId,
+    required this.albumId,
+    required this.albumEditionId,
+    required this.title,
+    required this.canonicalTitle,
+    required this.trackNumber,
+    required this.durationSeconds,
+    required this.isSingle,
+    required this.createdAt,
+    required this.updatedAt,
+    this.featuredArtists = const [],
+  });
+
+  final String id;
+  final String artistId;
+  final String albumId;
+  final String albumEditionId;
+  final String title;
+  final String canonicalTitle;
+  final int trackNumber;
+  final int durationSeconds;
+  final bool isSingle;
+  final List<String> featuredArtists;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+
+  Song copyWith({
+    String? id,
+    String? artistId,
+    String? albumId,
+    String? albumEditionId,
+    String? title,
+    String? canonicalTitle,
+    int? trackNumber,
+    int? durationSeconds,
+    bool? isSingle,
+    List<String>? featuredArtists,
+    DateTime? createdAt,
+    DateTime? updatedAt,
+  }) {
+    return Song(
+      id: id ?? this.id,
+      artistId: artistId ?? this.artistId,
+      albumId: albumId ?? this.albumId,
+      albumEditionId: albumEditionId ?? this.albumEditionId,
+      title: title ?? this.title,
+      canonicalTitle: canonicalTitle ?? this.canonicalTitle,
+      trackNumber: trackNumber ?? this.trackNumber,
+      durationSeconds: durationSeconds ?? this.durationSeconds,
+      isSingle: isSingle ?? this.isSingle,
+      featuredArtists: featuredArtists ?? this.featuredArtists,
+      createdAt: createdAt ?? this.createdAt,
+      updatedAt: updatedAt ?? this.updatedAt,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return identical(this, other) || other is Song && other.id == id;
+  }
+
+  @override
+  int get hashCode => id.hashCode;
+}
