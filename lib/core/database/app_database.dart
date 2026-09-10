@@ -1,6 +1,5 @@
 import 'package:path/path.dart' as path;
 import 'package:sqflite/sqflite.dart' as sqflite;
-
 import 'database_migrations.dart';
 import 'schema/library_schema.dart';
 
@@ -65,6 +64,13 @@ class AppDatabase {
       oldVersion: oldVersion,
       newVersion: newVersion,
     );
+  }
+
+  Future<T> transaction<T>(
+    Future<T> Function(sqflite.Transaction transaction) action,
+  ) async {
+    final db = await database;
+    return db.transaction(action);
   }
 
   Future<void> close() async {
