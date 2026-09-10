@@ -1,0 +1,151 @@
+import 'package:flutter_test/flutter_test.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+
+import 'package:sonus_next/core/database/app_database.dart';
+import 'package:sonus_next/core/database/database_tables.dart';
+
+void main() {
+  sqfliteFfiInit();
+
+  late AppDatabase appDatabase;
+
+  setUp(() {
+    appDatabase = AppDatabase(
+      databaseFactory: databaseFactoryFfi,
+      databasePath: inMemoryDatabasePath,
+    );
+  });
+
+  tearDown(() async {
+    await appDatabase.close();
+  });
+
+  test('creates the Sonus library tables', () async {
+    final db = await appDatabase.database;
+
+    final tables = await db.rawQuery('''
+      SELECT name
+      FROM sqlite_master
+      WHERE type = 'table'
+    ''');
+
+    final names = tables.map((row) => row['name']).whereType<String>().toSet();
+
+    expect(names, contains(DatabaseTables.artists));
+    expect(names, contains(DatabaseTables.albums));
+    expect(names, contains(DatabaseTables.albumEditions));
+    expect(names, contains(DatabaseTables.songs));
+    expect(names, contains(DatabaseTables.mediaFileBindings));
+  });
+
+  test('enables foreign key enforcement', () async {
+    final db = await appDatabase.database;
+
+    final result = await db.rawQuery('PRAGMA foreign_keys');
+
+    expect(result.single['foreign_keys'], 1);
+  });
+
+  test('rejects album without an existing artist', () async {
+    final db = await appDatabase.database;
+
+    final now = DateTime.utc(2026, 9, 10).toIso8601String();
+
+    expect(
+      () => db.insert(DatabaseTables.albums, {
+        'id': 'album_test',
+        'artist_id': 'artist_missing',
+        'title': 'Album',
+        'canonical_title': 'album',
+        'created_at': now,
+        'updated_at': now,
+      }),
+      throwsA(isA<DatabaseException>()),
+    );
+  });
+
+  test('allows separate artists with the same canonical name', () async {
+    final db = await appDatabase.database;
+
+    final now = DateTime.utc(2026, 9, 10).toIso8601String();
+
+    await db.insert(DatabaseTables.artists, {
+      'id': 'artist_same_name_1',
+      'name': 'Same Name',
+      'canonical_name': 'same name',
+      'created_at': now,
+      'updated_at': now,
+    });
+
+    await db.insert(DatabaseTables.artists, {
+      'id': 'artist_same_name_2',
+      'name': 'Same Name',
+      'canonical_name': 'same name',
+      'created_at': now,
+      'updated_at': now,
+    });
+
+    final rows = await db.query(
+      DatabaseTables.artists,
+      where: 'canonical_name = ?',
+      whereArgs: ['same name'],
+    );
+
+    expect(rows, hasLength(2));
+    expect(rows.map((row) => row['id']).toSet(), {
+      'artist_same_name_1',
+      'artist_same_name_2',
+    });
+  });
+
+  test('media file location belongs to binding, not song', () async {
+    final db = await appDatabase.database;
+
+    final songColumns = await db.rawQuery(
+      'PRAGMA table_info(${DatabaseTables.songs})',
+    );
+
+    final bindingColumns = await db.rawQuery(
+      'PRAGMA table_info(${DatabaseTables.mediaFileBindings})',
+    );
+
+    final songColumnNames = songColumns
+        .map((row) => row['name'])
+        .whereType<String>()
+        .toSet();
+
+    final bindingColumnNames = bindingColumns
+        .map((row) => row['name'])
+        .whereType<String>()
+        .toSet();
+
+    expect(songColumnNames, isNot(contains('file_path')));
+    expect(songColumnNames, isNot(contains('normalized_path')));
+
+    expect(bindingColumnNames, contains('file_path'));
+    expect(bindingColumnNames, contains('normalized_path'));
+  });
+
+  test('core foreign keys use restrictive deletion', () async {
+    final db = await appDatabase.database;
+
+    final albumKeys = await db.rawQuery(
+      'PRAGMA foreign_key_list(${DatabaseTables.albums})',
+    );
+
+    final songKeys = await db.rawQuery(
+      'PRAGMA foreign_key_list(${DatabaseTables.songs})',
+    );
+
+    expect(
+      albumKeys.any(
+        (row) =>
+            row['table'] == DatabaseTables.artists &&
+            row['on_delete'] == 'RESTRICT',
+      ),
+      isTrue,
+    );
+
+    expect(songKeys.every((row) => row['on_delete'] == 'RESTRICT'), isTrue);
+  });
+}
