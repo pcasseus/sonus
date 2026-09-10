@@ -1,0 +1,23 @@
+import 'package:uuid/uuid.dart';
+
+abstract final class EntityId {
+  static const Uuid _uuid = Uuid();
+
+  static String artist() => 'artist_${_uuid.v4()}';
+
+  static String album() => 'album_${_uuid.v4()}';
+
+  static String albumEdition() => 'edition_${_uuid.v4()}';
+
+  static String song() => 'song_${_uuid.v4()}';
+
+  static String mediaFileBinding() => 'media_${_uuid.v4()}';
+
+  static String artworkAsset() => 'artwork_${_uuid.v4()}';
+
+  static String playlist() => 'playlist_${_uuid.v4()}';
+
+  static String playbackSession() => 'session_${_uuid.v4()}';
+
+  static String qualifiedPlay() => 'play_${_uuid.v4()}';
+}
