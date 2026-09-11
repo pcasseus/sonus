@@ -23,7 +23,17 @@ class SqliteAlbumRepository implements AlbumRepository {
   }
 
   @override
+  Future<List<Album>> getAll() {
+    return dao.findAll();
+  }
+
+  @override
   Future<List<Album>> getByArtistId(String artistId) {
     return dao.findByArtistId(artistId);
+  }
+
+  @override
+  Future<List<Album>> getRecentlyAdded(int limit) {
+    return dao.findRecentlyAdded(limit);
   }
 }

@@ -45,12 +45,35 @@ class SongDao {
     return SongRowMapper.fromRow(rows.single);
   }
 
+  Future<List<Song>> findAll() async {
+    final rows = await db.query(
+      DatabaseTables.songs,
+      orderBy: 'title COLLATE NOCASE ASC, id ASC',
+    );
+
+    return rows.map(SongRowMapper.fromRow).toList(growable: false);
+  }
+
+  Future<List<Song>> findRecentlyAdded(int limit) async {
+    if (limit <= 0) {
+      return const [];
+    }
+
+    final rows = await db.query(
+      DatabaseTables.songs,
+      orderBy: 'created_at DESC, title COLLATE NOCASE ASC, id ASC',
+      limit: limit,
+    );
+
+    return rows.map(SongRowMapper.fromRow).toList(growable: false);
+  }
+
   Future<List<Song>> findByAlbumId(String albumId) async {
     final rows = await db.query(
       DatabaseTables.songs,
       where: 'album_id = ?',
       whereArgs: [albumId],
-      orderBy: 'track_number ASC, title COLLATE NOCASE ASC',
+      orderBy: 'track_number ASC, title COLLATE NOCASE ASC, id ASC',
     );
 
     return rows.map(SongRowMapper.fromRow).toList(growable: false);
@@ -61,7 +84,7 @@ class SongDao {
       DatabaseTables.songs,
       where: 'album_edition_id = ?',
       whereArgs: [editionId],
-      orderBy: 'track_number ASC, title COLLATE NOCASE ASC',
+      orderBy: 'track_number ASC, title COLLATE NOCASE ASC, id ASC',
     );
 
     return rows.map(SongRowMapper.fromRow).toList(growable: false);
@@ -72,7 +95,8 @@ class SongDao {
       DatabaseTables.songs,
       where: 'artist_id = ?',
       whereArgs: [artistId],
-      orderBy: 'album_id ASC, track_number ASC, title COLLATE NOCASE ASC',
+      orderBy:
+          'album_id ASC, track_number ASC, title COLLATE NOCASE ASC, id ASC',
     );
 
     return rows.map(SongRowMapper.fromRow).toList(growable: false);

@@ -23,6 +23,11 @@ class SqliteSongRepository implements SongRepository {
   }
 
   @override
+  Future<List<Song>> getAll() {
+    return dao.findAll();
+  }
+
+  @override
   Future<List<Song>> getByArtistId(String artistId) {
     return dao.findByArtistId(artistId);
   }
@@ -35,5 +40,10 @@ class SqliteSongRepository implements SongRepository {
   @override
   Future<List<Song>> getByEditionId(String editionId) {
     return dao.findByEditionId(editionId);
+  }
+
+  @override
+  Future<List<Song>> getRecentlyAdded(int limit) {
+    return dao.findRecentlyAdded(limit);
   }
 }

@@ -45,12 +45,24 @@ class AlbumEditionDao {
     return AlbumEditionRowMapper.fromRow(rows.single);
   }
 
+  Future<List<AlbumEdition>> findAll() async {
+    final rows = await db.query(
+      DatabaseTables.albumEditions,
+      orderBy:
+          'album_id ASC, is_primary DESC, release_date ASC, '
+          'title COLLATE NOCASE ASC, id ASC',
+    );
+
+    return rows.map(AlbumEditionRowMapper.fromRow).toList(growable: false);
+  }
+
   Future<List<AlbumEdition>> findByAlbumId(String albumId) async {
     final rows = await db.query(
       DatabaseTables.albumEditions,
       where: 'album_id = ?',
       whereArgs: [albumId],
-      orderBy: 'is_primary DESC, release_date ASC, title COLLATE NOCASE ASC',
+      orderBy:
+          'is_primary DESC, release_date ASC, title COLLATE NOCASE ASC, id ASC',
     );
 
     return rows.map(AlbumEditionRowMapper.fromRow).toList(growable: false);

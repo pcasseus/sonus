@@ -7,9 +7,13 @@ abstract interface class SongRepository {
 
   Future<Song?> getById(String id);
 
+  Future<List<Song>> getAll();
+
   Future<List<Song>> getByArtistId(String artistId);
 
   Future<List<Song>> getByAlbumId(String albumId);
 
   Future<List<Song>> getByEditionId(String editionId);
+
+  Future<List<Song>> getRecentlyAdded(int limit);
 }
