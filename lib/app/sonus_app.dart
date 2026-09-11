@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../features/player/presentation/scopes/playback_scope.dart';
+import '../features/shell/presentation/pages/app_shell_page.dart';
 
 class SonusApp extends StatelessWidget {
   const SonusApp({super.key, this.playbackEngineFactory});
@@ -12,21 +13,13 @@ class SonusApp extends StatelessWidget {
     return PlaybackScope(
       engineFactory: playbackEngineFactory,
       child: MaterialApp(
+        debugShowCheckedModeBanner: false,
         title: 'Sonus',
         theme: ThemeData(
           colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
         ),
-        home: const _SonusBootstrapPage(),
+        home: const AppShellPage(),
       ),
     );
-  }
-}
-
-class _SonusBootstrapPage extends StatelessWidget {
-  const _SonusBootstrapPage();
-
-  @override
-  Widget build(BuildContext context) {
-    return const Scaffold(body: Center(child: Text('Sonus')));
   }
 }
