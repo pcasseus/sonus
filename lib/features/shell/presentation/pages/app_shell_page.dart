@@ -1,11 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../widgets/shell_playback_slot.dart';
+
 import '../../../import/presentation/pages/imports_page.dart';
+import '../../../library/presentation/pages/library_page.dart';
+import '../../../library/presentation/pages/tracks_page.dart';
 import '../../../search/presentation/pages/search_page.dart';
 import '../../application/controllers/app_shell_controller.dart';
 import '../../domain/models/app_destination.dart';
 import '../widgets/app_destination_placeholder.dart';
+import '../widgets/shell_playback_slot.dart';
 
 class AppShellPage extends StatefulWidget {
   const AppShellPage({super.key});
@@ -79,6 +82,20 @@ class _AppShellPageState extends State<AppShellPage>
     _selectDestination(AppDestination.settings);
   }
 
+  Widget _buildDestinationPage(AppDestination destination) {
+    final Widget page = switch (destination) {
+      AppDestination.tracks => const TracksPage(),
+      AppDestination.library => const LibraryPage(),
+      AppDestination.home || AppDestination.hot100 || AppDestination.settings =>
+        AppDestinationPlaceholder(destination: destination),
+    };
+
+    return KeyedSubtree(
+      key: PageStorageKey<String>('app-page-${destination.name}'),
+      child: page,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return ChangeNotifierProvider<AppShellController>.value(
@@ -127,10 +144,7 @@ class _AppShellPageState extends State<AppShellPage>
           onPageChanged: _handlePageChanged,
           children: [
             for (final destination in AppDestination.values)
-              AppDestinationPlaceholder(
-                key: PageStorageKey<String>('app-page-${destination.name}'),
-                destination: destination,
-              ),
+              _buildDestinationPage(destination),
           ],
         ),
         bottomNavigationBar: const ShellPlaybackSlot(),
@@ -143,6 +157,7 @@ class _AppShellPageState extends State<AppShellPage>
     _tabController.dispose();
     _pageController.dispose();
     _shellController.dispose();
+
     super.dispose();
   }
 }
