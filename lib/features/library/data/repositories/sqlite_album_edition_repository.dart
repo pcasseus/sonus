@@ -23,6 +23,11 @@ class SqliteAlbumEditionRepository implements AlbumEditionRepository {
   }
 
   @override
+  Future<List<AlbumEdition>> getAll() {
+    return dao.findAll();
+  }
+
+  @override
   Future<List<AlbumEdition>> getByAlbumId(String albumId) {
     return dao.findByAlbumId(albumId);
   }

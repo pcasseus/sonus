@@ -40,6 +40,9 @@ class FakeAlbumRepository implements AlbumRepository {
   Future<void> create(Album album) async {}
 
   @override
+  Future<List<Album>> getAll() async => items;
+
+  @override
   Future<List<Album>> getByArtistId(String artistId) async {
     return items.where((item) => item.artistId == artistId).toList();
   }
@@ -47,6 +50,34 @@ class FakeAlbumRepository implements AlbumRepository {
   @override
   Future<Album?> getById(String id) async {
     return items.where((item) => item.id == id).firstOrNull;
+  }
+
+  @override
+  Future<List<Album>> getRecentlyAdded(int limit) async {
+    if (limit <= 0) {
+      return const [];
+    }
+
+    final sorted = [...items]
+      ..sort((a, b) {
+        final createdCompare = b.createdAt.compareTo(a.createdAt);
+
+        if (createdCompare != 0) {
+          return createdCompare;
+        }
+
+        final titleCompare = a.title.toLowerCase().compareTo(
+          b.title.toLowerCase(),
+        );
+
+        if (titleCompare != 0) {
+          return titleCompare;
+        }
+
+        return a.id.compareTo(b.id);
+      });
+
+    return sorted.take(limit).toList(growable: false);
   }
 
   @override
@@ -60,6 +91,9 @@ class FakeAlbumEditionRepository implements AlbumEditionRepository {
 
   @override
   Future<void> create(AlbumEdition edition) async {}
+
+  @override
+  Future<List<AlbumEdition>> getAll() async => items;
 
   @override
   Future<List<AlbumEdition>> getByAlbumId(String albumId) async {
@@ -84,6 +118,9 @@ class FakeSongRepository implements SongRepository {
   Future<void> create(Song song) async {}
 
   @override
+  Future<List<Song>> getAll() async => items;
+
+  @override
   Future<List<Song>> getByAlbumId(String albumId) async {
     return items.where((item) => item.albumId == albumId).toList();
   }
@@ -101,6 +138,34 @@ class FakeSongRepository implements SongRepository {
   @override
   Future<Song?> getById(String id) async {
     return items.where((item) => item.id == id).firstOrNull;
+  }
+
+  @override
+  Future<List<Song>> getRecentlyAdded(int limit) async {
+    if (limit <= 0) {
+      return const [];
+    }
+
+    final sorted = [...items]
+      ..sort((a, b) {
+        final createdCompare = b.createdAt.compareTo(a.createdAt);
+
+        if (createdCompare != 0) {
+          return createdCompare;
+        }
+
+        final titleCompare = a.title.toLowerCase().compareTo(
+          b.title.toLowerCase(),
+        );
+
+        if (titleCompare != 0) {
+          return titleCompare;
+        }
+
+        return a.id.compareTo(b.id);
+      });
+
+    return sorted.take(limit).toList(growable: false);
   }
 
   @override

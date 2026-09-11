@@ -45,12 +45,35 @@ class AlbumDao {
     return AlbumRowMapper.fromRow(rows.single);
   }
 
+  Future<List<Album>> findAll() async {
+    final rows = await db.query(
+      DatabaseTables.albums,
+      orderBy: 'title COLLATE NOCASE ASC, id ASC',
+    );
+
+    return rows.map(AlbumRowMapper.fromRow).toList(growable: false);
+  }
+
+  Future<List<Album>> findRecentlyAdded(int limit) async {
+    if (limit <= 0) {
+      return const [];
+    }
+
+    final rows = await db.query(
+      DatabaseTables.albums,
+      orderBy: 'created_at DESC, title COLLATE NOCASE ASC, id ASC',
+      limit: limit,
+    );
+
+    return rows.map(AlbumRowMapper.fromRow).toList(growable: false);
+  }
+
   Future<List<Album>> findByArtistId(String artistId) async {
     final rows = await db.query(
       DatabaseTables.albums,
       where: 'artist_id = ?',
       whereArgs: [artistId],
-      orderBy: 'title COLLATE NOCASE ASC',
+      orderBy: 'title COLLATE NOCASE ASC, id ASC',
     );
 
     return rows.map(AlbumRowMapper.fromRow).toList(growable: false);

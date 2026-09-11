@@ -7,5 +7,7 @@ abstract interface class AlbumEditionRepository {
 
   Future<AlbumEdition?> getById(String id);
 
+  Future<List<AlbumEdition>> getAll();
+
   Future<List<AlbumEdition>> getByAlbumId(String albumId);
 }

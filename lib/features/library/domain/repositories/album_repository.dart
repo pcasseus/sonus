@@ -7,5 +7,9 @@ abstract interface class AlbumRepository {
 
   Future<Album?> getById(String id);
 
+  Future<List<Album>> getAll();
+
   Future<List<Album>> getByArtistId(String artistId);
+
+  Future<List<Album>> getRecentlyAdded(int limit);
 }
