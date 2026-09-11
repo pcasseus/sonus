@@ -13,6 +13,8 @@ abstract final class EntityId {
 
   static String mediaFileBinding() => 'media_${_uuid.v4()}';
 
+  static String importBatch() => 'import_batch_${_uuid.v4()}';
+
   static String artworkAsset() => 'artwork_${_uuid.v4()}';
 
   static String playlist() => 'playlist_${_uuid.v4()}';

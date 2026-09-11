@@ -20,7 +20,7 @@ void main() {
     await appDatabase.close();
   });
 
-  test('creates the Sonus library tables', () async {
+  test('creates the current Sonus database tables', () async {
     final db = await appDatabase.database;
 
     final tables = await db.rawQuery('''
@@ -36,6 +36,7 @@ void main() {
     expect(names, contains(DatabaseTables.albumEditions));
     expect(names, contains(DatabaseTables.songs));
     expect(names, contains(DatabaseTables.mediaFileBindings));
+    expect(names, contains(DatabaseTables.importBatches));
   });
 
   test('enables foreign key enforcement', () async {
