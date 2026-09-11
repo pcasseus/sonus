@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../../application/models/library_artist.dart';
 import '../../application/repositories/library_query_repository.dart';
 import '../controllers/library_artists_controller.dart';
+import 'artist_profile_page.dart';
 
 class LibraryPage extends StatefulWidget {
   const LibraryPage({super.key});
@@ -36,6 +37,17 @@ class _LibraryPageState extends State<LibraryPage> {
     unawaited(_controller!.load());
   }
 
+  void _openArtist(LibraryArtist artist) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ArtistProfilePage(
+          artistId: artist.artistId,
+          initialArtistName: artist.name,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = _controller;
@@ -43,7 +55,7 @@ class _LibraryPageState extends State<LibraryPage> {
     if (controller == null) {
       return const SizedBox(
         key: ValueKey<String>('app-destination-library'),
-        child: Center(child: Text('Loading library…')),
+        child: Text('Loading library…'),
       );
     }
 
@@ -85,7 +97,12 @@ class _LibraryPageState extends State<LibraryPage> {
               ),
               itemCount: controller.artists.length,
               itemBuilder: (context, index) {
-                return _ArtistCard(artist: controller.artists[index]);
+                final artist = controller.artists[index];
+
+                return _ArtistCard(
+                  artist: artist,
+                  onTap: () => _openArtist(artist),
+                );
               },
             ),
           );
@@ -102,48 +119,53 @@ class _LibraryPageState extends State<LibraryPage> {
 }
 
 class _ArtistCard extends StatelessWidget {
-  const _ArtistCard({required this.artist});
+  const _ArtistCard({required this.artist, required this.onTap});
 
   final LibraryArtist artist;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     return Card(
       key: ValueKey<String>('artist-${artist.artistId}'),
       clipBehavior: Clip.antiAlias,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: Center(
-                child: CircleAvatar(
-                  radius: 42,
-                  child: Text(
-                    _initials(artist.name),
-                    style: Theme.of(context).textTheme.headlineSmall,
+      child: InkWell(
+        key: ValueKey<String>('artist-open-${artist.artistId}'),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Center(
+                  child: CircleAvatar(
+                    radius: 42,
+                    child: Text(
+                      _initials(artist.name),
+                      style: Theme.of(context).textTheme.headlineSmall,
+                    ),
                   ),
                 ),
               ),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              artist.name,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(
-                context,
-              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              _artistSummary(artist),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ],
+              const SizedBox(height: 12),
+              Text(
+                artist.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                _artistSummary(artist),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -153,7 +175,7 @@ class _ArtistCard extends StatelessWidget {
     final albumLabel = artist.albumCount == 1 ? 'album' : 'albums';
     final songLabel = artist.songCount == 1 ? 'song' : 'songs';
 
-    return '${artist.albumCount} $albumLabel • '
+    return '${artist.albumCount} $albumLabel \u2022 '
         '${artist.songCount} $songLabel';
   }
 
