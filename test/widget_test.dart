@@ -3,13 +3,15 @@ import 'dart:async';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
-import 'package:sonus_next/features/player/presentation/controllers/playback_state_controller.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:sonus_next/app/sonus_app.dart';
+import 'package:sonus_next/core/database/app_database.dart';
 import 'package:sonus_next/features/player/application/controllers/playback_coordinator.dart';
 import 'package:sonus_next/features/player/domain/models/playback_repeat_mode.dart';
 import 'package:sonus_next/features/player/domain/models/playback_state.dart';
 import 'package:sonus_next/features/player/domain/models/playback_track.dart';
 import 'package:sonus_next/features/player/domain/services/playback_engine.dart';
+import 'package:sonus_next/features/player/presentation/controllers/playback_state_controller.dart';
 
 class FakePlaybackEngine implements PlaybackEngine {
   final StreamController<PlaybackState> _controller =
@@ -82,13 +84,29 @@ class FakePlaybackEngine implements PlaybackEngine {
   }
 }
 
+AppDatabase createTestDatabase() {
+  return AppDatabase(
+    databaseFactory: databaseFactoryFfi,
+    databasePath: inMemoryDatabasePath,
+  );
+}
+
 void main() {
+  setUpAll(() {
+    sqfliteFfiInit();
+  });
+
   testWidgets('Sonus app exposes one playback coordinator', (tester) async {
     final engine = FakePlaybackEngine();
+    final database = createTestDatabase();
+
+    addTearDown(database.close);
+
     var factoryCalls = 0;
 
     await tester.pumpWidget(
       SonusApp(
+        libraryDatabase: database,
         playbackEngineFactory: () {
           factoryCalls++;
           return engine;
@@ -122,10 +140,15 @@ void main() {
 
   testWidgets('playback engine survives rebuilds', (tester) async {
     final engine = FakePlaybackEngine();
+    final database = createTestDatabase();
+
+    addTearDown(database.close);
+
     var factoryCalls = 0;
 
     await tester.pumpWidget(
       SonusApp(
+        libraryDatabase: database,
         playbackEngineFactory: () {
           factoryCalls++;
           return engine;
@@ -146,8 +169,13 @@ void main() {
 
   testWidgets('playback engine is disposed with app scope', (tester) async {
     final engine = FakePlaybackEngine();
+    final database = createTestDatabase();
 
-    await tester.pumpWidget(SonusApp(playbackEngineFactory: () => engine));
+    addTearDown(database.close);
+
+    await tester.pumpWidget(
+      SonusApp(libraryDatabase: database, playbackEngineFactory: () => engine),
+    );
 
     expect(engine.disposeCalls, 0);
 
