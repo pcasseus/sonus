@@ -113,7 +113,9 @@ void main() {
       );
 
       expect(find.text('Taylor Swift'), findsOneWidget);
+
       expect(find.text('Beyoncé'), findsOneWidget);
+
       expect(find.text('SZA'), findsOneWidget);
 
       expect(find.text('12 albums • 150 songs'), findsOneWidget);
@@ -166,7 +168,41 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('TS'), findsOneWidget);
+
       expect(find.text('S'), findsOneWidget);
+    });
+
+    testWidgets('tapping an artist opens the artist profile', (tester) async {
+      final repository = FakeLibraryQueryRepository(
+        artists: [
+          createArtist(
+            artistId: 'artist-1',
+            name: 'Test Artist',
+            albumCount: 1,
+            songCount: 1,
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(buildSubject(repository: repository));
+
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey<String>('artist-open-artist-1')),
+        findsOneWidget,
+      );
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('artist-open-artist-1')),
+      );
+
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey<String>('artist-profile-page')),
+        findsOneWidget,
+      );
     });
 
     testWidgets('retry reloads artists after an error', (tester) async {

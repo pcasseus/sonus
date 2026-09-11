@@ -1,0 +1,612 @@
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
+
+import 'package:sonus_next/features/library/application/models/library_album.dart';
+import 'package:sonus_next/features/library/application/models/library_artist.dart';
+import 'package:sonus_next/features/library/application/models/library_track.dart';
+import 'package:sonus_next/features/library/application/models/library_track_order.dart';
+import 'package:sonus_next/features/library/application/repositories/library_query_repository.dart';
+import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
+import 'package:sonus_next/features/library/presentation/pages/artist_profile_page.dart';
+import 'package:sonus_next/features/player/application/controllers/playback_coordinator.dart';
+import 'package:sonus_next/features/player/domain/models/playback_repeat_mode.dart';
+import 'package:sonus_next/features/player/domain/models/playback_state.dart';
+import 'package:sonus_next/features/player/domain/models/playback_track.dart';
+import 'package:sonus_next/features/player/domain/services/playback_engine.dart';
+
+void main() {
+  group('ArtistProfilePage', () {
+    testWidgets('shows stable page while repository is unavailable', (
+      tester,
+    ) async {
+      await tester.pumpWidget(buildSubject(repository: null));
+
+      expect(
+        find.byKey(const ValueKey<String>('artist-profile-page')),
+        findsOneWidget,
+      );
+
+      expect(find.text('Loading artist...'), findsOneWidget);
+    });
+
+    testWidgets('shows loading state while artist is loading', (tester) async {
+      final completer = Completer<LibraryArtist?>();
+
+      final repository = FakeLibraryQueryRepository(
+        artistLoader: (_) => completer.future,
+      );
+
+      await tester.pumpWidget(buildSubject(repository: repository));
+
+      await tester.pump();
+
+      expect(find.byType(CircularProgressIndicator), findsOneWidget);
+
+      completer.complete(null);
+
+      await tester.pump();
+      await tester.pump();
+    });
+
+    testWidgets('shows artist profile content', (tester) async {
+      final repository = FakeLibraryQueryRepository(
+        artist: createArtist(),
+        albums: [createAlbum()],
+        tracks: [createTrack()],
+      );
+
+      await tester.pumpWidget(buildSubject(repository: repository));
+
+      await tester.pumpAndSettle();
+
+      expect(find.text('Test Artist'), findsWidgets);
+
+      expect(find.text('1 album \u2022 1 song'), findsOneWidget);
+
+      expect(
+        find.byKey(const ValueKey<String>('artist-profile-albums-grid')),
+        findsOneWidget,
+      );
+
+      expect(find.text('Test Album'), findsWidgets);
+
+      await tester.drag(
+        find.byKey(const PageStorageKey<String>('artist-profile-scroll')),
+        const Offset(0, -500),
+      );
+
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey<String>('artist-profile-tracks-list')),
+        findsOneWidget,
+      );
+
+      expect(find.text('Test Song'), findsOneWidget);
+
+      expect(find.text('3:00'), findsOneWidget);
+    });
+
+    testWidgets('shows empty album and song sections', (tester) async {
+      final repository = FakeLibraryQueryRepository(artist: createArtist());
+
+      await tester.pumpWidget(buildSubject(repository: repository));
+
+      await tester.pumpAndSettle();
+
+      expect(find.text('No albums yet'), findsOneWidget);
+
+      expect(find.text('No songs yet'), findsOneWidget);
+    });
+
+    testWidgets('shows artist not found state', (tester) async {
+      final repository = FakeLibraryQueryRepository();
+
+      await tester.pumpWidget(buildSubject(repository: repository));
+
+      await tester.pumpAndSettle();
+
+      expect(find.text('Artist not found'), findsOneWidget);
+    });
+
+    testWidgets('shows error state when loading fails', (tester) async {
+      final repository = FakeLibraryQueryRepository(
+        artistError: StateError('failed'),
+      );
+
+      await tester.pumpWidget(buildSubject(repository: repository));
+
+      await tester.pumpAndSettle();
+
+      expect(find.text('Could not load this artist.'), findsOneWidget);
+
+      expect(find.text('Try again'), findsOneWidget);
+    });
+
+    testWidgets('retry reloads profile after failure', (tester) async {
+      var shouldFail = true;
+
+      final repository = FakeLibraryQueryRepository(
+        artistLoader: (_) async {
+          if (shouldFail) {
+            throw StateError('failed');
+          }
+
+          return createArtist(name: 'Recovered Artist');
+        },
+      );
+
+      await tester.pumpWidget(buildSubject(repository: repository));
+
+      await tester.pumpAndSettle();
+
+      expect(find.text('Could not load this artist.'), findsOneWidget);
+
+      shouldFail = false;
+
+      await tester.tap(find.text('Try again'));
+
+      await tester.pumpAndSettle();
+
+      expect(find.text('Recovered Artist'), findsWidgets);
+    });
+
+    testWidgets('play button plays artist tracks', (tester) async {
+      final repository = FakeLibraryQueryRepository(
+        artist: createArtist(),
+        tracks: [
+          createTrack(songId: 'song-1', title: 'First Song'),
+          createTrack(songId: 'song-2', title: 'Second Song'),
+        ],
+      );
+
+      final engine = FakePlaybackEngine();
+
+      await tester.pumpWidget(
+        buildSubject(
+          repository: repository,
+          playbackCoordinator: PlaybackCoordinator(engine: engine),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      final playButton = find.byKey(
+        const ValueKey<String>('artist-profile-play-all-button'),
+      );
+
+      expect(playButton, findsOneWidget);
+
+      await tester.tap(playButton);
+      await tester.pump();
+
+      expect(engine.loadQueueCallCount, 1);
+
+      expect(engine.lastLoadedTracks!.map((track) => track.songId), [
+        'song-1',
+        'song-2',
+      ]);
+
+      expect(engine.lastStartIndex, 0);
+
+      expect(engine.lastAutoPlay, isTrue);
+
+      await engine.dispose();
+    });
+
+    testWidgets('shuffle button updates playback shuffle state', (
+      tester,
+    ) async {
+      final repository = FakeLibraryQueryRepository(
+        artist: createArtist(),
+        tracks: [createTrack()],
+      );
+
+      final engine = FakePlaybackEngine();
+
+      await tester.pumpWidget(
+        buildSubject(
+          repository: repository,
+          playbackCoordinator: PlaybackCoordinator(engine: engine),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      final shuffleButton = find.byKey(
+        const ValueKey<String>('artist-profile-shuffle-button'),
+      );
+
+      expect(shuffleButton, findsOneWidget);
+
+      await tester.tap(shuffleButton);
+      await tester.pump();
+
+      expect(engine.lastShuffleEnabled, isTrue);
+
+      await tester.tap(shuffleButton);
+      await tester.pump();
+
+      expect(engine.lastShuffleEnabled, isFalse);
+
+      await engine.dispose();
+    });
+
+    testWidgets('tapping playable song starts playback', (tester) async {
+      final repository = FakeLibraryQueryRepository(
+        artist: createArtist(),
+        tracks: [createTrack(songId: 'play-song', title: 'Play Song')],
+      );
+
+      final engine = FakePlaybackEngine();
+
+      await tester.pumpWidget(
+        buildSubject(
+          repository: repository,
+          playbackCoordinator: PlaybackCoordinator(engine: engine),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      await tester.drag(
+        find.byKey(const PageStorageKey<String>('artist-profile-scroll')),
+        const Offset(0, -500),
+      );
+
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('artist-track-play-song')),
+      );
+
+      await tester.pump();
+
+      expect(engine.loadQueueCallCount, 1);
+
+      expect(engine.lastLoadedTracks, hasLength(1));
+
+      expect(engine.lastLoadedTracks!.single.songId, 'play-song');
+
+      expect(engine.lastAutoPlay, isTrue);
+
+      await engine.dispose();
+    });
+
+    testWidgets('unavailable song is disabled and does not start playback', (
+      tester,
+    ) async {
+      final repository = FakeLibraryQueryRepository(
+        artist: createArtist(),
+        tracks: [
+          createTrack(
+            songId: 'missing-song',
+            title: 'Missing Song',
+            filePath: '',
+            isAvailable: false,
+          ),
+        ],
+      );
+
+      final engine = FakePlaybackEngine();
+
+      await tester.pumpWidget(
+        buildSubject(
+          repository: repository,
+          playbackCoordinator: PlaybackCoordinator(engine: engine),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      await tester.drag(
+        find.byKey(const PageStorageKey<String>('artist-profile-scroll')),
+        const Offset(0, -500),
+      );
+
+      await tester.pumpAndSettle();
+
+      final tileFinder = find.byKey(
+        const ValueKey<String>('artist-track-missing-song'),
+      );
+
+      expect(tileFinder, findsOneWidget);
+
+      final tile = tester.widget<ListTile>(tileFinder);
+
+      expect(tile.enabled, isFalse);
+
+      expect(tile.onTap, isNull);
+
+      expect(engine.loadQueueCallCount, 0);
+
+      await engine.dispose();
+    });
+
+    testWidgets('playback controls are disabled when no tracks are playable', (
+      tester,
+    ) async {
+      final repository = FakeLibraryQueryRepository(
+        artist: createArtist(),
+        tracks: [
+          createTrack(songId: 'missing-song', filePath: '', isAvailable: false),
+        ],
+      );
+
+      final engine = FakePlaybackEngine();
+
+      await tester.pumpWidget(
+        buildSubject(
+          repository: repository,
+          playbackCoordinator: PlaybackCoordinator(engine: engine),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      final playButton = tester.widget<FilledButton>(
+        find.byKey(const ValueKey<String>('artist-profile-play-all-button')),
+      );
+
+      expect(playButton.onPressed, isNull);
+
+      final shuffleButton = tester.widget<IconButton>(
+        find.byKey(const ValueKey<String>('artist-profile-shuffle-button')),
+      );
+
+      expect(shuffleButton.onPressed, isNull);
+
+      await engine.dispose();
+    });
+  });
+}
+
+Widget buildSubject({
+  required LibraryQueryRepository? repository,
+  PlaybackCoordinator? playbackCoordinator,
+}) {
+  return Provider<LibraryQueryRepository?>.value(
+    value: repository,
+    child: Provider<PlaybackCoordinator?>.value(
+      value: playbackCoordinator,
+      child: const MaterialApp(
+        home: ArtistProfilePage(
+          artistId: 'artist-1',
+          initialArtistName: 'Test Artist',
+        ),
+      ),
+    ),
+  );
+}
+
+LibraryArtist createArtist({
+  String artistId = 'artist-1',
+  String name = 'Test Artist',
+}) {
+  return LibraryArtist(
+    artistId: artistId,
+    name: name,
+    albumCount: 1,
+    songCount: 1,
+    dateAdded: DateTime(2026, 1, 1),
+  );
+}
+
+LibraryAlbum createAlbum() {
+  return LibraryAlbum(
+    albumId: 'album-1',
+    title: 'Test Album',
+    artistId: 'artist-1',
+    artistName: 'Test Artist',
+    trackCount: 1,
+    dateAdded: DateTime(2026, 1, 1),
+  );
+}
+
+LibraryTrack createTrack({
+  String songId = 'song-1',
+  String title = 'Test Song',
+  String? filePath,
+  bool isAvailable = true,
+}) {
+  return LibraryTrack(
+    songId: songId,
+    title: title,
+    artistId: 'artist-1',
+    artistName: 'Test Artist',
+    albumId: 'album-1',
+    albumTitle: 'Test Album',
+    albumEditionId: 'edition-1',
+    albumEditionTitle: 'Standard',
+    albumEditionType: AlbumEditionType.values.first,
+    trackNumber: 1,
+    durationSeconds: 180,
+    isSingle: false,
+    featuredArtists: const [],
+    dateAdded: DateTime(2026, 1, 1),
+    filePath: filePath ?? '/music/$songId.mp3',
+    isAvailable: isAvailable,
+  );
+}
+
+class FakeLibraryQueryRepository implements LibraryQueryRepository {
+  FakeLibraryQueryRepository({
+    this.artist,
+    this.albums = const [],
+    this.tracks = const [],
+    this.artistError,
+    this.artistLoader,
+  });
+
+  final LibraryArtist? artist;
+  final List<LibraryAlbum> albums;
+  final List<LibraryTrack> tracks;
+  final Object? artistError;
+
+  final Future<LibraryArtist?> Function(String artistId)? artistLoader;
+
+  @override
+  Future<LibraryArtist?> getArtistById(String artistId) async {
+    final loader = artistLoader;
+
+    if (loader != null) {
+      return loader(artistId);
+    }
+
+    final error = artistError;
+
+    if (error != null) {
+      throw error;
+    }
+
+    return artist;
+  }
+
+  @override
+  Future<List<LibraryAlbum>> getAlbumsByArtistId(String artistId) async {
+    return albums;
+  }
+
+  @override
+  Future<List<LibraryTrack>> getTracksByArtistId(
+    String artistId, {
+    LibraryTrackOrder order = LibraryTrackOrder.title,
+  }) async {
+    return tracks;
+  }
+
+  @override
+  Future<List<LibraryTrack>> getTracks({
+    LibraryTrackOrder order = LibraryTrackOrder.title,
+  }) async {
+    return const [];
+  }
+
+  @override
+  Future<List<LibraryTrack>> getRecentlyAddedTracks(int limit) async {
+    return const [];
+  }
+
+  @override
+  Future<LibraryTrack?> getTrackById(String songId) async {
+    return null;
+  }
+
+  @override
+  Future<List<LibraryTrack>> getTracksByAlbumId(String albumId) async {
+    return const [];
+  }
+
+  @override
+  Future<List<LibraryAlbum>> getAlbums() async {
+    return const [];
+  }
+
+  @override
+  Future<List<LibraryAlbum>> getRecentlyAddedAlbums(int limit) async {
+    return const [];
+  }
+
+  @override
+  Future<LibraryAlbum?> getAlbumById(String albumId) async {
+    return null;
+  }
+
+  @override
+  Future<List<LibraryArtist>> getArtists() async {
+    return const [];
+  }
+}
+
+class FakePlaybackEngine implements PlaybackEngine {
+  final StreamController<PlaybackState> _statesController =
+      StreamController<PlaybackState>.broadcast();
+
+  PlaybackState _currentState = const PlaybackState();
+
+  List<PlaybackTrack>? lastLoadedTracks;
+  int? lastStartIndex;
+  bool? lastAutoPlay;
+
+  bool? lastShuffleEnabled;
+
+  int loadQueueCallCount = 0;
+
+  @override
+  Stream<PlaybackState> get states {
+    return _statesController.stream;
+  }
+
+  @override
+  PlaybackState get currentState {
+    return _currentState;
+  }
+
+  @override
+  Future<void> loadQueue(
+    List<PlaybackTrack> tracks, {
+    int startIndex = 0,
+    bool autoPlay = false,
+  }) async {
+    loadQueueCallCount++;
+
+    lastLoadedTracks = List<PlaybackTrack>.from(tracks);
+
+    lastStartIndex = startIndex;
+    lastAutoPlay = autoPlay;
+  }
+
+  @override
+  Future<void> setShuffleEnabled(bool enabled) async {
+    lastShuffleEnabled = enabled;
+
+    _currentState = _currentState.copyWith(shuffleEnabled: enabled);
+  }
+
+  @override
+  Future<void> insertTrack(PlaybackTrack track, {required int index}) async {}
+
+  @override
+  Future<void> appendTrack(PlaybackTrack track) async {}
+
+  @override
+  Future<void> play() async {}
+
+  @override
+  Future<void> pause() async {}
+
+  @override
+  Future<void> seek(Duration position) async {}
+
+  @override
+  Future<void> skipNext() async {}
+
+  @override
+  Future<void> skipPrevious() async {}
+
+  @override
+  Future<void> skipToIndex(int index) async {}
+
+  @override
+  Future<void> removeTrackAt(int index) async {}
+
+  @override
+  Future<void> moveTrack({
+    required int oldIndex,
+    required int newIndex,
+  }) async {}
+
+  @override
+  Future<void> setRepeatMode(PlaybackRepeatMode mode) async {}
+
+  @override
+  Future<void> stop() async {}
+
+  @override
+  Future<void> dispose() async {
+    await _statesController.close();
+  }
+}
