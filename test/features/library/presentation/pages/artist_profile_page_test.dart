@@ -362,6 +362,35 @@ void main() {
       await engine.dispose();
     });
   });
+
+  testWidgets('tapping album opens album profile', (tester) async {
+    final repository = FakeLibraryQueryRepository(
+      artist: createArtist(),
+      albums: [createAlbum()],
+      tracks: [createTrack()],
+    );
+
+    await tester.pumpWidget(buildSubject(repository: repository));
+
+    await tester.pumpAndSettle();
+
+    final albumCard = find.byKey(
+      const ValueKey<String>('artist-album-album-1'),
+    );
+
+    expect(albumCard, findsOneWidget);
+
+    await tester.tap(albumCard);
+
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey<String>('album-profile-page')),
+      findsOneWidget,
+    );
+
+    expect(find.text('Test Album'), findsWidgets);
+  });
 }
 
 Widget buildSubject({
@@ -497,7 +526,7 @@ class FakeLibraryQueryRepository implements LibraryQueryRepository {
 
   @override
   Future<List<LibraryTrack>> getTracksByAlbumId(String albumId) async {
-    return const [];
+    return tracks.where((track) => track.albumId == albumId).toList();
   }
 
   @override
@@ -512,6 +541,12 @@ class FakeLibraryQueryRepository implements LibraryQueryRepository {
 
   @override
   Future<LibraryAlbum?> getAlbumById(String albumId) async {
+    for (final album in albums) {
+      if (album.albumId == albumId) {
+        return album;
+      }
+    }
+
     return null;
   }
 
