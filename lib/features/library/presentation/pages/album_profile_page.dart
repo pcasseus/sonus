@@ -90,7 +90,7 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
                     physics: const AlwaysScrollableScrollPhysics(),
                     padding: const EdgeInsets.fromLTRB(16, 20, 16, 32),
                     children: [
-                      _AlbumHeader(album: album),
+                      _AlbumHeader(album: album, controller: controller),
                       const SizedBox(height: 20),
                       _PlaybackControls(controller: controller),
                       const SizedBox(height: 28),
@@ -116,13 +116,15 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
 }
 
 class _AlbumHeader extends StatelessWidget {
-  const _AlbumHeader({required this.album});
+  const _AlbumHeader({required this.album, required this.controller});
 
   final LibraryAlbum album;
+  final AlbumProfileController controller;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final metadata = _metadata(album);
 
     return Column(
       children: [
@@ -157,30 +159,51 @@ class _AlbumHeader extends StatelessWidget {
         ),
         const SizedBox(height: 10),
         Text(
-          _summary(album),
+          _summary(),
+          key: const ValueKey<String>('album-profile-summary'),
           textAlign: TextAlign.center,
           style: theme.textTheme.bodyMedium,
         ),
-        if (_metadata(album).isNotEmpty) ...[
+        if (metadata.isNotEmpty) ...[
           const SizedBox(height: 6),
           Text(
-            _metadata(album),
+            metadata,
+            key: const ValueKey<String>('album-profile-metadata'),
             textAlign: TextAlign.center,
             style: theme.textTheme.bodySmall,
+          ),
+        ],
+        if (controller.hasUnavailableTracks) ...[
+          const SizedBox(height: 10),
+          _AvailabilityNotice(
+            unavailableTrackCount: controller.unavailableTrackCount,
           ),
         ],
       ],
     );
   }
 
-  String _summary(LibraryAlbum album) {
-    final trackLabel = album.trackCount == 1 ? 'track' : 'tracks';
+  String _summary() {
+    final trackCount = controller.tracks.length;
+    final trackLabel = trackCount == 1 ? 'track' : 'tracks';
 
-    return '${album.trackCount} $trackLabel';
+    final runtime = _formatRuntime(controller.totalDuration);
+
+    if (runtime.isEmpty) {
+      return '$trackCount $trackLabel';
+    }
+
+    return '$trackCount $trackLabel • $runtime';
   }
 
   String _metadata(LibraryAlbum album) {
     final parts = <String>[];
+
+    final releaseDate = album.releaseDate;
+
+    if (releaseDate != null) {
+      parts.add(_formatDate(releaseDate));
+    }
 
     final genre = album.genre?.trim();
 
@@ -188,19 +211,87 @@ class _AlbumHeader extends StatelessWidget {
       parts.add(genre);
     }
 
-    final releaseDate = album.releaseDate;
+    if (controller.hasMultipleEditions) {
+      parts.add('${controller.editionCount} editions');
+    } else {
+      final editionTitle = album.primaryEditionTitle?.trim();
 
-    if (releaseDate != null) {
-      parts.add('${releaseDate.year}');
-    }
-
-    final editionTitle = album.primaryEditionTitle?.trim();
-
-    if (editionTitle != null && editionTitle.isNotEmpty) {
-      parts.add(editionTitle);
+      if (editionTitle != null &&
+          editionTitle.isNotEmpty &&
+          editionTitle.toLowerCase() != 'standard') {
+        parts.add(editionTitle);
+      }
     }
 
     return parts.join(' • ');
+  }
+
+  String _formatRuntime(Duration duration) {
+    final totalMinutes = duration.inMinutes;
+
+    if (totalMinutes <= 0) {
+      return '';
+    }
+
+    final hours = totalMinutes ~/ 60;
+    final minutes = totalMinutes % 60;
+
+    if (hours == 0) {
+      return '$minutes min';
+    }
+
+    if (minutes == 0) {
+      return '$hours hr';
+    }
+
+    return '$hours hr $minutes min';
+  }
+
+  String _formatDate(DateTime date) {
+    const months = [
+      'January',
+      'February',
+      'March',
+      'April',
+      'May',
+      'June',
+      'July',
+      'August',
+      'September',
+      'October',
+      'November',
+      'December',
+    ];
+
+    return '${months[date.month - 1]} ${date.day}, ${date.year}';
+  }
+}
+
+class _AvailabilityNotice extends StatelessWidget {
+  const _AvailabilityNotice({required this.unavailableTrackCount});
+
+  final int unavailableTrackCount;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final trackLabel = unavailableTrackCount == 1 ? 'track' : 'tracks';
+
+    return Container(
+      key: const ValueKey<String>('album-profile-availability-notice'),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.errorContainer,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        '$unavailableTrackCount $trackLabel unavailable',
+        style: theme.textTheme.bodySmall?.copyWith(
+          color: theme.colorScheme.onErrorContainer,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
   }
 }
 
