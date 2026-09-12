@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../artwork/application/services/artwork_assignment_service.dart';
+import '../../../artwork/application/services/artwork_file_picker.dart';
 import '../../../player/application/controllers/playback_coordinator.dart';
 import '../../application/models/library_album.dart';
 import '../../application/models/library_track.dart';
@@ -45,6 +47,8 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
       repository: repository,
       albumId: widget.albumId,
       playbackCoordinator: context.read<PlaybackCoordinator?>(),
+      artworkAssignmentService: context.read<ArtworkAssignmentService?>(),
+      artworkFilePicker: context.read<ArtworkFilePicker?>(),
     );
 
     unawaited(_controller!.load());
@@ -57,9 +61,52 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
     return Scaffold(
       key: const ValueKey<String>('album-profile-page'),
       appBar: AppBar(
-        title: Text(
-          controller?.album?.title ?? widget.initialAlbumTitle ?? 'Album',
-        ),
+        title: controller == null
+            ? Text(widget.initialAlbumTitle ?? 'Album')
+            : AnimatedBuilder(
+                animation: controller,
+                builder: (context, _) {
+                  return Text(
+                    controller.album?.title ??
+                        widget.initialAlbumTitle ??
+                        'Album',
+                  );
+                },
+              ),
+        actions: [
+          if (controller != null)
+            AnimatedBuilder(
+              animation: controller,
+              builder: (context, _) {
+                return PopupMenuButton<_AlbumArtworkMenuAction>(
+                  key: const ValueKey<String>('album-profile-artwork-menu'),
+                  enabled: controller.canEditArtwork,
+                  tooltip: 'Edit artwork',
+                  onSelected: (action) {
+                    unawaited(_handleArtworkAction(controller, action));
+                  },
+                  itemBuilder: (context) => const [
+                    PopupMenuItem(
+                      value: _AlbumArtworkMenuAction.change,
+                      child: ListTile(
+                        leading: Icon(Icons.image_rounded),
+                        title: Text('Change artwork'),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                    ),
+                    PopupMenuItem(
+                      value: _AlbumArtworkMenuAction.clear,
+                      child: ListTile(
+                        leading: Icon(Icons.hide_image_rounded),
+                        title: Text('Clear artwork'),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+        ],
       ),
       body: controller == null
           ? const Center(child: Text('Loading album...'))
@@ -104,13 +151,102 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
                         count: controller.tracks.length,
                       ),
                       const SizedBox(height: 8),
-                      _TracksList(controller: controller),
+                      _TracksList(
+                        controller: controller,
+                        onChangeArtwork: (track) =>
+                            _changeTrackArtwork(controller, track),
+                        onClearArtwork: (track) =>
+                            _clearTrackArtwork(controller, track),
+                      ),
                     ],
                   ),
                 );
               },
             ),
     );
+  }
+
+  Future<void> _handleArtworkAction(
+    AlbumProfileController controller,
+    _AlbumArtworkMenuAction action,
+  ) async {
+    try {
+      final changed = switch (action) {
+        _AlbumArtworkMenuAction.change => await controller.changeArtwork(),
+        _AlbumArtworkMenuAction.clear => await controller.clearArtwork(),
+      };
+
+      if (!mounted || !changed) {
+        return;
+      }
+
+      final message = switch (action) {
+        _AlbumArtworkMenuAction.change => 'Album artwork updated.',
+        _AlbumArtworkMenuAction.clear => 'Album artwork cleared.',
+      };
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(message)));
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not update album artwork.')),
+      );
+    }
+  }
+
+  Future<void> _changeTrackArtwork(
+    AlbumProfileController controller,
+    LibraryTrack track,
+  ) async {
+    try {
+      final changed = await controller.changeTrackArtwork(track);
+
+      if (!mounted || !changed) {
+        return;
+      }
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Song artwork updated.')));
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not update song artwork.')),
+      );
+    }
+  }
+
+  Future<void> _clearTrackArtwork(
+    AlbumProfileController controller,
+    LibraryTrack track,
+  ) async {
+    try {
+      final changed = await controller.clearTrackArtwork(track);
+
+      if (!mounted || !changed) {
+        return;
+      }
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Song artwork cleared.')));
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not update song artwork.')),
+      );
+    }
   }
 
   @override
@@ -261,7 +397,8 @@ class _AlbumHeader extends StatelessWidget {
       'December',
     ];
 
-    return '${months[date.month - 1]} ${date.day}, ${date.year}';
+    return '${months[date.month - 1]} '
+        '${date.day}, ${date.year}';
   }
 }
 
@@ -328,7 +465,8 @@ class _AvailabilityNotice extends StatelessWidget {
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(
-        '$unavailableTrackCount $trackLabel unavailable',
+        '$unavailableTrackCount '
+        '$trackLabel unavailable',
         style: theme.textTheme.bodySmall?.copyWith(
           color: theme.colorScheme.onErrorContainer,
           fontWeight: FontWeight.w600,
@@ -403,9 +541,15 @@ class _SectionHeading extends StatelessWidget {
 }
 
 class _TracksList extends StatelessWidget {
-  const _TracksList({required this.controller});
+  const _TracksList({
+    required this.controller,
+    required this.onChangeArtwork,
+    required this.onClearArtwork,
+  });
 
   final AlbumProfileController controller;
+  final Future<void> Function(LibraryTrack track) onChangeArtwork;
+  final Future<void> Function(LibraryTrack track) onClearArtwork;
 
   @override
   Widget build(BuildContext context) {
@@ -422,9 +566,12 @@ class _TracksList extends StatelessWidget {
           _TrackTile(
             track: track,
             isPlayable: controller.isTrackPlayable(track),
+            canEditArtwork: controller.canEditTrackArtwork,
             onPlay: () => controller.playTrack(track),
             onPlayNext: () => controller.playNext(track),
             onAddToQueue: () => controller.addToQueue(track),
+            onChangeArtwork: () => onChangeArtwork(track),
+            onClearArtwork: () => onClearArtwork(track),
           ),
       ],
     );
@@ -435,17 +582,23 @@ class _TrackTile extends StatelessWidget {
   const _TrackTile({
     required this.track,
     required this.isPlayable,
+    required this.canEditArtwork,
     required this.onPlay,
     required this.onPlayNext,
     required this.onAddToQueue,
+    required this.onChangeArtwork,
+    required this.onClearArtwork,
   });
 
   final LibraryTrack track;
   final bool isPlayable;
+  final bool canEditArtwork;
 
   final Future<void> Function() onPlay;
   final Future<void> Function() onPlayNext;
   final Future<void> Function() onAddToQueue;
+  final Future<void> Function() onChangeArtwork;
+  final Future<void> Function() onClearArtwork;
 
   @override
   Widget build(BuildContext context) {
@@ -468,19 +621,24 @@ class _TrackTile extends StatelessWidget {
           ),
           PopupMenuButton<_TrackMenuAction>(
             key: ValueKey<String>('album-track-menu-${track.songId}'),
-            enabled: isPlayable,
+            enabled: isPlayable || canEditArtwork,
             onSelected: (action) {
               switch (action) {
                 case _TrackMenuAction.playNext:
                   unawaited(onPlayNext());
                 case _TrackMenuAction.addToQueue:
                   unawaited(onAddToQueue());
+                case _TrackMenuAction.changeArtwork:
+                  unawaited(onChangeArtwork());
+                case _TrackMenuAction.clearArtwork:
+                  unawaited(onClearArtwork());
               }
             },
-            itemBuilder: (context) => const [
+            itemBuilder: (context) => [
               PopupMenuItem(
                 value: _TrackMenuAction.playNext,
-                child: ListTile(
+                enabled: isPlayable,
+                child: const ListTile(
                   leading: Icon(Icons.skip_next_rounded),
                   title: Text('Play next'),
                   contentPadding: EdgeInsets.zero,
@@ -488,9 +646,28 @@ class _TrackTile extends StatelessWidget {
               ),
               PopupMenuItem(
                 value: _TrackMenuAction.addToQueue,
-                child: ListTile(
+                enabled: isPlayable,
+                child: const ListTile(
                   leading: Icon(Icons.queue_music_rounded),
                   title: Text('Add to queue'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+              PopupMenuItem(
+                value: _TrackMenuAction.changeArtwork,
+                enabled: canEditArtwork,
+                child: const ListTile(
+                  leading: Icon(Icons.image_rounded),
+                  title: Text('Change artwork'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+              PopupMenuItem(
+                value: _TrackMenuAction.clearArtwork,
+                enabled: canEditArtwork,
+                child: const ListTile(
+                  leading: Icon(Icons.hide_image_rounded),
+                  title: Text('Clear artwork'),
                   contentPadding: EdgeInsets.zero,
                 ),
               ),
@@ -535,11 +712,14 @@ class _TrackTile extends StatelessWidget {
     final minutes = safeSeconds ~/ 60;
     final remainder = safeSeconds % 60;
 
-    return '$minutes:${remainder.toString().padLeft(2, '0')}';
+    return '$minutes:'
+        '${remainder.toString().padLeft(2, '0')}';
   }
 }
 
-enum _TrackMenuAction { playNext, addToQueue }
+enum _AlbumArtworkMenuAction { change, clear }
+
+enum _TrackMenuAction { playNext, addToQueue, changeArtwork, clearArtwork }
 
 class _EmptySection extends StatelessWidget {
   const _EmptySection({required this.message});

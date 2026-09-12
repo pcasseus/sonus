@@ -15,6 +15,9 @@ import 'package:sonus_next/features/player/domain/models/playback_repeat_mode.da
 import 'package:sonus_next/features/player/domain/models/playback_state.dart';
 import 'package:sonus_next/features/player/domain/models/playback_track.dart';
 import 'package:sonus_next/features/player/domain/services/playback_engine.dart';
+import 'package:sonus_next/features/artwork/application/services/artwork_assignment_service.dart';
+import 'package:sonus_next/features/artwork/application/services/artwork_file_picker.dart';
+import 'package:sonus_next/features/artwork/domain/entities/artwork_asset.dart';
 
 class FakeLibraryQueryRepository implements LibraryQueryRepository {
   List<LibraryTrack> tracks = const [];
@@ -48,8 +51,7 @@ class FakeLibraryQueryRepository implements LibraryQueryRepository {
   Future<List<LibraryTrack>> getTracksByArtistId(
     String artistId, {
     LibraryTrackOrder order = LibraryTrackOrder.title,
-  }) async =>
-      const [];
+  }) async => const [];
 
   @override
   Future<List<LibraryTrack>> getTracksByAlbumId(String albumId) async =>
@@ -74,6 +76,77 @@ class FakeLibraryQueryRepository implements LibraryQueryRepository {
 
   @override
   Future<LibraryArtist?> getArtistById(String artistId) async => null;
+}
+
+class _CountingLibraryQueryRepository implements LibraryQueryRepository {
+  _CountingLibraryQueryRepository({
+    required this.delegate,
+    required this.onGetTracks,
+  });
+
+  final FakeLibraryQueryRepository delegate;
+  final void Function() onGetTracks;
+
+  @override
+  Future<List<LibraryTrack>> getTracks({
+    LibraryTrackOrder order = LibraryTrackOrder.title,
+  }) async {
+    onGetTracks();
+    return delegate.getTracks(order: order);
+  }
+
+  @override
+  Future<List<LibraryTrack>> getRecentlyAddedTracks(int limit) {
+    return delegate.getRecentlyAddedTracks(limit);
+  }
+
+  @override
+  Future<LibraryTrack?> getTrackById(String songId) {
+    return delegate.getTrackById(songId);
+  }
+
+  @override
+  Future<List<LibraryTrack>> getTracksByArtistId(
+    String artistId, {
+    LibraryTrackOrder order = LibraryTrackOrder.title,
+  }) {
+    return delegate.getTracksByArtistId(artistId, order: order);
+  }
+
+  @override
+  Future<List<LibraryTrack>> getTracksByAlbumId(String albumId) {
+    return delegate.getTracksByAlbumId(albumId);
+  }
+
+  @override
+  Future<List<LibraryAlbum>> getAlbums() {
+    return delegate.getAlbums();
+  }
+
+  @override
+  Future<List<LibraryAlbum>> getRecentlyAddedAlbums(int limit) {
+    return delegate.getRecentlyAddedAlbums(limit);
+  }
+
+  @override
+  Future<LibraryAlbum?> getAlbumById(String albumId) {
+    return delegate.getAlbumById(albumId);
+  }
+
+  @override
+  Future<List<LibraryAlbum>> getAlbumsByArtistId(String artistId) {
+    return delegate.getAlbumsByArtistId(artistId);
+  }
+
+  @override
+  Future<List<LibraryArtist>> getArtists() {
+    return delegate.getArtists();
+  }
+
+  @override
+  Future<LibraryArtist?> getArtistById(String artistId) {
+    return delegate.getArtistById(artistId);
+  }
 }
 
 class FakePlaybackEngine implements PlaybackEngine {
@@ -118,10 +191,7 @@ class FakePlaybackEngine implements PlaybackEngine {
   }
 
   @override
-  Future<void> insertTrack(
-    PlaybackTrack track, {
-    required int index,
-  }) async {
+  Future<void> insertTrack(PlaybackTrack track, {required int index}) async {
     lastInsertedTrack = track;
     lastInsertedIndex = index;
   }
@@ -170,6 +240,57 @@ class FakePlaybackEngine implements PlaybackEngine {
   Future<void> dispose() async {
     await _statesController.close();
   }
+}
+
+class FakeArtworkFilePicker implements ArtworkFilePicker {
+  FakeArtworkFilePicker({this.filePath});
+
+  final String? filePath;
+
+  int pickCallCount = 0;
+
+  @override
+  Future<String?> pickArtworkFile() async {
+    pickCallCount++;
+    return filePath;
+  }
+}
+
+class FakeArtworkAssignmentService implements ArtworkAssignmentService {
+  int assignSongCallCount = 0;
+  int clearSongCallCount = 0;
+
+  String? assignedSongId;
+  String? assignedFilePath;
+  String? clearedSongId;
+
+  @override
+  Future<ArtworkAsset> assignSong({
+    required String songId,
+    required String filePath,
+    DateTime? now,
+  }) async {
+    assignSongCallCount++;
+    assignedSongId = songId;
+    assignedFilePath = filePath;
+
+    return ArtworkAsset(
+      id: 'artwork-test',
+      filePath: filePath,
+      normalizedPath: filePath.toLowerCase().replaceAll('\\', '/'),
+      createdAt: now ?? DateTime(2026, 1, 1),
+      updatedAt: now ?? DateTime(2026, 1, 1),
+    );
+  }
+
+  @override
+  Future<void> clearSong(String songId, {DateTime? now}) async {
+    clearSongCallCount++;
+    clearedSongId = songId;
+  }
+
+  @override
+  noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class FixedRandom implements Random {
@@ -223,12 +344,7 @@ void main() {
 
   test('loads tracks using the current order', () async {
     final repository = FakeLibraryQueryRepository()
-      ..tracks = [
-        track(
-          id: 'song-1',
-          title: 'First Song',
-        ),
-      ];
+      ..tracks = [track(id: 'song-1', title: 'First Song')];
 
     final engine = FakePlaybackEngine();
 
@@ -311,10 +427,7 @@ void main() {
       playbackCoordinator: PlaybackCoordinator(engine: engine),
     );
 
-    final selectedTrack = track(
-      id: 'song-play',
-      title: 'Play Me',
-    );
+    final selectedTrack = track(id: 'song-play', title: 'Play Me');
 
     await controller.playTrack(selectedTrack);
 
@@ -325,100 +438,82 @@ void main() {
     expect(engine.lastAutoPlay, isTrue);
   });
 
-  test('playAll starts from the first playable track when shuffle is off',
-      () async {
-    final unavailable = track(
-      id: 'unavailable',
-      filePath: '',
-      isAvailable: false,
-    );
+  test(
+    'playAll starts from the first playable track when shuffle is off',
+    () async {
+      final unavailable = track(
+        id: 'unavailable',
+        filePath: '',
+        isAvailable: false,
+      );
 
-    final firstPlayable = track(id: 'playable-1');
-    final secondPlayable = track(id: 'playable-2');
+      final firstPlayable = track(id: 'playable-1');
+      final secondPlayable = track(id: 'playable-2');
 
-    final repository = FakeLibraryQueryRepository()
-      ..tracks = [
-        unavailable,
-        firstPlayable,
-        secondPlayable,
-      ];
+      final repository = FakeLibraryQueryRepository()
+        ..tracks = [unavailable, firstPlayable, secondPlayable];
 
-    final engine = FakePlaybackEngine();
+      final engine = FakePlaybackEngine();
 
-    final controller = LibraryTracksController(
-      repository: repository,
-      playbackCoordinator: PlaybackCoordinator(engine: engine),
-    );
+      final controller = LibraryTracksController(
+        repository: repository,
+        playbackCoordinator: PlaybackCoordinator(engine: engine),
+      );
 
-    await controller.load();
-    await controller.playAll();
+      await controller.load();
+      await controller.playAll();
 
-    expect(engine.loadQueueCallCount, 1);
+      expect(engine.loadQueueCallCount, 1);
 
-    expect(
-      engine.lastLoadedTracks!.map((track) => track.songId),
-      [
+      expect(engine.lastLoadedTracks!.map((track) => track.songId), [
         'playable-1',
         'playable-2',
-      ],
-    );
+      ]);
 
-    expect(engine.lastStartIndex, 0);
-    expect(engine.lastAutoPlay, isTrue);
-  });
+      expect(engine.lastStartIndex, 0);
+      expect(engine.lastAutoPlay, isTrue);
+    },
+  );
 
-  test('playAll chooses among playable tracks when shuffle is enabled',
-      () async {
-    final repository = FakeLibraryQueryRepository()
-      ..tracks = [
-        track(id: 'playable-1'),
-        track(
-          id: 'unavailable',
-          filePath: '',
-          isAvailable: false,
-        ),
-        track(id: 'playable-2'),
-      ];
+  test(
+    'playAll chooses among playable tracks when shuffle is enabled',
+    () async {
+      final repository = FakeLibraryQueryRepository()
+        ..tracks = [
+          track(id: 'playable-1'),
+          track(id: 'unavailable', filePath: '', isAvailable: false),
+          track(id: 'playable-2'),
+        ];
 
-    final engine = FakePlaybackEngine();
+      final engine = FakePlaybackEngine();
 
-    final controller = LibraryTracksController(
-      repository: repository,
-      playbackCoordinator: PlaybackCoordinator(engine: engine),
-      random: const FixedRandom(1),
-    );
+      final controller = LibraryTracksController(
+        repository: repository,
+        playbackCoordinator: PlaybackCoordinator(engine: engine),
+        random: const FixedRandom(1),
+      );
 
-    await controller.load();
-    await controller.setShuffleEnabled(true);
-    await controller.playAll();
+      await controller.load();
+      await controller.setShuffleEnabled(true);
+      await controller.playAll();
 
-    expect(controller.isShuffleEnabled, isTrue);
-    expect(engine.lastShuffleEnabled, isTrue);
+      expect(controller.isShuffleEnabled, isTrue);
+      expect(engine.lastShuffleEnabled, isTrue);
 
-    expect(
-      engine.lastLoadedTracks!.map((track) => track.songId),
-      [
+      expect(engine.lastLoadedTracks!.map((track) => track.songId), [
         'playable-1',
         'playable-2',
-      ],
-    );
+      ]);
 
-    expect(engine.lastStartIndex, 1);
-  });
+      expect(engine.lastStartIndex, 1);
+    },
+  );
 
   test('playAll does nothing when no tracks are playable', () async {
     final repository = FakeLibraryQueryRepository()
       ..tracks = [
-        track(
-          id: 'missing-1',
-          filePath: '',
-          isAvailable: false,
-        ),
-        track(
-          id: 'missing-2',
-          filePath: '',
-          isAvailable: false,
-        ),
+        track(id: 'missing-1', filePath: '', isAvailable: false),
+        track(id: 'missing-2', filePath: '', isAvailable: false),
       ];
 
     final engine = FakePlaybackEngine();
@@ -435,8 +530,7 @@ void main() {
     expect(engine.stopCallCount, 0);
   });
 
-  test('toggleShuffle updates playback engine and controller state',
-      () async {
+  test('toggleShuffle updates playback engine and controller state', () async {
     final repository = FakeLibraryQueryRepository();
 
     final engine = FakePlaybackEngine();
@@ -457,5 +551,199 @@ void main() {
 
     expect(controller.isShuffleEnabled, isFalse);
     expect(engine.lastShuffleEnabled, isFalse);
+  });
+
+  test(
+    'canEditArtwork is true when artwork dependencies are available',
+    () async {
+      final repository = FakeLibraryQueryRepository();
+      final engine = FakePlaybackEngine();
+
+      final controller = LibraryTracksController(
+        repository: repository,
+        playbackCoordinator: PlaybackCoordinator(engine: engine),
+        artworkAssignmentService: FakeArtworkAssignmentService(),
+        artworkFilePicker: FakeArtworkFilePicker(),
+      );
+
+      expect(controller.canEditArtwork, isTrue);
+
+      await engine.dispose();
+    },
+  );
+
+  test('canEditArtwork is false without artwork dependencies', () async {
+    final repository = FakeLibraryQueryRepository();
+    final engine = FakePlaybackEngine();
+
+    final controller = LibraryTracksController(
+      repository: repository,
+      playbackCoordinator: PlaybackCoordinator(engine: engine),
+    );
+
+    expect(controller.canEditArtwork, isFalse);
+
+    await engine.dispose();
+  });
+
+  test('changeArtwork assigns artwork to song and refreshes tracks', () async {
+    var trackRequestCount = 0;
+
+    final repository = FakeLibraryQueryRepository();
+
+    final originalTrack = track(id: 'song-artwork', title: 'Original Title');
+
+    final refreshedTrack = track(id: 'song-artwork', title: 'Refreshed Title');
+
+    repository.tracks = [originalTrack];
+
+    final artworkService = FakeArtworkAssignmentService();
+    final artworkFilePicker = FakeArtworkFilePicker(
+      filePath: r'C:\Music\Artwork\song.jpg',
+    );
+
+    final engine = FakePlaybackEngine();
+
+    final controller = LibraryTracksController(
+      repository: _CountingLibraryQueryRepository(
+        delegate: repository,
+        onGetTracks: () {
+          trackRequestCount++;
+
+          repository.tracks = trackRequestCount == 1
+              ? [originalTrack]
+              : [refreshedTrack];
+        },
+      ),
+      playbackCoordinator: PlaybackCoordinator(engine: engine),
+      artworkAssignmentService: artworkService,
+      artworkFilePicker: artworkFilePicker,
+    );
+
+    await controller.load();
+
+    expect(controller.tracks.single.title, 'Original Title');
+
+    final changed = await controller.changeArtwork(controller.tracks.single);
+
+    expect(changed, isTrue);
+    expect(artworkFilePicker.pickCallCount, 1);
+    expect(artworkService.assignSongCallCount, 1);
+    expect(artworkService.assignedSongId, 'song-artwork');
+    expect(artworkService.assignedFilePath, r'C:\Music\Artwork\song.jpg');
+    expect(trackRequestCount, 2);
+    expect(controller.tracks.single.title, 'Refreshed Title');
+
+    await engine.dispose();
+  });
+
+  test('changeArtwork does nothing when picker is cancelled', () async {
+    final repository = FakeLibraryQueryRepository()
+      ..tracks = [track(id: 'song-artwork')];
+
+    final artworkService = FakeArtworkAssignmentService();
+    final artworkFilePicker = FakeArtworkFilePicker();
+
+    final engine = FakePlaybackEngine();
+
+    final controller = LibraryTracksController(
+      repository: repository,
+      playbackCoordinator: PlaybackCoordinator(engine: engine),
+      artworkAssignmentService: artworkService,
+      artworkFilePicker: artworkFilePicker,
+    );
+
+    await controller.load();
+
+    final changed = await controller.changeArtwork(controller.tracks.single);
+
+    expect(changed, isFalse);
+    expect(artworkFilePicker.pickCallCount, 1);
+    expect(artworkService.assignSongCallCount, 0);
+
+    await engine.dispose();
+  });
+
+  test('clearArtwork clears song artwork and refreshes tracks', () async {
+    var trackRequestCount = 0;
+
+    final repository = FakeLibraryQueryRepository();
+
+    final originalTrack = track(id: 'song-artwork', title: 'Original Title');
+
+    final refreshedTrack = track(id: 'song-artwork', title: 'Refreshed Title');
+
+    repository.tracks = [originalTrack];
+
+    final artworkService = FakeArtworkAssignmentService();
+    final engine = FakePlaybackEngine();
+
+    final controller = LibraryTracksController(
+      repository: _CountingLibraryQueryRepository(
+        delegate: repository,
+        onGetTracks: () {
+          trackRequestCount++;
+
+          repository.tracks = trackRequestCount == 1
+              ? [originalTrack]
+              : [refreshedTrack];
+        },
+      ),
+      playbackCoordinator: PlaybackCoordinator(engine: engine),
+      artworkAssignmentService: artworkService,
+      artworkFilePicker: FakeArtworkFilePicker(),
+    );
+
+    await controller.load();
+
+    final changed = await controller.clearArtwork(controller.tracks.single);
+
+    expect(changed, isTrue);
+    expect(artworkService.clearSongCallCount, 1);
+    expect(artworkService.clearedSongId, 'song-artwork');
+    expect(trackRequestCount, 2);
+    expect(controller.tracks.single.title, 'Refreshed Title');
+
+    await engine.dispose();
+  });
+
+  test('unavailable track can still have artwork changed', () async {
+    final unavailableTrack = track(
+      id: 'unavailable-song',
+      filePath: '',
+      isAvailable: false,
+    );
+
+    final repository = FakeLibraryQueryRepository()
+      ..tracks = [unavailableTrack];
+
+    final artworkService = FakeArtworkAssignmentService();
+    final artworkFilePicker = FakeArtworkFilePicker(
+      filePath: r'C:\Music\Artwork\unavailable.jpg',
+    );
+
+    final engine = FakePlaybackEngine();
+
+    final controller = LibraryTracksController(
+      repository: repository,
+      playbackCoordinator: PlaybackCoordinator(engine: engine),
+      artworkAssignmentService: artworkService,
+      artworkFilePicker: artworkFilePicker,
+    );
+
+    await controller.load();
+
+    final selectedTrack = controller.tracks.single;
+
+    expect(controller.isTrackPlayable(selectedTrack), isFalse);
+    expect(controller.canEditArtwork, isTrue);
+
+    final changed = await controller.changeArtwork(selectedTrack);
+
+    expect(changed, isTrue);
+    expect(artworkService.assignSongCallCount, 1);
+    expect(artworkService.assignedSongId, 'unavailable-song');
+
+    await engine.dispose();
   });
 }

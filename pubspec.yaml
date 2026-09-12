@@ -41,6 +41,7 @@ dependencies:
   provider: ^6.1.5+1
   just_audio: 0.10.6
   audio_session: 0.2.4
+  file_picker: ^12.3.0
 
 dev_dependencies:
   flutter_test:
