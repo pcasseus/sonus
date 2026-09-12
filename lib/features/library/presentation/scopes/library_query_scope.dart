@@ -8,6 +8,7 @@ import '../../../artwork/application/services/artwork_assignment_service.dart';
 import '../../../artwork/application/services/artwork_file_picker.dart';
 import '../../../artwork/data/daos/artwork_asset_dao.dart';
 import '../../../artwork/data/repositories/sqlite_artwork_asset_repository.dart';
+import '../../../artwork/data/services/file_system_artwork_managed_storage.dart';
 import '../../../artwork/presentation/services/file_picker_artwork_file_picker.dart';
 import '../../application/repositories/library_query_repository.dart';
 import '../../data/daos/album_edition_dao.dart';
@@ -62,6 +63,7 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
         AlbumEditionDao(database),
       ),
       songRepository: SqliteSongRepository(SongDao(database)),
+      artworkManagedStorage: FileSystemArtworkManagedStorage(),
     );
 
     if (!mounted) {
