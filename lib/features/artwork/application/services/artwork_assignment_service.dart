@@ -8,6 +8,7 @@ import '../../../library/domain/repositories/song_repository.dart';
 import '../../domain/entities/artwork_asset.dart';
 import '../../domain/entities/artwork_asset_factory.dart';
 import '../../domain/repositories/artwork_asset_repository.dart';
+import 'artwork_managed_storage.dart';
 
 class ArtworkAssignmentService {
   const ArtworkAssignmentService({
@@ -15,12 +16,14 @@ class ArtworkAssignmentService {
     required this.artistRepository,
     required this.albumEditionRepository,
     required this.songRepository,
+    this.artworkManagedStorage,
   });
 
   final ArtworkAssetRepository artworkAssetRepository;
   final ArtistRepository artistRepository;
   final AlbumEditionRepository albumEditionRepository;
   final SongRepository songRepository;
+  final ArtworkManagedStorage? artworkManagedStorage;
 
   Future<ArtworkAsset> resolveArtworkAsset({
     required String filePath,
@@ -36,7 +39,12 @@ class ArtworkAssignmentService {
       );
     }
 
-    final normalizedPath = TextNormalizer.normalizePath(trimmedPath);
+    final storage = artworkManagedStorage;
+    final resolvedPath = storage == null
+        ? trimmedPath
+        : await storage.importArtwork(trimmedPath);
+
+    final normalizedPath = TextNormalizer.normalizePath(resolvedPath);
 
     final existing = await artworkAssetRepository.getByNormalizedPath(
       normalizedPath,
@@ -47,7 +55,7 @@ class ArtworkAssignmentService {
     }
 
     final artworkAsset = ArtworkAssetFactory.create(
-      filePath: trimmedPath,
+      filePath: resolvedPath,
       now: now,
     );
 

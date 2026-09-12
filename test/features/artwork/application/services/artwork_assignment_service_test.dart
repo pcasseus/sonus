@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sonus_next/features/artwork/application/services/artwork_assignment_service.dart';
+import 'package:sonus_next/features/artwork/application/services/artwork_managed_storage.dart';
 import 'package:sonus_next/features/artwork/domain/entities/artwork_asset.dart';
 import 'package:sonus_next/features/artwork/domain/repositories/artwork_asset_repository.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
@@ -59,6 +60,46 @@ void main() {
       },
     );
 
+    test(
+      'creates artwork asset from managed storage path when supplied',
+      () async {
+        final artworkRepository = _FakeArtworkAssetRepository();
+
+        final storage = _FakeArtworkManagedStorage(
+          managedPath: r'C:\Managed\sonus\artwork\artwork_123.jpg',
+        );
+
+        final service = _service(
+          artworkRepository: artworkRepository,
+          artworkManagedStorage: storage,
+        );
+
+        final now = DateTime.utc(2026, 9, 12, 7, 30);
+
+        final result = await service.resolveArtworkAsset(
+          filePath: r'  C:\Users\Test\Pictures\Cover.JPG  ',
+          now: now,
+        );
+
+        expect(storage.importedPaths, [r'C:\Users\Test\Pictures\Cover.JPG']);
+
+        expect(result.filePath, r'C:\Managed\sonus\artwork\artwork_123.jpg');
+        expect(
+          result.normalizedPath,
+          'c:/managed/sonus/artwork/artwork_123.jpg',
+        );
+
+        expect(result.createdAt, now);
+        expect(result.updatedAt, now);
+
+        expect(artworkRepository.normalizedPathLookups, [
+          'c:/managed/sonus/artwork/artwork_123.jpg',
+        ]);
+
+        expect(artworkRepository.createdAssets, hasLength(1));
+        expect(artworkRepository.createdAssets.single, result);
+      },
+    );
     test('rejects blank path before repository mutation', () async {
       final artworkRepository = _FakeArtworkAssetRepository();
 
@@ -347,6 +388,7 @@ ArtworkAssignmentService _service({
   _FakeArtistRepository? artistRepository,
   _FakeAlbumEditionRepository? albumEditionRepository,
   _FakeSongRepository? songRepository,
+  ArtworkManagedStorage? artworkManagedStorage,
 }) {
   return ArtworkAssignmentService(
     artworkAssetRepository: artworkRepository ?? _FakeArtworkAssetRepository(),
@@ -354,6 +396,7 @@ ArtworkAssignmentService _service({
     albumEditionRepository:
         albumEditionRepository ?? _FakeAlbumEditionRepository(),
     songRepository: songRepository ?? _FakeSongRepository(),
+    artworkManagedStorage: artworkManagedStorage,
   );
 }
 
@@ -563,5 +606,18 @@ class _FakeSongRepository implements SongRepository {
       ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
     return values.take(limit).toList(growable: false);
+  }
+}
+
+class _FakeArtworkManagedStorage implements ArtworkManagedStorage {
+  _FakeArtworkManagedStorage({required this.managedPath});
+
+  final String managedPath;
+  final List<String> importedPaths = [];
+
+  @override
+  Future<String> importArtwork(String sourceFilePath) async {
+    importedPaths.add(sourceFilePath);
+    return managedPath;
   }
 }
