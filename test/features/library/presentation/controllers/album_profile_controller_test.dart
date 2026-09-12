@@ -3,6 +3,9 @@ import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:sonus_next/features/artwork/application/services/artwork_assignment_service.dart';
+import 'package:sonus_next/features/artwork/application/services/artwork_file_picker.dart';
+import 'package:sonus_next/features/artwork/domain/entities/artwork_asset.dart';
 import 'package:sonus_next/features/library/application/models/library_album.dart';
 import 'package:sonus_next/features/library/application/models/library_artist.dart';
 import 'package:sonus_next/features/library/application/models/library_track.dart';
@@ -37,12 +40,9 @@ void main() {
 
       expect(controller.album?.albumId, 'album-1');
       expect(controller.album?.title, 'Test Album');
-
       expect(controller.tracks, hasLength(2));
-
       expect(repository.requestedAlbumId, 'album-1');
       expect(repository.requestedTracksAlbumId, 'album-1');
-
       expect(controller.isLoading, isFalse);
       expect(controller.hasError, isFalse);
       expect(controller.isNotFound, isFalse);
@@ -276,6 +276,175 @@ void main() {
       controller.dispose();
     });
 
+    test('reports whether track artwork can be edited', () {
+      final repository = FakeLibraryQueryRepository(album: createAlbum());
+
+      final service = FakeTrackArtworkAssignmentService();
+      final picker = FakeArtworkFilePicker(result: r'C:\Artwork\Song.jpg');
+
+      final editableController = AlbumProfileController(
+        repository: repository,
+        albumId: 'album-1',
+        artworkAssignmentService: service,
+        artworkFilePicker: picker,
+      );
+
+      final missingPickerController = AlbumProfileController(
+        repository: repository,
+        albumId: 'album-1',
+        artworkAssignmentService: service,
+      );
+
+      final missingServiceController = AlbumProfileController(
+        repository: repository,
+        albumId: 'album-1',
+        artworkFilePicker: picker,
+      );
+
+      expect(editableController.canEditTrackArtwork, isTrue);
+      expect(missingPickerController.canEditTrackArtwork, isFalse);
+      expect(missingServiceController.canEditTrackArtwork, isFalse);
+
+      editableController.dispose();
+      missingPickerController.dispose();
+      missingServiceController.dispose();
+    });
+
+    test(
+      'changeTrackArtwork assigns selected song artwork and refreshes',
+      () async {
+        final repository = FakeLibraryQueryRepository(
+          album: createAlbum(),
+          tracks: [createTrack(songId: 'song-artwork')],
+        );
+
+        final service = FakeTrackArtworkAssignmentService();
+        final picker = FakeArtworkFilePicker(result: r'C:\Artwork\Song.jpg');
+
+        final controller = AlbumProfileController(
+          repository: repository,
+          albumId: 'album-1',
+          artworkAssignmentService: service,
+          artworkFilePicker: picker,
+        );
+
+        await controller.load();
+
+        expect(repository.albumRequestCount, 1);
+
+        final changed = await controller.changeTrackArtwork(
+          controller.tracks.single,
+        );
+
+        expect(changed, isTrue);
+        expect(picker.callCount, 1);
+        expect(service.assignSongCallCount, 1);
+        expect(service.assignedSongId, 'song-artwork');
+        expect(service.assignedFilePath, r'C:\Artwork\Song.jpg');
+        expect(repository.albumRequestCount, 2);
+
+        controller.dispose();
+      },
+    );
+
+    test(
+      'cancelled track artwork selection does not assign or refresh',
+      () async {
+        final repository = FakeLibraryQueryRepository(
+          album: createAlbum(),
+          tracks: [createTrack(songId: 'song-artwork')],
+        );
+
+        final service = FakeTrackArtworkAssignmentService();
+        final picker = FakeArtworkFilePicker(result: null);
+
+        final controller = AlbumProfileController(
+          repository: repository,
+          albumId: 'album-1',
+          artworkAssignmentService: service,
+          artworkFilePicker: picker,
+        );
+
+        await controller.load();
+
+        final changed = await controller.changeTrackArtwork(
+          controller.tracks.single,
+        );
+
+        expect(changed, isFalse);
+        expect(picker.callCount, 1);
+        expect(service.assignSongCallCount, 0);
+        expect(repository.albumRequestCount, 1);
+
+        controller.dispose();
+      },
+    );
+
+    test(
+      'clearTrackArtwork clears selected song artwork and refreshes',
+      () async {
+        final repository = FakeLibraryQueryRepository(
+          album: createAlbum(),
+          tracks: [createTrack(songId: 'song-artwork')],
+        );
+
+        final service = FakeTrackArtworkAssignmentService();
+
+        final controller = AlbumProfileController(
+          repository: repository,
+          albumId: 'album-1',
+          artworkAssignmentService: service,
+          artworkFilePicker: FakeArtworkFilePicker(result: null),
+        );
+
+        await controller.load();
+
+        final changed = await controller.clearTrackArtwork(
+          controller.tracks.single,
+        );
+
+        expect(changed, isTrue);
+        expect(service.clearSongCallCount, 1);
+        expect(service.clearedSongId, 'song-artwork');
+        expect(repository.albumRequestCount, 2);
+
+        controller.dispose();
+      },
+    );
+
+    test('unavailable album track can still have artwork changed', () async {
+      final repository = FakeLibraryQueryRepository(
+        album: createAlbum(),
+        tracks: [
+          createTrack(songId: 'missing-song', filePath: '', isAvailable: false),
+        ],
+      );
+
+      final service = FakeTrackArtworkAssignmentService();
+      final picker = FakeArtworkFilePicker(result: r'C:\Artwork\Missing.jpg');
+
+      final controller = AlbumProfileController(
+        repository: repository,
+        albumId: 'album-1',
+        artworkAssignmentService: service,
+        artworkFilePicker: picker,
+      );
+
+      await controller.load();
+
+      final track = controller.tracks.single;
+
+      expect(controller.isTrackPlayable(track), isFalse);
+      expect(controller.canEditTrackArtwork, isTrue);
+
+      final changed = await controller.changeTrackArtwork(track);
+
+      expect(changed, isTrue);
+      expect(service.assignedSongId, 'missing-song');
+
+      controller.dispose();
+    });
+
     test('playTrack starts playback for playable track', () async {
       final repository = FakeLibraryQueryRepository(
         album: createAlbum(),
@@ -396,11 +565,9 @@ void main() {
       await controller.load();
 
       await controller.setShuffleEnabled(true);
-
       await controller.playAll();
 
       expect(controller.isShuffleEnabled, isTrue);
-
       expect(engine.loadQueueCallCount, 1);
 
       expect(engine.lastLoadedTracks!.map((track) => track.songId), [
@@ -484,7 +651,6 @@ void main() {
       );
 
       final engine = FakePlaybackEngine();
-
       final coordinator = PlaybackCoordinator(engine: engine);
 
       await coordinator.playTrack(
@@ -549,9 +715,7 @@ void main() {
       await controller.load();
 
       expect(controller.hasPlayableTracks, isTrue);
-
       expect(controller.isTrackPlayable(controller.tracks.first), isTrue);
-
       expect(controller.isTrackPlayable(controller.tracks.last), isFalse);
 
       controller.dispose();
@@ -669,15 +833,17 @@ class FakeLibraryQueryRepository implements LibraryQueryRepository {
   final LibraryAlbum? album;
   final List<LibraryTrack> tracks;
   final Object? albumError;
-
   final Future<LibraryAlbum?> Function(String albumId)? albumLoader;
 
   String? requestedAlbumId;
   String? requestedTracksAlbumId;
 
+  int albumRequestCount = 0;
+
   @override
   Future<LibraryAlbum?> getAlbumById(String albumId) async {
     requestedAlbumId = albumId;
+    albumRequestCount++;
 
     final loader = albumLoader;
 
@@ -932,4 +1098,57 @@ class FixedRandom implements Random {
   double nextDouble() {
     return 0.5;
   }
+}
+
+class FakeArtworkFilePicker implements ArtworkFilePicker {
+  FakeArtworkFilePicker({required this.result});
+
+  final String? result;
+
+  int callCount = 0;
+
+  @override
+  Future<String?> pickArtworkFile() async {
+    callCount++;
+    return result;
+  }
+}
+
+class FakeTrackArtworkAssignmentService implements ArtworkAssignmentService {
+  int assignSongCallCount = 0;
+  int clearSongCallCount = 0;
+
+  String? assignedSongId;
+  String? assignedFilePath;
+  String? clearedSongId;
+
+  @override
+  Future<ArtworkAsset> assignSong({
+    required String songId,
+    required String filePath,
+    DateTime? now,
+  }) async {
+    assignSongCallCount++;
+    assignedSongId = songId;
+    assignedFilePath = filePath;
+
+    final timestamp = now ?? DateTime.utc(2026, 1, 1);
+
+    return ArtworkAsset(
+      id: 'artwork-song',
+      filePath: filePath,
+      normalizedPath: filePath.toLowerCase().replaceAll('\\', '/'),
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    );
+  }
+
+  @override
+  Future<void> clearSong(String songId, {DateTime? now}) async {
+    clearSongCallCount++;
+    clearedSongId = songId;
+  }
+
+  @override
+  noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

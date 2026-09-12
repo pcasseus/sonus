@@ -3,12 +3,21 @@ import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:sonus_next/features/artwork/application/services/artwork_assignment_service.dart';
+import 'package:sonus_next/features/artwork/application/services/artwork_file_picker.dart';
+import 'package:sonus_next/features/artwork/domain/entities/artwork_asset.dart';
+import 'package:sonus_next/features/artwork/domain/repositories/artwork_asset_repository.dart';
 import 'package:sonus_next/features/library/application/models/library_album.dart';
 import 'package:sonus_next/features/library/application/models/library_artist.dart';
 import 'package:sonus_next/features/library/application/models/library_track.dart';
 import 'package:sonus_next/features/library/application/models/library_track_order.dart';
 import 'package:sonus_next/features/library/application/repositories/library_query_repository.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
+import 'package:sonus_next/features/library/domain/entities/artist.dart';
+import 'package:sonus_next/features/library/domain/entities/song.dart';
+import 'package:sonus_next/features/library/domain/repositories/album_edition_repository.dart';
+import 'package:sonus_next/features/library/domain/repositories/artist_repository.dart';
+import 'package:sonus_next/features/library/domain/repositories/song_repository.dart';
 import 'package:sonus_next/features/library/presentation/controllers/artist_profile_controller.dart';
 import 'package:sonus_next/features/player/application/controllers/playback_coordinator.dart';
 import 'package:sonus_next/features/player/domain/models/playback_queue.dart';
@@ -124,6 +133,368 @@ void main() {
       controller.dispose();
     });
 
+    test(
+      'changeHeaderArtwork assigns selected artwork and refreshes',
+      () async {
+        final queryRepository = FakeLibraryQueryRepository(
+          artist: createArtist(),
+        );
+
+        final artistRepository = FakeArtistRepository(
+          artists: [createDomainArtist()],
+        );
+
+        final artworkRepository = FakeArtworkAssetRepository();
+
+        final picker = FakeArtworkFilePicker(result: r'C:\Artwork\Header.jpg');
+
+        final controller = ArtistProfileController(
+          repository: queryRepository,
+          artistId: 'artist-1',
+          artworkAssignmentService: createArtworkAssignmentService(
+            artworkRepository: artworkRepository,
+            artistRepository: artistRepository,
+          ),
+          artworkFilePicker: picker,
+        );
+
+        await controller.load();
+
+        final changed = await controller.changeHeaderArtwork();
+
+        expect(changed, isTrue);
+        expect(picker.callCount, 1);
+
+        expect(
+          artistRepository.artists['artist-1']!.headerArtworkId,
+          isNotNull,
+        );
+
+        expect(queryRepository.artistRequestCount, 2);
+
+        controller.dispose();
+      },
+    );
+
+    test('clearHeaderArtwork clears artwork and refreshes', () async {
+      final queryRepository = FakeLibraryQueryRepository(
+        artist: createArtist(),
+      );
+
+      final artistRepository = FakeArtistRepository(
+        artists: [createDomainArtist(headerArtworkId: 'artwork-header')],
+      );
+
+      final controller = ArtistProfileController(
+        repository: queryRepository,
+        artistId: 'artist-1',
+        artworkAssignmentService: createArtworkAssignmentService(
+          artistRepository: artistRepository,
+        ),
+      );
+
+      await controller.load();
+
+      final changed = await controller.clearHeaderArtwork();
+
+      expect(changed, isTrue);
+
+      expect(artistRepository.artists['artist-1']!.headerArtworkId, isNull);
+
+      expect(queryRepository.artistRequestCount, 2);
+
+      controller.dispose();
+    });
+
+    test(
+      'changeTopArtistsArtwork assigns selected artwork and refreshes',
+      () async {
+        final queryRepository = FakeLibraryQueryRepository(
+          artist: createArtist(),
+        );
+
+        final artistRepository = FakeArtistRepository(
+          artists: [createDomainArtist()],
+        );
+
+        final artworkRepository = FakeArtworkAssetRepository();
+
+        final picker = FakeArtworkFilePicker(
+          result: r'C:\Artwork\Top Artists.jpg',
+        );
+
+        final controller = ArtistProfileController(
+          repository: queryRepository,
+          artistId: 'artist-1',
+          artworkAssignmentService: createArtworkAssignmentService(
+            artworkRepository: artworkRepository,
+            artistRepository: artistRepository,
+          ),
+          artworkFilePicker: picker,
+        );
+
+        await controller.load();
+
+        final changed = await controller.changeTopArtistsArtwork();
+
+        expect(changed, isTrue);
+        expect(picker.callCount, 1);
+
+        expect(
+          artistRepository.artists['artist-1']!.topArtistsArtworkId,
+          isNotNull,
+        );
+
+        expect(queryRepository.artistRequestCount, 2);
+
+        controller.dispose();
+      },
+    );
+
+    test('clearTopArtistsArtwork clears artwork and refreshes', () async {
+      final queryRepository = FakeLibraryQueryRepository(
+        artist: createArtist(),
+      );
+
+      final artistRepository = FakeArtistRepository(
+        artists: [createDomainArtist(topArtistsArtworkId: 'artwork-top')],
+      );
+
+      final controller = ArtistProfileController(
+        repository: queryRepository,
+        artistId: 'artist-1',
+        artworkAssignmentService: createArtworkAssignmentService(
+          artistRepository: artistRepository,
+        ),
+      );
+
+      await controller.load();
+
+      final changed = await controller.clearTopArtistsArtwork();
+
+      expect(changed, isTrue);
+
+      expect(artistRepository.artists['artist-1']!.topArtistsArtworkId, isNull);
+
+      expect(queryRepository.artistRequestCount, 2);
+
+      controller.dispose();
+    });
+
+    test('cancelled artwork selection does not assign or refresh', () async {
+      final queryRepository = FakeLibraryQueryRepository(
+        artist: createArtist(),
+      );
+
+      final artistRepository = FakeArtistRepository(
+        artists: [createDomainArtist()],
+      );
+
+      final artworkRepository = FakeArtworkAssetRepository();
+
+      final picker = FakeArtworkFilePicker(result: null);
+
+      final controller = ArtistProfileController(
+        repository: queryRepository,
+        artistId: 'artist-1',
+        artworkAssignmentService: createArtworkAssignmentService(
+          artworkRepository: artworkRepository,
+          artistRepository: artistRepository,
+        ),
+        artworkFilePicker: picker,
+      );
+
+      await controller.load();
+
+      final changed = await controller.changeHeaderArtwork();
+
+      expect(changed, isFalse);
+      expect(picker.callCount, 1);
+      expect(artworkRepository.createdAssets, isEmpty);
+      expect(artistRepository.savedArtists, isEmpty);
+      expect(queryRepository.artistRequestCount, 1);
+
+      controller.dispose();
+    });
+
+    test('reports whether track artwork can be edited', () {
+      final repository = FakeLibraryQueryRepository(artist: createArtist());
+
+      final service = FakeTrackArtworkAssignmentService();
+
+      final picker = FakeArtworkFilePicker(result: r'C:\Artwork\Song.jpg');
+
+      final editableController = ArtistProfileController(
+        repository: repository,
+        artistId: 'artist-1',
+        artworkAssignmentService: service,
+        artworkFilePicker: picker,
+      );
+
+      final missingPickerController = ArtistProfileController(
+        repository: repository,
+        artistId: 'artist-1',
+        artworkAssignmentService: service,
+      );
+
+      final missingServiceController = ArtistProfileController(
+        repository: repository,
+        artistId: 'artist-1',
+        artworkFilePicker: picker,
+      );
+
+      expect(editableController.canEditTrackArtwork, isTrue);
+
+      expect(missingPickerController.canEditTrackArtwork, isFalse);
+
+      expect(missingServiceController.canEditTrackArtwork, isFalse);
+
+      editableController.dispose();
+      missingPickerController.dispose();
+      missingServiceController.dispose();
+    });
+
+    test(
+      'changeTrackArtwork assigns selected song artwork and refreshes',
+      () async {
+        final repository = FakeLibraryQueryRepository(
+          artist: createArtist(),
+          tracks: [createTrack(songId: 'song-artwork')],
+        );
+
+        final service = FakeTrackArtworkAssignmentService();
+
+        final picker = FakeArtworkFilePicker(result: r'C:\Artwork\Song.jpg');
+
+        final controller = ArtistProfileController(
+          repository: repository,
+          artistId: 'artist-1',
+          artworkAssignmentService: service,
+          artworkFilePicker: picker,
+        );
+
+        await controller.load();
+
+        expect(repository.artistRequestCount, 1);
+
+        final changed = await controller.changeTrackArtwork(
+          controller.tracks.single,
+        );
+
+        expect(changed, isTrue);
+        expect(picker.callCount, 1);
+        expect(service.assignSongCallCount, 1);
+        expect(service.assignedSongId, 'song-artwork');
+
+        expect(service.assignedFilePath, r'C:\Artwork\Song.jpg');
+
+        expect(repository.artistRequestCount, 2);
+
+        controller.dispose();
+      },
+    );
+
+    test(
+      'cancelled track artwork selection does not assign or refresh',
+      () async {
+        final repository = FakeLibraryQueryRepository(
+          artist: createArtist(),
+          tracks: [createTrack(songId: 'song-artwork')],
+        );
+
+        final service = FakeTrackArtworkAssignmentService();
+
+        final picker = FakeArtworkFilePicker(result: null);
+
+        final controller = ArtistProfileController(
+          repository: repository,
+          artistId: 'artist-1',
+          artworkAssignmentService: service,
+          artworkFilePicker: picker,
+        );
+
+        await controller.load();
+
+        final changed = await controller.changeTrackArtwork(
+          controller.tracks.single,
+        );
+
+        expect(changed, isFalse);
+        expect(picker.callCount, 1);
+        expect(service.assignSongCallCount, 0);
+        expect(repository.artistRequestCount, 1);
+
+        controller.dispose();
+      },
+    );
+
+    test(
+      'clearTrackArtwork clears selected song artwork and refreshes',
+      () async {
+        final repository = FakeLibraryQueryRepository(
+          artist: createArtist(),
+          tracks: [createTrack(songId: 'song-artwork')],
+        );
+
+        final service = FakeTrackArtworkAssignmentService();
+
+        final controller = ArtistProfileController(
+          repository: repository,
+          artistId: 'artist-1',
+          artworkAssignmentService: service,
+          artworkFilePicker: FakeArtworkFilePicker(result: null),
+        );
+
+        await controller.load();
+
+        final changed = await controller.clearTrackArtwork(
+          controller.tracks.single,
+        );
+
+        expect(changed, isTrue);
+        expect(service.clearSongCallCount, 1);
+        expect(service.clearedSongId, 'song-artwork');
+        expect(repository.artistRequestCount, 2);
+
+        controller.dispose();
+      },
+    );
+
+    test('unavailable artist track can still have artwork changed', () async {
+      final repository = FakeLibraryQueryRepository(
+        artist: createArtist(),
+        tracks: [
+          createTrack(songId: 'missing-song', filePath: '', isAvailable: false),
+        ],
+      );
+
+      final service = FakeTrackArtworkAssignmentService();
+
+      final picker = FakeArtworkFilePicker(result: r'C:\Artwork\Missing.jpg');
+
+      final controller = ArtistProfileController(
+        repository: repository,
+        artistId: 'artist-1',
+        artworkAssignmentService: service,
+        artworkFilePicker: picker,
+      );
+
+      await controller.load();
+
+      final track = controller.tracks.single;
+
+      expect(controller.isTrackPlayable(track), isFalse);
+
+      expect(controller.canEditTrackArtwork, isTrue);
+
+      final changed = await controller.changeTrackArtwork(track);
+
+      expect(changed, isTrue);
+      expect(service.assignedSongId, 'missing-song');
+
+      controller.dispose();
+    });
+
     test('reports whether artist has playable tracks', () async {
       final repository = FakeLibraryQueryRepository(
         artist: createArtist(),
@@ -165,13 +536,9 @@ void main() {
       await controller.playTrack(selectedTrack);
 
       expect(engine.loadQueueCallCount, 1);
-
       expect(engine.lastLoadedTracks, hasLength(1));
-
       expect(engine.lastLoadedTracks!.single.songId, 'song-play');
-
       expect(engine.lastStartIndex, 0);
-
       expect(engine.lastAutoPlay, isTrue);
 
       await engine.dispose();
@@ -238,7 +605,6 @@ void main() {
         ]);
 
         expect(engine.lastStartIndex, 0);
-
         expect(engine.lastAutoPlay, isTrue);
 
         await engine.dispose();
@@ -276,7 +642,6 @@ void main() {
         await controller.playAll();
 
         expect(controller.isShuffleEnabled, isTrue);
-
         expect(engine.lastShuffleEnabled, isTrue);
 
         expect(engine.lastLoadedTracks!.map((track) => track.songId), [
@@ -312,9 +677,7 @@ void main() {
       await controller.playAll();
 
       expect(controller.hasPlayableTracks, isFalse);
-
       expect(engine.loadQueueCallCount, 0);
-
       expect(engine.stopCallCount, 0);
 
       await engine.dispose();
@@ -339,13 +702,11 @@ void main() {
         await controller.toggleShuffle();
 
         expect(controller.isShuffleEnabled, isTrue);
-
         expect(engine.lastShuffleEnabled, isTrue);
 
         await controller.toggleShuffle();
 
         expect(controller.isShuffleEnabled, isFalse);
-
         expect(engine.lastShuffleEnabled, isFalse);
 
         await engine.dispose();
@@ -372,7 +733,6 @@ void main() {
       await controller.addToQueue(selectedTrack);
 
       expect(engine.lastAppendedTrack, isNotNull);
-
       expect(engine.lastAppendedTrack!.songId, 'queue-song');
 
       await engine.dispose();
@@ -398,13 +758,10 @@ void main() {
       final nextTrack = createTrack(songId: 'next-song', title: 'Next Song');
 
       await controller.playTrack(currentTrack);
-
       await controller.playNext(nextTrack);
 
       expect(engine.lastInsertedTrack, isNotNull);
-
       expect(engine.lastInsertedTrack!.songId, 'next-song');
-
       expect(engine.lastInsertedIndex, 1);
 
       await engine.dispose();
@@ -776,5 +1133,216 @@ class FixedRandom implements Random {
   @override
   double nextDouble() {
     return 0.5;
+  }
+}
+
+ArtworkAssignmentService createArtworkAssignmentService({
+  FakeArtworkAssetRepository? artworkRepository,
+  FakeArtistRepository? artistRepository,
+}) {
+  return ArtworkAssignmentService(
+    artworkAssetRepository: artworkRepository ?? FakeArtworkAssetRepository(),
+    artistRepository: artistRepository ?? FakeArtistRepository(),
+    albumEditionRepository: FakeAlbumEditionRepository(),
+    songRepository: FakeSongRepository(),
+  );
+}
+
+Artist createDomainArtist({
+  String? headerArtworkId,
+  String? topArtistsArtworkId,
+}) {
+  return Artist(
+    id: 'artist-1',
+    name: 'Test Artist',
+    canonicalName: 'test artist',
+    headerArtworkId: headerArtworkId,
+    topArtistsArtworkId: topArtistsArtworkId,
+    createdAt: DateTime.utc(2026, 1, 1),
+    updatedAt: DateTime.utc(2026, 1, 1),
+  );
+}
+
+class FakeArtworkFilePicker implements ArtworkFilePicker {
+  FakeArtworkFilePicker({required this.result});
+
+  final String? result;
+
+  int callCount = 0;
+
+  @override
+  Future<String?> pickArtworkFile() async {
+    callCount++;
+    return result;
+  }
+}
+
+class FakeTrackArtworkAssignmentService implements ArtworkAssignmentService {
+  int assignSongCallCount = 0;
+  int clearSongCallCount = 0;
+
+  String? assignedSongId;
+  String? assignedFilePath;
+  String? clearedSongId;
+
+  @override
+  Future<ArtworkAsset> assignSong({
+    required String songId,
+    required String filePath,
+    DateTime? now,
+  }) async {
+    assignSongCallCount++;
+    assignedSongId = songId;
+    assignedFilePath = filePath;
+
+    final timestamp = now ?? DateTime.utc(2026, 1, 1);
+
+    return ArtworkAsset(
+      id: 'artwork-song',
+      filePath: filePath,
+      normalizedPath: filePath.toLowerCase().replaceAll('\\', '/'),
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    );
+  }
+
+  @override
+  Future<void> clearSong(String songId, {DateTime? now}) async {
+    clearSongCallCount++;
+    clearedSongId = songId;
+  }
+
+  @override
+  noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class FakeArtworkAssetRepository implements ArtworkAssetRepository {
+  final Map<String, ArtworkAsset> assets = {};
+
+  final List<ArtworkAsset> createdAssets = [];
+
+  @override
+  Future<void> create(ArtworkAsset artworkAsset) async {
+    createdAssets.add(artworkAsset);
+
+    assets[artworkAsset.normalizedPath] = artworkAsset;
+  }
+
+  @override
+  Future<void> save(ArtworkAsset artworkAsset) async {
+    assets[artworkAsset.normalizedPath] = artworkAsset;
+  }
+
+  @override
+  Future<ArtworkAsset?> getById(String id) async {
+    for (final asset in assets.values) {
+      if (asset.id == id) {
+        return asset;
+      }
+    }
+
+    return null;
+  }
+
+  @override
+  Future<ArtworkAsset?> getByNormalizedPath(String normalizedPath) async {
+    return assets[normalizedPath];
+  }
+
+  @override
+  Future<List<ArtworkAsset>> getAll() async {
+    return List.unmodifiable(assets.values);
+  }
+}
+
+class FakeArtistRepository implements ArtistRepository {
+  FakeArtistRepository({List<Artist> artists = const []})
+    : artists = {for (final artist in artists) artist.id: artist};
+
+  final Map<String, Artist> artists;
+
+  final List<Artist> savedArtists = [];
+
+  @override
+  Future<void> create(Artist artist) async {
+    artists[artist.id] = artist;
+  }
+
+  @override
+  Future<void> save(Artist artist) async {
+    savedArtists.add(artist);
+
+    artists[artist.id] = artist;
+  }
+
+  @override
+  Future<Artist?> getById(String id) async {
+    return artists[id];
+  }
+
+  @override
+  Future<List<Artist>> getAll() async {
+    return List.unmodifiable(artists.values);
+  }
+}
+
+class FakeAlbumEditionRepository implements AlbumEditionRepository {
+  @override
+  Future<void> create(AlbumEdition edition) async {}
+
+  @override
+  Future<void> save(AlbumEdition edition) async {}
+
+  @override
+  Future<AlbumEdition?> getById(String id) async {
+    return null;
+  }
+
+  @override
+  Future<List<AlbumEdition>> getAll() async {
+    return const [];
+  }
+
+  @override
+  Future<List<AlbumEdition>> getByAlbumId(String albumId) async {
+    return const [];
+  }
+}
+
+class FakeSongRepository implements SongRepository {
+  @override
+  Future<void> create(Song song) async {}
+
+  @override
+  Future<void> save(Song song) async {}
+
+  @override
+  Future<Song?> getById(String id) async {
+    return null;
+  }
+
+  @override
+  Future<List<Song>> getAll() async {
+    return const [];
+  }
+
+  @override
+  Future<List<Song>> getByArtistId(String artistId) async {
+    return const [];
+  }
+
+  @override
+  Future<List<Song>> getByAlbumId(String albumId) async {
+    return const [];
+  }
+
+  @override
+  Future<List<Song>> getByEditionId(String albumEditionId) async {
+    return const [];
+  }
+
+  @override
+  Future<List<Song>> getRecentlyAdded(int limit) async {
+    return const [];
   }
 }

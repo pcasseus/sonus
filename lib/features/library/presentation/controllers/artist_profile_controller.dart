@@ -2,6 +2,8 @@ import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 
+import '../../../artwork/application/services/artwork_assignment_service.dart';
+import '../../../artwork/application/services/artwork_file_picker.dart';
 import '../../../player/application/controllers/playback_coordinator.dart';
 import '../../application/models/library_album.dart';
 import '../../application/models/library_artist.dart';
@@ -13,19 +15,32 @@ class ArtistProfileController extends ChangeNotifier {
     required LibraryQueryRepository repository,
     required String artistId,
     PlaybackCoordinator? playbackCoordinator,
+    ArtworkAssignmentService? artworkAssignmentService,
+    ArtworkFilePicker? artworkFilePicker,
     Random? random,
-  }) : this._(repository, artistId, playbackCoordinator, random ?? Random());
+  }) : this._(
+         repository,
+         artistId,
+         playbackCoordinator,
+         artworkAssignmentService,
+         artworkFilePicker,
+         random ?? Random(),
+       );
 
   ArtistProfileController._(
     this._repository,
     this._artistId,
     this._playbackCoordinator,
+    this._artworkAssignmentService,
+    this._artworkFilePicker,
     this._random,
   );
 
   final LibraryQueryRepository _repository;
   final String _artistId;
   final PlaybackCoordinator? _playbackCoordinator;
+  final ArtworkAssignmentService? _artworkAssignmentService;
+  final ArtworkFilePicker? _artworkFilePicker;
   final Random _random;
 
   LibraryArtist? _artist;
@@ -39,7 +54,9 @@ class ArtistProfileController extends ChangeNotifier {
   String get artistId => _artistId;
 
   LibraryArtist? get artist => _artist;
+
   List<LibraryAlbum> get albums => _albums;
+
   List<LibraryTrack> get tracks => _tracks;
 
   String? get headerArtworkPath {
@@ -63,7 +80,9 @@ class ArtistProfileController extends ChangeNotifier {
   }
 
   bool get isLoading => _isLoading;
+
   bool get isShuffleEnabled => _isShuffleEnabled;
+
   Object? get error => _error;
 
   bool get hasError => _error != null;
@@ -74,6 +93,14 @@ class ArtistProfileController extends ChangeNotifier {
 
   bool get hasPlayableTracks {
     return _tracks.any(_isPlayable);
+  }
+
+  bool get canEditArtwork {
+    return _artworkAssignmentService != null && _artworkFilePicker != null;
+  }
+
+  bool get canEditTrackArtwork {
+    return _artworkAssignmentService != null && _artworkFilePicker != null;
   }
 
   Future<void> load() async {
@@ -106,6 +133,116 @@ class ArtistProfileController extends ChangeNotifier {
   }
 
   Future<void> refresh() => load();
+
+  Future<bool> changeHeaderArtwork() async {
+    final service = _artworkAssignmentService;
+    final picker = _artworkFilePicker;
+
+    if (service == null || picker == null) {
+      return false;
+    }
+
+    final filePath = await picker.pickArtworkFile();
+
+    if (filePath == null) {
+      return false;
+    }
+
+    await service.assignArtistHeader(artistId: _artistId, filePath: filePath);
+
+    await refresh();
+
+    return true;
+  }
+
+  Future<bool> clearHeaderArtwork() async {
+    final service = _artworkAssignmentService;
+
+    if (service == null) {
+      return false;
+    }
+
+    await service.clearArtistHeader(_artistId);
+
+    await refresh();
+
+    return true;
+  }
+
+  Future<bool> changeTopArtistsArtwork() async {
+    final service = _artworkAssignmentService;
+    final picker = _artworkFilePicker;
+
+    if (service == null || picker == null) {
+      return false;
+    }
+
+    final filePath = await picker.pickArtworkFile();
+
+    if (filePath == null) {
+      return false;
+    }
+
+    await service.assignArtistTopArtists(
+      artistId: _artistId,
+      filePath: filePath,
+    );
+
+    await refresh();
+
+    return true;
+  }
+
+  Future<bool> clearTopArtistsArtwork() async {
+    final service = _artworkAssignmentService;
+
+    if (service == null) {
+      return false;
+    }
+
+    await service.clearArtistTopArtists(_artistId);
+
+    await refresh();
+
+    return true;
+  }
+
+  Future<bool> changeTrackArtwork(LibraryTrack track) async {
+    final service = _artworkAssignmentService;
+    final picker = _artworkFilePicker;
+    final songId = track.songId.trim();
+
+    if (service == null || picker == null || songId.isEmpty) {
+      return false;
+    }
+
+    final filePath = await picker.pickArtworkFile();
+
+    if (filePath == null) {
+      return false;
+    }
+
+    await service.assignSong(songId: songId, filePath: filePath);
+
+    await refresh();
+
+    return true;
+  }
+
+  Future<bool> clearTrackArtwork(LibraryTrack track) async {
+    final service = _artworkAssignmentService;
+    final songId = track.songId.trim();
+
+    if (service == null || songId.isEmpty) {
+      return false;
+    }
+
+    await service.clearSong(songId);
+
+    await refresh();
+
+    return true;
+  }
 
   Future<void> playTrack(LibraryTrack track) async {
     final playbackCoordinator = _playbackCoordinator;
