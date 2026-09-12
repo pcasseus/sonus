@@ -358,15 +358,59 @@ class LibraryQueryDao {
   }
 
   Future<LibraryAlbum?> findAlbumById(String albumId) async {
-    final albums = await findAlbums();
+    final rows = await db.rawQuery(
+      '''
+    SELECT
+      al.id AS album_id,
+      al.title AS album_title,
+      al.artist_id AS artist_id,
+      ar.name AS artist_name,
+      pe.id AS primary_edition_id,
+      pe.title AS primary_edition_title,
+      pe.type AS primary_edition_type,
+      pe.release_date AS release_date,
+      pe.genre AS genre,
+      COUNT(DISTINCT s.id) AS track_count,
+      al.created_at AS created_at
+    FROM ${DatabaseTables.albums} al
+    INNER JOIN ${DatabaseTables.artists} ar
+      ON ar.id = al.artist_id
+    LEFT JOIN ${DatabaseTables.albumEditions} pe
+      ON pe.id = (
+        SELECT ae.id
+        FROM ${DatabaseTables.albumEditions} ae
+        WHERE ae.album_id = al.id
+          AND ae.is_primary = 1
+        ORDER BY
+          ae.release_date ASC,
+          ae.title COLLATE NOCASE ASC,
+          ae.id ASC
+        LIMIT 1
+      )
+    LEFT JOIN ${DatabaseTables.songs} s
+      ON s.album_id = al.id
+    WHERE al.id = ?
+    GROUP BY
+      al.id,
+      al.title,
+      al.artist_id,
+      ar.name,
+      pe.id,
+      pe.title,
+      pe.type,
+      pe.release_date,
+      pe.genre,
+      al.created_at
+    LIMIT 1
+    ''',
+      [albumId],
+    );
 
-    for (final album in albums) {
-      if (album.albumId == albumId) {
-        return album;
-      }
+    if (rows.isEmpty) {
+      return null;
     }
 
-    return null;
+    return LibraryAlbumRowMapper.fromRow(rows.single);
   }
 
   Future<List<LibraryAlbum>> findAlbumsByArtistId(String artistId) async {

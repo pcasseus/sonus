@@ -50,6 +50,162 @@ void main() {
       controller.dispose();
     });
 
+    test('derives total album runtime from tracks', () async {
+      final repository = FakeLibraryQueryRepository(
+        album: createAlbum(),
+        tracks: [
+          createTrack(songId: 'song-1', durationSeconds: 185),
+          createTrack(songId: 'song-2', durationSeconds: 240),
+          createTrack(songId: 'song-3', durationSeconds: 95),
+        ],
+      );
+
+      final controller = AlbumProfileController(
+        repository: repository,
+        albumId: 'album-1',
+      );
+
+      await controller.load();
+
+      expect(controller.totalDurationSeconds, 520);
+      expect(controller.totalDuration, const Duration(minutes: 8, seconds: 40));
+
+      controller.dispose();
+    });
+
+    test('negative track durations do not reduce album runtime', () async {
+      final repository = FakeLibraryQueryRepository(
+        album: createAlbum(),
+        tracks: [
+          createTrack(songId: 'song-1', durationSeconds: 180),
+          createTrack(songId: 'song-2', durationSeconds: -40),
+        ],
+      );
+
+      final controller = AlbumProfileController(
+        repository: repository,
+        albumId: 'album-1',
+      );
+
+      await controller.load();
+
+      expect(controller.totalDurationSeconds, 180);
+
+      controller.dispose();
+    });
+
+    test('derives playable and unavailable track counts', () async {
+      final repository = FakeLibraryQueryRepository(
+        album: createAlbum(),
+        tracks: [
+          createTrack(songId: 'song-1'),
+          createTrack(songId: 'song-2'),
+          createTrack(songId: 'missing-song', filePath: '', isAvailable: false),
+        ],
+      );
+
+      final controller = AlbumProfileController(
+        repository: repository,
+        albumId: 'album-1',
+      );
+
+      await controller.load();
+
+      expect(controller.playableTrackCount, 2);
+      expect(controller.unavailableTrackCount, 1);
+      expect(controller.hasUnavailableTracks, isTrue);
+
+      controller.dispose();
+    });
+
+    test(
+      'reports no unavailable tracks when every track is playable',
+      () async {
+        final repository = FakeLibraryQueryRepository(
+          album: createAlbum(),
+          tracks: [
+            createTrack(songId: 'song-1'),
+            createTrack(songId: 'song-2'),
+          ],
+        );
+
+        final controller = AlbumProfileController(
+          repository: repository,
+          albumId: 'album-1',
+        );
+
+        await controller.load();
+
+        expect(controller.playableTrackCount, 2);
+        expect(controller.unavailableTrackCount, 0);
+        expect(controller.hasUnavailableTracks, isFalse);
+
+        controller.dispose();
+      },
+    );
+
+    test('derives distinct album editions in track order', () async {
+      final repository = FakeLibraryQueryRepository(
+        album: createAlbum(),
+        tracks: [
+          createTrack(
+            songId: 'song-1',
+            albumEditionId: 'edition-standard',
+            albumEditionTitle: 'Standard',
+            albumEditionType: AlbumEditionType.standard,
+          ),
+          createTrack(
+            songId: 'song-2',
+            albumEditionId: 'edition-standard',
+            albumEditionTitle: 'Standard',
+            albumEditionType: AlbumEditionType.standard,
+          ),
+          createTrack(
+            songId: 'song-3',
+            albumEditionId: 'edition-deluxe',
+            albumEditionTitle: 'Deluxe',
+            albumEditionType: AlbumEditionType.deluxe,
+          ),
+        ],
+      );
+
+      final controller = AlbumProfileController(
+        repository: repository,
+        albumId: 'album-1',
+      );
+
+      await controller.load();
+
+      expect(controller.editionCount, 2);
+      expect(controller.hasMultipleEditions, isTrue);
+      expect(controller.editionTitles, ['Standard', 'Deluxe']);
+
+      controller.dispose();
+    });
+
+    test('single edition album is not reported as multi-edition', () async {
+      final repository = FakeLibraryQueryRepository(
+        album: createAlbum(),
+        tracks: [
+          createTrack(songId: 'song-1'),
+          createTrack(songId: 'song-2'),
+        ],
+      );
+
+      final controller = AlbumProfileController(
+        repository: repository,
+        albumId: 'album-1',
+      );
+
+      await controller.load();
+
+      expect(controller.editionCount, 1);
+      expect(controller.hasMultipleEditions, isFalse);
+      expect(controller.editionTitles, ['Standard']);
+
+      controller.dispose();
+    });
+
     test('reports not found when album does not exist', () async {
       final repository = FakeLibraryQueryRepository();
 
@@ -474,6 +630,11 @@ LibraryTrack createTrack({
   String title = 'Test Song',
   String artistId = 'artist-1',
   String albumId = 'album-1',
+  String albumEditionId = 'edition-1',
+  String albumEditionTitle = 'Standard',
+  AlbumEditionType albumEditionType = AlbumEditionType.standard,
+  int trackNumber = 1,
+  int durationSeconds = 180,
   String? filePath,
   bool isAvailable = true,
 }) {
@@ -484,11 +645,11 @@ LibraryTrack createTrack({
     artistName: 'Test Artist',
     albumId: albumId,
     albumTitle: 'Test Album',
-    albumEditionId: 'edition-1',
-    albumEditionTitle: 'Standard',
-    albumEditionType: AlbumEditionType.values.first,
-    trackNumber: 1,
-    durationSeconds: 180,
+    albumEditionId: albumEditionId,
+    albumEditionTitle: albumEditionTitle,
+    albumEditionType: albumEditionType,
+    trackNumber: trackNumber,
+    durationSeconds: durationSeconds,
     isSingle: false,
     featuredArtists: const [],
     dateAdded: DateTime(2026, 1, 1),

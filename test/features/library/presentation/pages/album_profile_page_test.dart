@@ -51,7 +51,9 @@ void main() {
       await tester.pump();
     });
 
-    testWidgets('shows album profile content', (tester) async {
+    testWidgets('shows album profile content with detailed metadata', (
+      tester,
+    ) async {
       final repository = FakeLibraryQueryRepository(
         album: createAlbum(
           genre: 'Pop',
@@ -75,16 +77,27 @@ void main() {
       );
 
       await tester.pumpWidget(buildSubject(repository: repository));
-
       await tester.pumpAndSettle();
 
       expect(find.text('Test Album'), findsWidgets);
-
       expect(find.text('Test Artist'), findsOneWidget);
 
-      expect(find.text('2 tracks'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey<String>('album-profile-summary')),
+        findsOneWidget,
+      );
+      expect(find.text('2 tracks • 7 min'), findsOneWidget);
 
-      expect(find.text('Pop • 2026 • Standard'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey<String>('album-profile-metadata')),
+        findsOneWidget,
+      );
+      expect(find.text('April 12, 2026 • Pop'), findsOneWidget);
+
+      expect(
+        find.byKey(const ValueKey<String>('album-profile-availability-notice')),
+        findsNothing,
+      );
 
       expect(
         find.byKey(const ValueKey<String>('album-profile-tracks-list')),
@@ -92,12 +105,73 @@ void main() {
       );
 
       expect(find.text('First Song'), findsOneWidget);
-
       expect(find.text('Second Song'), findsOneWidget);
-
       expect(find.text('3:00'), findsOneWidget);
-
       expect(find.text('4:05'), findsOneWidget);
+    });
+
+    testWidgets('shows edition count for multi-edition album', (tester) async {
+      final repository = FakeLibraryQueryRepository(
+        album: createAlbum(
+          genre: 'Pop',
+          releaseDate: DateTime(2024, 5, 17),
+          primaryEditionTitle: 'Standard',
+        ),
+        tracks: [
+          createTrack(
+            songId: 'standard-song',
+            albumEditionId: 'edition-standard',
+            albumEditionTitle: 'Standard',
+            albumEditionType: AlbumEditionType.standard,
+          ),
+          createTrack(
+            songId: 'deluxe-song',
+            albumEditionId: 'edition-deluxe',
+            albumEditionTitle: 'Deluxe',
+            albumEditionType: AlbumEditionType.deluxe,
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(buildSubject(repository: repository));
+      await tester.pumpAndSettle();
+
+      expect(find.text('May 17, 2024 • Pop • 2 editions'), findsOneWidget);
+    });
+
+    testWidgets('shows unavailable track notice', (tester) async {
+      final repository = FakeLibraryQueryRepository(
+        album: createAlbum(),
+        tracks: [
+          createTrack(songId: 'available-song'),
+          createTrack(songId: 'missing-song', filePath: '', isAvailable: false),
+        ],
+      );
+
+      await tester.pumpWidget(buildSubject(repository: repository));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey<String>('album-profile-availability-notice')),
+        findsOneWidget,
+      );
+
+      expect(find.text('1 track unavailable'), findsOneWidget);
+    });
+
+    testWidgets('pluralizes unavailable track notice', (tester) async {
+      final repository = FakeLibraryQueryRepository(
+        album: createAlbum(),
+        tracks: [
+          createTrack(songId: 'missing-1', filePath: '', isAvailable: false),
+          createTrack(songId: 'missing-2', filePath: '', isAvailable: false),
+        ],
+      );
+
+      await tester.pumpWidget(buildSubject(repository: repository));
+      await tester.pumpAndSettle();
+
+      expect(find.text('2 tracks unavailable'), findsOneWidget);
     });
 
     testWidgets('shows empty track state', (tester) async {
@@ -417,7 +491,9 @@ LibraryTrack createTrack({
   String artistName = 'Test Artist',
   String albumId = 'album-1',
   String albumTitle = 'Test Album',
+  String albumEditionId = 'edition-1',
   String albumEditionTitle = 'Standard',
+  AlbumEditionType albumEditionType = AlbumEditionType.standard,
   int trackNumber = 1,
   int durationSeconds = 180,
   List<String> featuredArtists = const [],
@@ -431,9 +507,9 @@ LibraryTrack createTrack({
     artistName: artistName,
     albumId: albumId,
     albumTitle: albumTitle,
-    albumEditionId: 'edition-1',
+    albumEditionId: albumEditionId,
     albumEditionTitle: albumEditionTitle,
-    albumEditionType: AlbumEditionType.values.first,
+    albumEditionType: albumEditionType,
     trackNumber: trackNumber,
     durationSeconds: durationSeconds,
     isSingle: false,

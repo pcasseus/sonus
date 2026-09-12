@@ -461,15 +461,43 @@ void main() {
     expect(tracks.map((track) => track.songId), contains(deluxeSong.id));
   });
 
-  test('album lookup resolves permanent album id', () async {
+  test(
+    'album lookup returns complete album projection by permanent id',
+    () async {
+      final fixture = await _createFixture(appDatabase);
+
+      final album = await LibraryQueryDao(
+        fixture.db,
+      ).findAlbumById(fixture.album.id);
+
+      expect(album, isNotNull);
+
+      expect(album?.albumId, fixture.album.id);
+      expect(album?.title, 'Query Album');
+
+      expect(album?.artistId, fixture.artist.id);
+      expect(album?.artistName, 'Query Artist');
+
+      expect(album?.primaryEditionId, fixture.standardEdition.id);
+      expect(album?.primaryEditionTitle, 'Query Album');
+      expect(album?.primaryEditionType, AlbumEditionType.standard);
+
+      expect(album?.releaseDate, DateTime.utc(2026, 1, 15));
+      expect(album?.genre, 'Pop');
+
+      expect(album?.trackCount, 3);
+      expect(album?.dateAdded, fixture.album.createdAt);
+    },
+  );
+
+  test('album lookup returns null for unknown album id', () async {
     final fixture = await _createFixture(appDatabase);
 
     final album = await LibraryQueryDao(
       fixture.db,
-    ).findAlbumById(fixture.album.id);
+    ).findAlbumById('missing_album');
 
-    expect(album, isNotNull);
-    expect(album?.albumId, fixture.album.id);
+    expect(album, isNull);
   });
 
   test('artist lookup resolves permanent artist id', () async {

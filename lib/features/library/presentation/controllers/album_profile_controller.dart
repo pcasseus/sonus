@@ -56,6 +56,69 @@ class AlbumProfileController extends ChangeNotifier {
     return _tracks.any(_isPlayable);
   }
 
+  int get totalDurationSeconds {
+    var total = 0;
+
+    for (final track in _tracks) {
+      if (track.durationSeconds > 0) {
+        total += track.durationSeconds;
+      }
+    }
+
+    return total;
+  }
+
+  Duration get totalDuration {
+    return Duration(seconds: totalDurationSeconds);
+  }
+
+  int get playableTrackCount {
+    var count = 0;
+
+    for (final track in _tracks) {
+      if (_isPlayable(track)) {
+        count++;
+      }
+    }
+
+    return count;
+  }
+
+  int get unavailableTrackCount {
+    return _tracks.length - playableTrackCount;
+  }
+
+  bool get hasUnavailableTracks {
+    return unavailableTrackCount > 0;
+  }
+
+  int get editionCount {
+    return _tracks.map((track) => track.albumEditionId).toSet().length;
+  }
+
+  bool get hasMultipleEditions {
+    return editionCount > 1;
+  }
+
+  List<String> get editionTitles {
+    final editionIds = <String>{};
+    final titles = <String>[];
+
+    for (final track in _tracks) {
+      if (!editionIds.add(track.albumEditionId)) {
+        continue;
+      }
+
+      final title = track.albumEditionTitle.trim();
+
+      if (title.isNotEmpty) {
+        titles.add(title);
+      }
+    }
+
+    return List<String>.unmodifiable(titles);
+  }
+
   Future<void> load() async {
     _isLoading = true;
     _error = null;
