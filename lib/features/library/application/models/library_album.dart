@@ -13,6 +13,8 @@ class LibraryAlbum {
     this.primaryEditionType,
     this.releaseDate,
     this.genre,
+    this.artworkId,
+    this.artworkPath,
   });
 
   final String albumId;
@@ -27,6 +29,9 @@ class LibraryAlbum {
 
   final DateTime? releaseDate;
   final String? genre;
+
+  final String? artworkId;
+  final String? artworkPath;
 
   final int trackCount;
   final DateTime dateAdded;

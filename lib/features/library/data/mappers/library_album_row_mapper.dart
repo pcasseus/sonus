@@ -24,6 +24,8 @@ abstract final class LibraryAlbumRowMapper {
           ? null
           : DateTime.parse(row['release_date'] as String),
       genre: row['genre'] as String?,
+      artworkId: row['artwork_id'] as String?,
+      artworkPath: row['artwork_path'] as String?,
       trackCount: row['track_count'] as int? ?? 0,
       dateAdded: DateTime.parse(row['created_at'] as String),
     );

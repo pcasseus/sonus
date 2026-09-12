@@ -42,6 +42,26 @@ class ArtistProfileController extends ChangeNotifier {
   List<LibraryAlbum> get albums => _albums;
   List<LibraryTrack> get tracks => _tracks;
 
+  String? get headerArtworkPath {
+    final path = _artist?.headerArtworkPath?.trim();
+
+    if (path == null || path.isEmpty) {
+      return null;
+    }
+
+    return path;
+  }
+
+  String? get topArtistsArtworkPath {
+    final topArtistsPath = _artist?.topArtistsArtworkPath?.trim();
+
+    if (topArtistsPath != null && topArtistsPath.isNotEmpty) {
+      return topArtistsPath;
+    }
+
+    return headerArtworkPath;
+  }
+
   bool get isLoading => _isLoading;
   bool get isShuffleEnabled => _isShuffleEnabled;
   Object? get error => _error;

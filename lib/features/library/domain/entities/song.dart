@@ -1,4 +1,6 @@
 class Song {
+  static const Object _unset = Object();
+
   const Song({
     required this.id,
     required this.artistId,
@@ -12,6 +14,7 @@ class Song {
     required this.createdAt,
     required this.updatedAt,
     this.featuredArtists = const [],
+    this.artworkId,
   });
 
   final String id;
@@ -24,6 +27,7 @@ class Song {
   final int durationSeconds;
   final bool isSingle;
   final List<String> featuredArtists;
+  final String? artworkId;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -38,6 +42,7 @@ class Song {
     int? durationSeconds,
     bool? isSingle,
     List<String>? featuredArtists,
+    Object? artworkId = _unset,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -52,6 +57,9 @@ class Song {
       durationSeconds: durationSeconds ?? this.durationSeconds,
       isSingle: isSingle ?? this.isSingle,
       featuredArtists: featuredArtists ?? this.featuredArtists,
+      artworkId: identical(artworkId, _unset)
+          ? this.artworkId
+          : artworkId as String?,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );

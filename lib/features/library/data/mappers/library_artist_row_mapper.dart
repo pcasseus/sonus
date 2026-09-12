@@ -8,6 +8,10 @@ abstract final class LibraryArtistRowMapper {
       albumCount: row['album_count'] as int? ?? 0,
       songCount: row['song_count'] as int? ?? 0,
       dateAdded: DateTime.parse(row['created_at'] as String),
+      headerArtworkId: row['header_artwork_id'] as String?,
+      headerArtworkPath: row['header_artwork_path'] as String?,
+      topArtistsArtworkId: row['top_artists_artwork_id'] as String?,
+      topArtistsArtworkPath: row['top_artists_artwork_path'] as String?,
     );
   }
 }

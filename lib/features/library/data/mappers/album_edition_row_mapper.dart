@@ -10,6 +10,7 @@ abstract final class AlbumEditionRowMapper {
       'is_primary': edition.isPrimary ? 1 : 0,
       'release_date': edition.releaseDate?.toUtc().toIso8601String(),
       'genre': edition.genre,
+      'artwork_id': edition.artworkId,
       'created_at': edition.createdAt.toUtc().toIso8601String(),
       'updated_at': edition.updatedAt.toUtc().toIso8601String(),
     };
@@ -29,6 +30,7 @@ abstract final class AlbumEditionRowMapper {
           ? null
           : DateTime.parse(row['release_date'] as String),
       genre: row['genre'] as String?,
+      artworkId: row['artwork_id'] as String?,
       createdAt: DateTime.parse(row['created_at'] as String),
       updatedAt: DateTime.parse(row['updated_at'] as String),
     );

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -8,8 +9,8 @@ import '../../application/models/library_album.dart';
 import '../../application/models/library_artist.dart';
 import '../../application/models/library_track.dart';
 import '../../application/repositories/library_query_repository.dart';
-import 'album_profile_page.dart';
 import '../controllers/artist_profile_controller.dart';
+import 'album_profile_page.dart';
 
 class ArtistProfilePage extends StatefulWidget {
   const ArtistProfilePage({
@@ -92,7 +93,10 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
                     physics: const AlwaysScrollableScrollPhysics(),
                     padding: const EdgeInsets.fromLTRB(16, 20, 16, 32),
                     children: [
-                      _ArtistHeader(artist: artist),
+                      _ArtistHeader(
+                        artist: artist,
+                        artworkPath: controller.headerArtworkPath,
+                      ),
                       const SizedBox(height: 20),
                       _PlaybackControls(controller: controller),
                       const SizedBox(height: 28),
@@ -125,21 +129,16 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
 }
 
 class _ArtistHeader extends StatelessWidget {
-  const _ArtistHeader({required this.artist});
+  const _ArtistHeader({required this.artist, required this.artworkPath});
 
   final LibraryArtist artist;
+  final String? artworkPath;
 
   @override
   Widget build(BuildContext context) {
     return Column(
       children: [
-        CircleAvatar(
-          radius: 52,
-          child: Text(
-            _initials(artist.name),
-            style: Theme.of(context).textTheme.headlineMedium,
-          ),
-        ),
+        _ArtistArtwork(artist: artist, artworkPath: artworkPath),
         const SizedBox(height: 16),
         Text(
           artist.name,
@@ -163,8 +162,57 @@ class _ArtistHeader extends StatelessWidget {
     final albumLabel = artist.albumCount == 1 ? 'album' : 'albums';
     final songLabel = artist.songCount == 1 ? 'song' : 'songs';
 
-    return '${artist.albumCount} $albumLabel \u2022 '
+    return '${artist.albumCount} $albumLabel • '
         '${artist.songCount} $songLabel';
+  }
+}
+
+class _ArtistArtwork extends StatelessWidget {
+  const _ArtistArtwork({required this.artist, required this.artworkPath});
+
+  final LibraryArtist artist;
+  final String? artworkPath;
+
+  @override
+  Widget build(BuildContext context) {
+    final path = artworkPath;
+
+    if (path == null) {
+      return _ArtistArtworkFallback(artistName: artist.name);
+    }
+
+    return ClipOval(
+      child: SizedBox(
+        key: ValueKey<String>('artist-profile-artwork-${artist.artistId}'),
+        width: 104,
+        height: 104,
+        child: Image.file(
+          File(path),
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) {
+            return _ArtistArtworkFallback(artistName: artist.name);
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _ArtistArtworkFallback extends StatelessWidget {
+  const _ArtistArtworkFallback({required this.artistName});
+
+  final String artistName;
+
+  @override
+  Widget build(BuildContext context) {
+    return CircleAvatar(
+      key: const ValueKey<String>('artist-profile-artwork-fallback'),
+      radius: 52,
+      child: Text(
+        _initials(artistName),
+        style: Theme.of(context).textTheme.headlineMedium,
+      ),
+    );
   }
 
   String _initials(String name) {
@@ -297,13 +345,7 @@ class _AlbumsGrid extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Expanded(
-                    child: Center(
-                      child: Icon(
-                        Icons.album_rounded,
-                        size: 52,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                    ),
+                    child: Center(child: _AlbumArtworkThumbnail(album: album)),
                   ),
                   Text(
                     album.title,
@@ -333,6 +375,45 @@ class _AlbumsGrid extends StatelessWidget {
     final trackLabel = album.trackCount == 1 ? 'track' : 'tracks';
 
     return '${album.trackCount} $trackLabel';
+  }
+}
+
+class _AlbumArtworkThumbnail extends StatelessWidget {
+  const _AlbumArtworkThumbnail({required this.album});
+
+  final LibraryAlbum album;
+
+  @override
+  Widget build(BuildContext context) {
+    final path = album.artworkPath?.trim();
+
+    if (path == null || path.isEmpty) {
+      return _fallback(context);
+    }
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: SizedBox(
+        key: ValueKey<String>('artist-album-artwork-${album.albumId}'),
+        width: 84,
+        height: 84,
+        child: Image.file(
+          File(path),
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) {
+            return _fallback(context);
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _fallback(BuildContext context) {
+    return Icon(
+      Icons.album_rounded,
+      size: 52,
+      color: Theme.of(context).colorScheme.primary,
+    );
   }
 }
 

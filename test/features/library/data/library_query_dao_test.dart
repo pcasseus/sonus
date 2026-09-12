@@ -2,6 +2,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:sonus_next/core/database/app_database.dart';
+import 'package:sonus_next/features/artwork/data/daos/artwork_asset_dao.dart';
+import 'package:sonus_next/features/artwork/domain/entities/artwork_asset.dart';
 import 'package:sonus_next/features/import/data/daos/media_file_binding_dao.dart';
 import 'package:sonus_next/features/import/domain/entities/media_file_binding.dart';
 import 'package:sonus_next/features/library/application/models/library_track_order.dart';
@@ -541,6 +543,146 @@ void main() {
     expect(albums, hasLength(1));
     expect(albums.single.albumId, secondAlbum.id);
   });
+
+  test('album projection exposes primary edition artwork', () async {
+    final fixture = await _createArtworkFixture(appDatabase);
+
+    final albums = await LibraryQueryDao(fixture.db).findAlbums();
+
+    expect(albums, hasLength(1));
+
+    final album = albums.single;
+
+    expect(album.albumId, fixture.album.id);
+    expect(album.artworkId, fixture.standardArtwork.id);
+    expect(album.artworkPath, fixture.standardArtwork.filePath);
+  });
+
+  test('album lookup exposes the same primary edition artwork', () async {
+    final fixture = await _createArtworkFixture(appDatabase);
+
+    final queryDao = LibraryQueryDao(fixture.db);
+
+    final listAlbum = (await queryDao.findAlbums()).single;
+    final directAlbum = await queryDao.findAlbumById(fixture.album.id);
+
+    expect(directAlbum, isNotNull);
+    expect(directAlbum?.artworkId, listAlbum.artworkId);
+    expect(directAlbum?.artworkPath, listAlbum.artworkPath);
+    expect(directAlbum?.artworkId, fixture.standardArtwork.id);
+    expect(directAlbum?.artworkPath, fixture.standardArtwork.filePath);
+  });
+
+  test('track projection falls back to album edition artwork', () async {
+    final fixture = await _createArtworkFixture(appDatabase);
+
+    final track = await LibraryQueryDao(
+      fixture.db,
+    ).findTrackById(fixture.betaSong.id);
+
+    expect(track, isNotNull);
+    expect(track?.artworkId, fixture.standardArtwork.id);
+    expect(track?.artworkPath, fixture.standardArtwork.filePath);
+  });
+
+  test('track-specific artwork overrides album edition artwork', () async {
+    final fixture = await _createArtworkFixture(appDatabase);
+
+    final track = await LibraryQueryDao(
+      fixture.db,
+    ).findTrackById(fixture.alphaSong.id);
+
+    expect(track, isNotNull);
+    expect(track?.artworkId, fixture.songArtwork.id);
+    expect(track?.artworkPath, fixture.songArtwork.filePath);
+  });
+
+  test('track projection remains null when no artwork exists', () async {
+    final fixture = await _createFixture(appDatabase);
+
+    final track = await LibraryQueryDao(
+      fixture.db,
+    ).findTrackById(fixture.betaSong.id);
+
+    expect(track, isNotNull);
+    expect(track?.artworkId, isNull);
+    expect(track?.artworkPath, isNull);
+  });
+
+  test('artist projection exposes header and Top Artists artwork', () async {
+    final fixture = await _createArtworkFixture(appDatabase);
+
+    final artists = await LibraryQueryDao(fixture.db).findArtists();
+
+    expect(artists, hasLength(1));
+
+    final artist = artists.single;
+
+    expect(artist.artistId, fixture.artist.id);
+
+    expect(artist.headerArtworkId, fixture.artistHeaderArtwork.id);
+    expect(artist.headerArtworkPath, fixture.artistHeaderArtwork.filePath);
+
+    expect(artist.topArtistsArtworkId, fixture.topArtistsArtwork.id);
+    expect(artist.topArtistsArtworkPath, fixture.topArtistsArtwork.filePath);
+  });
+
+  test('artist lookup preserves artwork projection', () async {
+    final fixture = await _createArtworkFixture(appDatabase);
+
+    final artist = await LibraryQueryDao(
+      fixture.db,
+    ).findArtistById(fixture.artist.id);
+
+    expect(artist, isNotNull);
+    expect(artist?.headerArtworkId, fixture.artistHeaderArtwork.id);
+    expect(artist?.headerArtworkPath, fixture.artistHeaderArtwork.filePath);
+    expect(artist?.topArtistsArtworkId, fixture.topArtistsArtwork.id);
+    expect(artist?.topArtistsArtworkPath, fixture.topArtistsArtwork.filePath);
+  });
+
+  test('artist projection remains null when no artwork exists', () async {
+    final fixture = await _createFixture(appDatabase);
+
+    final artist = await LibraryQueryDao(
+      fixture.db,
+    ).findArtistById(fixture.artist.id);
+
+    expect(artist, isNotNull);
+    expect(artist?.headerArtworkId, isNull);
+    expect(artist?.headerArtworkPath, isNull);
+    expect(artist?.topArtistsArtworkId, isNull);
+    expect(artist?.topArtistsArtworkPath, isNull);
+  });
+
+  test('deluxe track resolves deluxe edition artwork', () async {
+    final fixture = await _createArtworkFixture(appDatabase);
+
+    final deluxeSong = Song(
+      id: 'song_deluxe_artwork',
+      artistId: fixture.artist.id,
+      albumId: fixture.album.id,
+      albumEditionId: fixture.deluxeEdition.id,
+      title: 'Deluxe Artwork Track',
+      canonicalTitle: 'deluxe artwork track',
+      trackNumber: 4,
+      durationSeconds: 220,
+      isSingle: false,
+      featuredArtists: const [],
+      createdAt: DateTime.utc(2026, 9, 15),
+      updatedAt: DateTime.utc(2026, 9, 15),
+    );
+
+    await SongDao(fixture.db).insert(deluxeSong);
+
+    final track = await LibraryQueryDao(
+      fixture.db,
+    ).findTrackById(deluxeSong.id);
+
+    expect(track, isNotNull);
+    expect(track?.artworkId, fixture.deluxeArtwork.id);
+    expect(track?.artworkPath, fixture.deluxeArtwork.filePath);
+  });
 }
 
 Future<_QueryFixture> _createFixture(AppDatabase appDatabase) async {
@@ -672,6 +814,196 @@ Future<_QueryFixture> _createFixture(AppDatabase appDatabase) async {
   );
 }
 
+Future<_ArtworkQueryFixture> _createArtworkFixture(
+  AppDatabase appDatabase,
+) async {
+  final db = await appDatabase.database;
+
+  final artworkDao = ArtworkAssetDao(db);
+  final artistDao = ArtistDao(db);
+  final albumDao = AlbumDao(db);
+  final editionDao = AlbumEditionDao(db);
+  final songDao = SongDao(db);
+  final bindingDao = MediaFileBindingDao(db);
+
+  final createdAt = DateTime.utc(2026, 9, 10, 7);
+
+  final artistHeaderArtwork = ArtworkAsset(
+    id: 'artwork_artist_header',
+    filePath: r'C:\Artwork\Query Artist\header.jpg',
+    normalizedPath: 'c:/artwork/query artist/header.jpg',
+    createdAt: createdAt,
+    updatedAt: createdAt,
+  );
+
+  final topArtistsArtwork = ArtworkAsset(
+    id: 'artwork_top_artists',
+    filePath: r'C:\Artwork\Query Artist\top-artists.jpg',
+    normalizedPath: 'c:/artwork/query artist/top-artists.jpg',
+    createdAt: createdAt,
+    updatedAt: createdAt,
+  );
+
+  final standardArtwork = ArtworkAsset(
+    id: 'artwork_standard',
+    filePath: r'C:\Artwork\Query Album\standard.jpg',
+    normalizedPath: 'c:/artwork/query album/standard.jpg',
+    createdAt: createdAt,
+    updatedAt: createdAt,
+  );
+
+  final deluxeArtwork = ArtworkAsset(
+    id: 'artwork_deluxe',
+    filePath: r'C:\Artwork\Query Album\deluxe.jpg',
+    normalizedPath: 'c:/artwork/query album/deluxe.jpg',
+    createdAt: createdAt,
+    updatedAt: createdAt,
+  );
+
+  final songArtwork = ArtworkAsset(
+    id: 'artwork_song_alpha',
+    filePath: r'C:\Artwork\Query Album\alpha.jpg',
+    normalizedPath: 'c:/artwork/query album/alpha.jpg',
+    createdAt: createdAt,
+    updatedAt: createdAt,
+  );
+
+  await artworkDao.insert(artistHeaderArtwork);
+  await artworkDao.insert(topArtistsArtwork);
+  await artworkDao.insert(standardArtwork);
+  await artworkDao.insert(deluxeArtwork);
+  await artworkDao.insert(songArtwork);
+
+  final artist = Artist(
+    id: 'artist_query',
+    name: 'Query Artist',
+    canonicalName: 'query artist',
+    headerArtworkId: artistHeaderArtwork.id,
+    topArtistsArtworkId: topArtistsArtwork.id,
+    createdAt: DateTime.utc(2026, 9, 10, 8),
+    updatedAt: DateTime.utc(2026, 9, 10, 8),
+  );
+
+  final album = Album(
+    id: 'album_query',
+    artistId: artist.id,
+    title: 'Query Album',
+    canonicalTitle: 'query album',
+    createdAt: DateTime.utc(2026, 9, 10, 9),
+    updatedAt: DateTime.utc(2026, 9, 10, 9),
+  );
+
+  final standardEdition = AlbumEdition(
+    id: 'edition_standard',
+    albumId: album.id,
+    title: 'Query Album',
+    type: AlbumEditionType.standard,
+    isPrimary: true,
+    releaseDate: DateTime.utc(2026, 1, 15),
+    genre: 'Pop',
+    artworkId: standardArtwork.id,
+    createdAt: DateTime.utc(2026, 9, 10, 9),
+    updatedAt: DateTime.utc(2026, 9, 10, 9),
+  );
+
+  final deluxeEdition = AlbumEdition(
+    id: 'edition_deluxe',
+    albumId: album.id,
+    title: 'Query Album Deluxe',
+    type: AlbumEditionType.deluxe,
+    isPrimary: false,
+    releaseDate: DateTime.utc(2026, 6, 20),
+    genre: 'Pop',
+    artworkId: deluxeArtwork.id,
+    createdAt: DateTime.utc(2026, 9, 10, 10),
+    updatedAt: DateTime.utc(2026, 9, 10, 10),
+  );
+
+  final alphaSong = Song(
+    id: 'song_alpha',
+    artistId: artist.id,
+    albumId: album.id,
+    albumEditionId: standardEdition.id,
+    title: 'Alpha Track',
+    canonicalTitle: 'alpha track',
+    trackNumber: 1,
+    durationSeconds: 181,
+    isSingle: false,
+    featuredArtists: const ['Featured Artist'],
+    artworkId: songArtwork.id,
+    createdAt: DateTime.utc(2026, 9, 10, 11),
+    updatedAt: DateTime.utc(2026, 9, 10, 11),
+  );
+
+  final betaSong = Song(
+    id: 'song_beta',
+    artistId: artist.id,
+    albumId: album.id,
+    albumEditionId: standardEdition.id,
+    title: 'Beta Track',
+    canonicalTitle: 'beta track',
+    trackNumber: 2,
+    durationSeconds: 182,
+    isSingle: true,
+    featuredArtists: const [],
+    createdAt: DateTime.utc(2026, 9, 11, 11),
+    updatedAt: DateTime.utc(2026, 9, 11, 11),
+  );
+
+  final zuluSong = Song(
+    id: 'song_zulu',
+    artistId: artist.id,
+    albumId: album.id,
+    albumEditionId: standardEdition.id,
+    title: 'Zulu Track',
+    canonicalTitle: 'zulu track',
+    trackNumber: 3,
+    durationSeconds: 183,
+    isSingle: false,
+    featuredArtists: const [],
+    createdAt: DateTime.utc(2026, 9, 12, 11),
+    updatedAt: DateTime.utc(2026, 9, 12, 11),
+  );
+
+  await artistDao.insert(artist);
+  await albumDao.insert(album);
+  await editionDao.insert(standardEdition);
+  await editionDao.insert(deluxeEdition);
+
+  await songDao.insert(alphaSong);
+  await songDao.insert(betaSong);
+  await songDao.insert(zuluSong);
+
+  await bindingDao.insert(
+    MediaFileBinding(
+      id: 'media_alpha',
+      songId: alphaSong.id,
+      filePath: r'C:\Music\Query Artist\Query Album\Alpha.mp3',
+      normalizedPath: 'c:/music/query artist/query album/alpha.mp3',
+      isAvailable: true,
+      lastSeenAt: DateTime.utc(2026, 9, 10, 12),
+      createdAt: DateTime.utc(2026, 9, 10, 12),
+      updatedAt: DateTime.utc(2026, 9, 10, 12),
+    ),
+  );
+
+  return _ArtworkQueryFixture(
+    db: db,
+    artist: artist,
+    album: album,
+    standardEdition: standardEdition,
+    deluxeEdition: deluxeEdition,
+    alphaSong: alphaSong,
+    betaSong: betaSong,
+    zuluSong: zuluSong,
+    artistHeaderArtwork: artistHeaderArtwork,
+    topArtistsArtwork: topArtistsArtwork,
+    standardArtwork: standardArtwork,
+    deluxeArtwork: deluxeArtwork,
+    songArtwork: songArtwork,
+  );
+}
+
 class _QueryFixture {
   const _QueryFixture({
     required this.db,
@@ -695,4 +1027,40 @@ class _QueryFixture {
   final Song alphaSong;
   final Song betaSong;
   final Song zuluSong;
+}
+
+class _ArtworkQueryFixture {
+  const _ArtworkQueryFixture({
+    required this.db,
+    required this.artist,
+    required this.album,
+    required this.standardEdition,
+    required this.deluxeEdition,
+    required this.alphaSong,
+    required this.betaSong,
+    required this.zuluSong,
+    required this.artistHeaderArtwork,
+    required this.topArtistsArtwork,
+    required this.standardArtwork,
+    required this.deluxeArtwork,
+    required this.songArtwork,
+  });
+
+  final Database db;
+
+  final Artist artist;
+  final Album album;
+
+  final AlbumEdition standardEdition;
+  final AlbumEdition deluxeEdition;
+
+  final Song alphaSong;
+  final Song betaSong;
+  final Song zuluSong;
+
+  final ArtworkAsset artistHeaderArtwork;
+  final ArtworkAsset topArtistsArtwork;
+  final ArtworkAsset standardArtwork;
+  final ArtworkAsset deluxeArtwork;
+  final ArtworkAsset songArtwork;
 }
