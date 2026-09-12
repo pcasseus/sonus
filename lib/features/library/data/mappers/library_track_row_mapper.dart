@@ -28,6 +28,8 @@ abstract final class LibraryTrackRowMapper {
       albumEditionType: editionType,
       trackNumber: row['track_number'] as int? ?? 0,
       durationSeconds: row['duration_seconds'] as int? ?? 0,
+      artworkId: row['artwork_id'] as String?,
+      artworkPath: row['artwork_path'] as String?,
       isSingle: (row['is_single'] as int? ?? 0) == 1,
       featuredArtists: List<String>.unmodifiable(
         (decodedFeaturedArtists as List<dynamic>).cast<String>(),

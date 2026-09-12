@@ -20,6 +20,7 @@ class AlbumEdition {
     required this.updatedAt,
     this.releaseDate,
     this.genre,
+    this.artworkId,
   });
 
   final String id;
@@ -29,6 +30,7 @@ class AlbumEdition {
   final bool isPrimary;
   final DateTime? releaseDate;
   final String? genre;
+  final String? artworkId;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -40,6 +42,7 @@ class AlbumEdition {
     bool? isPrimary,
     Object? releaseDate = _unset,
     Object? genre = _unset,
+    Object? artworkId = _unset,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -53,6 +56,9 @@ class AlbumEdition {
           ? this.releaseDate
           : releaseDate as DateTime?,
       genre: identical(genre, _unset) ? this.genre : genre as String?,
+      artworkId: identical(artworkId, _unset)
+          ? this.artworkId
+          : artworkId as String?,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );

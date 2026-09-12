@@ -37,6 +37,7 @@ void main() {
     expect(names, contains(DatabaseTables.songs));
     expect(names, contains(DatabaseTables.mediaFileBindings));
     expect(names, contains(DatabaseTables.importBatches));
+    expect(names, contains(DatabaseTables.artworkAssets));
   });
 
   test('enables foreign key enforcement', () async {
@@ -127,7 +128,7 @@ void main() {
     expect(bindingColumnNames, contains('normalized_path'));
   });
 
-  test('core foreign keys use restrictive deletion', () async {
+  test('core ownership foreign keys remain restrictive', () async {
     final db = await appDatabase.database;
 
     final albumKeys = await db.rawQuery(
@@ -147,6 +148,40 @@ void main() {
       isTrue,
     );
 
-    expect(songKeys.every((row) => row['on_delete'] == 'RESTRICT'), isTrue);
+    expect(
+      songKeys.any(
+        (row) =>
+            row['table'] == DatabaseTables.artists &&
+            row['on_delete'] == 'RESTRICT',
+      ),
+      isTrue,
+    );
+
+    expect(
+      songKeys.any(
+        (row) =>
+            row['table'] == DatabaseTables.albums &&
+            row['on_delete'] == 'RESTRICT',
+      ),
+      isTrue,
+    );
+
+    expect(
+      songKeys.any(
+        (row) =>
+            row['table'] == DatabaseTables.albumEditions &&
+            row['on_delete'] == 'RESTRICT',
+      ),
+      isTrue,
+    );
+
+    expect(
+      songKeys.any(
+        (row) =>
+            row['table'] == DatabaseTables.artworkAssets &&
+            row['on_delete'] == 'SET NULL',
+      ),
+      isTrue,
+    );
   });
 }

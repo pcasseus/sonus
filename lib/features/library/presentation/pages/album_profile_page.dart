@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -90,7 +91,11 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
                     physics: const AlwaysScrollableScrollPhysics(),
                     padding: const EdgeInsets.fromLTRB(16, 20, 16, 32),
                     children: [
-                      _AlbumHeader(album: album, controller: controller),
+                      _AlbumHeader(
+                        album: album,
+                        controller: controller,
+                        artworkPath: controller.artworkPath,
+                      ),
                       const SizedBox(height: 20),
                       _PlaybackControls(controller: controller),
                       const SizedBox(height: 28),
@@ -116,10 +121,15 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
 }
 
 class _AlbumHeader extends StatelessWidget {
-  const _AlbumHeader({required this.album, required this.controller});
+  const _AlbumHeader({
+    required this.album,
+    required this.controller,
+    required this.artworkPath,
+  });
 
   final LibraryAlbum album;
   final AlbumProfileController controller;
+  final String? artworkPath;
 
   @override
   Widget build(BuildContext context) {
@@ -128,19 +138,7 @@ class _AlbumHeader extends StatelessWidget {
 
     return Column(
       children: [
-        Container(
-          width: 156,
-          height: 156,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(20),
-            color: theme.colorScheme.surfaceContainerHighest,
-          ),
-          child: Icon(
-            Icons.album_rounded,
-            size: 82,
-            color: theme.colorScheme.primary,
-          ),
-        ),
+        _AlbumArtwork(album: album, artworkPath: artworkPath),
         const SizedBox(height: 18),
         Text(
           album.title,
@@ -264,6 +262,51 @@ class _AlbumHeader extends StatelessWidget {
     ];
 
     return '${months[date.month - 1]} ${date.day}, ${date.year}';
+  }
+}
+
+class _AlbumArtwork extends StatelessWidget {
+  const _AlbumArtwork({required this.album, required this.artworkPath});
+
+  final LibraryAlbum album;
+  final String? artworkPath;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final path = artworkPath;
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(20),
+      child: SizedBox(
+        key: ValueKey<String>('album-profile-artwork-${album.albumId}'),
+        width: 156,
+        height: 156,
+        child: path == null
+            ? _fallback(theme)
+            : Image.file(
+                File(path),
+                fit: BoxFit.cover,
+                errorBuilder: (context, error, stackTrace) {
+                  return _fallback(theme);
+                },
+              ),
+      ),
+    );
+  }
+
+  Widget _fallback(ThemeData theme) {
+    return ColoredBox(
+      key: const ValueKey<String>('album-profile-artwork-fallback'),
+      color: theme.colorScheme.surfaceContainerHighest,
+      child: Center(
+        child: Icon(
+          Icons.album_rounded,
+          size: 82,
+          color: theme.colorScheme.primary,
+        ),
+      ),
+    );
   }
 }
 

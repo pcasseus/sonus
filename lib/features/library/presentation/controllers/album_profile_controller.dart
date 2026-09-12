@@ -40,6 +40,16 @@ class AlbumProfileController extends ChangeNotifier {
 
   List<LibraryTrack> get tracks => _tracks;
 
+  String? get artworkPath {
+    final path = _album?.artworkPath?.trim();
+
+    if (path == null || path.isEmpty) {
+      return null;
+    }
+
+    return path;
+  }
+
   bool get isLoading => _isLoading;
 
   bool get isShuffleEnabled => _isShuffleEnabled;

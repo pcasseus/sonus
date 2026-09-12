@@ -1,6 +1,7 @@
 import 'package:sqflite/sqflite.dart';
-
+import 'schema/library_schema.dart';
 import 'schema/import_schema.dart';
+import 'database_tables.dart';
 
 abstract final class DatabaseMigrations {
   static Future<void> migrate(
@@ -30,6 +31,59 @@ abstract final class DatabaseMigrations {
 
       case 2:
         await ImportSchema.createImportBatches(db);
+        return;
+
+      case 3:
+        await LibrarySchema.createArtworkAssets(db);
+
+        await db.execute(
+          'ALTER TABLE ${DatabaseTables.artists} '
+          'ADD COLUMN header_artwork_id TEXT '
+          'REFERENCES ${DatabaseTables.artworkAssets}(id) '
+          'ON UPDATE CASCADE ON DELETE SET NULL',
+        );
+
+        await db.execute(
+          'ALTER TABLE ${DatabaseTables.artists} '
+          'ADD COLUMN top_artists_artwork_id TEXT '
+          'REFERENCES ${DatabaseTables.artworkAssets}(id) '
+          'ON UPDATE CASCADE ON DELETE SET NULL',
+        );
+
+        await db.execute(
+          'ALTER TABLE ${DatabaseTables.albumEditions} '
+          'ADD COLUMN artwork_id TEXT '
+          'REFERENCES ${DatabaseTables.artworkAssets}(id) '
+          'ON UPDATE CASCADE ON DELETE SET NULL',
+        );
+
+        await db.execute(
+          'ALTER TABLE ${DatabaseTables.songs} '
+          'ADD COLUMN artwork_id TEXT '
+          'REFERENCES ${DatabaseTables.artworkAssets}(id) '
+          'ON UPDATE CASCADE ON DELETE SET NULL',
+        );
+
+        await db.execute('''
+    CREATE INDEX idx_artists_header_artwork_id
+    ON ${DatabaseTables.artists}(header_artwork_id)
+  ''');
+
+        await db.execute('''
+    CREATE INDEX idx_artists_top_artists_artwork_id
+    ON ${DatabaseTables.artists}(top_artists_artwork_id)
+  ''');
+
+        await db.execute('''
+    CREATE INDEX idx_album_editions_artwork_id
+    ON ${DatabaseTables.albumEditions}(artwork_id)
+  ''');
+
+        await db.execute('''
+    CREATE INDEX idx_songs_artwork_id
+    ON ${DatabaseTables.songs}(artwork_id)
+  ''');
+
         return;
 
       default:

@@ -5,4 +5,5 @@ abstract final class DatabaseTables {
   static const String songs = 'songs';
   static const String mediaFileBindings = 'media_file_bindings';
   static const String importBatches = 'import_batches';
+  static const String artworkAssets = 'artwork_assets';
 }

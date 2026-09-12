@@ -18,6 +18,8 @@ class LibraryTrack {
     required this.dateAdded,
     required this.isAvailable,
     this.filePath,
+    this.artworkId,
+    this.artworkPath,
   });
 
   final String songId;
@@ -42,4 +44,7 @@ class LibraryTrack {
 
   final String? filePath;
   final bool isAvailable;
+
+  final String? artworkId;
+  final String? artworkPath;
 }
