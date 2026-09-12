@@ -11,7 +11,7 @@ class AppDatabase {
       _databasePathOverride = databasePath;
 
   static const String databaseName = 'sonus_next.db';
-  static const int databaseVersion = 2;
+  static const int databaseVersion = 3;
 
   final sqflite.DatabaseFactory _databaseFactory;
   final String? _databasePathOverride;
