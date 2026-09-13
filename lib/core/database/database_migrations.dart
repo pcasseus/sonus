@@ -1,7 +1,9 @@
 import 'package:sqflite/sqflite.dart';
-import 'schema/library_schema.dart';
-import 'schema/import_schema.dart';
+
 import 'database_tables.dart';
+import 'schema/import_schema.dart';
+import 'schema/library_schema.dart';
+import 'schema/sync_schema.dart';
 
 abstract final class DatabaseMigrations {
   static Future<void> migrate(
@@ -84,6 +86,10 @@ abstract final class DatabaseMigrations {
     ON ${DatabaseTables.songs}(artwork_id)
   ''');
 
+        return;
+
+      case 4:
+        await SyncSchema.create(db);
         return;
 
       default:

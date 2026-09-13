@@ -17,6 +17,8 @@ import 'package:sonus_next/features/library/domain/entities/album.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/domain/entities/artist.dart';
 import 'package:sonus_next/features/library/domain/entities/song.dart';
+import 'package:sonus_next/features/sync/data/daos/local_sync_dao.dart';
+import 'package:sonus_next/features/sync/domain/models/sync_data_contract.dart';
 
 void main() {
   sqfliteFfiInit();
@@ -575,4 +577,118 @@ void main() {
       expect(bindings.every((binding) => !binding.isAvailable), isTrue);
     },
   );
+
+  test('signed-in import records newly created cloud entities', () async {
+    final signedInImporter = AtomicLibraryImporter(
+      appDatabase: appDatabase,
+      userId: 'user_1',
+    );
+
+    final result = await signedInImporter.import(
+      candidate: candidate(),
+      metadata: metadata(),
+      now: now,
+    );
+
+    expect(result.status, ImportResultStatus.imported);
+
+    final db = await appDatabase.database;
+    final pending = await LocalSyncDao(db).findPending('user_1');
+
+    expect(pending, hasLength(4));
+    expect(pending.map((entry) => entry.entityType).toSet(), {
+      CloudDataEntity.artist,
+      CloudDataEntity.album,
+      CloudDataEntity.albumEdition,
+      CloudDataEntity.song,
+    });
+  });
+
+  test(
+    'signed-in import queues only newly created entities when hierarchy exists',
+    () async {
+      final db = await appDatabase.database;
+
+      final existingArtist = Artist(
+        id: 'artist_existing_sync',
+        name: 'Artist Name',
+        canonicalName: 'artist name',
+        createdAt: now,
+        updatedAt: now,
+      );
+
+      final existingAlbum = Album(
+        id: 'album_existing_sync',
+        artistId: existingArtist.id,
+        title: 'Album Name',
+        canonicalTitle: 'album name',
+        createdAt: now,
+        updatedAt: now,
+      );
+
+      final existingEdition = AlbumEdition(
+        id: 'edition_existing_sync',
+        albumId: existingAlbum.id,
+        title: 'Album Name',
+        type: AlbumEditionType.standard,
+        isPrimary: true,
+        createdAt: now,
+        updatedAt: now,
+      );
+
+      await ArtistDao(db).insert(existingArtist);
+      await AlbumDao(db).insert(existingAlbum);
+      await AlbumEditionDao(db).insert(existingEdition);
+
+      final signedInImporter = AtomicLibraryImporter(
+        appDatabase: appDatabase,
+        userId: 'user_1',
+      );
+
+      final result = await signedInImporter.import(
+        candidate: candidate(
+          filePath: r'C:\Music\Artist Name\Album Name\02 Second Song.mp3',
+        ),
+        metadata: metadata(title: 'Second Song'),
+        now: now,
+      );
+
+      expect(result.status, ImportResultStatus.imported);
+      expect(result.songId, isNotNull);
+
+      final pending = await LocalSyncDao(db).findPending('user_1');
+
+      expect(pending, hasLength(1));
+      expect(pending.single.entityType, CloudDataEntity.song);
+      expect(pending.single.entityId, result.songId);
+
+      expect(
+        pending.any((entry) => entry.entityType == CloudDataEntity.artist),
+        isFalse,
+      );
+      expect(
+        pending.any((entry) => entry.entityType == CloudDataEntity.album),
+        isFalse,
+      );
+      expect(
+        pending.any(
+          (entry) => entry.entityType == CloudDataEntity.albumEdition,
+        ),
+        isFalse,
+      );
+    },
+  );
+  test('local-only import does not create sync outbox entries', () async {
+    final result = await importer.import(
+      candidate: candidate(),
+      metadata: metadata(),
+      now: now,
+    );
+
+    expect(result.status, ImportResultStatus.imported);
+
+    final db = await appDatabase.database;
+
+    expect(await LocalSyncDao(db).findPending('user_1'), isEmpty);
+  });
 }
