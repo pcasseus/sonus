@@ -12,6 +12,7 @@ import '../../../artwork/data/services/file_system_artwork_managed_storage.dart'
 import '../../../artwork/presentation/services/file_picker_artwork_file_picker.dart';
 import '../../../sync/data/repositories/sync_mutation_transaction_runner.dart';
 import '../../application/repositories/library_query_repository.dart';
+import '../../application/services/album_profile_editing_service.dart';
 import '../../application/services/artist_profile_editing_service.dart';
 import '../../data/daos/album_edition_dao.dart';
 import '../../data/daos/artist_dao.dart';
@@ -38,6 +39,7 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
 
   LibraryQueryRepository? _repository;
   ArtworkAssignmentService? _artworkAssignmentService;
+  AlbumProfileEditingService? _albumProfileEditingService;
   ArtistProfileEditingService? _artistProfileEditingService;
 
   @override
@@ -69,6 +71,10 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
       artworkManagedStorage: FileSystemArtworkManagedStorage(),
     );
 
+    final albumProfileEditingService = AlbumProfileEditingService(
+      mutationRunner: SyncMutationTransactionRunner(appDatabase: _database),
+    );
+
     final artistProfileEditingService = ArtistProfileEditingService(
       mutationRunner: SyncMutationTransactionRunner(appDatabase: _database),
     );
@@ -80,6 +86,7 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
     setState(() {
       _repository = libraryQueryRepository;
       _artworkAssignmentService = artworkAssignmentService;
+      _albumProfileEditingService = albumProfileEditingService;
       _artistProfileEditingService = artistProfileEditingService;
     });
   }
@@ -91,6 +98,9 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
         Provider<LibraryQueryRepository?>.value(value: _repository),
         Provider<ArtworkAssignmentService?>.value(
           value: _artworkAssignmentService,
+        ),
+        Provider<AlbumProfileEditingService?>.value(
+          value: _albumProfileEditingService,
         ),
         Provider<ArtistProfileEditingService?>.value(
           value: _artistProfileEditingService,

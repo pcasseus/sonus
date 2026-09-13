@@ -2,8 +2,14 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sonus_next/features/account/domain/entities/account_user.dart';
+import 'package:sonus_next/features/account/presentation/scopes/account_scope.dart';
+import 'package:sonus_next/features/account/domain/repositories/account_repository.dart';
 import 'package:provider/provider.dart';
 
+import 'package:sonus_next/features/library/application/services/album_profile_editing_service.dart';
+import 'package:sonus_next/features/library/domain/entities/album.dart';
+import 'package:sonus_next/features/sync/application/services/sync_mutation_runner.dart';
 import 'package:sonus_next/features/library/application/models/library_album.dart';
 import 'package:sonus_next/features/library/application/models/library_artist.dart';
 import 'package:sonus_next/features/library/application/models/library_track.dart';
@@ -238,6 +244,260 @@ void main() {
       expect(find.text('Recovered Album'), findsWidgets);
     });
 
+    testWidgets('signed-in user can edit album details', (tester) async {
+      var currentAlbum = createAlbum(
+        title: 'Test Album',
+        primaryEditionTitle: 'Standard',
+        primaryEditionType: AlbumEditionType.standard,
+        releaseDate: DateTime(2024, 5, 17),
+        genre: 'Pop',
+      );
+
+      final repository = FakeLibraryQueryRepository(
+        albumLoader: (_) async => currentAlbum,
+      );
+
+      final editingService = FakeAlbumProfileEditingService(
+        onUpdate:
+            ({
+              required userId,
+              required albumId,
+              required primaryEditionId,
+              required title,
+              required editionTitle,
+              required editionType,
+              required releaseDate,
+              required genre,
+            }) async {
+              currentAlbum = createAlbum(
+                albumId: albumId,
+                title: title.trim(),
+                primaryEditionId: primaryEditionId,
+                primaryEditionTitle: editionTitle.trim(),
+                primaryEditionType: editionType,
+                releaseDate: releaseDate,
+                genre: genre,
+              );
+            },
+      );
+
+      await tester.pumpWidget(
+        buildSubject(
+          repository: repository,
+          accountRepository: FakeAccountRepository(
+            currentUser: const AccountUser(id: 'user-1'),
+          ),
+          albumProfileEditingService: editingService,
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('album-profile-artwork-menu')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Edit album details'), findsOneWidget);
+
+      await tester.tap(find.text('Edit album details'));
+      await tester.pumpAndSettle();
+
+      final titleField = find.byKey(
+        const ValueKey<String>('album-title-field'),
+      );
+      final editionTitleField = find.byKey(
+        const ValueKey<String>('album-edition-title-field'),
+      );
+      final releaseDateField = find.byKey(
+        const ValueKey<String>('album-release-date-field'),
+      );
+      final genreField = find.byKey(
+        const ValueKey<String>('album-genre-field'),
+      );
+
+      expect(
+        tester.widget<TextFormField>(titleField).controller?.text,
+        'Test Album',
+      );
+      expect(
+        tester.widget<TextFormField>(editionTitleField).controller?.text,
+        'Standard',
+      );
+      expect(
+        tester.widget<TextFormField>(releaseDateField).controller?.text,
+        '2024-05-17',
+      );
+      expect(tester.widget<TextFormField>(genreField).controller?.text, 'Pop');
+
+      await tester.enterText(titleField, 'Renamed Album');
+      await tester.enterText(editionTitleField, 'Deluxe Edition');
+      await tester.enterText(releaseDateField, '2025-06-20');
+      await tester.enterText(genreField, 'Alternative');
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('album-edition-type-field')),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Deluxe').last);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      expect(editingService.updateCallCount, 1);
+      expect(editingService.lastUserId, 'user-1');
+      expect(editingService.lastAlbumId, 'album-1');
+      expect(editingService.lastPrimaryEditionId, 'edition-1');
+      expect(editingService.lastTitle, 'Renamed Album');
+      expect(editingService.lastEditionTitle, 'Deluxe Edition');
+      expect(editingService.lastEditionType, AlbumEditionType.deluxe);
+      expect(editingService.lastReleaseDate, DateTime(2025, 6, 20));
+      expect(editingService.lastGenre, 'Alternative');
+
+      expect(find.text('Renamed Album'), findsWidgets);
+      expect(find.text('Album details updated.'), findsOneWidget);
+    });
+
+    testWidgets('album edit validates required fields and release date', (
+      tester,
+    ) async {
+      final editingService = FakeAlbumProfileEditingService();
+
+      await tester.pumpWidget(
+        buildSubject(
+          repository: FakeLibraryQueryRepository(
+            album: createAlbum(primaryEditionTitle: 'Standard'),
+          ),
+          accountRepository: FakeAccountRepository(
+            currentUser: const AccountUser(id: 'user-1'),
+          ),
+          albumProfileEditingService: editingService,
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('album-profile-artwork-menu')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Edit album details'));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('album-title-field')),
+        '   ',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('album-edition-title-field')),
+        '',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('album-release-date-field')),
+        '2026-02-31',
+      );
+
+      await tester.tap(find.text('Save'));
+      await tester.pump();
+
+      expect(find.text('Album title cannot be blank.'), findsOneWidget);
+      expect(find.text('Edition title cannot be blank.'), findsOneWidget);
+      expect(find.text('Use YYYY-MM-DD.'), findsOneWidget);
+      expect(editingService.updateCallCount, 0);
+    });
+
+    testWidgets('album edit can clear release date and genre', (tester) async {
+      final editingService = FakeAlbumProfileEditingService();
+
+      await tester.pumpWidget(
+        buildSubject(
+          repository: FakeLibraryQueryRepository(
+            album: createAlbum(
+              primaryEditionTitle: 'Standard',
+              releaseDate: DateTime(2024, 5, 17),
+              genre: 'Pop',
+            ),
+          ),
+          accountRepository: FakeAccountRepository(
+            currentUser: const AccountUser(id: 'user-1'),
+          ),
+          albumProfileEditingService: editingService,
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('album-profile-artwork-menu')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Edit album details'));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('album-release-date-field')),
+        '',
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('album-genre-field')),
+        '',
+      );
+
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      expect(editingService.updateCallCount, 1);
+      expect(editingService.lastReleaseDate, isNull);
+      expect(editingService.lastGenre, isNull);
+    });
+
+    testWidgets('signed-out user cannot edit album details', (tester) async {
+      final editingService = FakeAlbumProfileEditingService();
+
+      await tester.pumpWidget(
+        buildSubject(
+          repository: FakeLibraryQueryRepository(
+            album: createAlbum(primaryEditionTitle: 'Standard'),
+          ),
+          accountRepository: FakeAccountRepository(),
+          albumProfileEditingService: editingService,
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      final menu = tester.widget<PopupMenuButton>(
+        find.byKey(const ValueKey<String>('album-profile-artwork-menu')),
+      );
+
+      expect(menu.enabled, isFalse);
+      expect(editingService.updateCallCount, 0);
+    });
+
+    testWidgets('album editing remains unavailable without editing service', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        buildSubject(
+          repository: FakeLibraryQueryRepository(
+            album: createAlbum(primaryEditionTitle: 'Standard'),
+          ),
+          accountRepository: FakeAccountRepository(
+            currentUser: const AccountUser(id: 'user-1'),
+          ),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      final menu = tester.widget<PopupMenuButton>(
+        find.byKey(const ValueKey<String>('album-profile-artwork-menu')),
+      );
+
+      expect(menu.enabled, isFalse);
+    });
     testWidgets('play button plays album tracks', (tester) async {
       final repository = FakeLibraryQueryRepository(
         album: createAlbum(),
@@ -444,15 +704,23 @@ void main() {
 Widget buildSubject({
   required LibraryQueryRepository? repository,
   PlaybackCoordinator? playbackCoordinator,
+  AccountRepository? accountRepository,
+  AlbumProfileEditingService? albumProfileEditingService,
 }) {
   return Provider<LibraryQueryRepository?>.value(
     value: repository,
     child: Provider<PlaybackCoordinator?>.value(
       value: playbackCoordinator,
-      child: const MaterialApp(
-        home: AlbumProfilePage(
-          albumId: 'album-1',
-          initialAlbumTitle: 'Test Album',
+      child: Provider<AlbumProfileEditingService?>.value(
+        value: albumProfileEditingService,
+        child: AccountScope(
+          repository: accountRepository,
+          child: const MaterialApp(
+            home: AlbumProfilePage(
+              albumId: 'album-1',
+              initialAlbumTitle: 'Test Album',
+            ),
+          ),
         ),
       ),
     ),
@@ -465,18 +733,20 @@ LibraryAlbum createAlbum({
   String artistId = 'artist-1',
   String artistName = 'Test Artist',
   int trackCount = 2,
+  String primaryEditionId = 'edition-1',
+  String? primaryEditionTitle,
+  AlbumEditionType primaryEditionType = AlbumEditionType.standard,
   DateTime? releaseDate,
   String? genre,
-  String? primaryEditionTitle,
 }) {
   return LibraryAlbum(
     albumId: albumId,
     title: title,
     artistId: artistId,
     artistName: artistName,
-    primaryEditionId: 'edition-1',
+    primaryEditionId: primaryEditionId,
     primaryEditionTitle: primaryEditionTitle,
-    primaryEditionType: AlbumEditionType.values.first,
+    primaryEditionType: primaryEditionType,
     releaseDate: releaseDate,
     genre: genre,
     trackCount: trackCount,
@@ -604,6 +874,130 @@ class FakeLibraryQueryRepository implements LibraryQueryRepository {
   @override
   Future<LibraryArtist?> getArtistById(String artistId) async {
     return null;
+  }
+}
+
+class FakeAccountRepository implements AccountRepository {
+  FakeAccountRepository({this.currentUser});
+
+  @override
+  AccountUser? currentUser;
+
+  final StreamController<AccountUser?> _authStateController =
+      StreamController<AccountUser?>.broadcast();
+
+  @override
+  Stream<AccountUser?> watchAuthState() {
+    return _authStateController.stream;
+  }
+
+  @override
+  Future<AccountUser?> signInWithGoogle() async {
+    return currentUser;
+  }
+
+  @override
+  Future<void> signOut() async {
+    currentUser = null;
+    _authStateController.add(null);
+  }
+}
+
+typedef FakeAlbumProfileUpdateCallback =
+    Future<void> Function({
+      required String userId,
+      required String albumId,
+      required String primaryEditionId,
+      required String title,
+      required String editionTitle,
+      required AlbumEditionType editionType,
+      required DateTime? releaseDate,
+      required String? genre,
+    });
+
+class FakeAlbumProfileEditingService extends AlbumProfileEditingService {
+  FakeAlbumProfileEditingService({this.onUpdate})
+    : super(mutationRunner: UnusedSyncMutationRunner());
+
+  final FakeAlbumProfileUpdateCallback? onUpdate;
+
+  int updateCallCount = 0;
+
+  String? lastUserId;
+  String? lastAlbumId;
+  String? lastPrimaryEditionId;
+  String? lastTitle;
+  String? lastEditionTitle;
+  AlbumEditionType? lastEditionType;
+  DateTime? lastReleaseDate;
+  String? lastGenre;
+
+  @override
+  Future<AlbumProfileEditResult> updateProfile({
+    required String userId,
+    required String albumId,
+    required String primaryEditionId,
+    required String title,
+    required String editionTitle,
+    required AlbumEditionType editionType,
+    required DateTime? releaseDate,
+    required String? genre,
+    DateTime? now,
+  }) async {
+    updateCallCount++;
+
+    lastUserId = userId;
+    lastAlbumId = albumId;
+    lastPrimaryEditionId = primaryEditionId;
+    lastTitle = title;
+    lastEditionTitle = editionTitle;
+    lastEditionType = editionType;
+    lastReleaseDate = releaseDate;
+    lastGenre = genre;
+
+    await onUpdate?.call(
+      userId: userId,
+      albumId: albumId,
+      primaryEditionId: primaryEditionId,
+      title: title,
+      editionTitle: editionTitle,
+      editionType: editionType,
+      releaseDate: releaseDate,
+      genre: genre,
+    );
+
+    final timestamp = now ?? DateTime(2026, 1, 1);
+
+    return AlbumProfileEditResult(
+      album: Album(
+        id: albumId,
+        artistId: 'artist-1',
+        title: title.trim(),
+        canonicalTitle: title.trim().toLowerCase(),
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      ),
+      primaryEdition: AlbumEdition(
+        id: primaryEditionId,
+        albumId: albumId,
+        title: editionTitle.trim(),
+        type: editionType,
+        isPrimary: true,
+        releaseDate: releaseDate,
+        genre: genre,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      ),
+      albumChanged: true,
+      primaryEditionChanged: true,
+    );
+  }
+}
+
+class UnusedSyncMutationRunner implements SyncMutationRunner {
+  @override
+  Future<T> run<T>(SyncMutationAction<T> action) {
+    throw StateError('Sync mutation runner should not be used by this fake.');
   }
 }
 

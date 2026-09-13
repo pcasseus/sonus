@@ -11,6 +11,9 @@ import 'package:sonus_next/features/library/application/models/library_artist.da
 import 'package:sonus_next/features/library/application/models/library_track.dart';
 import 'package:sonus_next/features/library/application/models/library_track_order.dart';
 import 'package:sonus_next/features/library/application/repositories/library_query_repository.dart';
+import 'package:sonus_next/features/library/application/services/album_profile_editing_service.dart';
+import 'package:sonus_next/features/library/domain/entities/album.dart';
+import 'package:sonus_next/features/sync/application/services/sync_mutation_runner.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/presentation/controllers/album_profile_controller.dart';
 import 'package:sonus_next/features/player/application/controllers/playback_coordinator.dart';
@@ -445,6 +448,227 @@ void main() {
       controller.dispose();
     });
 
+    test('reports whether album profile editing is available', () async {
+      final editableRepository = FakeLibraryQueryRepository(
+        album: createAlbum(
+          primaryEditionId: 'edition-1',
+          primaryEditionTitle: 'Standard',
+          primaryEditionType: AlbumEditionType.standard,
+        ),
+      );
+
+      final editableController = AlbumProfileController(
+        repository: editableRepository,
+        albumId: 'album-1',
+        albumProfileEditingService: FakeAlbumProfileEditingService(),
+      );
+
+      await editableController.load();
+
+      expect(editableController.canEditAlbumProfile('user-1'), isTrue);
+      expect(editableController.canEditAlbumProfile('  user-1  '), isTrue);
+      expect(editableController.canEditAlbumProfile(null), isFalse);
+      expect(editableController.canEditAlbumProfile(''), isFalse);
+      expect(editableController.canEditAlbumProfile('   '), isFalse);
+
+      final missingServiceController = AlbumProfileController(
+        repository: editableRepository,
+        albumId: 'album-1',
+      );
+
+      await missingServiceController.load();
+
+      expect(missingServiceController.canEditAlbumProfile('user-1'), isFalse);
+
+      final missingEditionRepository = FakeLibraryQueryRepository(
+        album: createAlbum(),
+      );
+
+      final missingEditionController = AlbumProfileController(
+        repository: missingEditionRepository,
+        albumId: 'album-1',
+        albumProfileEditingService: FakeAlbumProfileEditingService(),
+      );
+
+      await missingEditionController.load();
+
+      expect(missingEditionController.canEditAlbumProfile('user-1'), isFalse);
+
+      editableController.dispose();
+      missingServiceController.dispose();
+      missingEditionController.dispose();
+    });
+
+    test(
+      'updateProfile forwards mutation and refreshes album profile',
+      () async {
+        var requestCount = 0;
+
+        final repository = FakeLibraryQueryRepository(
+          albumLoader: (albumId) async {
+            requestCount++;
+
+            return createAlbum(
+              title: requestCount == 1 ? 'Original Album' : 'Renamed Album',
+              primaryEditionId: 'edition-primary',
+              primaryEditionTitle: requestCount == 1 ? 'Standard' : 'Deluxe',
+              primaryEditionType: requestCount == 1
+                  ? AlbumEditionType.standard
+                  : AlbumEditionType.deluxe,
+              releaseDate: requestCount == 1
+                  ? DateTime.utc(2024, 1, 5)
+                  : DateTime.utc(2025, 6, 20),
+              genre: requestCount == 1 ? 'Pop' : 'Alternative',
+            );
+          },
+        );
+
+        final service = FakeAlbumProfileEditingService();
+
+        final controller = AlbumProfileController(
+          repository: repository,
+          albumId: 'album-1',
+          albumProfileEditingService: service,
+        );
+
+        await controller.load();
+
+        expect(repository.albumRequestCount, 1);
+        expect(controller.album?.title, 'Original Album');
+
+        final releaseDate = DateTime.utc(2025, 6, 20);
+
+        final updated = await controller.updateProfile(
+          userId: 'user-1',
+          title: 'Renamed Album',
+          editionTitle: 'Deluxe',
+          editionType: AlbumEditionType.deluxe,
+          releaseDate: releaseDate,
+          genre: 'Alternative',
+        );
+
+        expect(updated, isTrue);
+        expect(service.updateCallCount, 1);
+        expect(service.lastUserId, 'user-1');
+        expect(service.lastAlbumId, 'album-1');
+        expect(service.lastPrimaryEditionId, 'edition-primary');
+        expect(service.lastTitle, 'Renamed Album');
+        expect(service.lastEditionTitle, 'Deluxe');
+        expect(service.lastEditionType, AlbumEditionType.deluxe);
+        expect(service.lastReleaseDate, releaseDate);
+        expect(service.lastGenre, 'Alternative');
+
+        expect(repository.albumRequestCount, 2);
+        expect(controller.album?.title, 'Renamed Album');
+        expect(controller.album?.primaryEditionTitle, 'Deluxe');
+        expect(controller.album?.primaryEditionType, AlbumEditionType.deluxe);
+        expect(controller.album?.releaseDate, releaseDate);
+        expect(controller.album?.genre, 'Alternative');
+
+        controller.dispose();
+      },
+    );
+
+    test(
+      'updateProfile does nothing when editing service is unavailable',
+      () async {
+        final repository = FakeLibraryQueryRepository(
+          album: createAlbum(
+            primaryEditionId: 'edition-primary',
+            primaryEditionTitle: 'Standard',
+            primaryEditionType: AlbumEditionType.standard,
+          ),
+        );
+
+        final controller = AlbumProfileController(
+          repository: repository,
+          albumId: 'album-1',
+        );
+
+        await controller.load();
+
+        final updated = await controller.updateProfile(
+          userId: 'user-1',
+          title: 'Renamed Album',
+          editionTitle: 'Deluxe',
+          editionType: AlbumEditionType.deluxe,
+          releaseDate: null,
+          genre: null,
+        );
+
+        expect(updated, isFalse);
+        expect(repository.albumRequestCount, 1);
+
+        controller.dispose();
+      },
+    );
+
+    test('updateProfile does nothing when user id is blank', () async {
+      final repository = FakeLibraryQueryRepository(
+        album: createAlbum(
+          primaryEditionId: 'edition-primary',
+          primaryEditionTitle: 'Standard',
+          primaryEditionType: AlbumEditionType.standard,
+        ),
+      );
+
+      final service = FakeAlbumProfileEditingService();
+
+      final controller = AlbumProfileController(
+        repository: repository,
+        albumId: 'album-1',
+        albumProfileEditingService: service,
+      );
+
+      await controller.load();
+
+      final updated = await controller.updateProfile(
+        userId: '   ',
+        title: 'Renamed Album',
+        editionTitle: 'Deluxe',
+        editionType: AlbumEditionType.deluxe,
+        releaseDate: null,
+        genre: null,
+      );
+
+      expect(updated, isFalse);
+      expect(service.updateCallCount, 0);
+      expect(repository.albumRequestCount, 1);
+
+      controller.dispose();
+    });
+
+    test(
+      'updateProfile does nothing when primary edition is unavailable',
+      () async {
+        final repository = FakeLibraryQueryRepository(album: createAlbum());
+        final service = FakeAlbumProfileEditingService();
+
+        final controller = AlbumProfileController(
+          repository: repository,
+          albumId: 'album-1',
+          albumProfileEditingService: service,
+        );
+
+        await controller.load();
+
+        final updated = await controller.updateProfile(
+          userId: 'user-1',
+          title: 'Renamed Album',
+          editionTitle: 'Deluxe',
+          editionType: AlbumEditionType.deluxe,
+          releaseDate: null,
+          genre: null,
+        );
+
+        expect(updated, isFalse);
+        expect(service.updateCallCount, 0);
+        expect(repository.albumRequestCount, 1);
+
+        controller.dispose();
+      },
+    );
+
     test('playTrack starts playback for playable track', () async {
       final repository = FakeLibraryQueryRepository(
         album: createAlbum(),
@@ -778,12 +1002,22 @@ LibraryAlbum createAlbum({
   String albumId = 'album-1',
   String title = 'Test Album',
   String artistId = 'artist-1',
+  String? primaryEditionId,
+  String? primaryEditionTitle,
+  AlbumEditionType? primaryEditionType,
+  DateTime? releaseDate,
+  String? genre,
 }) {
   return LibraryAlbum(
     albumId: albumId,
     title: title,
     artistId: artistId,
     artistName: 'Test Artist',
+    primaryEditionId: primaryEditionId,
+    primaryEditionTitle: primaryEditionTitle,
+    primaryEditionType: primaryEditionType,
+    releaseDate: releaseDate,
+    genre: genre,
     trackCount: 3,
     dateAdded: DateTime(2026, 1, 1),
   );
@@ -915,6 +1149,78 @@ class FakeLibraryQueryRepository implements LibraryQueryRepository {
   @override
   Future<LibraryArtist?> getArtistById(String artistId) async {
     return null;
+  }
+}
+
+class FakeAlbumProfileEditingService extends AlbumProfileEditingService {
+  FakeAlbumProfileEditingService()
+    : super(mutationRunner: UnusedSyncMutationRunner());
+
+  int updateCallCount = 0;
+
+  String? lastUserId;
+  String? lastAlbumId;
+  String? lastPrimaryEditionId;
+  String? lastTitle;
+  String? lastEditionTitle;
+  AlbumEditionType? lastEditionType;
+  DateTime? lastReleaseDate;
+  String? lastGenre;
+
+  @override
+  Future<AlbumProfileEditResult> updateProfile({
+    required String userId,
+    required String albumId,
+    required String primaryEditionId,
+    required String title,
+    required String editionTitle,
+    required AlbumEditionType editionType,
+    required DateTime? releaseDate,
+    required String? genre,
+    DateTime? now,
+  }) async {
+    updateCallCount++;
+    lastUserId = userId;
+    lastAlbumId = albumId;
+    lastPrimaryEditionId = primaryEditionId;
+    lastTitle = title;
+    lastEditionTitle = editionTitle;
+    lastEditionType = editionType;
+    lastReleaseDate = releaseDate;
+    lastGenre = genre;
+
+    final timestamp = now ?? DateTime.utc(2026, 1, 1);
+
+    return AlbumProfileEditResult(
+      album: Album(
+        id: albumId,
+        artistId: 'artist-1',
+        title: title.trim(),
+        canonicalTitle: title.trim().toLowerCase(),
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      ),
+      primaryEdition: AlbumEdition(
+        id: primaryEditionId,
+        albumId: albumId,
+        title: editionTitle.trim(),
+        type: editionType,
+        isPrimary: true,
+        releaseDate: releaseDate,
+        genre: genre,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      ),
+      albumChanged: true,
+      primaryEditionChanged: true,
+    );
+  }
+}
+
+class UnusedSyncMutationRunner implements SyncMutationRunner {
+  @override
+  Future<T> run<T>(SyncMutationAction<T> action) {
+    throw StateError('Sync mutation runner should not be used by this fake.');
   }
 }
 
