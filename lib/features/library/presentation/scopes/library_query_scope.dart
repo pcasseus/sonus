@@ -10,7 +10,9 @@ import '../../../artwork/data/daos/artwork_asset_dao.dart';
 import '../../../artwork/data/repositories/sqlite_artwork_asset_repository.dart';
 import '../../../artwork/data/services/file_system_artwork_managed_storage.dart';
 import '../../../artwork/presentation/services/file_picker_artwork_file_picker.dart';
+import '../../../sync/data/repositories/sync_mutation_transaction_runner.dart';
 import '../../application/repositories/library_query_repository.dart';
+import '../../application/services/artist_profile_editing_service.dart';
 import '../../data/daos/album_edition_dao.dart';
 import '../../data/daos/artist_dao.dart';
 import '../../data/daos/library_query_dao.dart';
@@ -36,6 +38,7 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
 
   LibraryQueryRepository? _repository;
   ArtworkAssignmentService? _artworkAssignmentService;
+  ArtistProfileEditingService? _artistProfileEditingService;
 
   @override
   void initState() {
@@ -66,6 +69,10 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
       artworkManagedStorage: FileSystemArtworkManagedStorage(),
     );
 
+    final artistProfileEditingService = ArtistProfileEditingService(
+      mutationRunner: SyncMutationTransactionRunner(appDatabase: _database),
+    );
+
     if (!mounted) {
       return;
     }
@@ -73,6 +80,7 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
     setState(() {
       _repository = libraryQueryRepository;
       _artworkAssignmentService = artworkAssignmentService;
+      _artistProfileEditingService = artistProfileEditingService;
     });
   }
 
@@ -83,6 +91,9 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
         Provider<LibraryQueryRepository?>.value(value: _repository),
         Provider<ArtworkAssignmentService?>.value(
           value: _artworkAssignmentService,
+        ),
+        Provider<ArtistProfileEditingService?>.value(
+          value: _artistProfileEditingService,
         ),
         Provider<ArtworkFilePicker>.value(
           value: const FilePickerArtworkFilePicker(),

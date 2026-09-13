@@ -3,6 +3,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'package:sonus_next/features/account/domain/entities/account_user.dart';
+import 'package:sonus_next/features/account/domain/repositories/account_repository.dart';
+import 'package:sonus_next/features/account/presentation/scopes/account_scope.dart';
+import 'package:sonus_next/features/library/application/services/artist_profile_editing_service.dart';
+import 'package:sonus_next/features/library/domain/entities/artist.dart';
+import 'package:sonus_next/features/sync/application/services/sync_mutation_runner.dart';
 
 import 'package:sonus_next/features/library/application/models/library_album.dart';
 import 'package:sonus_next/features/library/application/models/library_artist.dart';
@@ -363,6 +369,139 @@ void main() {
     });
   });
 
+  testWidgets('signed-in user can rename artist', (tester) async {
+    final repository = FakeLibraryQueryRepository(artist: createArtist());
+
+    final editingService = FakeArtistProfileEditingService(
+      onRename: ({required artistId, required name, required userId}) async {
+        repository.artist = createArtist(artistId: artistId, name: name.trim());
+      },
+    );
+
+    await tester.pumpWidget(
+      buildSubject(
+        repository: repository,
+        accountRepository: FakeAccountRepository(
+          currentUser: const AccountUser(id: 'user-1'),
+        ),
+        artistProfileEditingService: editingService,
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('artist-profile-artwork-menu')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Edit artist name'), findsOneWidget);
+
+    await tester.tap(find.text('Edit artist name'));
+    await tester.pumpAndSettle();
+
+    final nameField = find.byKey(const ValueKey<String>('artist-name-field'));
+
+    expect(nameField, findsOneWidget);
+
+    final textField = tester.widget<TextFormField>(nameField);
+    expect(textField.controller?.text, 'Test Artist');
+
+    await tester.enterText(nameField, 'Renamed Artist');
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect(editingService.renameCallCount, 1);
+    expect(editingService.lastUserId, 'user-1');
+    expect(editingService.lastArtistId, 'artist-1');
+    expect(editingService.lastName, 'Renamed Artist');
+
+    expect(find.text('Renamed Artist'), findsWidgets);
+    expect(find.text('Artist name updated.'), findsOneWidget);
+  });
+
+  testWidgets('artist rename rejects blank name', (tester) async {
+    final repository = FakeLibraryQueryRepository(artist: createArtist());
+
+    final editingService = FakeArtistProfileEditingService();
+
+    await tester.pumpWidget(
+      buildSubject(
+        repository: repository,
+        accountRepository: FakeAccountRepository(
+          currentUser: const AccountUser(id: 'user-1'),
+        ),
+        artistProfileEditingService: editingService,
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('artist-profile-artwork-menu')),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Edit artist name'));
+    await tester.pumpAndSettle();
+
+    final nameField = find.byKey(const ValueKey<String>('artist-name-field'));
+
+    await tester.enterText(nameField, '   ');
+    await tester.tap(find.text('Save'));
+    await tester.pump();
+
+    expect(find.text('Artist name cannot be blank.'), findsOneWidget);
+    expect(editingService.renameCallCount, 0);
+  });
+
+  testWidgets('signed-out user cannot rename artist', (tester) async {
+    final repository = FakeLibraryQueryRepository(artist: createArtist());
+
+    final editingService = FakeArtistProfileEditingService();
+
+    await tester.pumpWidget(
+      buildSubject(
+        repository: repository,
+        accountRepository: FakeAccountRepository(),
+        artistProfileEditingService: editingService,
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    final menu = tester.widget<PopupMenuButton>(
+      find.byKey(const ValueKey<String>('artist-profile-artwork-menu')),
+    );
+
+    expect(menu.enabled, isFalse);
+    expect(editingService.renameCallCount, 0);
+  });
+
+  testWidgets('artist rename remains unavailable without account provider', (
+    tester,
+  ) async {
+    final repository = FakeLibraryQueryRepository(artist: createArtist());
+
+    final editingService = FakeArtistProfileEditingService();
+
+    await tester.pumpWidget(
+      buildSubject(
+        repository: repository,
+        artistProfileEditingService: editingService,
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    final menu = tester.widget<PopupMenuButton>(
+      find.byKey(const ValueKey<String>('artist-profile-artwork-menu')),
+    );
+
+    expect(menu.enabled, isFalse);
+    expect(editingService.renameCallCount, 0);
+  });
+
   testWidgets('tapping album opens album profile', (tester) async {
     final repository = FakeLibraryQueryRepository(
       artist: createArtist(),
@@ -396,15 +535,23 @@ void main() {
 Widget buildSubject({
   required LibraryQueryRepository? repository,
   PlaybackCoordinator? playbackCoordinator,
+  AccountRepository? accountRepository,
+  ArtistProfileEditingService? artistProfileEditingService,
 }) {
   return Provider<LibraryQueryRepository?>.value(
     value: repository,
     child: Provider<PlaybackCoordinator?>.value(
       value: playbackCoordinator,
-      child: const MaterialApp(
-        home: ArtistProfilePage(
-          artistId: 'artist-1',
-          initialArtistName: 'Test Artist',
+      child: Provider<ArtistProfileEditingService?>.value(
+        value: artistProfileEditingService,
+        child: AccountScope(
+          repository: accountRepository,
+          child: const MaterialApp(
+            home: ArtistProfilePage(
+              artistId: 'artist-1',
+              initialArtistName: 'Test Artist',
+            ),
+          ),
         ),
       ),
     ),
@@ -470,7 +617,7 @@ class FakeLibraryQueryRepository implements LibraryQueryRepository {
     this.artistLoader,
   });
 
-  final LibraryArtist? artist;
+  LibraryArtist? artist;
   final List<LibraryAlbum> albums;
   final List<LibraryTrack> tracks;
   final Object? artistError;
@@ -553,6 +700,84 @@ class FakeLibraryQueryRepository implements LibraryQueryRepository {
   @override
   Future<List<LibraryArtist>> getArtists() async {
     return const [];
+  }
+}
+
+class FakeAccountRepository implements AccountRepository {
+  FakeAccountRepository({this.currentUser});
+
+  @override
+  AccountUser? currentUser;
+
+  final StreamController<AccountUser?> _authStateController =
+      StreamController<AccountUser?>.broadcast();
+
+  @override
+  Stream<AccountUser?> watchAuthState() {
+    return _authStateController.stream;
+  }
+
+  @override
+  Future<AccountUser?> signInWithGoogle() async {
+    return currentUser;
+  }
+
+  @override
+  Future<void> signOut() async {
+    currentUser = null;
+    _authStateController.add(null);
+  }
+}
+
+typedef FakeArtistRenameCallback =
+    Future<void> Function({
+      required String userId,
+      required String artistId,
+      required String name,
+    });
+
+class FakeArtistProfileEditingService extends ArtistProfileEditingService {
+  FakeArtistProfileEditingService({this.onRename})
+    : super(mutationRunner: UnusedSyncMutationRunner());
+
+  final FakeArtistRenameCallback? onRename;
+
+  int renameCallCount = 0;
+  String? lastUserId;
+  String? lastArtistId;
+  String? lastName;
+
+  @override
+  Future<Artist> renameArtist({
+    required String userId,
+    required String artistId,
+    required String name,
+    DateTime? now,
+  }) async {
+    renameCallCount++;
+    lastUserId = userId;
+    lastArtistId = artistId;
+    lastName = name;
+
+    await onRename?.call(userId: userId, artistId: artistId, name: name);
+
+    final timestamp = now ?? DateTime.utc(2026, 1, 1);
+    final trimmedName = name.trim();
+
+    return Artist(
+      id: artistId,
+      name: trimmedName,
+      canonicalName: trimmedName.toLowerCase(),
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    );
+  }
+}
+
+class UnusedSyncMutationRunner implements SyncMutationRunner {
+  @override
+  Future<T> run<T>(SyncMutationAction<T> action) {
+    throw StateError('Sync mutation runner should not be used by this fake.');
   }
 }
 
