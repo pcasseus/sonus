@@ -1,0 +1,170 @@
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
+
+import 'package:sonus_next/features/account/application/controllers/account_controller.dart';
+import 'package:sonus_next/features/account/domain/entities/account_user.dart';
+import 'package:sonus_next/features/account/domain/repositories/account_repository.dart';
+import 'package:sonus_next/features/settings/presentation/pages/settings_page.dart';
+
+void main() {
+  testWidgets('shows unavailable account state without controller', (
+    tester,
+  ) async {
+    await tester.pumpWidget(const MaterialApp(home: SettingsPage()));
+
+    expect(
+      find.byKey(const ValueKey<String>('settings-account-unavailable')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('shows signed-out account state', (tester) async {
+    final repository = _FakeAccountRepository();
+    final controller = AccountController(repository: repository);
+
+    await tester.pumpWidget(_buildTestApp(controller));
+
+    expect(
+      find.byKey(const ValueKey<String>('settings-account-signed-out')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('settings-google-sign-in-button')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('shows signed-in account identity', (tester) async {
+    final repository = _FakeAccountRepository(
+      currentUser: const AccountUser(
+        id: 'user-1',
+        email: 'person@example.com',
+        displayName: 'Person Example',
+        avatarUrl: null,
+      ),
+    );
+    final controller = AccountController(repository: repository);
+
+    await tester.pumpWidget(_buildTestApp(controller));
+
+    expect(
+      find.byKey(const ValueKey<String>('settings-account-signed-in')),
+      findsOneWidget,
+    );
+    expect(find.text('Person Example'), findsOneWidget);
+    expect(find.text('person@example.com'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('settings-sign-out-button')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('sign-in button enters loading state', (tester) async {
+    final signInCompleter = Completer<AccountUser?>();
+    final repository = _FakeAccountRepository(
+      signInHandler: () => signInCompleter.future,
+    );
+    final controller = AccountController(repository: repository);
+
+    await tester.pumpWidget(_buildTestApp(controller));
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('settings-google-sign-in-button')),
+    );
+    await tester.pump();
+
+    expect(find.text('Signing in...'), findsOneWidget);
+
+    signInCompleter.complete(null);
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('shows sign-in error', (tester) async {
+    final repository = _FakeAccountRepository(
+      signInHandler: () async {
+        throw StateError('sign-in failed');
+      },
+    );
+    final controller = AccountController(repository: repository);
+
+    await tester.pumpWidget(_buildTestApp(controller));
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('settings-google-sign-in-button')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey<String>('settings-account-error')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('sign-out returns to signed-out state', (tester) async {
+    final repository = _FakeAccountRepository(
+      currentUser: const AccountUser(
+        id: 'user-1',
+        email: 'person@example.com',
+        displayName: 'Person Example',
+        avatarUrl: null,
+      ),
+    );
+    final controller = AccountController(repository: repository);
+
+    await tester.pumpWidget(_buildTestApp(controller));
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('settings-sign-out-button')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey<String>('settings-account-signed-out')),
+      findsOneWidget,
+    );
+  });
+}
+
+Widget _buildTestApp(AccountController controller) {
+  return ChangeNotifierProvider<AccountController>.value(
+    value: controller,
+    child: const MaterialApp(home: SettingsPage()),
+  );
+}
+
+class _FakeAccountRepository implements AccountRepository {
+  _FakeAccountRepository({this._currentUser, this._signInHandler});
+
+  AccountUser? _currentUser;
+  final Future<AccountUser?> Function()? _signInHandler;
+
+  final StreamController<AccountUser?> _authController =
+      StreamController<AccountUser?>.broadcast();
+
+  @override
+  AccountUser? get currentUser => _currentUser;
+
+  @override
+  Stream<AccountUser?> watchAuthState() => _authController.stream;
+
+  @override
+  Future<AccountUser?> signInWithGoogle() async {
+    final handler = _signInHandler;
+
+    if (handler != null) {
+      final user = await handler();
+      _currentUser = user;
+      return user;
+    }
+
+    return _currentUser;
+  }
+
+  @override
+  Future<void> signOut() async {
+    _currentUser = null;
+  }
+}

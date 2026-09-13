@@ -5,6 +5,7 @@ import '../../../import/presentation/pages/imports_page.dart';
 import '../../../library/presentation/pages/library_page.dart';
 import '../../../library/presentation/pages/tracks_page.dart';
 import '../../../search/presentation/pages/search_page.dart';
+import '../../../settings/presentation/pages/settings_page.dart';
 import '../../application/controllers/app_shell_controller.dart';
 import '../../domain/models/app_destination.dart';
 import '../widgets/app_destination_placeholder.dart';
@@ -86,8 +87,10 @@ class _AppShellPageState extends State<AppShellPage>
     final Widget page = switch (destination) {
       AppDestination.tracks => const TracksPage(),
       AppDestination.library => const LibraryPage(),
-      AppDestination.home || AppDestination.hot100 || AppDestination.settings =>
-        AppDestinationPlaceholder(destination: destination),
+      AppDestination.settings => const SettingsPage(),
+      AppDestination.home || AppDestination.hot100 => AppDestinationPlaceholder(
+        destination: destination,
+      ),
     };
 
     return KeyedSubtree(

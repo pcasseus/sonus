@@ -48,7 +48,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(
-      find.byKey(const ValueKey<String>('app-destination-settings')),
+      find.byKey(const ValueKey<String>('settings-account-unavailable')),
       findsOneWidget,
     );
   });
