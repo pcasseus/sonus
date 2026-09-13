@@ -12,6 +12,8 @@ import 'package:sonus_next/features/library/application/models/library_artist.da
 import 'package:sonus_next/features/library/application/models/library_track.dart';
 import 'package:sonus_next/features/library/application/models/library_track_order.dart';
 import 'package:sonus_next/features/library/application/repositories/library_query_repository.dart';
+import 'package:sonus_next/features/library/application/services/artist_profile_editing_service.dart';
+import 'package:sonus_next/features/sync/application/services/sync_mutation_runner.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/domain/entities/artist.dart';
 import 'package:sonus_next/features/library/domain/entities/song.dart';
@@ -495,6 +497,105 @@ void main() {
       controller.dispose();
     });
 
+    test('reports whether artist profile editing is available', () {
+      final repository = FakeLibraryQueryRepository();
+
+      final editableController = ArtistProfileController(
+        repository: repository,
+        artistId: 'artist-1',
+        artistProfileEditingService: FakeArtistProfileEditingService(),
+      );
+
+      final missingServiceController = ArtistProfileController(
+        repository: repository,
+        artistId: 'artist-1',
+      );
+
+      expect(editableController.canEditArtist('user-1'), isTrue);
+      expect(editableController.canEditArtist('  user-1  '), isTrue);
+      expect(editableController.canEditArtist(null), isFalse);
+      expect(editableController.canEditArtist(''), isFalse);
+      expect(editableController.canEditArtist('   '), isFalse);
+
+      expect(missingServiceController.canEditArtist('user-1'), isFalse);
+
+      editableController.dispose();
+      missingServiceController.dispose();
+    });
+
+    test(
+      'renameArtist forwards mutation and refreshes artist profile',
+      () async {
+        final repository = FakeLibraryQueryRepository(artist: createArtist());
+
+        final service = FakeArtistProfileEditingService();
+
+        final controller = ArtistProfileController(
+          repository: repository,
+          artistId: 'artist-1',
+          artistProfileEditingService: service,
+        );
+
+        await controller.load();
+
+        expect(repository.artistRequestCount, 1);
+
+        final renamed = await controller.renameArtist(
+          userId: 'user-1',
+          name: 'Renamed Artist',
+        );
+
+        expect(renamed, isTrue);
+        expect(service.renameCallCount, 1);
+        expect(service.lastUserId, 'user-1');
+        expect(service.lastArtistId, 'artist-1');
+        expect(service.lastName, 'Renamed Artist');
+        expect(repository.artistRequestCount, 2);
+
+        controller.dispose();
+      },
+    );
+
+    test(
+      'renameArtist does nothing when editing is unavailable or user id is blank',
+      () async {
+        final repository = FakeLibraryQueryRepository(artist: createArtist());
+
+        final missingServiceController = ArtistProfileController(
+          repository: repository,
+          artistId: 'artist-1',
+        );
+
+        await missingServiceController.load();
+
+        final missingServiceResult = await missingServiceController
+            .renameArtist(userId: 'user-1', name: 'Renamed Artist');
+
+        expect(missingServiceResult, isFalse);
+        expect(repository.artistRequestCount, 1);
+
+        missingServiceController.dispose();
+
+        final service = FakeArtistProfileEditingService();
+
+        final blankUserController = ArtistProfileController(
+          repository: repository,
+          artistId: 'artist-1',
+          artistProfileEditingService: service,
+        );
+
+        final blankUserResult = await blankUserController.renameArtist(
+          userId: '   ',
+          name: 'Renamed Artist',
+        );
+
+        expect(blankUserResult, isFalse);
+        expect(service.renameCallCount, 0);
+        expect(repository.artistRequestCount, 1);
+
+        blankUserController.dispose();
+      },
+    );
     test('reports whether artist has playable tracks', () async {
       final repository = FakeLibraryQueryRepository(
         artist: createArtist(),
@@ -951,6 +1052,47 @@ class FakeLibraryQueryRepository implements LibraryQueryRepository {
   @override
   Future<List<LibraryArtist>> getArtists() async {
     return const [];
+  }
+}
+
+class FakeArtistProfileEditingService extends ArtistProfileEditingService {
+  FakeArtistProfileEditingService()
+    : super(mutationRunner: UnusedSyncMutationRunner());
+
+  int renameCallCount = 0;
+
+  String? lastUserId;
+  String? lastArtistId;
+  String? lastName;
+
+  @override
+  Future<Artist> renameArtist({
+    required String userId,
+    required String artistId,
+    required String name,
+    DateTime? now,
+  }) async {
+    renameCallCount++;
+    lastUserId = userId;
+    lastArtistId = artistId;
+    lastName = name;
+
+    final timestamp = now ?? DateTime.utc(2026, 1, 1);
+
+    return Artist(
+      id: artistId,
+      name: name.trim(),
+      canonicalName: name.trim().toLowerCase(),
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    );
+  }
+}
+
+class UnusedSyncMutationRunner implements SyncMutationRunner {
+  @override
+  Future<T> run<T>(SyncMutationAction<T> action) {
+    throw StateError('Sync mutation runner should not be used by this fake.');
   }
 }
 

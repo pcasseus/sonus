@@ -9,6 +9,7 @@ import '../../application/models/library_album.dart';
 import '../../application/models/library_artist.dart';
 import '../../application/models/library_track.dart';
 import '../../application/repositories/library_query_repository.dart';
+import '../../application/services/artist_profile_editing_service.dart';
 
 class ArtistProfileController extends ChangeNotifier {
   ArtistProfileController({
@@ -17,6 +18,7 @@ class ArtistProfileController extends ChangeNotifier {
     PlaybackCoordinator? playbackCoordinator,
     ArtworkAssignmentService? artworkAssignmentService,
     ArtworkFilePicker? artworkFilePicker,
+    ArtistProfileEditingService? artistProfileEditingService,
     Random? random,
   }) : this._(
          repository,
@@ -24,6 +26,7 @@ class ArtistProfileController extends ChangeNotifier {
          playbackCoordinator,
          artworkAssignmentService,
          artworkFilePicker,
+         artistProfileEditingService,
          random ?? Random(),
        );
 
@@ -33,6 +36,7 @@ class ArtistProfileController extends ChangeNotifier {
     this._playbackCoordinator,
     this._artworkAssignmentService,
     this._artworkFilePicker,
+    this._artistProfileEditingService,
     this._random,
   );
 
@@ -41,6 +45,7 @@ class ArtistProfileController extends ChangeNotifier {
   final PlaybackCoordinator? _playbackCoordinator;
   final ArtworkAssignmentService? _artworkAssignmentService;
   final ArtworkFilePicker? _artworkFilePicker;
+  final ArtistProfileEditingService? _artistProfileEditingService;
   final Random _random;
 
   LibraryArtist? _artist;
@@ -103,6 +108,12 @@ class ArtistProfileController extends ChangeNotifier {
     return _artworkAssignmentService != null && _artworkFilePicker != null;
   }
 
+  bool canEditArtist(String? userId) {
+    return _artistProfileEditingService != null &&
+        userId != null &&
+        userId.trim().isNotEmpty;
+  }
+
   Future<void> load() async {
     _isLoading = true;
     _error = null;
@@ -133,6 +144,23 @@ class ArtistProfileController extends ChangeNotifier {
   }
 
   Future<void> refresh() => load();
+
+  Future<bool> renameArtist({
+    required String userId,
+    required String name,
+  }) async {
+    final service = _artistProfileEditingService;
+
+    if (service == null || userId.trim().isEmpty) {
+      return false;
+    }
+
+    await service.renameArtist(userId: userId, artistId: _artistId, name: name);
+
+    await refresh();
+
+    return true;
+  }
 
   Future<bool> changeHeaderArtwork() async {
     final service = _artworkAssignmentService;

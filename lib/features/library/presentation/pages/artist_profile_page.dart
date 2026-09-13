@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../account/application/controllers/account_controller.dart';
 import '../../../artwork/application/services/artwork_assignment_service.dart';
 import '../../../artwork/application/services/artwork_file_picker.dart';
 import '../../../player/application/controllers/playback_coordinator.dart';
@@ -11,6 +12,7 @@ import '../../application/models/library_album.dart';
 import '../../application/models/library_artist.dart';
 import '../../application/models/library_track.dart';
 import '../../application/repositories/library_query_repository.dart';
+import '../../application/services/artist_profile_editing_service.dart';
 import '../controllers/artist_profile_controller.dart';
 import 'album_profile_page.dart';
 
@@ -51,6 +53,7 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
       playbackCoordinator: context.read<PlaybackCoordinator?>(),
       artworkAssignmentService: context.read<ArtworkAssignmentService?>(),
       artworkFilePicker: context.read<ArtworkFilePicker?>(),
+      artistProfileEditingService: context.read<ArtistProfileEditingService?>(),
     );
 
     unawaited(_controller!.load());
@@ -59,6 +62,8 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
   @override
   Widget build(BuildContext context) {
     final controller = _controller;
+    final accountController = context.watch<AccountController?>();
+    final userId = accountController?.user?.id;
 
     return Scaffold(
       key: const ValueKey<String>('artist-profile-page'),
@@ -80,42 +85,58 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
             AnimatedBuilder(
               animation: controller,
               builder: (context, _) {
-                return PopupMenuButton<_ArtistArtworkMenuAction>(
+                return PopupMenuButton<_ArtistMenuAction>(
                   key: const ValueKey<String>('artist-profile-artwork-menu'),
-                  enabled: controller.canEditArtwork,
-                  tooltip: 'Edit artwork',
+                  enabled:
+                      controller.canEditArtwork ||
+                      controller.canEditArtist(userId),
+                  tooltip: 'Artist actions',
                   onSelected: (action) {
-                    unawaited(_handleArtworkAction(controller, action));
+                    unawaited(_handleArtistAction(controller, action, userId));
                   },
-                  itemBuilder: (context) => const [
+                  itemBuilder: (context) => [
                     PopupMenuItem(
-                      value: _ArtistArtworkMenuAction.changeHeader,
-                      child: ListTile(
+                      value: _ArtistMenuAction.editName,
+                      enabled: controller.canEditArtist(userId),
+                      child: const ListTile(
+                        leading: Icon(Icons.edit_outlined),
+                        title: Text('Edit artist name'),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                    ),
+                    const PopupMenuDivider(),
+                    PopupMenuItem(
+                      value: _ArtistMenuAction.changeHeader,
+                      enabled: controller.canEditArtwork,
+                      child: const ListTile(
                         leading: Icon(Icons.image_outlined),
                         title: Text('Change header artwork'),
                         contentPadding: EdgeInsets.zero,
                       ),
                     ),
                     PopupMenuItem(
-                      value: _ArtistArtworkMenuAction.clearHeader,
-                      child: ListTile(
+                      value: _ArtistMenuAction.clearHeader,
+                      enabled: controller.canEditArtwork,
+                      child: const ListTile(
                         leading: Icon(Icons.hide_image_outlined),
                         title: Text('Clear header artwork'),
                         contentPadding: EdgeInsets.zero,
                       ),
                     ),
-                    PopupMenuDivider(),
+                    const PopupMenuDivider(),
                     PopupMenuItem(
-                      value: _ArtistArtworkMenuAction.changeTopArtists,
-                      child: ListTile(
+                      value: _ArtistMenuAction.changeTopArtists,
+                      enabled: controller.canEditArtwork,
+                      child: const ListTile(
                         leading: Icon(Icons.account_circle_outlined),
                         title: Text('Change Top Artists artwork'),
                         contentPadding: EdgeInsets.zero,
                       ),
                     ),
                     PopupMenuItem(
-                      value: _ArtistArtworkMenuAction.clearTopArtists,
-                      child: ListTile(
+                      value: _ArtistMenuAction.clearTopArtists,
+                      enabled: controller.canEditArtwork,
+                      child: const ListTile(
                         leading: Icon(Icons.person_off_outlined),
                         title: Text('Clear Top Artists artwork'),
                         contentPadding: EdgeInsets.zero,
@@ -191,19 +212,78 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
     );
   }
 
+  Future<void> _handleArtistAction(
+    ArtistProfileController controller,
+    _ArtistMenuAction action,
+    String? userId,
+  ) async {
+    if (action == _ArtistMenuAction.editName) {
+      if (userId == null || userId.trim().isEmpty) {
+        return;
+      }
+
+      await _editArtistName(controller, userId);
+      return;
+    }
+
+    await _handleArtworkAction(controller, action);
+  }
+
+  Future<void> _editArtistName(
+    ArtistProfileController controller,
+    String userId,
+  ) async {
+    final artist = controller.artist;
+
+    if (artist == null || !controller.canEditArtist(userId)) {
+      return;
+    }
+
+    try {
+      final name = await showDialog<String>(
+        context: context,
+        builder: (dialogContext) {
+          return _ArtistNameEditDialog(initialName: artist.name);
+        },
+      );
+
+      if (!mounted || name == null) {
+        return;
+      }
+
+      final changed = await controller.renameArtist(userId: userId, name: name);
+
+      if (!mounted || !changed) {
+        return;
+      }
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Artist name updated.')));
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not update artist name.')),
+      );
+    }
+  }
+
   Future<void> _handleArtworkAction(
     ArtistProfileController controller,
-    _ArtistArtworkMenuAction action,
+    _ArtistMenuAction action,
   ) async {
     try {
       final changed = switch (action) {
-        _ArtistArtworkMenuAction.changeHeader =>
+        _ArtistMenuAction.editName => false,
+        _ArtistMenuAction.changeHeader =>
           await controller.changeHeaderArtwork(),
-        _ArtistArtworkMenuAction.clearHeader =>
-          await controller.clearHeaderArtwork(),
-        _ArtistArtworkMenuAction.changeTopArtists =>
+        _ArtistMenuAction.clearHeader => await controller.clearHeaderArtwork(),
+        _ArtistMenuAction.changeTopArtists =>
           await controller.changeTopArtistsArtwork(),
-        _ArtistArtworkMenuAction.clearTopArtists =>
+        _ArtistMenuAction.clearTopArtists =>
           await controller.clearTopArtistsArtwork(),
       };
 
@@ -212,12 +292,11 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
       }
 
       final message = switch (action) {
-        _ArtistArtworkMenuAction.changeHeader => 'Header artwork updated.',
-        _ArtistArtworkMenuAction.clearHeader => 'Header artwork cleared.',
-        _ArtistArtworkMenuAction.changeTopArtists =>
-          'Top Artists artwork updated.',
-        _ArtistArtworkMenuAction.clearTopArtists =>
-          'Top Artists artwork cleared.',
+        _ArtistMenuAction.editName => '',
+        _ArtistMenuAction.changeHeader => 'Header artwork updated.',
+        _ArtistMenuAction.clearHeader => 'Header artwork cleared.',
+        _ArtistMenuAction.changeTopArtists => 'Top Artists artwork updated.',
+        _ArtistMenuAction.clearTopArtists => 'Top Artists artwork cleared.',
       };
 
       ScaffoldMessenger.of(
@@ -739,7 +818,74 @@ class _TrackTile extends StatelessWidget {
   }
 }
 
-enum _ArtistArtworkMenuAction {
+class _ArtistNameEditDialog extends StatefulWidget {
+  const _ArtistNameEditDialog({required this.initialName});
+
+  final String initialName;
+
+  @override
+  State<_ArtistNameEditDialog> createState() => _ArtistNameEditDialogState();
+}
+
+class _ArtistNameEditDialogState extends State<_ArtistNameEditDialog> {
+  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
+  late final TextEditingController _textController;
+
+  @override
+  void initState() {
+    super.initState();
+    _textController = TextEditingController(text: widget.initialName);
+  }
+
+  @override
+  void dispose() {
+    _textController.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    if (!(_formKey.currentState?.validate() ?? false)) {
+      return;
+    }
+
+    Navigator.of(context).pop(_textController.text);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Edit artist name'),
+      content: Form(
+        key: _formKey,
+        child: TextFormField(
+          key: const ValueKey<String>('artist-name-field'),
+          controller: _textController,
+          autofocus: true,
+          textInputAction: TextInputAction.done,
+          decoration: const InputDecoration(labelText: 'Artist name'),
+          validator: (value) {
+            if (value == null || value.trim().isEmpty) {
+              return 'Artist name cannot be blank.';
+            }
+
+            return null;
+          },
+          onFieldSubmitted: (_) => _submit(),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(onPressed: _submit, child: const Text('Save')),
+      ],
+    );
+  }
+}
+
+enum _ArtistMenuAction {
+  editName,
   changeHeader,
   clearHeader,
   changeTopArtists,
