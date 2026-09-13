@@ -12,6 +12,7 @@ void main() {
         userId: 'user_1',
         name: 'Artist',
         canonicalName: 'artist',
+        isBlacklisted: true,
         headerArtworkId: 'artwork_1',
         topArtistsArtworkId: 'artwork_2',
         createdAt: createdAt,
@@ -20,6 +21,7 @@ void main() {
 
       expect(record.id, 'artist_1');
       expect(record.userId, 'user_1');
+      expect(record.isBlacklisted, isTrue);
       expect(record.headerArtworkId, 'artwork_1');
       expect(record.topArtistsArtworkId, 'artwork_2');
       expect(record.createdAt, createdAt);
@@ -101,6 +103,7 @@ void main() {
         userId: 'user_1',
         name: 'Artist',
         canonicalName: 'artist',
+        isBlacklisted: false,
         createdAt: createdAt,
         updatedAt: updatedAt,
         deletedAt: deletedAt,

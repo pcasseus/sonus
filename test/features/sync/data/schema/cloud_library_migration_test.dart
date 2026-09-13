@@ -174,5 +174,14 @@ void main() {
 
       expect(migration, contains(SupabaseSyncContract.storageObjectKeyColumn));
     });
+
+    test('artists persist blacklist state in cloud schema', () {
+      expect(
+        migration,
+        contains(
+          '${SupabaseSyncContract.isBlacklistedColumn} boolean not null default false',
+        ),
+      );
+    });
   });
 }

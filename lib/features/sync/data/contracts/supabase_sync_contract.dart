@@ -21,6 +21,7 @@ abstract final class SupabaseSyncContract {
 
   static const String nameColumn = 'name';
   static const String canonicalNameColumn = 'canonical_name';
+  static const String isBlacklistedColumn = 'is_blacklisted';
 
   static const String titleColumn = 'title';
   static const String canonicalTitleColumn = 'canonical_title';

@@ -15,6 +15,7 @@ abstract final class CloudRecordMapper {
       userId: userId,
       name: artist.name,
       canonicalName: artist.canonicalName,
+      isBlacklisted: artist.isBlacklisted,
       headerArtworkId: artist.headerArtworkId,
       topArtistsArtworkId: artist.topArtistsArtworkId,
       createdAt: artist.createdAt,

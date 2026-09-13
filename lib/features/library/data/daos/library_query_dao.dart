@@ -373,6 +373,7 @@ class LibraryQueryDao {
       SELECT
         ar.id AS artist_id,
         ar.name AS artist_name,
+        ar.is_blacklisted AS is_blacklisted,
         ar.header_artwork_id AS header_artwork_id,
         ha.file_path AS header_artwork_path,
         ar.top_artists_artwork_id AS top_artists_artwork_id,

@@ -21,7 +21,7 @@ void main() {
       final result = await db.rawQuery('PRAGMA user_version');
 
       expect(result.single['user_version'], AppDatabase.databaseVersion);
-      expect(AppDatabase.databaseVersion, 4);
+      expect(AppDatabase.databaseVersion, 5);
     } finally {
       await appDatabase.close();
     }
@@ -131,12 +131,59 @@ void main() {
     }
   });
 
+  test('migration runner upgrades version 4 schema to version 5', () async {
+    final db = await databaseFactoryFfi.openDatabase(inMemoryDatabasePath);
+
+    try {
+      final now = DateTime.utc(2026, 9, 13).toIso8601String();
+
+      await db.execute('''
+        CREATE TABLE ${DatabaseTables.artists} (
+          id TEXT PRIMARY KEY NOT NULL,
+          name TEXT NOT NULL,
+          canonical_name TEXT NOT NULL,
+          header_artwork_id TEXT,
+          top_artists_artwork_id TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+      ''');
+
+      await db.insert(DatabaseTables.artists, {
+        'id': 'artist_before_blacklist',
+        'name': 'Existing Artist',
+        'canonical_name': 'existing artist',
+        'created_at': now,
+        'updated_at': now,
+      });
+
+      await DatabaseMigrations.migrate(db, oldVersion: 4, newVersion: 5);
+
+      final columns = await db.rawQuery(
+        'PRAGMA table_info(${DatabaseTables.artists})',
+      );
+
+      expect(columns.map((row) => row['name']), contains('is_blacklisted'));
+
+      final artists = await db.query(
+        DatabaseTables.artists,
+        where: 'id = ?',
+        whereArgs: ['artist_before_blacklist'],
+      );
+
+      expect(artists, hasLength(1));
+      expect(artists.single['is_blacklisted'], 0);
+    } finally {
+      await db.close();
+    }
+  });
+
   test('migration runner fails loudly for unknown future migration', () async {
     final db = await databaseFactoryFfi.openDatabase(inMemoryDatabasePath);
 
     try {
       await expectLater(
-        DatabaseMigrations.migrate(db, oldVersion: 4, newVersion: 5),
+        DatabaseMigrations.migrate(db, oldVersion: 5, newVersion: 6),
         throwsA(isA<UnsupportedError>()),
       );
     } finally {

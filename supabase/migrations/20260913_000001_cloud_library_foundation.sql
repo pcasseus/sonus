@@ -36,6 +36,7 @@ create table public.artists (
   user_id uuid not null references auth.users(id) on delete cascade,
   name text not null,
   canonical_name text not null,
+  is_blacklisted boolean not null default false,
   header_artwork_id text,
   top_artists_artwork_id text,
   created_at timestamptz not null,

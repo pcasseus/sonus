@@ -10,6 +10,7 @@ abstract final class ArtistRowMapper {
       'updated_at': artist.updatedAt.toUtc().toIso8601String(),
       'header_artwork_id': artist.headerArtworkId,
       'top_artists_artwork_id': artist.topArtistsArtworkId,
+      'is_blacklisted': artist.isBlacklisted ? 1 : 0,
     };
   }
 
@@ -22,6 +23,7 @@ abstract final class ArtistRowMapper {
       updatedAt: DateTime.parse(row['updated_at'] as String),
       headerArtworkId: row['header_artwork_id'] as String?,
       topArtistsArtworkId: row['top_artists_artwork_id'] as String?,
+      isBlacklisted: (row['is_blacklisted'] as int? ?? 0) == 1,
     );
   }
 }

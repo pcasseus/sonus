@@ -371,6 +371,7 @@ Map<String, dynamic> _artistRow({
     'user_id': 'user-1',
     'name': 'Artist $id',
     'canonical_name': 'artist $id',
+    'is_blacklisted': false,
     'header_artwork_id': null,
     'top_artists_artwork_id': null,
     'created_at': '2026-09-10T10:00:00.000Z',

@@ -18,6 +18,7 @@ void main() {
         canonicalName: 'artist',
         headerArtworkId: 'artwork_1',
         topArtistsArtworkId: 'artwork_2',
+        isBlacklisted: true,
         createdAt: createdAt,
         updatedAt: updatedAt,
       );
@@ -28,6 +29,7 @@ void main() {
       expect(record.userId, 'user_1');
       expect(record.name, artist.name);
       expect(record.headerArtworkId, artist.headerArtworkId);
+      expect(record.isBlacklisted, isTrue);
     });
 
     test('maps album relationship data', () {

@@ -100,6 +100,62 @@ void main() {
     });
   });
 
+  test(
+    'artist blacklist defaults to false and accepts boolean values',
+    () async {
+      final db = await appDatabase.database;
+      final now = DateTime.utc(2026, 9, 13).toIso8601String();
+
+      await db.insert(DatabaseTables.artists, {
+        'id': 'artist_blacklist_default',
+        'name': 'Default Artist',
+        'canonical_name': 'default artist',
+        'created_at': now,
+        'updated_at': now,
+      });
+
+      final defaultRows = await db.query(
+        DatabaseTables.artists,
+        where: 'id = ?',
+        whereArgs: ['artist_blacklist_default'],
+      );
+
+      expect(defaultRows.single['is_blacklisted'], 0);
+
+      await db.update(
+        DatabaseTables.artists,
+        {'is_blacklisted': 1},
+        where: 'id = ?',
+        whereArgs: ['artist_blacklist_default'],
+      );
+
+      final blacklistedRows = await db.query(
+        DatabaseTables.artists,
+        where: 'id = ?',
+        whereArgs: ['artist_blacklist_default'],
+      );
+
+      expect(blacklistedRows.single['is_blacklisted'], 1);
+    },
+  );
+
+  test('rejects invalid artist blacklist values', () async {
+    final db = await appDatabase.database;
+    final now = DateTime.utc(2026, 9, 13).toIso8601String();
+
+    expect(
+      () => db.insert(DatabaseTables.artists, {
+        'id': 'artist_invalid_blacklist',
+        'name': 'Invalid Artist',
+        'canonical_name': 'invalid artist',
+        'is_blacklisted': 2,
+        'created_at': now,
+        'updated_at': now,
+      }),
+      throwsA(isA<DatabaseException>()),
+    );
+  });
+
   test('media file location belongs to binding, not song', () async {
     final db = await appDatabase.database;
 

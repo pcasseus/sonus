@@ -14,6 +14,7 @@ void main() {
         userId: 'user_1',
         name: 'Artist',
         canonicalName: 'artist',
+        isBlacklisted: true,
         headerArtworkId: 'artwork_header',
         topArtistsArtworkId: 'artwork_top',
         createdAt: createdAt,
@@ -30,6 +31,7 @@ void main() {
       expect(row[SupabaseSyncContract.idColumn], 'artist_1');
       expect(row[SupabaseSyncContract.userIdColumn], 'user_1');
       expect(row[SupabaseSyncContract.nameColumn], 'Artist');
+      expect(row[SupabaseSyncContract.isBlacklistedColumn], isTrue);
       expect(row[SupabaseSyncContract.canonicalNameColumn], 'artist');
       expect(row[SupabaseSyncContract.headerArtworkIdColumn], 'artwork_header');
       expect(
@@ -162,6 +164,7 @@ void main() {
         userId: 'user_1',
         name: 'Artist',
         canonicalName: 'artist',
+        isBlacklisted: false,
         createdAt: createdAt,
         updatedAt: updatedAt,
       );
@@ -186,6 +189,7 @@ void main() {
         userId: 'user_1',
         name: 'Artist',
         canonicalName: 'artist',
+        isBlacklisted: false,
         createdAt: createdAt,
         updatedAt: updatedAt,
         deletedAt: deletedAt,
@@ -205,6 +209,7 @@ void main() {
         userId: 'user_1',
         name: 'Artist',
         canonicalName: 'artist',
+        isBlacklisted: false,
         createdAt: createdAt,
         updatedAt: updatedAt,
       );
