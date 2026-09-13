@@ -29,6 +29,7 @@ void main() {
         'user_id': 'user-1',
         'name': 'Artist Name',
         'canonical_name': 'artist name',
+        'is_blacklisted': true,
         'header_artwork_id': null,
         'top_artists_artwork_id': null,
         'created_at': '2026-09-10T10:00:00.000Z',
@@ -43,6 +44,7 @@ void main() {
       expect(bundle.artist.saved, isNull);
       expect(bundle.artist.created?.id, 'artist-1');
       expect(bundle.artist.created?.name, 'Artist Name');
+      expect(bundle.artist.created?.isBlacklisted, isTrue);
       expect(bundle.artist.created?.canonicalName, 'artist name');
     });
 
@@ -62,6 +64,7 @@ void main() {
         'user_id': 'user-1',
         'name': 'New Name',
         'canonical_name': 'new name',
+        'is_blacklisted': false,
         'header_artwork_id': 'header-1',
         'top_artists_artwork_id': 'top-1',
         'created_at': '2026-09-10T10:00:00.000Z',
@@ -176,6 +179,7 @@ void main() {
         'user_id': 'user-1',
         'name': 'Artist',
         'canonical_name': 'artist',
+        'is_blacklisted': false,
         'header_artwork_id': null,
         'top_artists_artwork_id': null,
         'created_at': '2026-09-10T10:00:00.000Z',

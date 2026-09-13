@@ -49,6 +49,7 @@ abstract final class SupabaseCloudRecordMapper {
         row.addAll({
           SupabaseSyncContract.nameColumn: record.name,
           SupabaseSyncContract.canonicalNameColumn: record.canonicalName,
+          SupabaseSyncContract.isBlacklistedColumn: record.isBlacklisted,
           SupabaseSyncContract.headerArtworkIdColumn: record.headerArtworkId,
           SupabaseSyncContract.topArtistsArtworkIdColumn:
               record.topArtistsArtworkId,
@@ -132,6 +133,10 @@ abstract final class SupabaseCloudRecordMapper {
       canonicalName: _requiredString(
         row,
         SupabaseSyncContract.canonicalNameColumn,
+      ),
+      isBlacklisted: _requiredBool(
+        row,
+        SupabaseSyncContract.isBlacklistedColumn,
       ),
       headerArtworkId: _optionalString(
         row,

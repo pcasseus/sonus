@@ -9,6 +9,7 @@ class Artist {
     required this.updatedAt,
     this.headerArtworkId,
     this.topArtistsArtworkId,
+    this.isBlacklisted = false,
   });
 
   final String id;
@@ -16,6 +17,7 @@ class Artist {
   final String canonicalName;
   final String? headerArtworkId;
   final String? topArtistsArtworkId;
+  final bool isBlacklisted;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -25,6 +27,7 @@ class Artist {
     String? canonicalName,
     Object? headerArtworkId = _unset,
     Object? topArtistsArtworkId = _unset,
+    bool? isBlacklisted,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -38,6 +41,7 @@ class Artist {
       topArtistsArtworkId: identical(topArtistsArtworkId, _unset)
           ? this.topArtistsArtworkId
           : topArtistsArtworkId as String?,
+      isBlacklisted: isBlacklisted ?? this.isBlacklisted,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );

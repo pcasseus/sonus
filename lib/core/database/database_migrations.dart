@@ -92,6 +92,14 @@ abstract final class DatabaseMigrations {
         await SyncSchema.create(db);
         return;
 
+      case 5:
+        await db.execute(
+          'ALTER TABLE ${DatabaseTables.artists} '
+          'ADD COLUMN is_blacklisted INTEGER NOT NULL DEFAULT 0 '
+          'CHECK (is_blacklisted IN (0, 1))',
+        );
+        return;
+
       default:
         throw UnsupportedError(
           'No Sonus database migration exists for version $targetVersion.',

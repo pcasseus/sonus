@@ -53,6 +53,7 @@ class InboundCloudRecordApplier {
       id: record.id,
       name: record.name,
       canonicalName: record.canonicalName,
+      isBlacklisted: record.isBlacklisted,
       headerArtworkId: record.headerArtworkId,
       topArtistsArtworkId: record.topArtistsArtworkId,
       createdAt: record.createdAt,

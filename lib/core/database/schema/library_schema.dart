@@ -21,6 +21,8 @@ abstract final class LibrarySchema {
       canonical_name TEXT NOT NULL,
       header_artwork_id TEXT,
       top_artists_artwork_id TEXT,
+      is_blacklisted INTEGER NOT NULL DEFAULT 0
+        CHECK (is_blacklisted IN (0, 1)),
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
 

@@ -13,6 +13,7 @@ void main() {
           'user_id': 'user-1',
           'name': 'Artist Name',
           'canonical_name': 'artist name',
+          'is_blacklisted': true,
           'header_artwork_id': 'artwork-header',
           'top_artists_artwork_id': 'artwork-top',
           'created_at': '2026-09-10T10:00:00.000Z',
@@ -23,6 +24,7 @@ void main() {
       );
 
       expect(item.record, isA<CloudArtistRecord>());
+      expect((item.record as CloudArtistRecord).isBlacklisted, isTrue);
       expect(
         item.serverUpdatedAt,
         DateTime.parse('2026-09-12T12:00:00.000Z').toUtc(),
@@ -162,6 +164,7 @@ void main() {
           'user_id': 'user-1',
           'name': 'Deleted Artist',
           'canonical_name': 'deleted artist',
+          'is_blacklisted': false,
           'header_artwork_id': null,
           'top_artists_artwork_id': null,
           'created_at': '2026-09-10T10:00:00.000Z',
@@ -219,6 +222,7 @@ void main() {
             'user_id': 'user-1',
             'name': 'Artist Name',
             'canonical_name': 'artist name',
+            'is_blacklisted': false,
             'header_artwork_id': null,
             'top_artists_artwork_id': null,
             'created_at': '2026-09-10T10:00:00.000Z',
