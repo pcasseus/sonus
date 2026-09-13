@@ -6,4 +6,6 @@ abstract final class DatabaseTables {
   static const String mediaFileBindings = 'media_file_bindings';
   static const String importBatches = 'import_batches';
   static const String artworkAssets = 'artwork_assets';
+  static const String syncState = 'sync_state';
+  static const String syncOutbox = 'sync_outbox';
 }

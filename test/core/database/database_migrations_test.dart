@@ -21,7 +21,7 @@ void main() {
       final result = await db.rawQuery('PRAGMA user_version');
 
       expect(result.single['user_version'], AppDatabase.databaseVersion);
-      expect(AppDatabase.databaseVersion, 3);
+      expect(AppDatabase.databaseVersion, 4);
     } finally {
       await appDatabase.close();
     }
@@ -107,12 +107,36 @@ void main() {
     }
   });
 
+  test('migration runner upgrades version 3 schema to version 4', () async {
+    final db = await databaseFactoryFfi.openDatabase(inMemoryDatabasePath);
+
+    try {
+      await DatabaseMigrations.migrate(db, oldVersion: 3, newVersion: 4);
+
+      final tables = await db.rawQuery('''
+        SELECT name
+        FROM sqlite_master
+        WHERE type = 'table'
+      ''');
+
+      final names = tables
+          .map((row) => row['name'])
+          .whereType<String>()
+          .toSet();
+
+      expect(names, contains(DatabaseTables.syncState));
+      expect(names, contains(DatabaseTables.syncOutbox));
+    } finally {
+      await db.close();
+    }
+  });
+
   test('migration runner fails loudly for unknown future migration', () async {
     final db = await databaseFactoryFfi.openDatabase(inMemoryDatabasePath);
 
     try {
       await expectLater(
-        DatabaseMigrations.migrate(db, oldVersion: 3, newVersion: 4),
+        DatabaseMigrations.migrate(db, oldVersion: 4, newVersion: 5),
         throwsA(isA<UnsupportedError>()),
       );
     } finally {

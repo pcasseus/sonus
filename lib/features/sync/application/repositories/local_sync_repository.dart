@@ -1,0 +1,27 @@
+import '../../domain/models/local_sync_models.dart';
+import '../../domain/models/sync_data_contract.dart';
+
+abstract interface class LocalSyncRepository {
+  Future<SyncCursor?> getCursor(String userId, CloudDataEntity entityType);
+
+  Future<void> saveCursor(SyncCursor cursor);
+
+  Future<List<SyncOutboxEntry>> getPending(String userId);
+
+  Future<void> recordUpsert({
+    required String userId,
+    required CloudDataEntity entityType,
+    required String entityId,
+  });
+
+  Future<void> recordDelete({
+    required String userId,
+    required CloudDataEntity entityType,
+    required String entityId,
+  });
+
+  Future<void> markProcessed({
+    required String userId,
+    required String outboxEntryId,
+  });
+}

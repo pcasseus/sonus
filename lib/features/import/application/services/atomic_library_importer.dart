@@ -1,4 +1,5 @@
 import 'package:sonus_next/core/database/app_database.dart';
+import 'package:sonus_next/core/identity/entity_id.dart';
 import 'package:sonus_next/core/identity/text_normalizer.dart';
 import 'package:sonus_next/features/import/application/identity/library_identity_resolver.dart';
 import 'package:sonus_next/features/import/data/daos/media_file_binding_dao.dart';
@@ -17,16 +18,21 @@ import 'package:sonus_next/features/library/data/repositories/sqlite_album_repos
 import 'package:sonus_next/features/library/data/repositories/sqlite_artist_repository.dart';
 import 'package:sonus_next/features/library/data/repositories/sqlite_song_repository.dart';
 import 'package:sonus_next/features/library/domain/entities/entity_factory.dart';
+import 'package:sonus_next/features/sync/data/daos/local_sync_dao.dart';
+import 'package:sonus_next/features/sync/data/repositories/sqlite_local_sync_repository.dart';
+import 'package:sonus_next/features/sync/domain/models/sync_data_contract.dart';
 
 typedef BeforeBindingWrite = Future<void> Function();
 
 class AtomicLibraryImporter {
   const AtomicLibraryImporter({
     required this.appDatabase,
+    this.userId,
     this.beforeBindingWrite,
   });
 
   final AppDatabase appDatabase;
+  final String? userId;
   final BeforeBindingWrite? beforeBindingWrite;
 
   Future<ImportResult> import({
@@ -35,6 +41,7 @@ class AtomicLibraryImporter {
     DateTime? now,
   }) async {
     final timestamp = now ?? DateTime.now();
+    final syncUserId = userId?.trim();
 
     try {
       return await appDatabase.transaction((transaction) async {
@@ -46,6 +53,11 @@ class AtomicLibraryImporter {
         final songRepository = SqliteSongRepository(SongDao(transaction));
         final bindingRepository = SqliteMediaFileBindingRepository(
           MediaFileBindingDao(transaction),
+        );
+        final localSyncRepository = SqliteLocalSyncRepository(
+          dao: LocalSyncDao(transaction),
+          generateId: EntityId.syncOutbox,
+          now: () => timestamp,
         );
 
         final normalizedPath = TextNormalizer.normalizePath(candidate.filePath);
@@ -111,6 +123,14 @@ class AtomicLibraryImporter {
           );
 
           await artistRepository.create(artist);
+
+          if (syncUserId != null && syncUserId.isNotEmpty) {
+            await localSyncRepository.recordUpsert(
+              userId: syncUserId,
+              entityType: CloudDataEntity.artist,
+              entityId: artist.id,
+            );
+          }
         }
 
         var album = match.album;
@@ -123,6 +143,14 @@ class AtomicLibraryImporter {
           );
 
           await albumRepository.create(album);
+
+          if (syncUserId != null && syncUserId.isNotEmpty) {
+            await localSyncRepository.recordUpsert(
+              userId: syncUserId,
+              entityType: CloudDataEntity.album,
+              entityId: album.id,
+            );
+          }
         }
 
         var edition = match.edition;
@@ -138,6 +166,14 @@ class AtomicLibraryImporter {
           );
 
           await editionRepository.create(edition);
+
+          if (syncUserId != null && syncUserId.isNotEmpty) {
+            await localSyncRepository.recordUpsert(
+              userId: syncUserId,
+              entityType: CloudDataEntity.albumEdition,
+              entityId: edition.id,
+            );
+          }
         }
 
         var song = match.song;
@@ -156,6 +192,14 @@ class AtomicLibraryImporter {
           );
 
           await songRepository.create(song);
+
+          if (syncUserId != null && syncUserId.isNotEmpty) {
+            await localSyncRepository.recordUpsert(
+              userId: syncUserId,
+              entityType: CloudDataEntity.song,
+              entityId: song.id,
+            );
+          }
 
           final binding = MediaFileBindingFactory.create(
             songId: song.id,
