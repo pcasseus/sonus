@@ -13,7 +13,9 @@ import '../../application/models/library_artist.dart';
 import '../../application/models/library_track.dart';
 import '../../application/repositories/library_query_repository.dart';
 import '../../application/services/artist_profile_editing_service.dart';
+import 'package:sonus_next/features/library/application/services/track_profile_editing_service.dart';
 import '../controllers/artist_profile_controller.dart';
+import '../widgets/track_profile_edit_dialog.dart';
 import 'album_profile_page.dart';
 
 class ArtistProfilePage extends StatefulWidget {
@@ -51,6 +53,7 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
       repository: repository,
       artistId: widget.artistId,
       playbackCoordinator: context.read<PlaybackCoordinator?>(),
+      trackProfileEditingService: context.read<TrackProfileEditingService?>(),
       artworkAssignmentService: context.read<ArtworkAssignmentService?>(),
       artworkFilePicker: context.read<ArtworkFilePicker?>(),
       artistProfileEditingService: context.read<ArtistProfileEditingService?>(),
@@ -199,6 +202,9 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
                       const SizedBox(height: 8),
                       _TracksList(
                         controller: controller,
+                        canEditTrack: controller.canEditTrack(userId),
+                        onEditTrack: (track) =>
+                            _editTrack(controller, track, userId),
                         onChangeArtwork: (track) =>
                             _changeTrackArtwork(controller, track),
                         onClearArtwork: (track) =>
@@ -309,6 +315,54 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Could not update artist artwork.')),
+      );
+    }
+  }
+
+  Future<void> _editTrack(
+    ArtistProfileController controller,
+    LibraryTrack track,
+    String? userId,
+  ) async {
+    if (userId == null || userId.trim().isEmpty) {
+      return;
+    }
+
+    try {
+      final draft = await showDialog<TrackProfileEditDraft>(
+        context: context,
+        builder: (dialogContext) {
+          return TrackProfileEditDialog(track: track);
+        },
+      );
+
+      if (!mounted || draft == null) {
+        return;
+      }
+
+      final changed = await controller.updateTrack(
+        userId: userId,
+        track: track,
+        title: draft.title,
+        trackNumber: draft.trackNumber,
+        featuredArtists: draft.featuredArtists,
+        isSingle: draft.isSingle,
+      );
+
+      if (!mounted || !changed) {
+        return;
+      }
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Song details updated.')));
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not update song details.')),
       );
     }
   }
@@ -662,11 +716,15 @@ class _AlbumArtworkThumbnail extends StatelessWidget {
 class _TracksList extends StatelessWidget {
   const _TracksList({
     required this.controller,
+    required this.canEditTrack,
+    required this.onEditTrack,
     required this.onChangeArtwork,
     required this.onClearArtwork,
   });
 
   final ArtistProfileController controller;
+  final bool canEditTrack;
+  final Future<void> Function(LibraryTrack track) onEditTrack;
   final Future<void> Function(LibraryTrack track) onChangeArtwork;
   final Future<void> Function(LibraryTrack track) onClearArtwork;
 
@@ -686,9 +744,11 @@ class _TracksList extends StatelessWidget {
             track: track,
             isPlayable: controller.isTrackPlayable(track),
             canEditArtwork: controller.canEditTrackArtwork,
+            canEditTrack: canEditTrack,
             onPlay: () => controller.playTrack(track),
             onPlayNext: () => controller.playNext(track),
             onAddToQueue: () => controller.addToQueue(track),
+            onEditTrack: () => onEditTrack(track),
             onChangeArtwork: () => onChangeArtwork(track),
             onClearArtwork: () => onClearArtwork(track),
           ),
@@ -702,9 +762,11 @@ class _TrackTile extends StatelessWidget {
     required this.track,
     required this.isPlayable,
     required this.canEditArtwork,
+    required this.canEditTrack,
     required this.onPlay,
     required this.onPlayNext,
     required this.onAddToQueue,
+    required this.onEditTrack,
     required this.onChangeArtwork,
     required this.onClearArtwork,
   });
@@ -712,10 +774,12 @@ class _TrackTile extends StatelessWidget {
   final LibraryTrack track;
   final bool isPlayable;
   final bool canEditArtwork;
+  final bool canEditTrack;
 
   final Future<void> Function() onPlay;
   final Future<void> Function() onPlayNext;
   final Future<void> Function() onAddToQueue;
+  final Future<void> Function() onEditTrack;
   final Future<void> Function() onChangeArtwork;
   final Future<void> Function() onClearArtwork;
 
@@ -746,13 +810,15 @@ class _TrackTile extends StatelessWidget {
           ),
           PopupMenuButton<_TrackMenuAction>(
             key: ValueKey<String>('artist-track-menu-${track.songId}'),
-            enabled: isPlayable || canEditArtwork,
+            enabled: isPlayable || canEditArtwork || canEditTrack,
             onSelected: (action) {
               switch (action) {
                 case _TrackMenuAction.playNext:
                   unawaited(onPlayNext());
                 case _TrackMenuAction.addToQueue:
                   unawaited(onAddToQueue());
+                case _TrackMenuAction.editDetails:
+                  unawaited(onEditTrack());
                 case _TrackMenuAction.changeArtwork:
                   unawaited(onChangeArtwork());
                 case _TrackMenuAction.clearArtwork:
@@ -775,6 +841,15 @@ class _TrackTile extends StatelessWidget {
                 child: const ListTile(
                   leading: Icon(Icons.queue_music_rounded),
                   title: Text('Add to queue'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+              PopupMenuItem(
+                value: _TrackMenuAction.editDetails,
+                enabled: canEditTrack,
+                child: const ListTile(
+                  leading: Icon(Icons.edit_outlined),
+                  title: Text('Edit song details'),
                   contentPadding: EdgeInsets.zero,
                 ),
               ),
@@ -892,7 +967,13 @@ enum _ArtistMenuAction {
   clearTopArtists,
 }
 
-enum _TrackMenuAction { playNext, addToQueue, changeArtwork, clearArtwork }
+enum _TrackMenuAction {
+  playNext,
+  addToQueue,
+  editDetails,
+  changeArtwork,
+  clearArtwork,
+}
 
 class _EmptySection extends StatelessWidget {
   const _EmptySection({required this.message});

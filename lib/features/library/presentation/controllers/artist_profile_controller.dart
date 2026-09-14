@@ -10,6 +10,7 @@ import '../../application/models/library_artist.dart';
 import '../../application/models/library_track.dart';
 import '../../application/repositories/library_query_repository.dart';
 import '../../application/services/artist_profile_editing_service.dart';
+import '../../application/services/track_profile_editing_service.dart';
 
 class ArtistProfileController extends ChangeNotifier {
   ArtistProfileController({
@@ -19,6 +20,7 @@ class ArtistProfileController extends ChangeNotifier {
     ArtworkAssignmentService? artworkAssignmentService,
     ArtworkFilePicker? artworkFilePicker,
     ArtistProfileEditingService? artistProfileEditingService,
+    TrackProfileEditingService? trackProfileEditingService,
     Random? random,
   }) : this._(
          repository,
@@ -27,6 +29,7 @@ class ArtistProfileController extends ChangeNotifier {
          artworkAssignmentService,
          artworkFilePicker,
          artistProfileEditingService,
+         trackProfileEditingService,
          random ?? Random(),
        );
 
@@ -37,6 +40,7 @@ class ArtistProfileController extends ChangeNotifier {
     this._artworkAssignmentService,
     this._artworkFilePicker,
     this._artistProfileEditingService,
+    this._trackProfileEditingService,
     this._random,
   );
 
@@ -46,6 +50,7 @@ class ArtistProfileController extends ChangeNotifier {
   final ArtworkAssignmentService? _artworkAssignmentService;
   final ArtworkFilePicker? _artworkFilePicker;
   final ArtistProfileEditingService? _artistProfileEditingService;
+  final TrackProfileEditingService? _trackProfileEditingService;
   final Random _random;
 
   LibraryArtist? _artist;
@@ -106,6 +111,40 @@ class ArtistProfileController extends ChangeNotifier {
 
   bool get canEditTrackArtwork {
     return _artworkAssignmentService != null && _artworkFilePicker != null;
+  }
+
+  bool canEditTrack(String? userId) {
+    return _trackProfileEditingService != null &&
+        userId != null &&
+        userId.trim().isNotEmpty;
+  }
+
+  Future<bool> updateTrack({
+    required String userId,
+    required LibraryTrack track,
+    required String title,
+    required int trackNumber,
+    required List<String> featuredArtists,
+    required bool isSingle,
+  }) async {
+    final service = _trackProfileEditingService;
+
+    if (service == null || userId.trim().isEmpty) {
+      return false;
+    }
+
+    await service.updateTrack(
+      userId: userId,
+      songId: track.songId,
+      title: title,
+      trackNumber: trackNumber,
+      featuredArtists: featuredArtists,
+      isSingle: isSingle,
+    );
+
+    await refresh();
+
+    return true;
   }
 
   bool canEditArtist(String? userId) {

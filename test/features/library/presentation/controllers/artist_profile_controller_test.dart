@@ -13,6 +13,7 @@ import 'package:sonus_next/features/library/application/models/library_track.dar
 import 'package:sonus_next/features/library/application/models/library_track_order.dart';
 import 'package:sonus_next/features/library/application/repositories/library_query_repository.dart';
 import 'package:sonus_next/features/library/application/services/artist_profile_editing_service.dart';
+import 'package:sonus_next/features/library/application/services/track_profile_editing_service.dart';
 import 'package:sonus_next/features/sync/application/services/sync_mutation_runner.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/domain/entities/artist.dart';
@@ -497,6 +498,164 @@ void main() {
       controller.dispose();
     });
 
+    test('reports whether artist track metadata editing is available', () {
+      final repository = FakeLibraryQueryRepository();
+      final service = FakeTrackProfileEditingService();
+
+      final editableController = ArtistProfileController(
+        repository: repository,
+        artistId: 'artist-1',
+        trackProfileEditingService: service,
+      );
+
+      final missingServiceController = ArtistProfileController(
+        repository: repository,
+        artistId: 'artist-1',
+      );
+
+      expect(editableController.canEditTrack('user-1'), isTrue);
+      expect(editableController.canEditTrack('  user-1  '), isTrue);
+      expect(editableController.canEditTrack(null), isFalse);
+      expect(editableController.canEditTrack(''), isFalse);
+      expect(editableController.canEditTrack('   '), isFalse);
+      expect(missingServiceController.canEditTrack('user-1'), isFalse);
+
+      editableController.dispose();
+      missingServiceController.dispose();
+    });
+
+    test(
+      'updateTrack forwards metadata and refreshes artist profile',
+      () async {
+        final repository = FakeLibraryQueryRepository(
+          artist: createArtist(),
+          tracks: [createTrack(songId: 'song-edit', title: 'Original Title')],
+        );
+        final service = FakeTrackProfileEditingService();
+
+        final controller = ArtistProfileController(
+          repository: repository,
+          artistId: 'artist-1',
+          trackProfileEditingService: service,
+        );
+
+        await controller.load();
+
+        expect(repository.artistRequestCount, 1);
+
+        final changed = await controller.updateTrack(
+          userId: 'user-1',
+          track: controller.tracks.single,
+          title: 'Edited Title',
+          trackNumber: 7,
+          featuredArtists: const ['Feature One', 'Feature Two'],
+          isSingle: true,
+        );
+
+        expect(changed, isTrue);
+        expect(service.updateCallCount, 1);
+        expect(service.lastUserId, 'user-1');
+        expect(service.lastSongId, 'song-edit');
+        expect(service.lastTitle, 'Edited Title');
+        expect(service.lastTrackNumber, 7);
+        expect(service.lastFeaturedArtists, ['Feature One', 'Feature Two']);
+        expect(service.lastIsSingle, isTrue);
+        expect(repository.artistRequestCount, 2);
+
+        controller.dispose();
+      },
+    );
+
+    test('unavailable artist track can still have metadata edited', () async {
+      final repository = FakeLibraryQueryRepository(
+        artist: createArtist(),
+        tracks: [
+          createTrack(songId: 'missing-edit', filePath: '', isAvailable: false),
+        ],
+      );
+      final service = FakeTrackProfileEditingService();
+
+      final controller = ArtistProfileController(
+        repository: repository,
+        artistId: 'artist-1',
+        trackProfileEditingService: service,
+      );
+
+      await controller.load();
+
+      final track = controller.tracks.single;
+
+      expect(controller.isTrackPlayable(track), isFalse);
+      expect(controller.canEditTrack('user-1'), isTrue);
+
+      final changed = await controller.updateTrack(
+        userId: 'user-1',
+        track: track,
+        title: 'Edited Missing Song',
+        trackNumber: 2,
+        featuredArtists: const ['Guest'],
+        isSingle: false,
+      );
+
+      expect(changed, isTrue);
+      expect(service.updateCallCount, 1);
+      expect(service.lastSongId, 'missing-edit');
+
+      controller.dispose();
+    });
+
+    test(
+      'updateTrack does nothing when editing is unavailable or user id is blank',
+      () async {
+        final repository = FakeLibraryQueryRepository(
+          artist: createArtist(),
+          tracks: [createTrack(songId: 'song-edit')],
+        );
+
+        final missingServiceController = ArtistProfileController(
+          repository: repository,
+          artistId: 'artist-1',
+        );
+
+        await missingServiceController.load();
+
+        final missingServiceResult = await missingServiceController.updateTrack(
+          userId: 'user-1',
+          track: missingServiceController.tracks.single,
+          title: 'Edited',
+          trackNumber: 1,
+          featuredArtists: const [],
+          isSingle: false,
+        );
+
+        expect(missingServiceResult, isFalse);
+
+        final service = FakeTrackProfileEditingService();
+
+        final blankUserController = ArtistProfileController(
+          repository: repository,
+          artistId: 'artist-1',
+          trackProfileEditingService: service,
+        );
+
+        await blankUserController.load();
+
+        final blankUserResult = await blankUserController.updateTrack(
+          userId: '   ',
+          track: blankUserController.tracks.single,
+          title: 'Edited',
+          trackNumber: 1,
+          featuredArtists: const [],
+          isSingle: false,
+        );
+
+        expect(blankUserResult, isFalse);
+        expect(service.updateCallCount, 0);
+
+        missingServiceController.dispose();
+        blankUserController.dispose();
+      },
+    );
     test('reports whether artist profile editing is available', () {
       final repository = FakeLibraryQueryRepository();
 
@@ -1052,6 +1211,60 @@ class FakeLibraryQueryRepository implements LibraryQueryRepository {
   @override
   Future<List<LibraryArtist>> getArtists() async {
     return const [];
+  }
+}
+
+class FakeTrackProfileEditingService extends TrackProfileEditingService {
+  FakeTrackProfileEditingService()
+    : super(mutationRunner: UnusedSyncMutationRunner());
+
+  int updateCallCount = 0;
+
+  String? lastUserId;
+  String? lastSongId;
+  String? lastTitle;
+  int? lastTrackNumber;
+  List<String>? lastFeaturedArtists;
+  bool? lastIsSingle;
+
+  @override
+  Future<TrackProfileEditResult> updateTrack({
+    required String userId,
+    required String songId,
+    required String title,
+    required int trackNumber,
+    required List<String> featuredArtists,
+    required bool isSingle,
+    DateTime? now,
+  }) async {
+    updateCallCount++;
+    lastUserId = userId;
+    lastSongId = songId;
+    lastTitle = title;
+    lastTrackNumber = trackNumber;
+    lastFeaturedArtists = List<String>.from(featuredArtists);
+    lastIsSingle = isSingle;
+
+    final timestamp = now ?? DateTime.utc(2026, 1, 1);
+
+    return TrackProfileEditResult(
+      song: Song(
+        id: songId,
+        artistId: 'artist-1',
+        albumId: 'album-1',
+        albumEditionId: 'edition-1',
+        title: title,
+        canonicalTitle: title.trim().toLowerCase(),
+        trackNumber: trackNumber,
+        durationSeconds: 180,
+        isSingle: isSingle,
+        featuredArtists: List<String>.from(featuredArtists),
+        artworkId: null,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      ),
+      changed: true,
+    );
   }
 }
 

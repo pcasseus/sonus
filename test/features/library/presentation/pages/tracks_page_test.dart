@@ -4,11 +4,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
+import 'package:sonus_next/features/account/application/controllers/account_controller.dart';
+import 'package:sonus_next/features/account/domain/entities/account_user.dart';
+import 'package:sonus_next/features/account/domain/repositories/account_repository.dart';
 import 'package:sonus_next/features/library/application/models/library_album.dart';
 import 'package:sonus_next/features/library/application/models/library_artist.dart';
 import 'package:sonus_next/features/library/application/models/library_track.dart';
 import 'package:sonus_next/features/library/application/models/library_track_order.dart';
 import 'package:sonus_next/features/library/application/repositories/library_query_repository.dart';
+import 'package:sonus_next/features/library/application/services/track_profile_editing_service.dart';
+import 'package:sonus_next/features/sync/application/services/sync_mutation_runner.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/presentation/pages/tracks_page.dart';
 import 'package:sonus_next/features/player/application/controllers/playback_coordinator.dart';
@@ -27,7 +32,7 @@ void main() {
           findsOneWidget,
         );
 
-        expect(find.text('Loading tracks…'), findsOneWidget);
+        expect(find.text('Loading tracks...'), findsOneWidget);
 
         expect(find.byType(CircularProgressIndicator), findsNothing);
       },
@@ -180,6 +185,63 @@ void main() {
       );
     });
 
+    testWidgets('unavailable track still exposes metadata editing', (
+      tester,
+    ) async {
+      final repository = FakeLibraryQueryRepository(
+        tracks: [
+          createTrack(
+            songId: 'unavailable',
+            title: 'Unavailable Song',
+            isAvailable: false,
+            filePath: null,
+          ),
+        ],
+      );
+
+      final accountController = AccountController(
+        repository: FakeAccountRepository(
+          currentUser: const AccountUser(
+            id: 'user-1',
+            email: 'user@example.com',
+          ),
+        ),
+      );
+
+      final editingService = TrackProfileEditingService(
+        mutationRunner: UnusedSyncMutationRunner(),
+      );
+
+      await tester.pumpWidget(
+        buildSubject(
+          repository: repository,
+          accountController: accountController,
+          trackProfileEditingService: editingService,
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      final tile = tester.widget<ListTile>(
+        find.byKey(const ValueKey<String>('track-unavailable')),
+      );
+
+      expect(tile.enabled, isFalse);
+
+      final menuFinder = find.byKey(
+        const ValueKey<String>('track-menu-unavailable'),
+      );
+
+      expect(
+        tester.widget<PopupMenuButton<dynamic>>(menuFinder).enabled,
+        isTrue,
+      );
+
+      await tester.tap(menuFinder);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Edit song details'), findsOneWidget);
+    });
     testWidgets('changing order reloads tracks using selected order', (
       tester,
     ) async {
@@ -239,7 +301,11 @@ void main() {
   });
 }
 
-Widget buildSubject({required LibraryQueryRepository? repository}) {
+Widget buildSubject({
+  required LibraryQueryRepository? repository,
+  AccountController? accountController,
+  TrackProfileEditingService? trackProfileEditingService,
+}) {
   final engine = NoOpPlaybackEngine();
 
   final coordinator = PlaybackCoordinator(engine: engine);
@@ -247,6 +313,12 @@ Widget buildSubject({required LibraryQueryRepository? repository}) {
   return MultiProvider(
     providers: [
       Provider<LibraryQueryRepository?>.value(value: repository),
+      ChangeNotifierProvider<AccountController?>.value(
+        value: accountController,
+      ),
+      Provider<TrackProfileEditingService?>.value(
+        value: trackProfileEditingService,
+      ),
       Provider<PlaybackCoordinator>.value(value: coordinator),
     ],
     child: const MaterialApp(home: Scaffold(body: TracksPage())),
@@ -387,5 +459,27 @@ class NoOpPlaybackEngine implements PlaybackEngine {
   @override
   dynamic noSuchMethod(Invocation invocation) {
     return super.noSuchMethod(invocation);
+  }
+}
+
+class FakeAccountRepository implements AccountRepository {
+  FakeAccountRepository({this.currentUser});
+
+  @override
+  final AccountUser? currentUser;
+
+  @override
+  Stream<AccountUser?> watchAuthState() => const Stream.empty();
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) {
+    return super.noSuchMethod(invocation);
+  }
+}
+
+class UnusedSyncMutationRunner implements SyncMutationRunner {
+  @override
+  dynamic noSuchMethod(Invocation invocation) {
+    throw StateError('Sync mutation runner should not be used by this test.');
   }
 }

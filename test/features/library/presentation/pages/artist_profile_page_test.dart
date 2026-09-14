@@ -7,6 +7,7 @@ import 'package:sonus_next/features/account/domain/entities/account_user.dart';
 import 'package:sonus_next/features/account/domain/repositories/account_repository.dart';
 import 'package:sonus_next/features/account/presentation/scopes/account_scope.dart';
 import 'package:sonus_next/features/library/application/services/artist_profile_editing_service.dart';
+import 'package:sonus_next/features/library/application/services/track_profile_editing_service.dart';
 import 'package:sonus_next/features/library/domain/entities/artist.dart';
 import 'package:sonus_next/features/sync/application/services/sync_mutation_runner.dart';
 
@@ -332,6 +333,65 @@ void main() {
       await engine.dispose();
     });
 
+    testWidgets('unavailable track still exposes metadata editing', (
+      tester,
+    ) async {
+      final repository = FakeLibraryQueryRepository(
+        artist: createArtist(),
+        tracks: [
+          createTrack(
+            songId: 'missing-song',
+            title: 'Missing Song',
+            filePath: '',
+            isAvailable: false,
+          ),
+        ],
+      );
+
+      final editingService = TrackProfileEditingService(
+        mutationRunner: UnusedSyncMutationRunner(),
+      );
+
+      await tester.pumpWidget(
+        buildSubject(
+          repository: repository,
+          accountRepository: FakeAccountRepository(
+            currentUser: const AccountUser(id: 'user-1'),
+          ),
+          trackProfileEditingService: editingService,
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      await tester.drag(
+        find.byKey(const PageStorageKey<String>('artist-profile-scroll')),
+        const Offset(0, -500),
+      );
+
+      await tester.pumpAndSettle();
+
+      final tileFinder = find.byKey(
+        const ValueKey<String>('artist-track-missing-song'),
+      );
+
+      final tile = tester.widget<ListTile>(tileFinder);
+      expect(tile.enabled, isFalse);
+
+      final menuFinder = find.byKey(
+        const ValueKey<String>('artist-track-menu-missing-song'),
+      );
+
+      expect(
+        tester.widget<PopupMenuButton<dynamic>>(menuFinder).enabled,
+        isTrue,
+      );
+
+      await tester.tap(menuFinder);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Edit song details'), findsOneWidget);
+    });
     testWidgets('playback controls are disabled when no tracks are playable', (
       tester,
     ) async {
@@ -537,6 +597,7 @@ Widget buildSubject({
   PlaybackCoordinator? playbackCoordinator,
   AccountRepository? accountRepository,
   ArtistProfileEditingService? artistProfileEditingService,
+  TrackProfileEditingService? trackProfileEditingService,
 }) {
   return Provider<LibraryQueryRepository?>.value(
     value: repository,
@@ -544,12 +605,15 @@ Widget buildSubject({
       value: playbackCoordinator,
       child: Provider<ArtistProfileEditingService?>.value(
         value: artistProfileEditingService,
-        child: AccountScope(
-          repository: accountRepository,
-          child: const MaterialApp(
-            home: ArtistProfilePage(
-              artistId: 'artist-1',
-              initialArtistName: 'Test Artist',
+        child: Provider<TrackProfileEditingService?>.value(
+          value: trackProfileEditingService,
+          child: AccountScope(
+            repository: accountRepository,
+            child: const MaterialApp(
+              home: ArtistProfilePage(
+                artistId: 'artist-1',
+                initialArtistName: 'Test Artist',
+              ),
             ),
           ),
         ),
