@@ -8,6 +8,7 @@ import 'package:sonus_next/features/account/domain/repositories/account_reposito
 import 'package:provider/provider.dart';
 
 import 'package:sonus_next/features/library/application/services/album_profile_editing_service.dart';
+import 'package:sonus_next/features/library/application/services/track_profile_editing_service.dart';
 import 'package:sonus_next/features/library/domain/entities/album.dart';
 import 'package:sonus_next/features/sync/application/services/sync_mutation_runner.dart';
 import 'package:sonus_next/features/library/application/models/library_album.dart';
@@ -663,6 +664,58 @@ void main() {
       await engine.dispose();
     });
 
+    testWidgets('unavailable track still exposes metadata editing', (
+      tester,
+    ) async {
+      final repository = FakeLibraryQueryRepository(
+        album: createAlbum(),
+        tracks: [
+          createTrack(
+            songId: 'missing-song',
+            title: 'Missing Song',
+            filePath: '',
+            isAvailable: false,
+          ),
+        ],
+      );
+
+      final editingService = TrackProfileEditingService(
+        mutationRunner: UnusedSyncMutationRunner(),
+      );
+
+      await tester.pumpWidget(
+        buildSubject(
+          repository: repository,
+          accountRepository: FakeAccountRepository(
+            currentUser: const AccountUser(id: 'user-1'),
+          ),
+          trackProfileEditingService: editingService,
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      final tileFinder = find.byKey(
+        const ValueKey<String>('album-track-missing-song'),
+      );
+
+      final tile = tester.widget<ListTile>(tileFinder);
+      expect(tile.enabled, isFalse);
+
+      final menuFinder = find.byKey(
+        const ValueKey<String>('album-track-menu-missing-song'),
+      );
+
+      expect(
+        tester.widget<PopupMenuButton<dynamic>>(menuFinder).enabled,
+        isTrue,
+      );
+
+      await tester.tap(menuFinder);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Edit song details'), findsOneWidget);
+    });
     testWidgets('playback controls are disabled when no tracks are playable', (
       tester,
     ) async {
@@ -706,6 +759,7 @@ Widget buildSubject({
   PlaybackCoordinator? playbackCoordinator,
   AccountRepository? accountRepository,
   AlbumProfileEditingService? albumProfileEditingService,
+  TrackProfileEditingService? trackProfileEditingService,
 }) {
   return Provider<LibraryQueryRepository?>.value(
     value: repository,
@@ -713,12 +767,15 @@ Widget buildSubject({
       value: playbackCoordinator,
       child: Provider<AlbumProfileEditingService?>.value(
         value: albumProfileEditingService,
-        child: AccountScope(
-          repository: accountRepository,
-          child: const MaterialApp(
-            home: AlbumProfilePage(
-              albumId: 'album-1',
-              initialAlbumTitle: 'Test Album',
+        child: Provider<TrackProfileEditingService?>.value(
+          value: trackProfileEditingService,
+          child: AccountScope(
+            repository: accountRepository,
+            child: const MaterialApp(
+              home: AlbumProfilePage(
+                albumId: 'album-1',
+                initialAlbumTitle: 'Test Album',
+              ),
             ),
           ),
         ),

@@ -14,6 +14,7 @@ import '../../../sync/data/repositories/sync_mutation_transaction_runner.dart';
 import '../../application/repositories/library_query_repository.dart';
 import '../../application/services/album_profile_editing_service.dart';
 import '../../application/services/artist_profile_editing_service.dart';
+import '../../application/services/track_profile_editing_service.dart';
 import '../../data/daos/album_edition_dao.dart';
 import '../../data/daos/artist_dao.dart';
 import '../../data/daos/library_query_dao.dart';
@@ -41,6 +42,7 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
   ArtworkAssignmentService? _artworkAssignmentService;
   AlbumProfileEditingService? _albumProfileEditingService;
   ArtistProfileEditingService? _artistProfileEditingService;
+  TrackProfileEditingService? _trackProfileEditingService;
 
   @override
   void initState() {
@@ -79,6 +81,10 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
       mutationRunner: SyncMutationTransactionRunner(appDatabase: _database),
     );
 
+    final trackProfileEditingService = TrackProfileEditingService(
+      mutationRunner: SyncMutationTransactionRunner(appDatabase: _database),
+    );
+
     if (!mounted) {
       return;
     }
@@ -88,6 +94,7 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
       _artworkAssignmentService = artworkAssignmentService;
       _albumProfileEditingService = albumProfileEditingService;
       _artistProfileEditingService = artistProfileEditingService;
+      _trackProfileEditingService = trackProfileEditingService;
     });
   }
 
@@ -104,6 +111,9 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
         ),
         Provider<ArtistProfileEditingService?>.value(
           value: _artistProfileEditingService,
+        ),
+        Provider<TrackProfileEditingService?>.value(
+          value: _trackProfileEditingService,
         ),
         Provider<ArtworkFilePicker>.value(
           value: const FilePickerArtworkFilePicker(),

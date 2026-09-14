@@ -8,6 +8,7 @@ import '../../../player/application/controllers/playback_coordinator.dart';
 import '../../application/models/library_track.dart';
 import '../../application/models/library_track_order.dart';
 import '../../application/repositories/library_query_repository.dart';
+import '../../application/services/track_profile_editing_service.dart';
 
 class LibraryTracksController extends ChangeNotifier {
   factory LibraryTracksController({
@@ -15,6 +16,7 @@ class LibraryTracksController extends ChangeNotifier {
     required PlaybackCoordinator playbackCoordinator,
     ArtworkAssignmentService? artworkAssignmentService,
     ArtworkFilePicker? artworkFilePicker,
+    TrackProfileEditingService? trackProfileEditingService,
     Random? random,
   }) {
     return LibraryTracksController._(
@@ -22,6 +24,7 @@ class LibraryTracksController extends ChangeNotifier {
       playbackCoordinator,
       artworkAssignmentService,
       artworkFilePicker,
+      trackProfileEditingService,
       random ?? Random(),
     );
   }
@@ -31,6 +34,7 @@ class LibraryTracksController extends ChangeNotifier {
     this._playbackCoordinator,
     this._artworkAssignmentService,
     this._artworkFilePicker,
+    this._trackProfileEditingService,
     this._random,
   );
 
@@ -38,6 +42,7 @@ class LibraryTracksController extends ChangeNotifier {
   final PlaybackCoordinator _playbackCoordinator;
   final ArtworkAssignmentService? _artworkAssignmentService;
   final ArtworkFilePicker? _artworkFilePicker;
+  final TrackProfileEditingService? _trackProfileEditingService;
   final Random _random;
 
   List<LibraryTrack> _tracks = const [];
@@ -63,6 +68,40 @@ class LibraryTracksController extends ChangeNotifier {
 
   bool get canEditArtwork {
     return _artworkAssignmentService != null && _artworkFilePicker != null;
+  }
+
+  bool canEditTrack(String? userId) {
+    return _trackProfileEditingService != null &&
+        userId != null &&
+        userId.trim().isNotEmpty;
+  }
+
+  Future<bool> updateTrack({
+    required String userId,
+    required LibraryTrack track,
+    required String title,
+    required int trackNumber,
+    required List<String> featuredArtists,
+    required bool isSingle,
+  }) async {
+    final service = _trackProfileEditingService;
+
+    if (service == null || userId.trim().isEmpty) {
+      return false;
+    }
+
+    await service.updateTrack(
+      userId: userId,
+      songId: track.songId,
+      title: title,
+      trackNumber: trackNumber,
+      featuredArtists: featuredArtists,
+      isSingle: isSingle,
+    );
+
+    await refresh();
+
+    return true;
   }
 
   Future<void> load() async {
