@@ -8,12 +8,15 @@ import '../../../player/application/controllers/playback_coordinator.dart';
 import '../../application/models/library_album.dart';
 import '../../application/models/library_track.dart';
 import '../../application/repositories/library_query_repository.dart';
+import '../../application/services/album_profile_editing_service.dart';
+import '../../domain/entities/album_edition.dart';
 
 class AlbumProfileController extends ChangeNotifier {
   AlbumProfileController({
     required LibraryQueryRepository repository,
     required String albumId,
     PlaybackCoordinator? playbackCoordinator,
+    AlbumProfileEditingService? albumProfileEditingService,
     ArtworkAssignmentService? artworkAssignmentService,
     ArtworkFilePicker? artworkFilePicker,
     Random? random,
@@ -21,6 +24,7 @@ class AlbumProfileController extends ChangeNotifier {
          repository,
          albumId,
          playbackCoordinator,
+         albumProfileEditingService,
          artworkAssignmentService,
          artworkFilePicker,
          random ?? Random(),
@@ -30,6 +34,7 @@ class AlbumProfileController extends ChangeNotifier {
     this._repository,
     this._albumId,
     this._playbackCoordinator,
+    this._albumProfileEditingService,
     this._artworkAssignmentService,
     this._artworkFilePicker,
     this._random,
@@ -38,6 +43,7 @@ class AlbumProfileController extends ChangeNotifier {
   final LibraryQueryRepository _repository;
   final String _albumId;
   final PlaybackCoordinator? _playbackCoordinator;
+  final AlbumProfileEditingService? _albumProfileEditingService;
   final ArtworkAssignmentService? _artworkAssignmentService;
   final ArtworkFilePicker? _artworkFilePicker;
   final Random _random;
@@ -63,6 +69,52 @@ class AlbumProfileController extends ChangeNotifier {
     }
 
     return path;
+  }
+
+  bool canEditAlbumProfile(String? userId) {
+    final primaryEditionId = _album?.primaryEditionId;
+
+    return _albumProfileEditingService != null &&
+        userId != null &&
+        userId.trim().isNotEmpty &&
+        primaryEditionId != null &&
+        primaryEditionId.trim().isNotEmpty;
+  }
+
+  Future<bool> updateProfile({
+    required String userId,
+    required String title,
+    required String editionTitle,
+    required AlbumEditionType editionType,
+    required DateTime? releaseDate,
+    required String? genre,
+  }) async {
+    final service = _albumProfileEditingService;
+    final album = _album;
+    final primaryEditionId = album?.primaryEditionId;
+
+    if (service == null ||
+        album == null ||
+        userId.trim().isEmpty ||
+        primaryEditionId == null ||
+        primaryEditionId.trim().isEmpty) {
+      return false;
+    }
+
+    await service.updateProfile(
+      userId: userId,
+      albumId: _albumId,
+      primaryEditionId: primaryEditionId,
+      title: title,
+      editionTitle: editionTitle,
+      editionType: editionType,
+      releaseDate: releaseDate,
+      genre: genre,
+    );
+
+    await refresh();
+
+    return true;
   }
 
   bool get canEditArtwork {

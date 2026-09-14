@@ -4,12 +4,15 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../account/application/controllers/account_controller.dart';
 import '../../../artwork/application/services/artwork_assignment_service.dart';
 import '../../../artwork/application/services/artwork_file_picker.dart';
 import '../../../player/application/controllers/playback_coordinator.dart';
 import '../../application/models/library_album.dart';
 import '../../application/models/library_track.dart';
 import '../../application/repositories/library_query_repository.dart';
+import '../../application/services/album_profile_editing_service.dart';
+import '../../domain/entities/album_edition.dart';
 import '../controllers/album_profile_controller.dart';
 
 class AlbumProfilePage extends StatefulWidget {
@@ -47,6 +50,7 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
       repository: repository,
       albumId: widget.albumId,
       playbackCoordinator: context.read<PlaybackCoordinator?>(),
+      albumProfileEditingService: context.read<AlbumProfileEditingService?>(),
       artworkAssignmentService: context.read<ArtworkAssignmentService?>(),
       artworkFilePicker: context.read<ArtworkFilePicker?>(),
     );
@@ -57,6 +61,8 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
   @override
   Widget build(BuildContext context) {
     final controller = _controller;
+    final accountController = context.watch<AccountController?>();
+    final userId = accountController?.user?.id;
 
     return Scaffold(
       key: const ValueKey<String>('album-profile-page'),
@@ -78,25 +84,39 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
             AnimatedBuilder(
               animation: controller,
               builder: (context, _) {
-                return PopupMenuButton<_AlbumArtworkMenuAction>(
+                return PopupMenuButton<_AlbumMenuAction>(
                   key: const ValueKey<String>('album-profile-artwork-menu'),
-                  enabled: controller.canEditArtwork,
-                  tooltip: 'Edit artwork',
+                  enabled:
+                      controller.canEditArtwork ||
+                      controller.canEditAlbumProfile(userId),
+                  tooltip: 'Album actions',
                   onSelected: (action) {
-                    unawaited(_handleArtworkAction(controller, action));
+                    unawaited(_handleAlbumAction(controller, action, userId));
                   },
-                  itemBuilder: (context) => const [
+                  itemBuilder: (context) => [
                     PopupMenuItem(
-                      value: _AlbumArtworkMenuAction.change,
-                      child: ListTile(
+                      value: _AlbumMenuAction.editProfile,
+                      enabled: controller.canEditAlbumProfile(userId),
+                      child: const ListTile(
+                        leading: Icon(Icons.edit_outlined),
+                        title: Text('Edit album details'),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                    ),
+                    const PopupMenuDivider(),
+                    PopupMenuItem(
+                      value: _AlbumMenuAction.changeArtwork,
+                      enabled: controller.canEditArtwork,
+                      child: const ListTile(
                         leading: Icon(Icons.image_rounded),
                         title: Text('Change artwork'),
                         contentPadding: EdgeInsets.zero,
                       ),
                     ),
                     PopupMenuItem(
-                      value: _AlbumArtworkMenuAction.clear,
-                      child: ListTile(
+                      value: _AlbumMenuAction.clearArtwork,
+                      enabled: controller.canEditArtwork,
+                      child: const ListTile(
                         leading: Icon(Icons.hide_image_rounded),
                         title: Text('Clear artwork'),
                         contentPadding: EdgeInsets.zero,
@@ -166,14 +186,92 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
     );
   }
 
+  Future<void> _handleAlbumAction(
+    AlbumProfileController controller,
+    _AlbumMenuAction action,
+    String? userId,
+  ) async {
+    if (action == _AlbumMenuAction.editProfile) {
+      if (userId == null || userId.trim().isEmpty) {
+        return;
+      }
+
+      await _editAlbumProfile(controller, userId);
+      return;
+    }
+
+    await _handleArtworkAction(controller, action);
+  }
+
+  Future<void> _editAlbumProfile(
+    AlbumProfileController controller,
+    String userId,
+  ) async {
+    final album = controller.album;
+
+    if (album == null || !controller.canEditAlbumProfile(userId)) {
+      return;
+    }
+
+    final editionTitle = album.primaryEditionTitle?.trim();
+
+    try {
+      final draft = await showDialog<_AlbumProfileEditDraft>(
+        context: context,
+        builder: (dialogContext) {
+          return _AlbumProfileEditDialog(
+            initialTitle: album.title,
+            initialEditionTitle: editionTitle == null || editionTitle.isEmpty
+                ? 'Standard'
+                : editionTitle,
+            initialEditionType:
+                album.primaryEditionType ?? AlbumEditionType.standard,
+            initialReleaseDate: album.releaseDate,
+            initialGenre: album.genre,
+          );
+        },
+      );
+
+      if (!mounted || draft == null) {
+        return;
+      }
+
+      final changed = await controller.updateProfile(
+        userId: userId,
+        title: draft.title,
+        editionTitle: draft.editionTitle,
+        editionType: draft.editionType,
+        releaseDate: draft.releaseDate,
+        genre: draft.genre,
+      );
+
+      if (!mounted || !changed) {
+        return;
+      }
+
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Album details updated.')));
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not update album details.')),
+      );
+    }
+  }
+
   Future<void> _handleArtworkAction(
     AlbumProfileController controller,
-    _AlbumArtworkMenuAction action,
+    _AlbumMenuAction action,
   ) async {
     try {
       final changed = switch (action) {
-        _AlbumArtworkMenuAction.change => await controller.changeArtwork(),
-        _AlbumArtworkMenuAction.clear => await controller.clearArtwork(),
+        _AlbumMenuAction.editProfile => false,
+        _AlbumMenuAction.changeArtwork => await controller.changeArtwork(),
+        _AlbumMenuAction.clearArtwork => await controller.clearArtwork(),
       };
 
       if (!mounted || !changed) {
@@ -181,8 +279,9 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
       }
 
       final message = switch (action) {
-        _AlbumArtworkMenuAction.change => 'Album artwork updated.',
-        _AlbumArtworkMenuAction.clear => 'Album artwork cleared.',
+        _AlbumMenuAction.editProfile => '',
+        _AlbumMenuAction.changeArtwork => 'Album artwork updated.',
+        _AlbumMenuAction.clearArtwork => 'Album artwork cleared.',
       };
 
       ScaffoldMessenger.of(
@@ -717,7 +816,259 @@ class _TrackTile extends StatelessWidget {
   }
 }
 
-enum _AlbumArtworkMenuAction { change, clear }
+class _AlbumProfileEditDraft {
+  const _AlbumProfileEditDraft({
+    required this.title,
+    required this.editionTitle,
+    required this.editionType,
+    required this.releaseDate,
+    required this.genre,
+  });
+
+  final String title;
+  final String editionTitle;
+  final AlbumEditionType editionType;
+  final DateTime? releaseDate;
+  final String? genre;
+}
+
+class _AlbumProfileEditDialog extends StatefulWidget {
+  const _AlbumProfileEditDialog({
+    required this.initialTitle,
+    required this.initialEditionTitle,
+    required this.initialEditionType,
+    required this.initialReleaseDate,
+    required this.initialGenre,
+  });
+
+  final String initialTitle;
+  final String initialEditionTitle;
+  final AlbumEditionType initialEditionType;
+  final DateTime? initialReleaseDate;
+  final String? initialGenre;
+
+  @override
+  State<_AlbumProfileEditDialog> createState() =>
+      _AlbumProfileEditDialogState();
+}
+
+class _AlbumProfileEditDialogState extends State<_AlbumProfileEditDialog> {
+  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
+
+  late final TextEditingController _titleController;
+  late final TextEditingController _editionTitleController;
+  late final TextEditingController _releaseDateController;
+  late final TextEditingController _genreController;
+
+  late AlbumEditionType _editionType;
+
+  @override
+  void initState() {
+    super.initState();
+
+    _titleController = TextEditingController(text: widget.initialTitle);
+
+    _editionTitleController = TextEditingController(
+      text: widget.initialEditionTitle,
+    );
+
+    _releaseDateController = TextEditingController(
+      text: _formatInputDate(widget.initialReleaseDate),
+    );
+
+    _genreController = TextEditingController(text: widget.initialGenre ?? '');
+
+    _editionType = widget.initialEditionType;
+  }
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _editionTitleController.dispose();
+    _releaseDateController.dispose();
+    _genreController.dispose();
+
+    super.dispose();
+  }
+
+  void _submit() {
+    if (!(_formKey.currentState?.validate() ?? false)) {
+      return;
+    }
+
+    final genre = _genreController.text.trim();
+
+    Navigator.of(context).pop(
+      _AlbumProfileEditDraft(
+        title: _titleController.text,
+        editionTitle: _editionTitleController.text,
+        editionType: _editionType,
+        releaseDate: _parseInputDate(_releaseDateController.text),
+        genre: genre.isEmpty ? null : genre,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Edit album details'),
+      content: SingleChildScrollView(
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                key: const ValueKey<String>('album-title-field'),
+                controller: _titleController,
+                autofocus: true,
+                textInputAction: TextInputAction.next,
+                decoration: const InputDecoration(labelText: 'Album title'),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Album title cannot be blank.';
+                  }
+
+                  return null;
+                },
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                key: const ValueKey<String>('album-edition-title-field'),
+                controller: _editionTitleController,
+                textInputAction: TextInputAction.next,
+                decoration: const InputDecoration(labelText: 'Edition title'),
+                validator: (value) {
+                  if (value == null || value.trim().isEmpty) {
+                    return 'Edition title cannot be blank.';
+                  }
+
+                  return null;
+                },
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<AlbumEditionType>(
+                key: const ValueKey<String>('album-edition-type-field'),
+                initialValue: _editionType,
+                decoration: const InputDecoration(labelText: 'Edition type'),
+                items: [
+                  for (final type in AlbumEditionType.values)
+                    DropdownMenuItem(
+                      value: type,
+                      child: Text(_editionTypeLabel(type)),
+                    ),
+                ],
+                onChanged: (value) {
+                  if (value == null) {
+                    return;
+                  }
+
+                  setState(() {
+                    _editionType = value;
+                  });
+                },
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                key: const ValueKey<String>('album-release-date-field'),
+                controller: _releaseDateController,
+                keyboardType: TextInputType.datetime,
+                textInputAction: TextInputAction.next,
+                decoration: const InputDecoration(
+                  labelText: 'Release date',
+                  hintText: 'YYYY-MM-DD',
+                ),
+                validator: (value) {
+                  final trimmed = value?.trim() ?? '';
+
+                  if (trimmed.isEmpty) {
+                    return null;
+                  }
+
+                  if (_parseInputDate(trimmed) == null) {
+                    return 'Use YYYY-MM-DD.';
+                  }
+
+                  return null;
+                },
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                key: const ValueKey<String>('album-genre-field'),
+                controller: _genreController,
+                textInputAction: TextInputAction.done,
+                decoration: const InputDecoration(labelText: 'Genre'),
+                onFieldSubmitted: (_) => _submit(),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(onPressed: _submit, child: const Text('Save')),
+      ],
+    );
+  }
+
+  String _editionTypeLabel(AlbumEditionType type) {
+    return switch (type) {
+      AlbumEditionType.standard => 'Standard',
+      AlbumEditionType.deluxe => 'Deluxe',
+      AlbumEditionType.expanded => 'Expanded',
+      AlbumEditionType.anniversary => 'Anniversary',
+      AlbumEditionType.remaster => 'Remaster',
+      AlbumEditionType.other => 'Other',
+    };
+  }
+
+  String _formatInputDate(DateTime? date) {
+    if (date == null) {
+      return '';
+    }
+
+    final month = date.month.toString().padLeft(2, '0');
+    final day = date.day.toString().padLeft(2, '0');
+
+    return '${date.year.toString().padLeft(4, '0')}-$month-$day';
+  }
+
+  DateTime? _parseInputDate(String value) {
+    final trimmed = value.trim();
+
+    if (trimmed.isEmpty) {
+      return null;
+    }
+
+    final match = RegExp(r'^(\d{4})-(\d{2})-(\d{2})$').firstMatch(trimmed);
+
+    if (match == null) {
+      return null;
+    }
+
+    final year = int.parse(match.group(1)!);
+    final month = int.parse(match.group(2)!);
+    final day = int.parse(match.group(3)!);
+
+    if (month < 1 || month > 12 || day < 1 || day > 31) {
+      return null;
+    }
+
+    final parsed = DateTime(year, month, day);
+
+    if (parsed.year != year || parsed.month != month || parsed.day != day) {
+      return null;
+    }
+
+    return parsed;
+  }
+}
+
+enum _AlbumMenuAction { editProfile, changeArtwork, clearArtwork }
 
 enum _TrackMenuAction { playNext, addToQueue, changeArtwork, clearArtwork }
 
