@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../../application/models/library_artist.dart';
 import '../../application/repositories/library_query_repository.dart';
 import '../controllers/library_artists_controller.dart';
+import '../widgets/library_artist_card.dart';
 import 'artist_profile_page.dart';
 
 class LibraryPage extends StatefulWidget {
@@ -55,7 +56,7 @@ class _LibraryPageState extends State<LibraryPage> {
     if (controller == null) {
       return const SizedBox(
         key: ValueKey<String>('app-destination-library'),
-        child: Text('Loading library…'),
+        child: Center(child: Text('Loading library\u2026')),
       );
     }
 
@@ -72,38 +73,43 @@ class _LibraryPageState extends State<LibraryPage> {
             return _LibraryLoadError(onRetry: controller.load);
           }
 
-          if (controller.isEmpty) {
-            return RefreshIndicator(
-              onRefresh: controller.refresh,
-              child: GridView.count(
-                physics: const AlwaysScrollableScrollPhysics(),
-                crossAxisCount: 2,
-                children: const [Center(child: Text('No artists yet'))],
-              ),
-            );
-          }
-
           return RefreshIndicator(
             onRefresh: controller.refresh,
-            child: GridView.builder(
-              key: const PageStorageKey<String>('artists-grid'),
-              padding: const EdgeInsets.all(16),
+            child: CustomScrollView(
+              key: const PageStorageKey<String>('library-scroll'),
               physics: const AlwaysScrollableScrollPhysics(),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
-                crossAxisSpacing: 12,
-                mainAxisSpacing: 12,
-                childAspectRatio: 0.95,
-              ),
-              itemCount: controller.artists.length,
-              itemBuilder: (context, index) {
-                final artist = controller.artists[index];
+              slivers: [
+                SliverToBoxAdapter(
+                  child: _LibraryHeader(artistCount: controller.artists.length),
+                ),
+                if (controller.isEmpty)
+                  const SliverFillRemaining(
+                    hasScrollBody: false,
+                    child: _LibraryEmptyState(),
+                  )
+                else
+                  SliverPadding(
+                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
+                    sliver: SliverGrid(
+                      key: const PageStorageKey<String>('artists-grid'),
+                      delegate: SliverChildBuilderDelegate((context, index) {
+                        final artist = controller.artists[index];
 
-                return _ArtistCard(
-                  artist: artist,
-                  onTap: () => _openArtist(artist),
-                );
-              },
+                        return LibraryArtistCard(
+                          artist: artist,
+                          onTap: () => _openArtist(artist),
+                        );
+                      }, childCount: controller.artists.length),
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 2,
+                            crossAxisSpacing: 14,
+                            mainAxisSpacing: 14,
+                            childAspectRatio: 0.72,
+                          ),
+                    ),
+                  ),
+              ],
             ),
           );
         },
@@ -118,85 +124,88 @@ class _LibraryPageState extends State<LibraryPage> {
   }
 }
 
-class _ArtistCard extends StatelessWidget {
-  const _ArtistCard({required this.artist, required this.onTap});
+class _LibraryHeader extends StatelessWidget {
+  const _LibraryHeader({required this.artistCount});
 
-  final LibraryArtist artist;
-  final VoidCallback onTap;
+  final int artistCount;
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      key: ValueKey<String>('artist-${artist.artistId}'),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        key: ValueKey<String>('artist-open-${artist.artistId}'),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Center(
-                  child: CircleAvatar(
-                    radius: 42,
-                    child: Text(
-                      _initials(artist.name),
-                      style: Theme.of(context).textTheme.headlineSmall,
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                artist.name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(
-                  context,
-                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                _artistSummary(artist),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-            ],
+    final theme = Theme.of(context);
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Library',
+            style: theme.textTheme.headlineMedium?.copyWith(
+              fontWeight: FontWeight.w900,
+              letterSpacing: -0.8,
+            ),
           ),
-        ),
+          const SizedBox(height: 6),
+          Text(
+            artistCount == 1
+                ? '1 artist in your library'
+                : '$artistCount artists in your library',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
       ),
     );
   }
+}
 
-  String _artistSummary(LibraryArtist artist) {
-    final albumLabel = artist.albumCount == 1 ? 'album' : 'albums';
-    final songLabel = artist.songCount == 1 ? 'song' : 'songs';
+class _LibraryEmptyState extends StatelessWidget {
+  const _LibraryEmptyState();
 
-    return '${artist.albumCount} $albumLabel \u2022 '
-        '${artist.songCount} $songLabel';
-  }
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
 
-  String _initials(String name) {
-    final parts = name
-        .trim()
-        .split(RegExp(r'\s+'))
-        .where((part) => part.isNotEmpty)
-        .toList();
-
-    if (parts.isEmpty) {
-      return '?';
-    }
-
-    if (parts.length == 1) {
-      return parts.first.substring(0, 1).toUpperCase();
-    }
-
-    return '${parts.first.substring(0, 1)}'
-            '${parts.last.substring(0, 1)}'
-        .toUpperCase();
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(32, 24, 32, 96),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 84,
+              height: 84,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: theme.colorScheme.surfaceContainerHighest,
+              ),
+              child: Icon(
+                Icons.library_music_outlined,
+                size: 38,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              'No artists yet',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Artists will appear here as music is added to your library.',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -207,19 +216,36 @@ class _LibraryLoadError extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.error_outline_rounded, size: 48),
-            const SizedBox(height: 16),
-            const Text(
-              'Could not load your artists.',
-              textAlign: TextAlign.center,
+            Icon(
+              Icons.error_outline_rounded,
+              size: 48,
+              color: theme.colorScheme.error,
             ),
             const SizedBox(height: 16),
+            Text(
+              'Could not load your artists.',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Try again to reload your library.',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 18),
             FilledButton.tonalIcon(
               onPressed: () {
                 unawaited(onRetry());
