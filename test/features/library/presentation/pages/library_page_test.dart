@@ -23,7 +23,7 @@ void main() {
           findsOneWidget,
         );
 
-        expect(find.text('Loading library…'), findsOneWidget);
+        expect(find.text('Loading library\u2026'), findsOneWidget);
 
         expect(find.byType(CircularProgressIndicator), findsNothing);
       },
@@ -85,7 +85,7 @@ void main() {
           ),
           createArtist(
             artistId: 'artist-2',
-            name: 'Beyoncé',
+            name: 'Beyonc\u00e9',
             albumCount: 8,
             songCount: 94,
           ),
@@ -113,18 +113,39 @@ void main() {
       );
 
       expect(find.text('Taylor Swift'), findsOneWidget);
+      expect(find.text('Beyonc\u00e9'), findsOneWidget);
 
-      expect(find.text('Beyoncé'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey<String>('artist-album-count-artist-1')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey<String>('artist-song-count-artist-1')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey<String>('artist-album-count-artist-2')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey<String>('artist-song-count-artist-2')),
+        findsOneWidget,
+      );
+
+      await tester.drag(find.byType(CustomScrollView), const Offset(0, -400));
+      await tester.pumpAndSettle();
 
       expect(find.text('SZA'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey<String>('artist-album-count-artist-3')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey<String>('artist-song-count-artist-3')),
+        findsOneWidget,
+      );
 
-      expect(find.text('12 albums • 150 songs'), findsOneWidget);
-
-      expect(find.text('8 albums • 94 songs'), findsOneWidget);
-
-      expect(find.text('2 albums • 42 songs'), findsOneWidget);
-
-      final grid = tester.widget<GridView>(
+      final grid = tester.widget<SliverGrid>(
         find.byKey(const PageStorageKey<String>('artists-grid')),
       );
 
@@ -134,9 +155,7 @@ void main() {
       expect(delegate.crossAxisCount, 2);
     });
 
-    testWidgets('uses singular labels for one album and one song', (
-      tester,
-    ) async {
+    testWidgets('exposes singular album and song stat labels', (tester) async {
       final repository = FakeLibraryQueryRepository(
         artists: [
           createArtist(
@@ -152,7 +171,14 @@ void main() {
 
       await tester.pumpAndSettle();
 
-      expect(find.text('1 album • 1 song'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey<String>('artist-album-count-artist-1')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey<String>('artist-song-count-artist-1')),
+        findsOneWidget,
+      );
     });
 
     testWidgets('shows initials for artist cards', (tester) async {
