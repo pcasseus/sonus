@@ -12,7 +12,7 @@ class AppDatabase {
       _databasePathOverride = databasePath;
 
   static const String databaseName = 'sonus_next.db';
-  static const int databaseVersion = 5;
+  static const int databaseVersion = 10;
 
   final sqflite.DatabaseFactory _databaseFactory;
   final String? _databasePathOverride;
@@ -53,8 +53,9 @@ class AppDatabase {
 
   Future<void> _onCreate(sqflite.Database db, int version) async {
     await db.transaction((transaction) async {
-      await LibrarySchema.create(transaction);
       await ImportSchema.create(transaction);
+      await LibrarySchema.create(transaction);
+      await ImportSchema.createSongImportReviews(transaction);
       await SyncSchema.create(transaction);
     });
   }

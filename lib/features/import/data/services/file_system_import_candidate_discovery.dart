@@ -47,6 +47,7 @@ class FileSystemImportCandidateDiscovery implements ImportCandidateDiscovery {
     return _candidateFor(
       file.path,
       discoveredAt: discoveredAt ?? DateTime.now(),
+      structure: ImportCandidateStructure.singleFile,
     );
   }
 
@@ -77,84 +78,102 @@ class FileSystemImportCandidateDiscovery implements ImportCandidateDiscovery {
     final timestamp = discoveredAt ?? DateTime.now();
     final candidates = <ImportCandidate>[];
 
-    final rootEntries = await root.list(followLinks: false).toList();
+    final rootEntries = await root.list(followLinks: false).toList()
+      ..sort(_compareEntitiesByPath);
 
     for (final entry in rootEntries) {
       if (entry is! Directory) {
         throw ImportSourceDiscoveryException(
           type: ImportSourceDiscoveryFailureType.invalidStructure,
-          message: 'Import root may contain only artist folders.',
+          message: 'Import root may contain only artist or album folders.',
           path: entry.path,
         );
       }
-    }
 
-    final artistDirectories = rootEntries.whereType<Directory>().toList()
-      ..sort(_compareEntitiesByPath);
+      final topLevelEntries = await entry.list(followLinks: false).toList()
+        ..sort(_compareEntitiesByPath);
 
-    for (final artistDirectory in artistDirectories) {
-      final artistEntries = await artistDirectory
-          .list(followLinks: false)
-          .toList();
+      if (topLevelEntries.isEmpty) {
+        continue;
+      }
 
-      if (artistEntries.isEmpty) {
+      final files = topLevelEntries.whereType<File>().toList();
+      final directories = topLevelEntries.whereType<Directory>().toList();
+
+      if (files.isNotEmpty && directories.isNotEmpty) {
         throw ImportSourceDiscoveryException(
           type: ImportSourceDiscoveryFailureType.invalidStructure,
-          message: 'Artist folder must contain at least one album folder.',
-          path: artistDirectory.path,
+          message:
+              'A top-level folder must be either an artist folder '
+              'containing album folders or an album folder containing MP3 files.',
+          path: entry.path,
         );
       }
 
-      for (final entry in artistEntries) {
-        if (entry is! Directory) {
-          throw ImportSourceDiscoveryException(
-            type: ImportSourceDiscoveryFailureType.invalidStructure,
-            message: 'Artist folders may contain only album folders.',
-            path: entry.path,
-          );
-        }
-      }
-
-      final albumDirectories = artistEntries.whereType<Directory>().toList()
-        ..sort(_compareEntitiesByPath);
-
-      for (final albumDirectory in albumDirectories) {
-        final albumEntries = await albumDirectory
-            .list(followLinks: false)
-            .toList();
-
-        if (albumEntries.isEmpty) {
-          throw ImportSourceDiscoveryException(
-            type: ImportSourceDiscoveryFailureType.invalidStructure,
-            message: 'Album folder must contain at least one MP3 file.',
-            path: albumDirectory.path,
-          );
-        }
-
-        for (final entry in albumEntries) {
-          if (entry is! File) {
-            throw ImportSourceDiscoveryException(
-              type: ImportSourceDiscoveryFailureType.invalidStructure,
-              message: 'Album folders may contain only MP3 files.',
-              path: entry.path,
-            );
-          }
-
-          if (!_isSupportedAudioFile(entry.path)) {
+      if (files.isNotEmpty) {
+        for (final file in files) {
+          if (!_isSupportedAudioFile(file.path)) {
             throw ImportSourceDiscoveryException(
               type: ImportSourceDiscoveryFailureType.unsupportedFormat,
               message: 'Album folders may contain only MP3 files.',
-              path: entry.path,
+              path: file.path,
             );
           }
+
+          candidates.add(
+            _candidateFor(
+              file.path,
+              discoveredAt: timestamp,
+              metadataFallbackPath: _relativePath(root: root, file: file),
+              structure: ImportCandidateStructure.looseAlbum,
+            ),
+          );
         }
 
-        final audioFiles = albumEntries.whereType<File>().toList()
-          ..sort(_compareEntitiesByPath);
+        continue;
+      }
 
-        for (final audioFile in audioFiles) {
+      for (final albumDirectory in directories) {
+        final albumEntries =
+            await albumDirectory.list(followLinks: false).toList()
+              ..sort(_compareEntitiesByPath);
+
+        if (albumEntries.isEmpty) {
+          continue;
+        }
+
+        for (final albumEntry in albumEntries) {
+          if (albumEntry is Directory) {
+            throw ImportSourceDiscoveryException(
+              type: ImportSourceDiscoveryFailureType.invalidStructure,
+              message: 'Album folders may not contain additional folders.',
+              path: albumEntry.path,
+            );
+          }
+
+          if (albumEntry is! File) {
+            throw ImportSourceDiscoveryException(
+              type: ImportSourceDiscoveryFailureType.invalidStructure,
+              message: 'Album folders may contain only MP3 files.',
+              path: albumEntry.path,
+            );
+          }
+
+          if (!_isSupportedAudioFile(albumEntry.path)) {
+            throw ImportSourceDiscoveryException(
+              type: ImportSourceDiscoveryFailureType.unsupportedFormat,
+              message: 'Album folders may contain only MP3 files.',
+              path: albumEntry.path,
+            );
+          }
+
           candidates.add(
-            _candidateFor(audioFile.path, discoveredAt: timestamp),
+            _candidateFor(
+              albumEntry.path,
+              discoveredAt: timestamp,
+              metadataFallbackPath: _relativePath(root: root, file: albumEntry),
+              structure: ImportCandidateStructure.artistAlbum,
+            ),
           );
         }
       }
@@ -166,12 +185,20 @@ class FileSystemImportCandidateDiscovery implements ImportCandidateDiscovery {
   ImportCandidate _candidateFor(
     String filePath, {
     required DateTime discoveredAt,
+    String? metadataFallbackPath,
+    required ImportCandidateStructure structure,
   }) {
     return ImportCandidate(
       filePath: filePath,
       normalizedPath: TextNormalizer.normalizePath(filePath),
       discoveredAt: discoveredAt,
+      metadataFallbackPath: metadataFallbackPath,
+      structure: structure,
     );
+  }
+
+  String _relativePath({required Directory root, required File file}) {
+    return path.relative(file.path, from: root.path);
   }
 
   bool _isSupportedAudioFile(String filePath) {

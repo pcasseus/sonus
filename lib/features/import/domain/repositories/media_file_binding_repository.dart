@@ -10,4 +10,6 @@ abstract interface class MediaFileBindingRepository {
   Future<MediaFileBinding?> getByNormalizedPath(String normalizedPath);
 
   Future<List<MediaFileBinding>> getBySongId(String songId);
+
+  Future<List<MediaFileBinding>> getBySourceId(String sourceId);
 }

@@ -6,10 +6,14 @@ import 'package:sonus_next/features/sync/data/contracts/supabase_sync_contract.d
 void main() {
   group('cloud library migration', () {
     late String migration;
+    late String discNumberMigration;
 
     setUpAll(() {
       migration = File(
         'supabase/migrations/20260913_000001_cloud_library_foundation.sql',
+      ).readAsStringSync();
+      discNumberMigration = File(
+        'supabase/migrations/20260917_000002_song_disc_number.sql',
       ).readAsStringSync();
     });
 
@@ -175,6 +179,22 @@ void main() {
       expect(migration, contains(SupabaseSyncContract.storageObjectKeyColumn));
     });
 
+    test('adds nonnegative disc number to cloud songs', () {
+      expect(
+        discNumberMigration,
+        contains(
+          'add column if not exists ${SupabaseSyncContract.discNumberColumn} '
+          'integer not null default 1',
+        ),
+      );
+
+      expect(discNumberMigration, contains('songs_disc_number_nonnegative'));
+
+      expect(
+        discNumberMigration,
+        contains('check (${SupabaseSyncContract.discNumberColumn} >= 0)'),
+      );
+    });
     test('artists persist blacklist state in cloud schema', () {
       expect(
         migration,

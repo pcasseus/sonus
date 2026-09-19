@@ -6,6 +6,7 @@ abstract final class MediaFileBindingFactory {
   static MediaFileBinding create({
     required String songId,
     required String filePath,
+    String? sourceId,
     bool isAvailable = true,
     DateTime? lastSeenAt,
     int? fileSizeBytes,
@@ -19,6 +20,7 @@ abstract final class MediaFileBindingFactory {
       songId: songId,
       filePath: filePath.trim(),
       normalizedPath: TextNormalizer.normalizePath(filePath),
+      sourceId: sourceId,
       isAvailable: isAvailable,
       lastSeenAt: lastSeenAt ?? timestamp,
       fileSizeBytes: fileSizeBytes,

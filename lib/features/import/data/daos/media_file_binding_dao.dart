@@ -56,6 +56,17 @@ class MediaFileBindingDao {
     return rows.map(MediaFileBindingRowMapper.fromRow).toList(growable: false);
   }
 
+  Future<List<MediaFileBinding>> findBySourceId(String sourceId) async {
+    final rows = await db.query(
+      DatabaseTables.mediaFileBindings,
+      where: 'source_id = ?',
+      whereArgs: [sourceId],
+      orderBy: 'normalized_path ASC',
+    );
+
+    return rows.map(MediaFileBindingRowMapper.fromRow).toList(growable: false);
+  }
+
   Future<MediaFileBinding?> findByNormalizedPath(String normalizedPath) async {
     final rows = await db.query(
       DatabaseTables.mediaFileBindings,

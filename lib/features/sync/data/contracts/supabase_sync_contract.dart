@@ -35,6 +35,7 @@ abstract final class SupabaseSyncContract {
   static const String genreColumn = 'genre';
 
   static const String trackNumberColumn = 'track_number';
+  static const String discNumberColumn = 'disc_number';
   static const String durationSecondsColumn = 'duration_seconds';
   static const String isSingleColumn = 'is_single';
   static const String featuredArtistsColumn = 'featured_artists';

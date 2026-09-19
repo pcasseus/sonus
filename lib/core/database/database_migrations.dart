@@ -27,8 +27,6 @@ abstract final class DatabaseMigrations {
   static Future<void> _migrateTo(Database db, int targetVersion) async {
     switch (targetVersion) {
       case 1:
-        // Version 1 is the clean Sonus Next baseline and is created
-        // through onCreate rather than upgraded into.
         return;
 
       case 2:
@@ -67,24 +65,24 @@ abstract final class DatabaseMigrations {
         );
 
         await db.execute('''
-    CREATE INDEX idx_artists_header_artwork_id
-    ON ${DatabaseTables.artists}(header_artwork_id)
-  ''');
+          CREATE INDEX idx_artists_header_artwork_id
+          ON ${DatabaseTables.artists}(header_artwork_id)
+        ''');
 
         await db.execute('''
-    CREATE INDEX idx_artists_top_artists_artwork_id
-    ON ${DatabaseTables.artists}(top_artists_artwork_id)
-  ''');
+          CREATE INDEX idx_artists_top_artists_artwork_id
+          ON ${DatabaseTables.artists}(top_artists_artwork_id)
+        ''');
 
         await db.execute('''
-    CREATE INDEX idx_album_editions_artwork_id
-    ON ${DatabaseTables.albumEditions}(artwork_id)
-  ''');
+          CREATE INDEX idx_album_editions_artwork_id
+          ON ${DatabaseTables.albumEditions}(artwork_id)
+        ''');
 
         await db.execute('''
-    CREATE INDEX idx_songs_artwork_id
-    ON ${DatabaseTables.songs}(artwork_id)
-  ''');
+          CREATE INDEX idx_songs_artwork_id
+          ON ${DatabaseTables.songs}(artwork_id)
+        ''');
 
         return;
 
@@ -98,6 +96,71 @@ abstract final class DatabaseMigrations {
           'ADD COLUMN is_blacklisted INTEGER NOT NULL DEFAULT 0 '
           'CHECK (is_blacklisted IN (0, 1))',
         );
+        return;
+
+      case 6:
+        await ImportSchema.createImportSources(db);
+        return;
+
+      case 7:
+        await db.execute(
+          'ALTER TABLE ${DatabaseTables.mediaFileBindings} '
+          'ADD COLUMN source_id TEXT '
+          'REFERENCES ${DatabaseTables.importSources}(id) '
+          'ON UPDATE CASCADE ON DELETE SET NULL',
+        );
+
+        await db.execute('''
+          CREATE INDEX idx_media_file_bindings_source_id
+          ON ${DatabaseTables.mediaFileBindings}(source_id)
+        ''');
+
+        return;
+
+      case 8:
+        await ImportSchema.createSongImportReviews(db);
+        return;
+
+      case 9:
+        await db.execute(
+          'ALTER TABLE ${DatabaseTables.songs} '
+          'ADD COLUMN disc_number INTEGER NOT NULL DEFAULT 1 '
+          'CHECK (disc_number >= 0)',
+        );
+        return;
+
+      case 10:
+        const legacyTable = 'song_import_reviews_v9';
+
+        await db.execute(
+          'ALTER TABLE ${DatabaseTables.songImportReviews} '
+          'RENAME TO $legacyTable',
+        );
+
+        await db.execute('DROP INDEX idx_song_import_reviews_resolved_at');
+
+        await ImportSchema.createSongImportReviews(db);
+
+        await db.execute('''
+          INSERT INTO ${DatabaseTables.songImportReviews} (
+            song_id,
+            metadata_source,
+            review_reasons,
+            resolved_at,
+            created_at,
+            updated_at
+          )
+          SELECT
+            song_id,
+            metadata_source,
+            review_reasons,
+            resolved_at,
+            created_at,
+            updated_at
+          FROM $legacyTable
+        ''');
+
+        await db.execute('DROP TABLE $legacyTable');
         return;
 
       default:

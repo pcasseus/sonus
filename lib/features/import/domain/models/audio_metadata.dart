@@ -8,6 +8,7 @@ class AudioMetadata {
     required this.discNumber,
     required this.isSingle,
     required this.featuredArtists,
+    this.albumArtistName,
     this.releaseDate,
     this.genre,
   });
@@ -15,6 +16,7 @@ class AudioMetadata {
   final String title;
   final String artistName;
   final String albumTitle;
+  final String? albumArtistName;
   final int durationSeconds;
   final int trackNumber;
   final int discNumber;
@@ -23,10 +25,21 @@ class AudioMetadata {
   final DateTime? releaseDate;
   final String? genre;
 
+  String get effectiveAlbumArtistName {
+    final cleaned = albumArtistName?.trim();
+
+    if (cleaned == null || cleaned.isEmpty) {
+      return artistName;
+    }
+
+    return cleaned;
+  }
+
   AudioMetadata copyWith({
     String? title,
     String? artistName,
     String? albumTitle,
+    String? albumArtistName,
     int? durationSeconds,
     int? trackNumber,
     int? discNumber,
@@ -39,6 +52,7 @@ class AudioMetadata {
       title: title ?? this.title,
       artistName: artistName ?? this.artistName,
       albumTitle: albumTitle ?? this.albumTitle,
+      albumArtistName: albumArtistName ?? this.albumArtistName,
       durationSeconds: durationSeconds ?? this.durationSeconds,
       trackNumber: trackNumber ?? this.trackNumber,
       discNumber: discNumber ?? this.discNumber,

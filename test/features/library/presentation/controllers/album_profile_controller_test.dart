@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -501,6 +501,7 @@ void main() {
         track: controller.tracks.single,
         title: 'Edited Title',
         trackNumber: 7,
+        discNumber: 3,
         featuredArtists: const ['Feature One', 'Feature Two'],
         isSingle: true,
       );
@@ -511,6 +512,7 @@ void main() {
       expect(service.lastSongId, 'song-edit');
       expect(service.lastTitle, 'Edited Title');
       expect(service.lastTrackNumber, 7);
+      expect(service.lastDiscNumber, 3);
       expect(service.lastFeaturedArtists, ['Feature One', 'Feature Two']);
       expect(service.lastIsSingle, isTrue);
       expect(repository.albumRequestCount, 2);
@@ -545,6 +547,7 @@ void main() {
         track: track,
         title: 'Edited Missing Song',
         trackNumber: 2,
+        discNumber: 1,
         featuredArtists: const ['Guest'],
         isSingle: false,
       );
@@ -574,6 +577,7 @@ void main() {
         track: missingServiceController.tracks.single,
         title: 'Edited',
         trackNumber: 1,
+        discNumber: 1,
         featuredArtists: const [],
         isSingle: false,
       );
@@ -595,6 +599,7 @@ void main() {
         track: blankUserController.tracks.single,
         title: 'Edited',
         trackNumber: 1,
+        discNumber: 1,
         featuredArtists: const [],
         isSingle: false,
       );
@@ -702,6 +707,7 @@ void main() {
           editionType: AlbumEditionType.deluxe,
           releaseDate: releaseDate,
           genre: 'Alternative',
+          artistId: 'artist-2',
         );
 
         expect(updated, isTrue);
@@ -714,6 +720,7 @@ void main() {
         expect(service.lastEditionType, AlbumEditionType.deluxe);
         expect(service.lastReleaseDate, releaseDate);
         expect(service.lastGenre, 'Alternative');
+        expect(service.lastArtistId, 'artist-2');
 
         expect(repository.albumRequestCount, 2);
         expect(controller.album?.title, 'Renamed Album');
@@ -1189,6 +1196,7 @@ LibraryTrack createTrack({
   String albumEditionTitle = 'Standard',
   AlbumEditionType albumEditionType = AlbumEditionType.standard,
   int trackNumber = 1,
+  int discNumber = 1,
   int durationSeconds = 180,
   String? filePath,
   bool isAvailable = true,
@@ -1204,6 +1212,7 @@ LibraryTrack createTrack({
     albumEditionTitle: albumEditionTitle,
     albumEditionType: albumEditionType,
     trackNumber: trackNumber,
+    discNumber: discNumber,
     durationSeconds: durationSeconds,
     isSingle: false,
     featuredArtists: const [],
@@ -1319,6 +1328,7 @@ class FakeTrackProfileEditingService extends TrackProfileEditingService {
   String? lastSongId;
   String? lastTitle;
   int? lastTrackNumber;
+  int? lastDiscNumber;
   List<String>? lastFeaturedArtists;
   bool? lastIsSingle;
 
@@ -1328,8 +1338,12 @@ class FakeTrackProfileEditingService extends TrackProfileEditingService {
     required String songId,
     required String title,
     required int trackNumber,
+    int discNumber = 1,
     required List<String> featuredArtists,
     required bool isSingle,
+    String? artistId,
+    String? albumId,
+    String? albumEditionId,
     DateTime? now,
   }) async {
     updateCallCount++;
@@ -1337,6 +1351,7 @@ class FakeTrackProfileEditingService extends TrackProfileEditingService {
     lastSongId = songId;
     lastTitle = title;
     lastTrackNumber = trackNumber;
+    lastDiscNumber = discNumber;
     lastFeaturedArtists = List<String>.from(featuredArtists);
     lastIsSingle = isSingle;
 
@@ -1351,6 +1366,7 @@ class FakeTrackProfileEditingService extends TrackProfileEditingService {
         title: title,
         canonicalTitle: title.trim().toLowerCase(),
         trackNumber: trackNumber,
+        discNumber: discNumber,
         durationSeconds: 180,
         isSingle: isSingle,
         featuredArtists: List<String>.from(featuredArtists),
@@ -1377,6 +1393,7 @@ class FakeAlbumProfileEditingService extends AlbumProfileEditingService {
   AlbumEditionType? lastEditionType;
   DateTime? lastReleaseDate;
   String? lastGenre;
+  String? lastArtistId;
 
   @override
   Future<AlbumProfileEditResult> updateProfile({
@@ -1388,6 +1405,7 @@ class FakeAlbumProfileEditingService extends AlbumProfileEditingService {
     required AlbumEditionType editionType,
     required DateTime? releaseDate,
     required String? genre,
+    String? artistId,
     DateTime? now,
   }) async {
     updateCallCount++;
@@ -1399,6 +1417,7 @@ class FakeAlbumProfileEditingService extends AlbumProfileEditingService {
     lastEditionType = editionType;
     lastReleaseDate = releaseDate;
     lastGenre = genre;
+    lastArtistId = artistId;
 
     final timestamp = now ?? DateTime.utc(2026, 1, 1);
 

@@ -22,6 +22,30 @@ void main() {
     expect(first.hashCode, second.hashCode);
   });
 
+  test('copyWith preserves candidate structure unless explicitly changed', () {
+    final now = DateTime.utc(2026, 9, 10);
+
+    final original = ImportCandidate(
+      filePath: r'C:\Music\Rags\Song.mp3',
+      normalizedPath: 'c:/music/rags/song.mp3',
+      discoveredAt: now,
+      structure: ImportCandidateStructure.looseAlbum,
+    );
+
+    final rescanned = original.copyWith(
+      discoveredAt: now.add(const Duration(minutes: 5)),
+      sourceId: 'source-1',
+    );
+
+    expect(rescanned.structure, ImportCandidateStructure.looseAlbum);
+    expect(rescanned.sourceId, 'source-1');
+
+    final changed = rescanned.copyWith(
+      structure: ImportCandidateStructure.artistAlbum,
+    );
+
+    expect(changed.structure, ImportCandidateStructure.artistAlbum);
+  });
   test('different normalized paths are different candidates', () {
     final now = DateTime.utc(2026, 9, 10);
 

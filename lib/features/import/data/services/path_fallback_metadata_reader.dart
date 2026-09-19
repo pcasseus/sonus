@@ -9,14 +9,16 @@ class PathFallbackMetadataReader implements AudioMetadataReader {
 
   @override
   Future<AudioMetadata> read(ImportCandidate candidate) async {
-    final normalizedPath = candidate.normalizedPath.trim();
+    final fallbackPath =
+        candidate.metadataFallbackPath?.trim() ??
+        candidate.normalizedPath.trim();
 
-    if (normalizedPath.isEmpty) {
-      throw const FormatException('Cannot derive metadata from an empty path.');
+    if (fallbackPath.isEmpty || fallbackPath.startsWith('content://')) {
+      throw const FormatException('Cannot derive metadata from this source.');
     }
 
     final parts = path
-        .split(normalizedPath)
+        .split(fallbackPath)
         .where((part) => part.trim().isNotEmpty)
         .toList();
 
@@ -27,18 +29,23 @@ class PathFallbackMetadataReader implements AudioMetadataReader {
     final fileName = parts.last;
     final title = _titleFromFileName(fileName);
 
-    final albumTitle = parts.length >= 2
-        ? _cleanSegment(parts[parts.length - 2])
-        : 'Unknown Album';
+    final artistName = switch (parts.length) {
+      >= 3 => _cleanSegment(parts[parts.length - 3]),
+      2 => 'Unknown Artist',
+      _ => 'Unknown Artist',
+    };
 
-    final artistName = parts.length >= 3
-        ? _cleanSegment(parts[parts.length - 3])
-        : 'Unknown Artist';
+    final albumTitle = switch (parts.length) {
+      >= 3 => _cleanSegment(parts[parts.length - 2]),
+      2 => _cleanSegment(parts[0]),
+      _ => 'Unknown Album',
+    };
 
     return AudioMetadata(
       title: title,
       artistName: artistName,
       albumTitle: albumTitle,
+      albumArtistName: artistName,
       durationSeconds: 0,
       trackNumber: _trackNumberFromFileName(fileName),
       discNumber: 1,

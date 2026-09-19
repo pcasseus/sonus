@@ -97,9 +97,7 @@ class JustAudioPlaybackEngine implements PlaybackEngine {
     try {
       await _configureAudioSession();
 
-      final sources = tracks
-          .map((track) => AudioSource.file(track.filePath, tag: track.songId))
-          .toList(growable: false);
+      final sources = tracks.map(_audioSourceFor).toList(growable: false);
 
       final loadedDuration = await _audioPlayer.setAudioSources(
         sources,
@@ -249,10 +247,7 @@ class JustAudioPlaybackEngine implements PlaybackEngine {
     }
 
     try {
-      await _audioPlayer.insertAudioSource(
-        index,
-        AudioSource.file(track.filePath, tag: track.songId),
-      );
+      await _audioPlayer.insertAudioSource(index, _audioSourceFor(track));
 
       _emit(
         _state.copyWith(
@@ -399,6 +394,16 @@ class JustAudioPlaybackEngine implements PlaybackEngine {
 
     await _audioPlayer.dispose();
     await _stateController.close();
+  }
+
+  AudioSource _audioSourceFor(PlaybackTrack track) {
+    final source = track.filePath.trim();
+
+    if (source.startsWith('content://')) {
+      return AudioSource.uri(Uri.parse(source), tag: track.songId);
+    }
+
+    return AudioSource.file(source, tag: track.songId);
   }
 
   Future<void> _configureAudioSession() async {

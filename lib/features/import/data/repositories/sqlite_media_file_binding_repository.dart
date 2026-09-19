@@ -31,4 +31,9 @@ class SqliteMediaFileBindingRepository implements MediaFileBindingRepository {
   Future<List<MediaFileBinding>> getBySongId(String songId) {
     return dao.findBySongId(songId);
   }
+
+  @override
+  Future<List<MediaFileBinding>> getBySourceId(String sourceId) {
+    return dao.findBySourceId(sourceId);
+  }
 }

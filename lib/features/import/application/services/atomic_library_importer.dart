@@ -3,12 +3,16 @@ import 'package:sonus_next/core/identity/entity_id.dart';
 import 'package:sonus_next/core/identity/text_normalizer.dart';
 import 'package:sonus_next/features/import/application/identity/library_identity_resolver.dart';
 import 'package:sonus_next/features/import/data/daos/media_file_binding_dao.dart';
+import 'package:sonus_next/features/import/data/daos/song_import_review_dao.dart';
 import 'package:sonus_next/features/import/data/repositories/sqlite_media_file_binding_repository.dart';
+import 'package:sonus_next/features/import/data/repositories/sqlite_song_import_review_repository.dart';
 import 'package:sonus_next/features/import/domain/entities/media_file_binding_factory.dart';
+import 'package:sonus_next/features/import/domain/entities/song_import_review.dart';
 import 'package:sonus_next/features/import/domain/models/audio_metadata.dart';
 import 'package:sonus_next/features/import/domain/models/import_candidate.dart';
 import 'package:sonus_next/features/import/domain/models/import_failure.dart';
 import 'package:sonus_next/features/import/domain/models/import_result.dart';
+import 'package:sonus_next/features/import/domain/models/resolved_metadata.dart';
 import 'package:sonus_next/features/library/data/daos/album_dao.dart';
 import 'package:sonus_next/features/library/data/daos/album_edition_dao.dart';
 import 'package:sonus_next/features/library/data/daos/artist_dao.dart';
@@ -38,6 +42,7 @@ class AtomicLibraryImporter {
   Future<ImportResult> import({
     required ImportCandidate candidate,
     required AudioMetadata metadata,
+    MetadataSource metadataSource = MetadataSource.embedded,
     DateTime? now,
   }) async {
     final timestamp = now ?? DateTime.now();
@@ -53,6 +58,9 @@ class AtomicLibraryImporter {
         final songRepository = SqliteSongRepository(SongDao(transaction));
         final bindingRepository = SqliteMediaFileBindingRepository(
           MediaFileBindingDao(transaction),
+        );
+        final reviewRepository = SqliteSongImportReviewRepository(
+          SongImportReviewDao(transaction),
         );
         final localSyncRepository = SqliteLocalSyncRepository(
           dao: LocalSyncDao(transaction),
@@ -133,11 +141,41 @@ class AtomicLibraryImporter {
           }
         }
 
+        var albumArtist = match.albumArtist;
+
+        if (albumArtist == null) {
+          final canonicalTrackArtist = TextNormalizer.canonicalize(
+            metadata.artistName,
+          );
+          final canonicalAlbumArtist = TextNormalizer.canonicalize(
+            metadata.effectiveAlbumArtistName,
+          );
+
+          if (canonicalAlbumArtist == canonicalTrackArtist) {
+            albumArtist = artist;
+          } else {
+            albumArtist = EntityFactory.createArtist(
+              name: metadata.effectiveAlbumArtistName,
+              now: timestamp,
+            );
+
+            await artistRepository.create(albumArtist);
+
+            if (syncUserId != null && syncUserId.isNotEmpty) {
+              await localSyncRepository.recordUpsert(
+                userId: syncUserId,
+                entityType: CloudDataEntity.artist,
+                entityId: albumArtist.id,
+              );
+            }
+          }
+        }
+
         var album = match.album;
 
         if (album == null) {
           album = EntityFactory.createAlbum(
-            artistId: artist.id,
+            artistId: albumArtist.id,
             title: metadata.albumTitle,
             now: timestamp,
           );
@@ -152,7 +190,6 @@ class AtomicLibraryImporter {
             );
           }
         }
-
         var edition = match.edition;
 
         if (edition == null) {
@@ -185,6 +222,7 @@ class AtomicLibraryImporter {
             albumEditionId: edition.id,
             title: metadata.title,
             trackNumber: metadata.trackNumber,
+            discNumber: metadata.discNumber,
             durationSeconds: metadata.durationSeconds,
             isSingle: metadata.isSingle,
             featuredArtists: metadata.featuredArtists,
@@ -192,6 +230,24 @@ class AtomicLibraryImporter {
           );
 
           await songRepository.create(song);
+
+          final reviewReasons = _deriveReviewReasons(
+            candidate: candidate,
+            metadata: metadata,
+            metadataSource: metadataSource,
+          );
+
+          if (reviewReasons.isNotEmpty) {
+            await reviewRepository.create(
+              SongImportReview(
+                songId: song.id,
+                metadataSource: metadataSource,
+                reasons: List.unmodifiable(reviewReasons),
+                createdAt: timestamp,
+                updatedAt: timestamp,
+              ),
+            );
+          }
 
           if (syncUserId != null && syncUserId.isNotEmpty) {
             await localSyncRepository.recordUpsert(
@@ -204,6 +260,7 @@ class AtomicLibraryImporter {
           final binding = MediaFileBindingFactory.create(
             songId: song.id,
             filePath: candidate.filePath,
+            sourceId: candidate.sourceId,
             lastSeenAt: timestamp,
             now: timestamp,
           );
@@ -257,6 +314,7 @@ class AtomicLibraryImporter {
           final relinkedBinding = oldBinding.copyWith(
             filePath: candidate.filePath.trim(),
             normalizedPath: normalizedPath,
+            sourceId: candidate.sourceId ?? oldBinding.sourceId,
             isAvailable: true,
             lastSeenAt: timestamp,
             updatedAt: timestamp,
@@ -275,6 +333,7 @@ class AtomicLibraryImporter {
         final binding = MediaFileBindingFactory.create(
           songId: song.id,
           filePath: candidate.filePath,
+          sourceId: candidate.sourceId,
           lastSeenAt: timestamp,
           now: timestamp,
         );
@@ -298,5 +357,39 @@ class AtomicLibraryImporter {
         ),
       );
     }
+  }
+
+  List<ImportReviewReason> _deriveReviewReasons({
+    required ImportCandidate candidate,
+    required AudioMetadata metadata,
+    required MetadataSource metadataSource,
+  }) {
+    final reasons = <ImportReviewReason>[];
+
+    if (metadataSource != MetadataSource.embedded) {
+      reasons.add(ImportReviewReason.fallbackMetadata);
+    }
+
+    if (TextNormalizer.canonicalize(metadata.artistName) == 'unknown artist') {
+      reasons.add(ImportReviewReason.unknownArtist);
+    }
+
+    if (TextNormalizer.canonicalize(metadata.albumTitle) == 'unknown album') {
+      reasons.add(ImportReviewReason.unknownAlbum);
+    }
+
+    if (metadata.trackNumber <= 0) {
+      reasons.add(ImportReviewReason.missingTrackNumber);
+    }
+
+    if (metadata.durationSeconds <= 0) {
+      reasons.add(ImportReviewReason.missingDuration);
+    }
+
+    if (candidate.structure == ImportCandidateStructure.looseAlbum) {
+      reasons.add(ImportReviewReason.looseFolder);
+    }
+
+    return reasons;
   }
 }

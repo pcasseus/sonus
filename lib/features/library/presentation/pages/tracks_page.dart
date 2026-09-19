@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -155,10 +155,27 @@ class _TracksPageState extends State<TracksPage> {
     }
 
     try {
+      final repository = _repository;
+
+      if (repository == null) {
+        return;
+      }
+
+      final artists = await repository.getArtists();
+      final albums = await repository.getAlbums();
+
+      if (!mounted) {
+        return;
+      }
+
       final draft = await showDialog<TrackProfileEditDraft>(
         context: context,
         builder: (dialogContext) {
-          return TrackProfileEditDialog(track: track);
+          return TrackProfileEditDialog(
+            track: track,
+            artists: artists,
+            albums: albums,
+          );
         },
       );
 
@@ -171,8 +188,12 @@ class _TracksPageState extends State<TracksPage> {
         track: track,
         title: draft.title,
         trackNumber: draft.trackNumber,
+        discNumber: draft.discNumber,
         featuredArtists: draft.featuredArtists,
         isSingle: draft.isSingle,
+        artistId: draft.artistId,
+        albumId: draft.albumId,
+        albumEditionId: draft.albumEditionId,
       );
 
       if (!mounted || !changed) {
@@ -364,7 +385,7 @@ class _TrackTile extends StatelessWidget {
       ),
       title: Text(track.title, maxLines: 1, overflow: TextOverflow.ellipsis),
       subtitle: Text(
-        subtitleParts.join(' • '),
+        subtitleParts.join(' \u2022 '),
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),

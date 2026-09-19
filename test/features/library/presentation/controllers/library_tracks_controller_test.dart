@@ -810,6 +810,7 @@ void main() {
       track: controller.tracks.single,
       title: 'Edited Title',
       trackNumber: 7,
+      discNumber: 1,
       featuredArtists: const ['Feature One', 'Feature Two'],
       isSingle: true,
     );
@@ -860,6 +861,7 @@ void main() {
       track: selectedTrack,
       title: 'Edited Unavailable Song',
       trackNumber: 2,
+      discNumber: 1,
       featuredArtists: const ['Guest'],
       isSingle: false,
     );
@@ -891,6 +893,7 @@ void main() {
         track: missingServiceController.tracks.single,
         title: 'Edited',
         trackNumber: 1,
+        discNumber: 1,
         featuredArtists: const [],
         isSingle: false,
       );
@@ -912,6 +915,7 @@ void main() {
         track: blankUserController.tracks.single,
         title: 'Edited',
         trackNumber: 1,
+        discNumber: 1,
         featuredArtists: const [],
         isSingle: false,
       );
@@ -934,6 +938,7 @@ class FakeTrackProfileEditingService extends TrackProfileEditingService {
   String? lastSongId;
   String? lastTitle;
   int? lastTrackNumber;
+  int? lastDiscNumber;
   List<String>? lastFeaturedArtists;
   bool? lastIsSingle;
 
@@ -943,8 +948,12 @@ class FakeTrackProfileEditingService extends TrackProfileEditingService {
     required String songId,
     required String title,
     required int trackNumber,
+    int discNumber = 1,
     required List<String> featuredArtists,
     required bool isSingle,
+    String? artistId,
+    String? albumId,
+    String? albumEditionId,
     DateTime? now,
   }) async {
     updateCallCount++;
@@ -952,6 +961,7 @@ class FakeTrackProfileEditingService extends TrackProfileEditingService {
     lastSongId = songId;
     lastTitle = title;
     lastTrackNumber = trackNumber;
+    lastDiscNumber = discNumber;
     lastFeaturedArtists = List<String>.from(featuredArtists);
     lastIsSingle = isSingle;
 
@@ -966,6 +976,7 @@ class FakeTrackProfileEditingService extends TrackProfileEditingService {
         title: title,
         canonicalTitle: title.trim().toLowerCase(),
         trackNumber: trackNumber,
+        discNumber: discNumber,
         durationSeconds: 210,
         isSingle: isSingle,
         featuredArtists: List<String>.from(featuredArtists),

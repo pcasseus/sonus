@@ -9,6 +9,7 @@ class Song {
     required this.title,
     required this.canonicalTitle,
     required this.trackNumber,
+    this.discNumber = 1,
     required this.durationSeconds,
     required this.isSingle,
     required this.createdAt,
@@ -24,6 +25,7 @@ class Song {
   final String title;
   final String canonicalTitle;
   final int trackNumber;
+  final int discNumber;
   final int durationSeconds;
   final bool isSingle;
   final List<String> featuredArtists;
@@ -39,6 +41,7 @@ class Song {
     String? title,
     String? canonicalTitle,
     int? trackNumber,
+    int? discNumber,
     int? durationSeconds,
     bool? isSingle,
     List<String>? featuredArtists,
@@ -54,6 +57,7 @@ class Song {
       title: title ?? this.title,
       canonicalTitle: canonicalTitle ?? this.canonicalTitle,
       trackNumber: trackNumber ?? this.trackNumber,
+      discNumber: discNumber ?? this.discNumber,
       durationSeconds: durationSeconds ?? this.durationSeconds,
       isSingle: isSingle ?? this.isSingle,
       featuredArtists: featuredArtists ?? this.featuredArtists,
