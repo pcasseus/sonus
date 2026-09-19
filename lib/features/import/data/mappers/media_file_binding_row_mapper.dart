@@ -7,6 +7,7 @@ abstract final class MediaFileBindingRowMapper {
       'song_id': binding.songId,
       'file_path': binding.filePath,
       'normalized_path': binding.normalizedPath,
+      'source_id': binding.sourceId,
       'is_available': binding.isAvailable ? 1 : 0,
       'last_seen_at': binding.lastSeenAt?.toUtc().toIso8601String(),
       'file_size_bytes': binding.fileSizeBytes,
@@ -22,6 +23,7 @@ abstract final class MediaFileBindingRowMapper {
       songId: row['song_id'] as String,
       filePath: row['file_path'] as String,
       normalizedPath: row['normalized_path'] as String,
+      sourceId: row['source_id'] as String?,
       isAvailable: (row['is_available'] as int? ?? 0) == 1,
       lastSeenAt: row['last_seen_at'] == null
           ? null

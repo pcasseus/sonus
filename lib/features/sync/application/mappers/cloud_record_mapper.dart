@@ -67,6 +67,7 @@ abstract final class CloudRecordMapper {
       title: song.title,
       canonicalTitle: song.canonicalTitle,
       trackNumber: song.trackNumber,
+      discNumber: song.discNumber,
       durationSeconds: song.durationSeconds,
       isSingle: song.isSingle,
       featuredArtists: List<String>.unmodifiable(song.featuredArtists),

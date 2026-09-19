@@ -22,31 +22,68 @@ class LibraryIdentityResolver {
   final SongRepository songRepository;
 
   Future<LibraryIdentityMatch> resolve(AudioMetadata metadata) async {
-    final canonicalArtist = TextNormalizer.canonicalize(metadata.artistName);
+    final canonicalTrackArtist = TextNormalizer.canonicalize(
+      metadata.artistName,
+    );
+    final canonicalAlbumArtist = TextNormalizer.canonicalize(
+      metadata.effectiveAlbumArtistName,
+    );
     final canonicalAlbum = TextNormalizer.canonicalize(metadata.albumTitle);
     final canonicalSong = TextNormalizer.canonicalize(metadata.title);
 
     final allArtists = await artistRepository.getAll();
 
-    final artistMatches = allArtists
-        .where((artist) => artist.canonicalName == canonicalArtist)
+    final trackArtistMatches = allArtists
+        .where((artist) => artist.canonicalName == canonicalTrackArtist)
         .toList(growable: false);
 
-    if (artistMatches.length != 1) {
+    final albumArtistMatches = canonicalAlbumArtist == canonicalTrackArtist
+        ? trackArtistMatches
+        : allArtists
+              .where((artist) => artist.canonicalName == canonicalAlbumArtist)
+              .toList(growable: false);
+
+    final trackArtistAmbiguous = trackArtistMatches.length > 1;
+    final albumArtistAmbiguous = albumArtistMatches.length > 1;
+
+    final trackArtist = trackArtistMatches.length == 1
+        ? trackArtistMatches.single
+        : null;
+
+    final albumArtist = albumArtistMatches.length == 1
+        ? albumArtistMatches.single
+        : null;
+
+    if (trackArtistAmbiguous || albumArtistAmbiguous) {
       return LibraryIdentityMatch(
-        artist: null,
+        artist: trackArtist,
+        albumArtist: albumArtist,
         album: null,
         edition: null,
         song: null,
-        artistAmbiguous: artistMatches.length > 1,
+        artistAmbiguous: trackArtistAmbiguous,
+        albumArtistAmbiguous: albumArtistAmbiguous,
         albumAmbiguous: false,
         editionAmbiguous: false,
         songAmbiguous: false,
       );
     }
 
-    final artist = artistMatches.single;
-    final artistAlbums = await albumRepository.getByArtistId(artist.id);
+    if (albumArtist == null) {
+      return LibraryIdentityMatch(
+        artist: trackArtist,
+        albumArtist: null,
+        album: null,
+        edition: null,
+        song: null,
+        artistAmbiguous: false,
+        albumAmbiguous: false,
+        editionAmbiguous: false,
+        songAmbiguous: false,
+      );
+    }
+
+    final artistAlbums = await albumRepository.getByArtistId(albumArtist.id);
 
     final albumMatches = artistAlbums
         .where((album) => album.canonicalTitle == canonicalAlbum)
@@ -54,7 +91,8 @@ class LibraryIdentityResolver {
 
     if (albumMatches.length != 1) {
       return LibraryIdentityMatch(
-        artist: artist,
+        artist: trackArtist,
+        albumArtist: albumArtist,
         album: null,
         edition: null,
         song: null,
@@ -75,7 +113,8 @@ class LibraryIdentityResolver {
 
     if (editionResolution.edition == null) {
       return LibraryIdentityMatch(
-        artist: artist,
+        artist: trackArtist,
+        albumArtist: albumArtist,
         album: album,
         edition: null,
         song: null,
@@ -87,14 +126,37 @@ class LibraryIdentityResolver {
     }
 
     final edition = editionResolution.edition!;
+
+    // A new track artist may legitimately be joining an existing soundtrack.
+    // Without a resolved track artist, we cannot safely identify an existing
+    // song merely by title.
+    if (trackArtist == null) {
+      return LibraryIdentityMatch(
+        artist: null,
+        albumArtist: albumArtist,
+        album: album,
+        edition: edition,
+        song: null,
+        artistAmbiguous: false,
+        albumAmbiguous: false,
+        editionAmbiguous: false,
+        songAmbiguous: false,
+      );
+    }
+
     final songs = await songRepository.getByEditionId(edition.id);
 
     final songMatches = songs
-        .where((song) => song.canonicalTitle == canonicalSong)
+        .where(
+          (song) =>
+              song.artistId == trackArtist.id &&
+              song.canonicalTitle == canonicalSong,
+        )
         .toList(growable: false);
 
     return LibraryIdentityMatch(
-      artist: artist,
+      artist: trackArtist,
+      albumArtist: albumArtist,
       album: album,
       edition: edition,
       song: songMatches.length == 1 ? songMatches.single : null,

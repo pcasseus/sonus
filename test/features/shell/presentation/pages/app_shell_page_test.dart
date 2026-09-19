@@ -33,7 +33,8 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey<String>('shell-import-button')));
 
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
 
     expect(find.byKey(const ValueKey<String>('imports-page')), findsOneWidget);
   });
@@ -142,7 +143,8 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey<String>('shell-import-button')));
 
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
 
     expect(find.byKey(const ValueKey<String>('imports-page')), findsOneWidget);
 

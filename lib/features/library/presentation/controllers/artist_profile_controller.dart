@@ -124,8 +124,12 @@ class ArtistProfileController extends ChangeNotifier {
     required LibraryTrack track,
     required String title,
     required int trackNumber,
+    required int discNumber,
     required List<String> featuredArtists,
     required bool isSingle,
+    String? artistId,
+    String? albumId,
+    String? albumEditionId,
   }) async {
     final service = _trackProfileEditingService;
 
@@ -138,8 +142,12 @@ class ArtistProfileController extends ChangeNotifier {
       songId: track.songId,
       title: title,
       trackNumber: trackNumber,
+      discNumber: discNumber,
       featuredArtists: featuredArtists,
       isSingle: isSingle,
+      artistId: artistId,
+      albumId: albumId,
+      albumEditionId: albumEditionId,
     );
 
     await refresh();

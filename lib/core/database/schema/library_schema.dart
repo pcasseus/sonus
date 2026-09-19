@@ -96,6 +96,8 @@ abstract final class LibrarySchema {
       canonical_title TEXT NOT NULL,
       track_number INTEGER NOT NULL DEFAULT 0
         CHECK (track_number >= 0),
+      disc_number INTEGER NOT NULL DEFAULT 1
+        CHECK (disc_number >= 0),
       duration_seconds INTEGER NOT NULL DEFAULT 0
         CHECK (duration_seconds >= 0),
       is_single INTEGER NOT NULL DEFAULT 0
@@ -135,6 +137,7 @@ abstract final class LibrarySchema {
         song_id TEXT NOT NULL,
         file_path TEXT NOT NULL,
         normalized_path TEXT NOT NULL,
+        source_id TEXT,
         is_available INTEGER NOT NULL DEFAULT 1
           CHECK (is_available IN (0, 1)),
         last_seen_at TEXT,
@@ -145,6 +148,11 @@ abstract final class LibrarySchema {
         updated_at TEXT NOT NULL,
 
         UNIQUE(normalized_path),
+
+        FOREIGN KEY (source_id)
+          REFERENCES ${DatabaseTables.importSources}(id)
+          ON UPDATE CASCADE
+          ON DELETE SET NULL,
 
         FOREIGN KEY (song_id)
           REFERENCES ${DatabaseTables.songs}(id)
@@ -225,23 +233,28 @@ abstract final class LibrarySchema {
     ''');
 
     await db.execute('''
-  CREATE INDEX idx_artists_header_artwork_id
-  ON ${DatabaseTables.artists}(header_artwork_id)
-''');
+      CREATE INDEX idx_media_file_bindings_source_id
+      ON ${DatabaseTables.mediaFileBindings}(source_id)
+    ''');
 
     await db.execute('''
-  CREATE INDEX idx_artists_top_artists_artwork_id
-  ON ${DatabaseTables.artists}(top_artists_artwork_id)
-''');
+      CREATE INDEX idx_artists_header_artwork_id
+      ON ${DatabaseTables.artists}(header_artwork_id)
+    ''');
 
     await db.execute('''
-  CREATE INDEX idx_album_editions_artwork_id
-  ON ${DatabaseTables.albumEditions}(artwork_id)
-''');
+      CREATE INDEX idx_artists_top_artists_artwork_id
+      ON ${DatabaseTables.artists}(top_artists_artwork_id)
+    ''');
 
     await db.execute('''
-  CREATE INDEX idx_songs_artwork_id
-  ON ${DatabaseTables.songs}(artwork_id)
-''');
+      CREATE INDEX idx_album_editions_artwork_id
+      ON ${DatabaseTables.albumEditions}(artwork_id)
+    ''');
+
+    await db.execute('''
+      CREATE INDEX idx_songs_artwork_id
+      ON ${DatabaseTables.songs}(artwork_id)
+    ''');
   }
 }

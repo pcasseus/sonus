@@ -93,6 +93,7 @@ class AlbumProfileController extends ChangeNotifier {
     required AlbumEditionType editionType,
     required DateTime? releaseDate,
     required String? genre,
+    String? artistId,
   }) async {
     final service = _albumProfileEditingService;
     final album = _album;
@@ -115,6 +116,7 @@ class AlbumProfileController extends ChangeNotifier {
       editionType: editionType,
       releaseDate: releaseDate,
       genre: genre,
+      artistId: artistId,
     );
 
     await refresh();
@@ -146,8 +148,12 @@ class AlbumProfileController extends ChangeNotifier {
     required LibraryTrack track,
     required String title,
     required int trackNumber,
+    required int discNumber,
     required List<String> featuredArtists,
     required bool isSingle,
+    String? artistId,
+    String? albumId,
+    String? albumEditionId,
   }) async {
     final service = _trackProfileEditingService;
 
@@ -160,8 +166,12 @@ class AlbumProfileController extends ChangeNotifier {
       songId: track.songId,
       title: title,
       trackNumber: trackNumber,
+      discNumber: discNumber,
       featuredArtists: featuredArtists,
       isSingle: isSingle,
+      artistId: artistId,
+      albumId: albumId,
+      albumEditionId: albumEditionId,
     );
 
     await refresh();

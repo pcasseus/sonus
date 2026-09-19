@@ -1,8 +1,10 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as path;
 
 import 'package:sonus_next/features/import/data/services/file_system_import_candidate_discovery.dart';
+import 'package:sonus_next/features/import/domain/models/import_candidate.dart';
 import 'package:sonus_next/features/import/domain/models/import_source_discovery_exception.dart';
 
 void main() {
@@ -42,6 +44,7 @@ void main() {
       file.path.trim().replaceAll('\\', '/').toLowerCase(),
     );
     expect(candidate.discoveredAt, discoveredAt);
+    expect(candidate.structure, ImportCandidateStructure.singleFile);
   });
 
   test('rejects missing single file', () async {
@@ -127,6 +130,21 @@ void main() {
     expect(candidates[2].filePath, otherSong.path);
 
     expect(
+      candidates[0].metadataFallbackPath,
+      path.join('Artist A', 'Album A', '01 First.mp3'),
+    );
+
+    expect(
+      candidates[1].metadataFallbackPath,
+      path.join('Artist A', 'Album A', '02 Second.mp3'),
+    );
+
+    expect(
+      candidates[2].metadataFallbackPath,
+      path.join('Artist B', 'Album B', '01 Other.mp3'),
+    );
+
+    expect(
       candidates.every((candidate) => candidate.discoveredAt == discoveredAt),
       isTrue,
     );
@@ -134,12 +152,122 @@ void main() {
     expect(
       candidates.every(
         (candidate) =>
-            candidate.normalizedPath ==
-            candidate.filePath.trim().replaceAll('\\', '/').toLowerCase(),
+            candidate.structure == ImportCandidateStructure.artistAlbum,
       ),
       isTrue,
     );
   });
+
+  test('discovers loose album folder containing MP3 files', () async {
+    final looseAlbum = Directory(
+      '${temporaryDirectory.path}${Platform.pathSeparator}Rags',
+    );
+
+    await looseAlbum.create();
+
+    final secondSong = File(
+      '${looseAlbum.path}${Platform.pathSeparator}02 Another Song.mp3',
+    );
+
+    final firstSong = File(
+      '${looseAlbum.path}${Platform.pathSeparator}01 Hands Up.mp3',
+    );
+
+    await secondSong.writeAsBytes([2]);
+    await firstSong.writeAsBytes([1]);
+
+    const discovery = FileSystemImportCandidateDiscovery();
+
+    final candidates = await discovery.discoverFolder(
+      temporaryDirectory.path,
+      discoveredAt: discoveredAt,
+    );
+
+    expect(candidates, hasLength(2));
+    expect(candidates[0].filePath, firstSong.path);
+    expect(candidates[1].filePath, secondSong.path);
+
+    expect(
+      candidates[0].metadataFallbackPath,
+      path.join('Rags', '01 Hands Up.mp3'),
+    );
+
+    expect(
+      candidates[1].metadataFallbackPath,
+      path.join('Rags', '02 Another Song.mp3'),
+    );
+
+    expect(
+      candidates.every(
+        (candidate) =>
+            candidate.structure == ImportCandidateStructure.looseAlbum,
+      ),
+      isTrue,
+    );
+  });
+
+  test(
+    'supports structured artists and loose albums in the same root',
+    () async {
+      final album = Directory(
+        '${temporaryDirectory.path}${Platform.pathSeparator}Artist'
+        '${Platform.pathSeparator}Album',
+      );
+
+      final looseAlbum = Directory(
+        '${temporaryDirectory.path}${Platform.pathSeparator}Rags',
+      );
+
+      await album.create(recursive: true);
+      await looseAlbum.create();
+
+      final structuredSong = File(
+        '${album.path}${Platform.pathSeparator}Song.mp3',
+      );
+
+      final looseSong = File(
+        '${looseAlbum.path}${Platform.pathSeparator}Loose.mp3',
+      );
+
+      await structuredSong.writeAsBytes([1]);
+      await looseSong.writeAsBytes([2]);
+
+      const discovery = FileSystemImportCandidateDiscovery();
+
+      final candidates = await discovery.discoverFolder(
+        temporaryDirectory.path,
+        discoveredAt: discoveredAt,
+      );
+
+      expect(candidates, hasLength(2));
+
+      expect(
+        candidates.map((candidate) => candidate.metadataFallbackPath),
+        containsAll([
+          path.join('Artist', 'Album', 'Song.mp3'),
+          path.join('Rags', 'Loose.mp3'),
+        ]),
+      );
+
+      final structuredCandidate = candidates.singleWhere(
+        (candidate) =>
+            candidate.metadataFallbackPath ==
+            path.join('Artist', 'Album', 'Song.mp3'),
+      );
+
+      final looseCandidate = candidates.singleWhere(
+        (candidate) =>
+            candidate.metadataFallbackPath == path.join('Rags', 'Loose.mp3'),
+      );
+
+      expect(
+        structuredCandidate.structure,
+        ImportCandidateStructure.artistAlbum,
+      );
+
+      expect(looseCandidate.structure, ImportCandidateStructure.looseAlbum);
+    },
+  );
 
   test('rejects files placed directly in import root', () async {
     final strayFile = File(
@@ -162,18 +290,18 @@ void main() {
     );
   });
 
-  test('rejects files placed directly in artist folder', () async {
-    final artistDirectory = Directory(
-      '${temporaryDirectory.path}${Platform.pathSeparator}Artist',
+  test('rejects unsupported file inside loose album folder', () async {
+    final looseAlbum = Directory(
+      '${temporaryDirectory.path}${Platform.pathSeparator}Rags',
     );
 
-    await artistDirectory.create();
+    await looseAlbum.create();
 
-    final strayFile = File(
-      '${artistDirectory.path}${Platform.pathSeparator}Song.mp3',
+    final unsupportedFile = File(
+      '${looseAlbum.path}${Platform.pathSeparator}Song.flac',
     );
 
-    await strayFile.writeAsBytes([1]);
+    await unsupportedFile.writeAsBytes([1]);
 
     const discovery = FileSystemImportCandidateDiscovery();
 
@@ -183,13 +311,13 @@ void main() {
         isA<ImportSourceDiscoveryException>().having(
           (error) => error.type,
           'type',
-          ImportSourceDiscoveryFailureType.invalidStructure,
+          ImportSourceDiscoveryFailureType.unsupportedFormat,
         ),
       ),
     );
   });
 
-  test('rejects unsupported file inside album folder', () async {
+  test('rejects unsupported file inside structured album folder', () async {
     final albumDirectory = Directory(
       '${temporaryDirectory.path}${Platform.pathSeparator}Artist'
       '${Platform.pathSeparator}Album',
@@ -217,12 +345,55 @@ void main() {
     );
   });
 
-  test('rejects empty artist folder', () async {
-    final artistDirectory = Directory(
-      '${temporaryDirectory.path}${Platform.pathSeparator}Artist',
+  test('ignores empty top-level folder', () async {
+    final empty = Directory(
+      '${temporaryDirectory.path}${Platform.pathSeparator}Empty',
     );
 
-    await artistDirectory.create();
+    await empty.create();
+
+    const discovery = FileSystemImportCandidateDiscovery();
+
+    final candidates = await discovery.discoverFolder(
+      temporaryDirectory.path,
+      discoveredAt: discoveredAt,
+    );
+
+    expect(candidates, isEmpty);
+  });
+
+  test('ignores empty album folder', () async {
+    final albumDirectory = Directory(
+      '${temporaryDirectory.path}${Platform.pathSeparator}Artist'
+      '${Platform.pathSeparator}Empty Album',
+    );
+
+    await albumDirectory.create(recursive: true);
+
+    const discovery = FileSystemImportCandidateDiscovery();
+
+    final candidates = await discovery.discoverFolder(
+      temporaryDirectory.path,
+      discoveredAt: discoveredAt,
+    );
+
+    expect(candidates, isEmpty);
+  });
+
+  test('rejects mixed MP3 files and album folders at top level', () async {
+    final topLevel = Directory(
+      '${temporaryDirectory.path}${Platform.pathSeparator}Mixed',
+    );
+
+    final album = Directory('${topLevel.path}${Platform.pathSeparator}Album');
+
+    await album.create(recursive: true);
+
+    final directSong = File(
+      '${topLevel.path}${Platform.pathSeparator}Song.mp3',
+    );
+
+    await directSong.writeAsBytes([1]);
 
     const discovery = FileSystemImportCandidateDiscovery();
 
@@ -238,13 +409,18 @@ void main() {
     );
   });
 
-  test('rejects empty album folder', () async {
-    final albumDirectory = Directory(
+  test('rejects folders nested beneath album level', () async {
+    final tooDeep = Directory(
       '${temporaryDirectory.path}${Platform.pathSeparator}Artist'
-      '${Platform.pathSeparator}Album',
+      '${Platform.pathSeparator}Album'
+      '${Platform.pathSeparator}Disc 1',
     );
 
-    await albumDirectory.create(recursive: true);
+    await tooDeep.create(recursive: true);
+
+    final song = File('${tooDeep.path}${Platform.pathSeparator}Song.mp3');
+
+    await song.writeAsBytes([1]);
 
     const discovery = FileSystemImportCandidateDiscovery();
 

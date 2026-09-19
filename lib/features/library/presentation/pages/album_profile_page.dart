@@ -13,8 +13,8 @@ import '../../application/models/library_track.dart';
 import '../../application/repositories/library_query_repository.dart';
 import '../../application/services/album_profile_editing_service.dart';
 import 'package:sonus_next/features/library/application/services/track_profile_editing_service.dart';
-import '../../domain/entities/album_edition.dart';
 import '../controllers/album_profile_controller.dart';
+import '../widgets/album_profile_edit_dialog.dart';
 import '../widgets/track_profile_edit_dialog.dart';
 
 class AlbumProfilePage extends StatefulWidget {
@@ -214,27 +214,25 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
     String userId,
   ) async {
     final album = controller.album;
+    final repository = _repository;
 
-    if (album == null || !controller.canEditAlbumProfile(userId)) {
+    if (album == null ||
+        repository == null ||
+        !controller.canEditAlbumProfile(userId)) {
       return;
     }
 
-    final editionTitle = album.primaryEditionTitle?.trim();
-
     try {
-      final draft = await showDialog<_AlbumProfileEditDraft>(
+      final artists = await repository.getArtists();
+
+      if (!mounted) {
+        return;
+      }
+
+      final draft = await showDialog<AlbumProfileEditDraft>(
         context: context,
         builder: (dialogContext) {
-          return _AlbumProfileEditDialog(
-            initialTitle: album.title,
-            initialEditionTitle: editionTitle == null || editionTitle.isEmpty
-                ? 'Standard'
-                : editionTitle,
-            initialEditionType:
-                album.primaryEditionType ?? AlbumEditionType.standard,
-            initialReleaseDate: album.releaseDate,
-            initialGenre: album.genre,
-          );
+          return AlbumProfileEditDialog(album: album, artists: artists);
         },
       );
 
@@ -249,6 +247,7 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
         editionType: draft.editionType,
         releaseDate: draft.releaseDate,
         genre: draft.genre,
+        artistId: draft.artistId,
       );
 
       if (!mounted || !changed) {
@@ -314,10 +313,27 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
     }
 
     try {
+      final repository = _repository;
+
+      if (repository == null) {
+        return;
+      }
+
+      final artists = await repository.getArtists();
+      final albums = await repository.getAlbums();
+
+      if (!mounted) {
+        return;
+      }
+
       final draft = await showDialog<TrackProfileEditDraft>(
         context: context,
         builder: (dialogContext) {
-          return TrackProfileEditDialog(track: track);
+          return TrackProfileEditDialog(
+            track: track,
+            artists: artists,
+            albums: albums,
+          );
         },
       );
 
@@ -330,8 +346,12 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
         track: track,
         title: draft.title,
         trackNumber: draft.trackNumber,
+        discNumber: draft.discNumber,
         featuredArtists: draft.featuredArtists,
         isSingle: draft.isSingle,
+        artistId: draft.artistId,
+        albumId: draft.albumId,
+        albumEditionId: draft.albumEditionId,
       );
 
       if (!mounted || !changed) {
@@ -480,7 +500,7 @@ class _AlbumHeader extends StatelessWidget {
       return '$trackCount $trackLabel';
     }
 
-    return '$trackCount $trackLabel • $runtime';
+    return '$trackCount $trackLabel \u2022 $runtime';
   }
 
   String _metadata(LibraryAlbum album) {
@@ -510,7 +530,7 @@ class _AlbumHeader extends StatelessWidget {
       }
     }
 
-    return parts.join(' • ');
+    return parts.join(' \u2022 ');
   }
 
   String _formatRuntime(Duration duration) {
@@ -875,7 +895,7 @@ class _TrackTile extends StatelessWidget {
     }
 
     return Text(
-      parts.join(' • '),
+      parts.join(' \u2022 '),
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
     );
@@ -888,258 +908,6 @@ class _TrackTile extends StatelessWidget {
 
     return '$minutes:'
         '${remainder.toString().padLeft(2, '0')}';
-  }
-}
-
-class _AlbumProfileEditDraft {
-  const _AlbumProfileEditDraft({
-    required this.title,
-    required this.editionTitle,
-    required this.editionType,
-    required this.releaseDate,
-    required this.genre,
-  });
-
-  final String title;
-  final String editionTitle;
-  final AlbumEditionType editionType;
-  final DateTime? releaseDate;
-  final String? genre;
-}
-
-class _AlbumProfileEditDialog extends StatefulWidget {
-  const _AlbumProfileEditDialog({
-    required this.initialTitle,
-    required this.initialEditionTitle,
-    required this.initialEditionType,
-    required this.initialReleaseDate,
-    required this.initialGenre,
-  });
-
-  final String initialTitle;
-  final String initialEditionTitle;
-  final AlbumEditionType initialEditionType;
-  final DateTime? initialReleaseDate;
-  final String? initialGenre;
-
-  @override
-  State<_AlbumProfileEditDialog> createState() =>
-      _AlbumProfileEditDialogState();
-}
-
-class _AlbumProfileEditDialogState extends State<_AlbumProfileEditDialog> {
-  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
-
-  late final TextEditingController _titleController;
-  late final TextEditingController _editionTitleController;
-  late final TextEditingController _releaseDateController;
-  late final TextEditingController _genreController;
-
-  late AlbumEditionType _editionType;
-
-  @override
-  void initState() {
-    super.initState();
-
-    _titleController = TextEditingController(text: widget.initialTitle);
-
-    _editionTitleController = TextEditingController(
-      text: widget.initialEditionTitle,
-    );
-
-    _releaseDateController = TextEditingController(
-      text: _formatInputDate(widget.initialReleaseDate),
-    );
-
-    _genreController = TextEditingController(text: widget.initialGenre ?? '');
-
-    _editionType = widget.initialEditionType;
-  }
-
-  @override
-  void dispose() {
-    _titleController.dispose();
-    _editionTitleController.dispose();
-    _releaseDateController.dispose();
-    _genreController.dispose();
-
-    super.dispose();
-  }
-
-  void _submit() {
-    if (!(_formKey.currentState?.validate() ?? false)) {
-      return;
-    }
-
-    final genre = _genreController.text.trim();
-
-    Navigator.of(context).pop(
-      _AlbumProfileEditDraft(
-        title: _titleController.text,
-        editionTitle: _editionTitleController.text,
-        editionType: _editionType,
-        releaseDate: _parseInputDate(_releaseDateController.text),
-        genre: genre.isEmpty ? null : genre,
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Edit album details'),
-      content: SingleChildScrollView(
-        child: Form(
-          key: _formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextFormField(
-                key: const ValueKey<String>('album-title-field'),
-                controller: _titleController,
-                autofocus: true,
-                textInputAction: TextInputAction.next,
-                decoration: const InputDecoration(labelText: 'Album title'),
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return 'Album title cannot be blank.';
-                  }
-
-                  return null;
-                },
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                key: const ValueKey<String>('album-edition-title-field'),
-                controller: _editionTitleController,
-                textInputAction: TextInputAction.next,
-                decoration: const InputDecoration(labelText: 'Edition title'),
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return 'Edition title cannot be blank.';
-                  }
-
-                  return null;
-                },
-              ),
-              const SizedBox(height: 12),
-              DropdownButtonFormField<AlbumEditionType>(
-                key: const ValueKey<String>('album-edition-type-field'),
-                initialValue: _editionType,
-                decoration: const InputDecoration(labelText: 'Edition type'),
-                items: [
-                  for (final type in AlbumEditionType.values)
-                    DropdownMenuItem(
-                      value: type,
-                      child: Text(_editionTypeLabel(type)),
-                    ),
-                ],
-                onChanged: (value) {
-                  if (value == null) {
-                    return;
-                  }
-
-                  setState(() {
-                    _editionType = value;
-                  });
-                },
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                key: const ValueKey<String>('album-release-date-field'),
-                controller: _releaseDateController,
-                keyboardType: TextInputType.datetime,
-                textInputAction: TextInputAction.next,
-                decoration: const InputDecoration(
-                  labelText: 'Release date',
-                  hintText: 'YYYY-MM-DD',
-                ),
-                validator: (value) {
-                  final trimmed = value?.trim() ?? '';
-
-                  if (trimmed.isEmpty) {
-                    return null;
-                  }
-
-                  if (_parseInputDate(trimmed) == null) {
-                    return 'Use YYYY-MM-DD.';
-                  }
-
-                  return null;
-                },
-              ),
-              const SizedBox(height: 12),
-              TextFormField(
-                key: const ValueKey<String>('album-genre-field'),
-                controller: _genreController,
-                textInputAction: TextInputAction.done,
-                decoration: const InputDecoration(labelText: 'Genre'),
-                onFieldSubmitted: (_) => _submit(),
-              ),
-            ],
-          ),
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(onPressed: _submit, child: const Text('Save')),
-      ],
-    );
-  }
-
-  String _editionTypeLabel(AlbumEditionType type) {
-    return switch (type) {
-      AlbumEditionType.standard => 'Standard',
-      AlbumEditionType.deluxe => 'Deluxe',
-      AlbumEditionType.expanded => 'Expanded',
-      AlbumEditionType.anniversary => 'Anniversary',
-      AlbumEditionType.remaster => 'Remaster',
-      AlbumEditionType.other => 'Other',
-    };
-  }
-
-  String _formatInputDate(DateTime? date) {
-    if (date == null) {
-      return '';
-    }
-
-    final month = date.month.toString().padLeft(2, '0');
-    final day = date.day.toString().padLeft(2, '0');
-
-    return '${date.year.toString().padLeft(4, '0')}-$month-$day';
-  }
-
-  DateTime? _parseInputDate(String value) {
-    final trimmed = value.trim();
-
-    if (trimmed.isEmpty) {
-      return null;
-    }
-
-    final match = RegExp(r'^(\d{4})-(\d{2})-(\d{2})$').firstMatch(trimmed);
-
-    if (match == null) {
-      return null;
-    }
-
-    final year = int.parse(match.group(1)!);
-    final month = int.parse(match.group(2)!);
-    final day = int.parse(match.group(3)!);
-
-    if (month < 1 || month > 12 || day < 1 || day > 31) {
-      return null;
-    }
-
-    final parsed = DateTime(year, month, day);
-
-    if (parsed.year != year || parsed.month != month || parsed.day != day) {
-      return null;
-    }
-
-    return parsed;
   }
 }
 

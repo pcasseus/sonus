@@ -9,6 +9,7 @@ class MediaFileBinding {
     required this.isAvailable,
     required this.createdAt,
     required this.updatedAt,
+    this.sourceId,
     this.lastSeenAt,
     this.fileSizeBytes,
     this.modifiedAt,
@@ -18,6 +19,7 @@ class MediaFileBinding {
   final String songId;
   final String filePath;
   final String normalizedPath;
+  final String? sourceId;
   final bool isAvailable;
   final DateTime? lastSeenAt;
   final int? fileSizeBytes;
@@ -30,6 +32,7 @@ class MediaFileBinding {
     String? songId,
     String? filePath,
     String? normalizedPath,
+    Object? sourceId = _unset,
     bool? isAvailable,
     Object? lastSeenAt = _unset,
     Object? fileSizeBytes = _unset,
@@ -42,6 +45,9 @@ class MediaFileBinding {
       songId: songId ?? this.songId,
       filePath: filePath ?? this.filePath,
       normalizedPath: normalizedPath ?? this.normalizedPath,
+      sourceId: identical(sourceId, _unset)
+          ? this.sourceId
+          : sourceId as String?,
       isAvailable: isAvailable ?? this.isAvailable,
       lastSeenAt: identical(lastSeenAt, _unset)
           ? this.lastSeenAt

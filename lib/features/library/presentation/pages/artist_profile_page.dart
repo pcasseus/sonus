@@ -348,10 +348,27 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
     }
 
     try {
+      final repository = _repository;
+
+      if (repository == null) {
+        return;
+      }
+
+      final artists = await repository.getArtists();
+      final albums = await repository.getAlbums();
+
+      if (!mounted) {
+        return;
+      }
+
       final draft = await showDialog<TrackProfileEditDraft>(
         context: context,
         builder: (dialogContext) {
-          return TrackProfileEditDialog(track: track);
+          return TrackProfileEditDialog(
+            track: track,
+            artists: artists,
+            albums: albums,
+          );
         },
       );
 
@@ -364,8 +381,12 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
         track: track,
         title: draft.title,
         trackNumber: draft.trackNumber,
+        discNumber: draft.discNumber,
         featuredArtists: draft.featuredArtists,
         isSingle: draft.isSingle,
+        artistId: draft.artistId,
+        albumId: draft.albumId,
+        albumEditionId: draft.albumEditionId,
       );
 
       if (!mounted || !changed) {

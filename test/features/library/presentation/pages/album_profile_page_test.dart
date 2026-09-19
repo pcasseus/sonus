@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -93,13 +93,13 @@ void main() {
         find.byKey(const ValueKey<String>('album-profile-summary')),
         findsOneWidget,
       );
-      expect(find.text('2 tracks • 7 min'), findsOneWidget);
+      expect(find.text('2 tracks \u2022 7 min'), findsOneWidget);
 
       expect(
         find.byKey(const ValueKey<String>('album-profile-metadata')),
         findsOneWidget,
       );
-      expect(find.text('April 12, 2026 • Pop'), findsOneWidget);
+      expect(find.text('April 12, 2026 \u2022 Pop'), findsOneWidget);
 
       expect(
         find.byKey(const ValueKey<String>('album-profile-availability-notice')),
@@ -143,7 +143,10 @@ void main() {
       await tester.pumpWidget(buildSubject(repository: repository));
       await tester.pumpAndSettle();
 
-      expect(find.text('May 17, 2024 • Pop • 2 editions'), findsOneWidget);
+      expect(
+        find.text('May 17, 2024 \u2022 Pop \u2022 2 editions'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('shows unavailable track notice', (tester) async {
@@ -336,11 +339,15 @@ void main() {
       await tester.enterText(releaseDateField, '2025-06-20');
       await tester.enterText(genreField, 'Alternative');
 
-      await tester.tap(
+      await tester.ensureVisible(
         find.byKey(const ValueKey<String>('album-edition-type-field')),
       );
       await tester.pumpAndSettle();
 
+      await tester.tap(
+        find.byKey(const ValueKey<String>('album-edition-type-field')),
+      );
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Deluxe').last);
       await tester.pumpAndSettle();
 
@@ -361,6 +368,55 @@ void main() {
       expect(find.text('Album details updated.'), findsOneWidget);
     });
 
+    testWidgets('album edit can change album artist', (tester) async {
+      final editingService = FakeAlbumProfileEditingService();
+
+      await tester.pumpWidget(
+        buildSubject(
+          repository: FakeLibraryQueryRepository(
+            album: createAlbum(
+              artistId: 'artist-1',
+              artistName: 'Test Artist',
+              primaryEditionTitle: 'Standard',
+            ),
+          ),
+          accountRepository: FakeAccountRepository(
+            currentUser: const AccountUser(id: 'user-1'),
+          ),
+          albumProfileEditingService: editingService,
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('album-profile-artwork-menu')),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Edit album details'));
+      await tester.pumpAndSettle();
+
+      final artistField = find.byKey(
+        const ValueKey<String>('album-artist-field'),
+      );
+
+      expect(artistField, findsOneWidget);
+
+      await tester.tap(artistField);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Second Artist').last);
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('album-edit-save-button')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(editingService.updateCallCount, 1);
+      expect(editingService.lastArtistId, 'artist-2');
+    });
     testWidgets('album edit validates required fields and release date', (
       tester,
     ) async {
@@ -925,7 +981,22 @@ class FakeLibraryQueryRepository implements LibraryQueryRepository {
 
   @override
   Future<List<LibraryArtist>> getArtists() async {
-    return const [];
+    return [
+      LibraryArtist(
+        artistId: 'artist-1',
+        name: 'Test Artist',
+        albumCount: 1,
+        songCount: 1,
+        dateAdded: DateTime(2026, 1, 1),
+      ),
+      LibraryArtist(
+        artistId: 'artist-2',
+        name: 'Second Artist',
+        albumCount: 1,
+        songCount: 1,
+        dateAdded: DateTime(2026, 1, 1),
+      ),
+    ];
   }
 
   @override
@@ -988,6 +1059,7 @@ class FakeAlbumProfileEditingService extends AlbumProfileEditingService {
   AlbumEditionType? lastEditionType;
   DateTime? lastReleaseDate;
   String? lastGenre;
+  String? lastArtistId;
 
   @override
   Future<AlbumProfileEditResult> updateProfile({
@@ -999,6 +1071,7 @@ class FakeAlbumProfileEditingService extends AlbumProfileEditingService {
     required AlbumEditionType editionType,
     required DateTime? releaseDate,
     required String? genre,
+    String? artistId,
     DateTime? now,
   }) async {
     updateCallCount++;
@@ -1011,6 +1084,7 @@ class FakeAlbumProfileEditingService extends AlbumProfileEditingService {
     lastEditionType = editionType;
     lastReleaseDate = releaseDate;
     lastGenre = genre;
+    lastArtistId = artistId;
 
     await onUpdate?.call(
       userId: userId,

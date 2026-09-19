@@ -27,6 +27,7 @@ abstract final class LibraryTrackRowMapper {
       albumEditionTitle: row['album_edition_title'] as String,
       albumEditionType: editionType,
       trackNumber: row['track_number'] as int? ?? 0,
+      discNumber: row['disc_number'] as int? ?? 1,
       durationSeconds: row['duration_seconds'] as int? ?? 0,
       artworkId: row['artwork_id'] as String?,
       artworkPath: row['artwork_path'] as String?,

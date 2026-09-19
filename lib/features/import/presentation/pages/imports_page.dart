@@ -1,14 +1,417 @@
-import 'package:flutter/material.dart';
+import 'dart:async';
 
-class ImportsPage extends StatelessWidget {
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
+import '../../../account/application/controllers/account_controller.dart';
+import '../../../artwork/application/services/artwork_assignment_service.dart';
+import '../../../artwork/application/services/artwork_file_picker.dart';
+import '../../../library/application/services/album_profile_editing_service.dart';
+import '../../application/services/import_review_service.dart';
+import '../../application/services/import_source_picker.dart';
+import '../../application/services/import_workflow_service.dart';
+import '../../domain/entities/import_source.dart';
+import '../controllers/imports_controller.dart';
+import '../widgets/import_error_card.dart';
+import '../widgets/import_folder_structure_card.dart';
+import '../widgets/import_progress_card.dart';
+import '../widgets/import_result_card.dart';
+import '../widgets/import_source_card.dart';
+import 'import_review_page.dart';
+
+class ImportsPage extends StatefulWidget {
   const ImportsPage({super.key});
 
   @override
+  State<ImportsPage> createState() => _ImportsPageState();
+}
+
+class _ImportsPageState extends State<ImportsPage> {
+  ImportWorkflowService? _workflowService;
+  ImportReviewService? _reviewService;
+  ImportsController? _controller;
+
+  String? _userId;
+  int _reviewCount = 0;
+  int _reviewLoadVersion = 0;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+
+    final workflowService = context.watch<ImportWorkflowService?>();
+    final reviewService = context.watch<ImportReviewService?>();
+    final accountController = context.watch<AccountController?>();
+
+    final rawUserId = accountController?.user?.id.trim();
+    final userId = rawUserId == null || rawUserId.isEmpty ? null : rawUserId;
+
+    if (!identical(workflowService, _workflowService)) {
+      _controller?.dispose();
+      _workflowService = workflowService;
+
+      if (workflowService == null) {
+        _controller = null;
+      } else {
+        final controller = ImportsController(
+          workflowService: workflowService,
+          sourcePicker: context.read<ImportSourcePicker>(),
+        );
+
+        _controller = controller;
+        unawaited(controller.loadSources());
+      }
+    }
+
+    if (!identical(reviewService, _reviewService)) {
+      _reviewService = reviewService;
+
+      if (reviewService == null) {
+        _reviewCount = 0;
+      } else {
+        unawaited(_loadReviewCount());
+      }
+    }
+
+    _userId = userId;
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final controller = _controller;
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Imports')),
-      body: const Center(
-        child: Text('Imports', key: ValueKey<String>('imports-page')),
+      key: const ValueKey<String>('imports-page'),
+      appBar: AppBar(title: const Text('Import music')),
+      body: controller == null
+          ? const Center(
+              child: CircularProgressIndicator(
+                key: ValueKey<String>('imports-loading'),
+              ),
+            )
+          : AnimatedBuilder(
+              animation: controller,
+              builder: (context, _) {
+                return ListView(
+                  padding: const EdgeInsets.fromLTRB(16, 20, 16, 32),
+                  children: [
+                    Text(
+                      'Add music to Sonus',
+                      style: Theme.of(context).textTheme.headlineSmall
+                          ?.copyWith(fontWeight: FontWeight.w800),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Import one MP3 from anywhere on your device or import '
+                      'an organized music folder.',
+                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    if (controller.status == ImportsControllerStatus.idle) ...[
+                      if (_reviewCount > 0) ...[
+                        _NeedsReviewCard(
+                          count: _reviewCount,
+                          canReview: _reviewService != null && _userId != null,
+                          onReview: _openReviewPage,
+                        ),
+                        const SizedBox(height: 14),
+                      ],
+                      ImportSourceCard(
+                        key: const ValueKey<String>('import-single-song-card'),
+                        icon: Icons.audio_file_rounded,
+                        title: 'Import one song',
+                        description:
+                            'Choose a single MP3 file. Sonus will read its '
+                            'embedded metadata when available.',
+                        buttonLabel: 'Choose MP3',
+                        enabled: !controller.isBusy,
+                        onPressed: () {
+                          unawaited(
+                            _runAndRefreshReviewCount(
+                              controller.importSingleSong,
+                            ),
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 14),
+                      ImportSourceCard(
+                        key: const ValueKey<String>('import-folder-card'),
+                        icon: Icons.folder_copy_outlined,
+                        title: 'Import a music folder',
+                        description:
+                            'Import multiple artists and albums using the '
+                            'Sonus folder structure.',
+                        buttonLabel: 'Choose folder',
+                        enabled: !controller.isBusy,
+                        onPressed: () {
+                          unawaited(
+                            _runAndRefreshReviewCount(
+                              controller.importStructuredFolder,
+                            ),
+                          );
+                        },
+                      ),
+                      if (controller.isLoadingSources) ...[
+                        const SizedBox(height: 20),
+                        const Center(
+                          child: CircularProgressIndicator(
+                            key: ValueKey<String>('import-sources-loading'),
+                          ),
+                        ),
+                      ],
+                      if (controller.hasSources) ...[
+                        const SizedBox(height: 24),
+                        Text(
+                          'Saved music folders',
+                          style: Theme.of(context).textTheme.titleLarge
+                              ?.copyWith(fontWeight: FontWeight.w800),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Scan these folders again to add new music and '
+                          'detect files that are no longer available.',
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurfaceVariant,
+                              ),
+                        ),
+                        const SizedBox(height: 12),
+                        ...controller.sources.map(
+                          (source) => Padding(
+                            padding: const EdgeInsets.only(bottom: 10),
+                            child: _SavedImportSourceCard(
+                              source: source,
+                              onRescan: () {
+                                unawaited(
+                                  _runAndRefreshReviewCount(
+                                    () => controller.rescanSource(source),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 20),
+                      const ImportFolderStructureCard(),
+                    ],
+                    if (controller.isBusy)
+                      ImportProgressCard(controller: controller),
+                    if (controller.hasCompleted && controller.summary != null)
+                      ImportResultCard(
+                        summary: controller.summary!,
+                        reviewCount: _reviewCount,
+                        onReview: _reviewService != null && _userId != null
+                            ? _openReviewPage
+                            : null,
+                        onReset: controller.reset,
+                      ),
+                    if (controller.hasError)
+                      ImportErrorCard(
+                        message:
+                            controller.errorMessage ??
+                            'Could not complete the import.',
+                        onReset: controller.reset,
+                      ),
+                  ],
+                );
+              },
+            ),
+    );
+  }
+
+  Future<void> _runAndRefreshReviewCount(
+    Future<bool> Function() operation,
+  ) async {
+    final completed = await operation();
+
+    if (completed) {
+      await _loadReviewCount();
+    }
+  }
+
+  Future<void> _loadReviewCount() async {
+    final service = _reviewService;
+    final version = ++_reviewLoadVersion;
+
+    if (service == null) {
+      return;
+    }
+
+    try {
+      final count = await service.countUnresolved();
+
+      if (!mounted ||
+          version != _reviewLoadVersion ||
+          !identical(service, _reviewService)) {
+        return;
+      }
+
+      setState(() {
+        _reviewCount = count;
+      });
+    } catch (_) {
+      // Importing remains usable even if the review count cannot be loaded.
+    }
+  }
+
+  Future<void> _openReviewPage() async {
+    final service = _reviewService;
+    final userId = _userId;
+
+    if (service == null || userId == null) {
+      return;
+    }
+
+    final artworkAssignmentService = context.read<ArtworkAssignmentService?>();
+    final artworkFilePicker = context.read<ArtworkFilePicker?>();
+    final albumProfileEditingService = context
+        .read<AlbumProfileEditingService?>();
+
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => ImportReviewPage(
+          service: service,
+          userId: userId,
+          artworkAssignmentService: artworkAssignmentService,
+          artworkFilePicker: artworkFilePicker,
+          albumProfileEditingService: albumProfileEditingService,
+        ),
+      ),
+    );
+
+    await _loadReviewCount();
+  }
+
+  @override
+  void dispose() {
+    _controller?.dispose();
+    super.dispose();
+  }
+}
+
+class _NeedsReviewCard extends StatelessWidget {
+  const _NeedsReviewCard({
+    required this.count,
+    required this.canReview,
+    required this.onReview,
+  });
+
+  final int count;
+  final bool canReview;
+  final VoidCallback onReview;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      key: const ValueKey<String>('import-needs-review-card'),
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.fact_check_outlined),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    '$count ${count == 1 ? 'song needs' : 'songs need'} review',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              canReview
+                  ? 'Review metadata Sonus could not confidently determine '
+                        'during import.'
+                  : 'Sign in to review imported metadata.',
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+            ),
+            if (canReview) ...[
+              const SizedBox(height: 14),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.tonalIcon(
+                  key: const ValueKey<String>('open-import-review-button'),
+                  onPressed: onReview,
+                  icon: const Icon(Icons.edit_note_rounded),
+                  label: const Text('Review metadata'),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SavedImportSourceCard extends StatelessWidget {
+  const _SavedImportSourceCard({required this.source, required this.onRescan});
+
+  final ImportSource source;
+  final VoidCallback onRescan;
+
+  @override
+  Widget build(BuildContext context) {
+    final lastScannedAt = source.lastScannedAt;
+
+    return Card(
+      key: ValueKey<String>('import-source-${source.id}'),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Row(
+              children: [
+                Icon(Icons.folder_outlined),
+                SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Music folder',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            SelectableText(
+              source.rootPath,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            if (lastScannedAt != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Last scanned: ${lastScannedAt.toLocal()}',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+            const SizedBox(height: 14),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                key: ValueKey<String>('rescan-source-${source.id}'),
+                onPressed: onRescan,
+                icon: const Icon(Icons.refresh_rounded),
+                label: const Text('Scan for changes'),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

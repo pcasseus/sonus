@@ -13,6 +13,7 @@ import '../../../artwork/presentation/services/file_picker_artwork_file_picker.d
 import '../../../sync/data/repositories/sync_mutation_transaction_runner.dart';
 import '../../application/repositories/library_query_repository.dart';
 import '../../application/services/album_profile_editing_service.dart';
+import '../../application/services/artist_creation_service.dart';
 import '../../application/services/artist_profile_editing_service.dart';
 import '../../application/services/track_profile_editing_service.dart';
 import '../../data/daos/album_edition_dao.dart';
@@ -41,6 +42,7 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
   LibraryQueryRepository? _repository;
   ArtworkAssignmentService? _artworkAssignmentService;
   AlbumProfileEditingService? _albumProfileEditingService;
+  ArtistCreationService? _artistCreationService;
   ArtistProfileEditingService? _artistProfileEditingService;
   TrackProfileEditingService? _trackProfileEditingService;
 
@@ -77,6 +79,10 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
       mutationRunner: SyncMutationTransactionRunner(appDatabase: _database),
     );
 
+    final artistCreationService = ArtistCreationService(
+      mutationRunner: SyncMutationTransactionRunner(appDatabase: _database),
+    );
+
     final artistProfileEditingService = ArtistProfileEditingService(
       mutationRunner: SyncMutationTransactionRunner(appDatabase: _database),
     );
@@ -93,6 +99,7 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
       _repository = libraryQueryRepository;
       _artworkAssignmentService = artworkAssignmentService;
       _albumProfileEditingService = albumProfileEditingService;
+      _artistCreationService = artistCreationService;
       _artistProfileEditingService = artistProfileEditingService;
       _trackProfileEditingService = trackProfileEditingService;
     });
@@ -102,6 +109,7 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
+        Provider<AppDatabase>.value(value: _database),
         Provider<LibraryQueryRepository?>.value(value: _repository),
         Provider<ArtworkAssignmentService?>.value(
           value: _artworkAssignmentService,
@@ -109,6 +117,7 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
         Provider<AlbumProfileEditingService?>.value(
           value: _albumProfileEditingService,
         ),
+        Provider<ArtistCreationService?>.value(value: _artistCreationService),
         Provider<ArtistProfileEditingService?>.value(
           value: _artistProfileEditingService,
         ),

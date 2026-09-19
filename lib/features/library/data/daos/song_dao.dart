@@ -73,7 +73,8 @@ class SongDao {
       DatabaseTables.songs,
       where: 'album_id = ?',
       whereArgs: [albumId],
-      orderBy: 'track_number ASC, title COLLATE NOCASE ASC, id ASC',
+      orderBy:
+          'disc_number ASC, track_number ASC, title COLLATE NOCASE ASC, id ASC',
     );
 
     return rows.map(SongRowMapper.fromRow).toList(growable: false);
@@ -84,7 +85,8 @@ class SongDao {
       DatabaseTables.songs,
       where: 'album_edition_id = ?',
       whereArgs: [editionId],
-      orderBy: 'track_number ASC, title COLLATE NOCASE ASC, id ASC',
+      orderBy:
+          'disc_number ASC, track_number ASC, title COLLATE NOCASE ASC, id ASC',
     );
 
     return rows.map(SongRowMapper.fromRow).toList(growable: false);

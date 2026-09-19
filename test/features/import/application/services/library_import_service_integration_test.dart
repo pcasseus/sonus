@@ -6,10 +6,14 @@ import 'package:sonus_next/features/import/application/services/atomic_library_i
 import 'package:sonus_next/features/import/application/services/library_import_service.dart';
 import 'package:sonus_next/features/import/application/services/metadata_resolver.dart';
 import 'package:sonus_next/features/import/data/daos/media_file_binding_dao.dart';
+import 'package:sonus_next/features/import/data/daos/song_import_review_dao.dart';
+import 'package:sonus_next/features/import/data/repositories/sqlite_media_file_binding_repository.dart';
+import 'package:sonus_next/features/import/domain/entities/song_import_review.dart';
 import 'package:sonus_next/features/import/domain/models/audio_metadata.dart';
 import 'package:sonus_next/features/import/domain/models/import_candidate.dart';
 import 'package:sonus_next/features/import/domain/models/import_failure.dart';
 import 'package:sonus_next/features/import/domain/models/import_result.dart';
+import 'package:sonus_next/features/import/domain/models/resolved_metadata.dart';
 import 'package:sonus_next/features/import/domain/services/audio_metadata_reader.dart';
 import 'package:sonus_next/features/library/data/daos/album_dao.dart';
 import 'package:sonus_next/features/library/data/daos/album_edition_dao.dart';
@@ -72,21 +76,26 @@ void main() {
     );
   }
 
-  LibraryImportService buildService({
+  Future<LibraryImportService> buildService({
     required AudioMetadataReader primaryReader,
     required AudioMetadataReader fallbackReader,
-  }) {
+  }) async {
+    final db = await appDatabase.database;
+
     return LibraryImportService(
       metadataResolver: MetadataResolver(
         primaryReader: primaryReader,
         fallbackReader: fallbackReader,
       ),
       atomicImporter: AtomicLibraryImporter(appDatabase: appDatabase),
+      mediaFileBindingRepository: SqliteMediaFileBindingRepository(
+        MediaFileBindingDao(db),
+      ),
     );
   }
 
   test('imports candidate through the complete import pipeline', () async {
-    final service = buildService(
+    final service = await buildService(
       primaryReader: CallbackAudioMetadataReader((_) async => metadata()),
       fallbackReader: CallbackAudioMetadataReader(
         (_) async => throw StateError('Fallback should not run'),
@@ -125,10 +134,12 @@ void main() {
 
     expect(bindings, hasLength(1));
     expect(bindings.single.isAvailable, isTrue);
+
+    expect(await SongImportReviewDao(db).findBySongId(songs.single.id), isNull);
   });
 
   test('uses fallback metadata when primary metadata reader fails', () async {
-    final service = buildService(
+    final service = await buildService(
       primaryReader: CallbackAudioMetadataReader(
         (_) async => throw StateError('Primary metadata failure'),
       ),
@@ -163,10 +174,15 @@ void main() {
 
     expect(songs, hasLength(1));
     expect(songs.single.title, 'Fallback Song');
+    final review = await SongImportReviewDao(db).findBySongId(songs.single.id);
+
+    expect(review, isNotNull);
+    expect(review!.metadataSource, MetadataSource.fallback);
+    expect(review.reasons, contains(ImportReviewReason.fallbackMetadata));
   });
 
   test('metadata failure leaves the database untouched', () async {
-    final service = buildService(
+    final service = await buildService(
       primaryReader: CallbackAudioMetadataReader(
         (_) async => throw StateError('Primary failed'),
       ),
@@ -188,7 +204,7 @@ void main() {
   test(
     'duplicate candidate is skipped through the complete pipeline',
     () async {
-      final service = buildService(
+      final service = await buildService(
         primaryReader: CallbackAudioMetadataReader((_) async => metadata()),
         fallbackReader: CallbackAudioMetadataReader(
           (_) async => throw StateError('Fallback should not run'),
@@ -233,8 +249,136 @@ void main() {
     },
   );
 
+  test(
+    'known file rescan preserves edited metadata and import review state',
+    () async {
+      var primaryReadCount = 0;
+      var fallbackReadCount = 0;
+
+      final service = await buildService(
+        primaryReader: CallbackAudioMetadataReader((_) async {
+          primaryReadCount += 1;
+          throw StateError('Force fallback metadata');
+        }),
+        fallbackReader: CallbackAudioMetadataReader((_) async {
+          fallbackReadCount += 1;
+          return metadata();
+        }),
+      );
+
+      final originalCandidate = candidate();
+
+      final first = await service.importCandidate(originalCandidate, now: now);
+
+      expect(first.status, ImportResultStatus.imported);
+      expect(first.songId, isNotNull);
+      expect(primaryReadCount, 1);
+      expect(fallbackReadCount, 1);
+
+      final db = await appDatabase.database;
+      final songDao = SongDao(db);
+      final reviewDao = SongImportReviewDao(db);
+
+      final importedSong = await songDao.findById(first.songId!);
+
+      expect(importedSong, isNotNull);
+      expect(importedSong!.title, 'Song Name');
+
+      final originalReview = await reviewDao.findBySongId(first.songId!);
+
+      expect(originalReview, isNotNull);
+      expect(originalReview!.metadataSource, MetadataSource.fallback);
+      expect(
+        originalReview.reasons,
+        contains(ImportReviewReason.fallbackMetadata),
+      );
+      expect(originalReview.resolvedAt, isNull);
+      expect(originalReview.needsReview, isTrue);
+
+      final editedAt = now.add(const Duration(seconds: 30));
+
+      await songDao.update(
+        importedSong.copyWith(
+          title: 'My Sonus Edit',
+          canonicalTitle: 'my sonus edit',
+          updatedAt: editedAt,
+        ),
+      );
+
+      final resolvedAt = now.add(const Duration(minutes: 1));
+      final reviewUpdatedAt = now.add(const Duration(minutes: 2));
+
+      await reviewDao.update(
+        originalReview.copyWith(
+          resolvedAt: resolvedAt,
+          updatedAt: reviewUpdatedAt,
+        ),
+      );
+
+      final reviewBeforeRescan = await reviewDao.findBySongId(first.songId!);
+
+      expect(reviewBeforeRescan, isNotNull);
+      expect(reviewBeforeRescan!.resolvedAt, resolvedAt);
+      expect(reviewBeforeRescan.needsReview, isFalse);
+
+      final bindingsBefore = await MediaFileBindingDao(
+        db,
+      ).findBySongId(first.songId!);
+
+      expect(bindingsBefore, hasLength(1));
+
+      final originalBinding = bindingsBefore.single;
+      final rescanAt = now.add(const Duration(minutes: 5));
+
+      final rescannedCandidate = originalCandidate.copyWith(
+        discoveredAt: rescanAt,
+      );
+
+      final second = await service.importCandidate(
+        rescannedCandidate,
+        now: rescanAt,
+      );
+
+      expect(second.status, ImportResultStatus.skipped);
+      expect(second.songId, first.songId);
+
+      expect(primaryReadCount, 1);
+      expect(fallbackReadCount, 1);
+
+      final songAfterRescan = await songDao.findById(first.songId!);
+
+      expect(songAfterRescan, isNotNull);
+      expect(songAfterRescan!.title, 'My Sonus Edit');
+      expect(songAfterRescan.canonicalTitle, 'my sonus edit');
+      expect(songAfterRescan.updatedAt, editedAt);
+
+      final reviewAfterRescan = await reviewDao.findBySongId(first.songId!);
+
+      expect(reviewAfterRescan, isNotNull);
+      expect(
+        reviewAfterRescan!.metadataSource,
+        reviewBeforeRescan.metadataSource,
+      );
+      expect(reviewAfterRescan.reasons, reviewBeforeRescan.reasons);
+      expect(reviewAfterRescan.resolvedAt, reviewBeforeRescan.resolvedAt);
+      expect(reviewAfterRescan.createdAt, reviewBeforeRescan.createdAt);
+      expect(reviewAfterRescan.updatedAt, reviewBeforeRescan.updatedAt);
+      expect(reviewAfterRescan.needsReview, isFalse);
+
+      final bindingsAfter = await MediaFileBindingDao(
+        db,
+      ).findBySongId(first.songId!);
+
+      expect(bindingsAfter, hasLength(1));
+      expect(bindingsAfter.single.id, originalBinding.id);
+      expect(bindingsAfter.single.songId, first.songId);
+      expect(bindingsAfter.single.isAvailable, isTrue);
+      expect(bindingsAfter.single.lastSeenAt, rescanAt);
+      expect(bindingsAfter.single.sourceId, isNull);
+    },
+  );
   test('moved file relinks without changing permanent song identity', () async {
-    final service = buildService(
+    final service = await buildService(
       primaryReader: CallbackAudioMetadataReader((_) async => metadata()),
       fallbackReader: CallbackAudioMetadataReader(
         (_) async => throw StateError('Fallback should not run'),

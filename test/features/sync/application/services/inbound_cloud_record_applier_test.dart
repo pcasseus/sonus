@@ -150,6 +150,7 @@ void main() {
         'title': 'Song Title',
         'canonical_title': 'song title',
         'track_number': 7,
+        'disc_number': 2,
         'duration_seconds': 222,
         'is_single': true,
         'featured_artists': ['Feature One', 'Feature Two'],
@@ -166,6 +167,7 @@ void main() {
 
       expect(song, isNotNull);
       expect(song?.trackNumber, 7);
+      expect(song?.discNumber, 2);
       expect(song?.durationSeconds, 222);
       expect(song?.isSingle, isTrue);
       expect(song?.featuredArtists, ['Feature One', 'Feature Two']);

@@ -6,25 +6,37 @@ import 'package:sonus_next/features/library/domain/entities/song.dart';
 class LibraryIdentityMatch {
   const LibraryIdentityMatch({
     this.artist,
+    this.albumArtist,
     this.album,
     this.edition,
     this.song,
     required this.artistAmbiguous,
+    this.albumArtistAmbiguous = false,
     required this.albumAmbiguous,
     required this.editionAmbiguous,
     required this.songAmbiguous,
   });
 
+  /// Track artist.
   final Artist? artist;
+
+  /// Artist that owns the album.
+  final Artist? albumArtist;
+
   final Album? album;
   final AlbumEdition? edition;
   final Song? song;
 
   final bool artistAmbiguous;
+  final bool albumArtistAmbiguous;
   final bool albumAmbiguous;
   final bool editionAmbiguous;
   final bool songAmbiguous;
 
   bool get hasAmbiguity =>
-      artistAmbiguous || albumAmbiguous || editionAmbiguous || songAmbiguous;
+      artistAmbiguous ||
+      albumArtistAmbiguous ||
+      albumAmbiguous ||
+      editionAmbiguous ||
+      songAmbiguous;
 }

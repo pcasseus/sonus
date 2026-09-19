@@ -219,6 +219,7 @@ void main() {
 
   AudioMetadata metadata({
     String artistName = 'Artist Name',
+    String? albumArtistName,
     String albumTitle = 'Album Name',
     String title = 'Song Name',
   }) {
@@ -226,6 +227,7 @@ void main() {
       title: title,
       artistName: artistName,
       albumTitle: albumTitle,
+      albumArtistName: albumArtistName,
       durationSeconds: 200,
       trackNumber: 1,
       discNumber: 1,
@@ -326,6 +328,59 @@ void main() {
     expect(result.songAmbiguous, isTrue);
   });
 
+  test(
+    'resolves existing album by album artist when track artist is new',
+    () async {
+      final albumArtist = Artist(
+        id: 'artist_album_owner',
+        name: 'Original Cast',
+        canonicalName: 'original cast',
+        createdAt: now,
+        updatedAt: now,
+      );
+
+      final soundtrack = Album(
+        id: 'album_rags',
+        artistId: albumArtist.id,
+        title: 'Rags',
+        canonicalTitle: 'rags',
+        createdAt: now,
+        updatedAt: now,
+      );
+
+      final soundtrackEdition = AlbumEdition(
+        id: 'edition_rags',
+        albumId: soundtrack.id,
+        title: 'Rags',
+        type: AlbumEditionType.standard,
+        isPrimary: true,
+        createdAt: now,
+        updatedAt: now,
+      );
+
+      final result =
+          await resolver(
+            artists: [albumArtist],
+            albums: [soundtrack],
+            editions: [soundtrackEdition],
+            songs: const [],
+          ).resolve(
+            metadata(
+              artistName: 'Track Artist One',
+              albumArtistName: 'Original Cast',
+              albumTitle: 'Rags',
+              title: 'Track One',
+            ),
+          );
+
+      expect(result.artist, isNull);
+      expect(result.albumArtist?.id, albumArtist.id);
+      expect(result.album?.id, soundtrack.id);
+      expect(result.edition?.id, soundtrackEdition.id);
+      expect(result.song, isNull);
+      expect(result.hasAmbiguity, isFalse);
+    },
+  );
   test('multiple unresolved album editions are treated as ambiguous', () async {
     final now = DateTime.utc(2026, 9, 10, 12);
 

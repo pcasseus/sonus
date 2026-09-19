@@ -89,6 +89,7 @@ class CloudSongRecord extends CloudOwnedRecord {
     required this.title,
     required this.canonicalTitle,
     required this.trackNumber,
+    this.discNumber = 1,
     required this.durationSeconds,
     required this.isSingle,
     required this.featuredArtists,
@@ -104,6 +105,7 @@ class CloudSongRecord extends CloudOwnedRecord {
   final String title;
   final String canonicalTitle;
   final int trackNumber;
+  final int discNumber;
   final int durationSeconds;
   final bool isSingle;
   final List<String> featuredArtists;

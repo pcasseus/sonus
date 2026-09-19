@@ -109,6 +109,7 @@ void main() {
         title: 'Song',
         canonicalTitle: 'song',
         trackNumber: 3,
+        discNumber: 2,
         durationSeconds: 240,
         isSingle: false,
         featuredArtists: const ['Feature One', 'Feature Two'],
@@ -128,6 +129,7 @@ void main() {
       expect(row[SupabaseSyncContract.albumIdColumn], 'album_1');
       expect(row[SupabaseSyncContract.albumEditionIdColumn], 'edition_1');
       expect(row[SupabaseSyncContract.trackNumberColumn], 3);
+      expect(row[SupabaseSyncContract.discNumberColumn], 2);
       expect(row[SupabaseSyncContract.durationSecondsColumn], 240);
       expect(row[SupabaseSyncContract.isSingleColumn], isFalse);
       expect(row[SupabaseSyncContract.featuredArtistsColumn], const [

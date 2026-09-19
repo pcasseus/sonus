@@ -83,6 +83,7 @@ abstract final class SupabaseCloudRecordMapper {
           SupabaseSyncContract.titleColumn: record.title,
           SupabaseSyncContract.canonicalTitleColumn: record.canonicalTitle,
           SupabaseSyncContract.trackNumberColumn: record.trackNumber,
+          SupabaseSyncContract.discNumberColumn: record.discNumber,
           SupabaseSyncContract.durationSecondsColumn: record.durationSeconds,
           SupabaseSyncContract.isSingleColumn: record.isSingle,
           SupabaseSyncContract.featuredArtistsColumn: record.featuredArtists,
@@ -206,6 +207,7 @@ abstract final class SupabaseCloudRecordMapper {
         SupabaseSyncContract.canonicalTitleColumn,
       ),
       trackNumber: _requiredInt(row, SupabaseSyncContract.trackNumberColumn),
+      discNumber: _intOrDefault(row, SupabaseSyncContract.discNumberColumn, 1),
       durationSeconds: _requiredInt(
         row,
         SupabaseSyncContract.durationSecondsColumn,
@@ -265,6 +267,24 @@ abstract final class SupabaseCloudRecordMapper {
 
     if (value is! int) {
       throw StateError('Invalid or missing $column.');
+    }
+
+    return value;
+  }
+
+  static int _intOrDefault(
+    Map<String, dynamic> row,
+    String column,
+    int defaultValue,
+  ) {
+    final value = row[column];
+
+    if (value == null) {
+      return defaultValue;
+    }
+
+    if (value is! int) {
+      throw StateError('Invalid $column.');
     }
 
     return value;

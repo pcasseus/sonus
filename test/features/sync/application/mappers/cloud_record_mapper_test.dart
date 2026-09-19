@@ -83,6 +83,7 @@ void main() {
           title: 'Song',
           canonicalTitle: 'song',
           trackNumber: 4,
+          discNumber: 2,
           durationSeconds: 215,
           isSingle: false,
           featuredArtists: const ['Feature'],
@@ -96,6 +97,7 @@ void main() {
         expect(record.id, song.id);
         expect(record.albumEditionId, song.albumEditionId);
         expect(record.featuredArtists, const ['Feature']);
+        expect(record.discNumber, 2);
         expect(record.durationSeconds, 215);
       },
     );

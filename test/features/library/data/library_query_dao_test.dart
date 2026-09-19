@@ -55,6 +55,7 @@ void main() {
     expect(track.albumEditionTitle, 'Query Album');
     expect(track.albumEditionType, AlbumEditionType.standard);
     expect(track.trackNumber, 1);
+    expect(track.discNumber, 2);
     expect(track.durationSeconds, 181);
     expect(track.isSingle, isFalse);
     expect(track.featuredArtists, ['Featured Artist']);
@@ -77,70 +78,73 @@ void main() {
     ]);
   });
 
-  test('track query orders songs by artist then album and track', () async {
-    final fixture = await _createFixture(appDatabase);
+  test(
+    'track query orders songs by artist then album disc and track',
+    () async {
+      final fixture = await _createFixture(appDatabase);
 
-    final secondArtist = Artist(
-      id: 'artist_aardvark',
-      name: 'Aardvark Artist',
-      canonicalName: 'aardvark artist',
-      createdAt: DateTime.utc(2026, 9, 11),
-      updatedAt: DateTime.utc(2026, 9, 11),
-    );
+      final secondArtist = Artist(
+        id: 'artist_aardvark',
+        name: 'Aardvark Artist',
+        canonicalName: 'aardvark artist',
+        createdAt: DateTime.utc(2026, 9, 11),
+        updatedAt: DateTime.utc(2026, 9, 11),
+      );
 
-    final secondAlbum = Album(
-      id: 'album_aardvark',
-      artistId: secondArtist.id,
-      title: 'Aardvark Album',
-      canonicalTitle: 'aardvark album',
-      createdAt: DateTime.utc(2026, 9, 11),
-      updatedAt: DateTime.utc(2026, 9, 11),
-    );
+      final secondAlbum = Album(
+        id: 'album_aardvark',
+        artistId: secondArtist.id,
+        title: 'Aardvark Album',
+        canonicalTitle: 'aardvark album',
+        createdAt: DateTime.utc(2026, 9, 11),
+        updatedAt: DateTime.utc(2026, 9, 11),
+      );
 
-    final secondEdition = AlbumEdition(
-      id: 'edition_aardvark',
-      albumId: secondAlbum.id,
-      title: 'Aardvark Album',
-      type: AlbumEditionType.standard,
-      isPrimary: true,
-      createdAt: DateTime.utc(2026, 9, 11),
-      updatedAt: DateTime.utc(2026, 9, 11),
-    );
+      final secondEdition = AlbumEdition(
+        id: 'edition_aardvark',
+        albumId: secondAlbum.id,
+        title: 'Aardvark Album',
+        type: AlbumEditionType.standard,
+        isPrimary: true,
+        createdAt: DateTime.utc(2026, 9, 11),
+        updatedAt: DateTime.utc(2026, 9, 11),
+      );
 
-    final secondSong = Song(
-      id: 'song_aardvark',
-      artistId: secondArtist.id,
-      albumId: secondAlbum.id,
-      albumEditionId: secondEdition.id,
-      title: 'Later Alphabetically',
-      canonicalTitle: 'later alphabetically',
-      trackNumber: 1,
-      durationSeconds: 200,
-      isSingle: false,
-      featuredArtists: const [],
-      createdAt: DateTime.utc(2026, 9, 11),
-      updatedAt: DateTime.utc(2026, 9, 11),
-    );
+      final secondSong = Song(
+        id: 'song_aardvark',
+        artistId: secondArtist.id,
+        albumId: secondAlbum.id,
+        albumEditionId: secondEdition.id,
+        title: 'Later Alphabetically',
+        canonicalTitle: 'later alphabetically',
+        trackNumber: 1,
+        durationSeconds: 200,
+        isSingle: false,
+        featuredArtists: const [],
+        createdAt: DateTime.utc(2026, 9, 11),
+        updatedAt: DateTime.utc(2026, 9, 11),
+      );
 
-    await ArtistDao(fixture.db).insert(secondArtist);
-    await AlbumDao(fixture.db).insert(secondAlbum);
-    await AlbumEditionDao(fixture.db).insert(secondEdition);
-    await SongDao(fixture.db).insert(secondSong);
+      await ArtistDao(fixture.db).insert(secondArtist);
+      await AlbumDao(fixture.db).insert(secondAlbum);
+      await AlbumEditionDao(fixture.db).insert(secondEdition);
+      await SongDao(fixture.db).insert(secondSong);
 
-    final tracks = await LibraryQueryDao(
-      fixture.db,
-    ).findTracks(order: LibraryTrackOrder.artist);
+      final tracks = await LibraryQueryDao(
+        fixture.db,
+      ).findTracks(order: LibraryTrackOrder.artist);
 
-    expect(tracks.first.songId, secondSong.id);
+      expect(tracks.first.songId, secondSong.id);
 
-    expect(
-      tracks
-          .where((track) => track.artistId == fixture.artist.id)
-          .map((track) => track.songId)
-          .toList(),
-      ['song_alpha', 'song_beta', 'song_zulu'],
-    );
-  });
+      expect(
+        tracks
+            .where((track) => track.artistId == fixture.artist.id)
+            .map((track) => track.songId)
+            .toList(),
+        ['song_beta', 'song_zulu', 'song_alpha'],
+      );
+    },
+  );
 
   test('track query orders newest additions first', () async {
     final fixture = await _createFixture(appDatabase);
@@ -786,6 +790,7 @@ Future<_QueryFixture> _createFixture(AppDatabase appDatabase) async {
     title: 'Alpha Track',
     canonicalTitle: 'alpha track',
     trackNumber: 1,
+    discNumber: 2,
     durationSeconds: 181,
     isSingle: false,
     featuredArtists: const ['Featured Artist'],

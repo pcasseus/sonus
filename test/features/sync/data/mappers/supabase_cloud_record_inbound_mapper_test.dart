@@ -112,6 +112,7 @@ void main() {
           'title': 'Song Title',
           'canonical_title': 'song title',
           'track_number': 4,
+          'disc_number': 3,
           'duration_seconds': 245,
           'is_single': true,
           'featured_artists': ['Feature One', 'Feature Two'],
@@ -130,12 +131,41 @@ void main() {
       expect(record.albumId, 'album-1');
       expect(record.albumEditionId, 'edition-1');
       expect(record.trackNumber, 4);
+      expect(record.discNumber, 3);
       expect(record.durationSeconds, 245);
       expect(record.isSingle, isTrue);
       expect(record.featuredArtists, ['Feature One', 'Feature Two']);
       expect(record.artworkId, 'artwork-1');
     });
 
+    test('historical song row without disc number defaults to one', () {
+      final item = SupabaseCloudRecordMapper.fromRow(
+        entityType: CloudDataEntity.song,
+        row: {
+          'id': 'song-legacy',
+          'user_id': 'user-1',
+          'artist_id': 'artist-1',
+          'album_id': 'album-1',
+          'album_edition_id': 'edition-1',
+          'title': 'Legacy Song',
+          'canonical_title': 'legacy song',
+          'track_number': 9,
+          'duration_seconds': 180,
+          'is_single': false,
+          'featured_artists': <String>[],
+          'artwork_id': null,
+          'created_at': '2026-09-10T10:00:00.000Z',
+          'updated_at': '2026-09-11T11:00:00.000Z',
+          'server_updated_at': '2026-09-12T12:00:00.000Z',
+          'deleted_at': null,
+        },
+      );
+
+      final record = item.record as CloudSongRecord;
+
+      expect(record.trackNumber, 9);
+      expect(record.discNumber, 1);
+    });
     test('maps artwork row', () {
       final item = SupabaseCloudRecordMapper.fromRow(
         entityType: CloudDataEntity.artworkAsset,
@@ -186,6 +216,33 @@ void main() {
       );
     });
 
+    test('rejects malformed disc number', () {
+      expect(
+        () => SupabaseCloudRecordMapper.fromRow(
+          entityType: CloudDataEntity.song,
+          row: {
+            'id': 'song-1',
+            'user_id': 'user-1',
+            'artist_id': 'artist-1',
+            'album_id': 'album-1',
+            'album_edition_id': 'edition-1',
+            'title': 'Song Title',
+            'canonical_title': 'song title',
+            'track_number': 1,
+            'disc_number': 'two',
+            'duration_seconds': 200,
+            'is_single': false,
+            'featured_artists': <String>[],
+            'artwork_id': null,
+            'created_at': '2026-09-10T10:00:00.000Z',
+            'updated_at': '2026-09-11T11:00:00.000Z',
+            'server_updated_at': '2026-09-12T12:00:00.000Z',
+            'deleted_at': null,
+          },
+        ),
+        throwsStateError,
+      );
+    });
     test('rejects malformed featured artist arrays', () {
       expect(
         () => SupabaseCloudRecordMapper.fromRow(

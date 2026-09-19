@@ -12,6 +12,7 @@ class LibraryTrack {
     required this.albumEditionTitle,
     required this.albumEditionType,
     required this.trackNumber,
+    this.discNumber = 1,
     required this.durationSeconds,
     required this.isSingle,
     required this.featuredArtists,
@@ -36,6 +37,7 @@ class LibraryTrack {
   final AlbumEditionType albumEditionType;
 
   final int trackNumber;
+  final int discNumber;
   final int durationSeconds;
   final bool isSingle;
   final List<String> featuredArtists;

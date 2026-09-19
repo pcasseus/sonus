@@ -34,14 +34,18 @@ class AlbumProfileEditingService {
     required AlbumEditionType editionType,
     required DateTime? releaseDate,
     required String? genre,
+    String? artistId,
     DateTime? now,
   }) {
     final normalizedUserId = userId.trim();
     final normalizedAlbumId = albumId.trim();
     final normalizedEditionId = primaryEditionId.trim();
+    final normalizedArtistId = artistId?.trim();
+
     final trimmedTitle = title.trim();
     final trimmedEditionTitle = editionTitle.trim();
     final trimmedGenre = genre?.trim();
+
     final normalizedGenre = trimmedGenre == null || trimmedGenre.isEmpty
         ? null
         : trimmedGenre;
@@ -63,6 +67,14 @@ class AlbumProfileEditingService {
         primaryEditionId,
         'primaryEditionId',
         'Primary edition id must not be blank.',
+      );
+    }
+
+    if (artistId != null && normalizedArtistId!.isEmpty) {
+      throw ArgumentError.value(
+        artistId,
+        'artistId',
+        'Artist id must not be blank.',
       );
     }
 
@@ -91,6 +103,14 @@ class AlbumProfileEditingService {
         throw StateError('Album not found: $normalizedAlbumId');
       }
 
+      final targetArtistId = normalizedArtistId ?? album.artistId;
+
+      final artist = await context.artistRepository.getById(targetArtistId);
+
+      if (artist == null) {
+        throw StateError('Artist not found: $targetArtistId');
+      }
+
       final edition = await context.albumEditionRepository.getById(
         normalizedEditionId,
       );
@@ -115,7 +135,9 @@ class AlbumProfileEditingService {
       final canonicalTitle = TextNormalizer.canonicalize(trimmedTitle);
 
       final albumChanged =
-          album.title != trimmedTitle || album.canonicalTitle != canonicalTitle;
+          album.artistId != targetArtistId ||
+          album.title != trimmedTitle ||
+          album.canonicalTitle != canonicalTitle;
 
       final editionChanged =
           edition.title != trimmedEditionTitle ||
@@ -125,6 +147,7 @@ class AlbumProfileEditingService {
 
       final updatedAlbum = albumChanged
           ? album.copyWith(
+              artistId: targetArtistId,
               title: trimmedTitle,
               canonicalTitle: canonicalTitle,
               updatedAt: timestamp,

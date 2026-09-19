@@ -99,6 +99,7 @@ void main() {
       songId: original.id,
       title: '  Renamed Song  ',
       trackNumber: 4,
+      discNumber: 1,
       featuredArtists: const ['  Feature One  ', '', 'Feature Two'],
       isSingle: true,
       now: mutationTime,
@@ -149,6 +150,37 @@ void main() {
     expect(pending.single.operation, SyncOutboxOperation.upsert);
   });
 
+  test('updates disc number and records the mutation', () async {
+    final original = await createSong();
+
+    final result = await service.updateTrack(
+      userId: 'user_1',
+      songId: original.id,
+      title: original.title,
+      trackNumber: original.trackNumber,
+      discNumber: 2,
+      featuredArtists: original.featuredArtists,
+      isSingle: original.isSingle,
+      now: mutationTime,
+    );
+
+    expect(result.changed, isTrue);
+    expect(result.song.discNumber, 2);
+
+    final db = await appDatabase.database;
+    final stored = await SongDao(db).findById(original.id);
+
+    expect(stored, isNotNull);
+    expect(stored!.discNumber, 2);
+    expect(stored.updatedAt, mutationTime);
+
+    final pending = await LocalSyncDao(db).findPending('user_1');
+
+    expect(pending, hasLength(1));
+    expect(pending.single.entityType, CloudDataEntity.song);
+    expect(pending.single.entityId, original.id);
+    expect(pending.single.operation, SyncOutboxOperation.upsert);
+  });
   test('canonicalizes song title independently from display title', () async {
     final original = await createSong();
 
@@ -157,6 +189,7 @@ void main() {
       songId: original.id,
       title: '  The   Song  ',
       trackNumber: original.trackNumber,
+      discNumber: 1,
       featuredArtists: original.featuredArtists,
       isSingle: original.isSingle,
       now: mutationTime,
@@ -182,6 +215,7 @@ void main() {
       songId: original.id,
       title: original.title,
       trackNumber: original.trackNumber,
+      discNumber: 1,
       featuredArtists: const [' Guest One ', '   ', 'Guest Two'],
       isSingle: original.isSingle,
       now: mutationTime,
@@ -201,6 +235,7 @@ void main() {
       songId: original.id,
       title: '  ${original.title}  ',
       trackNumber: original.trackNumber,
+      discNumber: 1,
       featuredArtists: const [' Feature One ', ' Feature Two '],
       isSingle: original.isSingle,
       now: mutationTime,
@@ -228,6 +263,7 @@ void main() {
         songId: 'song_missing',
         title: 'Changed Song',
         trackNumber: 1,
+        discNumber: 1,
         featuredArtists: const [],
         isSingle: false,
         now: mutationTime,
@@ -255,6 +291,7 @@ void main() {
         songId: original.id,
         title: 'Changed Song',
         trackNumber: 1,
+        discNumber: 1,
         featuredArtists: const [],
         isSingle: false,
         now: mutationTime,
@@ -278,6 +315,7 @@ void main() {
         songId: '   ',
         title: 'Changed Song',
         trackNumber: 1,
+        discNumber: 1,
         featuredArtists: const [],
         isSingle: false,
         now: mutationTime,
@@ -299,6 +337,7 @@ void main() {
         songId: original.id,
         title: '   ',
         trackNumber: original.trackNumber,
+        discNumber: 1,
         featuredArtists: original.featuredArtists,
         isSingle: original.isSingle,
         now: mutationTime,
@@ -325,6 +364,7 @@ void main() {
         songId: original.id,
         title: original.title,
         trackNumber: -1,
+        discNumber: 1,
         featuredArtists: original.featuredArtists,
         isSingle: original.isSingle,
         now: mutationTime,
@@ -341,6 +381,31 @@ void main() {
     expect(await LocalSyncDao(db).findPending('user_1'), isEmpty);
   });
 
+  test('rejects negative disc number without changing stored song', () async {
+    final original = await createSong();
+
+    await expectLater(
+      () => service.updateTrack(
+        userId: 'user_1',
+        songId: original.id,
+        title: original.title,
+        trackNumber: original.trackNumber,
+        discNumber: -1,
+        featuredArtists: original.featuredArtists,
+        isSingle: original.isSingle,
+        now: mutationTime,
+      ),
+      throwsA(isA<ArgumentError>()),
+    );
+
+    final db = await appDatabase.database;
+    final stored = await SongDao(db).findById(original.id);
+
+    expect(stored, isNotNull);
+    expect(stored!.discNumber, original.discNumber);
+    expect(stored.updatedAt, originalTime);
+    expect(await LocalSyncDao(db).findPending('user_1'), isEmpty);
+  });
   test('repeated edits retain permanent song identity', () async {
     final original = await createSong();
 
@@ -349,6 +414,7 @@ void main() {
       songId: original.id,
       title: 'First Edit',
       trackNumber: 2,
+      discNumber: 1,
       featuredArtists: const [],
       isSingle: false,
       now: mutationTime,
@@ -361,6 +427,7 @@ void main() {
       songId: original.id,
       title: 'Second Edit',
       trackNumber: 3,
+      discNumber: 1,
       featuredArtists: const ['Feature'],
       isSingle: true,
       now: secondMutationTime,
@@ -397,6 +464,7 @@ void main() {
       songId: firstSong.id,
       title: 'First Song Edited',
       trackNumber: firstSong.trackNumber,
+      discNumber: 1,
       featuredArtists: firstSong.featuredArtists,
       isSingle: firstSong.isSingle,
       now: mutationTime,
@@ -408,6 +476,7 @@ void main() {
         songId: secondSong.id,
         title: 'Second Song Edited',
         trackNumber: secondSong.trackNumber,
+        discNumber: 1,
         featuredArtists: secondSong.featuredArtists,
         isSingle: secondSong.isSingle,
         now: mutationTime,
@@ -431,5 +500,134 @@ void main() {
 
     expect(pending, hasLength(1));
     expect(pending.single.entityId, firstSong.id);
+  });
+
+  test('reassigns song artist album and edition atomically', () async {
+    final original = await createSong();
+
+    final targetArtist = EntityFactory.createArtist(
+      name: 'Keke Palmer',
+      now: originalTime,
+    );
+
+    final targetAlbum = EntityFactory.createAlbum(
+      artistId: targetArtist.id,
+      title: 'Rags',
+      now: originalTime,
+    );
+
+    final targetEdition = EntityFactory.createAlbumEdition(
+      albumId: targetAlbum.id,
+      title: 'Standard',
+      isPrimary: true,
+      now: originalTime,
+    );
+
+    final db = await appDatabase.database;
+
+    await ArtistDao(db).insert(targetArtist);
+    await AlbumDao(db).insert(targetAlbum);
+    await AlbumEditionDao(db).insert(targetEdition);
+
+    final result = await service.updateTrack(
+      userId: 'user_1',
+      songId: original.id,
+      title: original.title,
+      trackNumber: original.trackNumber,
+      discNumber: 1,
+      featuredArtists: original.featuredArtists,
+      isSingle: original.isSingle,
+      artistId: targetArtist.id,
+      albumId: targetAlbum.id,
+      albumEditionId: targetEdition.id,
+      now: mutationTime,
+    );
+
+    expect(result.changed, isTrue);
+    expect(result.song.id, original.id);
+    expect(result.song.artistId, targetArtist.id);
+    expect(result.song.albumId, targetAlbum.id);
+    expect(result.song.albumEditionId, targetEdition.id);
+
+    final stored = await SongDao(db).findById(original.id);
+
+    expect(stored, isNotNull);
+    expect(stored!.artistId, targetArtist.id);
+    expect(stored.albumId, targetAlbum.id);
+    expect(stored.albumEditionId, targetEdition.id);
+
+    final pending = await LocalSyncDao(db).findPending('user_1');
+
+    expect(pending, hasLength(1));
+    expect(pending.single.entityType, CloudDataEntity.song);
+    expect(pending.single.entityId, original.id);
+    expect(pending.single.operation, SyncOutboxOperation.upsert);
+  });
+
+  test('rejects edition that belongs to a different album', () async {
+    final original = await createSong();
+
+    final artist = EntityFactory.createArtist(
+      name: 'Other Artist',
+      now: originalTime,
+    );
+
+    final targetAlbum = EntityFactory.createAlbum(
+      artistId: artist.id,
+      title: 'Target Album',
+      now: originalTime,
+    );
+
+    final otherAlbum = EntityFactory.createAlbum(
+      artistId: artist.id,
+      title: 'Other Album',
+      now: originalTime,
+    );
+
+    final wrongEdition = EntityFactory.createAlbumEdition(
+      albumId: otherAlbum.id,
+      title: 'Standard',
+      isPrimary: true,
+      now: originalTime,
+    );
+
+    final db = await appDatabase.database;
+
+    await ArtistDao(db).insert(artist);
+    await AlbumDao(db).insert(targetAlbum);
+    await AlbumDao(db).insert(otherAlbum);
+    await AlbumEditionDao(db).insert(wrongEdition);
+
+    await expectLater(
+      service.updateTrack(
+        userId: 'user_1',
+        songId: original.id,
+        title: original.title,
+        trackNumber: original.trackNumber,
+        discNumber: 1,
+        featuredArtists: original.featuredArtists,
+        isSingle: original.isSingle,
+        artistId: artist.id,
+        albumId: targetAlbum.id,
+        albumEditionId: wrongEdition.id,
+        now: mutationTime,
+      ),
+      throwsA(
+        isA<StateError>().having(
+          (error) => error.message,
+          'message',
+          contains('does not belong to album'),
+        ),
+      ),
+    );
+
+    final stored = await SongDao(db).findById(original.id);
+
+    expect(stored, isNotNull);
+    expect(stored!.artistId, original.artistId);
+    expect(stored.albumId, original.albumId);
+    expect(stored.albumEditionId, original.albumEditionId);
+
+    expect(await LocalSyncDao(db).findPending('user_1'), isEmpty);
   });
 }

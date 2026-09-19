@@ -132,6 +132,7 @@ class InboundCloudRecordApplier {
       title: record.title,
       canonicalTitle: record.canonicalTitle,
       trackNumber: record.trackNumber,
+      discNumber: record.discNumber,
       durationSeconds: record.durationSeconds,
       isSingle: record.isSingle,
       featuredArtists: record.featuredArtists,
