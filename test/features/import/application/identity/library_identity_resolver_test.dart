@@ -29,6 +29,9 @@ class FakeArtistRepository implements ArtistRepository {
 
   @override
   Future<void> save(Artist artist) async {}
+
+  @override
+  Future<void> delete(String id) async {}
 }
 
 class FakeAlbumRepository implements AlbumRepository {

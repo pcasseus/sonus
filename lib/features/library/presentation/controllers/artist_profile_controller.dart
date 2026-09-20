@@ -161,6 +161,22 @@ class ArtistProfileController extends ChangeNotifier {
         userId.trim().isNotEmpty;
   }
 
+  bool canRemoveArtist(String? userId) {
+    return canEditArtist(userId) && _artist != null;
+  }
+
+  Future<bool> removeArtist({required String userId}) async {
+    final service = _artistProfileEditingService;
+
+    if (service == null || userId.trim().isEmpty || _artist == null) {
+      return false;
+    }
+
+    await service.removeArtist(userId: userId, artistId: _artistId);
+
+    return true;
+  }
+
   Future<void> load() async {
     _isLoading = true;
     _error = null;

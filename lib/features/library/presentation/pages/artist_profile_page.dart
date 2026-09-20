@@ -94,7 +94,8 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
                   key: const ValueKey<String>('artist-profile-artwork-menu'),
                   enabled:
                       controller.canEditArtwork ||
-                      controller.canEditArtist(userId),
+                      controller.canEditArtist(userId) ||
+                      controller.canRemoveArtist(userId),
                   tooltip: 'Artist actions',
                   onSelected: (action) {
                     unawaited(_handleArtistAction(controller, action, userId));
@@ -144,6 +145,19 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
                       child: const ListTile(
                         leading: Icon(Icons.person_off_outlined),
                         title: Text('Clear Top Artists artwork'),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                    ),
+                    const PopupMenuDivider(),
+                    PopupMenuItem(
+                      key: const ValueKey<String>(
+                        'artist-profile-remove-artist-menu-item',
+                      ),
+                      value: _ArtistMenuAction.removeArtist,
+                      enabled: controller.canRemoveArtist(userId),
+                      child: const ListTile(
+                        leading: Icon(Icons.delete_outline),
+                        title: Text('Remove artist from library'),
                         contentPadding: EdgeInsets.zero,
                       ),
                     ),
@@ -251,7 +265,91 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
       return;
     }
 
+    if (action == _ArtistMenuAction.removeArtist) {
+      if (userId == null || userId.trim().isEmpty) {
+        return;
+      }
+
+      await _removeArtist(controller, userId);
+      return;
+    }
+
     await _handleArtworkAction(controller, action);
+  }
+
+  Future<void> _removeArtist(
+    ArtistProfileController controller,
+    String userId,
+  ) async {
+    final artist = controller.artist;
+
+    if (artist == null || !controller.canRemoveArtist(userId)) {
+      return;
+    }
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          key: const ValueKey<String>('artist-remove-confirmation-dialog'),
+          title: Text('Remove ${artist.name}?'),
+          content: const Text(
+            'This removes the artist entry from Sonus. '
+            'Your music and audio files will not be deleted.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              key: const ValueKey<String>('artist-remove-confirm-button'),
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Remove'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (!mounted || confirmed != true) {
+      return;
+    }
+
+    try {
+      final removed = await controller.removeArtist(userId: userId);
+
+      if (!mounted || !removed) {
+        return;
+      }
+
+      Navigator.of(context).pop();
+    } on ArtistStillReferencedException {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          key: ValueKey<String>('artist-remove-referenced-message'),
+          content: Text(
+            'This artist still has songs or albums in your library. '
+            'Reassign them before removing the artist.',
+          ),
+        ),
+      );
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          key: ValueKey<String>('artist-remove-error-message'),
+          content: Text('Could not remove artist.'),
+        ),
+      );
+    }
   }
 
   Future<void> _editArtistName(
@@ -303,6 +401,7 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
     try {
       final changed = switch (action) {
         _ArtistMenuAction.editName => false,
+        _ArtistMenuAction.removeArtist => false,
         _ArtistMenuAction.changeHeader =>
           await controller.changeHeaderArtwork(),
         _ArtistMenuAction.clearHeader => await controller.clearHeaderArtwork(),
@@ -318,6 +417,7 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
 
       final message = switch (action) {
         _ArtistMenuAction.editName => '',
+        _ArtistMenuAction.removeArtist => '',
         _ArtistMenuAction.changeHeader => 'Header artwork updated.',
         _ArtistMenuAction.clearHeader => 'Header artwork cleared.',
         _ArtistMenuAction.changeTopArtists => 'Top Artists artwork updated.',
@@ -536,6 +636,7 @@ enum _ArtistMenuAction {
   clearHeader,
   changeTopArtists,
   clearTopArtists,
+  removeArtist,
 }
 
 class _ArtistProfileLoadError extends StatelessWidget {

@@ -18,6 +18,11 @@ class SqliteArtistRepository implements ArtistRepository {
   }
 
   @override
+  Future<void> delete(String id) {
+    return dao.delete(id);
+  }
+
+  @override
   Future<Artist?> getById(String id) {
     return dao.findById(id);
   }
