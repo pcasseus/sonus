@@ -30,6 +30,18 @@ class ArtistDao {
     }
   }
 
+  Future<void> delete(String id) async {
+    final count = await db.delete(
+      DatabaseTables.artists,
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+
+    if (count != 1) {
+      throw StateError('Artist not found: $id');
+    }
+  }
+
   Future<Artist?> findById(String id) async {
     final rows = await db.query(
       DatabaseTables.artists,

@@ -13,12 +13,12 @@ import 'package:sonus_next/features/library/application/models/library_track.dar
 import 'package:sonus_next/features/library/application/models/library_track_order.dart';
 import 'package:sonus_next/features/library/application/repositories/library_query_repository.dart';
 import 'package:sonus_next/features/library/application/services/track_profile_editing_service.dart';
-import 'package:sonus_next/features/sync/application/services/sync_mutation_runner.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/presentation/pages/tracks_page.dart';
 import 'package:sonus_next/features/player/application/controllers/playback_coordinator.dart';
 import 'package:sonus_next/features/player/domain/models/playback_state.dart';
 import 'package:sonus_next/features/player/domain/services/playback_engine.dart';
+import 'package:sonus_next/features/sync/application/services/sync_mutation_runner.dart';
 
 void main() {
   group('TracksPage', () {
@@ -31,9 +31,7 @@ void main() {
           find.byKey(const ValueKey<String>('app-destination-tracks')),
           findsOneWidget,
         );
-
         expect(find.text('Loading tracks...'), findsOneWidget);
-
         expect(find.byType(CircularProgressIndicator), findsNothing);
       },
     );
@@ -46,14 +44,12 @@ void main() {
       );
 
       await tester.pumpWidget(buildSubject(repository: repository));
-
       await tester.pump();
 
       expect(
         find.byKey(const ValueKey<String>('app-destination-tracks')),
         findsOneWidget,
       );
-
       expect(find.byType(CircularProgressIndicator), findsOneWidget);
 
       completer.complete(const []);
@@ -66,15 +62,14 @@ void main() {
       final repository = FakeLibraryQueryRepository(tracks: const []);
 
       await tester.pumpWidget(buildSubject(repository: repository));
-
       await tester.pumpAndSettle();
 
       expect(find.text('No tracks yet'), findsOneWidget);
-
       expect(
         find.text('Import music to start building your library.'),
         findsOneWidget,
       );
+      expect(find.byIcon(Icons.library_music_rounded), findsOneWidget);
     });
 
     testWidgets('shows error state when track loading fails', (tester) async {
@@ -83,71 +78,95 @@ void main() {
       );
 
       await tester.pumpWidget(buildSubject(repository: repository));
-
       await tester.pumpAndSettle();
 
       expect(find.text('Could not load your tracks.'), findsOneWidget);
-
       expect(find.text('Try again'), findsOneWidget);
     });
 
-    testWidgets('renders loaded tracks and their runtimes', (tester) async {
+    testWidgets(
+      'renders redesigned tracks destination and metadata hierarchy',
+      (tester) async {
+        final repository = FakeLibraryQueryRepository(
+          tracks: [
+            createTrack(
+              songId: 'song-1',
+              title: 'First Song',
+              artistName: 'First Artist',
+              albumTitle: 'First Album',
+              trackNumber: 1,
+              durationSeconds: 245,
+            ),
+            createTrack(
+              songId: 'song-2',
+              title: 'Second Song',
+              artistName: 'Second Artist',
+              albumTitle: 'Second Album',
+              trackNumber: 2,
+              durationSeconds: 62,
+            ),
+          ],
+        );
+
+        await tester.pumpWidget(buildSubject(repository: repository));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const ValueKey<String>('tracks-page-title')),
+          findsOneWidget,
+        );
+        expect(find.text('Tracks'), findsOneWidget);
+
+        expect(
+          find.byKey(const ValueKey<String>('tracks-count-label')),
+          findsOneWidget,
+        );
+        expect(find.text('2 songs in your library'), findsOneWidget);
+
+        expect(find.text('First Song'), findsOneWidget);
+        expect(find.text('Second Song'), findsOneWidget);
+
+        expect(find.text('First Artist'), findsOneWidget);
+        expect(find.text('Second Artist'), findsOneWidget);
+
+        expect(find.text('First Album'), findsOneWidget);
+        expect(find.text('Second Album'), findsOneWidget);
+
+        expect(find.text('4:05'), findsOneWidget);
+        expect(find.text('1:02'), findsOneWidget);
+
+        expect(
+          find.byKey(const ValueKey<String>('tracks-order-dropdown')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey<String>('tracks-shuffle-button')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey<String>('tracks-play-all-button')),
+          findsOneWidget,
+        );
+
+        expect(find.text('Play all'), findsOneWidget);
+        expect(find.text('Shuffle'), findsOneWidget);
+
+        expect(find.byIcon(Icons.music_note_rounded), findsNWidgets(2));
+      },
+    );
+
+    testWidgets('shows singular song count for one track', (tester) async {
       final repository = FakeLibraryQueryRepository(
-        tracks: [
-          createTrack(
-            songId: 'song-1',
-            title: 'First Song',
-            artistName: 'First Artist',
-            albumTitle: 'First Album',
-            trackNumber: 1,
-            durationSeconds: 245,
-          ),
-          createTrack(
-            songId: 'song-2',
-            title: 'Second Song',
-            artistName: 'Second Artist',
-            albumTitle: 'Second Album',
-            trackNumber: 2,
-            durationSeconds: 62,
-          ),
-        ],
+        tracks: [createTrack(songId: 'song-1', title: 'Only Song')],
       );
 
       await tester.pumpWidget(buildSubject(repository: repository));
-
       await tester.pumpAndSettle();
 
-      expect(
-        find.byKey(const ValueKey<String>('app-destination-tracks')),
-        findsOneWidget,
-      );
-
-      expect(find.text('First Song'), findsOneWidget);
-      expect(find.text('Second Song'), findsOneWidget);
-
-      expect(find.text('First Artist • First Album'), findsOneWidget);
-      expect(find.text('Second Artist • Second Album'), findsOneWidget);
-
-      expect(find.text('4:05'), findsOneWidget);
-      expect(find.text('1:02'), findsOneWidget);
-
-      expect(
-        find.byKey(const ValueKey<String>('tracks-order-dropdown')),
-        findsOneWidget,
-      );
-
-      expect(
-        find.byKey(const ValueKey<String>('tracks-shuffle-button')),
-        findsOneWidget,
-      );
-
-      expect(
-        find.byKey(const ValueKey<String>('tracks-play-all-button')),
-        findsOneWidget,
-      );
+      expect(find.text('1 song in your library'), findsOneWidget);
     });
 
-    testWidgets('marks unavailable tracks as disabled', (tester) async {
+    testWidgets('marks unavailable tracks as non-playable', (tester) async {
       final repository = FakeLibraryQueryRepository(
         tracks: [
           createTrack(songId: 'available', title: 'Available Song'),
@@ -161,19 +180,24 @@ void main() {
       );
 
       await tester.pumpWidget(buildSubject(repository: repository));
-
       await tester.pumpAndSettle();
 
-      final availableTile = tester.widget<ListTile>(
+      final availableTile = tester.widget<InkWell>(
         find.byKey(const ValueKey<String>('track-available')),
       );
 
-      final unavailableTile = tester.widget<ListTile>(
+      final unavailableTile = tester.widget<InkWell>(
         find.byKey(const ValueKey<String>('track-unavailable')),
       );
 
-      expect(availableTile.enabled, isTrue);
-      expect(unavailableTile.enabled, isFalse);
+      expect(availableTile.onTap, isNotNull);
+      expect(unavailableTile.onTap, isNull);
+
+      expect(
+        find.byKey(const ValueKey<String>('track-unavailable-unavailable')),
+        findsOneWidget,
+      );
+      expect(find.text('Unavailable'), findsOneWidget);
 
       expect(
         tester
@@ -222,11 +246,11 @@ void main() {
 
       await tester.pumpAndSettle();
 
-      final tile = tester.widget<ListTile>(
+      final tile = tester.widget<InkWell>(
         find.byKey(const ValueKey<String>('track-unavailable')),
       );
 
-      expect(tile.enabled, isFalse);
+      expect(tile.onTap, isNull);
 
       final menuFinder = find.byKey(
         const ValueKey<String>('track-menu-unavailable'),
@@ -242,6 +266,7 @@ void main() {
 
       expect(find.text('Edit song details'), findsOneWidget);
     });
+
     testWidgets('changing order reloads tracks using selected order', (
       tester,
     ) async {
@@ -250,7 +275,6 @@ void main() {
       );
 
       await tester.pumpWidget(buildSubject(repository: repository));
-
       await tester.pumpAndSettle();
 
       expect(repository.requestedOrders, [LibraryTrackOrder.title]);
@@ -258,17 +282,84 @@ void main() {
       await tester.tap(
         find.byKey(const ValueKey<String>('tracks-order-dropdown')),
       );
-
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('Artist name').last);
-
       await tester.pumpAndSettle();
 
       expect(repository.requestedOrders, [
         LibraryTrackOrder.title,
         LibraryTrackOrder.artist,
       ]);
+    });
+
+    testWidgets('play all loads the playable library queue', (tester) async {
+      final repository = FakeLibraryQueryRepository(
+        tracks: [
+          createTrack(songId: 'song-1', title: 'First Song'),
+          createTrack(
+            songId: 'missing',
+            title: 'Missing Song',
+            isAvailable: false,
+            filePath: null,
+          ),
+          createTrack(songId: 'song-2', title: 'Second Song'),
+        ],
+      );
+
+      final engine = RecordingPlaybackEngine();
+
+      await tester.pumpWidget(
+        buildSubject(repository: repository, engine: engine),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('tracks-play-all-button')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(engine.loadQueueCalls, 1);
+      expect(engine.lastLoadedSongIds, ['song-1', 'song-2']);
+      expect(engine.lastStartIndex, 0);
+      expect(engine.lastAutoPlay, isTrue);
+    });
+
+    testWidgets('shuffle control updates playback engine and presentation', (
+      tester,
+    ) async {
+      final repository = FakeLibraryQueryRepository(
+        tracks: [
+          createTrack(songId: 'song-1', title: 'First Song'),
+          createTrack(songId: 'song-2', title: 'Second Song'),
+        ],
+      );
+
+      final engine = RecordingPlaybackEngine();
+
+      await tester.pumpWidget(
+        buildSubject(repository: repository, engine: engine),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Shuffle'), findsOneWidget);
+      expect(find.text('Shuffle on'), findsNothing);
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('tracks-shuffle-button')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(engine.shuffleValues, [true]);
+      expect(find.text('Shuffle on'), findsOneWidget);
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('tracks-shuffle-button')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(engine.shuffleValues, [true, false]);
+      expect(find.text('Shuffle'), findsOneWidget);
     });
 
     testWidgets('retry reloads tracks after an error', (tester) async {
@@ -285,7 +376,6 @@ void main() {
       );
 
       await tester.pumpWidget(buildSubject(repository: repository));
-
       await tester.pumpAndSettle();
 
       expect(find.text('Could not load your tracks.'), findsOneWidget);
@@ -293,10 +383,10 @@ void main() {
       shouldFail = false;
 
       await tester.tap(find.text('Try again'));
-
       await tester.pumpAndSettle();
 
       expect(find.text('Recovered Song'), findsOneWidget);
+      expect(find.text('1 song in your library'), findsOneWidget);
     });
   });
 }
@@ -305,10 +395,11 @@ Widget buildSubject({
   required LibraryQueryRepository? repository,
   AccountController? accountController,
   TrackProfileEditingService? trackProfileEditingService,
+  PlaybackEngine? engine,
 }) {
-  final engine = NoOpPlaybackEngine();
+  final playbackEngine = engine ?? NoOpPlaybackEngine();
 
-  final coordinator = PlaybackCoordinator(engine: engine);
+  final coordinator = PlaybackCoordinator(engine: playbackEngine);
 
   return MultiProvider(
     providers: [
@@ -455,6 +546,45 @@ class FakeLibraryQueryRepository implements LibraryQueryRepository {
 class NoOpPlaybackEngine implements PlaybackEngine {
   @override
   Stream<PlaybackState> get states => const Stream.empty();
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) {
+    return super.noSuchMethod(invocation);
+  }
+}
+
+class RecordingPlaybackEngine implements PlaybackEngine {
+  final List<bool> shuffleValues = [];
+
+  int loadQueueCalls = 0;
+  List<String> lastLoadedSongIds = const [];
+  int lastStartIndex = 0;
+  bool lastAutoPlay = true;
+
+  @override
+  Stream<PlaybackState> get states => const Stream.empty();
+
+  @override
+  Future<void> loadQueue(
+    dynamic tracks, {
+    int startIndex = 0,
+    bool autoPlay = true,
+  }) async {
+    loadQueueCalls += 1;
+    lastStartIndex = startIndex;
+    lastAutoPlay = autoPlay;
+
+    final iterable = tracks as Iterable<dynamic>;
+
+    lastLoadedSongIds = iterable
+        .map<String>((track) => track.songId as String)
+        .toList(growable: false);
+  }
+
+  @override
+  Future<void> setShuffleEnabled(bool enabled) async {
+    shuffleValues.add(enabled);
+  }
 
   @override
   dynamic noSuchMethod(Invocation invocation) {

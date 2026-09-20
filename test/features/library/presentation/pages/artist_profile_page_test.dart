@@ -562,6 +562,221 @@ void main() {
     expect(editingService.renameCallCount, 0);
   });
 
+  testWidgets(
+    'signed-in user can cancel artist removal without calling service',
+    (tester) async {
+      final repository = FakeLibraryQueryRepository(artist: createArtist());
+      final editingService = FakeArtistProfileEditingService();
+
+      await tester.pumpWidget(
+        buildSubject(
+          repository: repository,
+          accountRepository: FakeAccountRepository(
+            currentUser: const AccountUser(id: 'user-1'),
+          ),
+          artistProfileEditingService: editingService,
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('artist-profile-artwork-menu')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Remove artist from library'), findsOneWidget);
+
+      await tester.tap(find.text('Remove artist from library'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey<String>('artist-remove-confirmation-dialog')),
+        findsOneWidget,
+      );
+      expect(find.text('Remove Test Artist?'), findsOneWidget);
+      expect(
+        find.text(
+          'This removes the artist entry from Sonus. '
+          'Your music and audio files will not be deleted.',
+        ),
+        findsOneWidget,
+      );
+
+      expect(editingService.removeCallCount, 0);
+
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+
+      expect(editingService.removeCallCount, 0);
+      expect(
+        find.byKey(const ValueKey<String>('artist-profile-page')),
+        findsOneWidget,
+      );
+    },
+  );
+
+  testWidgets('signed-in user can remove artist after confirmation', (
+    tester,
+  ) async {
+    final repository = FakeLibraryQueryRepository(artist: createArtist());
+    final editingService = FakeArtistProfileEditingService();
+
+    await tester.pumpWidget(
+      buildSubject(
+        repository: repository,
+        accountRepository: FakeAccountRepository(
+          currentUser: const AccountUser(id: 'user-1'),
+        ),
+        artistProfileEditingService: editingService,
+        wrapArtistInRoute: true,
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey<String>('artist-profile-page')),
+      findsNothing,
+    );
+
+    await tester.tap(find.text('Open artist'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey<String>('artist-profile-page')),
+      findsOneWidget,
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('artist-profile-artwork-menu')),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Remove artist from library'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('artist-remove-confirm-button')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(editingService.removeCallCount, 1);
+    expect(editingService.lastUserId, 'user-1');
+    expect(editingService.lastArtistId, 'artist-1');
+
+    expect(
+      find.byKey(const ValueKey<String>('artist-profile-page')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('artist-profile-test-host')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets(
+    'referenced artist removal stays on page and explains reassignment',
+    (tester) async {
+      final repository = FakeLibraryQueryRepository(artist: createArtist());
+
+      final editingService = FakeArtistProfileEditingService(
+        onRemove: ({required String artistId, required String userId}) async {
+          throw const ArtistStillReferencedException();
+        },
+      );
+
+      await tester.pumpWidget(
+        buildSubject(
+          repository: repository,
+          accountRepository: FakeAccountRepository(
+            currentUser: const AccountUser(id: 'user-1'),
+          ),
+          artistProfileEditingService: editingService,
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('artist-profile-artwork-menu')),
+      );
+      await tester.pumpAndSettle();
+
+      // The read model reports 1 album and 1 song. Removal must still be
+      // available; the mutation service owns the authoritative reference check.
+      expect(find.text('Remove artist from library'), findsOneWidget);
+
+      await tester.tap(find.text('Remove artist from library'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('artist-remove-confirm-button')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(editingService.removeCallCount, 1);
+      expect(editingService.lastUserId, 'user-1');
+      expect(editingService.lastArtistId, 'artist-1');
+
+      expect(
+        find.byKey(const ValueKey<String>('artist-profile-page')),
+        findsOneWidget,
+      );
+      expect(
+        find.text(
+          'This artist still has songs or albums in your library. '
+          'Reassign them before removing the artist.',
+        ),
+        findsOneWidget,
+      );
+    },
+  );
+
+  testWidgets('unexpected artist removal failure shows generic message', (
+    tester,
+  ) async {
+    final repository = FakeLibraryQueryRepository(artist: createArtist());
+
+    final editingService = FakeArtistProfileEditingService(
+      onRemove: ({required String artistId, required String userId}) async {
+        throw StateError('boom');
+      },
+    );
+
+    await tester.pumpWidget(
+      buildSubject(
+        repository: repository,
+        accountRepository: FakeAccountRepository(
+          currentUser: const AccountUser(id: 'user-1'),
+        ),
+        artistProfileEditingService: editingService,
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('artist-profile-artwork-menu')),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Remove artist from library'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('artist-remove-confirm-button')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(editingService.removeCallCount, 1);
+    expect(
+      find.byKey(const ValueKey<String>('artist-profile-page')),
+      findsOneWidget,
+    );
+    expect(find.text('Could not remove artist.'), findsOneWidget);
+  });
+
   testWidgets('tapping album opens album profile', (tester) async {
     final repository = FakeLibraryQueryRepository(
       artist: createArtist(),
@@ -598,7 +813,40 @@ Widget buildSubject({
   AccountRepository? accountRepository,
   ArtistProfileEditingService? artistProfileEditingService,
   TrackProfileEditingService? trackProfileEditingService,
+  bool wrapArtistInRoute = false,
 }) {
+  final app = wrapArtistInRoute
+      ? MaterialApp(
+          home: Builder(
+            builder: (context) {
+              return Scaffold(
+                key: const ValueKey<String>('artist-profile-test-host'),
+                body: Center(
+                  child: FilledButton(
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                          builder: (_) => const ArtistProfilePage(
+                            artistId: 'artist-1',
+                            initialArtistName: 'Test Artist',
+                          ),
+                        ),
+                      );
+                    },
+                    child: const Text('Open artist'),
+                  ),
+                ),
+              );
+            },
+          ),
+        )
+      : const MaterialApp(
+          home: ArtistProfilePage(
+            artistId: 'artist-1',
+            initialArtistName: 'Test Artist',
+          ),
+        );
+
   return Provider<LibraryQueryRepository?>.value(
     value: repository,
     child: Provider<PlaybackCoordinator?>.value(
@@ -607,15 +855,7 @@ Widget buildSubject({
         value: artistProfileEditingService,
         child: Provider<TrackProfileEditingService?>.value(
           value: trackProfileEditingService,
-          child: AccountScope(
-            repository: accountRepository,
-            child: const MaterialApp(
-              home: ArtistProfilePage(
-                artistId: 'artist-1',
-                initialArtistName: 'Test Artist',
-              ),
-            ),
-          ),
+          child: AccountScope(repository: accountRepository, child: app),
         ),
       ),
     ),
@@ -800,16 +1040,33 @@ typedef FakeArtistRenameCallback =
       required String name,
     });
 
+typedef FakeArtistRemoveCallback =
+    Future<void> Function({required String userId, required String artistId});
+
 class FakeArtistProfileEditingService extends ArtistProfileEditingService {
-  FakeArtistProfileEditingService({this.onRename})
+  FakeArtistProfileEditingService({this.onRename, this.onRemove})
     : super(mutationRunner: UnusedSyncMutationRunner());
 
   final FakeArtistRenameCallback? onRename;
+  final FakeArtistRemoveCallback? onRemove;
 
   int renameCallCount = 0;
+  int removeCallCount = 0;
   String? lastUserId;
   String? lastArtistId;
   String? lastName;
+
+  @override
+  Future<void> removeArtist({
+    required String userId,
+    required String artistId,
+  }) async {
+    removeCallCount++;
+    lastUserId = userId;
+    lastArtistId = artistId;
+
+    await onRemove?.call(userId: userId, artistId: artistId);
+  }
 
   @override
   Future<Artist> renameArtist({

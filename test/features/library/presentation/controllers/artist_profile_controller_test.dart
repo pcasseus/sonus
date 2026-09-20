@@ -687,6 +687,111 @@ void main() {
       missingServiceController.dispose();
     });
 
+    test('reports whether loaded artist can be removed', () async {
+      final repository = FakeLibraryQueryRepository(
+        artist: createArtist(),
+        albums: [createAlbum()],
+        tracks: [createTrack()],
+      );
+
+      final service = FakeArtistProfileEditingService();
+
+      final controller = ArtistProfileController(
+        repository: repository,
+        artistId: 'artist-1',
+        artistProfileEditingService: service,
+      );
+
+      expect(controller.canRemoveArtist('user-1'), isFalse);
+
+      await controller.load();
+
+      expect(controller.canRemoveArtist('user-1'), isTrue);
+      expect(controller.canRemoveArtist('  user-1  '), isTrue);
+      expect(controller.canRemoveArtist(null), isFalse);
+      expect(controller.canRemoveArtist(''), isFalse);
+      expect(controller.canRemoveArtist('   '), isFalse);
+
+      controller.dispose();
+    });
+
+    test('removeArtist forwards permanent artist identity', () async {
+      final repository = FakeLibraryQueryRepository(
+        artist: createArtist(artistId: 'artist-remove'),
+      );
+
+      final service = FakeArtistProfileEditingService();
+
+      final controller = ArtistProfileController(
+        repository: repository,
+        artistId: 'artist-remove',
+        artistProfileEditingService: service,
+      );
+
+      await controller.load();
+
+      final removed = await controller.removeArtist(userId: 'user-1');
+
+      expect(removed, isTrue);
+      expect(service.removeCallCount, 1);
+      expect(service.lastRemoveUserId, 'user-1');
+      expect(service.lastRemoveArtistId, 'artist-remove');
+
+      controller.dispose();
+    });
+
+    test(
+      'removeArtist does nothing when unavailable, blank, or not loaded',
+      () async {
+        final repository = FakeLibraryQueryRepository(artist: createArtist());
+
+        final missingServiceController = ArtistProfileController(
+          repository: repository,
+          artistId: 'artist-1',
+        );
+
+        await missingServiceController.load();
+
+        expect(
+          await missingServiceController.removeArtist(userId: 'user-1'),
+          isFalse,
+        );
+
+        missingServiceController.dispose();
+
+        final service = FakeArtistProfileEditingService();
+
+        final blankUserController = ArtistProfileController(
+          repository: repository,
+          artistId: 'artist-1',
+          artistProfileEditingService: service,
+        );
+
+        await blankUserController.load();
+
+        expect(await blankUserController.removeArtist(userId: '   '), isFalse);
+
+        expect(service.removeCallCount, 0);
+
+        blankUserController.dispose();
+
+        final notLoadedController = ArtistProfileController(
+          repository: repository,
+          artistId: 'artist-1',
+          artistProfileEditingService: service,
+        );
+
+        expect(
+          await notLoadedController.removeArtist(userId: 'user-1'),
+          isFalse,
+        );
+
+        expect(service.removeCallCount, 0);
+
+        notLoadedController.dispose();
+      },
+    );
+
     test(
       'renameArtist forwards mutation and refreshes artist profile',
       () async {
@@ -1285,10 +1390,24 @@ class FakeArtistProfileEditingService extends ArtistProfileEditingService {
     : super(mutationRunner: UnusedSyncMutationRunner());
 
   int renameCallCount = 0;
+  int removeCallCount = 0;
 
   String? lastUserId;
   String? lastArtistId;
   String? lastName;
+
+  String? lastRemoveUserId;
+  String? lastRemoveArtistId;
+
+  @override
+  Future<void> removeArtist({
+    required String userId,
+    required String artistId,
+  }) async {
+    removeCallCount++;
+    lastRemoveUserId = userId;
+    lastRemoveArtistId = artistId;
+  }
 
   @override
   Future<Artist> renameArtist({
@@ -1641,6 +1760,9 @@ class FakeArtistRepository implements ArtistRepository {
 
     artists[artist.id] = artist;
   }
+
+  @override
+  Future<void> delete(String id) async {}
 
   @override
   Future<Artist?> getById(String id) async {

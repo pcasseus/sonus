@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:sonus_next/features/artwork/application/services/artwork_assignment_service.dart';
@@ -1094,6 +1094,9 @@ class _FakeArtistRepository implements ArtistRepository {
 
   @override
   Future<List<Artist>> getAll() async => const [];
+
+  @override
+  Future<void> delete(String id) async {}
 }
 
 class _FakeAlbumEditionRepository implements AlbumEditionRepository {

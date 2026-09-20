@@ -505,6 +505,9 @@ class _FakeArtistRepository implements ArtistRepository {
   }
 
   @override
+  Future<void> delete(String id) async {}
+
+  @override
   Future<Artist?> getById(String id) async {
     return artists[id];
   }

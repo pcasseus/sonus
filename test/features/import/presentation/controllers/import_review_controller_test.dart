@@ -1165,6 +1165,9 @@ class _FakeArtistRepository implements ArtistRepository {
 
   @override
   Future<List<Artist>> getAll() async => const [];
+
+  @override
+  Future<void> delete(String id) async {}
 }
 
 class _FakeAlbumEditionRepository implements AlbumEditionRepository {
