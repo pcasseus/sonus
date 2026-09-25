@@ -730,6 +730,157 @@ void main() {
     expect(track?.artworkId, fixture.deluxeArtwork.id);
     expect(track?.artworkPath, fixture.deluxeArtwork.filePath);
   });
+  group('library search', () {
+    test('blank query returns empty results', () async {
+      final db = await appDatabase.database;
+      final dao = LibraryQueryDao(db);
+
+      final results = await dao.search('   ');
+
+      expect(results.isEmpty, isTrue);
+      expect(results.totalCount, 0);
+    });
+
+    test('search matches artist name case-insensitively', () async {
+      final fixture = await _createFixture(appDatabase);
+      final dao = LibraryQueryDao(fixture.db);
+
+      final results = await dao.search('QUERY ART');
+
+      expect(
+        results.artists.map((artist) => artist.artistId),
+        contains(fixture.artist.id),
+      );
+    });
+
+    test('search matches partial album title', () async {
+      final fixture = await _createFixture(appDatabase);
+      final dao = LibraryQueryDao(fixture.db);
+
+      final results = await dao.search('uery alb');
+
+      expect(
+        results.albums.map((album) => album.albumId),
+        contains(fixture.album.id),
+      );
+    });
+
+    test('search matches track title', () async {
+      final fixture = await _createFixture(appDatabase);
+      final dao = LibraryQueryDao(fixture.db);
+
+      final results = await dao.search('alpha');
+
+      expect(
+        results.tracks.map((track) => track.songId),
+        contains(fixture.alphaSong.id),
+      );
+    });
+
+    test('search matches track artist name', () async {
+      final fixture = await _createFixture(appDatabase);
+      final dao = LibraryQueryDao(fixture.db);
+
+      final results = await dao.search('query artist');
+
+      expect(results.tracks, isNotEmpty);
+      expect(
+        results.tracks.every((track) => track.artistId == fixture.artist.id),
+        isTrue,
+      );
+    });
+
+    test('search matches track album title', () async {
+      final fixture = await _createFixture(appDatabase);
+      final dao = LibraryQueryDao(fixture.db);
+
+      final results = await dao.search('query album');
+
+      expect(results.tracks, isNotEmpty);
+      expect(
+        results.tracks.every((track) => track.albumId == fixture.album.id),
+        isTrue,
+      );
+    });
+
+    test(
+      'search ranks exact track title before prefix and contains matches',
+      () async {
+        final fixture = await _createFixture(appDatabase);
+        final dao = LibraryQueryDao(fixture.db);
+
+        final now = DateTime.utc(2026, 9, 25);
+
+        final exactSong = Song(
+          id: 'song_search_exact',
+          artistId: fixture.artist.id,
+          albumId: fixture.album.id,
+          albumEditionId: fixture.standardEdition.id,
+          title: 'Alpha',
+          canonicalTitle: 'alpha',
+          trackNumber: 90,
+          durationSeconds: 180,
+          isSingle: false,
+          createdAt: now,
+          updatedAt: now,
+        );
+
+        final prefixSong = Song(
+          id: 'song_search_prefix',
+          artistId: fixture.artist.id,
+          albumId: fixture.album.id,
+          albumEditionId: fixture.standardEdition.id,
+          title: 'Alpha Lights',
+          canonicalTitle: 'alpha lights',
+          trackNumber: 91,
+          durationSeconds: 180,
+          isSingle: false,
+          createdAt: now,
+          updatedAt: now,
+        );
+
+        final containsSong = Song(
+          id: 'song_search_contains',
+          artistId: fixture.artist.id,
+          albumId: fixture.album.id,
+          albumEditionId: fixture.standardEdition.id,
+          title: 'The Alpha Song',
+          canonicalTitle: 'the alpha song',
+          trackNumber: 92,
+          durationSeconds: 180,
+          isSingle: false,
+          createdAt: now,
+          updatedAt: now,
+        );
+
+        await SongDao(fixture.db).insert(exactSong);
+        await SongDao(fixture.db).insert(prefixSong);
+        await SongDao(fixture.db).insert(containsSong);
+
+        final results = await dao.search('alpha');
+
+        final ids = results.tracks.map((track) => track.songId).toList();
+
+        expect(ids.indexOf(exactSong.id), lessThan(ids.indexOf(prefixSong.id)));
+        expect(
+          ids.indexOf(prefixSong.id),
+          lessThan(ids.indexOf(containsSong.id)),
+        );
+      },
+    );
+
+    test('search normalizes repeated whitespace', () async {
+      final fixture = await _createFixture(appDatabase);
+      final dao = LibraryQueryDao(fixture.db);
+
+      final results = await dao.search('  query    artist  ');
+
+      expect(
+        results.artists.map((artist) => artist.artistId),
+        contains(fixture.artist.id),
+      );
+    });
+  });
 }
 
 Future<_QueryFixture> _createFixture(AppDatabase appDatabase) async {

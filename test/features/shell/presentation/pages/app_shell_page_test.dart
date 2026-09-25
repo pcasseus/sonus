@@ -44,9 +44,14 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey<String>('shell-search-button')));
 
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
 
     expect(find.byKey(const ValueKey<String>('search-page')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('shell-playback-slot')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('opens imports from the global top bar', (tester) async {
@@ -137,7 +142,8 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey<String>('shell-search-button')));
 
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
 
     expect(find.byKey(const ValueKey<String>('search-page')), findsOneWidget);
 

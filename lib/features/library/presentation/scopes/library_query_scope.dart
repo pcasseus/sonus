@@ -11,6 +11,7 @@ import '../../../artwork/data/repositories/sqlite_artwork_asset_repository.dart'
 import '../../../artwork/data/services/file_system_artwork_managed_storage.dart';
 import '../../../artwork/presentation/services/file_picker_artwork_file_picker.dart';
 import '../../../sync/data/repositories/sync_mutation_transaction_runner.dart';
+import '../../../search/application/repositories/library_search_repository.dart';
 import '../../application/repositories/library_query_repository.dart';
 import '../../application/services/album_profile_editing_service.dart';
 import '../../application/services/artist_creation_service.dart';
@@ -40,6 +41,7 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
   late final bool _ownsDatabase;
 
   LibraryQueryRepository? _repository;
+  LibrarySearchRepository? _searchRepository;
   ArtworkAssignmentService? _artworkAssignmentService;
   AlbumProfileEditingService? _albumProfileEditingService;
   ArtistCreationService? _artistCreationService;
@@ -97,6 +99,7 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
 
     setState(() {
       _repository = libraryQueryRepository;
+      _searchRepository = libraryQueryRepository;
       _artworkAssignmentService = artworkAssignmentService;
       _albumProfileEditingService = albumProfileEditingService;
       _artistCreationService = artistCreationService;
@@ -111,6 +114,7 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
       providers: [
         Provider<AppDatabase>.value(value: _database),
         Provider<LibraryQueryRepository?>.value(value: _repository),
+        Provider<LibrarySearchRepository?>.value(value: _searchRepository),
         Provider<ArtworkAssignmentService?>.value(
           value: _artworkAssignmentService,
         ),

@@ -1,3 +1,5 @@
+import '../../../search/application/models/library_search_results.dart';
+import '../../../search/application/repositories/library_search_repository.dart';
 import '../../application/models/library_album.dart';
 import '../../application/models/library_artist.dart';
 import '../../application/models/library_track.dart';
@@ -5,7 +7,8 @@ import '../../application/models/library_track_order.dart';
 import '../../application/repositories/library_query_repository.dart';
 import '../daos/library_query_dao.dart';
 
-class SqliteLibraryQueryRepository implements LibraryQueryRepository {
+class SqliteLibraryQueryRepository
+    implements LibraryQueryRepository, LibrarySearchRepository {
   const SqliteLibraryQueryRepository(this.dao);
 
   final LibraryQueryDao dao;
@@ -68,5 +71,10 @@ class SqliteLibraryQueryRepository implements LibraryQueryRepository {
   @override
   Future<LibraryArtist?> getArtistById(String artistId) {
     return dao.findArtistById(artistId);
+  }
+
+  @override
+  Future<LibrarySearchResults> search(String query) {
+    return dao.search(query);
   }
 }

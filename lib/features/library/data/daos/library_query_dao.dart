@@ -5,6 +5,7 @@ import '../../application/models/library_album.dart';
 import '../../application/models/library_artist.dart';
 import '../../application/models/library_track.dart';
 import '../../application/models/library_track_order.dart';
+import '../../../search/application/models/library_search_results.dart';
 import '../mappers/library_album_row_mapper.dart';
 import '../mappers/library_artist_row_mapper.dart';
 import '../mappers/library_track_row_mapper.dart';
@@ -492,6 +493,188 @@ class LibraryQueryDao {
     }
 
     return null;
+  }
+
+  Future<LibrarySearchResults> search(String query) async {
+    final normalizedQuery = _normalizeSearchText(query);
+
+    if (normalizedQuery.isEmpty) {
+      return const LibrarySearchResults();
+    }
+
+    final results = await Future.wait<Object>([
+      findArtists(),
+      findAlbums(),
+      findTracks(),
+    ]);
+
+    final artists =
+        (results[0] as List<LibraryArtist>)
+            .where(
+              (artist) =>
+                  _normalizeSearchText(artist.name).contains(normalizedQuery),
+            )
+            .toList(growable: false)
+          ..sort(
+            (a, b) => _compareSearchCandidates(
+              query: normalizedQuery,
+              aPrimary: a.name,
+              bPrimary: b.name,
+              aTieBreaker: a.artistId,
+              bTieBreaker: b.artistId,
+            ),
+          );
+
+    final albums =
+        (results[1] as List<LibraryAlbum>)
+            .where((album) {
+              return _normalizeSearchText(
+                    album.title,
+                  ).contains(normalizedQuery) ||
+                  _normalizeSearchText(
+                    album.artistName,
+                  ).contains(normalizedQuery);
+            })
+            .toList(growable: false)
+          ..sort(
+            (a, b) => _compareSearchCandidates(
+              query: normalizedQuery,
+              aPrimary: a.title,
+              bPrimary: b.title,
+              aSecondary: a.artistName,
+              bSecondary: b.artistName,
+              aTieBreaker: a.albumId,
+              bTieBreaker: b.albumId,
+            ),
+          );
+
+    final tracks =
+        (results[2] as List<LibraryTrack>)
+            .where((track) {
+              if (_normalizeSearchText(track.title).contains(normalizedQuery)) {
+                return true;
+              }
+
+              if (_normalizeSearchText(
+                track.artistName,
+              ).contains(normalizedQuery)) {
+                return true;
+              }
+
+              if (_normalizeSearchText(
+                track.albumTitle,
+              ).contains(normalizedQuery)) {
+                return true;
+              }
+
+              return track.featuredArtists.any(
+                (artist) =>
+                    _normalizeSearchText(artist).contains(normalizedQuery),
+              );
+            })
+            .toList(growable: false)
+          ..sort(
+            (a, b) => _compareSearchCandidates(
+              query: normalizedQuery,
+              aPrimary: a.title,
+              bPrimary: b.title,
+              aSecondary: a.artistName,
+              bSecondary: b.artistName,
+              aTieBreaker: a.songId,
+              bTieBreaker: b.songId,
+            ),
+          );
+
+    return LibrarySearchResults(
+      artists: artists,
+      albums: albums,
+      tracks: tracks,
+    );
+  }
+
+  static int _compareSearchCandidates({
+    required String query,
+    required String aPrimary,
+    required String bPrimary,
+    String? aSecondary,
+    String? bSecondary,
+    required String aTieBreaker,
+    required String bTieBreaker,
+  }) {
+    final aRank = _searchRank(
+      query: query,
+      primary: aPrimary,
+      secondary: aSecondary,
+    );
+
+    final bRank = _searchRank(
+      query: query,
+      primary: bPrimary,
+      secondary: bSecondary,
+    );
+
+    final rankCompare = aRank.compareTo(bRank);
+
+    if (rankCompare != 0) {
+      return rankCompare;
+    }
+
+    final primaryCompare = aPrimary.toLowerCase().compareTo(
+      bPrimary.toLowerCase(),
+    );
+
+    if (primaryCompare != 0) {
+      return primaryCompare;
+    }
+
+    final secondaryCompare = (aSecondary ?? '').toLowerCase().compareTo(
+      (bSecondary ?? '').toLowerCase(),
+    );
+
+    if (secondaryCompare != 0) {
+      return secondaryCompare;
+    }
+
+    return aTieBreaker.compareTo(bTieBreaker);
+  }
+
+  static int _searchRank({
+    required String query,
+    required String primary,
+    String? secondary,
+  }) {
+    final normalizedPrimary = _normalizeSearchText(primary);
+    final normalizedSecondary = _normalizeSearchText(secondary ?? '');
+
+    if (normalizedPrimary == query) {
+      return 0;
+    }
+
+    if (normalizedPrimary.startsWith(query)) {
+      return 1;
+    }
+
+    if (normalizedPrimary.contains(query)) {
+      return 2;
+    }
+
+    if (normalizedSecondary == query) {
+      return 3;
+    }
+
+    if (normalizedSecondary.startsWith(query)) {
+      return 4;
+    }
+
+    if (normalizedSecondary.contains(query)) {
+      return 5;
+    }
+
+    return 6;
+  }
+
+  static String _normalizeSearchText(String value) {
+    return value.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
   }
 
   static String _trackOrderBy(LibraryTrackOrder order) {
