@@ -68,9 +68,14 @@ class _AppShellPageState extends State<AppShellPage>
   }
 
   void _openSearch() {
-    Navigator.of(
-      context,
-    ).push(MaterialPageRoute<void>(builder: (_) => const SearchPage()));
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => const Scaffold(
+          body: SearchPage(),
+          bottomNavigationBar: ShellPlaybackSlot(),
+        ),
+      ),
+    );
   }
 
   void _openImports() {
