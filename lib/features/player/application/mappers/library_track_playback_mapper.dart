@@ -10,6 +10,10 @@ abstract final class LibraryTrackPlaybackMapper {
       artistName: track.artistName,
       albumId: track.albumId,
       albumTitle: track.albumTitle,
+      albumEditionId: track.albumEditionId,
+      albumEditionTitle: track.albumEditionTitle,
+      artworkId: track.artworkId,
+      artworkPath: track.artworkPath,
       filePath: track.filePath ?? '',
       duration: Duration(seconds: track.durationSeconds),
     );

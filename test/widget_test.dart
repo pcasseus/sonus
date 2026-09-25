@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -10,7 +11,9 @@ import 'package:sonus_next/features/player/application/controllers/playback_coor
 import 'package:sonus_next/features/player/domain/models/playback_repeat_mode.dart';
 import 'package:sonus_next/features/player/domain/models/playback_state.dart';
 import 'package:sonus_next/features/player/domain/models/playback_track.dart';
+import 'package:sonus_next/features/player/domain/repositories/track_lyrics_repository.dart';
 import 'package:sonus_next/features/player/domain/services/playback_engine.dart';
+import 'package:sonus_next/features/player/presentation/controllers/lyrics_controller.dart';
 import 'package:sonus_next/features/player/presentation/controllers/playback_state_controller.dart';
 
 class FakePlaybackEngine implements PlaybackEngine {
@@ -84,11 +87,50 @@ class FakePlaybackEngine implements PlaybackEngine {
   }
 }
 
-AppDatabase createTestDatabase() {
-  return AppDatabase(
-    databaseFactory: databaseFactoryFfi,
-    databasePath: inMemoryDatabasePath,
+class TestDatabaseFixture {
+  TestDatabaseFixture({required this.database, required this.directory});
+
+  final AppDatabase database;
+  final Directory directory;
+
+  Future<void> dispose() async {
+    await database.close();
+
+    if (await directory.exists()) {
+      await directory.delete(recursive: true);
+    }
+  }
+}
+
+Future<TestDatabaseFixture> createTestDatabase() async {
+  final directory = await Directory.systemTemp.createTemp('sonus_widget_test_');
+
+  final databasePath = '${directory.path}${Platform.pathSeparator}sonus.db';
+
+  final database = AppDatabase(
+    databaseFactory: databaseFactoryFfiNoIsolate,
+    databasePath: databasePath,
   );
+
+  await database.database;
+
+  return TestDatabaseFixture(database: database, directory: directory);
+}
+
+Future<TestDatabaseFixture> createTestDatabaseFor(WidgetTester tester) async {
+  late TestDatabaseFixture fixture;
+
+  await tester.runAsync(() async {
+    fixture = await createTestDatabase();
+  });
+
+  return fixture;
+}
+
+void addDatabaseTearDown(WidgetTester tester, TestDatabaseFixture fixture) {
+  addTearDown(() async {
+    await tester.runAsync(fixture.dispose);
+  });
 }
 
 void main() {
@@ -98,9 +140,10 @@ void main() {
 
   testWidgets('Sonus app exposes one playback coordinator', (tester) async {
     final engine = FakePlaybackEngine();
-    final database = createTestDatabase();
+    final fixture = await createTestDatabaseFor(tester);
+    final database = fixture.database;
 
-    addTearDown(database.close);
+    addDatabaseTearDown(tester, fixture);
 
     var factoryCalls = 0;
 
@@ -138,11 +181,61 @@ void main() {
     expect(factoryCalls, 1);
   });
 
+  testWidgets('Sonus app wires playback lyrics dependencies', (tester) async {
+    final engine = FakePlaybackEngine();
+    final fixture = await createTestDatabaseFor(tester);
+    final database = fixture.database;
+
+    addDatabaseTearDown(tester, fixture);
+
+    await tester.pumpWidget(
+      SonusApp(libraryDatabase: database, playbackEngineFactory: () => engine),
+    );
+
+    await tester.pump();
+    await tester.pump();
+
+    final sonusContext = tester.element(find.text('Sonus'));
+
+    final providedDatabase = Provider.of<AppDatabase>(
+      sonusContext,
+      listen: false,
+    );
+
+    final coordinator = Provider.of<PlaybackCoordinator>(
+      sonusContext,
+      listen: false,
+    );
+
+    final playbackStateController = Provider.of<PlaybackStateController>(
+      sonusContext,
+      listen: false,
+    );
+
+    final lyricsRepository = Provider.of<TrackLyricsRepository?>(
+      sonusContext,
+      listen: false,
+    );
+
+    final lyricsController = Provider.of<LyricsController?>(
+      sonusContext,
+      listen: false,
+    );
+
+    expect(providedDatabase, same(database));
+    expect(coordinator, isNotNull);
+    expect(playbackStateController, isNotNull);
+    expect(lyricsRepository, isNotNull);
+    expect(lyricsController, isNotNull);
+    expect(lyricsController!.state.songId, isNull);
+  });
+
   testWidgets('playback engine survives rebuilds', (tester) async {
     final engine = FakePlaybackEngine();
-    final database = createTestDatabase();
+    final fixture = await createTestDatabaseFor(tester);
+    final database = fixture.database;
 
-    addTearDown(database.close);
+    addDatabaseTearDown(tester, fixture);
 
     var factoryCalls = 0;
 
@@ -169,9 +262,10 @@ void main() {
 
   testWidgets('playback engine is disposed with app scope', (tester) async {
     final engine = FakePlaybackEngine();
-    final database = createTestDatabase();
+    final fixture = await createTestDatabaseFor(tester);
+    final database = fixture.database;
 
-    addTearDown(database.close);
+    addDatabaseTearDown(tester, fixture);
 
     await tester.pumpWidget(
       SonusApp(libraryDatabase: database, playbackEngineFactory: () => engine),

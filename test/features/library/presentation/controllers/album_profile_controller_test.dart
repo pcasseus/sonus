@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -833,35 +833,82 @@ void main() {
       },
     );
 
-    test('playTrack starts playback for playable track', () async {
-      final repository = FakeLibraryQueryRepository(
-        album: createAlbum(),
-        tracks: [createTrack()],
-      );
+    test(
+      'playTrack loads the current album context from the selected song',
+      () async {
+        final repository = FakeLibraryQueryRepository(
+          album: createAlbum(),
+          tracks: [
+            createTrack(songId: 'song-1'),
+            createTrack(songId: 'song-2'),
+            createTrack(songId: 'song-3'),
+          ],
+        );
 
-      final engine = FakePlaybackEngine();
-      final coordinator = PlaybackCoordinator(engine: engine);
+        final engine = FakePlaybackEngine();
 
-      final controller = AlbumProfileController(
-        repository: repository,
-        albumId: 'album-1',
-        playbackCoordinator: coordinator,
-      );
+        final controller = AlbumProfileController(
+          repository: repository,
+          albumId: 'album-1',
+          playbackCoordinator: PlaybackCoordinator(engine: engine),
+        );
 
-      await controller.load();
+        await controller.load();
+        await controller.playTrack(controller.tracks[1]);
 
-      await controller.playTrack(controller.tracks.single);
+        expect(engine.loadQueueCallCount, 1);
+        expect(engine.lastLoadedTracks!.map((track) => track.songId), [
+          'song-1',
+          'song-2',
+          'song-3',
+        ]);
+        expect(engine.lastStartIndex, 1);
+        expect(engine.lastAutoPlay, isTrue);
 
-      expect(engine.loadQueueCallCount, 1);
-      expect(engine.lastLoadedTracks, hasLength(1));
-      expect(engine.lastLoadedTracks!.single.songId, 'song-1');
-      expect(engine.lastStartIndex, 0);
-      expect(engine.lastAutoPlay, isTrue);
+        controller.dispose();
+        await engine.dispose();
+      },
+    );
 
-      controller.dispose();
-      await engine.dispose();
-    });
+    test(
+      'playTrack remaps the selected album song after unavailable tracks are filtered',
+      () async {
+        final repository = FakeLibraryQueryRepository(
+          album: createAlbum(),
+          tracks: [
+            createTrack(
+              songId: 'missing-song',
+              filePath: '',
+              isAvailable: false,
+            ),
+            createTrack(songId: 'song-1'),
+            createTrack(songId: 'song-2'),
+          ],
+        );
 
+        final engine = FakePlaybackEngine();
+
+        final controller = AlbumProfileController(
+          repository: repository,
+          albumId: 'album-1',
+          playbackCoordinator: PlaybackCoordinator(engine: engine),
+        );
+
+        await controller.load();
+        await controller.playTrack(controller.tracks[2]);
+
+        expect(engine.loadQueueCallCount, 1);
+        expect(engine.lastLoadedTracks!.map((track) => track.songId), [
+          'song-1',
+          'song-2',
+        ]);
+        expect(engine.lastStartIndex, 1);
+        expect(engine.lastAutoPlay, isTrue);
+
+        controller.dispose();
+        await engine.dispose();
+      },
+    );
     test('playTrack ignores unavailable track', () async {
       final repository = FakeLibraryQueryRepository(
         album: createAlbum(),

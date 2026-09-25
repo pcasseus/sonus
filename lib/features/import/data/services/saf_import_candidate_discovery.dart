@@ -26,7 +26,9 @@ class SafImportCandidateDiscovery implements ImportCandidateDiscovery {
        );
 
   SafImportCandidateDiscovery._(this._walk, this._fileSystemDiscovery);
+
   static const String supportedExtension = '.mp3';
+  static const String lyricsExtension = '.lrc';
 
   final SafWalk _walk;
   final FileSystemImportCandidateDiscovery _fileSystemDiscovery;
@@ -66,14 +68,32 @@ class SafImportCandidateDiscovery implements ImportCandidateDiscovery {
     final timestamp = discoveredAt ?? DateTime.now();
     final entries = await _walk(trimmedRoot).toList();
 
+    final lyricsBySidecarKey = <String, String>{};
+
+    for (final entry in entries) {
+      if (entry.file.isDir) {
+        continue;
+      }
+
+      final relativePath = _normalizeRelativePath(entry.relativePath);
+
+      if (relativePath.isEmpty ||
+          path.posix.extension(relativePath).toLowerCase() != lyricsExtension) {
+        continue;
+      }
+
+      lyricsBySidecarKey.putIfAbsent(
+        _sidecarKey(relativePath),
+        () => entry.file.uri,
+      );
+    }
+
     final topLevelFiles = <String>{};
     final topLevelDirectories = <String>{};
     final candidates = <ImportCandidate>[];
 
     for (final entry in entries) {
-      final relativePath = entry.relativePath
-          .replaceAll('\\', '/')
-          .replaceAll(RegExp(r'^/+|/+$'), '');
+      final relativePath = _normalizeRelativePath(entry.relativePath);
 
       if (relativePath.isEmpty) {
         continue;
@@ -112,15 +132,25 @@ class SafImportCandidateDiscovery implements ImportCandidateDiscovery {
       if (segments.length != 2 && segments.length != 3) {
         throw ImportSourceDiscoveryException(
           type: ImportSourceDiscoveryFailureType.invalidStructure,
-          message: 'Album folders may contain only MP3 files.',
+          message:
+              'Album folders may contain only MP3 files with optional '
+              'LRC sidecars.',
           path: relativePath,
         );
       }
 
-      if (path.extension(entry.file.name).toLowerCase() != supportedExtension) {
+      final extension = path.posix.extension(entry.file.name).toLowerCase();
+
+      if (extension == lyricsExtension) {
+        continue;
+      }
+
+      if (extension != supportedExtension) {
         throw ImportSourceDiscoveryException(
           type: ImportSourceDiscoveryFailureType.unsupportedFormat,
-          message: 'Album folders may contain only MP3 files.',
+          message:
+              'Album folders may contain only MP3 files with optional '
+              'LRC sidecars.',
           path: relativePath,
         );
       }
@@ -141,6 +171,7 @@ class SafImportCandidateDiscovery implements ImportCandidateDiscovery {
           normalizedPath: TextNormalizer.normalizePath(entry.file.uri),
           discoveredAt: timestamp,
           metadataFallbackPath: entry.relativePath,
+          lyricsPath: lyricsBySidecarKey[_sidecarKey(relativePath)],
           structure: structure,
         ),
       );
@@ -157,7 +188,8 @@ class SafImportCandidateDiscovery implements ImportCandidateDiscovery {
         type: ImportSourceDiscoveryFailureType.invalidStructure,
         message:
             'A top-level folder must be either an artist folder '
-            'containing album folders or an album folder containing MP3 files.',
+            'containing album folders or an album folder containing MP3 '
+            'files with optional LRC sidecars.',
         path: folder.first,
       );
     }
@@ -174,5 +206,17 @@ class SafImportCandidateDiscovery implements ImportCandidateDiscovery {
     );
 
     return List.unmodifiable(candidates);
+  }
+
+  String _normalizeRelativePath(String value) {
+    return value.replaceAll('\\', '/').replaceAll(RegExp(r'^/+|/+$'), '');
+  }
+
+  String _sidecarKey(String relativePath) {
+    final normalized = _normalizeRelativePath(relativePath);
+    final directory = path.posix.dirname(normalized).toLowerCase();
+    final stem = path.posix.basenameWithoutExtension(normalized).toLowerCase();
+
+    return '$directory/$stem';
   }
 }

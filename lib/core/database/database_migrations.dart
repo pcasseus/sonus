@@ -3,6 +3,7 @@ import 'package:sqflite/sqflite.dart';
 import 'database_tables.dart';
 import 'schema/import_schema.dart';
 import 'schema/library_schema.dart';
+import 'schema/lyrics_schema.dart';
 import 'schema/sync_schema.dart';
 
 abstract final class DatabaseMigrations {
@@ -161,6 +162,10 @@ abstract final class DatabaseMigrations {
         ''');
 
         await db.execute('DROP TABLE $legacyTable');
+        return;
+
+      case 11:
+        await LyricsSchema.create(db);
         return;
 
       default:

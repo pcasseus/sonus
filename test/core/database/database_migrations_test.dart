@@ -22,7 +22,7 @@ void main() {
       final result = await db.rawQuery('PRAGMA user_version');
 
       expect(result.single['user_version'], AppDatabase.databaseVersion);
-      expect(AppDatabase.databaseVersion, 10);
+      expect(AppDatabase.databaseVersion, 11);
     } finally {
       await appDatabase.close();
     }
@@ -578,12 +578,71 @@ void main() {
     },
   );
 
+  test('migration runner upgrades version 10 schema to version 11', () async {
+    final db = await databaseFactoryFfi.openDatabase(inMemoryDatabasePath);
+
+    try {
+      await db.execute('PRAGMA foreign_keys = ON');
+
+      await db.execute('''
+        CREATE TABLE ${DatabaseTables.songs} (
+          id TEXT PRIMARY KEY NOT NULL
+        )
+      ''');
+
+      await db.insert(DatabaseTables.songs, {'id': 'song_before_lyrics'});
+
+      await DatabaseMigrations.migrate(db, oldVersion: 10, newVersion: 11);
+
+      final tables = await db.rawQuery('''
+        SELECT name
+        FROM sqlite_master
+        WHERE type = 'table'
+      ''');
+
+      expect(
+        tables.map((row) => row['name']),
+        contains(DatabaseTables.trackLyrics),
+      );
+
+      final columns = await db.rawQuery(
+        'PRAGMA table_info(${DatabaseTables.trackLyrics})',
+      );
+
+      expect(
+        columns.map((row) => row['name']),
+        containsAll({
+          'song_id',
+          'plain_text',
+          'synced_text',
+          'created_at',
+          'updated_at',
+        }),
+      );
+
+      await db.insert(DatabaseTables.trackLyrics, {
+        'song_id': 'song_before_lyrics',
+        'plain_text': 'Plain lyric',
+        'synced_text': '[00:01.00]Synced lyric',
+        'created_at': '2026-09-20T12:00:00.000Z',
+        'updated_at': '2026-09-20T12:00:00.000Z',
+      });
+
+      final rows = await db.query(DatabaseTables.trackLyrics);
+
+      expect(rows, hasLength(1));
+      expect(rows.single['song_id'], 'song_before_lyrics');
+    } finally {
+      await db.close();
+    }
+  });
+
   test('migration runner fails loudly for unknown future migration', () async {
     final db = await databaseFactoryFfi.openDatabase(inMemoryDatabasePath);
 
     try {
       await expectLater(
-        DatabaseMigrations.migrate(db, oldVersion: 10, newVersion: 11),
+        DatabaseMigrations.migrate(db, oldVersion: 11, newVersion: 12),
         throwsA(isA<UnsupportedError>()),
       );
     } finally {

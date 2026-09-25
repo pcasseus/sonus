@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/widgets.dart';
@@ -12,6 +12,8 @@ import '../../../library/application/services/artist_creation_service.dart';
 import '../../../library/application/services/track_profile_editing_service.dart';
 import '../../../library/data/daos/song_dao.dart';
 import '../../../library/data/repositories/sqlite_song_repository.dart';
+import '../../../player/data/daos/track_lyrics_dao.dart';
+import '../../../player/data/repositories/sqlite_track_lyrics_repository.dart';
 import '../../../sync/data/repositories/sync_mutation_transaction_runner.dart';
 import '../../application/services/atomic_library_importer.dart';
 import '../../application/services/import_batch_executor.dart';
@@ -21,6 +23,7 @@ import '../../application/services/import_review_service.dart';
 import '../../application/services/import_source_picker.dart';
 import '../../application/services/import_workflow_service.dart';
 import '../../application/services/library_import_service.dart';
+import '../../application/services/lyrics_ingestion_service.dart';
 import '../../application/services/metadata_resolver.dart';
 import '../../data/daos/import_batch_dao.dart';
 import '../../data/daos/import_source_dao.dart';
@@ -31,6 +34,7 @@ import '../../data/repositories/sqlite_import_source_repository.dart';
 import '../../data/repositories/sqlite_media_file_binding_repository.dart';
 import '../../data/repositories/sqlite_song_import_review_repository.dart';
 import '../../data/services/file_system_import_candidate_discovery.dart';
+import '../../data/services/local_lyrics_source_reader.dart';
 import '../../data/services/media_metadata_reader.dart';
 import '../../data/services/path_fallback_metadata_reader.dart';
 import '../../data/services/saf_import_candidate_discovery.dart';
@@ -124,6 +128,10 @@ class _ImportScopeState extends State<ImportScope> {
       MediaFileBindingDao(sqliteDatabase),
     );
 
+    final trackLyricsRepository = SqliteTrackLyricsRepository(
+      TrackLyricsDao(sqliteDatabase),
+    );
+
     final reviewRepository = SqliteSongImportReviewRepository(
       SongImportReviewDao(sqliteDatabase),
     );
@@ -164,10 +172,18 @@ class _ImportScopeState extends State<ImportScope> {
       userId: userId,
     );
 
+    final lyricsIngestionService = LyricsIngestionService(
+      sourceReader: LocalLyricsSourceReader(
+        saf: Platform.isAndroid ? _saf : null,
+      ),
+      trackLyricsRepository: trackLyricsRepository,
+    );
+
     final libraryImportService = LibraryImportService(
       metadataResolver: metadataResolver,
       atomicImporter: atomicImporter,
       mediaFileBindingRepository: mediaFileBindingRepository,
+      lyricsIngestionService: lyricsIngestionService,
     );
 
     final batchExecutor = ImportBatchExecutor(
