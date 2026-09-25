@@ -179,10 +179,6 @@ class JustAudioPlaybackEngine implements PlaybackEngine {
   Future<void> skipNext() async {
     _ensureNotDisposed();
 
-    if (!_state.queue.hasNext && _state.repeatMode != PlaybackRepeatMode.all) {
-      return;
-    }
-
     try {
       await _audioPlayer.seekToNext();
     } catch (error) {
@@ -200,8 +196,7 @@ class JustAudioPlaybackEngine implements PlaybackEngine {
       return;
     }
 
-    if (!_state.queue.hasPrevious &&
-        _state.repeatMode != PlaybackRepeatMode.all) {
+    if (!_audioPlayer.hasPrevious) {
       await seek(Duration.zero);
       return;
     }
@@ -246,15 +241,12 @@ class JustAudioPlaybackEngine implements PlaybackEngine {
       throw RangeError.range(index, 0, _state.queue.length, 'index');
     }
 
+    final updatedQueue = _state.queue.insertTrack(track, index: index);
+
     try {
       await _audioPlayer.insertAudioSource(index, _audioSourceFor(track));
 
-      _emit(
-        _state.copyWith(
-          queue: _state.queue.insertTrack(track, index: index),
-          clearError: true,
-        ),
-      );
+      _emit(_state.copyWith(queue: updatedQueue, clearError: true));
     } catch (error) {
       _emitFailure(error);
       rethrow;
@@ -274,10 +266,10 @@ class JustAudioPlaybackEngine implements PlaybackEngine {
       throw RangeError.index(index, _state.queue.tracks, 'index');
     }
 
+    final updatedQueue = _state.queue.removeTrackAt(index);
+
     try {
       await _audioPlayer.removeAudioSourceAt(index);
-
-      final updatedQueue = _state.queue.removeTrackAt(index);
 
       _emit(
         _state.copyWith(
@@ -309,15 +301,15 @@ class JustAudioPlaybackEngine implements PlaybackEngine {
       return;
     }
 
+    final updatedQueue = _state.queue.moveTrack(
+      oldIndex: oldIndex,
+      newIndex: newIndex,
+    );
+
     try {
       await _audioPlayer.moveAudioSource(oldIndex, newIndex);
 
-      _emit(
-        _state.copyWith(
-          queue: _state.queue.moveTrack(oldIndex: oldIndex, newIndex: newIndex),
-          clearError: true,
-        ),
-      );
+      _emit(_state.copyWith(queue: updatedQueue, clearError: true));
     } catch (error) {
       _emitFailure(error);
       rethrow;

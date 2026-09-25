@@ -890,31 +890,82 @@ void main() {
       controller.dispose();
     });
 
-    test('playTrack loads the selected playable track', () async {
-      final repository = FakeLibraryQueryRepository();
+    test(
+      'playTrack loads the current artist context from the selected song',
+      () async {
+        final repository = FakeLibraryQueryRepository(
+          artist: createArtist(),
+          tracks: [
+            createTrack(songId: 'song-1'),
+            createTrack(songId: 'song-2'),
+            createTrack(songId: 'song-3'),
+          ],
+        );
 
-      final engine = FakePlaybackEngine();
+        final engine = FakePlaybackEngine();
 
-      final controller = ArtistProfileController(
-        repository: repository,
-        artistId: 'artist-1',
-        playbackCoordinator: PlaybackCoordinator(engine: engine),
-      );
+        final controller = ArtistProfileController(
+          repository: repository,
+          artistId: 'artist-1',
+          playbackCoordinator: PlaybackCoordinator(engine: engine),
+        );
 
-      final selectedTrack = createTrack(songId: 'song-play', title: 'Play Me');
+        await controller.load();
+        await controller.playTrack(controller.tracks[1]);
 
-      await controller.playTrack(selectedTrack);
+        expect(engine.loadQueueCallCount, 1);
+        expect(engine.lastLoadedTracks!.map((track) => track.songId), [
+          'song-1',
+          'song-2',
+          'song-3',
+        ]);
+        expect(engine.lastStartIndex, 1);
+        expect(engine.lastAutoPlay, isTrue);
 
-      expect(engine.loadQueueCallCount, 1);
-      expect(engine.lastLoadedTracks, hasLength(1));
-      expect(engine.lastLoadedTracks!.single.songId, 'song-play');
-      expect(engine.lastStartIndex, 0);
-      expect(engine.lastAutoPlay, isTrue);
+        await engine.dispose();
+        controller.dispose();
+      },
+    );
 
-      await engine.dispose();
-      controller.dispose();
-    });
+    test(
+      'playTrack remaps the selected artist song after unavailable tracks are filtered',
+      () async {
+        final repository = FakeLibraryQueryRepository(
+          artist: createArtist(),
+          tracks: [
+            createTrack(
+              songId: 'missing-song',
+              filePath: '',
+              isAvailable: false,
+            ),
+            createTrack(songId: 'song-1'),
+            createTrack(songId: 'song-2'),
+          ],
+        );
 
+        final engine = FakePlaybackEngine();
+
+        final controller = ArtistProfileController(
+          repository: repository,
+          artistId: 'artist-1',
+          playbackCoordinator: PlaybackCoordinator(engine: engine),
+        );
+
+        await controller.load();
+        await controller.playTrack(controller.tracks[2]);
+
+        expect(engine.loadQueueCallCount, 1);
+        expect(engine.lastLoadedTracks!.map((track) => track.songId), [
+          'song-1',
+          'song-2',
+        ]);
+        expect(engine.lastStartIndex, 1);
+        expect(engine.lastAutoPlay, isTrue);
+
+        await engine.dispose();
+        controller.dispose();
+      },
+    );
     test('playTrack ignores unavailable tracks', () async {
       final repository = FakeLibraryQueryRepository();
 

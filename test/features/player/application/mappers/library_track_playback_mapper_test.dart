@@ -9,6 +9,8 @@ void main() {
     String songId = 'song_1',
     String? filePath = r'C:\Music\Track.mp3',
     bool isAvailable = true,
+    String? artworkId = 'artwork_1',
+    String? artworkPath = r'C:\Sonus\Artwork\cover.jpg',
   }) {
     return LibraryTrack(
       songId: songId,
@@ -27,6 +29,8 @@ void main() {
       dateAdded: DateTime.utc(2026, 9, 11),
       filePath: filePath,
       isAvailable: isAvailable,
+      artworkId: artworkId,
+      artworkPath: artworkPath,
     );
   }
 
@@ -49,6 +53,28 @@ void main() {
     expect(playbackTrack.artistName, 'Artist');
     expect(playbackTrack.albumTitle, 'Album');
     expect(playbackTrack.duration, const Duration(seconds: 245));
+  });
+
+  test('maps album edition and artwork metadata for player presentation', () {
+    final playbackTrack = LibraryTrackPlaybackMapper.toPlaybackTrack(
+      libraryTrack(),
+    );
+
+    expect(playbackTrack.albumEditionId, 'edition_1');
+    expect(playbackTrack.albumEditionTitle, 'Album');
+    expect(playbackTrack.artworkId, 'artwork_1');
+    expect(playbackTrack.artworkPath, r'C:\Sonus\Artwork\cover.jpg');
+    expect(playbackTrack.hasArtworkPath, isTrue);
+  });
+
+  test('preserves missing artwork as absent playback artwork', () {
+    final playbackTrack = LibraryTrackPlaybackMapper.toPlaybackTrack(
+      libraryTrack(artworkId: null, artworkPath: null),
+    );
+
+    expect(playbackTrack.artworkId, isNull);
+    expect(playbackTrack.artworkPath, isNull);
+    expect(playbackTrack.hasArtworkPath, isFalse);
   });
 
   test('maps missing file path to empty playback path', () {

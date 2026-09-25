@@ -11,6 +11,7 @@ class FileSystemImportCandidateDiscovery implements ImportCandidateDiscovery {
   const FileSystemImportCandidateDiscovery();
 
   static const String supportedExtension = '.mp3';
+  static const String lyricsExtension = '.lrc';
 
   @override
   Future<ImportCandidate> discoverFile(
@@ -47,6 +48,7 @@ class FileSystemImportCandidateDiscovery implements ImportCandidateDiscovery {
     return _candidateFor(
       file.path,
       discoveredAt: discoveredAt ?? DateTime.now(),
+      lyricsPath: await _discoverLyricsSidecar(file),
       structure: ImportCandidateStructure.singleFile,
     );
   }
@@ -105,26 +107,26 @@ class FileSystemImportCandidateDiscovery implements ImportCandidateDiscovery {
           type: ImportSourceDiscoveryFailureType.invalidStructure,
           message:
               'A top-level folder must be either an artist folder '
-              'containing album folders or an album folder containing MP3 files.',
+              'containing album folders or an album folder containing MP3 '
+              'files with optional LRC sidecars.',
           path: entry.path,
         );
       }
 
       if (files.isNotEmpty) {
-        for (final file in files) {
-          if (!_isSupportedAudioFile(file.path)) {
-            throw ImportSourceDiscoveryException(
-              type: ImportSourceDiscoveryFailureType.unsupportedFormat,
-              message: 'Album folders may contain only MP3 files.',
-              path: file.path,
-            );
-          }
+        _validateAlbumFiles(files);
 
+        final audioFiles = files.where(
+          (file) => _isSupportedAudioFile(file.path),
+        );
+
+        for (final file in audioFiles) {
           candidates.add(
             _candidateFor(
               file.path,
               discoveredAt: timestamp,
               metadataFallbackPath: _relativePath(root: root, file: file),
+              lyricsPath: _lyricsSidecarPath(file, files),
               structure: ImportCandidateStructure.looseAlbum,
             ),
           );
@@ -154,24 +156,28 @@ class FileSystemImportCandidateDiscovery implements ImportCandidateDiscovery {
           if (albumEntry is! File) {
             throw ImportSourceDiscoveryException(
               type: ImportSourceDiscoveryFailureType.invalidStructure,
-              message: 'Album folders may contain only MP3 files.',
+              message:
+                  'Album folders may contain only MP3 files with optional '
+                  'LRC sidecars.',
               path: albumEntry.path,
             );
           }
+        }
 
-          if (!_isSupportedAudioFile(albumEntry.path)) {
-            throw ImportSourceDiscoveryException(
-              type: ImportSourceDiscoveryFailureType.unsupportedFormat,
-              message: 'Album folders may contain only MP3 files.',
-              path: albumEntry.path,
-            );
-          }
+        final albumFiles = albumEntries.whereType<File>().toList();
+        _validateAlbumFiles(albumFiles);
 
+        final audioFiles = albumFiles.where(
+          (file) => _isSupportedAudioFile(file.path),
+        );
+
+        for (final audioFile in audioFiles) {
           candidates.add(
             _candidateFor(
-              albumEntry.path,
+              audioFile.path,
               discoveredAt: timestamp,
-              metadataFallbackPath: _relativePath(root: root, file: albumEntry),
+              metadataFallbackPath: _relativePath(root: root, file: audioFile),
+              lyricsPath: _lyricsSidecarPath(audioFile, albumFiles),
               structure: ImportCandidateStructure.artistAlbum,
             ),
           );
@@ -186,6 +192,7 @@ class FileSystemImportCandidateDiscovery implements ImportCandidateDiscovery {
     String filePath, {
     required DateTime discoveredAt,
     String? metadataFallbackPath,
+    String? lyricsPath,
     required ImportCandidateStructure structure,
   }) {
     return ImportCandidate(
@@ -193,8 +200,59 @@ class FileSystemImportCandidateDiscovery implements ImportCandidateDiscovery {
       normalizedPath: TextNormalizer.normalizePath(filePath),
       discoveredAt: discoveredAt,
       metadataFallbackPath: metadataFallbackPath,
+      lyricsPath: lyricsPath,
       structure: structure,
     );
+  }
+
+  void _validateAlbumFiles(List<File> files) {
+    for (final file in files) {
+      if (_isSupportedAudioFile(file.path) || _isLyricsFile(file.path)) {
+        continue;
+      }
+
+      throw ImportSourceDiscoveryException(
+        type: ImportSourceDiscoveryFailureType.unsupportedFormat,
+        message:
+            'Album folders may contain only MP3 files with optional '
+            'LRC sidecars.',
+        path: file.path,
+      );
+    }
+  }
+
+  Future<String?> _discoverLyricsSidecar(File audioFile) async {
+    try {
+      final siblings = await audioFile.parent
+          .list(followLinks: false)
+          .where((entry) => entry is File)
+          .cast<File>()
+          .toList();
+
+      return _lyricsSidecarPath(audioFile, siblings);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  String? _lyricsSidecarPath(File audioFile, Iterable<File> files) {
+    final audioStem = path
+        .basenameWithoutExtension(audioFile.path)
+        .toLowerCase();
+
+    for (final file in files) {
+      if (!_isLyricsFile(file.path)) {
+        continue;
+      }
+
+      final lyricsStem = path.basenameWithoutExtension(file.path).toLowerCase();
+
+      if (lyricsStem == audioStem) {
+        return file.path;
+      }
+    }
+
+    return null;
   }
 
   String _relativePath({required Directory root, required File file}) {
@@ -203,6 +261,10 @@ class FileSystemImportCandidateDiscovery implements ImportCandidateDiscovery {
 
   bool _isSupportedAudioFile(String filePath) {
     return path.extension(filePath).toLowerCase() == supportedExtension;
+  }
+
+  bool _isLyricsFile(String filePath) {
+    return path.extension(filePath).toLowerCase() == lyricsExtension;
   }
 
   int _compareEntitiesByPath(FileSystemEntity left, FileSystemEntity right) {

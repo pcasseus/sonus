@@ -6,6 +6,7 @@ class ImportCandidate {
     required this.normalizedPath,
     required this.discoveredAt,
     this.metadataFallbackPath,
+    this.lyricsPath,
     this.sourceId,
     this.structure = ImportCandidateStructure.singleFile,
   });
@@ -14,6 +15,7 @@ class ImportCandidate {
   final String normalizedPath;
   final DateTime discoveredAt;
   final String? metadataFallbackPath;
+  final String? lyricsPath;
   final String? sourceId;
   final ImportCandidateStructure structure;
 
@@ -22,6 +24,7 @@ class ImportCandidate {
     String? normalizedPath,
     DateTime? discoveredAt,
     String? metadataFallbackPath,
+    String? lyricsPath,
     String? sourceId,
     ImportCandidateStructure? structure,
   }) {
@@ -30,6 +33,7 @@ class ImportCandidate {
       normalizedPath: normalizedPath ?? this.normalizedPath,
       discoveredAt: discoveredAt ?? this.discoveredAt,
       metadataFallbackPath: metadataFallbackPath ?? this.metadataFallbackPath,
+      lyricsPath: lyricsPath ?? this.lyricsPath,
       sourceId: sourceId ?? this.sourceId,
       structure: structure ?? this.structure,
     );

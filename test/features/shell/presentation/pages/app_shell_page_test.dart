@@ -1,11 +1,32 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
 
+import 'package:sonus_next/features/player/application/controllers/playback_coordinator.dart';
+import 'package:sonus_next/features/player/domain/models/playback_repeat_mode.dart';
+import 'package:sonus_next/features/player/domain/models/playback_state.dart';
+import 'package:sonus_next/features/player/domain/models/playback_track.dart';
+import 'package:sonus_next/features/player/domain/services/playback_engine.dart';
+import 'package:sonus_next/features/player/presentation/controllers/playback_state_controller.dart';
 import 'package:sonus_next/features/shell/presentation/pages/app_shell_page.dart';
 
 void main() {
   Widget buildSubject() {
-    return const MaterialApp(home: AppShellPage());
+    final engine = _FakePlaybackEngine();
+    final coordinator = PlaybackCoordinator(engine: engine);
+    final stateController = PlaybackStateController(coordinator: coordinator);
+
+    return MultiProvider(
+      providers: [
+        Provider<PlaybackCoordinator>.value(value: coordinator),
+        ChangeNotifierProvider<PlaybackStateController>.value(
+          value: stateController,
+        ),
+      ],
+      child: const MaterialApp(home: AppShellPage()),
+    );
   }
 
   testWidgets('shows all five primary destinations', (tester) async {
@@ -159,4 +180,71 @@ void main() {
       findsOneWidget,
     );
   });
+}
+
+class _FakePlaybackEngine implements PlaybackEngine {
+  final StreamController<PlaybackState> _states =
+      StreamController<PlaybackState>.broadcast();
+
+  final PlaybackState _state = const PlaybackState();
+
+  @override
+  Stream<PlaybackState> get states => _states.stream;
+
+  @override
+  PlaybackState get currentState => _state;
+
+  @override
+  Future<void> loadQueue(
+    List<PlaybackTrack> tracks, {
+    int startIndex = 0,
+    bool autoPlay = false,
+  }) async {}
+
+  @override
+  Future<void> play() async {}
+
+  @override
+  Future<void> pause() async {}
+
+  @override
+  Future<void> seek(Duration position) async {}
+
+  @override
+  Future<void> skipNext() async {}
+
+  @override
+  Future<void> skipPrevious() async {}
+
+  @override
+  Future<void> skipToIndex(int index) async {}
+
+  @override
+  Future<void> insertTrack(PlaybackTrack track, {required int index}) async {}
+
+  @override
+  Future<void> appendTrack(PlaybackTrack track) async {}
+
+  @override
+  Future<void> removeTrackAt(int index) async {}
+
+  @override
+  Future<void> moveTrack({
+    required int oldIndex,
+    required int newIndex,
+  }) async {}
+
+  @override
+  Future<void> setShuffleEnabled(bool enabled) async {}
+
+  @override
+  Future<void> setRepeatMode(PlaybackRepeatMode mode) async {}
+
+  @override
+  Future<void> stop() async {}
+
+  @override
+  Future<void> dispose() async {
+    await _states.close();
+  }
 }

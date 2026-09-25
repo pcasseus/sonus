@@ -377,7 +377,16 @@ class AlbumProfileController extends ChangeNotifier {
       return;
     }
 
-    await playbackCoordinator.playTrack(track);
+    final startIndex = _tracks.indexWhere(
+      (candidate) => candidate.songId == track.songId,
+    );
+
+    if (startIndex == -1) {
+      await playbackCoordinator.playTrack(track);
+      return;
+    }
+
+    await playbackCoordinator.playTracks(_tracks, startIndex: startIndex);
   }
 
   Future<void> playAll() async {

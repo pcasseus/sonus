@@ -4,6 +4,7 @@ import 'package:sqflite/sqflite.dart' as sqflite;
 import 'database_migrations.dart';
 import 'schema/import_schema.dart';
 import 'schema/library_schema.dart';
+import 'schema/lyrics_schema.dart';
 import 'schema/sync_schema.dart';
 
 class AppDatabase {
@@ -12,12 +13,13 @@ class AppDatabase {
       _databasePathOverride = databasePath;
 
   static const String databaseName = 'sonus_next.db';
-  static const int databaseVersion = 10;
+  static const int databaseVersion = 11;
 
   final sqflite.DatabaseFactory _databaseFactory;
   final String? _databasePathOverride;
 
   sqflite.Database? _database;
+  Future<sqflite.Database>? _openingDatabase;
 
   Future<sqflite.Database> get database async {
     final current = _database;
@@ -26,9 +28,24 @@ class AppDatabase {
       return current;
     }
 
-    final opened = await _open();
-    _database = opened;
-    return opened;
+    final opening = _openingDatabase;
+
+    if (opening != null) {
+      return opening;
+    }
+
+    final future = _open();
+    _openingDatabase = future;
+
+    try {
+      final opened = await future;
+      _database = opened;
+      return opened;
+    } finally {
+      if (identical(_openingDatabase, future)) {
+        _openingDatabase = null;
+      }
+    }
   }
 
   Future<sqflite.Database> _open() async {
@@ -52,12 +69,11 @@ class AppDatabase {
   }
 
   Future<void> _onCreate(sqflite.Database db, int version) async {
-    await db.transaction((transaction) async {
-      await ImportSchema.create(transaction);
-      await LibrarySchema.create(transaction);
-      await ImportSchema.createSongImportReviews(transaction);
-      await SyncSchema.create(transaction);
-    });
+    await ImportSchema.create(db);
+    await LibrarySchema.create(db);
+    await ImportSchema.createSongImportReviews(db);
+    await LyricsSchema.create(db);
+    await SyncSchema.create(db);
   }
 
   Future<void> _onUpgrade(
@@ -80,13 +96,22 @@ class AppDatabase {
   }
 
   Future<void> close() async {
-    final current = _database;
+    final opening = _openingDatabase;
 
-    if (current == null) {
-      return;
+    if (opening != null) {
+      try {
+        await opening;
+      } catch (_) {
+        // Opening already failed, so there is nothing to close.
+      }
     }
 
-    await current.close();
+    final current = _database;
     _database = null;
+    _openingDatabase = null;
+
+    if (current != null && current.isOpen) {
+      await current.close();
+    }
   }
 }

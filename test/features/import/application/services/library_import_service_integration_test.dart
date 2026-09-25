@@ -4,6 +4,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:sonus_next/core/database/app_database.dart';
 import 'package:sonus_next/features/import/application/services/atomic_library_importer.dart';
 import 'package:sonus_next/features/import/application/services/library_import_service.dart';
+import 'package:sonus_next/features/import/application/services/lyrics_ingestion_service.dart';
 import 'package:sonus_next/features/import/application/services/metadata_resolver.dart';
 import 'package:sonus_next/features/import/data/daos/media_file_binding_dao.dart';
 import 'package:sonus_next/features/import/data/daos/song_import_review_dao.dart';
@@ -15,10 +16,13 @@ import 'package:sonus_next/features/import/domain/models/import_failure.dart';
 import 'package:sonus_next/features/import/domain/models/import_result.dart';
 import 'package:sonus_next/features/import/domain/models/resolved_metadata.dart';
 import 'package:sonus_next/features/import/domain/services/audio_metadata_reader.dart';
+import 'package:sonus_next/features/import/domain/services/lyrics_source_reader.dart';
 import 'package:sonus_next/features/library/data/daos/album_dao.dart';
 import 'package:sonus_next/features/library/data/daos/album_edition_dao.dart';
 import 'package:sonus_next/features/library/data/daos/artist_dao.dart';
 import 'package:sonus_next/features/library/data/daos/song_dao.dart';
+import 'package:sonus_next/features/player/domain/models/track_lyrics.dart';
+import 'package:sonus_next/features/player/domain/repositories/track_lyrics_repository.dart';
 
 class CallbackAudioMetadataReader implements AudioMetadataReader {
   CallbackAudioMetadataReader(this.callback);
@@ -28,6 +32,42 @@ class CallbackAudioMetadataReader implements AudioMetadataReader {
   @override
   Future<AudioMetadata> read(ImportCandidate candidate) {
     return callback(candidate);
+  }
+}
+
+class CallbackLyricsSourceReader implements LyricsSourceReader {
+  CallbackLyricsSourceReader(this.callback);
+
+  final Future<String?> Function(ImportCandidate candidate) callback;
+
+  @override
+  Future<String?> read(ImportCandidate candidate) {
+    return callback(candidate);
+  }
+}
+
+class RecordingTrackLyricsRepository implements TrackLyricsRepository {
+  int saveCalls = 0;
+  String? savedSongId;
+  String? savedPlainText;
+  String? savedSyncedText;
+
+  @override
+  Future<void> deleteBySongId(String songId) async {}
+
+  @override
+  Future<TrackLyrics?> getBySongId(String songId) async => null;
+
+  @override
+  Future<void> save({
+    required String songId,
+    String? plainText,
+    String? syncedText,
+  }) async {
+    saveCalls += 1;
+    savedSongId = songId;
+    savedPlainText = plainText;
+    savedSyncedText = syncedText;
   }
 }
 
@@ -79,6 +119,7 @@ void main() {
   Future<LibraryImportService> buildService({
     required AudioMetadataReader primaryReader,
     required AudioMetadataReader fallbackReader,
+    LyricsIngestionService? lyricsIngestionService,
   }) async {
     final db = await appDatabase.database;
 
@@ -91,6 +132,7 @@ void main() {
       mediaFileBindingRepository: SqliteMediaFileBindingRepository(
         MediaFileBindingDao(db),
       ),
+      lyricsIngestionService: lyricsIngestionService,
     );
   }
 
@@ -249,6 +291,77 @@ void main() {
     },
   );
 
+  test(
+    'known file rescan ingests newly discovered LRC without rereading metadata',
+    () async {
+      var initialPrimaryReadCount = 0;
+
+      final initialService = await buildService(
+        primaryReader: CallbackAudioMetadataReader((_) async {
+          initialPrimaryReadCount += 1;
+          return metadata();
+        }),
+        fallbackReader: CallbackAudioMetadataReader(
+          (_) async => throw StateError('Fallback should not run'),
+        ),
+      );
+
+      final originalCandidate = candidate();
+      final first = await initialService.importCandidate(
+        originalCandidate,
+        now: now,
+      );
+
+      expect(first.status, ImportResultStatus.imported);
+      expect(first.songId, isNotNull);
+      expect(initialPrimaryReadCount, 1);
+
+      final lyricsRepository = RecordingTrackLyricsRepository();
+      var lyricsReadCount = 0;
+      ImportCandidate? lyricsCandidate;
+
+      final rescanService = await buildService(
+        primaryReader: CallbackAudioMetadataReader(
+          (_) async => throw StateError('Primary metadata should not rerun'),
+        ),
+        fallbackReader: CallbackAudioMetadataReader(
+          (_) async => throw StateError('Fallback metadata should not rerun'),
+        ),
+        lyricsIngestionService: LyricsIngestionService(
+          sourceReader: CallbackLyricsSourceReader((candidate) async {
+            lyricsReadCount += 1;
+            lyricsCandidate = candidate;
+            return '[00:01.00]First line';
+          }),
+          trackLyricsRepository: lyricsRepository,
+        ),
+      );
+
+      final rescanAt = now.add(const Duration(minutes: 5));
+      final lyricsPath = r'C:\Music\Artist Name\Album Name\01 Song Name.lrc';
+
+      final second = await rescanService.importCandidate(
+        originalCandidate.copyWith(
+          discoveredAt: rescanAt,
+          lyricsPath: lyricsPath,
+        ),
+        now: rescanAt,
+      );
+
+      expect(second.status, ImportResultStatus.skipped);
+      expect(second.songId, first.songId);
+      expect(initialPrimaryReadCount, 1);
+
+      expect(lyricsReadCount, 1);
+      expect(lyricsCandidate, isNotNull);
+      expect(lyricsCandidate!.lyricsPath, lyricsPath);
+
+      expect(lyricsRepository.saveCalls, 1);
+      expect(lyricsRepository.savedSongId, first.songId);
+      expect(lyricsRepository.savedPlainText, isNull);
+      expect(lyricsRepository.savedSyncedText, '[00:01.00]First line');
+    },
+  );
   test(
     'known file rescan preserves edited metadata and import review state',
     () async {

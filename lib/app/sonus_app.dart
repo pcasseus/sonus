@@ -22,10 +22,10 @@ class SonusApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return PlaybackScope(
-      engineFactory: playbackEngineFactory,
-      child: LibraryQueryScope(
-        database: libraryDatabase,
+    return LibraryQueryScope(
+      database: libraryDatabase,
+      child: PlaybackScope(
+        engineFactory: playbackEngineFactory,
         child: AccountScope(
           repository: accountRepository,
           child: ImportScope(

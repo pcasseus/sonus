@@ -420,27 +420,66 @@ void main() {
     expect(controller.tracks, isEmpty);
   });
 
-  test('playTrack loads the selected playable track', () async {
-    final repository = FakeLibraryQueryRepository();
+  test(
+    'playTrack loads the current track context from the selected song',
+    () async {
+      final repository = FakeLibraryQueryRepository()
+        ..tracks = [
+          track(id: 'song-1'),
+          track(id: 'song-2'),
+          track(id: 'song-3'),
+        ];
 
-    final engine = FakePlaybackEngine();
+      final engine = FakePlaybackEngine();
 
-    final controller = LibraryTracksController(
-      repository: repository,
-      playbackCoordinator: PlaybackCoordinator(engine: engine),
-    );
+      final controller = LibraryTracksController(
+        repository: repository,
+        playbackCoordinator: PlaybackCoordinator(engine: engine),
+      );
 
-    final selectedTrack = track(id: 'song-play', title: 'Play Me');
+      await controller.load();
+      await controller.playTrack(controller.tracks[1]);
 
-    await controller.playTrack(selectedTrack);
+      expect(engine.loadQueueCallCount, 1);
+      expect(engine.lastLoadedTracks!.map((track) => track.songId), [
+        'song-1',
+        'song-2',
+        'song-3',
+      ]);
+      expect(engine.lastStartIndex, 1);
+      expect(engine.lastAutoPlay, isTrue);
+    },
+  );
 
-    expect(engine.loadQueueCallCount, 1);
-    expect(engine.lastLoadedTracks, hasLength(1));
-    expect(engine.lastLoadedTracks!.single.songId, 'song-play');
-    expect(engine.lastStartIndex, 0);
-    expect(engine.lastAutoPlay, isTrue);
-  });
+  test(
+    'playTrack remaps the selected song after unavailable tracks are filtered',
+    () async {
+      final repository = FakeLibraryQueryRepository()
+        ..tracks = [
+          track(id: 'missing', filePath: '', isAvailable: false),
+          track(id: 'song-1'),
+          track(id: 'song-2'),
+        ];
 
+      final engine = FakePlaybackEngine();
+
+      final controller = LibraryTracksController(
+        repository: repository,
+        playbackCoordinator: PlaybackCoordinator(engine: engine),
+      );
+
+      await controller.load();
+      await controller.playTrack(controller.tracks[2]);
+
+      expect(engine.loadQueueCallCount, 1);
+      expect(engine.lastLoadedTracks!.map((track) => track.songId), [
+        'song-1',
+        'song-2',
+      ]);
+      expect(engine.lastStartIndex, 1);
+      expect(engine.lastAutoPlay, isTrue);
+    },
+  );
   test(
     'playAll starts from the first playable track when shuffle is off',
     () async {

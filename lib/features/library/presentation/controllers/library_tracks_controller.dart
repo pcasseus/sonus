@@ -156,7 +156,15 @@ class LibraryTracksController extends ChangeNotifier {
   }
 
   Future<void> playTrack(LibraryTrack track) {
-    return _playbackCoordinator.playTrack(track);
+    final startIndex = _tracks.indexWhere(
+      (candidate) => candidate.songId == track.songId,
+    );
+
+    if (startIndex == -1) {
+      return _playbackCoordinator.playTrack(track);
+    }
+
+    return _playbackCoordinator.playTracks(_tracks, startIndex: startIndex);
   }
 
   Future<void> playAll() async {

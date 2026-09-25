@@ -7,6 +7,7 @@ abstract final class DatabaseTables {
   static const String importBatches = 'import_batches';
   static const String importSources = 'import_sources';
   static const String songImportReviews = 'song_import_reviews';
+  static const String trackLyrics = 'track_lyrics';
   static const String artworkAssets = 'artwork_assets';
   static const String syncState = 'sync_state';
   static const String syncOutbox = 'sync_outbox';

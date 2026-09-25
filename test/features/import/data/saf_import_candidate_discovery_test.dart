@@ -221,6 +221,44 @@ void main() {
     );
   });
 
+  test(
+    'pairs matching SAF LRC sidecar without emitting it as a candidate',
+    () async {
+      final discovery = SafImportCandidateDiscovery.forTesting(
+        walk: (_) => walkEntries([
+          SafWalkEntry(
+            file: directory('content://artist', 'Artist'),
+            relativePath: 'Artist',
+          ),
+          SafWalkEntry(
+            file: directory('content://album', 'Album'),
+            relativePath: 'Artist/Album',
+          ),
+          SafWalkEntry(
+            file: file('content://song', '01 Song.mp3'),
+            relativePath: 'Artist/Album/01 Song.mp3',
+          ),
+          SafWalkEntry(
+            file: file('content://lyrics', '01 Song.lrc'),
+            relativePath: 'Artist/Album/01 Song.lrc',
+          ),
+        ]),
+      );
+
+      final candidates = await discovery.discoverFolder(
+        'content://music-root',
+        discoveredAt: discoveredAt,
+      );
+
+      expect(candidates, hasLength(1));
+      expect(candidates.single.filePath, 'content://song');
+      expect(candidates.single.lyricsPath, 'content://lyrics');
+      expect(
+        candidates.single.metadataFallbackPath,
+        'Artist/Album/01 Song.mp3',
+      );
+    },
+  );
   test('rejects unsupported file inside SAF album folder', () async {
     final discovery = SafImportCandidateDiscovery.forTesting(
       walk: (_) => walkEntries([
