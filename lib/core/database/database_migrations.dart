@@ -1,6 +1,7 @@
 import 'package:sqflite/sqflite.dart';
 
 import 'database_tables.dart';
+import 'schema/analytics_schema.dart';
 import 'schema/import_schema.dart';
 import 'schema/library_schema.dart';
 import 'schema/lyrics_schema.dart';
@@ -166,6 +167,26 @@ abstract final class DatabaseMigrations {
 
       case 11:
         await LyricsSchema.create(db);
+        return;
+
+      case 12:
+        await AnalyticsSchema.create(db);
+        return;
+
+      case 13:
+        await db.execute(
+          'ALTER TABLE ${DatabaseTables.songs} '
+          'ADD COLUMN is_blocked INTEGER NOT NULL DEFAULT 0 '
+          'CHECK (is_blocked IN (0, 1))',
+        );
+        return;
+
+      case 14:
+        await db.execute('''
+          CREATE UNIQUE INDEX idx_playback_listening_segments_one_open_per_session
+          ON ${DatabaseTables.playbackListeningSegments}(playback_session_id)
+          WHERE ended_at IS NULL
+        ''');
         return;
 
       default:

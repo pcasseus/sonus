@@ -9,7 +9,9 @@ import '../../../artwork/application/services/artwork_file_picker.dart';
 import '../../../player/application/controllers/playback_coordinator.dart';
 import '../../application/models/library_track.dart';
 import '../../application/repositories/library_query_repository.dart';
+import '../../application/services/artist_blacklist_service.dart';
 import '../../application/services/artist_profile_editing_service.dart';
+import '../../application/services/song_block_service.dart';
 import 'package:sonus_next/features/library/application/services/track_profile_editing_service.dart';
 import '../controllers/artist_profile_controller.dart';
 import '../widgets/artist_profile/artist_profile_albums_grid.dart';
@@ -59,6 +61,8 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
       artworkAssignmentService: context.read<ArtworkAssignmentService?>(),
       artworkFilePicker: context.read<ArtworkFilePicker?>(),
       artistProfileEditingService: context.read<ArtistProfileEditingService?>(),
+      artistBlacklistService: context.read<ArtistBlacklistService?>(),
+      songBlockService: context.read<SongBlockService?>(),
     );
 
     unawaited(_controller!.load());
@@ -95,6 +99,7 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
                   enabled:
                       controller.canEditArtwork ||
                       controller.canEditArtist(userId) ||
+                      controller.canSetArtistBlacklisted(userId) ||
                       controller.canRemoveArtist(userId),
                   tooltip: 'Artist actions',
                   onSelected: (action) {
@@ -145,6 +150,27 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
                       child: const ListTile(
                         leading: Icon(Icons.person_off_outlined),
                         title: Text('Clear Top Artists artwork'),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                    ),
+                    const PopupMenuDivider(),
+                    PopupMenuItem(
+                      key: const ValueKey<String>(
+                        'artist-profile-block-artist-menu-item',
+                      ),
+                      value: _ArtistMenuAction.toggleBlacklisted,
+                      enabled: controller.canSetArtistBlacklisted(userId),
+                      child: ListTile(
+                        leading: Icon(
+                          controller.artist?.isBlacklisted == true
+                              ? Icons.lock_open_rounded
+                              : Icons.block_rounded,
+                        ),
+                        title: Text(
+                          controller.artist?.isBlacklisted == true
+                              ? 'Unblock artist'
+                              : 'Block artist',
+                        ),
                         contentPadding: EdgeInsets.zero,
                       ),
                     ),
@@ -233,6 +259,7 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
                         isTrackPlayable: controller.isTrackPlayable,
                         canEditArtwork: controller.canEditTrackArtwork,
                         canEditTrack: controller.canEditTrack(userId),
+                        canSetBlocked: controller.canSetTrackBlocked(userId),
                         onPlay: controller.playTrack,
                         onPlayNext: controller.playNext,
                         onAddToQueue: controller.addToQueue,
@@ -242,6 +269,12 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
                             _changeTrackArtwork(controller, track),
                         onClearArtwork: (track) =>
                             _clearTrackArtwork(controller, track),
+                        onSetBlocked: (track, isBlocked) => _setTrackBlocked(
+                          controller,
+                          track,
+                          userId,
+                          isBlocked,
+                        ),
                       ),
                     ],
                   ),
@@ -265,6 +298,16 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
       return;
     }
 
+    if (action == _ArtistMenuAction.toggleBlacklisted) {
+      final artist = controller.artist;
+
+      if (artist == null) {
+        return;
+      }
+
+      await _setArtistBlacklisted(controller, userId, !artist.isBlacklisted);
+      return;
+    }
     if (action == _ArtistMenuAction.removeArtist) {
       if (userId == null || userId.trim().isEmpty) {
         return;
@@ -275,6 +318,45 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
     }
 
     await _handleArtworkAction(controller, action);
+  }
+
+  Future<void> _setArtistBlacklisted(
+    ArtistProfileController controller,
+    String? userId,
+    bool isBlacklisted,
+  ) async {
+    if (userId == null ||
+        userId.trim().isEmpty ||
+        !controller.canSetArtistBlacklisted(userId)) {
+      return;
+    }
+
+    try {
+      final changed = await controller.setArtistBlacklisted(
+        userId: userId,
+        isBlacklisted: isBlacklisted,
+      );
+
+      if (!mounted || !changed) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            isBlacklisted ? 'Artist blocked.' : 'Artist unblocked.',
+          ),
+        ),
+      );
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not update artist blocking.')),
+      );
+    }
   }
 
   Future<void> _removeArtist(
@@ -402,6 +484,7 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
       final changed = switch (action) {
         _ArtistMenuAction.editName => false,
         _ArtistMenuAction.removeArtist => false,
+        _ArtistMenuAction.toggleBlacklisted => false,
         _ArtistMenuAction.changeHeader =>
           await controller.changeHeaderArtwork(),
         _ArtistMenuAction.clearHeader => await controller.clearHeaderArtwork(),
@@ -418,6 +501,7 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
       final message = switch (action) {
         _ArtistMenuAction.editName => '',
         _ArtistMenuAction.removeArtist => '',
+        _ArtistMenuAction.toggleBlacklisted => '',
         _ArtistMenuAction.changeHeader => 'Header artwork updated.',
         _ArtistMenuAction.clearHeader => 'Header artwork cleared.',
         _ArtistMenuAction.changeTopArtists => 'Top Artists artwork updated.',
@@ -434,6 +518,45 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Could not update artist artwork.')),
+      );
+    }
+  }
+
+  Future<void> _setTrackBlocked(
+    ArtistProfileController controller,
+    LibraryTrack track,
+    String? userId,
+    bool isBlocked,
+  ) async {
+    if (userId == null ||
+        userId.trim().isEmpty ||
+        !controller.canSetTrackBlocked(userId)) {
+      return;
+    }
+
+    try {
+      final changed = await controller.setTrackBlocked(
+        userId: userId,
+        track: track,
+        isBlocked: isBlocked,
+      );
+
+      if (!mounted || !changed) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(isBlocked ? 'Song blocked.' : 'Song unblocked.'),
+        ),
+      );
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not update song blocking.')),
       );
     }
   }
@@ -637,6 +760,7 @@ enum _ArtistMenuAction {
   changeTopArtists,
   clearTopArtists,
   removeArtist,
+  toggleBlacklisted,
 }
 
 class _ArtistProfileLoadError extends StatelessWidget {

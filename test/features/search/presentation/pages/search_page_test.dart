@@ -2,11 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
+import 'package:sonus_next/features/account/application/controllers/account_controller.dart';
+import 'package:sonus_next/features/account/domain/entities/account_user.dart';
+import 'package:sonus_next/features/account/domain/repositories/account_repository.dart';
 import 'package:sonus_next/features/library/application/models/library_album.dart';
 import 'package:sonus_next/features/library/application/models/library_artist.dart';
 import 'package:sonus_next/features/library/application/models/library_track.dart';
 import 'package:sonus_next/features/library/application/models/library_track_order.dart';
 import 'package:sonus_next/features/library/application/repositories/library_query_repository.dart';
+import 'package:sonus_next/features/library/application/services/song_block_service.dart';
 import 'package:sonus_next/features/library/presentation/pages/album_profile_page.dart';
 import 'package:sonus_next/features/library/presentation/pages/artist_profile_page.dart';
 import 'package:sonus_next/features/player/application/controllers/playback_coordinator.dart';
@@ -15,9 +19,11 @@ import 'package:sonus_next/features/player/domain/models/playback_state.dart';
 import 'package:sonus_next/features/player/domain/models/playback_track.dart';
 import 'package:sonus_next/features/player/domain/services/playback_engine.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
+import 'package:sonus_next/features/library/domain/entities/song.dart';
 import 'package:sonus_next/features/search/application/models/library_search_results.dart';
 import 'package:sonus_next/features/search/application/repositories/library_search_repository.dart';
 import 'package:sonus_next/features/search/presentation/pages/search_page.dart';
+import 'package:sonus_next/features/sync/application/services/sync_mutation_runner.dart';
 
 void main() {
   group('SearchPage', () {
@@ -499,6 +505,121 @@ void main() {
 
       expect(find.byType(AlbumProfilePage), findsOneWidget);
     });
+
+    testWidgets('signed-in search user can block a song', (tester) async {
+      final track = _track(songId: 'song-block', title: 'Block Me');
+
+      final accountController = AccountController(
+        repository: _FakeAccountRepository(
+          currentUser: const AccountUser(
+            id: 'user-1',
+            email: 'user@example.com',
+          ),
+        ),
+      );
+
+      final service = _FakeSongBlockService();
+
+      await tester.pumpWidget(
+        _SearchTestApp(
+          repository: _FakeSearchRepository(
+            result: LibrarySearchResults(tracks: [track]),
+          ),
+          accountController: accountController,
+          songBlockService: service,
+        ),
+      );
+
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('search-field')),
+        'block',
+      );
+
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump();
+
+      final menuFinder = find.byKey(
+        const ValueKey<String>('search-track-menu-song-block'),
+      );
+
+      await tester.tap(menuFinder);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Block song'), findsOneWidget);
+
+      await tester.tap(find.text('Block song'));
+      await tester.pumpAndSettle();
+
+      expect(service.setBlockedCallCount, 1);
+      expect(service.lastUserId, 'user-1');
+      expect(service.lastSongId, 'song-block');
+      expect(service.lastIsBlocked, isTrue);
+    });
+
+    testWidgets('explicitly blocked search song exposes unblock action', (
+      tester,
+    ) async {
+      final track = _track(
+        songId: 'song-unblock',
+        title: 'Unblock Me',
+        isSongBlocked: true,
+      );
+
+      final accountController = AccountController(
+        repository: _FakeAccountRepository(
+          currentUser: const AccountUser(
+            id: 'user-1',
+            email: 'user@example.com',
+          ),
+        ),
+      );
+
+      final service = _FakeSongBlockService();
+
+      await tester.pumpWidget(
+        _SearchTestApp(
+          repository: _FakeSearchRepository(
+            result: LibrarySearchResults(tracks: [track]),
+          ),
+          accountController: accountController,
+          songBlockService: service,
+        ),
+      );
+
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('search-field')),
+        'unblock',
+      );
+
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump();
+
+      expect(find.text('Query Artist • Blocked'), findsOneWidget);
+      expect(find.text('Query Artist • Unavailable'), findsNothing);
+
+      final tile = tester.widget<ListTile>(
+        find.byKey(const ValueKey<String>('search-track-song-unblock')),
+      );
+
+      expect(tile.onTap, isNull);
+
+      final menuFinder = find.byKey(
+        const ValueKey<String>('search-track-menu-song-unblock'),
+      );
+
+      await tester.tap(menuFinder);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Unblock song'), findsOneWidget);
+
+      await tester.tap(find.text('Unblock song'));
+      await tester.pumpAndSettle();
+
+      expect(service.setBlockedCallCount, 1);
+      expect(service.lastUserId, 'user-1');
+      expect(service.lastSongId, 'song-unblock');
+      expect(service.lastIsBlocked, isFalse);
+    });
   });
 }
 
@@ -507,11 +628,15 @@ class _SearchTestApp extends StatelessWidget {
     required this.repository,
     this.playbackCoordinator,
     this.libraryQueryRepository,
+    this.accountController,
+    this.songBlockService,
   });
 
   final LibrarySearchRepository? repository;
   final PlaybackCoordinator? playbackCoordinator;
   final LibraryQueryRepository? libraryQueryRepository;
+  final AccountController? accountController;
+  final SongBlockService? songBlockService;
 
   @override
   Widget build(BuildContext context) {
@@ -520,6 +645,10 @@ class _SearchTestApp extends StatelessWidget {
         Provider<LibrarySearchRepository?>.value(value: repository),
         Provider<PlaybackCoordinator?>.value(value: playbackCoordinator),
         Provider<LibraryQueryRepository?>.value(value: libraryQueryRepository),
+        ChangeNotifierProvider<AccountController?>.value(
+          value: accountController,
+        ),
+        Provider<SongBlockService?>.value(value: songBlockService),
       ],
       child: const MaterialApp(home: SearchPage()),
     );
@@ -588,6 +717,8 @@ LibraryTrack _track({
   required String songId,
   required String title,
   bool isAvailable = true,
+  bool isSongBlocked = false,
+  bool isArtistBlacklisted = false,
   String? filePath = r'C:\Music\Query Track.mp3',
 }) {
   return LibraryTrack(
@@ -607,7 +738,80 @@ LibraryTrack _track({
     dateAdded: DateTime.utc(2026, 9, 25),
     isAvailable: isAvailable,
     filePath: filePath,
+    isSongBlocked: isSongBlocked,
+    isArtistBlacklisted: isArtistBlacklisted,
   );
+}
+
+class _FakeSongBlockService extends SongBlockService {
+  _FakeSongBlockService() : super(mutationRunner: _UnusedSyncMutationRunner());
+
+  int setBlockedCallCount = 0;
+  String? lastUserId;
+  String? lastSongId;
+  bool? lastIsBlocked;
+
+  @override
+  Future<Song> setBlocked({
+    required String userId,
+    required String songId,
+    required bool isBlocked,
+    DateTime? now,
+  }) async {
+    setBlockedCallCount++;
+    lastUserId = userId;
+    lastSongId = songId;
+    lastIsBlocked = isBlocked;
+
+    final timestamp = now ?? DateTime.utc(2026, 1, 1);
+
+    return Song(
+      id: songId,
+      artistId: 'artist-1',
+      albumId: 'album-1',
+      albumEditionId: 'edition-1',
+      title: 'Song',
+      canonicalTitle: 'song',
+      trackNumber: 1,
+      discNumber: 1,
+      durationSeconds: 180,
+      isSingle: false,
+      featuredArtists: const [],
+      artworkId: null,
+      isBlocked: isBlocked,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    );
+  }
+}
+
+class _FakeAccountRepository implements AccountRepository {
+  _FakeAccountRepository({this.currentUser});
+
+  @override
+  AccountUser? currentUser;
+
+  @override
+  Stream<AccountUser?> watchAuthState() {
+    return Stream<AccountUser?>.value(currentUser);
+  }
+
+  @override
+  Future<AccountUser?> signInWithGoogle() async {
+    return currentUser;
+  }
+
+  @override
+  Future<void> signOut() async {
+    currentUser = null;
+  }
+}
+
+class _UnusedSyncMutationRunner implements SyncMutationRunner {
+  @override
+  Future<T> run<T>(SyncMutationAction<T> action) {
+    throw StateError('Sync mutation runner should not be used by this fake.');
+  }
 }
 
 class _RecordingPlaybackEngine implements PlaybackEngine {

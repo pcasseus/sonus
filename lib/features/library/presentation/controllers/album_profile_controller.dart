@@ -9,6 +9,7 @@ import '../../application/models/library_album.dart';
 import '../../application/models/library_track.dart';
 import '../../application/repositories/library_query_repository.dart';
 import '../../application/services/album_profile_editing_service.dart';
+import '../../application/services/song_block_service.dart';
 import '../../application/services/track_profile_editing_service.dart';
 import '../../domain/entities/album_edition.dart';
 
@@ -19,6 +20,7 @@ class AlbumProfileController extends ChangeNotifier {
     PlaybackCoordinator? playbackCoordinator,
     AlbumProfileEditingService? albumProfileEditingService,
     TrackProfileEditingService? trackProfileEditingService,
+    SongBlockService? songBlockService,
     ArtworkAssignmentService? artworkAssignmentService,
     ArtworkFilePicker? artworkFilePicker,
     Random? random,
@@ -28,6 +30,7 @@ class AlbumProfileController extends ChangeNotifier {
          playbackCoordinator,
          albumProfileEditingService,
          trackProfileEditingService,
+         songBlockService,
          artworkAssignmentService,
          artworkFilePicker,
          random ?? Random(),
@@ -39,6 +42,7 @@ class AlbumProfileController extends ChangeNotifier {
     this._playbackCoordinator,
     this._albumProfileEditingService,
     this._trackProfileEditingService,
+    this._songBlockService,
     this._artworkAssignmentService,
     this._artworkFilePicker,
     this._random,
@@ -49,6 +53,7 @@ class AlbumProfileController extends ChangeNotifier {
   final PlaybackCoordinator? _playbackCoordinator;
   final AlbumProfileEditingService? _albumProfileEditingService;
   final TrackProfileEditingService? _trackProfileEditingService;
+  final SongBlockService? _songBlockService;
   final ArtworkAssignmentService? _artworkAssignmentService;
   final ArtworkFilePicker? _artworkFilePicker;
   final Random _random;
@@ -173,6 +178,42 @@ class AlbumProfileController extends ChangeNotifier {
       albumId: albumId,
       albumEditionId: albumEditionId,
     );
+
+    await refresh();
+
+    return true;
+  }
+
+  bool canSetTrackBlocked(String? userId) {
+    return _songBlockService != null &&
+        userId != null &&
+        userId.trim().isNotEmpty;
+  }
+
+  Future<bool> setTrackBlocked({
+    required String userId,
+    required LibraryTrack track,
+    required bool isBlocked,
+  }) async {
+    final service = _songBlockService;
+
+    if (service == null || userId.trim().isEmpty) {
+      return false;
+    }
+
+    await service.setBlocked(
+      userId: userId,
+      songId: track.songId,
+      isBlocked: isBlocked,
+    );
+
+    if (isBlocked) {
+      final playbackCoordinator = _playbackCoordinator;
+
+      if (playbackCoordinator != null) {
+        await playbackCoordinator.removeBlockedSongFromQueue(track.songId);
+      }
+    }
 
     await refresh();
 
@@ -306,7 +347,7 @@ class AlbumProfileController extends ChangeNotifier {
   }
 
   int get unavailableTrackCount {
-    return _tracks.length - playableTrackCount;
+    return _tracks.where((track) => !_isAvailable(track)).length;
   }
 
   bool get hasUnavailableTracks {
@@ -460,9 +501,13 @@ class AlbumProfileController extends ChangeNotifier {
     return _isPlayable(track);
   }
 
-  bool _isPlayable(LibraryTrack track) {
+  bool _isAvailable(LibraryTrack track) {
     return track.isAvailable &&
         track.filePath != null &&
         track.filePath!.trim().isNotEmpty;
+  }
+
+  bool _isPlayable(LibraryTrack track) {
+    return !track.isBlocked && _isAvailable(track);
   }
 }

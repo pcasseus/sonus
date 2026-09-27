@@ -12,8 +12,10 @@ import 'package:sonus_next/features/library/application/models/library_artist.da
 import 'package:sonus_next/features/library/application/models/library_track.dart';
 import 'package:sonus_next/features/library/application/models/library_track_order.dart';
 import 'package:sonus_next/features/library/application/repositories/library_query_repository.dart';
+import 'package:sonus_next/features/library/application/services/song_block_service.dart';
 import 'package:sonus_next/features/library/application/services/track_profile_editing_service.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
+import 'package:sonus_next/features/library/domain/entities/song.dart';
 import 'package:sonus_next/features/library/presentation/pages/tracks_page.dart';
 import 'package:sonus_next/features/player/application/controllers/playback_coordinator.dart';
 import 'package:sonus_next/features/player/domain/models/playback_state.dart';
@@ -388,6 +390,130 @@ void main() {
       expect(find.text('Recovered Song'), findsOneWidget);
       expect(find.text('1 song in your library'), findsOneWidget);
     });
+
+    testWidgets('signed-in user can block a song from the track menu', (
+      tester,
+    ) async {
+      final repository = FakeLibraryQueryRepository(
+        tracks: [createTrack(songId: 'song-block', title: 'Block Me')],
+      );
+
+      final accountController = AccountController(
+        repository: FakeAccountRepository(
+          currentUser: const AccountUser(
+            id: 'user-1',
+            email: 'user@example.com',
+          ),
+        ),
+      );
+
+      final service = FakeSongBlockService();
+
+      await tester.pumpWidget(
+        buildSubject(
+          repository: repository,
+          accountController: accountController,
+          songBlockService: service,
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      final menuFinder = find.byKey(
+        const ValueKey<String>('track-menu-song-block'),
+      );
+
+      expect(
+        tester.widget<PopupMenuButton<dynamic>>(menuFinder).enabled,
+        isTrue,
+      );
+
+      await tester.tap(menuFinder);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Block song'), findsOneWidget);
+
+      await tester.tap(find.text('Block song'));
+      await tester.pumpAndSettle();
+
+      expect(service.setBlockedCallCount, 1);
+      expect(service.lastUserId, 'user-1');
+      expect(service.lastSongId, 'song-block');
+      expect(service.lastIsBlocked, isTrue);
+      expect(find.text('Song blocked.'), findsOneWidget);
+    });
+
+    testWidgets(
+      'explicitly blocked song can be unblocked from the track menu',
+      (tester) async {
+        final repository = FakeLibraryQueryRepository(
+          tracks: [
+            createTrack(
+              songId: 'song-unblock',
+              title: 'Unblock Me',
+              isSongBlocked: true,
+            ),
+          ],
+        );
+
+        final accountController = AccountController(
+          repository: FakeAccountRepository(
+            currentUser: const AccountUser(
+              id: 'user-1',
+              email: 'user@example.com',
+            ),
+          ),
+        );
+
+        final service = FakeSongBlockService();
+
+        await tester.pumpWidget(
+          buildSubject(
+            repository: repository,
+            accountController: accountController,
+            songBlockService: service,
+          ),
+        );
+
+        await tester.pumpAndSettle();
+
+        final tile = tester.widget<InkWell>(
+          find.byKey(const ValueKey<String>('track-song-unblock')),
+        );
+
+        expect(tile.onTap, isNull);
+
+        expect(
+          find.byKey(const ValueKey<String>('track-blocked-song-unblock')),
+          findsOneWidget,
+        );
+        expect(find.text('Blocked'), findsOneWidget);
+        expect(find.text('Unavailable'), findsNothing);
+
+        final menuFinder = find.byKey(
+          const ValueKey<String>('track-menu-song-unblock'),
+        );
+
+        expect(
+          tester.widget<PopupMenuButton<dynamic>>(menuFinder).enabled,
+          isTrue,
+        );
+
+        await tester.tap(menuFinder);
+        await tester.pumpAndSettle();
+
+        expect(find.text('Unblock song'), findsOneWidget);
+
+        await tester.tap(find.text('Unblock song'));
+        await tester.pumpAndSettle();
+
+        expect(service.setBlockedCallCount, 1);
+        expect(service.lastUserId, 'user-1');
+        expect(service.lastSongId, 'song-unblock');
+        expect(service.lastIsBlocked, isFalse);
+        expect(find.text('Song unblocked.'), findsOneWidget);
+      },
+    );
   });
 }
 
@@ -395,6 +521,7 @@ Widget buildSubject({
   required LibraryQueryRepository? repository,
   AccountController? accountController,
   TrackProfileEditingService? trackProfileEditingService,
+  SongBlockService? songBlockService,
   PlaybackEngine? engine,
 }) {
   final playbackEngine = engine ?? NoOpPlaybackEngine();
@@ -410,6 +537,7 @@ Widget buildSubject({
       Provider<TrackProfileEditingService?>.value(
         value: trackProfileEditingService,
       ),
+      Provider<SongBlockService?>.value(value: songBlockService),
       Provider<PlaybackCoordinator>.value(value: coordinator),
     ],
     child: const MaterialApp(home: Scaffold(body: TracksPage())),
@@ -432,6 +560,8 @@ LibraryTrack createTrack({
   DateTime? dateAdded,
   String? filePath = '/music/song.mp3',
   bool isAvailable = true,
+  bool isSongBlocked = false,
+  bool isArtistBlacklisted = false,
 }) {
   return LibraryTrack(
     songId: songId,
@@ -450,6 +580,8 @@ LibraryTrack createTrack({
     dateAdded: dateAdded ?? DateTime(2026, 1, 1),
     filePath: filePath,
     isAvailable: isAvailable,
+    isSongBlocked: isSongBlocked,
+    isArtistBlacklisted: isArtistBlacklisted,
   );
 }
 
@@ -548,6 +680,9 @@ class NoOpPlaybackEngine implements PlaybackEngine {
   Stream<PlaybackState> get states => const Stream.empty();
 
   @override
+  PlaybackState get currentState => const PlaybackState();
+
+  @override
   dynamic noSuchMethod(Invocation invocation) {
     return super.noSuchMethod(invocation);
   }
@@ -592,6 +727,48 @@ class RecordingPlaybackEngine implements PlaybackEngine {
   }
 }
 
+class FakeSongBlockService extends SongBlockService {
+  FakeSongBlockService() : super(mutationRunner: UnusedSyncMutationRunner());
+
+  int setBlockedCallCount = 0;
+  String? lastUserId;
+  String? lastSongId;
+  bool? lastIsBlocked;
+
+  @override
+  Future<Song> setBlocked({
+    required String userId,
+    required String songId,
+    required bool isBlocked,
+    DateTime? now,
+  }) async {
+    setBlockedCallCount++;
+    lastUserId = userId;
+    lastSongId = songId;
+    lastIsBlocked = isBlocked;
+
+    final timestamp = now ?? DateTime.utc(2026, 1, 1);
+
+    return Song(
+      id: songId,
+      artistId: 'artist-1',
+      albumId: 'album-1',
+      albumEditionId: 'edition-1',
+      title: 'Song',
+      canonicalTitle: 'song',
+      trackNumber: 1,
+      discNumber: 1,
+      durationSeconds: 180,
+      isSingle: false,
+      featuredArtists: const [],
+      artworkId: null,
+      isBlocked: isBlocked,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    );
+  }
+}
+
 class FakeAccountRepository implements AccountRepository {
   FakeAccountRepository({this.currentUser});
 
@@ -612,4 +789,6 @@ class UnusedSyncMutationRunner implements SyncMutationRunner {
   dynamic noSuchMethod(Invocation invocation) {
     throw StateError('Sync mutation runner should not be used by this test.');
   }
+
+  PlaybackState get currentState => const PlaybackState();
 }

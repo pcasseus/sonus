@@ -102,6 +102,8 @@ abstract final class LibrarySchema {
         CHECK (duration_seconds >= 0),
       is_single INTEGER NOT NULL DEFAULT 0
         CHECK (is_single IN (0, 1)),
+      is_blocked INTEGER NOT NULL DEFAULT 0
+        CHECK (is_blocked IN (0, 1)),
       featured_artists TEXT NOT NULL DEFAULT '[]',
       artwork_id TEXT,
       created_at TEXT NOT NULL,

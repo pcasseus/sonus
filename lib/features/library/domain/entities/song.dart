@@ -12,6 +12,7 @@ class Song {
     this.discNumber = 1,
     required this.durationSeconds,
     required this.isSingle,
+    this.isBlocked = false,
     required this.createdAt,
     required this.updatedAt,
     this.featuredArtists = const [],
@@ -28,6 +29,7 @@ class Song {
   final int discNumber;
   final int durationSeconds;
   final bool isSingle;
+  final bool isBlocked;
   final List<String> featuredArtists;
   final String? artworkId;
   final DateTime createdAt;
@@ -44,6 +46,7 @@ class Song {
     int? discNumber,
     int? durationSeconds,
     bool? isSingle,
+    bool? isBlocked,
     List<String>? featuredArtists,
     Object? artworkId = _unset,
     DateTime? createdAt,
@@ -60,6 +63,7 @@ class Song {
       discNumber: discNumber ?? this.discNumber,
       durationSeconds: durationSeconds ?? this.durationSeconds,
       isSingle: isSingle ?? this.isSingle,
+      isBlocked: isBlocked ?? this.isBlocked,
       featuredArtists: featuredArtists ?? this.featuredArtists,
       artworkId: identical(artworkId, _unset)
           ? this.artworkId

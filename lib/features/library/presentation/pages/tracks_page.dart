@@ -13,6 +13,7 @@ import '../../application/models/library_track.dart';
 import '../../application/models/library_track_order.dart';
 import '../../application/repositories/library_query_repository.dart';
 import '../../application/services/artist_creation_service.dart';
+import '../../application/services/song_block_service.dart';
 import '../../application/services/track_profile_editing_service.dart';
 import '../controllers/library_tracks_controller.dart';
 import '../widgets/track_profile_edit_dialog.dart';
@@ -46,6 +47,7 @@ class _TracksPageState extends State<TracksPage> {
       repository: repository,
       playbackCoordinator: context.read<PlaybackCoordinator>(),
       trackProfileEditingService: context.read<TrackProfileEditingService?>(),
+      songBlockService: context.read<SongBlockService?>(),
       artworkAssignmentService: context.read<ArtworkAssignmentService?>(),
       artworkFilePicker: context.read<ArtworkFilePicker?>(),
     );
@@ -118,6 +120,7 @@ class _TracksPageState extends State<TracksPage> {
                         isPlayable: controller.isTrackPlayable(track),
                         canEditArtwork: controller.canEditArtwork,
                         canEditTrack: controller.canEditTrack(userId),
+                        canSetBlocked: controller.canSetTrackBlocked(userId),
                         onPlay: () => controller.playTrack(track),
                         onPlayNext: () => controller.playNext(track),
                         onAddToQueue: () => controller.addToQueue(track),
@@ -126,6 +129,12 @@ class _TracksPageState extends State<TracksPage> {
                         onChangeArtwork: () =>
                             _changeArtwork(controller, track),
                         onClearArtwork: () => _clearArtwork(controller, track),
+                        onSetBlocked: (isBlocked) => _setTrackBlocked(
+                          controller,
+                          track,
+                          userId,
+                          isBlocked,
+                        ),
                       );
                     },
                   ),
@@ -221,6 +230,45 @@ class _TracksPageState extends State<TracksPage> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Could not update song details.')),
+      );
+    }
+  }
+
+  Future<void> _setTrackBlocked(
+    LibraryTracksController controller,
+    LibraryTrack track,
+    String? userId,
+    bool isBlocked,
+  ) async {
+    if (userId == null ||
+        userId.trim().isEmpty ||
+        !controller.canSetTrackBlocked(userId)) {
+      return;
+    }
+
+    try {
+      final changed = await controller.setTrackBlocked(
+        userId: userId,
+        track: track,
+        isBlocked: isBlocked,
+      );
+
+      if (!mounted || !changed) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(isBlocked ? 'Song blocked.' : 'Song unblocked.'),
+        ),
+      );
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not update song blocking.')),
       );
     }
   }
@@ -468,18 +516,21 @@ class _TrackTile extends StatelessWidget {
     required this.isPlayable,
     required this.canEditArtwork,
     required this.canEditTrack,
+    required this.canSetBlocked,
     required this.onPlay,
     required this.onPlayNext,
     required this.onAddToQueue,
     required this.onEditTrack,
     required this.onChangeArtwork,
     required this.onClearArtwork,
+    required this.onSetBlocked,
   });
 
   final LibraryTrack track;
   final bool isPlayable;
   final bool canEditArtwork;
   final bool canEditTrack;
+  final bool canSetBlocked;
 
   final Future<void> Function() onPlay;
   final Future<void> Function() onPlayNext;
@@ -487,6 +538,7 @@ class _TrackTile extends StatelessWidget {
   final Future<void> Function() onEditTrack;
   final Future<void> Function() onChangeArtwork;
   final Future<void> Function() onClearArtwork;
+  final Future<void> Function(bool isBlocked) onSetBlocked;
 
   @override
   Widget build(BuildContext context) {
@@ -525,7 +577,11 @@ class _TrackTile extends StatelessWidget {
               ),
               PopupMenuButton<_TrackMenuAction>(
                 key: ValueKey<String>('track-menu-${track.songId}'),
-                enabled: isPlayable || canEditArtwork || canEditTrack,
+                enabled:
+                    isPlayable ||
+                    canEditArtwork ||
+                    canEditTrack ||
+                    canSetBlocked,
                 tooltip: 'Song options',
                 onSelected: (action) {
                   switch (action) {
@@ -539,6 +595,8 @@ class _TrackTile extends StatelessWidget {
                       unawaited(onChangeArtwork());
                     case _TrackMenuAction.clearArtwork:
                       unawaited(onClearArtwork());
+                    case _TrackMenuAction.toggleBlocked:
+                      unawaited(onSetBlocked(!track.isSongBlocked));
                   }
                 },
                 itemBuilder: (context) => [
@@ -579,6 +637,22 @@ class _TrackTile extends StatelessWidget {
                       contentPadding: EdgeInsets.zero,
                     ),
                   ),
+                  PopupMenuItem(
+                    value: _TrackMenuAction.toggleBlocked,
+                    enabled: canSetBlocked,
+                    child: ListTile(
+                      leading: Icon(
+                        track.isSongBlocked
+                            ? Icons.lock_open_rounded
+                            : Icons.block_rounded,
+                      ),
+                      title: Text(
+                        track.isSongBlocked ? 'Unblock song' : 'Block song',
+                      ),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+                  const PopupMenuDivider(),
                   PopupMenuItem(
                     value: _TrackMenuAction.clearArtwork,
                     enabled: canEditArtwork,
@@ -638,7 +712,9 @@ class _TrackArtwork extends StatelessWidget {
                 color: colorScheme.surface.withValues(alpha: 0.58),
                 child: Center(
                   child: Icon(
-                    Icons.cloud_off_rounded,
+                    track.isBlocked
+                        ? Icons.block_rounded
+                        : Icons.cloud_off_rounded,
                     size: 20,
                     color: colorScheme.onSurfaceVariant,
                   ),
@@ -731,8 +807,12 @@ class _TrackMetadata extends StatelessWidget {
         if (!isPlayable) ...[
           const SizedBox(height: 3),
           Text(
-            'Unavailable',
-            key: ValueKey<String>('track-unavailable-${track.songId}'),
+            track.isBlocked ? 'Blocked' : 'Unavailable',
+            key: ValueKey<String>(
+              track.isBlocked
+                  ? 'track-blocked-${track.songId}'
+                  : 'track-unavailable-${track.songId}',
+            ),
             style: theme.textTheme.labelSmall?.copyWith(
               color: colorScheme.error,
               fontWeight: FontWeight.w700,
@@ -793,6 +873,7 @@ enum _TrackMenuAction {
   editDetails,
   changeArtwork,
   clearArtwork,
+  toggleBlocked,
 }
 
 class _LibraryLoadError extends StatelessWidget {

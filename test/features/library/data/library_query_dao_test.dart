@@ -237,6 +237,54 @@ void main() {
     expect(track?.filePath, isNull);
     expect(track?.isAvailable, isFalse);
   });
+  test(
+    'track projection exposes explicit song block without hiding track',
+    () async {
+      final fixture = await _createFixture(appDatabase);
+
+      await SongDao(fixture.db).update(
+        fixture.alphaSong.copyWith(
+          isBlocked: true,
+          updatedAt: DateTime.utc(2026, 9, 26),
+        ),
+      );
+
+      final tracks = await LibraryQueryDao(fixture.db).findTracks();
+
+      final track = tracks.firstWhere(
+        (candidate) => candidate.songId == fixture.alphaSong.id,
+      );
+
+      expect(track.isSongBlocked, isTrue);
+      expect(track.isArtistBlacklisted, isFalse);
+      expect(track.isBlocked, isTrue);
+      expect(tracks, hasLength(3));
+    },
+  );
+
+  test(
+    'track projection inherits primary artist blacklist without hiding track',
+    () async {
+      final fixture = await _createFixture(appDatabase);
+
+      await ArtistDao(fixture.db).update(
+        fixture.artist.copyWith(
+          isBlacklisted: true,
+          updatedAt: DateTime.utc(2026, 9, 26),
+        ),
+      );
+
+      final tracks = await LibraryQueryDao(fixture.db).findTracks();
+
+      expect(tracks, hasLength(3));
+
+      for (final track in tracks) {
+        expect(track.isSongBlocked, isFalse);
+        expect(track.isArtistBlacklisted, isTrue);
+        expect(track.isBlocked, isTrue);
+      }
+    },
+  );
 
   test(
     'album query returns artist, primary edition metadata and track count',

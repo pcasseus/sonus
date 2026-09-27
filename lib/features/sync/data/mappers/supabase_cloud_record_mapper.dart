@@ -86,6 +86,7 @@ abstract final class SupabaseCloudRecordMapper {
           SupabaseSyncContract.discNumberColumn: record.discNumber,
           SupabaseSyncContract.durationSecondsColumn: record.durationSeconds,
           SupabaseSyncContract.isSingleColumn: record.isSingle,
+          SupabaseSyncContract.isBlockedColumn: record.isBlocked,
           SupabaseSyncContract.featuredArtistsColumn: record.featuredArtists,
           SupabaseSyncContract.artworkIdColumn: record.artworkId,
         });
@@ -213,6 +214,11 @@ abstract final class SupabaseCloudRecordMapper {
         SupabaseSyncContract.durationSecondsColumn,
       ),
       isSingle: _requiredBool(row, SupabaseSyncContract.isSingleColumn),
+      isBlocked: _boolOrDefault(
+        row,
+        SupabaseSyncContract.isBlockedColumn,
+        false,
+      ),
       featuredArtists: _requiredStringList(
         row,
         SupabaseSyncContract.featuredArtistsColumn,
@@ -284,6 +290,24 @@ abstract final class SupabaseCloudRecordMapper {
     }
 
     if (value is! int) {
+      throw StateError('Invalid $column.');
+    }
+
+    return value;
+  }
+
+  static bool _boolOrDefault(
+    Map<String, dynamic> row,
+    String column,
+    bool defaultValue,
+  ) {
+    final value = row[column];
+
+    if (value == null) {
+      return defaultValue;
+    }
+
+    if (value is! bool) {
       throw StateError('Invalid $column.');
     }
 

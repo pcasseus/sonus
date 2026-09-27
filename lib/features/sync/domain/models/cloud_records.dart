@@ -92,6 +92,7 @@ class CloudSongRecord extends CloudOwnedRecord {
     this.discNumber = 1,
     required this.durationSeconds,
     required this.isSingle,
+    this.isBlocked = false,
     required this.featuredArtists,
     required super.createdAt,
     required super.updatedAt,
@@ -108,6 +109,7 @@ class CloudSongRecord extends CloudOwnedRecord {
   final int discNumber;
   final int durationSeconds;
   final bool isSingle;
+  final bool isBlocked;
   final List<String> featuredArtists;
   final String? artworkId;
 }

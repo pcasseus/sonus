@@ -9,6 +9,11 @@ abstract final class DatabaseTables {
   static const String songImportReviews = 'song_import_reviews';
   static const String trackLyrics = 'track_lyrics';
   static const String artworkAssets = 'artwork_assets';
+
+  static const String playbackSessions = 'playback_sessions';
+  static const String playbackListeningSegments = 'playback_listening_segments';
+  static const String qualifiedPlays = 'qualified_plays';
+
   static const String syncState = 'sync_state';
   static const String syncOutbox = 'sync_outbox';
 }

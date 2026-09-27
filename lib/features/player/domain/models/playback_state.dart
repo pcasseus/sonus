@@ -1,5 +1,6 @@
 import 'playback_queue.dart';
 import 'playback_repeat_mode.dart';
+import 'playback_transition_cause.dart';
 
 enum PlaybackStatus { idle, loading, ready, playing, paused, completed, failed }
 
@@ -11,6 +12,7 @@ class PlaybackState {
     this.duration = Duration.zero,
     this.repeatMode = PlaybackRepeatMode.off,
     this.shuffleEnabled = false,
+    this.transitionCause,
     this.errorMessage,
   });
 
@@ -20,6 +22,7 @@ class PlaybackState {
   final Duration duration;
   final PlaybackRepeatMode repeatMode;
   final bool shuffleEnabled;
+  final PlaybackTransitionCause? transitionCause;
   final String? errorMessage;
 
   bool get hasTrack => queue.currentTrack != null;
@@ -43,6 +46,8 @@ class PlaybackState {
     Duration? duration,
     PlaybackRepeatMode? repeatMode,
     bool? shuffleEnabled,
+    PlaybackTransitionCause? transitionCause,
+    bool clearTransitionCause = false,
     String? errorMessage,
     bool clearError = false,
   }) {
@@ -53,6 +58,9 @@ class PlaybackState {
       duration: duration ?? this.duration,
       repeatMode: repeatMode ?? this.repeatMode,
       shuffleEnabled: shuffleEnabled ?? this.shuffleEnabled,
+      transitionCause: clearTransitionCause
+          ? null
+          : transitionCause ?? this.transitionCause,
       errorMessage: clearError ? null : errorMessage ?? this.errorMessage,
     );
   }

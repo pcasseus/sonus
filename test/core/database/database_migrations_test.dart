@@ -4,6 +4,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:sonus_next/core/database/app_database.dart';
 import 'package:sonus_next/core/database/database_migrations.dart';
 import 'package:sonus_next/core/database/database_tables.dart';
+import 'package:sonus_next/core/database/schema/analytics_schema.dart';
 import 'package:sonus_next/core/database/schema/import_schema.dart';
 import 'package:sonus_next/core/database/schema/library_schema.dart';
 
@@ -22,7 +23,7 @@ void main() {
       final result = await db.rawQuery('PRAGMA user_version');
 
       expect(result.single['user_version'], AppDatabase.databaseVersion);
-      expect(AppDatabase.databaseVersion, 11);
+      expect(AppDatabase.databaseVersion, 14);
     } finally {
       await appDatabase.close();
     }
@@ -637,12 +638,220 @@ void main() {
     }
   });
 
+  test('migration runner upgrades version 11 schema to version 12', () async {
+    final db = await databaseFactoryFfi.openDatabase(inMemoryDatabasePath);
+
+    try {
+      await db.execute('PRAGMA foreign_keys = ON');
+
+      await LibrarySchema.create(db);
+
+      final now = DateTime.utc(2026, 9, 25, 12).toIso8601String();
+
+      await db.insert(DatabaseTables.artists, {
+        'id': 'artist_before_analytics',
+        'name': 'Analytics Artist',
+        'canonical_name': 'analytics artist',
+        'is_blacklisted': 0,
+        'created_at': now,
+        'updated_at': now,
+      });
+
+      await db.insert(DatabaseTables.albums, {
+        'id': 'album_before_analytics',
+        'artist_id': 'artist_before_analytics',
+        'title': 'Analytics Album',
+        'canonical_title': 'analytics album',
+        'created_at': now,
+        'updated_at': now,
+      });
+
+      await db.insert(DatabaseTables.albumEditions, {
+        'id': 'edition_before_analytics',
+        'album_id': 'album_before_analytics',
+        'title': 'Analytics Album',
+        'type': 'standard',
+        'is_primary': 1,
+        'created_at': now,
+        'updated_at': now,
+      });
+
+      await db.insert(DatabaseTables.songs, {
+        'id': 'song_before_analytics',
+        'artist_id': 'artist_before_analytics',
+        'album_id': 'album_before_analytics',
+        'album_edition_id': 'edition_before_analytics',
+        'title': 'Analytics Song',
+        'canonical_title': 'analytics song',
+        'track_number': 1,
+        'disc_number': 1,
+        'duration_seconds': 240,
+        'is_single': 0,
+        'featured_artists': '[]',
+        'created_at': now,
+        'updated_at': now,
+      });
+
+      await DatabaseMigrations.migrate(db, oldVersion: 11, newVersion: 12);
+
+      final tables = await db.rawQuery('''
+        SELECT name
+        FROM sqlite_master
+        WHERE type = 'table'
+      ''');
+
+      final tableNames = tables
+          .map((row) => row['name'])
+          .whereType<String>()
+          .toSet();
+
+      expect(tableNames, contains(DatabaseTables.playbackSessions));
+      expect(tableNames, contains(DatabaseTables.playbackListeningSegments));
+      expect(tableNames, contains(DatabaseTables.qualifiedPlays));
+
+      final playbackSessionColumns = await db.rawQuery(
+        'PRAGMA table_info(${DatabaseTables.playbackSessions})',
+      );
+
+      expect(
+        playbackSessionColumns.map((row) => row['name']),
+        containsAll({
+          'song_title',
+          'artist_name',
+          'album_title',
+          'album_edition_title',
+        }),
+      );
+      final preservedSongs = await db.query(
+        DatabaseTables.songs,
+        where: 'id = ?',
+        whereArgs: ['song_before_analytics'],
+      );
+
+      expect(preservedSongs, hasLength(1));
+      expect(preservedSongs.single['title'], 'Analytics Song');
+    } finally {
+      await db.close();
+    }
+  });
+  test('migration runner upgrades version 12 schema to version 13', () async {
+    final db = await databaseFactoryFfi.openDatabase(inMemoryDatabasePath);
+
+    try {
+      final now = DateTime.utc(2026, 9, 26, 12).toIso8601String();
+
+      await db.execute('''
+        CREATE TABLE ${DatabaseTables.songs} (
+          id TEXT PRIMARY KEY NOT NULL,
+          artist_id TEXT NOT NULL,
+          album_id TEXT NOT NULL,
+          album_edition_id TEXT NOT NULL,
+          title TEXT NOT NULL,
+          canonical_title TEXT NOT NULL,
+          track_number INTEGER NOT NULL DEFAULT 0,
+          disc_number INTEGER NOT NULL DEFAULT 1,
+          duration_seconds INTEGER NOT NULL DEFAULT 0,
+          is_single INTEGER NOT NULL DEFAULT 0,
+          featured_artists TEXT NOT NULL DEFAULT '[]',
+          artwork_id TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+      ''');
+
+      await db.insert(DatabaseTables.songs, {
+        'id': 'song_before_blocking',
+        'artist_id': 'artist_existing',
+        'album_id': 'album_existing',
+        'album_edition_id': 'edition_existing',
+        'title': 'Existing Song',
+        'canonical_title': 'existing song',
+        'track_number': 4,
+        'disc_number': 2,
+        'duration_seconds': 215,
+        'is_single': 0,
+        'featured_artists': '["Featured Artist"]',
+        'artwork_id': null,
+        'created_at': now,
+        'updated_at': now,
+      });
+
+      await DatabaseMigrations.migrate(db, oldVersion: 12, newVersion: 13);
+
+      final columns = await db.rawQuery(
+        'PRAGMA table_info(${DatabaseTables.songs})',
+      );
+
+      expect(columns.map((row) => row['name']), contains('is_blocked'));
+
+      final songs = await db.query(
+        DatabaseTables.songs,
+        where: 'id = ?',
+        whereArgs: ['song_before_blocking'],
+      );
+
+      expect(songs, hasLength(1));
+      expect(songs.single['title'], 'Existing Song');
+      expect(songs.single['track_number'], 4);
+      expect(songs.single['disc_number'], 2);
+      expect(songs.single['featured_artists'], '["Featured Artist"]');
+      expect(songs.single['is_blocked'], 0);
+
+      await db.update(
+        DatabaseTables.songs,
+        {'is_blocked': 1},
+        where: 'id = ?',
+        whereArgs: ['song_before_blocking'],
+      );
+
+      final blockedSongs = await db.query(
+        DatabaseTables.songs,
+        where: 'id = ?',
+        whereArgs: ['song_before_blocking'],
+      );
+
+      expect(blockedSongs.single['is_blocked'], 1);
+    } finally {
+      await db.close();
+    }
+  });
+  test('migration runner upgrades version 13 schema to version 14', () async {
+    final db = await databaseFactoryFfi.openDatabase(inMemoryDatabasePath);
+
+    try {
+      await db.execute('PRAGMA foreign_keys = ON');
+
+      await AnalyticsSchema.createPlaybackSessions(db);
+      await AnalyticsSchema.createPlaybackListeningSegments(db);
+      await AnalyticsSchema.createQualifiedPlays(db);
+
+      await DatabaseMigrations.migrate(db, oldVersion: 13, newVersion: 14);
+
+      final indexes = await db.rawQuery(
+        '''
+          SELECT name
+          FROM sqlite_master
+          WHERE type = 'index'
+            AND tbl_name = ?
+        ''',
+        [DatabaseTables.playbackListeningSegments],
+      );
+
+      expect(
+        indexes.map((row) => row['name']),
+        contains('idx_playback_listening_segments_one_open_per_session'),
+      );
+    } finally {
+      await db.close();
+    }
+  });
+
   test('migration runner fails loudly for unknown future migration', () async {
     final db = await databaseFactoryFfi.openDatabase(inMemoryDatabasePath);
 
     try {
       await expectLater(
-        DatabaseMigrations.migrate(db, oldVersion: 11, newVersion: 12),
+        DatabaseMigrations.migrate(db, oldVersion: 14, newVersion: 15),
         throwsA(isA<UnsupportedError>()),
       );
     } finally {

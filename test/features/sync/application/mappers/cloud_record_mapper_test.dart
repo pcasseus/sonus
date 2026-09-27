@@ -86,6 +86,7 @@ void main() {
           discNumber: 2,
           durationSeconds: 215,
           isSingle: false,
+          isBlocked: true,
           featuredArtists: const ['Feature'],
           artworkId: 'artwork_1',
           createdAt: createdAt,
@@ -99,6 +100,7 @@ void main() {
         expect(record.featuredArtists, const ['Feature']);
         expect(record.discNumber, 2);
         expect(record.durationSeconds, 215);
+        expect(record.isBlocked, isTrue);
       },
     );
 

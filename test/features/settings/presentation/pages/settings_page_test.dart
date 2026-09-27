@@ -103,6 +103,21 @@ void main() {
     );
   });
 
+  testWidgets('opens listening history from settings', (tester) async {
+    await tester.pumpWidget(const MaterialApp(home: SettingsPage()));
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('settings-listening-history')),
+    );
+
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(
+      find.byKey(const ValueKey<String>('listening-history-page')),
+      findsOneWidget,
+    );
+  });
   testWidgets('sign-out returns to signed-out state', (tester) async {
     final repository = _FakeAccountRepository(
       currentUser: const AccountUser(
@@ -119,7 +134,8 @@ void main() {
     await tester.tap(
       find.byKey(const ValueKey<String>('settings-sign-out-button')),
     );
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
 
     expect(
       find.byKey(const ValueKey<String>('settings-account-signed-out')),

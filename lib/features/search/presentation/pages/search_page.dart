@@ -11,6 +11,8 @@ import '../../../library/presentation/pages/artist_profile_page.dart';
 import '../../../player/application/controllers/playback_coordinator.dart';
 import '../../application/repositories/library_search_repository.dart';
 import '../controllers/library_search_controller.dart';
+import '../../../account/application/controllers/account_controller.dart';
+import '../../../library/application/services/song_block_service.dart';
 
 class SearchPage extends StatefulWidget {
   const SearchPage({super.key});
@@ -100,14 +102,64 @@ class _SearchPageState extends State<SearchPage> {
   }
 
   bool _isPlayable(LibraryTrack track) {
-    return track.isAvailable &&
+    return !track.isBlocked &&
+        track.isAvailable &&
         track.filePath != null &&
         track.filePath!.trim().isNotEmpty;
   }
 
+  Future<void> _setTrackBlocked(LibraryTrack track, bool isBlocked) async {
+    final accountController = context.read<AccountController?>();
+    final userId = accountController?.user?.id;
+    final service = context.read<SongBlockService?>();
+    final playbackCoordinator = context.read<PlaybackCoordinator?>();
+
+    if (service == null || userId == null || userId.trim().isEmpty) {
+      return;
+    }
+
+    try {
+      await service.setBlocked(
+        userId: userId,
+        songId: track.songId,
+        isBlocked: isBlocked,
+      );
+
+      if (isBlocked && playbackCoordinator != null) {
+        await playbackCoordinator.removeBlockedSongFromQueue(track.songId);
+      }
+
+      if (!mounted) {
+        return;
+      }
+
+      final controller = _controller;
+
+      if (controller != null) {
+        await controller.retry();
+      }
+
+      if (!mounted) {
+        return;
+      }
+
+      _showMessage(isBlocked ? 'Song blocked.' : 'Song unblocked.');
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      _showMessage('Could not update song blocking.');
+    }
+  }
+
   Future<void> _playTrack(LibraryTrack track) async {
     if (!_isPlayable(track)) {
-      _showMessage('This track is unavailable on this device.');
+      _showMessage(
+        track.isBlocked
+            ? 'This song is blocked.'
+            : 'This track is unavailable on this device.',
+      );
       return;
     }
 
@@ -124,7 +176,11 @@ class _SearchPageState extends State<SearchPage> {
 
   Future<void> _playNext(LibraryTrack track) async {
     if (!_isPlayable(track)) {
-      _showMessage('This track is unavailable on this device.');
+      _showMessage(
+        track.isBlocked
+            ? 'This song is blocked.'
+            : 'This track is unavailable on this device.',
+      );
       return;
     }
 
@@ -147,7 +203,11 @@ class _SearchPageState extends State<SearchPage> {
 
   Future<void> _addToQueue(LibraryTrack track) async {
     if (!_isPlayable(track)) {
-      _showMessage('This track is unavailable on this device.');
+      _showMessage(
+        track.isBlocked
+            ? 'This song is blocked.'
+            : 'This track is unavailable on this device.',
+      );
       return;
     }
 
@@ -273,6 +333,15 @@ class _SearchPageState extends State<SearchPage> {
             _TrackResultTile(
               track: track,
               isPlayable: _isPlayable(track),
+              canSetBlocked:
+                  context
+                          .watch<AccountController?>()
+                          ?.user
+                          ?.id
+                          .trim()
+                          .isNotEmpty ==
+                      true &&
+                  context.read<SongBlockService?>() != null,
               onTap: () => _playTrack(track),
               onAction: (action) {
                 switch (action) {
@@ -284,6 +353,8 @@ class _SearchPageState extends State<SearchPage> {
                     _openTrackArtist(track);
                   case _TrackSearchAction.goToAlbum:
                     _openTrackAlbum(track);
+                  case _TrackSearchAction.toggleBlocked:
+                    _setTrackBlocked(track, !track.isSongBlocked);
                 }
               },
             ),
@@ -492,12 +563,14 @@ class _TrackResultTile extends StatelessWidget {
   const _TrackResultTile({
     required this.track,
     required this.isPlayable,
+    required this.canSetBlocked,
     required this.onTap,
     required this.onAction,
   });
 
   final LibraryTrack track;
   final bool isPlayable;
+  final bool canSetBlocked;
   final VoidCallback onTap;
   final ValueChanged<_TrackSearchAction> onAction;
 
@@ -512,9 +585,13 @@ class _TrackResultTile extends StatelessWidget {
       ),
       title: Text(track.title),
       subtitle: Text(
-        isPlayable
-            ? '${track.artistName} • ${track.albumTitle}'
-            : '${track.artistName} • Unavailable',
+        track.isBlocked
+            ? '${track.artistName} • Blocked'
+            : !track.isAvailable ||
+                  track.filePath == null ||
+                  track.filePath!.trim().isEmpty
+            ? '${track.artistName} • Unavailable'
+            : '${track.artistName} • ${track.albumTitle}',
       ),
       trailing: PopupMenuButton<_TrackSearchAction>(
         key: ValueKey<String>('search-track-menu-${track.songId}'),
@@ -537,6 +614,22 @@ class _TrackResultTile extends StatelessWidget {
                 contentPadding: EdgeInsets.zero,
                 leading: Icon(Icons.queue_music_rounded),
                 title: Text('Add to queue'),
+              ),
+            ),
+            const PopupMenuDivider(),
+            PopupMenuItem<_TrackSearchAction>(
+              value: _TrackSearchAction.toggleBlocked,
+              enabled: canSetBlocked,
+              child: ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(
+                  track.isSongBlocked
+                      ? Icons.lock_open_rounded
+                      : Icons.block_rounded,
+                ),
+                title: Text(
+                  track.isSongBlocked ? 'Unblock song' : 'Block song',
+                ),
               ),
             ),
             const PopupMenuDivider(),
@@ -641,4 +734,10 @@ class _ArtworkFallback extends StatelessWidget {
   }
 }
 
-enum _TrackSearchAction { playNext, addToQueue, goToArtist, goToAlbum }
+enum _TrackSearchAction {
+  playNext,
+  addToQueue,
+  goToArtist,
+  goToAlbum,
+  toggleBlocked,
+}

@@ -1,6 +1,7 @@
 import '../../../library/application/models/library_track.dart';
 import '../../domain/models/playback_repeat_mode.dart';
 import '../../domain/models/playback_state.dart';
+import '../../domain/models/playback_track.dart';
 import '../../domain/services/playback_engine.dart';
 import '../mappers/library_track_playback_mapper.dart';
 
@@ -108,6 +109,28 @@ class PlaybackCoordinator {
     );
   }
 
+  Future<void> removeBlockedSongFromQueue(String songId) async {
+    final normalizedSongId = songId.trim();
+
+    if (normalizedSongId.isEmpty) {
+      return;
+    }
+
+    await _removeQueuedTracksWhere((track) => track.songId == normalizedSongId);
+  }
+
+  Future<void> removeBlockedArtistFromQueue(String artistId) async {
+    final normalizedArtistId = artistId.trim();
+
+    if (normalizedArtistId.isEmpty) {
+      return;
+    }
+
+    await _removeQueuedTracksWhere(
+      (track) => track.artistId == normalizedArtistId,
+    );
+  }
+
   Future<void> removeFromQueue(int index) {
     return _engine.removeTrackAt(index);
   }
@@ -126,8 +149,57 @@ class PlaybackCoordinator {
 
   Future<void> stop() => _engine.stop();
 
+  Future<void> _removeQueuedTracksWhere(
+    bool Function(PlaybackTrack track) shouldRemove,
+  ) async {
+    final queue = currentState.queue;
+
+    if (queue.isEmpty) {
+      return;
+    }
+
+    final matchingIndexes = <int>[];
+
+    for (var index = 0; index < queue.length; index++) {
+      final track = queue.trackAt(index);
+
+      if (track != null && shouldRemove(track)) {
+        matchingIndexes.add(index);
+      }
+    }
+
+    if (matchingIndexes.isEmpty) {
+      return;
+    }
+
+    final removesCurrent =
+        queue.hasCurrentTrack && matchingIndexes.contains(queue.currentIndex);
+
+    if (removesCurrent) {
+      var hasSurvivingNextTrack = false;
+
+      for (var index = queue.currentIndex + 1; index < queue.length; index++) {
+        final track = queue.trackAt(index);
+
+        if (track != null && !shouldRemove(track)) {
+          hasSurvivingNextTrack = true;
+          break;
+        }
+      }
+
+      if (!hasSurvivingNextTrack) {
+        await _engine.stop();
+      }
+    }
+
+    for (final index in matchingIndexes.reversed) {
+      await _engine.removeTrackAt(index);
+    }
+  }
+
   bool _isPlayable(LibraryTrack track) {
-    return track.isAvailable &&
+    return !track.isBlocked &&
+        track.isAvailable &&
         track.filePath != null &&
         track.filePath!.trim().isNotEmpty;
   }
