@@ -189,6 +189,14 @@ abstract final class DatabaseMigrations {
         ''');
         return;
 
+      case 15:
+        await db.update(
+          DatabaseTables.artists,
+          const {'is_blacklisted': 0},
+          where: 'is_blacklisted != ?',
+          whereArgs: [0],
+        );
+        return;
       default:
         throw UnsupportedError(
           'No Sonus database migration exists for version $targetVersion.',

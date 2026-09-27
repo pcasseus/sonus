@@ -120,7 +120,6 @@ void main() {
     required String songId,
     bool isAvailable = true,
     bool isSongBlocked = false,
-    bool isArtistBlacklisted = false,
     String? filePath,
   }) {
     return LibraryTrack(
@@ -140,7 +139,6 @@ void main() {
       dateAdded: DateTime.utc(2026, 9, 11),
       isAvailable: isAvailable,
       isSongBlocked: isSongBlocked,
-      isArtistBlacklisted: isArtistBlacklisted,
       filePath: filePath ?? 'C:/Music/$songId.mp3',
     );
   }
@@ -227,20 +225,6 @@ void main() {
     expect(engine.loadedTracks, isNull);
   });
 
-  test('rejects track inherited from blacklisted artist', () async {
-    final engine = FakePlaybackEngine();
-    final coordinator = PlaybackCoordinator(engine: engine);
-
-    expect(
-      () => coordinator.playTrack(
-        track(songId: 'song_1', isArtistBlacklisted: true),
-      ),
-      throwsStateError,
-    );
-
-    expect(engine.loadedTracks, isNull);
-  });
-
   test('filters blocked tracks from multi-track playback', () async {
     final engine = FakePlaybackEngine();
     final coordinator = PlaybackCoordinator(engine: engine);
@@ -266,7 +250,7 @@ void main() {
     expect(
       () => coordinator.playTracks([
         track(songId: 'song_1'),
-        track(songId: 'song_2', isArtistBlacklisted: true),
+        track(songId: 'song_2', isSongBlocked: true),
         track(songId: 'song_3'),
       ], startIndex: 1),
       throwsStateError,
@@ -283,9 +267,7 @@ void main() {
     );
 
     await expectLater(
-      coordinator.addToQueue(
-        track(songId: 'song_3', isArtistBlacklisted: true),
-      ),
+      coordinator.addToQueue(track(songId: 'song_3', isSongBlocked: true)),
       throwsStateError,
     );
 
@@ -455,31 +437,6 @@ void main() {
     },
   );
 
-  test(
-    'removes every queued track for a blocked artist from highest index first',
-    () async {
-      final engine = FakePlaybackEngine()
-        ..state = PlaybackState(
-          queue: const PlaybackQueue().replace(
-            tracks: [
-              playbackTrack('song_1', artistId: 'artist_blocked'),
-              playbackTrack('song_2', artistId: 'artist_safe'),
-              playbackTrack('song_3', artistId: 'artist_blocked'),
-              playbackTrack('song_4', artistId: 'artist_safe'),
-            ],
-            startIndex: 1,
-          ),
-          status: PlaybackStatus.playing,
-        );
-      final coordinator = PlaybackCoordinator(engine: engine);
-
-      await coordinator.removeBlockedArtistFromQueue('artist_blocked');
-
-      expect(engine.removedIndices, [2, 0]);
-      expect(engine.stopCalls, 0);
-    },
-  );
-
   test('queue sanitation is a no-op when identity is not queued', () async {
     final engine = FakePlaybackEngine()
       ..state = PlaybackState(
@@ -490,7 +447,6 @@ void main() {
     final coordinator = PlaybackCoordinator(engine: engine);
 
     await coordinator.removeBlockedSongFromQueue('missing-song');
-    await coordinator.removeBlockedArtistFromQueue('missing-artist');
 
     expect(engine.removedIndices, isEmpty);
     expect(engine.stopCalls, 0);

@@ -259,7 +259,9 @@ class _TracksPageState extends State<TracksPage> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(isBlocked ? 'Song blocked.' : 'Song unblocked.'),
+          content: Text(
+            isBlocked ? 'Song blacklisted.' : 'Removed from blacklist.',
+          ),
         ),
       );
     } catch (_) {
@@ -268,7 +270,7 @@ class _TracksPageState extends State<TracksPage> {
       }
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not update song blocking.')),
+        const SnackBar(content: Text('Could not update blacklist.')),
       );
     }
   }
@@ -647,7 +649,9 @@ class _TrackTile extends StatelessWidget {
                             : Icons.block_rounded,
                       ),
                       title: Text(
-                        track.isSongBlocked ? 'Unblock song' : 'Block song',
+                        track.isSongBlocked
+                            ? 'Remove from blacklist'
+                            : 'Blacklist song',
                       ),
                       contentPadding: EdgeInsets.zero,
                     ),
@@ -807,7 +811,7 @@ class _TrackMetadata extends StatelessWidget {
         if (!isPlayable) ...[
           const SizedBox(height: 3),
           Text(
-            track.isBlocked ? 'Blocked' : 'Unavailable',
+            track.isBlocked ? 'Blacklisted' : 'Unavailable',
             key: ValueKey<String>(
               track.isBlocked
                   ? 'track-blocked-${track.songId}'

@@ -118,6 +118,21 @@ void main() {
       findsOneWidget,
     );
   });
+  testWidgets('opens blacklisted songs from settings', (tester) async {
+    await tester.pumpWidget(const MaterialApp(home: SettingsPage()));
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('settings-blacklisted-songs')),
+    );
+
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(
+      find.byKey(const ValueKey<String>('blacklisted-songs-page')),
+      findsOneWidget,
+    );
+  });
   testWidgets('sign-out returns to signed-out state', (tester) async {
     final repository = _FakeAccountRepository(
       currentUser: const AccountUser(

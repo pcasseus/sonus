@@ -545,9 +545,9 @@ void main() {
       await tester.tap(menuFinder);
       await tester.pumpAndSettle();
 
-      expect(find.text('Block song'), findsOneWidget);
+      expect(find.text('Blacklist song'), findsOneWidget);
 
-      await tester.tap(find.text('Block song'));
+      await tester.tap(find.text('Blacklist song'));
       await tester.pumpAndSettle();
 
       expect(service.setBlockedCallCount, 1);
@@ -556,70 +556,71 @@ void main() {
       expect(service.lastIsBlocked, isTrue);
     });
 
-    testWidgets('explicitly blocked search song exposes unblock action', (
-      tester,
-    ) async {
-      final track = _track(
-        songId: 'song-unblock',
-        title: 'Unblock Me',
-        isSongBlocked: true,
-      );
+    testWidgets(
+      'blacklisted search song exposes remove-from-blacklist action',
+      (tester) async {
+        final track = _track(
+          songId: 'song-unblock',
+          title: 'Unblock Me',
+          isSongBlocked: true,
+        );
 
-      final accountController = AccountController(
-        repository: _FakeAccountRepository(
-          currentUser: const AccountUser(
-            id: 'user-1',
-            email: 'user@example.com',
+        final accountController = AccountController(
+          repository: _FakeAccountRepository(
+            currentUser: const AccountUser(
+              id: 'user-1',
+              email: 'user@example.com',
+            ),
           ),
-        ),
-      );
+        );
 
-      final service = _FakeSongBlockService();
+        final service = _FakeSongBlockService();
 
-      await tester.pumpWidget(
-        _SearchTestApp(
-          repository: _FakeSearchRepository(
-            result: LibrarySearchResults(tracks: [track]),
+        await tester.pumpWidget(
+          _SearchTestApp(
+            repository: _FakeSearchRepository(
+              result: LibrarySearchResults(tracks: [track]),
+            ),
+            accountController: accountController,
+            songBlockService: service,
           ),
-          accountController: accountController,
-          songBlockService: service,
-        ),
-      );
+        );
 
-      await tester.enterText(
-        find.byKey(const ValueKey<String>('search-field')),
-        'unblock',
-      );
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('search-field')),
+          'unblock',
+        );
 
-      await tester.pump(const Duration(milliseconds: 300));
-      await tester.pump();
+        await tester.pump(const Duration(milliseconds: 300));
+        await tester.pump();
 
-      expect(find.text('Query Artist • Blocked'), findsOneWidget);
-      expect(find.text('Query Artist • Unavailable'), findsNothing);
+        expect(find.text('Query Artist • Blacklisted'), findsOneWidget);
+        expect(find.text('Query Artist • Unavailable'), findsNothing);
 
-      final tile = tester.widget<ListTile>(
-        find.byKey(const ValueKey<String>('search-track-song-unblock')),
-      );
+        final tile = tester.widget<ListTile>(
+          find.byKey(const ValueKey<String>('search-track-song-unblock')),
+        );
 
-      expect(tile.onTap, isNull);
+        expect(tile.onTap, isNull);
 
-      final menuFinder = find.byKey(
-        const ValueKey<String>('search-track-menu-song-unblock'),
-      );
+        final menuFinder = find.byKey(
+          const ValueKey<String>('search-track-menu-song-unblock'),
+        );
 
-      await tester.tap(menuFinder);
-      await tester.pumpAndSettle();
+        await tester.tap(menuFinder);
+        await tester.pumpAndSettle();
 
-      expect(find.text('Unblock song'), findsOneWidget);
+        expect(find.text('Remove from blacklist'), findsOneWidget);
 
-      await tester.tap(find.text('Unblock song'));
-      await tester.pumpAndSettle();
+        await tester.tap(find.text('Remove from blacklist'));
+        await tester.pumpAndSettle();
 
-      expect(service.setBlockedCallCount, 1);
-      expect(service.lastUserId, 'user-1');
-      expect(service.lastSongId, 'song-unblock');
-      expect(service.lastIsBlocked, isFalse);
-    });
+        expect(service.setBlockedCallCount, 1);
+        expect(service.lastUserId, 'user-1');
+        expect(service.lastSongId, 'song-unblock');
+        expect(service.lastIsBlocked, isFalse);
+      },
+    );
   });
 }
 
@@ -718,7 +719,6 @@ LibraryTrack _track({
   required String title,
   bool isAvailable = true,
   bool isSongBlocked = false,
-  bool isArtistBlacklisted = false,
   String? filePath = r'C:\Music\Query Track.mp3',
 }) {
   return LibraryTrack(
@@ -739,7 +739,6 @@ LibraryTrack _track({
     isAvailable: isAvailable,
     filePath: filePath,
     isSongBlocked: isSongBlocked,
-    isArtistBlacklisted: isArtistBlacklisted,
   );
 }
 

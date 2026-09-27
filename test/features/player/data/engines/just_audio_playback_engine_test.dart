@@ -181,7 +181,7 @@ void main() {
     await engine.dispose();
   });
 
-  test('insertTrack rejects an artist-blocked playback track', () async {
+  test('insertTrack rejects a song-blocked playback track', () async {
     final player = FakePlaybackAudioPlayer();
     final engine = JustAudioPlaybackEngine(
       audioPlayer: player,
@@ -191,8 +191,8 @@ void main() {
     await engine.loadQueue([track('song-1')]);
 
     final blockedTrack = track(
-      'blocked-artist-song',
-    ).copyWith(isArtistBlacklisted: true);
+      'blocked-song-insert',
+    ).copyWith(isSongBlocked: true);
 
     await expectLater(
       engine.insertTrack(blockedTrack, index: 1),

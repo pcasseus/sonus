@@ -13,36 +13,24 @@ void main() {
   final createdAt = DateTime.utc(2026, 9, 10, 12);
   final updatedAt = DateTime.utc(2026, 9, 10, 13);
 
-  test('artist round trip preserves blacklist state', () {
+  test('artist mapper ignores retired blacklist storage state', () {
     final artist = Artist(
       id: 'artist_1',
       name: 'Artist',
       canonicalName: 'artist',
-      isBlacklisted: true,
       createdAt: createdAt,
       updatedAt: updatedAt,
     );
 
     final row = ArtistRowMapper.toRow(artist);
-    final restored = ArtistRowMapper.fromRow(row);
 
-    expect(row['is_blacklisted'], 1);
+    expect(row.containsKey('is_blacklisted'), isFalse);
+
+    final restored = ArtistRowMapper.fromRow({...row, 'is_blacklisted': 1});
+
     expect(restored.id, artist.id);
-    expect(restored.isBlacklisted, isTrue);
-  });
-
-  test('artist mapper treats missing blacklist state as false', () {
-    final restored = ArtistRowMapper.fromRow({
-      'id': 'artist_legacy',
-      'name': 'Legacy Artist',
-      'canonical_name': 'legacy artist',
-      'header_artwork_id': null,
-      'top_artists_artwork_id': null,
-      'created_at': createdAt.toIso8601String(),
-      'updated_at': updatedAt.toIso8601String(),
-    });
-
-    expect(restored.isBlacklisted, isFalse);
+    expect(restored.name, artist.name);
+    expect(restored.canonicalName, artist.canonicalName);
   });
 
   test('album round trips through SQLite row mapper', () {

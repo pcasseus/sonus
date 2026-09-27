@@ -204,7 +204,9 @@ class _TrackTile extends StatelessWidget {
                           : Icons.block_rounded,
                     ),
                     title: Text(
-                      track.isSongBlocked ? 'Unblock song' : 'Block song',
+                      track.isSongBlocked
+                          ? 'Remove from blacklist'
+                          : 'Blacklist song',
                     ),
                     contentPadding: EdgeInsets.zero,
                   ),
@@ -240,7 +242,7 @@ class _TrackTile extends StatelessWidget {
     final parts = <String>[];
 
     if (track.isBlocked) {
-      parts.add('Blocked');
+      parts.add('Blacklisted');
     } else if (!track.isAvailable ||
         track.filePath == null ||
         track.filePath!.trim().isEmpty) {

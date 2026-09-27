@@ -14,7 +14,6 @@ import '../../../sync/data/repositories/sync_mutation_transaction_runner.dart';
 import '../../../search/application/repositories/library_search_repository.dart';
 import '../../application/repositories/library_query_repository.dart';
 import '../../application/services/album_profile_editing_service.dart';
-import '../../application/services/artist_blacklist_service.dart';
 import '../../application/services/artist_creation_service.dart';
 import '../../application/services/artist_profile_editing_service.dart';
 import '../../application/services/song_block_service.dart';
@@ -46,7 +45,6 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
   LibrarySearchRepository? _searchRepository;
   ArtworkAssignmentService? _artworkAssignmentService;
   AlbumProfileEditingService? _albumProfileEditingService;
-  ArtistBlacklistService? _artistBlacklistService;
   ArtistCreationService? _artistCreationService;
   ArtistProfileEditingService? _artistProfileEditingService;
   SongBlockService? _songBlockService;
@@ -85,10 +83,6 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
       mutationRunner: SyncMutationTransactionRunner(appDatabase: _database),
     );
 
-    final artistBlacklistService = ArtistBlacklistService(
-      mutationRunner: SyncMutationTransactionRunner(appDatabase: _database),
-    );
-
     final artistCreationService = ArtistCreationService(
       mutationRunner: SyncMutationTransactionRunner(appDatabase: _database),
     );
@@ -114,7 +108,6 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
       _searchRepository = libraryQueryRepository;
       _artworkAssignmentService = artworkAssignmentService;
       _albumProfileEditingService = albumProfileEditingService;
-      _artistBlacklistService = artistBlacklistService;
       _artistCreationService = artistCreationService;
       _artistProfileEditingService = artistProfileEditingService;
       _songBlockService = songBlockService;
@@ -135,7 +128,6 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
         Provider<AlbumProfileEditingService?>.value(
           value: _albumProfileEditingService,
         ),
-        Provider<ArtistBlacklistService?>.value(value: _artistBlacklistService),
         Provider<ArtistCreationService?>.value(value: _artistCreationService),
         Provider<ArtistProfileEditingService?>.value(
           value: _artistProfileEditingService,

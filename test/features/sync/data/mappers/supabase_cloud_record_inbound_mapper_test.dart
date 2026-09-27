@@ -24,7 +24,6 @@ void main() {
       );
 
       expect(item.record, isA<CloudArtistRecord>());
-      expect((item.record as CloudArtistRecord).isBlacklisted, isTrue);
       expect(
         item.serverUpdatedAt,
         DateTime.parse('2026-09-12T12:00:00.000Z').toUtc(),

@@ -143,13 +143,13 @@ class _SearchPageState extends State<SearchPage> {
         return;
       }
 
-      _showMessage(isBlocked ? 'Song blocked.' : 'Song unblocked.');
+      _showMessage(isBlocked ? 'Song blacklisted.' : 'Removed from blacklist.');
     } catch (_) {
       if (!mounted) {
         return;
       }
 
-      _showMessage('Could not update song blocking.');
+      _showMessage('Could not update blacklist.');
     }
   }
 
@@ -157,7 +157,7 @@ class _SearchPageState extends State<SearchPage> {
     if (!_isPlayable(track)) {
       _showMessage(
         track.isBlocked
-            ? 'This song is blocked.'
+            ? 'This song is blacklisted.'
             : 'This track is unavailable on this device.',
       );
       return;
@@ -178,7 +178,7 @@ class _SearchPageState extends State<SearchPage> {
     if (!_isPlayable(track)) {
       _showMessage(
         track.isBlocked
-            ? 'This song is blocked.'
+            ? 'This song is blacklisted.'
             : 'This track is unavailable on this device.',
       );
       return;
@@ -205,7 +205,7 @@ class _SearchPageState extends State<SearchPage> {
     if (!_isPlayable(track)) {
       _showMessage(
         track.isBlocked
-            ? 'This song is blocked.'
+            ? 'This song is blacklisted.'
             : 'This track is unavailable on this device.',
       );
       return;
@@ -586,7 +586,7 @@ class _TrackResultTile extends StatelessWidget {
       title: Text(track.title),
       subtitle: Text(
         track.isBlocked
-            ? '${track.artistName} • Blocked'
+            ? '${track.artistName} • Blacklisted'
             : !track.isAvailable ||
                   track.filePath == null ||
                   track.filePath!.trim().isEmpty
@@ -628,7 +628,9 @@ class _TrackResultTile extends StatelessWidget {
                       : Icons.block_rounded,
                 ),
                 title: Text(
-                  track.isSongBlocked ? 'Unblock song' : 'Block song',
+                  track.isSongBlocked
+                      ? 'Remove from blacklist'
+                      : 'Blacklist song',
                 ),
               ),
             ),

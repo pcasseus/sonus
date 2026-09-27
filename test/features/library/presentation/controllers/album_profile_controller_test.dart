@@ -1380,7 +1380,6 @@ LibraryTrack createTrack({
   String? filePath,
   bool isAvailable = true,
   bool isSongBlocked = false,
-  bool isArtistBlacklisted = false,
 }) {
   return LibraryTrack(
     songId: songId,
@@ -1401,7 +1400,6 @@ LibraryTrack createTrack({
     filePath: filePath ?? 'C:/Music/$songId.mp3',
     isAvailable: isAvailable,
     isSongBlocked: isSongBlocked,
-    isArtistBlacklisted: isArtistBlacklisted,
   );
 }
 

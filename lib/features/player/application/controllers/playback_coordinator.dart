@@ -119,18 +119,6 @@ class PlaybackCoordinator {
     await _removeQueuedTracksWhere((track) => track.songId == normalizedSongId);
   }
 
-  Future<void> removeBlockedArtistFromQueue(String artistId) async {
-    final normalizedArtistId = artistId.trim();
-
-    if (normalizedArtistId.isEmpty) {
-      return;
-    }
-
-    await _removeQueuedTracksWhere(
-      (track) => track.artistId == normalizedArtistId,
-    );
-  }
-
   Future<void> removeFromQueue(int index) {
     return _engine.removeTrackAt(index);
   }

@@ -47,14 +47,8 @@ void main() {
     await appDatabase.close();
   });
 
-  Future<Artist> createArtist({
-    String name = 'Original Artist',
-    bool isBlacklisted = false,
-  }) async {
-    final created = EntityFactory.createArtist(
-      name: name,
-      now: originalTime,
-    ).copyWith(isBlacklisted: isBlacklisted);
+  Future<Artist> createArtist({String name = 'Original Artist'}) async {
+    final created = EntityFactory.createArtist(name: name, now: originalTime);
 
     final db = await appDatabase.database;
     await ArtistDao(db).insert(created);
@@ -256,7 +250,7 @@ void main() {
   });
 
   test('renames artist and records cloud upsert atomically', () async {
-    final original = await createArtist(isBlacklisted: true);
+    final original = await createArtist();
 
     final result = await service.renameArtist(
       userId: ' user_1 ',
@@ -270,8 +264,6 @@ void main() {
     expect(result.canonicalName, 'renamed artist');
     expect(result.createdAt, originalTime);
     expect(result.updatedAt, mutationTime);
-
-    expect(result.isBlacklisted, isTrue);
     expect(result.headerArtworkId, isNull);
     expect(result.topArtistsArtworkId, isNull);
 
@@ -284,7 +276,6 @@ void main() {
     expect(stored.canonicalName, 'renamed artist');
     expect(stored.createdAt, originalTime);
     expect(stored.updatedAt, mutationTime);
-    expect(stored.isBlacklisted, isTrue);
     expect(stored.headerArtworkId, isNull);
     expect(stored.topArtistsArtworkId, isNull);
 

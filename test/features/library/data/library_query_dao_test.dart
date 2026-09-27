@@ -256,22 +256,21 @@ void main() {
       );
 
       expect(track.isSongBlocked, isTrue);
-      expect(track.isArtistBlacklisted, isFalse);
       expect(track.isBlocked, isTrue);
       expect(tracks, hasLength(3));
     },
   );
 
   test(
-    'track projection inherits primary artist blacklist without hiding track',
+    'legacy artist blacklist state does not block projected tracks',
     () async {
       final fixture = await _createFixture(appDatabase);
 
-      await ArtistDao(fixture.db).update(
-        fixture.artist.copyWith(
-          isBlacklisted: true,
-          updatedAt: DateTime.utc(2026, 9, 26),
-        ),
+      await fixture.db.update(
+        'artists',
+        {'is_blacklisted': 1},
+        where: 'id = ?',
+        whereArgs: [fixture.artist.id],
       );
 
       final tracks = await LibraryQueryDao(fixture.db).findTracks();
@@ -280,8 +279,7 @@ void main() {
 
       for (final track in tracks) {
         expect(track.isSongBlocked, isFalse);
-        expect(track.isArtistBlacklisted, isTrue);
-        expect(track.isBlocked, isTrue);
+        expect(track.isBlocked, isFalse);
       }
     },
   );
@@ -353,28 +351,6 @@ void main() {
     expect(artist.albumCount, 1);
     expect(artist.songCount, 3);
     expect(artist.dateAdded, fixture.artist.createdAt);
-  });
-
-  test('artist query exposes blacklist state without hiding artist', () async {
-    final fixture = await _createFixture(appDatabase);
-
-    final artistDao = ArtistDao(fixture.db);
-
-    await artistDao.update(
-      fixture.artist.copyWith(
-        isBlacklisted: true,
-        updatedAt: DateTime.utc(2026, 9, 13, 14),
-      ),
-    );
-
-    final artists = await LibraryQueryDao(fixture.db).findArtists();
-
-    expect(artists, hasLength(1));
-
-    final artist = artists.single;
-
-    expect(artist.artistId, fixture.artist.id);
-    expect(artist.isBlacklisted, isTrue);
   });
 
   test('artist query keeps artists with no albums or songs', () async {
@@ -585,27 +561,6 @@ void main() {
 
     expect(artist, isNotNull);
     expect(artist?.artistId, fixture.artist.id);
-  });
-
-  test('artist lookup preserves blacklist state', () async {
-    final fixture = await _createFixture(appDatabase);
-
-    final artistDao = ArtistDao(fixture.db);
-
-    await artistDao.update(
-      fixture.artist.copyWith(
-        isBlacklisted: true,
-        updatedAt: DateTime.utc(2026, 9, 13, 14),
-      ),
-    );
-
-    final artist = await LibraryQueryDao(
-      fixture.db,
-    ).findArtistById(fixture.artist.id);
-
-    expect(artist, isNotNull);
-    expect(artist?.artistId, fixture.artist.id);
-    expect(artist?.isBlacklisted, isTrue);
   });
 
   test('artist album query returns only requested artist albums', () async {

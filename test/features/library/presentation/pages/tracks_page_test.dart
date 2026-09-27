@@ -431,20 +431,20 @@ void main() {
       await tester.tap(menuFinder);
       await tester.pumpAndSettle();
 
-      expect(find.text('Block song'), findsOneWidget);
+      expect(find.text('Blacklist song'), findsOneWidget);
 
-      await tester.tap(find.text('Block song'));
+      await tester.tap(find.text('Blacklist song'));
       await tester.pumpAndSettle();
 
       expect(service.setBlockedCallCount, 1);
       expect(service.lastUserId, 'user-1');
       expect(service.lastSongId, 'song-block');
       expect(service.lastIsBlocked, isTrue);
-      expect(find.text('Song blocked.'), findsOneWidget);
+      expect(find.text('Song blacklisted.'), findsOneWidget);
     });
 
     testWidgets(
-      'explicitly blocked song can be unblocked from the track menu',
+      'blacklisted song can be removed from the blacklist from the track menu',
       (tester) async {
         final repository = FakeLibraryQueryRepository(
           tracks: [
@@ -487,7 +487,7 @@ void main() {
           find.byKey(const ValueKey<String>('track-blocked-song-unblock')),
           findsOneWidget,
         );
-        expect(find.text('Blocked'), findsOneWidget);
+        expect(find.text('Blacklisted'), findsOneWidget);
         expect(find.text('Unavailable'), findsNothing);
 
         final menuFinder = find.byKey(
@@ -502,16 +502,16 @@ void main() {
         await tester.tap(menuFinder);
         await tester.pumpAndSettle();
 
-        expect(find.text('Unblock song'), findsOneWidget);
+        expect(find.text('Remove from blacklist'), findsOneWidget);
 
-        await tester.tap(find.text('Unblock song'));
+        await tester.tap(find.text('Remove from blacklist'));
         await tester.pumpAndSettle();
 
         expect(service.setBlockedCallCount, 1);
         expect(service.lastUserId, 'user-1');
         expect(service.lastSongId, 'song-unblock');
         expect(service.lastIsBlocked, isFalse);
-        expect(find.text('Song unblocked.'), findsOneWidget);
+        expect(find.text('Removed from blacklist.'), findsOneWidget);
       },
     );
   });
@@ -561,7 +561,6 @@ LibraryTrack createTrack({
   String? filePath = '/music/song.mp3',
   bool isAvailable = true,
   bool isSongBlocked = false,
-  bool isArtistBlacklisted = false,
 }) {
   return LibraryTrack(
     songId: songId,
@@ -581,7 +580,6 @@ LibraryTrack createTrack({
     filePath: filePath,
     isAvailable: isAvailable,
     isSongBlocked: isSongBlocked,
-    isArtistBlacklisted: isArtistBlacklisted,
   );
 }
 

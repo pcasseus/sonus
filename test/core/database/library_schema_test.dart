@@ -101,7 +101,7 @@ void main() {
   });
 
   test(
-    'artist blacklist defaults to false and accepts boolean values',
+    'legacy artist blacklist compatibility column defaults to false and accepts boolean values',
     () async {
       final db = await appDatabase.database;
       final now = DateTime.utc(2026, 9, 13).toIso8601String();
@@ -139,22 +139,25 @@ void main() {
     },
   );
 
-  test('rejects invalid artist blacklist values', () async {
-    final db = await appDatabase.database;
-    final now = DateTime.utc(2026, 9, 13).toIso8601String();
+  test(
+    'legacy artist blacklist compatibility column rejects invalid values',
+    () async {
+      final db = await appDatabase.database;
+      final now = DateTime.utc(2026, 9, 13).toIso8601String();
 
-    expect(
-      () => db.insert(DatabaseTables.artists, {
-        'id': 'artist_invalid_blacklist',
-        'name': 'Invalid Artist',
-        'canonical_name': 'invalid artist',
-        'is_blacklisted': 2,
-        'created_at': now,
-        'updated_at': now,
-      }),
-      throwsA(isA<DatabaseException>()),
-    );
-  });
+      expect(
+        () => db.insert(DatabaseTables.artists, {
+          'id': 'artist_invalid_blacklist',
+          'name': 'Invalid Artist',
+          'canonical_name': 'invalid artist',
+          'is_blacklisted': 2,
+          'created_at': now,
+          'updated_at': now,
+        }),
+        throwsA(isA<DatabaseException>()),
+      );
+    },
+  );
 
   test('song block defaults to false and accepts boolean values', () async {
     final db = await appDatabase.database;
