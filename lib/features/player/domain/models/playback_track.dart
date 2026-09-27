@@ -14,6 +14,8 @@ class PlaybackTrack {
     this.albumEditionTitle,
     this.artworkId,
     this.artworkPath,
+    this.isSongBlocked = false,
+    this.isArtistBlacklisted = false,
   });
 
   final String songId;
@@ -34,6 +36,11 @@ class PlaybackTrack {
   final String filePath;
   final Duration duration;
 
+  final bool isSongBlocked;
+  final bool isArtistBlacklisted;
+
+  bool get isBlocked => isSongBlocked || isArtistBlacklisted;
+
   bool get hasPlayablePath => filePath.trim().isNotEmpty;
 
   bool get hasArtworkPath =>
@@ -52,6 +59,8 @@ class PlaybackTrack {
     Object? artworkPath = _unset,
     String? filePath,
     Duration? duration,
+    bool? isSongBlocked,
+    bool? isArtistBlacklisted,
   }) {
     return PlaybackTrack(
       songId: songId ?? this.songId,
@@ -74,6 +83,8 @@ class PlaybackTrack {
           : artworkPath as String?,
       filePath: filePath ?? this.filePath,
       duration: duration ?? this.duration,
+      isSongBlocked: isSongBlocked ?? this.isSongBlocked,
+      isArtistBlacklisted: isArtistBlacklisted ?? this.isArtistBlacklisted,
     );
   }
 

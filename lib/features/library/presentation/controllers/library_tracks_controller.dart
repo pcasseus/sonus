@@ -8,6 +8,7 @@ import '../../../player/application/controllers/playback_coordinator.dart';
 import '../../application/models/library_track.dart';
 import '../../application/models/library_track_order.dart';
 import '../../application/repositories/library_query_repository.dart';
+import '../../application/services/song_block_service.dart';
 import '../../application/services/track_profile_editing_service.dart';
 
 class LibraryTracksController extends ChangeNotifier {
@@ -17,6 +18,7 @@ class LibraryTracksController extends ChangeNotifier {
     ArtworkAssignmentService? artworkAssignmentService,
     ArtworkFilePicker? artworkFilePicker,
     TrackProfileEditingService? trackProfileEditingService,
+    SongBlockService? songBlockService,
     Random? random,
   }) {
     return LibraryTracksController._(
@@ -25,6 +27,7 @@ class LibraryTracksController extends ChangeNotifier {
       artworkAssignmentService,
       artworkFilePicker,
       trackProfileEditingService,
+      songBlockService,
       random ?? Random(),
     );
   }
@@ -35,6 +38,7 @@ class LibraryTracksController extends ChangeNotifier {
     this._artworkAssignmentService,
     this._artworkFilePicker,
     this._trackProfileEditingService,
+    this._songBlockService,
     this._random,
   );
 
@@ -43,6 +47,7 @@ class LibraryTracksController extends ChangeNotifier {
   final ArtworkAssignmentService? _artworkAssignmentService;
   final ArtworkFilePicker? _artworkFilePicker;
   final TrackProfileEditingService? _trackProfileEditingService;
+  final SongBlockService? _songBlockService;
   final Random _random;
 
   List<LibraryTrack> _tracks = const [];
@@ -106,6 +111,38 @@ class LibraryTracksController extends ChangeNotifier {
       albumId: albumId,
       albumEditionId: albumEditionId,
     );
+
+    await refresh();
+
+    return true;
+  }
+
+  bool canSetTrackBlocked(String? userId) {
+    return _songBlockService != null &&
+        userId != null &&
+        userId.trim().isNotEmpty;
+  }
+
+  Future<bool> setTrackBlocked({
+    required String userId,
+    required LibraryTrack track,
+    required bool isBlocked,
+  }) async {
+    final service = _songBlockService;
+
+    if (service == null || userId.trim().isEmpty) {
+      return false;
+    }
+
+    await service.setBlocked(
+      userId: userId,
+      songId: track.songId,
+      isBlocked: isBlocked,
+    );
+
+    if (isBlocked) {
+      await _playbackCoordinator.removeBlockedSongFromQueue(track.songId);
+    }
 
     await refresh();
 
@@ -251,7 +288,8 @@ class LibraryTracksController extends ChangeNotifier {
   }
 
   bool _isPlayable(LibraryTrack track) {
-    return track.isAvailable &&
+    return !track.isBlocked &&
+        track.isAvailable &&
         track.filePath != null &&
         track.filePath!.trim().isNotEmpty;
   }

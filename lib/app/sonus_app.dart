@@ -7,6 +7,7 @@ import '../features/import/presentation/scopes/import_scope.dart';
 import '../features/library/presentation/scopes/library_query_scope.dart';
 import '../features/player/presentation/scopes/playback_scope.dart';
 import '../features/shell/presentation/pages/app_shell_page.dart';
+import 'account_analytics_bridge.dart';
 
 class SonusApp extends StatelessWidget {
   const SonusApp({
@@ -28,14 +29,18 @@ class SonusApp extends StatelessWidget {
         engineFactory: playbackEngineFactory,
         child: AccountScope(
           repository: accountRepository,
-          child: ImportScope(
-            child: MaterialApp(
-              debugShowCheckedModeBanner: false,
-              title: 'Sonus',
-              theme: ThemeData(
-                colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
+          child: AccountAnalyticsBridge(
+            child: ImportScope(
+              child: MaterialApp(
+                debugShowCheckedModeBanner: false,
+                title: 'Sonus',
+                theme: ThemeData(
+                  colorScheme: ColorScheme.fromSeed(
+                    seedColor: Colors.deepPurple,
+                  ),
+                ),
+                home: const AppShellPage(),
               ),
-              home: const AppShellPage(),
             ),
           ),
         ),

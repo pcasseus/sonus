@@ -11,18 +11,21 @@ class ArtistProfileTracksList extends StatelessWidget {
     required this.isTrackPlayable,
     required this.canEditArtwork,
     required this.canEditTrack,
+    required this.canSetBlocked,
     required this.onPlay,
     required this.onPlayNext,
     required this.onAddToQueue,
     required this.onEditTrack,
     required this.onChangeArtwork,
     required this.onClearArtwork,
+    required this.onSetBlocked,
   });
 
   final List<LibraryTrack> tracks;
   final bool Function(LibraryTrack track) isTrackPlayable;
   final bool canEditArtwork;
   final bool canEditTrack;
+  final bool canSetBlocked;
 
   final Future<void> Function(LibraryTrack track) onPlay;
   final Future<void> Function(LibraryTrack track) onPlayNext;
@@ -30,6 +33,7 @@ class ArtistProfileTracksList extends StatelessWidget {
   final Future<void> Function(LibraryTrack track) onEditTrack;
   final Future<void> Function(LibraryTrack track) onChangeArtwork;
   final Future<void> Function(LibraryTrack track) onClearArtwork;
+  final Future<void> Function(LibraryTrack track, bool isBlocked) onSetBlocked;
 
   @override
   Widget build(BuildContext context) {
@@ -46,12 +50,14 @@ class ArtistProfileTracksList extends StatelessWidget {
             isPlayable: isTrackPlayable(track),
             canEditArtwork: canEditArtwork,
             canEditTrack: canEditTrack,
+            canSetBlocked: canSetBlocked,
             onPlay: () => onPlay(track),
             onPlayNext: () => onPlayNext(track),
             onAddToQueue: () => onAddToQueue(track),
             onEditTrack: () => onEditTrack(track),
             onChangeArtwork: () => onChangeArtwork(track),
             onClearArtwork: () => onClearArtwork(track),
+            onSetBlocked: (isBlocked) => onSetBlocked(track, isBlocked),
           ),
       ],
     );
@@ -64,18 +70,21 @@ class _TrackTile extends StatelessWidget {
     required this.isPlayable,
     required this.canEditArtwork,
     required this.canEditTrack,
+    required this.canSetBlocked,
     required this.onPlay,
     required this.onPlayNext,
     required this.onAddToQueue,
     required this.onEditTrack,
     required this.onChangeArtwork,
     required this.onClearArtwork,
+    required this.onSetBlocked,
   });
 
   final LibraryTrack track;
   final bool isPlayable;
   final bool canEditArtwork;
   final bool canEditTrack;
+  final bool canSetBlocked;
 
   final Future<void> Function() onPlay;
   final Future<void> Function() onPlayNext;
@@ -83,6 +92,7 @@ class _TrackTile extends StatelessWidget {
   final Future<void> Function() onEditTrack;
   final Future<void> Function() onChangeArtwork;
   final Future<void> Function() onClearArtwork;
+  final Future<void> Function(bool isBlocked) onSetBlocked;
 
   @override
   Widget build(BuildContext context) {
@@ -117,16 +127,7 @@ class _TrackTile extends StatelessWidget {
             fontWeight: FontWeight.w600,
           ),
         ),
-        subtitle: track.albumTitle.trim().isEmpty
-            ? null
-            : Text(
-                track.albumTitle,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: colorScheme.onSurfaceVariant,
-                ),
-              ),
+        subtitle: _subtitle(track, theme, colorScheme),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -138,7 +139,8 @@ class _TrackTile extends StatelessWidget {
             ),
             PopupMenuButton<_TrackMenuAction>(
               key: ValueKey<String>('artist-track-menu-${track.songId}'),
-              enabled: isPlayable || canEditArtwork || canEditTrack,
+              enabled:
+                  isPlayable || canEditArtwork || canEditTrack || canSetBlocked,
               onSelected: (action) {
                 switch (action) {
                   case _TrackMenuAction.playNext:
@@ -151,6 +153,8 @@ class _TrackTile extends StatelessWidget {
                     unawaited(onChangeArtwork());
                   case _TrackMenuAction.clearArtwork:
                     unawaited(onClearArtwork());
+                  case _TrackMenuAction.toggleBlocked:
+                    unawaited(onSetBlocked(!track.isSongBlocked));
                 }
               },
               itemBuilder: (context) => [
@@ -191,6 +195,22 @@ class _TrackTile extends StatelessWidget {
                   ),
                 ),
                 PopupMenuItem(
+                  value: _TrackMenuAction.toggleBlocked,
+                  enabled: canSetBlocked,
+                  child: ListTile(
+                    leading: Icon(
+                      track.isSongBlocked
+                          ? Icons.lock_open_rounded
+                          : Icons.block_rounded,
+                    ),
+                    title: Text(
+                      track.isSongBlocked ? 'Unblock song' : 'Block song',
+                    ),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+                const PopupMenuDivider(),
+                PopupMenuItem(
                   value: _TrackMenuAction.clearArtwork,
                   enabled: canEditArtwork,
                   child: const ListTile(
@@ -212,6 +232,41 @@ class _TrackTile extends StatelessWidget {
     );
   }
 
+  Widget? _subtitle(
+    LibraryTrack track,
+    ThemeData theme,
+    ColorScheme colorScheme,
+  ) {
+    final parts = <String>[];
+
+    if (track.isBlocked) {
+      parts.add('Blocked');
+    } else if (!track.isAvailable ||
+        track.filePath == null ||
+        track.filePath!.trim().isEmpty) {
+      parts.add('Unavailable');
+    }
+
+    final albumTitle = track.albumTitle.trim();
+
+    if (albumTitle.isNotEmpty) {
+      parts.add(albumTitle);
+    }
+
+    if (parts.isEmpty) {
+      return null;
+    }
+
+    return Text(
+      parts.join(' \u2022 '),
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: theme.textTheme.bodySmall?.copyWith(
+        color: colorScheme.onSurfaceVariant,
+      ),
+    );
+  }
+
   String _formatDuration(int seconds) {
     final safeSeconds = seconds < 0 ? 0 : seconds;
     final minutes = safeSeconds ~/ 60;
@@ -227,6 +282,7 @@ enum _TrackMenuAction {
   editDetails,
   changeArtwork,
   clearArtwork,
+  toggleBlocked,
 }
 
 class _EmptySection extends StatelessWidget {

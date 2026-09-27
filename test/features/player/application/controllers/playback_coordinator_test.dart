@@ -31,6 +31,7 @@ class FakePlaybackEngine implements PlaybackEngine {
   PlaybackTrack? appendedTrack;
 
   int? removedIndex;
+  final List<int> removedIndices = [];
 
   int? movedOldIndex;
   int? movedNewIndex;
@@ -93,6 +94,7 @@ class FakePlaybackEngine implements PlaybackEngine {
   @override
   Future<void> removeTrackAt(int index) async {
     removedIndex = index;
+    removedIndices.add(index);
   }
 
   @override
@@ -117,6 +119,8 @@ void main() {
   LibraryTrack track({
     required String songId,
     bool isAvailable = true,
+    bool isSongBlocked = false,
+    bool isArtistBlacklisted = false,
     String? filePath,
   }) {
     return LibraryTrack(
@@ -135,7 +139,22 @@ void main() {
       featuredArtists: const [],
       dateAdded: DateTime.utc(2026, 9, 11),
       isAvailable: isAvailable,
+      isSongBlocked: isSongBlocked,
+      isArtistBlacklisted: isArtistBlacklisted,
       filePath: filePath ?? 'C:/Music/$songId.mp3',
+    );
+  }
+
+  PlaybackTrack playbackTrack(String songId, {String artistId = 'artist_1'}) {
+    return PlaybackTrack(
+      songId: songId,
+      title: songId,
+      artistId: artistId,
+      artistName: 'Artist',
+      albumId: 'album_1',
+      albumTitle: 'Album',
+      filePath: 'C:/Music/$songId.mp3',
+      duration: const Duration(minutes: 3),
     );
   }
 
@@ -196,6 +215,83 @@ void main() {
     );
   });
 
+  test('rejects explicitly blocked single track', () async {
+    final engine = FakePlaybackEngine();
+    final coordinator = PlaybackCoordinator(engine: engine);
+
+    expect(
+      () => coordinator.playTrack(track(songId: 'song_1', isSongBlocked: true)),
+      throwsStateError,
+    );
+
+    expect(engine.loadedTracks, isNull);
+  });
+
+  test('rejects track inherited from blacklisted artist', () async {
+    final engine = FakePlaybackEngine();
+    final coordinator = PlaybackCoordinator(engine: engine);
+
+    expect(
+      () => coordinator.playTrack(
+        track(songId: 'song_1', isArtistBlacklisted: true),
+      ),
+      throwsStateError,
+    );
+
+    expect(engine.loadedTracks, isNull);
+  });
+
+  test('filters blocked tracks from multi-track playback', () async {
+    final engine = FakePlaybackEngine();
+    final coordinator = PlaybackCoordinator(engine: engine);
+
+    await coordinator.playTracks([
+      track(songId: 'song_1'),
+      track(songId: 'song_2', isSongBlocked: true),
+      track(songId: 'song_3'),
+    ], startIndex: 2);
+
+    expect(engine.loadedTracks!.map((track) => track.songId), [
+      'song_1',
+      'song_3',
+    ]);
+
+    expect(engine.loadedStartIndex, 1);
+  });
+
+  test('rejects blocked requested start track', () async {
+    final engine = FakePlaybackEngine();
+    final coordinator = PlaybackCoordinator(engine: engine);
+
+    expect(
+      () => coordinator.playTracks([
+        track(songId: 'song_1'),
+        track(songId: 'song_2', isArtistBlacklisted: true),
+        track(songId: 'song_3'),
+      ], startIndex: 1),
+      throwsStateError,
+    );
+  });
+
+  test('rejects blocked play-next and add-to-queue tracks', () async {
+    final engine = FakePlaybackEngine();
+    final coordinator = PlaybackCoordinator(engine: engine);
+
+    await expectLater(
+      coordinator.playNext(track(songId: 'song_2', isSongBlocked: true)),
+      throwsStateError,
+    );
+
+    await expectLater(
+      coordinator.addToQueue(
+        track(songId: 'song_3', isArtistBlacklisted: true),
+      ),
+      throwsStateError,
+    );
+
+    expect(engine.insertedTrack, isNull);
+    expect(engine.appendedTrack, isNull);
+  });
   test('empty track list stops playback', () async {
     final engine = FakePlaybackEngine();
     final coordinator = PlaybackCoordinator(engine: engine);
@@ -292,5 +388,111 @@ void main() {
 
     expect(engine.movedOldIndex, 4);
     expect(engine.movedNewIndex, 1);
+  });
+
+  test('removes blocked non-current song from live queue', () async {
+    final engine = FakePlaybackEngine()
+      ..state = PlaybackState(
+        queue: const PlaybackQueue().replace(
+          tracks: [
+            playbackTrack('song_1'),
+            playbackTrack('song_2'),
+            playbackTrack('song_3'),
+          ],
+          startIndex: 0,
+        ),
+        status: PlaybackStatus.playing,
+      );
+    final coordinator = PlaybackCoordinator(engine: engine);
+
+    await coordinator.removeBlockedSongFromQueue('song_2');
+
+    expect(engine.removedIndices, [1]);
+    expect(engine.stopCalls, 0);
+  });
+
+  test(
+    'removing current blocked song continues toward surviving next track',
+    () async {
+      final engine = FakePlaybackEngine()
+        ..state = PlaybackState(
+          queue: const PlaybackQueue().replace(
+            tracks: [
+              playbackTrack('song_1'),
+              playbackTrack('song_2'),
+              playbackTrack('song_3'),
+            ],
+            startIndex: 1,
+          ),
+          status: PlaybackStatus.playing,
+        );
+      final coordinator = PlaybackCoordinator(engine: engine);
+
+      await coordinator.removeBlockedSongFromQueue('song_2');
+
+      expect(engine.removedIndices, [1]);
+      expect(engine.stopCalls, 0);
+    },
+  );
+
+  test(
+    'removing current blocked song stops when no surviving next track exists',
+    () async {
+      final engine = FakePlaybackEngine()
+        ..state = PlaybackState(
+          queue: const PlaybackQueue().replace(
+            tracks: [playbackTrack('song_1'), playbackTrack('song_2')],
+            startIndex: 1,
+          ),
+          status: PlaybackStatus.playing,
+        );
+      final coordinator = PlaybackCoordinator(engine: engine);
+
+      await coordinator.removeBlockedSongFromQueue('song_2');
+
+      expect(engine.stopCalls, 1);
+      expect(engine.removedIndices, [1]);
+    },
+  );
+
+  test(
+    'removes every queued track for a blocked artist from highest index first',
+    () async {
+      final engine = FakePlaybackEngine()
+        ..state = PlaybackState(
+          queue: const PlaybackQueue().replace(
+            tracks: [
+              playbackTrack('song_1', artistId: 'artist_blocked'),
+              playbackTrack('song_2', artistId: 'artist_safe'),
+              playbackTrack('song_3', artistId: 'artist_blocked'),
+              playbackTrack('song_4', artistId: 'artist_safe'),
+            ],
+            startIndex: 1,
+          ),
+          status: PlaybackStatus.playing,
+        );
+      final coordinator = PlaybackCoordinator(engine: engine);
+
+      await coordinator.removeBlockedArtistFromQueue('artist_blocked');
+
+      expect(engine.removedIndices, [2, 0]);
+      expect(engine.stopCalls, 0);
+    },
+  );
+
+  test('queue sanitation is a no-op when identity is not queued', () async {
+    final engine = FakePlaybackEngine()
+      ..state = PlaybackState(
+        queue: const PlaybackQueue().replace(
+          tracks: [playbackTrack('song_1'), playbackTrack('song_2')],
+        ),
+      );
+    final coordinator = PlaybackCoordinator(engine: engine);
+
+    await coordinator.removeBlockedSongFromQueue('missing-song');
+    await coordinator.removeBlockedArtistFromQueue('missing-artist');
+
+    expect(engine.removedIndices, isEmpty);
+    expect(engine.stopCalls, 0);
   });
 }

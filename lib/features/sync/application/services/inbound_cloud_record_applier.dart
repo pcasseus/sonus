@@ -135,6 +135,7 @@ class InboundCloudRecordApplier {
       discNumber: record.discNumber,
       durationSeconds: record.durationSeconds,
       isSingle: record.isSingle,
+      isBlocked: record.isBlocked,
       featuredArtists: record.featuredArtists,
       artworkId: record.artworkId,
       createdAt: record.createdAt,

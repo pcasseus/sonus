@@ -70,6 +70,7 @@ abstract final class CloudRecordMapper {
       discNumber: song.discNumber,
       durationSeconds: song.durationSeconds,
       isSingle: song.isSingle,
+      isBlocked: song.isBlocked,
       featuredArtists: List<String>.unmodifiable(song.featuredArtists),
       artworkId: song.artworkId,
       createdAt: song.createdAt,

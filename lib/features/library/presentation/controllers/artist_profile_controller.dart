@@ -9,7 +9,9 @@ import '../../application/models/library_album.dart';
 import '../../application/models/library_artist.dart';
 import '../../application/models/library_track.dart';
 import '../../application/repositories/library_query_repository.dart';
+import '../../application/services/artist_blacklist_service.dart';
 import '../../application/services/artist_profile_editing_service.dart';
+import '../../application/services/song_block_service.dart';
 import '../../application/services/track_profile_editing_service.dart';
 
 class ArtistProfileController extends ChangeNotifier {
@@ -20,6 +22,8 @@ class ArtistProfileController extends ChangeNotifier {
     ArtworkAssignmentService? artworkAssignmentService,
     ArtworkFilePicker? artworkFilePicker,
     ArtistProfileEditingService? artistProfileEditingService,
+    ArtistBlacklistService? artistBlacklistService,
+    SongBlockService? songBlockService,
     TrackProfileEditingService? trackProfileEditingService,
     Random? random,
   }) : this._(
@@ -29,6 +33,8 @@ class ArtistProfileController extends ChangeNotifier {
          artworkAssignmentService,
          artworkFilePicker,
          artistProfileEditingService,
+         artistBlacklistService,
+         songBlockService,
          trackProfileEditingService,
          random ?? Random(),
        );
@@ -40,6 +46,8 @@ class ArtistProfileController extends ChangeNotifier {
     this._artworkAssignmentService,
     this._artworkFilePicker,
     this._artistProfileEditingService,
+    this._artistBlacklistService,
+    this._songBlockService,
     this._trackProfileEditingService,
     this._random,
   );
@@ -50,6 +58,8 @@ class ArtistProfileController extends ChangeNotifier {
   final ArtworkAssignmentService? _artworkAssignmentService;
   final ArtworkFilePicker? _artworkFilePicker;
   final ArtistProfileEditingService? _artistProfileEditingService;
+  final ArtistBlacklistService? _artistBlacklistService;
+  final SongBlockService? _songBlockService;
   final TrackProfileEditingService? _trackProfileEditingService;
   final Random _random;
 
@@ -173,6 +183,78 @@ class ArtistProfileController extends ChangeNotifier {
     }
 
     await service.removeArtist(userId: userId, artistId: _artistId);
+
+    return true;
+  }
+
+  bool canSetArtistBlacklisted(String? userId) {
+    return _artistBlacklistService != null &&
+        _artist != null &&
+        userId != null &&
+        userId.trim().isNotEmpty;
+  }
+
+  Future<bool> setArtistBlacklisted({
+    required String userId,
+    required bool isBlacklisted,
+  }) async {
+    final service = _artistBlacklistService;
+
+    if (service == null || _artist == null || userId.trim().isEmpty) {
+      return false;
+    }
+
+    await service.setBlacklisted(
+      userId: userId,
+      artistId: _artistId,
+      isBlacklisted: isBlacklisted,
+    );
+
+    if (isBlacklisted) {
+      final playbackCoordinator = _playbackCoordinator;
+
+      if (playbackCoordinator != null) {
+        await playbackCoordinator.removeBlockedArtistFromQueue(_artistId);
+      }
+    }
+
+    await refresh();
+
+    return true;
+  }
+
+  bool canSetTrackBlocked(String? userId) {
+    return _songBlockService != null &&
+        userId != null &&
+        userId.trim().isNotEmpty;
+  }
+
+  Future<bool> setTrackBlocked({
+    required String userId,
+    required LibraryTrack track,
+    required bool isBlocked,
+  }) async {
+    final service = _songBlockService;
+
+    if (service == null || userId.trim().isEmpty) {
+      return false;
+    }
+
+    await service.setBlocked(
+      userId: userId,
+      songId: track.songId,
+      isBlocked: isBlocked,
+    );
+
+    if (isBlocked) {
+      final playbackCoordinator = _playbackCoordinator;
+
+      if (playbackCoordinator != null) {
+        await playbackCoordinator.removeBlockedSongFromQueue(track.songId);
+      }
+    }
+
+    await refresh();
 
     return true;
   }
@@ -426,7 +508,8 @@ class ArtistProfileController extends ChangeNotifier {
   }
 
   bool _isPlayable(LibraryTrack track) {
-    return track.isAvailable &&
+    return !track.isBlocked &&
+        track.isAvailable &&
         track.filePath != null &&
         track.filePath!.trim().isNotEmpty;
   }

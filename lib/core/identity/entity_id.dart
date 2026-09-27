@@ -23,6 +23,8 @@ abstract final class EntityId {
 
   static String playbackSession() => 'session_${_uuid.v4()}';
 
+  static String listeningSegment() => 'segment_${_uuid.v4()}';
+
   static String qualifiedPlay() => 'play_${_uuid.v4()}';
 
   static String syncOutbox() => 'sync_outbox_${_uuid.v4()}';

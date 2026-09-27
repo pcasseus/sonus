@@ -156,6 +156,124 @@ void main() {
     );
   });
 
+  test('song block defaults to false and accepts boolean values', () async {
+    final db = await appDatabase.database;
+    final now = DateTime.utc(2026, 9, 26).toIso8601String();
+
+    await db.insert(DatabaseTables.artists, {
+      'id': 'artist_song_block',
+      'name': 'Blocked Song Artist',
+      'canonical_name': 'blocked song artist',
+      'created_at': now,
+      'updated_at': now,
+    });
+
+    await db.insert(DatabaseTables.albums, {
+      'id': 'album_song_block',
+      'artist_id': 'artist_song_block',
+      'title': 'Blocked Song Album',
+      'canonical_title': 'blocked song album',
+      'created_at': now,
+      'updated_at': now,
+    });
+
+    await db.insert(DatabaseTables.albumEditions, {
+      'id': 'edition_song_block',
+      'album_id': 'album_song_block',
+      'title': 'Blocked Song Album',
+      'type': 'standard',
+      'is_primary': 1,
+      'created_at': now,
+      'updated_at': now,
+    });
+
+    await db.insert(DatabaseTables.songs, {
+      'id': 'song_block_default',
+      'artist_id': 'artist_song_block',
+      'album_id': 'album_song_block',
+      'album_edition_id': 'edition_song_block',
+      'title': 'Song',
+      'canonical_title': 'song',
+      'track_number': 1,
+      'duration_seconds': 180,
+      'is_single': 0,
+      'created_at': now,
+      'updated_at': now,
+    });
+
+    var rows = await db.query(
+      DatabaseTables.songs,
+      where: 'id = ?',
+      whereArgs: ['song_block_default'],
+    );
+
+    expect(rows.single['is_blocked'], 0);
+
+    await db.update(
+      DatabaseTables.songs,
+      {'is_blocked': 1},
+      where: 'id = ?',
+      whereArgs: ['song_block_default'],
+    );
+
+    rows = await db.query(
+      DatabaseTables.songs,
+      where: 'id = ?',
+      whereArgs: ['song_block_default'],
+    );
+
+    expect(rows.single['is_blocked'], 1);
+  });
+
+  test('rejects invalid song block values', () async {
+    final db = await appDatabase.database;
+    final now = DateTime.utc(2026, 9, 26).toIso8601String();
+
+    await db.insert(DatabaseTables.artists, {
+      'id': 'artist_invalid_song_block',
+      'name': 'Artist',
+      'canonical_name': 'artist',
+      'created_at': now,
+      'updated_at': now,
+    });
+
+    await db.insert(DatabaseTables.albums, {
+      'id': 'album_invalid_song_block',
+      'artist_id': 'artist_invalid_song_block',
+      'title': 'Album',
+      'canonical_title': 'album',
+      'created_at': now,
+      'updated_at': now,
+    });
+
+    await db.insert(DatabaseTables.albumEditions, {
+      'id': 'edition_invalid_song_block',
+      'album_id': 'album_invalid_song_block',
+      'title': 'Album',
+      'type': 'standard',
+      'is_primary': 1,
+      'created_at': now,
+      'updated_at': now,
+    });
+
+    expect(
+      () => db.insert(DatabaseTables.songs, {
+        'id': 'song_invalid_block',
+        'artist_id': 'artist_invalid_song_block',
+        'album_id': 'album_invalid_song_block',
+        'album_edition_id': 'edition_invalid_song_block',
+        'title': 'Song',
+        'canonical_title': 'song',
+        'track_number': 1,
+        'duration_seconds': 180,
+        'is_single': 0,
+        'is_blocked': 2,
+        'created_at': now,
+        'updated_at': now,
+      }),
+      throwsA(isA<DatabaseException>()),
+    );
+  });
   test('media file location belongs to binding, not song', () async {
     final db = await appDatabase.database;
 

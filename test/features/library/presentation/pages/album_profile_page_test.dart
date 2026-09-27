@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -8,6 +8,7 @@ import 'package:sonus_next/features/account/domain/repositories/account_reposito
 import 'package:provider/provider.dart';
 
 import 'package:sonus_next/features/library/application/services/album_profile_editing_service.dart';
+import 'package:sonus_next/features/library/application/services/song_block_service.dart';
 import 'package:sonus_next/features/library/application/services/track_profile_editing_service.dart';
 import 'package:sonus_next/features/library/domain/entities/album.dart';
 import 'package:sonus_next/features/sync/application/services/sync_mutation_runner.dart';
@@ -17,6 +18,7 @@ import 'package:sonus_next/features/library/application/models/library_track.dar
 import 'package:sonus_next/features/library/application/models/library_track_order.dart';
 import 'package:sonus_next/features/library/application/repositories/library_query_repository.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
+import 'package:sonus_next/features/library/domain/entities/song.dart';
 import 'package:sonus_next/features/library/presentation/pages/album_profile_page.dart';
 import 'package:sonus_next/features/player/application/controllers/playback_coordinator.dart';
 import 'package:sonus_next/features/player/domain/models/playback_repeat_mode.dart';
@@ -807,6 +809,66 @@ void main() {
 
       await engine.dispose();
     });
+
+    testWidgets('blocked album track remains unblockable from its menu', (
+      tester,
+    ) async {
+      final repository = FakeLibraryQueryRepository(
+        album: createAlbum(),
+        tracks: [
+          createTrack(
+            songId: 'blocked-song',
+            title: 'Blocked Song',
+            isSongBlocked: true,
+          ),
+        ],
+      );
+
+      final accountRepository = FakeAccountRepository(
+        currentUser: const AccountUser(id: 'user-1', email: 'user@example.com'),
+      );
+
+      final service = FakeSongBlockService();
+
+      await tester.pumpWidget(
+        buildSubject(
+          repository: repository,
+          accountRepository: accountRepository,
+          songBlockService: service,
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      expect(find.text('Blocked'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey<String>('album-profile-availability-notice')),
+        findsNothing,
+      );
+
+      final menuFinder = find.byKey(
+        const ValueKey<String>('album-track-menu-blocked-song'),
+      );
+
+      expect(
+        tester.widget<PopupMenuButton<dynamic>>(menuFinder).enabled,
+        isTrue,
+      );
+
+      await tester.tap(menuFinder);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Unblock song'), findsOneWidget);
+
+      await tester.tap(find.text('Unblock song'));
+      await tester.pumpAndSettle();
+
+      expect(service.setBlockedCallCount, 1);
+      expect(service.lastUserId, 'user-1');
+      expect(service.lastSongId, 'blocked-song');
+      expect(service.lastIsBlocked, isFalse);
+      expect(find.text('Song unblocked.'), findsOneWidget);
+    });
   });
 }
 
@@ -816,21 +878,25 @@ Widget buildSubject({
   AccountRepository? accountRepository,
   AlbumProfileEditingService? albumProfileEditingService,
   TrackProfileEditingService? trackProfileEditingService,
+  SongBlockService? songBlockService,
 }) {
-  return Provider<LibraryQueryRepository?>.value(
-    value: repository,
-    child: Provider<PlaybackCoordinator?>.value(
-      value: playbackCoordinator,
-      child: Provider<AlbumProfileEditingService?>.value(
-        value: albumProfileEditingService,
-        child: Provider<TrackProfileEditingService?>.value(
-          value: trackProfileEditingService,
-          child: AccountScope(
-            repository: accountRepository,
-            child: const MaterialApp(
-              home: AlbumProfilePage(
-                albumId: 'album-1',
-                initialAlbumTitle: 'Test Album',
+  return Provider<SongBlockService?>.value(
+    value: songBlockService,
+    child: Provider<LibraryQueryRepository?>.value(
+      value: repository,
+      child: Provider<PlaybackCoordinator?>.value(
+        value: playbackCoordinator,
+        child: Provider<AlbumProfileEditingService?>.value(
+          value: albumProfileEditingService,
+          child: Provider<TrackProfileEditingService?>.value(
+            value: trackProfileEditingService,
+            child: AccountScope(
+              repository: accountRepository,
+              child: const MaterialApp(
+                home: AlbumProfilePage(
+                  albumId: 'album-1',
+                  initialAlbumTitle: 'Test Album',
+                ),
               ),
             ),
           ),
@@ -882,6 +948,8 @@ LibraryTrack createTrack({
   List<String> featuredArtists = const [],
   String? filePath,
   bool isAvailable = true,
+  bool isSongBlocked = false,
+  bool isArtistBlacklisted = false,
 }) {
   return LibraryTrack(
     songId: songId,
@@ -900,6 +968,8 @@ LibraryTrack createTrack({
     dateAdded: DateTime(2026, 1, 1),
     filePath: filePath ?? '/music/$songId.mp3',
     isAvailable: isAvailable,
+    isSongBlocked: isSongBlocked,
+    isArtistBlacklisted: isArtistBlacklisted,
   );
 }
 
@@ -1002,6 +1072,48 @@ class FakeLibraryQueryRepository implements LibraryQueryRepository {
   @override
   Future<LibraryArtist?> getArtistById(String artistId) async {
     return null;
+  }
+}
+
+class FakeSongBlockService extends SongBlockService {
+  FakeSongBlockService() : super(mutationRunner: UnusedSyncMutationRunner());
+
+  int setBlockedCallCount = 0;
+  String? lastUserId;
+  String? lastSongId;
+  bool? lastIsBlocked;
+
+  @override
+  Future<Song> setBlocked({
+    required String userId,
+    required String songId,
+    required bool isBlocked,
+    DateTime? now,
+  }) async {
+    setBlockedCallCount++;
+    lastUserId = userId;
+    lastSongId = songId;
+    lastIsBlocked = isBlocked;
+
+    final timestamp = now ?? DateTime.utc(2026, 1, 1);
+
+    return Song(
+      id: songId,
+      artistId: 'artist-1',
+      albumId: 'album-1',
+      albumEditionId: 'edition-1',
+      title: 'Song',
+      canonicalTitle: 'song',
+      trackNumber: 1,
+      discNumber: 1,
+      durationSeconds: 180,
+      isSingle: false,
+      featuredArtists: const [],
+      artworkId: null,
+      isBlocked: isBlocked,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    );
   }
 }
 

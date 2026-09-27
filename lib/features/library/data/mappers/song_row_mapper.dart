@@ -15,6 +15,7 @@ abstract final class SongRowMapper {
       'disc_number': song.discNumber,
       'duration_seconds': song.durationSeconds,
       'is_single': song.isSingle ? 1 : 0,
+      'is_blocked': song.isBlocked ? 1 : 0,
       'artwork_id': song.artworkId,
       'featured_artists': jsonEncode(song.featuredArtists),
       'created_at': song.createdAt.toUtc().toIso8601String(),
@@ -38,6 +39,7 @@ abstract final class SongRowMapper {
       discNumber: row['disc_number'] as int? ?? 1,
       durationSeconds: row['duration_seconds'] as int? ?? 0,
       isSingle: (row['is_single'] as int? ?? 0) == 1,
+      isBlocked: (row['is_blocked'] as int? ?? 0) == 1,
       artworkId: row['artwork_id'] as String?,
       featuredArtists: List<String>.unmodifiable(
         (decodedFeaturedArtists as List<dynamic>).cast<String>(),

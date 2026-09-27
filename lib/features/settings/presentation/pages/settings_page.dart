@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../account/application/controllers/account_controller.dart';
+import '../../../analytics/presentation/pages/listening_history_page.dart';
 
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key});
@@ -20,7 +21,37 @@ class SettingsPage extends StatelessWidget {
           Text('Account', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 8),
           _AccountCard(controller: controller),
+          const SizedBox(height: 24),
+          Text('Listening', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 8),
+          const _ListeningCard(),
         ],
+      ),
+    );
+  }
+}
+
+class _ListeningCard extends StatelessWidget {
+  const _ListeningCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: ListTile(
+        key: const ValueKey<String>('settings-listening-history'),
+        leading: const Icon(Icons.history_rounded),
+        title: const Text('Listening history'),
+        subtitle: const Text(
+          'Review your listening sessions and qualified streams.',
+        ),
+        trailing: const Icon(Icons.chevron_right_rounded),
+        onTap: () {
+          Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (context) => const ListeningHistoryPage(),
+            ),
+          );
+        },
       ),
     );
   }

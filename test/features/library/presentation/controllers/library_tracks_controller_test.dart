@@ -8,6 +8,7 @@ import 'package:sonus_next/features/library/application/models/library_artist.da
 import 'package:sonus_next/features/library/application/models/library_track.dart';
 import 'package:sonus_next/features/library/application/models/library_track_order.dart';
 import 'package:sonus_next/features/library/application/repositories/library_query_repository.dart';
+import 'package:sonus_next/features/library/application/services/song_block_service.dart';
 import 'package:sonus_next/features/library/application/services/track_profile_editing_service.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/domain/entities/song.dart';
@@ -169,13 +170,13 @@ class FakePlaybackEngine implements PlaybackEngine {
 
   int loadQueueCallCount = 0;
   int stopCallCount = 0;
+  int removeTrackAtCallCount = 0;
 
   @override
   Stream<PlaybackState> get states => _statesController.stream;
 
   @override
-  PlaybackState get currentState => throw UnimplementedError();
-
+  PlaybackState get currentState => const PlaybackState();
   @override
   Future<void> loadQueue(
     List<PlaybackTrack> tracks, {
@@ -223,7 +224,9 @@ class FakePlaybackEngine implements PlaybackEngine {
   Future<void> skipToIndex(int index) async {}
 
   @override
-  Future<void> removeTrackAt(int index) async {}
+  Future<void> removeTrackAt(int index) async {
+    removeTrackAtCallCount++;
+  }
 
   @override
   Future<void> moveTrack({
@@ -965,6 +968,196 @@ void main() {
       await engine.dispose();
     },
   );
+
+  test('reports whether song blocking is available', () async {
+    final repository = FakeLibraryQueryRepository();
+    final engine = FakePlaybackEngine();
+    final service = FakeSongBlockService();
+
+    final controller = LibraryTracksController(
+      repository: repository,
+      playbackCoordinator: PlaybackCoordinator(engine: engine),
+      songBlockService: service,
+    );
+
+    final missingServiceController = LibraryTracksController(
+      repository: repository,
+      playbackCoordinator: PlaybackCoordinator(engine: engine),
+    );
+
+    expect(controller.canSetTrackBlocked('user-1'), isTrue);
+    expect(controller.canSetTrackBlocked('  user-1  '), isTrue);
+    expect(controller.canSetTrackBlocked(null), isFalse);
+    expect(controller.canSetTrackBlocked(''), isFalse);
+    expect(controller.canSetTrackBlocked('   '), isFalse);
+    expect(missingServiceController.canSetTrackBlocked('user-1'), isFalse);
+
+    await engine.dispose();
+  });
+
+  test('setTrackBlocked forwards mutation and refreshes tracks', () async {
+    var trackRequestCount = 0;
+
+    final repository = FakeLibraryQueryRepository()
+      ..tracks = [track(id: 'song-block')];
+
+    final engine = FakePlaybackEngine();
+    final service = FakeSongBlockService();
+
+    final controller = LibraryTracksController(
+      repository: _CountingLibraryQueryRepository(
+        delegate: repository,
+        onGetTracks: () {
+          trackRequestCount++;
+        },
+      ),
+      playbackCoordinator: PlaybackCoordinator(engine: engine),
+      songBlockService: service,
+    );
+
+    await controller.load();
+
+    expect(trackRequestCount, 1);
+
+    final changed = await controller.setTrackBlocked(
+      userId: 'user-1',
+      track: controller.tracks.single,
+      isBlocked: true,
+    );
+
+    expect(changed, isTrue);
+    expect(service.setBlockedCallCount, 1);
+    expect(service.lastUserId, 'user-1');
+    expect(service.lastSongId, 'song-block');
+    expect(service.lastIsBlocked, isTrue);
+    expect(trackRequestCount, 2);
+
+    await engine.dispose();
+  });
+
+  test('unblocking a song does not mutate the live queue', () async {
+    final repository = FakeLibraryQueryRepository()
+      ..tracks = [track(id: 'song-unblock')];
+
+    final engine = FakePlaybackEngine();
+    final service = FakeSongBlockService();
+
+    final controller = LibraryTracksController(
+      repository: repository,
+      playbackCoordinator: PlaybackCoordinator(engine: engine),
+      songBlockService: service,
+    );
+
+    await controller.load();
+
+    final changed = await controller.setTrackBlocked(
+      userId: 'user-1',
+      track: controller.tracks.single,
+      isBlocked: false,
+    );
+
+    expect(changed, isTrue);
+    expect(service.setBlockedCallCount, 1);
+    expect(service.lastSongId, 'song-unblock');
+    expect(service.lastIsBlocked, isFalse);
+
+    expect(engine.removeTrackAtCallCount, 0);
+    expect(engine.loadQueueCallCount, 0);
+    expect(engine.lastInsertedTrack, isNull);
+    expect(engine.lastAppendedTrack, isNull);
+    expect(engine.stopCallCount, 0);
+
+    await engine.dispose();
+  });
+
+  test('setTrackBlocked rejects missing service or blank user id', () async {
+    final repository = FakeLibraryQueryRepository()
+      ..tracks = [track(id: 'song-block')];
+
+    final engine = FakePlaybackEngine();
+
+    final missingServiceController = LibraryTracksController(
+      repository: repository,
+      playbackCoordinator: PlaybackCoordinator(engine: engine),
+    );
+
+    await missingServiceController.load();
+
+    expect(
+      await missingServiceController.setTrackBlocked(
+        userId: 'user-1',
+        track: missingServiceController.tracks.single,
+        isBlocked: true,
+      ),
+      isFalse,
+    );
+
+    final service = FakeSongBlockService();
+
+    final blankUserController = LibraryTracksController(
+      repository: repository,
+      playbackCoordinator: PlaybackCoordinator(engine: engine),
+      songBlockService: service,
+    );
+
+    await blankUserController.load();
+
+    expect(
+      await blankUserController.setTrackBlocked(
+        userId: '   ',
+        track: blankUserController.tracks.single,
+        isBlocked: true,
+      ),
+      isFalse,
+    );
+
+    expect(service.setBlockedCallCount, 0);
+
+    await engine.dispose();
+  });
+}
+
+class FakeSongBlockService extends SongBlockService {
+  FakeSongBlockService()
+    : super(mutationRunner: UnusedTrackSyncMutationRunner());
+
+  int setBlockedCallCount = 0;
+  String? lastUserId;
+  String? lastSongId;
+  bool? lastIsBlocked;
+
+  @override
+  Future<Song> setBlocked({
+    required String userId,
+    required String songId,
+    required bool isBlocked,
+    DateTime? now,
+  }) async {
+    setBlockedCallCount++;
+    lastUserId = userId;
+    lastSongId = songId;
+    lastIsBlocked = isBlocked;
+
+    final timestamp = now ?? DateTime.utc(2026, 1, 1);
+
+    return Song(
+      id: songId,
+      artistId: 'artist-$songId',
+      albumId: 'album-$songId',
+      albumEditionId: 'edition-$songId',
+      title: 'Song',
+      canonicalTitle: 'song',
+      trackNumber: 1,
+      discNumber: 1,
+      durationSeconds: 210,
+      isSingle: false,
+      featuredArtists: const [],
+      artworkId: null,
+      isBlocked: isBlocked,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    );
+  }
 }
 
 class FakeTrackProfileEditingService extends TrackProfileEditingService {

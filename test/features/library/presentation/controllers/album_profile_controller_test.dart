@@ -12,6 +12,7 @@ import 'package:sonus_next/features/library/application/models/library_track.dar
 import 'package:sonus_next/features/library/application/models/library_track_order.dart';
 import 'package:sonus_next/features/library/application/repositories/library_query_repository.dart';
 import 'package:sonus_next/features/library/application/services/album_profile_editing_service.dart';
+import 'package:sonus_next/features/library/application/services/song_block_service.dart';
 import 'package:sonus_next/features/library/application/services/track_profile_editing_service.dart';
 import 'package:sonus_next/features/library/domain/entities/album.dart';
 import 'package:sonus_next/features/library/domain/entities/song.dart';
@@ -148,6 +149,27 @@ void main() {
         controller.dispose();
       },
     );
+
+    test('blocked available tracks are not counted as unavailable', () async {
+      final repository = FakeLibraryQueryRepository(
+        album: createAlbum(),
+        tracks: [createTrack(songId: 'blocked-song', isSongBlocked: true)],
+      );
+
+      final controller = AlbumProfileController(
+        repository: repository,
+        albumId: 'album-1',
+      );
+
+      await controller.load();
+
+      expect(controller.playableTrackCount, 0);
+      expect(controller.unavailableTrackCount, 0);
+      expect(controller.hasUnavailableTracks, isFalse);
+      expect(controller.hasPlayableTracks, isFalse);
+
+      controller.dispose();
+    });
 
     test('derives distinct album editions in track order', () async {
       final repository = FakeLibraryQueryRepository(
@@ -1206,6 +1228,116 @@ void main() {
         controller.dispose();
       },
     );
+
+    test('reports whether album song blocking is available', () {
+      final repository = FakeLibraryQueryRepository(album: createAlbum());
+      final service = FakeSongBlockService();
+
+      final controller = AlbumProfileController(
+        repository: repository,
+        albumId: 'album-1',
+        songBlockService: service,
+      );
+
+      final missingServiceController = AlbumProfileController(
+        repository: repository,
+        albumId: 'album-1',
+      );
+
+      expect(controller.canSetTrackBlocked('user-1'), isTrue);
+      expect(controller.canSetTrackBlocked('  user-1  '), isTrue);
+      expect(controller.canSetTrackBlocked(null), isFalse);
+      expect(controller.canSetTrackBlocked(''), isFalse);
+      expect(controller.canSetTrackBlocked('   '), isFalse);
+      expect(missingServiceController.canSetTrackBlocked('user-1'), isFalse);
+
+      controller.dispose();
+      missingServiceController.dispose();
+    });
+
+    test(
+      'setTrackBlocked forwards mutation and refreshes album profile',
+      () async {
+        final repository = FakeLibraryQueryRepository(
+          album: createAlbum(),
+          tracks: [createTrack(songId: 'song-block')],
+        );
+
+        final service = FakeSongBlockService();
+
+        final controller = AlbumProfileController(
+          repository: repository,
+          albumId: 'album-1',
+          songBlockService: service,
+        );
+
+        await controller.load();
+
+        expect(repository.albumRequestCount, 1);
+
+        final changed = await controller.setTrackBlocked(
+          userId: 'user-1',
+          track: controller.tracks.single,
+          isBlocked: true,
+        );
+
+        expect(changed, isTrue);
+        expect(service.setBlockedCallCount, 1);
+        expect(service.lastUserId, 'user-1');
+        expect(service.lastSongId, 'song-block');
+        expect(service.lastIsBlocked, isTrue);
+        expect(repository.albumRequestCount, 2);
+
+        controller.dispose();
+      },
+    );
+
+    test('setTrackBlocked rejects missing service or blank user id', () async {
+      final repository = FakeLibraryQueryRepository(
+        album: createAlbum(),
+        tracks: [createTrack(songId: 'song-block')],
+      );
+
+      final missingServiceController = AlbumProfileController(
+        repository: repository,
+        albumId: 'album-1',
+      );
+
+      await missingServiceController.load();
+
+      expect(
+        await missingServiceController.setTrackBlocked(
+          userId: 'user-1',
+          track: missingServiceController.tracks.single,
+          isBlocked: true,
+        ),
+        isFalse,
+      );
+
+      final service = FakeSongBlockService();
+
+      final blankUserController = AlbumProfileController(
+        repository: repository,
+        albumId: 'album-1',
+        songBlockService: service,
+      );
+
+      await blankUserController.load();
+
+      expect(
+        await blankUserController.setTrackBlocked(
+          userId: '   ',
+          track: blankUserController.tracks.single,
+          isBlocked: true,
+        ),
+        isFalse,
+      );
+
+      expect(service.setBlockedCallCount, 0);
+
+      missingServiceController.dispose();
+      blankUserController.dispose();
+    });
   });
 }
 
@@ -1247,6 +1379,8 @@ LibraryTrack createTrack({
   int durationSeconds = 180,
   String? filePath,
   bool isAvailable = true,
+  bool isSongBlocked = false,
+  bool isArtistBlacklisted = false,
 }) {
   return LibraryTrack(
     songId: songId,
@@ -1266,6 +1400,8 @@ LibraryTrack createTrack({
     dateAdded: DateTime(2026, 1, 1),
     filePath: filePath ?? 'C:/Music/$songId.mp3',
     isAvailable: isAvailable,
+    isSongBlocked: isSongBlocked,
+    isArtistBlacklisted: isArtistBlacklisted,
   );
 }
 
@@ -1362,6 +1498,48 @@ class FakeLibraryQueryRepository implements LibraryQueryRepository {
   @override
   Future<LibraryArtist?> getArtistById(String artistId) async {
     return null;
+  }
+}
+
+class FakeSongBlockService extends SongBlockService {
+  FakeSongBlockService() : super(mutationRunner: UnusedSyncMutationRunner());
+
+  int setBlockedCallCount = 0;
+  String? lastUserId;
+  String? lastSongId;
+  bool? lastIsBlocked;
+
+  @override
+  Future<Song> setBlocked({
+    required String userId,
+    required String songId,
+    required bool isBlocked,
+    DateTime? now,
+  }) async {
+    setBlockedCallCount++;
+    lastUserId = userId;
+    lastSongId = songId;
+    lastIsBlocked = isBlocked;
+
+    final timestamp = now ?? DateTime.utc(2026, 1, 1);
+
+    return Song(
+      id: songId,
+      artistId: 'artist-1',
+      albumId: 'album-1',
+      albumEditionId: 'edition-1',
+      title: 'Song',
+      canonicalTitle: 'song',
+      trackNumber: 1,
+      discNumber: 1,
+      durationSeconds: 180,
+      isSingle: false,
+      featuredArtists: const [],
+      artworkId: null,
+      isBlocked: isBlocked,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    );
   }
 }
 

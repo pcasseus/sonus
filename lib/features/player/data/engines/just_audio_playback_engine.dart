@@ -7,11 +7,16 @@ import '../../domain/models/playback_queue.dart';
 import '../../domain/models/playback_repeat_mode.dart';
 import '../../domain/models/playback_state.dart';
 import '../../domain/models/playback_track.dart';
+import '../../domain/models/playback_transition_cause.dart';
 import '../../domain/services/playback_engine.dart';
+import 'support/playback_audio_player.dart';
 
 class JustAudioPlaybackEngine implements PlaybackEngine {
-  JustAudioPlaybackEngine({AudioPlayer? audioPlayer})
-    : _audioPlayer = audioPlayer ?? AudioPlayer() {
+  JustAudioPlaybackEngine({
+    PlaybackAudioPlayer? audioPlayer,
+    Future<void> Function()? configureAudioSession,
+  }) : _audioPlayer = audioPlayer ?? JustAudioPlayerAdapter(),
+       _configureAudioSessionOverride = configureAudioSession {
     _subscriptions.add(
       _audioPlayer.positionStream.listen(_handlePositionChanged),
     );
@@ -31,7 +36,8 @@ class JustAudioPlaybackEngine implements PlaybackEngine {
     _subscriptions.add(_audioPlayer.errorStream.listen(_handlePlayerError));
   }
 
-  final AudioPlayer _audioPlayer;
+  final PlaybackAudioPlayer _audioPlayer;
+  final Future<void> Function()? _configureAudioSessionOverride;
 
   final StreamController<PlaybackState> _stateController =
       StreamController<PlaybackState>.broadcast();
@@ -41,6 +47,8 @@ class JustAudioPlaybackEngine implements PlaybackEngine {
   PlaybackState _state = const PlaybackState();
 
   bool _disposed = false;
+  bool _isRemovingQueueTrack = false;
+  PlaybackTransitionCause? _pendingTransitionCause;
 
   @override
   Stream<PlaybackState> get states => _stateController.stream;
@@ -65,14 +73,14 @@ class JustAudioPlaybackEngine implements PlaybackEngine {
     }
 
     final unplayableIndex = tracks.indexWhere(
-      (track) => !track.hasPlayablePath,
+      (track) => !track.hasPlayablePath || track.isBlocked,
     );
 
     if (unplayableIndex != -1) {
       throw ArgumentError.value(
         tracks[unplayableIndex].songId,
         'tracks[$unplayableIndex]',
-        'Playback track does not have a playable file path.',
+        'Playback track is unavailable or blocked.',
       );
     }
 
@@ -179,9 +187,20 @@ class JustAudioPlaybackEngine implements PlaybackEngine {
   Future<void> skipNext() async {
     _ensureNotDisposed();
 
+    final canAdvance = _audioPlayer.hasNext;
+
+    if (canAdvance) {
+      _pendingTransitionCause = PlaybackTransitionCause.skipNext;
+    }
+
     try {
       await _audioPlayer.seekToNext();
     } catch (error) {
+      if (canAdvance &&
+          _pendingTransitionCause == PlaybackTransitionCause.skipNext) {
+        _pendingTransitionCause = null;
+      }
+
       _emitFailure(error);
       rethrow;
     }
@@ -201,9 +220,15 @@ class JustAudioPlaybackEngine implements PlaybackEngine {
       return;
     }
 
+    _pendingTransitionCause = PlaybackTransitionCause.skipPrevious;
+
     try {
       await _audioPlayer.seekToPrevious();
     } catch (error) {
+      if (_pendingTransitionCause == PlaybackTransitionCause.skipPrevious) {
+        _pendingTransitionCause = null;
+      }
+
       _emitFailure(error);
       rethrow;
     }
@@ -217,9 +242,20 @@ class JustAudioPlaybackEngine implements PlaybackEngine {
       throw RangeError.index(index, _state.queue.tracks, 'index');
     }
 
+    final changesTrack = index != _state.queue.currentIndex;
+
+    if (changesTrack) {
+      _pendingTransitionCause = PlaybackTransitionCause.skipToIndex;
+    }
+
     try {
       await _audioPlayer.seek(Duration.zero, index: index);
     } catch (error) {
+      if (changesTrack &&
+          _pendingTransitionCause == PlaybackTransitionCause.skipToIndex) {
+        _pendingTransitionCause = null;
+      }
+
       _emitFailure(error);
       rethrow;
     }
@@ -229,11 +265,11 @@ class JustAudioPlaybackEngine implements PlaybackEngine {
   Future<void> insertTrack(PlaybackTrack track, {required int index}) async {
     _ensureNotDisposed();
 
-    if (!track.hasPlayablePath) {
+    if (!track.hasPlayablePath || track.isBlocked) {
       throw ArgumentError.value(
         track.songId,
         'track',
-        'Playback track does not have a playable file path.',
+        'Playback track is unavailable or blocked.',
       );
     }
 
@@ -269,6 +305,8 @@ class JustAudioPlaybackEngine implements PlaybackEngine {
     final updatedQueue = _state.queue.removeTrackAt(index);
 
     try {
+      _isRemovingQueueTrack = true;
+
       await _audioPlayer.removeAudioSourceAt(index);
 
       _emit(
@@ -282,6 +320,8 @@ class JustAudioPlaybackEngine implements PlaybackEngine {
     } catch (error) {
       _emitFailure(error);
       rethrow;
+    } finally {
+      _isRemovingQueueTrack = false;
     }
   }
 
@@ -399,6 +439,13 @@ class JustAudioPlaybackEngine implements PlaybackEngine {
   }
 
   Future<void> _configureAudioSession() async {
+    final override = _configureAudioSessionOverride;
+
+    if (override != null) {
+      await override();
+      return;
+    }
+
     final session = await AudioSession.instance;
 
     await session.configure(const AudioSessionConfiguration.music());
@@ -409,7 +456,7 @@ class JustAudioPlaybackEngine implements PlaybackEngine {
       return;
     }
 
-    _emit(_state.copyWith(position: position));
+    _emit(_state.copyWith(position: position, clearTransitionCause: true));
   }
 
   void _handleDurationChanged(Duration? duration) {
@@ -417,11 +464,11 @@ class JustAudioPlaybackEngine implements PlaybackEngine {
       return;
     }
 
-    _emit(_state.copyWith(duration: duration));
+    _emit(_state.copyWith(duration: duration, clearTransitionCause: true));
   }
 
   void _handleCurrentIndexChanged(int? index) {
-    if (_disposed || index == null) {
+    if (_disposed || _isRemovingQueueTrack || index == null) {
       return;
     }
 
@@ -429,11 +476,24 @@ class JustAudioPlaybackEngine implements PlaybackEngine {
       return;
     }
 
+    final previousIndex = _state.queue.currentIndex;
+
+    if (index == previousIndex) {
+      _pendingTransitionCause = null;
+      return;
+    }
+
+    final transitionCause =
+        _pendingTransitionCause ?? PlaybackTransitionCause.automatic;
+
+    _pendingTransitionCause = null;
+
     _emit(
       _state.copyWith(
         queue: _state.queue.moveTo(index),
         position: Duration.zero,
         duration: _state.queue.trackAt(index)?.duration ?? Duration.zero,
+        transitionCause: transitionCause,
       ),
     );
   }
@@ -452,7 +512,13 @@ class JustAudioPlaybackEngine implements PlaybackEngine {
       ProcessingState.completed => PlaybackStatus.completed,
     };
 
-    _emit(_state.copyWith(status: status, clearError: true));
+    _emit(
+      _state.copyWith(
+        status: status,
+        clearError: true,
+        clearTransitionCause: true,
+      ),
+    );
   }
 
   void _handlePlayerError(PlayerException error) {
@@ -468,6 +534,7 @@ class JustAudioPlaybackEngine implements PlaybackEngine {
       _state.copyWith(
         status: PlaybackStatus.failed,
         errorMessage: error.toString(),
+        clearTransitionCause: true,
       ),
     );
   }

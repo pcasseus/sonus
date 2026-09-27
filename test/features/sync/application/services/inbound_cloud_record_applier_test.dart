@@ -153,6 +153,7 @@ void main() {
         'disc_number': 2,
         'duration_seconds': 222,
         'is_single': true,
+        'is_blocked': true,
         'featured_artists': ['Feature One', 'Feature Two'],
         'artwork_id': null,
         'created_at': '2026-09-10T10:00:00.000Z',
@@ -170,6 +171,7 @@ void main() {
       expect(song?.discNumber, 2);
       expect(song?.durationSeconds, 222);
       expect(song?.isSingle, isTrue);
+      expect(song?.isBlocked, isTrue);
       expect(song?.featuredArtists, ['Feature One', 'Feature Two']);
     });
 
