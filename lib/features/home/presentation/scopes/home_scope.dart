@@ -3,7 +3,10 @@ import 'dart:async';
 import 'package:flutter/widgets.dart';
 import 'package:provider/provider.dart';
 
+import '../../../analytics/application/services/analytics_artist_listening_duration_service.dart';
 import '../../../analytics/application/services/analytics_entity_ranking_service.dart';
+import '../../../analytics/domain/repositories/playback_listening_segment_repository.dart';
+import '../../../analytics/domain/repositories/playback_session_repository.dart';
 import '../../../analytics/domain/repositories/qualified_play_repository.dart';
 import '../../../library/application/repositories/library_query_repository.dart';
 import '../../application/services/home_data_service.dart';
@@ -22,6 +25,9 @@ class HomeScope extends StatefulWidget {
 class _HomeScopeState extends State<HomeScope> {
   LibraryQueryRepository? _library;
   QualifiedPlayRepository? _qualifiedPlays;
+  PlaybackSessionRepository? _playbackSessions;
+  PlaybackListeningSegmentRepository? _listeningSegments;
+
   HomeController? _controller;
 
   @override
@@ -30,14 +36,21 @@ class _HomeScopeState extends State<HomeScope> {
 
     final library = context.watch<LibraryQueryRepository?>();
     final qualifiedPlays = context.watch<QualifiedPlayRepository?>();
+    final playbackSessions = context.watch<PlaybackSessionRepository?>();
+    final listeningSegments = context
+        .watch<PlaybackListeningSegmentRepository?>();
 
     if (identical(library, _library) &&
-        identical(qualifiedPlays, _qualifiedPlays)) {
+        identical(qualifiedPlays, _qualifiedPlays) &&
+        identical(playbackSessions, _playbackSessions) &&
+        identical(listeningSegments, _listeningSegments)) {
       return;
     }
 
     _library = library;
     _qualifiedPlays = qualifiedPlays;
+    _playbackSessions = playbackSessions;
+    _listeningSegments = listeningSegments;
 
     _recreateController();
   }
@@ -59,8 +72,13 @@ class _HomeScopeState extends State<HomeScope> {
 
     final library = _library;
     final qualifiedPlays = _qualifiedPlays;
+    final playbackSessions = _playbackSessions;
+    final listeningSegments = _listeningSegments;
 
-    if (library == null || qualifiedPlays == null) {
+    if (library == null ||
+        qualifiedPlays == null ||
+        playbackSessions == null ||
+        listeningSegments == null) {
       return;
     }
 
@@ -68,6 +86,10 @@ class _HomeScopeState extends State<HomeScope> {
       library: library,
       analyticsRankings: AnalyticsEntityRankingService(
         qualifiedPlays: qualifiedPlays,
+      ),
+      artistListeningDurations: AnalyticsArtistListeningDurationService(
+        playbackSessions: playbackSessions,
+        listeningSegments: listeningSegments,
       ),
     );
 

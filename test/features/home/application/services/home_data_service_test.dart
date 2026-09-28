@@ -1,4 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sonus_next/features/analytics/application/services/analytics_artist_listening_duration_service.dart';
+import 'package:sonus_next/features/analytics/domain/entities/playback_listening_segment.dart';
+import 'package:sonus_next/features/analytics/domain/entities/playback_session.dart';
+import 'package:sonus_next/features/analytics/domain/models/listening_history_cursor.dart';
+import 'package:sonus_next/features/analytics/domain/repositories/playback_listening_segment_repository.dart';
+import 'package:sonus_next/features/analytics/domain/repositories/playback_session_repository.dart';
 import 'package:sonus_next/features/analytics/application/services/analytics_entity_ranking_service.dart';
 import 'package:sonus_next/features/analytics/domain/entities/qualified_play.dart';
 import 'package:sonus_next/features/analytics/domain/repositories/qualified_play_repository.dart';
@@ -63,6 +69,7 @@ void main() {
 
       final service = HomeDataService(
         library: library,
+        artistListeningDurations: _emptyArtistListeningDurations(),
         analyticsRankings: AnalyticsEntityRankingService(
           qualifiedPlays: qualifiedPlays,
         ),
@@ -138,6 +145,7 @@ void main() {
 
       final service = HomeDataService(
         library: library,
+        artistListeningDurations: _emptyArtistListeningDurations(),
         analyticsRankings: AnalyticsEntityRankingService(
           qualifiedPlays: qualifiedPlays,
         ),
@@ -183,6 +191,7 @@ void main() {
 
       final service = HomeDataService(
         library: library,
+        artistListeningDurations: _emptyArtistListeningDurations(),
         analyticsRankings: AnalyticsEntityRankingService(
           qualifiedPlays: qualifiedPlays,
         ),
@@ -236,6 +245,7 @@ void main() {
 
     final service = HomeDataService(
       library: library,
+      artistListeningDurations: _emptyArtistListeningDurations(),
       analyticsRankings: AnalyticsEntityRankingService(
         qualifiedPlays: qualifiedPlays,
       ),
@@ -257,9 +267,103 @@ void main() {
     );
   });
 
+  test(
+    'recently added hides unavailable tracks but keeps available blocked tracks',
+    () async {
+      final tracks = [
+        _track(id: 'song_missing', title: 'Missing', available: false),
+        _track(id: 'song_blocked', title: 'Blocked', blocked: true),
+        _track(id: 'song_visible', title: 'Visible'),
+      ];
+
+      final service = HomeDataService(
+        library: _FakeLibraryQueryRepository(tracks: tracks),
+        artistListeningDurations: _emptyArtistListeningDurations(),
+        analyticsRankings: AnalyticsEntityRankingService(
+          qualifiedPlays: _FakeQualifiedPlayRepository(),
+        ),
+        sectionLimit: 2,
+      );
+
+      final snapshot = await service.load(referenceLocal: referenceLocal);
+
+      expect(snapshot.recentlyAddedTracks.map((track) => track.songId), [
+        'song_blocked',
+        'song_visible',
+      ]);
+
+      expect(snapshot.recentlyAddedTracks.first.isBlocked, isTrue);
+    },
+  );
+
+  test('top artist exposes weekly audible listening duration', () async {
+    final library = _FakeLibraryQueryRepository(
+      tracks: [_track(id: 'song_1', title: 'Song 1')],
+      artists: [_artist(id: 'artist_1', name: 'Artist 1')],
+    );
+
+    final qualifiedPlays = _FakeQualifiedPlayRepository([
+      _play(
+        id: 'play_1',
+        songId: 'song_1',
+        artistId: 'artist_1',
+        qualifiedAt: DateTime(2026, 9, 27, 10),
+      ),
+    ]);
+
+    final session = PlaybackSession(
+      id: 'session_1',
+      songId: 'song_1',
+      artistId: 'artist_1',
+      albumId: 'album_1',
+      albumEditionId: 'edition_album_1',
+      songTitle: 'Song 1',
+      artistName: 'Artist 1',
+      albumTitle: 'Album 1',
+      albumEditionTitle: 'Standard',
+      startedAt: DateTime.utc(2026, 9, 27, 10),
+      endedAt: DateTime.utc(2026, 9, 27, 10, 4),
+      listenedDuration: const Duration(minutes: 4),
+      trackDuration: const Duration(minutes: 4),
+      finalPosition: const Duration(minutes: 4),
+      endReason: PlaybackSessionEndReason.completed,
+      createdAt: DateTime.utc(2026, 9, 27, 10),
+      updatedAt: DateTime.utc(2026, 9, 27, 10, 4),
+    );
+
+    final segment = PlaybackListeningSegment(
+      id: 'segment_1',
+      playbackSessionId: session.id,
+      startedAt: DateTime.utc(2026, 9, 27, 10),
+      endedAt: DateTime.utc(2026, 9, 27, 10, 4),
+      listenedDuration: const Duration(minutes: 4),
+      createdAt: DateTime.utc(2026, 9, 27, 10),
+      updatedAt: DateTime.utc(2026, 9, 27, 10, 4),
+    );
+
+    final service = HomeDataService(
+      library: library,
+      analyticsRankings: AnalyticsEntityRankingService(
+        qualifiedPlays: qualifiedPlays,
+      ),
+      artistListeningDurations: AnalyticsArtistListeningDurationService(
+        playbackSessions: _FakePlaybackSessionRepository([session]),
+        listeningSegments: _FakePlaybackListeningSegmentRepository([segment]),
+      ),
+    );
+
+    final snapshot = await service.load(referenceLocal: referenceLocal);
+
+    expect(snapshot.weeklyTopArtists, hasLength(1));
+    expect(
+      snapshot.weeklyTopArtists.single.weeklyListeningDuration,
+      const Duration(minutes: 4),
+    );
+  });
   test('rejects a non-positive section limit', () async {
     final service = HomeDataService(
       library: _FakeLibraryQueryRepository(),
+      artistListeningDurations: _emptyArtistListeningDurations(),
       analyticsRankings: AnalyticsEntityRankingService(
         qualifiedPlays: _FakeQualifiedPlayRepository(),
       ),
@@ -277,6 +381,7 @@ LibraryTrack _track({
   required String id,
   required String title,
   bool blocked = false,
+  bool available = true,
 }) {
   return LibraryTrack(
     songId: id,
@@ -293,7 +398,7 @@ LibraryTrack _track({
     isSingle: false,
     featuredArtists: const [],
     dateAdded: DateTime.utc(2026, 9, 27),
-    isAvailable: true,
+    isAvailable: available,
     isSongBlocked: blocked,
     filePath: 'C:/Music/$id.mp3',
   );
@@ -535,5 +640,166 @@ class _FakeLibraryQueryRepository implements LibraryQueryRepository {
     }
 
     return null;
+  }
+}
+
+AnalyticsArtistListeningDurationService _emptyArtistListeningDurations() {
+  return AnalyticsArtistListeningDurationService(
+    playbackSessions: _FakePlaybackSessionRepository(),
+    listeningSegments: _FakePlaybackListeningSegmentRepository(),
+  );
+}
+
+class _FakePlaybackSessionRepository implements PlaybackSessionRepository {
+  _FakePlaybackSessionRepository([
+    Iterable<PlaybackSession> sessions = const [],
+  ]) : _sessions = List<PlaybackSession>.from(sessions);
+
+  final List<PlaybackSession> _sessions;
+
+  @override
+  Future<void> create(PlaybackSession session) async {
+    _sessions.add(session);
+  }
+
+  @override
+  Future<void> save(PlaybackSession session) async {
+    final index = _sessions.indexWhere((value) => value.id == session.id);
+
+    if (index < 0) {
+      throw StateError('Playback session not found: ${session.id}');
+    }
+
+    _sessions[index] = session;
+  }
+
+  @override
+  Future<PlaybackSession?> getById(String id) async {
+    for (final session in _sessions) {
+      if (session.id == id) {
+        return session;
+      }
+    }
+
+    return null;
+  }
+
+  @override
+  Future<List<PlaybackSession>> getOpen() async {
+    return _sessions
+        .where((session) => !session.isEnded)
+        .toList(growable: false);
+  }
+
+  @override
+  Future<List<PlaybackSession>> getAll({
+    DateTime? startedAtOrAfter,
+    DateTime? startedBefore,
+  }) async {
+    return _sessions
+        .where((session) {
+          final startedAt = session.startedAt.toUtc();
+
+          if (startedAtOrAfter != null &&
+              startedAt.isBefore(startedAtOrAfter.toUtc())) {
+            return false;
+          }
+
+          if (startedBefore != null &&
+              !startedAt.isBefore(startedBefore.toUtc())) {
+            return false;
+          }
+
+          return true;
+        })
+        .toList(growable: false);
+  }
+
+  @override
+  Future<List<PlaybackSession>> getHistoryPage({
+    DateTime? startedAtOrAfter,
+    DateTime? startedBefore,
+    ListeningHistoryCursor? before,
+    required int limit,
+  }) async {
+    final sessions = await getAll(
+      startedAtOrAfter: startedAtOrAfter,
+      startedBefore: startedBefore,
+    );
+
+    return sessions.take(limit).toList(growable: false);
+  }
+}
+
+class _FakePlaybackListeningSegmentRepository
+    implements PlaybackListeningSegmentRepository {
+  _FakePlaybackListeningSegmentRepository([
+    Iterable<PlaybackListeningSegment> segments = const [],
+  ]) : _segments = List<PlaybackListeningSegment>.from(segments);
+
+  final List<PlaybackListeningSegment> _segments;
+
+  @override
+  Future<void> create(PlaybackListeningSegment segment) async {
+    _segments.add(segment);
+  }
+
+  @override
+  Future<void> save(PlaybackListeningSegment segment) async {
+    final index = _segments.indexWhere((value) => value.id == segment.id);
+
+    if (index < 0) {
+      throw StateError('Listening segment not found: ${segment.id}');
+    }
+
+    _segments[index] = segment;
+  }
+
+  @override
+  Future<PlaybackListeningSegment?> getById(String id) async {
+    for (final segment in _segments) {
+      if (segment.id == id) {
+        return segment;
+      }
+    }
+
+    return null;
+  }
+
+  @override
+  Future<PlaybackListeningSegment?> getOpenForSession(
+    String playbackSessionId,
+  ) async {
+    for (final segment in _segments) {
+      if (segment.playbackSessionId == playbackSessionId && !segment.isEnded) {
+        return segment;
+      }
+    }
+
+    return null;
+  }
+
+  @override
+  Future<List<PlaybackListeningSegment>> getForSession(
+    String playbackSessionId,
+  ) async {
+    return _segments
+        .where((segment) => segment.playbackSessionId == playbackSessionId)
+        .toList(growable: false);
+  }
+
+  @override
+  Future<List<PlaybackListeningSegment>> getAll({
+    DateTime? startedBefore,
+  }) async {
+    return _segments
+        .where((segment) {
+          if (startedBefore == null) {
+            return true;
+          }
+
+          return segment.startedAt.toUtc().isBefore(startedBefore.toUtc());
+        })
+        .toList(growable: false);
   }
 }

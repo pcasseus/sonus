@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../home/presentation/pages/home_page.dart';
 import '../../../import/presentation/pages/imports_page.dart';
 import '../../../library/presentation/pages/library_page.dart';
 import '../../../library/presentation/pages/tracks_page.dart';
@@ -92,8 +93,9 @@ class _AppShellPageState extends State<AppShellPage>
     final Widget page = switch (destination) {
       AppDestination.tracks => const TracksPage(),
       AppDestination.library => const LibraryPage(),
+      AppDestination.home => const HomePage(),
       AppDestination.settings => const SettingsPage(),
-      AppDestination.home || AppDestination.hot100 => AppDestinationPlaceholder(
+      AppDestination.hot100 => AppDestinationPlaceholder(
         destination: destination,
       ),
     };

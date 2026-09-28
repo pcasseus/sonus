@@ -1,6 +1,8 @@
 import '../../../analytics/application/models/analytics_period.dart';
 import '../../../analytics/application/models/analytics_ranked_entity.dart';
+import '../../../analytics/application/services/analytics_artist_listening_duration_service.dart';
 import '../../../analytics/application/services/analytics_entity_ranking_service.dart';
+import '../../../library/application/models/library_track_order.dart';
 import '../../../library/application/repositories/library_query_repository.dart';
 import '../models/home_popular_track.dart';
 import '../models/home_snapshot.dart';
@@ -10,11 +12,13 @@ class HomeDataService {
   const HomeDataService({
     required this._library,
     required this._analyticsRankings,
+    required this._artistListeningDurations,
     this.sectionLimit = 6,
   });
 
   final LibraryQueryRepository _library;
   final AnalyticsEntityRankingService _analyticsRankings;
+  final AnalyticsArtistListeningDurationService _artistListeningDurations;
 
   final int sectionLimit;
 
@@ -23,8 +27,8 @@ class HomeDataService {
       throw StateError('Home section limit must be greater than zero.');
     }
 
-    final recentlyAddedTracksFuture = _library.getRecentlyAddedTracks(
-      sectionLimit,
+    final recentlyAddedTracksFuture = _library.getTracks(
+      order: LibraryTrackOrder.dateAdded,
     );
 
     final recentlyAddedAlbumsFuture = _library.getRecentlyAddedAlbums(
@@ -36,15 +40,30 @@ class HomeDataService {
       referenceLocal: referenceLocal,
     );
 
+    final artistDurationsFuture = _artistListeningDurations.load(
+      period: AnalyticsPeriod.week,
+      referenceLocal: referenceLocal,
+    );
+
     final recentlyAddedTracks = await recentlyAddedTracksFuture;
     final recentlyAddedAlbums = await recentlyAddedAlbumsFuture;
     final rankings = await rankingsFuture;
+    final artistDurations = await artistDurationsFuture;
+
+    final visibleRecentlyAddedTracks = recentlyAddedTracks
+        .where((track) => track.isAvailable)
+        .take(sectionLimit)
+        .toList(growable: false);
 
     final popularTracks = await _buildPopularTracks(rankings.songs);
-    final topArtists = await _buildTopArtists(rankings.artists);
+
+    final topArtists = await _buildTopArtists(
+      rankings.artists,
+      artistDurations,
+    );
 
     return HomeSnapshot(
-      recentlyAddedTracks: List.unmodifiable(recentlyAddedTracks),
+      recentlyAddedTracks: List.unmodifiable(visibleRecentlyAddedTracks),
       recentlyAddedAlbums: List.unmodifiable(recentlyAddedAlbums),
       weeklyPopularTracks: List.unmodifiable(popularTracks),
       weeklyTopArtists: List.unmodifiable(topArtists),
@@ -81,6 +100,7 @@ class HomeDataService {
 
   Future<List<HomeTopArtist>> _buildTopArtists(
     List<AnalyticsRankedEntity> rankings,
+    Map<String, Duration> artistDurations,
   ) async {
     final result = <HomeTopArtist>[];
 
@@ -100,6 +120,8 @@ class HomeDataService {
           artist: artist,
           rank: result.length + 1,
           qualifiedStreamCount: ranking.qualifiedStreamCount,
+          weeklyListeningDuration:
+              artistDurations[ranking.entityId] ?? Duration.zero,
         ),
       );
     }
