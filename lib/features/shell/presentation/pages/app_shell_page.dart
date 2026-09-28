@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../charts/presentation/pages/charts_page.dart';
 import '../../../home/presentation/pages/home_page.dart';
 import '../../../import/presentation/pages/imports_page.dart';
 import '../../../library/presentation/pages/library_page.dart';
@@ -9,7 +10,6 @@ import '../../../search/presentation/pages/search_page.dart';
 import '../../../settings/presentation/pages/settings_page.dart';
 import '../../application/controllers/app_shell_controller.dart';
 import '../../domain/models/app_destination.dart';
-import '../widgets/app_destination_placeholder.dart';
 import '../widgets/shell_playback_slot.dart';
 
 class AppShellPage extends StatefulWidget {
@@ -95,9 +95,7 @@ class _AppShellPageState extends State<AppShellPage>
       AppDestination.library => const LibraryPage(),
       AppDestination.home => const HomePage(),
       AppDestination.settings => const SettingsPage(),
-      AppDestination.hot100 => AppDestinationPlaceholder(
-        destination: destination,
-      ),
+      AppDestination.hot100 => const ChartsPage(),
     };
 
     return KeyedSubtree(

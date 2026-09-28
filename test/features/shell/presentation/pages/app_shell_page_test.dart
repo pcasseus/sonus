@@ -101,7 +101,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(
-      find.byKey(const ValueKey<String>('app-destination-hot100')),
+      find.byKey(const ValueKey<String>('charts-initializing')),
       findsOneWidget,
     );
   });
