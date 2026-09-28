@@ -14,6 +14,8 @@ import 'package:sonus_next/features/analytics/domain/entities/qualified_play.dar
 import 'package:sonus_next/features/analytics/domain/repositories/playback_listening_segment_repository.dart';
 import 'package:sonus_next/features/analytics/domain/repositories/playback_session_repository.dart';
 import 'package:sonus_next/features/analytics/domain/repositories/qualified_play_repository.dart';
+import 'package:sonus_next/features/library/application/models/library_track.dart';
+import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
 import 'package:sonus_next/features/player/application/controllers/playback_coordinator.dart';
 import 'package:sonus_next/features/player/domain/models/playback_queue.dart';
 import 'package:sonus_next/features/player/domain/models/playback_repeat_mode.dart';
@@ -30,6 +32,7 @@ void main() {
   late _MemoryPlaybackListeningSegmentRepository listeningSegments;
   late ListeningSessionTracker tracker;
   late PlaybackAnalyticsController controller;
+  late PlaybackCoordinator playbackCoordinator;
   String? currentUserId;
 
   setUp(() {
@@ -58,8 +61,10 @@ void main() {
       qualifiedPlayIdGenerator: () => 'play_${++playNumber}',
     );
 
+    playbackCoordinator = PlaybackCoordinator(engine: engine);
+
     controller = PlaybackAnalyticsController(
-      playbackCoordinator: PlaybackCoordinator(engine: engine),
+      playbackCoordinator: playbackCoordinator,
       tracker: tracker,
       now: () => now,
       userIdProvider: () => currentUserId,
@@ -72,6 +77,40 @@ void main() {
     await engine.dispose();
   });
 
+  test(
+    'blacklisted song is rejected before analytics can create listening history',
+    () async {
+      final blacklistedTrack = LibraryTrack(
+        songId: 'song_blacklisted',
+        title: 'Blacklisted Track',
+        artistId: 'artist_1',
+        artistName: 'Artist',
+        albumId: 'album_1',
+        albumTitle: 'Album',
+        albumEditionId: 'edition_1',
+        albumEditionTitle: 'Standard',
+        albumEditionType: AlbumEditionType.standard,
+        trackNumber: 1,
+        durationSeconds: 180,
+        isSingle: false,
+        featuredArtists: const [],
+        dateAdded: now,
+        isAvailable: true,
+        isSongBlocked: true,
+        filePath: 'C:/Music/blacklisted.mp3',
+      );
+
+      await expectLater(
+        playbackCoordinator.playTrack(blacklistedTrack),
+        throwsStateError,
+      );
+
+      await controller.settled;
+
+      expect(playbackSessions.values, isEmpty);
+      expect(qualifiedPlays.values, isEmpty);
+    },
+  );
   test('does not create a session until playback actually starts', () async {
     engine.emit(state(status: PlaybackStatus.ready));
     await controller.settled;

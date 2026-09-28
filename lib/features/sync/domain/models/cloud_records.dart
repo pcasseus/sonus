@@ -22,7 +22,6 @@ class CloudArtistRecord extends CloudOwnedRecord {
     required super.userId,
     required this.name,
     required this.canonicalName,
-    required this.isBlacklisted,
     required super.createdAt,
     required super.updatedAt,
     super.deletedAt,
@@ -32,7 +31,6 @@ class CloudArtistRecord extends CloudOwnedRecord {
 
   final String name;
   final String canonicalName;
-  final bool isBlacklisted;
   final String? headerArtworkId;
   final String? topArtistsArtworkId;
 }

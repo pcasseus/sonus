@@ -44,7 +44,6 @@ void main() {
       expect(bundle.artist.saved, isNull);
       expect(bundle.artist.created?.id, 'artist-1');
       expect(bundle.artist.created?.name, 'Artist Name');
-      expect(bundle.artist.created?.isBlacklisted, isTrue);
       expect(bundle.artist.created?.canonicalName, 'artist name');
     });
 

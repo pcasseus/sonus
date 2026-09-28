@@ -19,7 +19,6 @@ class LibraryTrack {
     required this.dateAdded,
     required this.isAvailable,
     this.isSongBlocked = false,
-    this.isArtistBlacklisted = false,
     this.filePath,
     this.artworkId,
     this.artworkPath,
@@ -50,9 +49,8 @@ class LibraryTrack {
   final bool isAvailable;
 
   final bool isSongBlocked;
-  final bool isArtistBlacklisted;
 
-  bool get isBlocked => isSongBlocked || isArtistBlacklisted;
+  bool get isBlocked => isSongBlocked;
 
   final String? artworkId;
   final String? artworkPath;

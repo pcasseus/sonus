@@ -23,7 +23,7 @@ void main() {
       final result = await db.rawQuery('PRAGMA user_version');
 
       expect(result.single['user_version'], AppDatabase.databaseVersion);
-      expect(AppDatabase.databaseVersion, 14);
+      expect(AppDatabase.databaseVersion, 15);
     } finally {
       await appDatabase.close();
     }
@@ -846,12 +846,48 @@ void main() {
     }
   });
 
+  test(
+    'migration runner upgrades version 14 schema to version 15 and clears legacy artist blacklist state',
+    () async {
+      final db = await databaseFactoryFfi.openDatabase(inMemoryDatabasePath);
+
+      try {
+        await LibrarySchema.create(db);
+
+        final now = DateTime.utc(2026, 9, 27, 12).toIso8601String();
+
+        await db.insert(DatabaseTables.artists, {
+          'id': 'artist_legacy_blacklist',
+          'name': 'Legacy Artist',
+          'canonical_name': 'legacy artist',
+          'is_blacklisted': 1,
+          'created_at': now,
+          'updated_at': now,
+        });
+
+        await DatabaseMigrations.migrate(db, oldVersion: 14, newVersion: 15);
+
+        final rows = await db.query(
+          DatabaseTables.artists,
+          where: 'id = ?',
+          whereArgs: ['artist_legacy_blacklist'],
+        );
+
+        expect(rows, hasLength(1));
+        expect(rows.single['is_blacklisted'], 0);
+        expect(rows.single['name'], 'Legacy Artist');
+      } finally {
+        await db.close();
+      }
+    },
+  );
+
   test('migration runner fails loudly for unknown future migration', () async {
     final db = await databaseFactoryFfi.openDatabase(inMemoryDatabasePath);
 
     try {
       await expectLater(
-        DatabaseMigrations.migrate(db, oldVersion: 14, newVersion: 15),
+        DatabaseMigrations.migrate(db, oldVersion: 15, newVersion: 16),
         throwsA(isA<UnsupportedError>()),
       );
     } finally {

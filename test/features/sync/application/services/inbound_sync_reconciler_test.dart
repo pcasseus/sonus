@@ -194,7 +194,6 @@ void main() {
           id: 'artist-a',
           name: 'Old Local Artist',
           canonicalName: 'old local artist',
-          isBlacklisted: false,
           createdAt: DateTime.utc(2026, 9, 10),
           updatedAt: DateTime.utc(2026, 9, 13, 8),
         );
@@ -515,7 +514,6 @@ void main() {
           id: 'artist-a',
           name: 'Local Artist',
           canonicalName: 'local artist',
-          isBlacklisted: false,
           createdAt: DateTime.utc(2026, 9, 10),
           updatedAt: DateTime.utc(2026, 9, 13, 9),
         );
@@ -618,7 +616,6 @@ CloudSyncItem _artistItem({
       userId: userId,
       name: 'Artist $id',
       canonicalName: 'artist $id',
-      isBlacklisted: false,
       createdAt: DateTime.utc(2026, 9, 10),
       updatedAt: DateTime.utc(2026, 9, 12),
       deletedAt: deletedAt,

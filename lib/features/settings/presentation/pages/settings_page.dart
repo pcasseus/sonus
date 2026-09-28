@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../../account/application/controllers/account_controller.dart';
 import '../../../analytics/presentation/pages/listening_history_page.dart';
+import 'blacklisted_songs_page.dart';
 
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key});
@@ -25,7 +26,35 @@ class SettingsPage extends StatelessWidget {
           Text('Listening', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 8),
           const _ListeningCard(),
+          const SizedBox(height: 24),
+          Text('Library', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 8),
+          const _LibraryCard(),
         ],
+      ),
+    );
+  }
+}
+
+class _LibraryCard extends StatelessWidget {
+  const _LibraryCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: ListTile(
+        key: const ValueKey<String>('settings-blacklisted-songs'),
+        leading: const Icon(Icons.block_rounded),
+        title: const Text('Blacklisted songs'),
+        subtitle: const Text('Review songs you have excluded from playback.'),
+        trailing: const Icon(Icons.chevron_right_rounded),
+        onTap: () {
+          Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (context) => const BlacklistedSongsPage(),
+            ),
+          );
+        },
       ),
     );
   }

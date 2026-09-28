@@ -4,7 +4,6 @@ class LibraryArtist {
     required this.name,
     required this.albumCount,
     required this.songCount,
-    this.isBlacklisted = false,
     required this.dateAdded,
     this.headerArtworkId,
     this.headerArtworkPath,
@@ -17,7 +16,6 @@ class LibraryArtist {
 
   final int albumCount;
   final int songCount;
-  final bool isBlacklisted;
 
   final String? headerArtworkId;
   final String? headerArtworkPath;

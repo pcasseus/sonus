@@ -414,6 +414,7 @@ void main() {
         importedSong.copyWith(
           title: 'My Sonus Edit',
           canonicalTitle: 'my sonus edit',
+          isBlocked: true,
           updatedAt: editedAt,
         ),
       );
@@ -463,6 +464,7 @@ void main() {
       expect(songAfterRescan, isNotNull);
       expect(songAfterRescan!.title, 'My Sonus Edit');
       expect(songAfterRescan.canonicalTitle, 'my sonus edit');
+      expect(songAfterRescan.isBlocked, isTrue);
       expect(songAfterRescan.updatedAt, editedAt);
 
       final reviewAfterRescan = await reviewDao.findBySongId(first.songId!);

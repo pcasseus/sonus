@@ -183,12 +183,20 @@ abstract final class DatabaseMigrations {
 
       case 14:
         await db.execute('''
-          CREATE UNIQUE INDEX idx_playback_listening_segments_one_open_per_session
+          CREATE UNIQUE INDEX IF NOT EXISTS idx_playback_listening_segments_one_open_per_session
           ON ${DatabaseTables.playbackListeningSegments}(playback_session_id)
           WHERE ended_at IS NULL
         ''');
         return;
 
+      case 15:
+        await db.update(
+          DatabaseTables.artists,
+          const {'is_blacklisted': 0},
+          where: 'is_blacklisted != ?',
+          whereArgs: [0],
+        );
+        return;
       default:
         throw UnsupportedError(
           'No Sonus database migration exists for version $targetVersion.',

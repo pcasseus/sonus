@@ -810,65 +810,71 @@ void main() {
       await engine.dispose();
     });
 
-    testWidgets('blocked album track remains unblockable from its menu', (
-      tester,
-    ) async {
-      final repository = FakeLibraryQueryRepository(
-        album: createAlbum(),
-        tracks: [
-          createTrack(
-            songId: 'blocked-song',
-            title: 'Blocked Song',
-            isSongBlocked: true,
+    testWidgets(
+      'blacklisted album track remains removable from the blacklist',
+      (tester) async {
+        final repository = FakeLibraryQueryRepository(
+          album: createAlbum(),
+          tracks: [
+            createTrack(
+              songId: 'blocked-song',
+              title: 'Blocked Song',
+              isSongBlocked: true,
+            ),
+          ],
+        );
+
+        final accountRepository = FakeAccountRepository(
+          currentUser: const AccountUser(
+            id: 'user-1',
+            email: 'user@example.com',
           ),
-        ],
-      );
+        );
 
-      final accountRepository = FakeAccountRepository(
-        currentUser: const AccountUser(id: 'user-1', email: 'user@example.com'),
-      );
+        final service = FakeSongBlockService();
 
-      final service = FakeSongBlockService();
+        await tester.pumpWidget(
+          buildSubject(
+            repository: repository,
+            accountRepository: accountRepository,
+            songBlockService: service,
+          ),
+        );
 
-      await tester.pumpWidget(
-        buildSubject(
-          repository: repository,
-          accountRepository: accountRepository,
-          songBlockService: service,
-        ),
-      );
+        await tester.pumpAndSettle();
 
-      await tester.pumpAndSettle();
+        expect(find.text('Blacklisted'), findsOneWidget);
+        expect(
+          find.byKey(
+            const ValueKey<String>('album-profile-availability-notice'),
+          ),
+          findsNothing,
+        );
 
-      expect(find.text('Blocked'), findsOneWidget);
-      expect(
-        find.byKey(const ValueKey<String>('album-profile-availability-notice')),
-        findsNothing,
-      );
+        final menuFinder = find.byKey(
+          const ValueKey<String>('album-track-menu-blocked-song'),
+        );
 
-      final menuFinder = find.byKey(
-        const ValueKey<String>('album-track-menu-blocked-song'),
-      );
+        expect(
+          tester.widget<PopupMenuButton<dynamic>>(menuFinder).enabled,
+          isTrue,
+        );
 
-      expect(
-        tester.widget<PopupMenuButton<dynamic>>(menuFinder).enabled,
-        isTrue,
-      );
+        await tester.tap(menuFinder);
+        await tester.pumpAndSettle();
 
-      await tester.tap(menuFinder);
-      await tester.pumpAndSettle();
+        expect(find.text('Remove from blacklist'), findsOneWidget);
 
-      expect(find.text('Unblock song'), findsOneWidget);
+        await tester.tap(find.text('Remove from blacklist'));
+        await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Unblock song'));
-      await tester.pumpAndSettle();
-
-      expect(service.setBlockedCallCount, 1);
-      expect(service.lastUserId, 'user-1');
-      expect(service.lastSongId, 'blocked-song');
-      expect(service.lastIsBlocked, isFalse);
-      expect(find.text('Song unblocked.'), findsOneWidget);
-    });
+        expect(service.setBlockedCallCount, 1);
+        expect(service.lastUserId, 'user-1');
+        expect(service.lastSongId, 'blocked-song');
+        expect(service.lastIsBlocked, isFalse);
+        expect(find.text('Removed from blacklist.'), findsOneWidget);
+      },
+    );
   });
 }
 
@@ -949,7 +955,6 @@ LibraryTrack createTrack({
   String? filePath,
   bool isAvailable = true,
   bool isSongBlocked = false,
-  bool isArtistBlacklisted = false,
 }) {
   return LibraryTrack(
     songId: songId,
@@ -969,7 +974,6 @@ LibraryTrack createTrack({
     filePath: filePath ?? '/music/$songId.mp3',
     isAvailable: isAvailable,
     isSongBlocked: isSongBlocked,
-    isArtistBlacklisted: isArtistBlacklisted,
   );
 }
 
@@ -1085,7 +1089,7 @@ class FakeSongBlockService extends SongBlockService {
 
   @override
   Future<Song> setBlocked({
-    required String userId,
+    String? userId,
     required String songId,
     required bool isBlocked,
     DateTime? now,

@@ -387,9 +387,7 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
     String? userId,
     bool isBlocked,
   ) async {
-    if (userId == null ||
-        userId.trim().isEmpty ||
-        !controller.canSetTrackBlocked(userId)) {
+    if (!controller.canSetTrackBlocked(userId)) {
       return;
     }
 
@@ -406,7 +404,9 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(isBlocked ? 'Song blocked.' : 'Song unblocked.'),
+          content: Text(
+            isBlocked ? 'Song blacklisted.' : 'Removed from blacklist.',
+          ),
         ),
       );
     } catch (_) {
@@ -415,7 +415,7 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
       }
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not update song blocking.')),
+        const SnackBar(content: Text('Could not update blacklist.')),
       );
     }
   }
@@ -927,7 +927,9 @@ class _TrackTile extends StatelessWidget {
                         : Icons.block_rounded,
                   ),
                   title: Text(
-                    track.isSongBlocked ? 'Unblock song' : 'Block song',
+                    track.isSongBlocked
+                        ? 'Remove from blacklist'
+                        : 'Blacklist song',
                   ),
                   contentPadding: EdgeInsets.zero,
                 ),
@@ -958,7 +960,7 @@ class _TrackTile extends StatelessWidget {
     final parts = <String>[];
 
     if (track.isBlocked) {
-      parts.add('Blocked');
+      parts.add('Blacklisted');
     } else if (!track.isAvailable ||
         track.filePath == null ||
         track.filePath!.trim().isEmpty) {

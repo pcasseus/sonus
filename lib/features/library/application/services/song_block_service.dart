@@ -8,15 +8,15 @@ class SongBlockService {
   final SyncMutationRunner mutationRunner;
 
   Future<Song> setBlocked({
-    required String userId,
+    String? userId,
     required String songId,
     required bool isBlocked,
     DateTime? now,
   }) {
-    final normalizedUserId = userId.trim();
+    final normalizedUserId = userId?.trim();
     final normalizedSongId = songId.trim();
 
-    if (normalizedUserId.isEmpty) {
+    if (normalizedUserId != null && normalizedUserId.isEmpty) {
       throw ArgumentError.value(userId, 'userId', 'User id must not be blank.');
     }
 
@@ -37,11 +37,13 @@ class SongBlockService {
 
       await context.songRepository.save(updated);
 
-      await context.localSyncRepository.recordUpsert(
-        userId: normalizedUserId,
-        entityType: CloudDataEntity.song,
-        entityId: updated.id,
-      );
+      if (normalizedUserId != null) {
+        await context.localSyncRepository.recordUpsert(
+          userId: normalizedUserId,
+          entityType: CloudDataEntity.song,
+          entityId: updated.id,
+        );
+      }
 
       return updated;
     });

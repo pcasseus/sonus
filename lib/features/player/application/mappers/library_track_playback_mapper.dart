@@ -17,7 +17,6 @@ abstract final class LibraryTrackPlaybackMapper {
       filePath: track.filePath ?? '',
       duration: Duration(seconds: track.durationSeconds),
       isSongBlocked: track.isSongBlocked,
-      isArtistBlacklisted: track.isArtistBlacklisted,
     );
   }
 

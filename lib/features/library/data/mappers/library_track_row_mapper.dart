@@ -39,7 +39,6 @@ abstract final class LibraryTrackRowMapper {
       filePath: row['file_path'] as String?,
       isAvailable: (row['is_available'] as int? ?? 0) == 1,
       isSongBlocked: (row['song_is_blocked'] as int? ?? 0) == 1,
-      isArtistBlacklisted: (row['artist_is_blacklisted'] as int? ?? 0) == 1,
     );
   }
 }

@@ -12,7 +12,6 @@ import 'package:sonus_next/features/library/application/models/library_artist.da
 import 'package:sonus_next/features/library/application/models/library_track.dart';
 import 'package:sonus_next/features/library/application/models/library_track_order.dart';
 import 'package:sonus_next/features/library/application/repositories/library_query_repository.dart';
-import 'package:sonus_next/features/library/application/services/artist_blacklist_service.dart';
 import 'package:sonus_next/features/library/application/services/artist_profile_editing_service.dart';
 import 'package:sonus_next/features/library/application/services/song_block_service.dart';
 import 'package:sonus_next/features/library/application/services/track_profile_editing_service.dart';
@@ -1219,35 +1218,26 @@ void main() {
       controller.dispose();
     });
 
-    test('reports whether artist and song blocking are available', () async {
+    test('reports whether song blocking is available', () async {
       final repository = FakeLibraryQueryRepository(
         artist: createArtist(),
         tracks: [createTrack()],
       );
-
-      final blacklistService = FakeArtistBlacklistService();
       final songBlockService = FakeSongBlockService();
 
       final controller = ArtistProfileController(
         repository: repository,
         artistId: 'artist-1',
-        artistBlacklistService: blacklistService,
         songBlockService: songBlockService,
       );
 
       await controller.load();
 
-      expect(controller.canSetArtistBlacklisted('user-1'), isTrue);
-      expect(controller.canSetArtistBlacklisted('  user-1  '), isTrue);
-      expect(controller.canSetArtistBlacklisted(null), isFalse);
-      expect(controller.canSetArtistBlacklisted(''), isFalse);
-      expect(controller.canSetArtistBlacklisted('   '), isFalse);
-
       expect(controller.canSetTrackBlocked('user-1'), isTrue);
       expect(controller.canSetTrackBlocked('  user-1  '), isTrue);
-      expect(controller.canSetTrackBlocked(null), isFalse);
-      expect(controller.canSetTrackBlocked(''), isFalse);
-      expect(controller.canSetTrackBlocked('   '), isFalse);
+      expect(controller.canSetTrackBlocked(null), isTrue);
+      expect(controller.canSetTrackBlocked(''), isTrue);
+      expect(controller.canSetTrackBlocked('   '), isTrue);
 
       final missingServicesController = ArtistProfileController(
         repository: repository,
@@ -1255,52 +1245,11 @@ void main() {
       );
 
       await missingServicesController.load();
-
-      expect(
-        missingServicesController.canSetArtistBlacklisted('user-1'),
-        isFalse,
-      );
       expect(missingServicesController.canSetTrackBlocked('user-1'), isFalse);
 
       controller.dispose();
       missingServicesController.dispose();
     });
-
-    test(
-      'setArtistBlacklisted forwards mutation and refreshes artist profile',
-      () async {
-        final repository = FakeLibraryQueryRepository(
-          artist: createArtist(),
-          tracks: [createTrack()],
-        );
-
-        final service = FakeArtistBlacklistService();
-
-        final controller = ArtistProfileController(
-          repository: repository,
-          artistId: 'artist-1',
-          artistBlacklistService: service,
-        );
-
-        await controller.load();
-
-        expect(repository.artistRequestCount, 1);
-
-        final changed = await controller.setArtistBlacklisted(
-          userId: 'user-1',
-          isBlacklisted: true,
-        );
-
-        expect(changed, isTrue);
-        expect(service.setBlacklistedCallCount, 1);
-        expect(service.lastUserId, 'user-1');
-        expect(service.lastArtistId, 'artist-1');
-        expect(service.lastIsBlacklisted, isTrue);
-        expect(repository.artistRequestCount, 2);
-
-        controller.dispose();
-      },
-    );
 
     test(
       'setTrackBlocked forwards mutation and refreshes artist profile',
@@ -1340,7 +1289,7 @@ void main() {
     );
 
     test(
-      'blocking mutations reject blank users and missing services',
+      'blocking mutations allow anonymous users but reject missing services',
       () async {
         final repository = FakeLibraryQueryRepository(
           artist: createArtist(),
@@ -1355,14 +1304,6 @@ void main() {
         await missingServicesController.load();
 
         expect(
-          await missingServicesController.setArtistBlacklisted(
-            userId: 'user-1',
-            isBlacklisted: true,
-          ),
-          isFalse,
-        );
-
-        expect(
           await missingServicesController.setTrackBlocked(
             userId: 'user-1',
             track: missingServicesController.tracks.single,
@@ -1370,26 +1311,15 @@ void main() {
           ),
           isFalse,
         );
-
-        final blacklistService = FakeArtistBlacklistService();
         final songBlockService = FakeSongBlockService();
 
         final blankUserController = ArtistProfileController(
           repository: repository,
           artistId: 'artist-1',
-          artistBlacklistService: blacklistService,
           songBlockService: songBlockService,
         );
 
         await blankUserController.load();
-
-        expect(
-          await blankUserController.setArtistBlacklisted(
-            userId: '   ',
-            isBlacklisted: true,
-          ),
-          isFalse,
-        );
 
         expect(
           await blankUserController.setTrackBlocked(
@@ -1397,11 +1327,15 @@ void main() {
             track: blankUserController.tracks.single,
             isBlocked: true,
           ),
-          isFalse,
+          isTrue,
         );
-
-        expect(blacklistService.setBlacklistedCallCount, 0);
-        expect(songBlockService.setBlockedCallCount, 0);
+        expect(songBlockService.setBlockedCallCount, 1);
+        expect(songBlockService.lastUserId, isNull);
+        expect(
+          songBlockService.lastSongId,
+          blankUserController.tracks.single.songId,
+        );
+        expect(songBlockService.lastIsBlocked, isTrue);
 
         missingServicesController.dispose();
         blankUserController.dispose();
@@ -1576,7 +1510,7 @@ class FakeSongBlockService extends SongBlockService {
 
   @override
   Future<Song> setBlocked({
-    required String userId,
+    String? userId,
     required String songId,
     required bool isBlocked,
     DateTime? now,
@@ -1602,40 +1536,6 @@ class FakeSongBlockService extends SongBlockService {
       featuredArtists: const [],
       artworkId: null,
       isBlocked: isBlocked,
-      createdAt: timestamp,
-      updatedAt: timestamp,
-    );
-  }
-}
-
-class FakeArtistBlacklistService extends ArtistBlacklistService {
-  FakeArtistBlacklistService()
-    : super(mutationRunner: UnusedSyncMutationRunner());
-
-  int setBlacklistedCallCount = 0;
-  String? lastUserId;
-  String? lastArtistId;
-  bool? lastIsBlacklisted;
-
-  @override
-  Future<Artist> setBlacklisted({
-    required String userId,
-    required String artistId,
-    required bool isBlacklisted,
-    DateTime? now,
-  }) async {
-    setBlacklistedCallCount++;
-    lastUserId = userId;
-    lastArtistId = artistId;
-    lastIsBlacklisted = isBlacklisted;
-
-    final timestamp = now ?? DateTime.utc(2026, 1, 1);
-
-    return Artist(
-      id: artistId,
-      name: 'Test Artist',
-      canonicalName: 'test artist',
-      isBlacklisted: isBlacklisted,
       createdAt: timestamp,
       updatedAt: timestamp,
     );
