@@ -8,6 +8,8 @@ abstract interface class PlaybackSessionRepository {
 
   Future<PlaybackSession?> getById(String id);
 
+  Future<List<PlaybackSession>> getByIds(Iterable<String> ids);
+
   Future<List<PlaybackSession>> getOpen();
 
   Future<List<PlaybackSession>> getAll({

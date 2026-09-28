@@ -23,7 +23,7 @@ void main() {
       final result = await db.rawQuery('PRAGMA user_version');
 
       expect(result.single['user_version'], AppDatabase.databaseVersion);
-      expect(AppDatabase.databaseVersion, 15);
+      expect(AppDatabase.databaseVersion, 16);
     } finally {
       await appDatabase.close();
     }
@@ -882,12 +882,80 @@ void main() {
     },
   );
 
+  test('migration runner upgrades version 15 schema to version 16', () async {
+    final db = await databaseFactoryFfi.openDatabase(inMemoryDatabasePath);
+
+    try {
+      await DatabaseMigrations.migrate(db, oldVersion: 15, newVersion: 16);
+
+      final tables = await db.rawQuery('''
+        SELECT name
+        FROM sqlite_master
+        WHERE type = 'table'
+      ''');
+
+      final names = tables
+          .map((row) => row['name'])
+          .whereType<String>()
+          .toSet();
+
+      expect(names, contains(DatabaseTables.chartSnapshots));
+      expect(names, contains(DatabaseTables.chartEntries));
+
+      final snapshotColumns = await db.rawQuery(
+        'PRAGMA table_info(${DatabaseTables.chartSnapshots})',
+      );
+
+      expect(
+        snapshotColumns.map((row) => row['name']),
+        containsAll({
+          'id',
+          'chart_type',
+          'week_start_utc',
+          'week_end_utc',
+          'finalized_at',
+          'revision',
+          'created_at',
+          'updated_at',
+        }),
+      );
+
+      final entryColumns = await db.rawQuery(
+        'PRAGMA table_info(${DatabaseTables.chartEntries})',
+      );
+
+      expect(
+        entryColumns.map((row) => row['name']),
+        containsAll({
+          'id',
+          'chart_snapshot_id',
+          'entity_id',
+          'title',
+          'artist_name',
+          'album_title',
+          'rank',
+          'qualified_stream_count',
+          'previous_final_rank',
+          'peak_rank',
+          'peak_achieved_at',
+          'weeks_on_chart',
+          'movement',
+          'last_qualified_at',
+          'created_at',
+          'updated_at',
+        }),
+      );
+    } finally {
+      await db.close();
+    }
+  });
+
   test('migration runner fails loudly for unknown future migration', () async {
     final db = await databaseFactoryFfi.openDatabase(inMemoryDatabasePath);
 
     try {
       await expectLater(
-        DatabaseMigrations.migrate(db, oldVersion: 15, newVersion: 16),
+        DatabaseMigrations.migrate(db, oldVersion: 16, newVersion: 17),
         throwsA(isA<UnsupportedError>()),
       );
     } finally {

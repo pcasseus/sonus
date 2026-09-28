@@ -374,6 +374,11 @@ class _MemoryPlaybackSessionRepository implements PlaybackSessionRepository {
   Future<PlaybackSession?> getById(String id) async => _values[id];
 
   @override
+  Future<List<PlaybackSession>> getByIds(Iterable<String> ids) {
+    throw UnimplementedError();
+  }
+
+  @override
   Future<List<PlaybackSession>> getOpen() async {
     return _values.values
         .where((session) => !session.isEnded)

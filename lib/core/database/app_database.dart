@@ -3,6 +3,7 @@ import 'package:sqflite/sqflite.dart' as sqflite;
 
 import 'database_migrations.dart';
 import 'schema/analytics_schema.dart';
+import 'schema/chart_schema.dart';
 import 'schema/import_schema.dart';
 import 'schema/library_schema.dart';
 import 'schema/lyrics_schema.dart';
@@ -14,7 +15,7 @@ class AppDatabase {
       _databasePathOverride = databasePath;
 
   static const String databaseName = 'sonus_next.db';
-  static const int databaseVersion = 15;
+  static const int databaseVersion = 16;
 
   final sqflite.DatabaseFactory _databaseFactory;
   final String? _databasePathOverride;
@@ -75,6 +76,7 @@ class AppDatabase {
     await ImportSchema.createSongImportReviews(db);
     await LyricsSchema.create(db);
     await AnalyticsSchema.create(db);
+    await ChartSchema.create(db);
     await SyncSchema.create(db);
   }
 

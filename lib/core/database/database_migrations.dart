@@ -2,6 +2,7 @@ import 'package:sqflite/sqflite.dart';
 
 import 'database_tables.dart';
 import 'schema/analytics_schema.dart';
+import 'schema/chart_schema.dart';
 import 'schema/import_schema.dart';
 import 'schema/library_schema.dart';
 import 'schema/lyrics_schema.dart';
@@ -196,6 +197,10 @@ abstract final class DatabaseMigrations {
           where: 'is_blacklisted != ?',
           whereArgs: [0],
         );
+        return;
+
+      case 16:
+        await ChartSchema.create(db);
         return;
       default:
         throw UnsupportedError(
