@@ -57,7 +57,7 @@ class LibraryImportService {
             songId: existingBinding.songId,
           );
 
-          return _ingestLyrics(candidate, result);
+          return await _ingestLyrics(candidate, result);
         }
       } catch (error) {
         return ImportResult(
@@ -81,7 +81,7 @@ class LibraryImportService {
         now: timestamp,
       );
 
-      return _ingestLyrics(candidate, result);
+      return await _ingestLyrics(candidate, result);
     } catch (error) {
       return ImportResult(
         status: ImportResultStatus.failed,

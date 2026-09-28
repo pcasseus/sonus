@@ -111,7 +111,7 @@ class ImportsController extends ChangeNotifier {
         return false;
       }
 
-      return _execute(
+      return await _execute(
         () => _workflowService.importSingleSong(
           filePath,
           onProgress: _handleProgress,

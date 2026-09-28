@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../core/database/app_database.dart';
 import '../features/account/domain/repositories/account_repository.dart';
 import '../features/account/presentation/scopes/account_scope.dart';
+import '../features/home/presentation/scopes/home_scope.dart';
 import '../features/import/presentation/scopes/import_scope.dart';
 import '../features/library/presentation/scopes/library_query_scope.dart';
 import '../features/player/presentation/scopes/playback_scope.dart';
@@ -30,16 +31,18 @@ class SonusApp extends StatelessWidget {
         child: AccountScope(
           repository: accountRepository,
           child: AccountAnalyticsBridge(
-            child: ImportScope(
-              child: MaterialApp(
-                debugShowCheckedModeBanner: false,
-                title: 'Sonus',
-                theme: ThemeData(
-                  colorScheme: ColorScheme.fromSeed(
-                    seedColor: Colors.deepPurple,
+            child: HomeScope(
+              child: ImportScope(
+                child: MaterialApp(
+                  debugShowCheckedModeBanner: false,
+                  title: 'Sonus',
+                  theme: ThemeData(
+                    colorScheme: ColorScheme.fromSeed(
+                      seedColor: Colors.deepPurple,
+                    ),
                   ),
+                  home: const AppShellPage(),
                 ),
-                home: const AppShellPage(),
               ),
             ),
           ),
