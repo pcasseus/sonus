@@ -196,6 +196,11 @@ class _FakePlaybackSessionRepository implements PlaybackSessionRepository {
   }
 
   @override
+  Future<List<PlaybackSession>> getByIds(Iterable<String> ids) {
+    throw UnimplementedError();
+  }
+
+  @override
   Future<List<PlaybackSession>> getOpen() async {
     return _sessions
         .where((session) => !session.isEnded)

@@ -37,6 +37,23 @@ class PlaybackSessionDao {
     return rows.isEmpty ? null : rows.single;
   }
 
+  Future<List<Map<String, Object?>>> findByIds(Iterable<String> ids) async {
+    final uniqueIds = ids.toSet().toList(growable: false);
+
+    if (uniqueIds.isEmpty) {
+      return const [];
+    }
+
+    final placeholders = List.filled(uniqueIds.length, '?').join(', ');
+
+    return db.query(
+      DatabaseTables.playbackSessions,
+      where: 'id IN ($placeholders)',
+      whereArgs: uniqueIds,
+      orderBy: 'id ASC',
+    );
+  }
+
   Future<List<Map<String, Object?>>> findOpen() {
     return db.query(
       DatabaseTables.playbackSessions,

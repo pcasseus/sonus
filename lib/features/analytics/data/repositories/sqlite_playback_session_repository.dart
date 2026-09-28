@@ -27,6 +27,13 @@ class SqlitePlaybackSessionRepository implements PlaybackSessionRepository {
   }
 
   @override
+  Future<List<PlaybackSession>> getByIds(Iterable<String> ids) async {
+    final rows = await dao.findByIds(ids);
+
+    return rows.map(PlaybackSessionRowMapper.fromRow).toList(growable: false);
+  }
+
+  @override
   Future<List<PlaybackSession>> getOpen() async {
     final rows = await dao.findOpen();
 
