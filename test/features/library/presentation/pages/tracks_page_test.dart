@@ -391,6 +391,44 @@ void main() {
       expect(find.text('1 song in your library'), findsOneWidget);
     });
 
+    testWidgets('signed-out user can blacklist a song from the track menu', (
+      tester,
+    ) async {
+      final repository = FakeLibraryQueryRepository(
+        tracks: [createTrack(songId: 'song-local-block', title: 'Local Block')],
+      );
+
+      final service = FakeSongBlockService();
+
+      await tester.pumpWidget(
+        buildSubject(repository: repository, songBlockService: service),
+      );
+
+      await tester.pumpAndSettle();
+
+      final menuFinder = find.byKey(
+        const ValueKey<String>('track-menu-song-local-block'),
+      );
+
+      expect(
+        tester.widget<PopupMenuButton<dynamic>>(menuFinder).enabled,
+        isTrue,
+      );
+
+      await tester.tap(menuFinder);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Blacklist song'), findsOneWidget);
+
+      await tester.tap(find.text('Blacklist song'));
+      await tester.pumpAndSettle();
+
+      expect(service.setBlockedCallCount, 1);
+      expect(service.lastUserId, isNull);
+      expect(service.lastSongId, 'song-local-block');
+      expect(service.lastIsBlocked, isTrue);
+      expect(find.text('Song blacklisted.'), findsOneWidget);
+    });
     testWidgets('signed-in user can block a song from the track menu', (
       tester,
     ) async {
@@ -735,7 +773,7 @@ class FakeSongBlockService extends SongBlockService {
 
   @override
   Future<Song> setBlocked({
-    required String userId,
+    String? userId,
     required String songId,
     required bool isBlocked,
     DateTime? now,

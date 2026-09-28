@@ -183,7 +183,7 @@ abstract final class DatabaseMigrations {
 
       case 14:
         await db.execute('''
-          CREATE UNIQUE INDEX idx_playback_listening_segments_one_open_per_session
+          CREATE UNIQUE INDEX IF NOT EXISTS idx_playback_listening_segments_one_open_per_session
           ON ${DatabaseTables.playbackListeningSegments}(playback_session_id)
           WHERE ended_at IS NULL
         ''');

@@ -122,7 +122,9 @@ void main() {
     expect(find.text('Removed from blacklist.'), findsOneWidget);
   });
 
-  testWidgets('removal is disabled while signed out', (tester) async {
+  testWidgets('signed-out user can remove a song from the blacklist locally', (
+    tester,
+  ) async {
     final repository = _FakeLibraryQueryRepository(
       tracks: [
         _track(
@@ -133,20 +135,37 @@ void main() {
       ],
     );
 
-    final service = _FakeSongBlockService();
+    final service = _FakeSongBlockService(
+      onSetBlocked: ({required songId, required isBlocked}) {
+        repository.setBlocked(songId, isBlocked);
+      },
+    );
 
     await tester.pumpWidget(
       _buildSubject(repository: repository, songBlockService: service),
     );
     await tester.pumpAndSettle();
 
-    final button = tester.widget<TextButton>(
-      find.byKey(
-        const ValueKey<String>('remove-blacklisted-song-blocked-song'),
-      ),
+    final buttonFinder = find.byKey(
+      const ValueKey<String>('remove-blacklisted-song-blocked-song'),
     );
 
-    expect(button.onPressed, isNull);
+    final button = tester.widget<IconButton>(buttonFinder);
+
+    expect(button.onPressed, isNotNull);
+    expect(find.byTooltip('Remove from blacklist'), findsOneWidget);
+
+    await tester.tap(buttonFinder);
+    await tester.pumpAndSettle();
+
+    expect(service.setBlockedCallCount, 1);
+    expect(service.lastUserId, isNull);
+    expect(service.lastSongId, 'blocked-song');
+    expect(service.lastIsBlocked, isFalse);
+
+    expect(find.text('Blocked Song'), findsNothing);
+    expect(find.text('No blacklisted songs'), findsOneWidget);
+    expect(find.text('Removed from blacklist.'), findsOneWidget);
   });
 }
 
@@ -293,7 +312,7 @@ class _FakeSongBlockService extends SongBlockService {
 
   @override
   Future<Song> setBlocked({
-    required String userId,
+    String? userId,
     required String songId,
     required bool isBlocked,
     DateTime? now,

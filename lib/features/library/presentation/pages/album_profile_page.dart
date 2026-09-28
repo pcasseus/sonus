@@ -387,9 +387,7 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
     String? userId,
     bool isBlocked,
   ) async {
-    if (userId == null ||
-        userId.trim().isEmpty ||
-        !controller.canSetTrackBlocked(userId)) {
+    if (!controller.canSetTrackBlocked(userId)) {
       return;
     }
 

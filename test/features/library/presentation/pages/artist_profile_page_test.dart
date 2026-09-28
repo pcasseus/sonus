@@ -1079,7 +1079,7 @@ class FakeSongBlockService extends SongBlockService {
 
   @override
   Future<Song> setBlocked({
-    required String userId,
+    String? userId,
     required String songId,
     required bool isBlocked,
     DateTime? now,

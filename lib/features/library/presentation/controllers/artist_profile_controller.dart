@@ -183,24 +183,26 @@ class ArtistProfileController extends ChangeNotifier {
   }
 
   bool canSetTrackBlocked(String? userId) {
-    return _songBlockService != null &&
-        userId != null &&
-        userId.trim().isNotEmpty;
+    return _songBlockService != null;
   }
 
   Future<bool> setTrackBlocked({
-    required String userId,
+    String? userId,
     required LibraryTrack track,
     required bool isBlocked,
   }) async {
     final service = _songBlockService;
 
-    if (service == null || userId.trim().isEmpty) {
+    if (service == null) {
       return false;
     }
 
+    final normalizedUserId = userId?.trim();
+
     await service.setBlocked(
-      userId: userId,
+      userId: normalizedUserId == null || normalizedUserId.isEmpty
+          ? null
+          : normalizedUserId,
       songId: track.songId,
       isBlocked: isBlocked,
     );

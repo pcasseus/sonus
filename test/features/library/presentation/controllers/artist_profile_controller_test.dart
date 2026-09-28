@@ -1235,9 +1235,9 @@ void main() {
 
       expect(controller.canSetTrackBlocked('user-1'), isTrue);
       expect(controller.canSetTrackBlocked('  user-1  '), isTrue);
-      expect(controller.canSetTrackBlocked(null), isFalse);
-      expect(controller.canSetTrackBlocked(''), isFalse);
-      expect(controller.canSetTrackBlocked('   '), isFalse);
+      expect(controller.canSetTrackBlocked(null), isTrue);
+      expect(controller.canSetTrackBlocked(''), isTrue);
+      expect(controller.canSetTrackBlocked('   '), isTrue);
 
       final missingServicesController = ArtistProfileController(
         repository: repository,
@@ -1289,7 +1289,7 @@ void main() {
     );
 
     test(
-      'blocking mutations reject blank users and missing services',
+      'blocking mutations allow anonymous users but reject missing services',
       () async {
         final repository = FakeLibraryQueryRepository(
           artist: createArtist(),
@@ -1327,9 +1327,15 @@ void main() {
             track: blankUserController.tracks.single,
             isBlocked: true,
           ),
-          isFalse,
+          isTrue,
         );
-        expect(songBlockService.setBlockedCallCount, 0);
+        expect(songBlockService.setBlockedCallCount, 1);
+        expect(songBlockService.lastUserId, isNull);
+        expect(
+          songBlockService.lastSongId,
+          blankUserController.tracks.single.songId,
+        );
+        expect(songBlockService.lastIsBlocked, isTrue);
 
         missingServicesController.dispose();
         blankUserController.dispose();
@@ -1504,7 +1510,7 @@ class FakeSongBlockService extends SongBlockService {
 
   @override
   Future<Song> setBlocked({
-    required String userId,
+    String? userId,
     required String songId,
     required bool isBlocked,
     DateTime? now,

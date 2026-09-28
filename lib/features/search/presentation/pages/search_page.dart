@@ -114,7 +114,7 @@ class _SearchPageState extends State<SearchPage> {
     final service = context.read<SongBlockService?>();
     final playbackCoordinator = context.read<PlaybackCoordinator?>();
 
-    if (service == null || userId == null || userId.trim().isEmpty) {
+    if (service == null) {
       return;
     }
 
@@ -333,15 +333,7 @@ class _SearchPageState extends State<SearchPage> {
             _TrackResultTile(
               track: track,
               isPlayable: _isPlayable(track),
-              canSetBlocked:
-                  context
-                          .watch<AccountController?>()
-                          ?.user
-                          ?.id
-                          .trim()
-                          .isNotEmpty ==
-                      true &&
-                  context.read<SongBlockService?>() != null,
+              canSetBlocked: context.read<SongBlockService?>() != null,
               onTap: () => _playTrack(track),
               onAction: (action) {
                 switch (action) {

@@ -86,7 +86,7 @@ class _BlacklistedSongsPageState extends State<BlacklistedSongsPage> {
 
   Future<void> _removeFromBlacklist(
     LibraryTrack track,
-    String userId,
+    String? userId,
     SongBlockService service,
   ) async {
     if (_removingSongIds.contains(track.songId)) {
@@ -181,7 +181,7 @@ class _BlacklistedSongsPageState extends State<BlacklistedSongsPage> {
       );
     }
 
-    final canRemove = service != null && userId != null && userId.isNotEmpty;
+    final canRemove = service != null;
 
     return RefreshIndicator(
       onRefresh: _load,
@@ -199,7 +199,7 @@ class _BlacklistedSongsPageState extends State<BlacklistedSongsPage> {
             track: track,
             canRemove: canRemove && !isRemoving,
             isRemoving: isRemoving,
-            onRemove: service == null || userId == null || userId.isEmpty
+            onRemove: service == null
                 ? null
                 : () => _removeFromBlacklist(track, userId, service),
           );
@@ -249,10 +249,11 @@ class _BlacklistedSongTile extends StatelessWidget {
                   dimension: 24,
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
-              : TextButton(
+              : IconButton(
                   key: ValueKey<String>(
                     'remove-blacklisted-song-${track.songId}',
                   ),
+                  tooltip: 'Remove from blacklist',
                   onPressed: canRemove
                       ? () {
                           final callback = onRemove;
@@ -262,7 +263,7 @@ class _BlacklistedSongTile extends StatelessWidget {
                           }
                         }
                       : null,
-                  child: const Text('Remove from blacklist'),
+                  icon: const Icon(Icons.remove_circle_outline_rounded),
                 ),
           textColor: colorScheme.onSurface,
         ),

@@ -141,6 +141,33 @@ void main() {
     expect(pending.single.operation, SyncOutboxOperation.upsert);
   });
 
+  test(
+    'signed-out blocking updates locally without creating an outbox entry',
+    () async {
+      final songId = await createSong();
+
+      final result = await service.setBlocked(
+        songId: songId,
+        isBlocked: true,
+        now: mutationTime,
+      );
+
+      expect(result.id, songId);
+      expect(result.isBlocked, isTrue);
+      expect(result.updatedAt, mutationTime);
+
+      final db = await appDatabase.database;
+      final stored = await SongDao(db).findById(songId);
+
+      expect(stored, isNotNull);
+      expect(stored!.isBlocked, isTrue);
+      expect(stored.updatedAt, mutationTime);
+
+      final outboxRows = await db.query('sync_outbox');
+
+      expect(outboxRows, isEmpty);
+    },
+  );
   test('unblocks song and keeps the same permanent identity', () async {
     final songId = await createSong();
 

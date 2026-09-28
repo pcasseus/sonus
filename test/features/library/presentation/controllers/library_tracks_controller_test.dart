@@ -987,9 +987,9 @@ void main() {
 
     expect(controller.canSetTrackBlocked('user-1'), isTrue);
     expect(controller.canSetTrackBlocked('  user-1  '), isTrue);
-    expect(controller.canSetTrackBlocked(null), isFalse);
-    expect(controller.canSetTrackBlocked(''), isFalse);
-    expect(controller.canSetTrackBlocked('   '), isFalse);
+    expect(controller.canSetTrackBlocked(null), isTrue);
+    expect(controller.canSetTrackBlocked(''), isTrue);
+    expect(controller.canSetTrackBlocked('   '), isTrue);
     expect(missingServiceController.canSetTrackBlocked('user-1'), isFalse);
 
     await engine.dispose();
@@ -1070,51 +1070,57 @@ void main() {
     await engine.dispose();
   });
 
-  test('setTrackBlocked rejects missing service or blank user id', () async {
-    final repository = FakeLibraryQueryRepository()
-      ..tracks = [track(id: 'song-block')];
+  test(
+    'setTrackBlocked rejects missing service but allows anonymous local mutation',
+    () async {
+      final repository = FakeLibraryQueryRepository()
+        ..tracks = [track(id: 'song-block')];
 
-    final engine = FakePlaybackEngine();
+      final engine = FakePlaybackEngine();
 
-    final missingServiceController = LibraryTracksController(
-      repository: repository,
-      playbackCoordinator: PlaybackCoordinator(engine: engine),
-    );
+      final missingServiceController = LibraryTracksController(
+        repository: repository,
+        playbackCoordinator: PlaybackCoordinator(engine: engine),
+      );
 
-    await missingServiceController.load();
+      await missingServiceController.load();
 
-    expect(
-      await missingServiceController.setTrackBlocked(
-        userId: 'user-1',
-        track: missingServiceController.tracks.single,
-        isBlocked: true,
-      ),
-      isFalse,
-    );
+      expect(
+        await missingServiceController.setTrackBlocked(
+          userId: 'user-1',
+          track: missingServiceController.tracks.single,
+          isBlocked: true,
+        ),
+        isFalse,
+      );
 
-    final service = FakeSongBlockService();
+      final service = FakeSongBlockService();
 
-    final blankUserController = LibraryTracksController(
-      repository: repository,
-      playbackCoordinator: PlaybackCoordinator(engine: engine),
-      songBlockService: service,
-    );
+      final blankUserController = LibraryTracksController(
+        repository: repository,
+        playbackCoordinator: PlaybackCoordinator(engine: engine),
+        songBlockService: service,
+      );
 
-    await blankUserController.load();
+      await blankUserController.load();
 
-    expect(
-      await blankUserController.setTrackBlocked(
-        userId: '   ',
-        track: blankUserController.tracks.single,
-        isBlocked: true,
-      ),
-      isFalse,
-    );
+      expect(
+        await blankUserController.setTrackBlocked(
+          userId: '   ',
+          track: blankUserController.tracks.single,
+          isBlocked: true,
+        ),
+        isTrue,
+      );
 
-    expect(service.setBlockedCallCount, 0);
+      expect(service.setBlockedCallCount, 1);
+      expect(service.lastUserId, isNull);
+      expect(service.lastSongId, blankUserController.tracks.single.songId);
+      expect(service.lastIsBlocked, isTrue);
 
-    await engine.dispose();
-  });
+      await engine.dispose();
+    },
+  );
 }
 
 class FakeSongBlockService extends SongBlockService {
@@ -1128,7 +1134,7 @@ class FakeSongBlockService extends SongBlockService {
 
   @override
   Future<Song> setBlocked({
-    required String userId,
+    String? userId,
     required String songId,
     required bool isBlocked,
     DateTime? now,
