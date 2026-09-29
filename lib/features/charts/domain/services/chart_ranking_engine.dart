@@ -1,13 +1,27 @@
 import '../models/chart_movement.dart';
 import '../models/chart_ranked_entity.dart';
 import '../models/chart_ranking_history.dart';
+import '../moments/chart_moment_rank_observation.dart';
 
 class ChartRankingEvent {
-  const ChartRankingEvent({required this.entityId, required this.qualifiedAt});
+  const ChartRankingEvent({
+    required this.entityId,
+    required this.qualifiedAt,
+    this.sourceEventId,
+  });
 
   final String entityId;
   final DateTime qualifiedAt;
+
+  /// Stable id of the qualified listening event responsible for this
+  /// standings recalculation.
+  ///
+  /// Pure ranking callers may omit this when Moment observation is unused.
+  final String? sourceEventId;
 }
+
+typedef ChartRankObservationCallback =
+    void Function(ChartMomentRankObservation observation);
 
 class ChartRankingEngine {
   const ChartRankingEngine();
@@ -19,6 +33,8 @@ class ChartRankingEngine {
     required Iterable<ChartRankingEvent> events,
     Map<String, ChartRankingHistory> historyByEntityId = const {},
     Set<String>? eligibleEntityIds,
+    ChartRankObservationCallback? onRankObservation,
+    bool includeObservedPeakInResult = true,
   }) {
     final orderedEvents = events.toList(growable: false)..sort(_compareEvents);
 
@@ -47,11 +63,42 @@ class ChartRankingEngine {
       for (var index = 0; index < standings.length; index++) {
         final rankedState = standings[index];
         final rank = index + 1;
+        final hadPreviousObservation = rankedState.hasRankObservation;
+        final previousRank = rankedState.lastObservedChartRank;
+        final currentRank = rank <= extendedStandingsLimit ? rank : null;
+
+        final previousPeakRank = _momentPeakRank(
+          historicalPeakRank: rankedState.history?.peakRank,
+          livePeakRank: rankedState.livePeakRank,
+        );
 
         rankedState.observeRank(
           rank: rank,
           observedAt: event.qualifiedAt.toUtc(),
         );
+
+        final currentPeakRank = _momentPeakRank(
+          historicalPeakRank: rankedState.history?.peakRank,
+          livePeakRank: rankedState.livePeakRank,
+        );
+
+        final sourceEventId = event.sourceEventId;
+
+        if (sourceEventId != null && onRankObservation != null) {
+          onRankObservation(
+            ChartMomentRankObservation(
+              sourceEventId: sourceEventId,
+              entityId: rankedState.entityId,
+              hadPreviousObservation: hadPreviousObservation,
+              previousRank: previousRank,
+              currentRank: currentRank,
+              previousPeakRank: previousPeakRank,
+              currentPeakRank: currentPeakRank,
+              previousFinalizedRank: rankedState.history?.previousExtendedRank,
+              observedAt: event.qualifiedAt.toUtc(),
+            ),
+          );
+        }
       }
     }
 
@@ -72,9 +119,16 @@ class ChartRankingEngine {
       final priorPeakRank = history?.peakRank;
       final priorPeakAchievedAt = history?.peakAchievedAt;
 
+      final resultPeakRank = includeObservedPeakInResult
+          ? state.livePeakRank
+          : null;
+      final resultPeakAchievedAt = includeObservedPeakInResult
+          ? state.livePeakAchievedAt
+          : null;
+
       final resolvedPeakRank = _resolvedPeakRank(
         priorPeakRank: priorPeakRank,
-        livePeakRank: state.livePeakRank,
+        livePeakRank: resultPeakRank,
         currentRank: rank,
       );
 
@@ -82,8 +136,8 @@ class ChartRankingEngine {
         resolvedPeakRank: resolvedPeakRank,
         priorPeakRank: priorPeakRank,
         priorPeakAchievedAt: priorPeakAchievedAt,
-        livePeakRank: state.livePeakRank,
-        livePeakAchievedAt: state.livePeakAchievedAt,
+        livePeakRank: resultPeakRank,
+        livePeakAchievedAt: resultPeakAchievedAt,
         fallbackAt: state.lastQualifiedAt!,
       );
 
@@ -148,6 +202,26 @@ class ChartRankingEngine {
     }
 
     return a.entityId.compareTo(b.entityId);
+  }
+
+  static int? _momentPeakRank({
+    required int? historicalPeakRank,
+    required int? livePeakRank,
+  }) {
+    int? peak;
+
+    if (historicalPeakRank != null &&
+        historicalPeakRank <= extendedStandingsLimit) {
+      peak = historicalPeakRank;
+    }
+
+    if (livePeakRank != null && livePeakRank <= extendedStandingsLimit) {
+      if (peak == null || livePeakRank < peak) {
+        peak = livePeakRank;
+      }
+    }
+
+    return peak;
   }
 
   static int _resolvedPeakRank({
@@ -227,6 +301,14 @@ class _MutableChartState {
   int qualifiedStreamCount = 0;
   DateTime? lastQualifiedAt;
 
+  /// Whether this entity has participated in at least one per-play standings
+  /// observation during this reconstruction.
+  bool hasRankObservation = false;
+
+  /// Visible Top-200 rank from the immediately preceding per-play standings
+  /// calculation. Null means the entity was outside the Top 200.
+  int? lastObservedChartRank;
+
   int? livePeakRank;
   DateTime? livePeakAchievedAt;
 
@@ -252,5 +334,9 @@ class _MutableChartState {
     }
 
     _wasOfficiallyCharting = isOfficiallyCharting;
+    hasRankObservation = true;
+    lastObservedChartRank = rank <= ChartRankingEngine.extendedStandingsLimit
+        ? rank
+        : null;
   }
 }

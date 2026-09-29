@@ -8,6 +8,7 @@ abstract final class ChartEntryRowMapper {
       entity: ChartEntitySnapshot(
         entityId: row['entity_id']! as String,
         title: row['title']! as String,
+        artistId: row['artist_id'] as String?,
         artistName: row['artist_name']! as String,
         albumTitle: row['album_title'] as String?,
       ),
@@ -35,6 +36,7 @@ abstract final class ChartEntryRowMapper {
       'chart_snapshot_id': snapshotId,
       'entity_id': entry.entity.entityId,
       'title': entry.entity.title,
+      'artist_id': entry.entity.artistId,
       'artist_name': entry.entity.artistName,
       'album_title': entry.entity.albumTitle,
       'rank': entry.rank,

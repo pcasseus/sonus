@@ -5,6 +5,7 @@ import 'package:sonus_next/core/database/app_database.dart';
 import 'package:sonus_next/core/database/database_migrations.dart';
 import 'package:sonus_next/core/database/database_tables.dart';
 import 'package:sonus_next/core/database/schema/analytics_schema.dart';
+import 'package:sonus_next/core/database/schema/chart_schema.dart';
 import 'package:sonus_next/core/database/schema/import_schema.dart';
 import 'package:sonus_next/core/database/schema/library_schema.dart';
 
@@ -23,7 +24,7 @@ void main() {
       final result = await db.rawQuery('PRAGMA user_version');
 
       expect(result.single['user_version'], AppDatabase.databaseVersion);
-      expect(AppDatabase.databaseVersion, 16);
+      expect(AppDatabase.databaseVersion, 18);
     } finally {
       await appDatabase.close();
     }
@@ -950,12 +951,205 @@ void main() {
     }
   });
 
+  test('migration runner upgrades version 16 schema to version 17', () async {
+    final db = await databaseFactoryFfi.openDatabase(inMemoryDatabasePath);
+
+    try {
+      await ChartSchema.createChartSnapshots(db);
+      await ChartSchema.createChartEntries(db);
+      await ChartSchema.createChartIndexes(db);
+
+      await DatabaseMigrations.migrate(db, oldVersion: 16, newVersion: 17);
+
+      final tables = await db.rawQuery(
+        '''
+        SELECT name
+        FROM sqlite_master
+        WHERE type = 'table'
+          AND name = ?
+      ''',
+        [DatabaseTables.chartMomentEvents],
+      );
+
+      expect(tables, hasLength(1));
+
+      final columns = await db.rawQuery(
+        'PRAGMA table_info(${DatabaseTables.chartMomentEvents})',
+      );
+
+      expect(
+        columns.map((row) => row['name']),
+        containsAll({
+          'id',
+          'deduplication_key',
+          'user_id',
+          'source_id',
+          'chart_type',
+          'scope',
+          'event_type',
+          'entity_id',
+          'entity_title',
+          'entity_artist_name',
+          'entity_album_title',
+          'related_entity_id',
+          'related_entity_title',
+          'related_entity_artist_name',
+          'related_entity_album_title',
+          'week_start_utc',
+          'week_end_utc',
+          'occurred_at',
+          'created_at',
+          'previous_rank',
+          'current_rank',
+          'threshold',
+          'previous_peak_rank',
+          'current_peak_rank',
+          'qualified_stream_count',
+          'milestone_value',
+        }),
+      );
+
+      final indexes = await db.rawQuery(
+        '''
+        SELECT name
+        FROM sqlite_master
+        WHERE type = 'index'
+          AND tbl_name = ?
+      ''',
+        [DatabaseTables.chartMomentEvents],
+      );
+
+      expect(
+        indexes.map((row) => row['name']),
+        containsAll({
+          'idx_chart_moment_events_occurred',
+          'idx_chart_moment_events_type_week',
+          'idx_chart_moment_events_entity',
+          'idx_chart_moment_events_user',
+        }),
+      );
+    } finally {
+      await db.close();
+    }
+  });
+  test(
+    'migration runner upgrades version 17 schema to version 18 and backfills chart artist ids',
+    () async {
+      final db = await databaseFactoryFfi.openDatabase(inMemoryDatabasePath);
+
+      try {
+        await db.execute('''
+          CREATE TABLE ${DatabaseTables.chartSnapshots} (
+            id TEXT PRIMARY KEY NOT NULL,
+            chart_type TEXT NOT NULL
+          )
+        ''');
+
+        await db.execute('''
+          CREATE TABLE ${DatabaseTables.chartEntries} (
+            id TEXT PRIMARY KEY NOT NULL,
+            chart_snapshot_id TEXT NOT NULL,
+            entity_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            artist_name TEXT NOT NULL
+          )
+        ''');
+
+        await db.execute('''
+          CREATE TABLE ${DatabaseTables.chartMomentEvents} (
+            id TEXT PRIMARY KEY NOT NULL
+          )
+        ''');
+
+        await db.execute('''
+          CREATE TABLE ${DatabaseTables.playbackSessions} (
+            id TEXT PRIMARY KEY NOT NULL,
+            song_id TEXT NOT NULL,
+            artist_id TEXT NOT NULL,
+            album_id TEXT NOT NULL,
+            started_at TEXT NOT NULL
+          )
+        ''');
+
+        await db.insert(DatabaseTables.chartSnapshots, {
+          'id': 'songs-week',
+          'chart_type': 'songs',
+        });
+
+        await db.insert(DatabaseTables.chartSnapshots, {
+          'id': 'albums-week',
+          'chart_type': 'albums',
+        });
+
+        await db.insert(DatabaseTables.chartEntries, {
+          'id': 'song-entry',
+          'chart_snapshot_id': 'songs-week',
+          'entity_id': 'song-a',
+          'title': 'Song A',
+          'artist_name': 'Artist A',
+        });
+
+        await db.insert(DatabaseTables.chartEntries, {
+          'id': 'album-entry',
+          'chart_snapshot_id': 'albums-week',
+          'entity_id': 'album-a',
+          'title': 'Album A',
+          'artist_name': 'Artist A',
+        });
+
+        await db.insert(DatabaseTables.playbackSessions, {
+          'id': 'session-song',
+          'song_id': 'song-a',
+          'artist_id': 'artist-a',
+          'album_id': 'album-a',
+          'started_at': '2026-09-28T10:00:00.000Z',
+        });
+
+        await DatabaseMigrations.migrate(db, oldVersion: 17, newVersion: 18);
+
+        final chartEntryColumns = await db.rawQuery(
+          'PRAGMA table_info(${DatabaseTables.chartEntries})',
+        );
+
+        expect(
+          chartEntryColumns.map((row) => row['name']),
+          contains('artist_id'),
+        );
+
+        final momentColumns = await db.rawQuery(
+          'PRAGMA table_info(${DatabaseTables.chartMomentEvents})',
+        );
+
+        expect(
+          momentColumns.map((row) => row['name']),
+          containsAll({'entity_artist_id', 'related_entity_artist_id'}),
+        );
+
+        final songRows = await db.query(
+          DatabaseTables.chartEntries,
+          where: 'id = ?',
+          whereArgs: ['song-entry'],
+        );
+
+        final albumRows = await db.query(
+          DatabaseTables.chartEntries,
+          where: 'id = ?',
+          whereArgs: ['album-entry'],
+        );
+
+        expect(songRows.single['artist_id'], 'artist-a');
+        expect(albumRows.single['artist_id'], 'artist-a');
+      } finally {
+        await db.close();
+      }
+    },
+  );
   test('migration runner fails loudly for unknown future migration', () async {
     final db = await databaseFactoryFfi.openDatabase(inMemoryDatabasePath);
 
     try {
       await expectLater(
-        DatabaseMigrations.migrate(db, oldVersion: 16, newVersion: 17),
+        DatabaseMigrations.migrate(db, oldVersion: 18, newVersion: 19),
         throwsA(isA<UnsupportedError>()),
       );
     } finally {

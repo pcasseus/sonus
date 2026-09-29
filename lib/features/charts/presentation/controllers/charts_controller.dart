@@ -5,13 +5,17 @@ import 'package:flutter/foundation.dart';
 import '../../../library/application/models/library_album.dart';
 import '../../../library/application/models/library_track.dart';
 import '../../../library/application/repositories/library_query_repository.dart';
+import '../../application/models/chart_moment_feed_item.dart';
 import '../../application/services/chart_finalization_service.dart';
+import '../../application/services/chart_moment_feed_aggregator.dart';
 import '../../application/services/live_chart_service.dart';
 import '../../domain/entities/chart_entry.dart';
 import '../../domain/entities/chart_snapshot.dart';
 import '../../domain/models/chart_type.dart';
 import '../../domain/models/chart_view_size.dart';
+import '../../domain/repositories/chart_moment_repository.dart';
 import '../../domain/repositories/chart_repository.dart';
+import '../models/charts_presentation_mode.dart';
 
 typedef ChartsControllerNow = DateTime Function();
 
@@ -21,24 +25,36 @@ class ChartsController extends ChangeNotifier {
     required ChartFinalizationService finalization,
     required ChartRepository charts,
     required LibraryQueryRepository library,
+    ChartMomentRepository? moments,
+    ChartMomentFeedAggregator momentFeedAggregator =
+        const ChartMomentFeedAggregator(),
     ChartsControllerNow? now,
   }) : _liveCharts = liveCharts,
        _finalization = finalization,
        _charts = charts,
        _library = library,
+       _moments = moments,
+       _momentFeedAggregator = momentFeedAggregator,
        _now = now ?? DateTime.now;
 
   final LiveChartService _liveCharts;
   final ChartFinalizationService _finalization;
   final ChartRepository _charts;
   final LibraryQueryRepository _library;
+  final ChartMomentRepository? _moments;
+  final ChartMomentFeedAggregator _momentFeedAggregator;
   final ChartsControllerNow _now;
 
   ChartType _chartType = ChartType.songs;
   ChartViewSize _viewSize = ChartViewSize.top100;
 
+  ChartsPresentationMode _presentationMode = ChartsPresentationMode.charts;
+
   ChartSnapshot? _liveSnapshot;
   List<ChartSnapshot> _history = const [];
+
+  List<ChartMomentFeedItem> _momentFeedItems = const [];
+  Object? _momentFeedError;
 
   Map<String, LibraryTrack> _tracksById = const {};
   Map<String, LibraryAlbum> _albumsById = const {};
@@ -54,6 +70,14 @@ class ChartsController extends ChangeNotifier {
 
   ChartViewSize get viewSize => _viewSize;
 
+  ChartsPresentationMode get presentationMode => _presentationMode;
+
+  bool get isShowingCharts =>
+      _presentationMode == ChartsPresentationMode.charts;
+
+  bool get isShowingMoments =>
+      _presentationMode == ChartsPresentationMode.moments;
+
   bool get isLoading => _isLoading;
 
   Object? get error => _error;
@@ -65,6 +89,14 @@ class ChartsController extends ChangeNotifier {
   bool get isViewingLive => _historyIndex == null;
 
   List<ChartSnapshot> get history => _history;
+
+  List<ChartMomentFeedItem> get momentFeedItems => _momentFeedItems;
+
+  Object? get momentFeedError => _momentFeedError;
+
+  bool get hasMomentFeedError => _momentFeedError != null;
+
+  bool get hasMomentFeedItems => _momentFeedItems.isNotEmpty;
 
   ChartSnapshot? get liveSnapshot => _liveSnapshot;
 
@@ -151,6 +183,35 @@ class ChartsController extends ChangeNotifier {
 
   bool isAlbumInteractive(ChartEntry entry) {
     return isViewingLive && albumForEntry(entry) != null;
+  }
+
+  void selectPresentationMode(ChartsPresentationMode value) {
+    if (_presentationMode == value) {
+      return;
+    }
+
+    _presentationMode = value;
+    notifyListeners();
+  }
+
+  String? artworkPathForMoment(ChartMomentFeedItem item) {
+    return switch (item.chartType) {
+      ChartType.songs => _tracksById[item.entity.entityId]?.artworkPath,
+      ChartType.albums => _albumsById[item.entity.entityId]?.artworkPath,
+    };
+  }
+
+  String? relatedArtworkPathForMoment(ChartMomentFeedItem item) {
+    final related = item.relatedEntity;
+
+    if (related == null) {
+      return null;
+    }
+
+    return switch (item.chartType) {
+      ChartType.songs => _tracksById[related.entityId]?.artworkPath,
+      ChartType.albums => _albumsById[related.entityId]?.artworkPath,
+    };
   }
 
   Future<void> load() {
@@ -279,13 +340,23 @@ class ChartsController extends ChangeNotifier {
 
       final history = await _charts.getHistory(_chartType);
 
-      final tracks = _chartType == ChartType.songs
-          ? await _library.getTracks()
-          : const <LibraryTrack>[];
+      final tracks = await _library.getTracks();
+      final albums = await _library.getAlbums();
 
-      final albums = _chartType == ChartType.albums
-          ? await _library.getAlbums()
-          : const <LibraryAlbum>[];
+      var momentFeedItems = _momentFeedItems;
+      Object? momentFeedError;
+
+      final moments = _moments;
+
+      if (moments != null) {
+        try {
+          final rawMomentEvents = await moments.getRecent();
+
+          momentFeedItems = _momentFeedAggregator.aggregate(rawMomentEvents);
+        } catch (error) {
+          momentFeedError = error;
+        }
+      }
 
       if (generation != _requestGeneration) {
         return;
@@ -297,6 +368,11 @@ class ChartsController extends ChangeNotifier {
       _tracksById = {for (final track in tracks) track.songId: track};
 
       _albumsById = {for (final album in albums) album.albumId: album};
+
+      _momentFeedItems = List<ChartMomentFeedItem>.unmodifiable(
+        momentFeedItems,
+      );
+      _momentFeedError = momentFeedError;
 
       final historyIndex = _historyIndex;
 

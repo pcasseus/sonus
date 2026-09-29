@@ -59,6 +59,59 @@ void main() {
     expect(songC.peakAchievedAt, DateTime.utc(2026, 9, 27, 1));
   });
 
+  test('can exclude provisional intraweek peak from returned career peak', () {
+    final events = <ChartRankingEvent>[event('song-c', 1)];
+
+    for (var index = 0; index < 6; index++) {
+      events.add(event('song-${index + 1}', 2 + index));
+      events.add(event('song-${index + 1}', 10 + index));
+    }
+
+    final result = engine.rank(
+      events: events,
+      includeObservedPeakInResult: false,
+    );
+
+    final songC = result.firstWhere((entry) => entry.entityId == 'song-c');
+
+    expect(songC.rank, greaterThan(1));
+    expect(songC.peakRank, songC.rank);
+    expect(songC.peakAchievedAt, songC.lastQualifiedAt);
+  });
+
+  test(
+    'final peak resolution still preserves an earlier finalized career peak',
+    () {
+      final events = <ChartRankingEvent>[event('song-c', 1)];
+
+      for (var index = 0; index < 6; index++) {
+        events.add(event('song-${index + 1}', 2 + index));
+        events.add(event('song-${index + 1}', 10 + index));
+      }
+
+      final result = engine.rank(
+        events: events,
+        historyByEntityId: {
+          'song-c': ChartRankingHistory(
+            entityId: 'song-c',
+            finalizedWeeksOnChart: 4,
+            hasEverCharted: true,
+            previousFinalRank: 8,
+            previousExtendedRank: 8,
+            peakRank: 2,
+            peakAchievedAt: DateTime.utc(2026, 9, 20),
+          ),
+        },
+        includeObservedPeakInResult: false,
+      );
+
+      final songC = result.firstWhere((entry) => entry.entityId == 'song-c');
+
+      expect(songC.rank, greaterThan(2));
+      expect(songC.peakRank, 2);
+      expect(songC.peakAchievedAt, DateTime.utc(2026, 9, 20));
+    },
+  );
   test('uses previous finalized rank for live movement', () {
     final result = engine.rank(
       events: [event('song-a', 1), event('song-a', 2), event('song-b', 3)],

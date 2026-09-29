@@ -5,25 +5,65 @@ import '../../domain/entities/chart_entry.dart';
 import '../../domain/entities/chart_snapshot.dart';
 import '../../domain/models/chart_type.dart';
 import '../../domain/models/chart_week.dart';
+import '../../domain/moments/chart_moment_artist_achievement_detector.dart';
+import '../../domain/moments/chart_moment_finalized_detector.dart';
+import '../../domain/moments/chart_moment_lifetime_stream_service.dart';
+import '../../domain/moments/chart_moment_longevity_calculator.dart';
+import '../../domain/moments/chart_moment_milestone_detector.dart';
+import '../../domain/repositories/chart_moment_repository.dart';
 import '../../domain/repositories/chart_repository.dart';
 import '../../domain/services/chart_week_resolver.dart';
 import 'chart_snapshot_builder_service.dart';
 
+typedef ChartFinalizationNow = DateTime Function();
+
 class ChartFinalizationService {
-  const ChartFinalizationService({
+  ChartFinalizationService({
     required ChartSnapshotBuilderService builder,
     required ChartRepository charts,
     required QualifiedPlayRepository qualifiedPlays,
+    ChartMomentRepository? moments,
+    ChartMomentFinalizedDetector finalizedMomentDetector =
+        const ChartMomentFinalizedDetector(),
+    ChartMomentArtistAchievementDetector artistAchievementDetector =
+        const ChartMomentArtistAchievementDetector(),
+    ChartMomentLongevityCalculator longevityCalculator =
+        const ChartMomentLongevityCalculator(),
+    ChartMomentMilestoneDetector milestoneDetector =
+        const ChartMomentMilestoneDetector(),
+    ChartMomentLifetimeStreamService? lifetimeStreamService,
+    DateTime? momentsActivationWeekStartUtc,
     ChartWeekResolver weekResolver = const ChartWeekResolver(),
+    ChartFinalizationNow? now,
   }) : _builder = builder,
        _charts = charts,
        _qualifiedPlays = qualifiedPlays,
-       _weekResolver = weekResolver;
+       _moments = moments,
+       _finalizedMomentDetector = finalizedMomentDetector,
+       _artistAchievementDetector = artistAchievementDetector,
+       _longevityCalculator = longevityCalculator,
+       _milestoneDetector = milestoneDetector,
+       _lifetimeStreamService =
+           lifetimeStreamService ??
+           ChartMomentLifetimeStreamService(qualifiedPlays: qualifiedPlays),
+       _momentsActivationWeekStartUtc = momentsActivationWeekStartUtc?.toUtc(),
+       _weekResolver = weekResolver,
+       _now = now ?? DateTime.now;
 
   final ChartSnapshotBuilderService _builder;
   final ChartRepository _charts;
   final QualifiedPlayRepository _qualifiedPlays;
+
+  final ChartMomentRepository? _moments;
+  final ChartMomentFinalizedDetector _finalizedMomentDetector;
+  final ChartMomentArtistAchievementDetector _artistAchievementDetector;
+  final ChartMomentLongevityCalculator _longevityCalculator;
+  final ChartMomentMilestoneDetector _milestoneDetector;
+  final ChartMomentLifetimeStreamService _lifetimeStreamService;
+  final DateTime? _momentsActivationWeekStartUtc;
+
   final ChartWeekResolver _weekResolver;
+  final ChartFinalizationNow _now;
 
   Future<List<ChartSnapshot>> finalizeCompletedWeeks({
     required DateTime referenceLocal,
@@ -100,13 +140,133 @@ class ChartFinalizationService {
       revision: existing == null ? 1 : existing.revision + 1,
     );
 
+    late final ChartSnapshot canonical;
+
     if (existing != null && _sameChartContent(existing, candidate)) {
-      return existing;
+      canonical = existing;
+    } else {
+      await _charts.replaceSnapshot(candidate);
+      canonical = candidate;
     }
 
-    await _charts.replaceSnapshot(candidate);
+    await _reconcileFinalizedMoments(canonical);
 
-    return candidate;
+    return canonical;
+  }
+
+  Future<void> _reconcileFinalizedMoments(ChartSnapshot snapshot) async {
+    final moments = _moments;
+    final activationWeekStartUtc = _momentsActivationWeekStartUtc;
+
+    if (moments == null || activationWeekStartUtc == null) {
+      return;
+    }
+
+    if (snapshot.weekStartUtc.toUtc().isBefore(activationWeekStartUtc)) {
+      return;
+    }
+
+    final history = await _charts.getHistory(snapshot.chartType);
+    final createdAt = _now().toUtc();
+
+    final events = _finalizedMomentDetector
+        .detect(snapshot: snapshot, history: history, createdAt: createdAt)
+        .toList();
+
+    events.addAll(
+      _artistAchievementDetector.detect(
+        snapshot: snapshot,
+        history: history,
+        createdAt: createdAt,
+      ),
+    );
+
+    final previousSnapshot =
+        _immediatePreviousSnapshot(snapshot: snapshot, history: history) ??
+        _emptyPreviousWeek(snapshot);
+
+    final previousLifetimeStreams = await _lifetimeStreamService.loadBefore(
+      chartType: snapshot.chartType,
+      qualifiedBeforeUtc: snapshot.weekStartUtc,
+    );
+
+    final currentLifetimeStreams = await _lifetimeStreamService.load(
+      snapshot: snapshot,
+    );
+
+    for (final entry in snapshot.entries) {
+      final entityId = entry.entity.entityId;
+
+      final previousLongevity = _longevityCalculator.calculate(
+        entityId: entityId,
+        snapshot: previousSnapshot,
+        history: history,
+      );
+
+      final currentLongevity = _longevityCalculator.calculate(
+        entityId: entityId,
+        snapshot: snapshot,
+        history: history,
+      );
+
+      events.addAll(
+        _milestoneDetector.detect(
+          snapshot: snapshot,
+          entry: entry,
+          previousLongevity: previousLongevity,
+          currentLongevity: currentLongevity,
+          previousLifetimeStreams: previousLifetimeStreams[entityId] ?? 0,
+          currentLifetimeStreams: currentLifetimeStreams[entityId] ?? 0,
+          createdAt: createdAt,
+        ),
+      );
+    }
+
+    await moments.replaceFinalizedForWeek(
+      chartType: snapshot.chartType,
+      weekStartUtc: snapshot.weekStartUtc,
+      events: events,
+    );
+  }
+
+  static ChartSnapshot? _immediatePreviousSnapshot({
+    required ChartSnapshot snapshot,
+    required Iterable<ChartSnapshot> history,
+  }) {
+    final matching = history
+        .where(
+          (historical) =>
+              historical.isFinalized &&
+              historical.chartType == snapshot.chartType &&
+              historical.weekEndUtc.toUtc() == snapshot.weekStartUtc.toUtc(),
+        )
+        .toList(growable: false);
+
+    if (matching.length > 1) {
+      throw StateError(
+        'Multiple finalized snapshots end at '
+        '${snapshot.weekStartUtc.toUtc().toIso8601String()} '
+        'for ${snapshot.chartType.name}.',
+      );
+    }
+
+    return matching.isEmpty ? null : matching.single;
+  }
+
+  static ChartSnapshot _emptyPreviousWeek(ChartSnapshot snapshot) {
+    final weekEndUtc = snapshot.weekStartUtc.toUtc();
+    final weekStartUtc = weekEndUtc.subtract(const Duration(days: 7));
+
+    return ChartSnapshot(
+      id:
+          'moment-baseline:${snapshot.chartType.name}:'
+          '${weekStartUtc.millisecondsSinceEpoch}',
+      chartType: snapshot.chartType,
+      weekStartUtc: weekStartUtc,
+      weekEndUtc: weekEndUtc,
+      finalizedAt: weekEndUtc,
+      entries: const [],
+    );
   }
 
   static bool _sameChartContent(
@@ -133,6 +293,7 @@ class ChartFinalizationService {
   static bool _sameEntry(ChartEntry existing, ChartEntry candidate) {
     return existing.entity.entityId == candidate.entity.entityId &&
         existing.entity.title == candidate.entity.title &&
+        existing.entity.artistId == candidate.entity.artistId &&
         existing.entity.artistName == candidate.entity.artistName &&
         existing.entity.albumTitle == candidate.entity.albumTitle &&
         existing.rank == candidate.rank &&

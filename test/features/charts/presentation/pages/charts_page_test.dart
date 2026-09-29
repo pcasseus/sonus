@@ -16,6 +16,10 @@ import 'package:sonus_next/features/charts/domain/models/chart_entity_snapshot.d
 import 'package:sonus_next/features/charts/domain/models/chart_movement.dart';
 import 'package:sonus_next/features/charts/domain/models/chart_type.dart';
 import 'package:sonus_next/features/charts/domain/models/chart_view_size.dart';
+import 'package:sonus_next/features/charts/domain/moments/chart_moment_event.dart';
+import 'package:sonus_next/features/charts/domain/moments/chart_moment_event_type.dart';
+import 'package:sonus_next/features/charts/domain/moments/chart_moment_scope.dart';
+import 'package:sonus_next/features/charts/domain/repositories/chart_moment_repository.dart';
 import 'package:sonus_next/features/charts/domain/repositories/chart_repository.dart';
 import 'package:sonus_next/features/charts/domain/models/chart_week.dart';
 import 'package:sonus_next/features/charts/presentation/controllers/charts_controller.dart';
@@ -311,6 +315,162 @@ void main() {
     expect(find.byType(DatePickerDialog), findsOneWidget);
     expect(find.text('Choose a Sonus Hot 100 week'), findsOneWidget);
   });
+  testWidgets('switches from Charts to populated Moments feed', (tester) async {
+    final controller = await _controller(
+      moments: [
+        _momentEvent(
+          id: 'final-peak',
+          scope: ChartMomentScope.finalized,
+          type: ChartMomentEventType.newPeak,
+          currentRank: 3,
+          currentPeakRank: 3,
+        ),
+      ],
+    );
+
+    await _pumpPage(tester, controller);
+
+    expect(
+      find.byKey(const ValueKey<String>('charts-presentation-selector')),
+      findsOneWidget,
+    );
+    expect(find.text('Charts'), findsOneWidget);
+    expect(find.text('Moments'), findsOneWidget);
+
+    expect(
+      find.byKey(const ValueKey<String>('charts-type-selector')),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.text('Moments'));
+    await tester.pump();
+
+    expect(controller.isShowingMoments, isTrue);
+
+    expect(
+      find.byKey(const ValueKey<String>('charts-moments-feed')),
+      findsOneWidget,
+    );
+
+    expect(
+      find.byKey(const ValueKey<String>('charts-type-selector')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('charts-week-navigation')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('charts-size-selector')),
+      findsNothing,
+    );
+
+    expect(find.text('Song 1 reaches a new peak of #3'), findsOneWidget);
+    expect(
+      find.text('Song 1 earns a new official peak of #3.'),
+      findsOneWidget,
+    );
+    expect(find.text('FINAL'), findsOneWidget);
+    expect(find.text('SONG'), findsOneWidget);
+    expect(
+      find.text('Chart week September 27 – October 3, 2026'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('LIVE Moment uses provisional presentation', (tester) async {
+    final controller = await _controller(
+      moments: [
+        _momentEvent(
+          id: 'live-peak',
+          scope: ChartMomentScope.live,
+          type: ChartMomentEventType.newPeak,
+          currentRank: 3,
+          currentPeakRank: 3,
+          occurredAt: DateTime.utc(2026, 9, 29, 14),
+        ),
+      ],
+    );
+
+    await _pumpPage(tester, controller);
+
+    await tester.tap(find.text('Moments'));
+    await tester.pump();
+
+    expect(find.text('Song 1 reaches a new peak of #3'), findsOneWidget);
+    expect(
+      find.text('Song 1 rises to #3 on the live Sonus Hot 100.'),
+      findsOneWidget,
+    );
+    expect(find.text('LIVE'), findsOneWidget);
+    expect(find.text('September 29, 2026'), findsOneWidget);
+  });
+
+  testWidgets('empty Moments feed has its own empty state', (tester) async {
+    final controller = await _controller();
+
+    await _pumpPage(tester, controller);
+
+    await tester.tap(find.text('Moments'));
+    await tester.pump();
+
+    expect(
+      find.byKey(const ValueKey<String>('charts-moments-empty')),
+      findsOneWidget,
+    );
+    expect(find.text('No Moments yet'), findsOneWidget);
+
+    expect(find.byKey(const ValueKey<String>('charts-empty')), findsNothing);
+  });
+
+  testWidgets('switching back to Charts restores chart controls', (
+    tester,
+  ) async {
+    final controller = await _controller(
+      moments: [
+        _momentEvent(
+          id: 'moment',
+          scope: ChartMomentScope.finalized,
+          type: ChartMomentEventType.newPeak,
+          currentRank: 3,
+          currentPeakRank: 3,
+        ),
+      ],
+    );
+
+    await _pumpPage(tester, controller);
+
+    await tester.tap(find.text('Moments'));
+    await tester.pump();
+
+    expect(
+      find.byKey(const ValueKey<String>('charts-moments-feed')),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.text('Charts'));
+    await tester.pump();
+
+    expect(controller.isShowingCharts, isTrue);
+
+    expect(
+      find.byKey(const ValueKey<String>('charts-type-selector')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('charts-week-navigation')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('charts-size-selector')),
+      findsOneWidget,
+    );
+
+    expect(
+      find.byKey(const ValueKey<String>('charts-moments-feed')),
+      findsNothing,
+    );
+  });
   testWidgets('missing controller renders initializing state', (tester) async {
     await tester.pumpWidget(
       Provider<ChartsController?>.value(
@@ -331,6 +491,7 @@ Future<ChartsController> _controller({
   List<ChartSnapshot> history = const [],
   List<LibraryTrack>? tracks,
   List<LibraryAlbum>? albums,
+  List<ChartMomentEvent> moments = const [],
 }) async {
   final resolvedLive =
       live ?? _snapshot(id: 'live', start: DateTime.utc(2026, 9, 27));
@@ -350,6 +511,7 @@ Future<ChartsController> _controller({
       tracks: tracks ?? [_track()],
       albums: albums ?? [_album()],
     ),
+    moments: _FakeChartMomentRepository(events: moments),
     now: () => DateTime(2026, 9, 28, 12),
   );
 
@@ -410,6 +572,47 @@ LibraryAlbum _album() {
   );
 }
 
+ChartMomentEvent _momentEvent({
+  required String id,
+  required ChartMomentScope scope,
+  required ChartMomentEventType type,
+  int? previousRank,
+  int? currentRank,
+  int? previousPeakRank,
+  int? currentPeakRank,
+  int? threshold,
+  int? milestoneValue,
+  DateTime? occurredAt,
+}) {
+  final weekStart = DateTime.utc(2026, 9, 27);
+  final at = occurredAt ?? DateTime.utc(2026, 10, 4, 1);
+
+  return ChartMomentEvent(
+    id: id,
+    deduplicationKey: id,
+    sourceId: 'source-$id',
+    chartType: ChartType.songs,
+    scope: scope,
+    eventType: type,
+    entity: const ChartEntitySnapshot(
+      entityId: 'songs_1',
+      title: 'Song 1',
+      artistName: 'Artist 1',
+      albumTitle: 'Album 1',
+    ),
+    weekStartUtc: weekStart,
+    weekEndUtc: weekStart.add(const Duration(days: 7)),
+    occurredAt: at,
+    createdAt: at,
+    previousRank: previousRank,
+    currentRank: currentRank,
+    previousPeakRank: previousPeakRank,
+    currentPeakRank: currentPeakRank,
+    threshold: threshold,
+    milestoneValue: milestoneValue,
+  );
+}
+
 ChartSnapshot _snapshot({
   required String id,
   required DateTime start,
@@ -441,6 +644,42 @@ ChartSnapshot _snapshot({
       ),
     ],
   );
+}
+
+class _FakeChartMomentRepository implements ChartMomentRepository {
+  _FakeChartMomentRepository({this.events = const []});
+
+  final List<ChartMomentEvent> events;
+
+  @override
+  Future<void> saveAll(Iterable<ChartMomentEvent> events) async {}
+
+  @override
+  Future<void> replaceFinalizedForWeek({
+    required ChartType chartType,
+    required DateTime weekStartUtc,
+    required Iterable<ChartMomentEvent> events,
+  }) async {}
+
+  @override
+  Future<ChartMomentEvent?> getById(String id) async {
+    for (final event in events) {
+      if (event.id == id) {
+        return event;
+      }
+    }
+
+    return null;
+  }
+
+  @override
+  Future<List<ChartMomentEvent>> getRecent({int? limit}) async {
+    if (limit == null || events.length <= limit) {
+      return List<ChartMomentEvent>.unmodifiable(events);
+    }
+
+    return events.take(limit).toList(growable: false);
+  }
 }
 
 class _FakeLiveChartService implements LiveChartService {
