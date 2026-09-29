@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/application/models/library_album.dart';
 import 'package:sonus_next/features/library/application/models/library_artist.dart';
 import 'package:sonus_next/features/library/application/models/library_track.dart';
@@ -13,8 +14,13 @@ import 'package:sonus_next/features/charts/domain/models/chart_movement.dart';
 import 'package:sonus_next/features/charts/domain/models/chart_type.dart';
 import 'package:sonus_next/features/charts/domain/models/chart_view_size.dart';
 import 'package:sonus_next/features/charts/domain/repositories/chart_repository.dart';
+import 'package:sonus_next/features/charts/presentation/models/charts_presentation_mode.dart';
 import 'package:sonus_next/features/charts/presentation/controllers/charts_controller.dart';
 import 'package:sonus_next/features/charts/domain/models/chart_week.dart';
+import 'package:sonus_next/features/charts/domain/moments/chart_moment_event.dart';
+import 'package:sonus_next/features/charts/domain/moments/chart_moment_event_type.dart';
+import 'package:sonus_next/features/charts/domain/moments/chart_moment_scope.dart';
+import 'package:sonus_next/features/charts/domain/repositories/chart_moment_repository.dart';
 
 void main() {
   final referenceLocal = DateTime(2026, 9, 28, 12);
@@ -273,6 +279,318 @@ void main() {
     expect(controller.snapshot?.entries.length, 25);
   });
 
+  test('loads raw Moments and exposes aggregated feed items', () async {
+    final entity = ChartEntitySnapshot(
+      entityId: 'song-a',
+      title: 'Song A',
+      artistId: 'artist-a',
+      artistName: 'Artist A',
+      albumTitle: 'Album A',
+    );
+
+    final moments = _FakeChartMomentRepository(
+      events: [
+        _momentEvent(
+          id: 'rise',
+          type: ChartMomentEventType.rankRise,
+          entity: entity,
+          previousRank: 15,
+          currentRank: 3,
+        ),
+        _momentEvent(
+          id: 'peak',
+          type: ChartMomentEventType.newPeak,
+          entity: entity,
+          previousRank: 15,
+          currentRank: 3,
+        ),
+      ],
+    );
+
+    final controller = ChartsController(
+      liveCharts: _FakeLiveChartService(
+        snapshot: _snapshot(
+          id: 'live',
+          chartType: ChartType.songs,
+          weekStartUtc: DateTime.utc(2026, 9, 27),
+        ),
+      ),
+      finalization: _FakeChartFinalizationService(),
+      charts: _FakeChartRepository(),
+      library: _FakeLibraryQueryRepository(),
+      moments: moments,
+      now: () => referenceLocal,
+    );
+
+    await controller.load();
+
+    expect(moments.getRecentCallCount, 1);
+    expect(moments.lastLimit, isNull);
+
+    expect(controller.hasMomentFeedError, isFalse);
+    expect(controller.hasMomentFeedItems, isTrue);
+    expect(controller.momentFeedItems, hasLength(1));
+
+    final item = controller.momentFeedItems.single;
+
+    expect(item.events, hasLength(2));
+    expect(item.dominantEventType, ChartMomentEventType.newPeak);
+  });
+
+  test('refresh reloads Moments after finalization', () async {
+    final moments = _FakeChartMomentRepository();
+
+    final controller = ChartsController(
+      liveCharts: _FakeLiveChartService(
+        snapshot: _snapshot(
+          id: 'live',
+          chartType: ChartType.songs,
+          weekStartUtc: DateTime.utc(2026, 9, 27),
+        ),
+      ),
+      finalization: _FakeChartFinalizationService(),
+      charts: _FakeChartRepository(),
+      library: _FakeLibraryQueryRepository(),
+      moments: moments,
+      now: () => referenceLocal,
+    );
+
+    await controller.load();
+    await controller.refresh();
+
+    expect(moments.getRecentCallCount, 2);
+  });
+
+  test('Moments read failure does not fail chart loading', () async {
+    final moments = _FakeChartMomentRepository(
+      error: StateError('Moments failed'),
+    );
+
+    final live = _snapshot(
+      id: 'live',
+      chartType: ChartType.songs,
+      weekStartUtc: DateTime.utc(2026, 9, 27),
+    );
+
+    final controller = ChartsController(
+      liveCharts: _FakeLiveChartService(snapshot: live),
+      finalization: _FakeChartFinalizationService(),
+      charts: _FakeChartRepository(),
+      library: _FakeLibraryQueryRepository(),
+      moments: moments,
+      now: () => referenceLocal,
+    );
+
+    await controller.load();
+
+    expect(controller.snapshot, same(live));
+
+    expect(controller.hasError, isFalse);
+    expect(controller.isLoading, isFalse);
+
+    expect(controller.hasMomentFeedError, isTrue);
+    expect(controller.momentFeedError, isA<StateError>());
+    expect(controller.momentFeedItems, isEmpty);
+  });
+  test(
+    'presentation mode defaults to charts and switches without reloading',
+    () async {
+      final liveCharts = _FakeLiveChartService(
+        snapshot: _snapshot(
+          id: 'live',
+          chartType: ChartType.songs,
+          weekStartUtc: DateTime.utc(2026, 9, 27),
+        ),
+      );
+
+      final controller = ChartsController(
+        liveCharts: liveCharts,
+        finalization: _FakeChartFinalizationService(),
+        charts: _FakeChartRepository(),
+        library: _FakeLibraryQueryRepository(),
+        now: () => referenceLocal,
+      );
+
+      await controller.load();
+
+      expect(controller.presentationMode, ChartsPresentationMode.charts);
+      expect(controller.isShowingCharts, isTrue);
+      expect(controller.isShowingMoments, isFalse);
+
+      final chartLoadCount = liveCharts.callCount;
+
+      controller.selectPresentationMode(ChartsPresentationMode.moments);
+
+      expect(controller.presentationMode, ChartsPresentationMode.moments);
+      expect(controller.isShowingCharts, isFalse);
+      expect(controller.isShowingMoments, isTrue);
+      expect(liveCharts.callCount, chartLoadCount);
+
+      controller.selectPresentationMode(ChartsPresentationMode.charts);
+
+      expect(controller.presentationMode, ChartsPresentationMode.charts);
+      expect(controller.isShowingCharts, isTrue);
+      expect(controller.isShowingMoments, isFalse);
+      expect(liveCharts.callCount, chartLoadCount);
+    },
+  );
+
+  test('resolves mixed song and album Moment artwork from one load', () async {
+    final songEntity = ChartEntitySnapshot(
+      entityId: 'song-art',
+      title: 'Song Art',
+      artistId: 'artist-a',
+      artistName: 'Artist A',
+      albumTitle: 'Album Art',
+    );
+
+    final albumEntity = ChartEntitySnapshot(
+      entityId: 'album-art',
+      title: 'Album Art',
+      artistId: 'artist-a',
+      artistName: 'Artist A',
+      albumTitle: 'Album Art',
+    );
+
+    final moments = _FakeChartMomentRepository(
+      events: [
+        _momentEvent(
+          id: 'song-moment',
+          type: ChartMomentEventType.newPeak,
+          entity: songEntity,
+          chartType: ChartType.songs,
+          currentRank: 3,
+        ),
+        _momentEvent(
+          id: 'album-moment',
+          type: ChartMomentEventType.newPeak,
+          entity: albumEntity,
+          chartType: ChartType.albums,
+          currentRank: 2,
+        ),
+      ],
+    );
+
+    final controller = ChartsController(
+      liveCharts: _FakeLiveChartService(
+        snapshot: _snapshot(
+          id: 'live',
+          chartType: ChartType.songs,
+          weekStartUtc: DateTime.utc(2026, 9, 27),
+        ),
+      ),
+      finalization: _FakeChartFinalizationService(),
+      charts: _FakeChartRepository(),
+      library: _FakeLibraryQueryRepository(
+        tracks: [
+          _libraryTrack(
+            songId: 'song-art',
+            artworkPath: 'C:/Artwork/song-art.jpg',
+          ),
+        ],
+        albums: [
+          _libraryAlbum(
+            albumId: 'album-art',
+            artworkPath: 'C:/Artwork/album-art.jpg',
+          ),
+        ],
+      ),
+      moments: moments,
+      now: () => referenceLocal,
+    );
+
+    await controller.load();
+
+    final songItem = controller.momentFeedItems.singleWhere(
+      (item) => item.chartType == ChartType.songs,
+    );
+
+    final albumItem = controller.momentFeedItems.singleWhere(
+      (item) => item.chartType == ChartType.albums,
+    );
+
+    expect(
+      controller.artworkPathForMoment(songItem),
+      'C:/Artwork/song-art.jpg',
+    );
+
+    expect(
+      controller.artworkPathForMoment(albumItem),
+      'C:/Artwork/album-art.jpg',
+    );
+  });
+
+  test('missing related Moment entity artwork resolves to null', () async {
+    final primary = ChartEntitySnapshot(
+      entityId: 'song-primary',
+      title: 'Primary Song',
+      artistId: 'artist-a',
+      artistName: 'Artist A',
+      albumTitle: 'Album A',
+    );
+
+    final related = ChartEntitySnapshot(
+      entityId: 'song-missing',
+      title: 'Missing Song',
+      artistId: 'artist-a',
+      artistName: 'Artist A',
+      albumTitle: 'Album A',
+    );
+
+    final at = DateTime.utc(2026, 9, 28, 12);
+
+    final moments = _FakeChartMomentRepository(
+      events: [
+        ChartMomentEvent(
+          id: 'related-moment',
+          deduplicationKey: 'related-moment',
+          sourceId: 'snapshot-1',
+          chartType: ChartType.songs,
+          scope: ChartMomentScope.finalized,
+          eventType: ChartMomentEventType.artistReturnsToNumberOneSong,
+          entity: primary,
+          relatedEntity: related,
+          weekStartUtc: DateTime.utc(2026, 9, 27),
+          weekEndUtc: DateTime.utc(2026, 10, 4),
+          occurredAt: at,
+          createdAt: at,
+          currentRank: 1,
+          threshold: 1,
+          milestoneValue: 6,
+        ),
+      ],
+    );
+
+    final controller = ChartsController(
+      liveCharts: _FakeLiveChartService(
+        snapshot: _snapshot(
+          id: 'live',
+          chartType: ChartType.songs,
+          weekStartUtc: DateTime.utc(2026, 9, 27),
+        ),
+      ),
+      finalization: _FakeChartFinalizationService(),
+      charts: _FakeChartRepository(),
+      library: _FakeLibraryQueryRepository(
+        tracks: [
+          _libraryTrack(
+            songId: 'song-primary',
+            artworkPath: 'C:/Artwork/primary.jpg',
+          ),
+        ],
+      ),
+      moments: moments,
+      now: () => referenceLocal,
+    );
+
+    await controller.load();
+
+    final item = controller.momentFeedItems.single;
+
+    expect(controller.artworkPathForMoment(item), 'C:/Artwork/primary.jpg');
+
+    expect(controller.relatedArtworkPathForMoment(item), isNull);
+  });
   test('captures loading failures', () async {
     final controller = ChartsController(
       liveCharts: _FakeLiveChartService(
@@ -295,6 +613,33 @@ void main() {
     expect(controller.error, isA<StateError>());
     expect(controller.isLoading, isFalse);
   });
+}
+
+ChartMomentEvent _momentEvent({
+  required String id,
+  required ChartMomentEventType type,
+  required ChartEntitySnapshot entity,
+  ChartType chartType = ChartType.songs,
+  int? previousRank,
+  int? currentRank,
+}) {
+  final occurredAt = DateTime.utc(2026, 9, 28, 12);
+
+  return ChartMomentEvent(
+    id: id,
+    deduplicationKey: id,
+    sourceId: 'snapshot-1',
+    chartType: chartType,
+    scope: ChartMomentScope.finalized,
+    eventType: type,
+    entity: entity,
+    weekStartUtc: DateTime.utc(2026, 9, 27),
+    weekEndUtc: DateTime.utc(2026, 10, 4),
+    occurredAt: occurredAt,
+    createdAt: occurredAt,
+    previousRank: previousRank,
+    currentRank: currentRank,
+  );
 }
 
 ChartSnapshot _snapshot({
@@ -330,6 +675,41 @@ ChartEntry _entry(int rank) {
     peakAchievedAt: DateTime.utc(2026, 9, 20),
     weeksOnChart: 4,
     movement: rank == 1 ? ChartMovement.up : ChartMovement.same,
+  );
+}
+
+LibraryTrack _libraryTrack({required String songId, String? artworkPath}) {
+  return LibraryTrack(
+    songId: songId,
+    title: 'Song $songId',
+    artistId: 'artist-a',
+    artistName: 'Artist A',
+    albumId: 'album-a',
+    albumTitle: 'Album A',
+    albumEditionId: 'edition-a',
+    albumEditionTitle: 'Standard',
+    albumEditionType: AlbumEditionType.standard,
+    trackNumber: 1,
+    durationSeconds: 180,
+    isSingle: false,
+    featuredArtists: const [],
+    dateAdded: DateTime.utc(2026, 9, 1),
+    isAvailable: true,
+    isSongBlocked: false,
+    filePath: 'C:/Music/$songId.mp3',
+    artworkPath: artworkPath,
+  );
+}
+
+LibraryAlbum _libraryAlbum({required String albumId, String? artworkPath}) {
+  return LibraryAlbum(
+    albumId: albumId,
+    title: 'Album $albumId',
+    artistId: 'artist-a',
+    artistName: 'Artist A',
+    trackCount: 1,
+    dateAdded: DateTime.utc(2026, 9, 1),
+    artworkPath: artworkPath,
   );
 }
 
@@ -397,6 +777,55 @@ class _FakeChartFinalizationService implements ChartFinalizationService {
   }
 }
 
+class _FakeChartMomentRepository implements ChartMomentRepository {
+  _FakeChartMomentRepository({this.events = const [], this.error});
+
+  final List<ChartMomentEvent> events;
+  final Object? error;
+
+  int getRecentCallCount = 0;
+  int? lastLimit;
+
+  @override
+  Future<List<ChartMomentEvent>> getRecent({int? limit}) async {
+    getRecentCallCount++;
+    lastLimit = limit;
+
+    final error = this.error;
+
+    if (error != null) {
+      throw error;
+    }
+
+    if (limit == null || events.length <= limit) {
+      return List<ChartMomentEvent>.unmodifiable(events);
+    }
+
+    return List<ChartMomentEvent>.unmodifiable(events.take(limit));
+  }
+
+  @override
+  Future<ChartMomentEvent?> getById(String id) async {
+    for (final event in events) {
+      if (event.id == id) {
+        return event;
+      }
+    }
+
+    return null;
+  }
+
+  @override
+  Future<void> saveAll(Iterable<ChartMomentEvent> events) async {}
+
+  @override
+  Future<void> replaceFinalizedForWeek({
+    required ChartType chartType,
+    required DateTime weekStartUtc,
+    required Iterable<ChartMomentEvent> events,
+  }) async {}
+}
+
 class _FakeChartRepository implements ChartRepository {
   _FakeChartRepository({this.historyByType = const {}});
 
@@ -432,20 +861,31 @@ class _FakeChartRepository implements ChartRepository {
 }
 
 class _FakeLibraryQueryRepository implements LibraryQueryRepository {
+  _FakeLibraryQueryRepository({this.tracks = const [], this.albums = const []});
+
+  final List<LibraryTrack> tracks;
+  final List<LibraryAlbum> albums;
+
   @override
   Future<List<LibraryTrack>> getTracks({
     LibraryTrackOrder order = LibraryTrackOrder.title,
   }) async {
-    return const [];
+    return tracks;
   }
 
   @override
   Future<List<LibraryTrack>> getRecentlyAddedTracks(int limit) async {
-    return const [];
+    return tracks.take(limit).toList(growable: false);
   }
 
   @override
   Future<LibraryTrack?> getTrackById(String songId) async {
+    for (final track in tracks) {
+      if (track.songId == songId) {
+        return track;
+      }
+    }
+
     return null;
   }
 
@@ -454,32 +894,44 @@ class _FakeLibraryQueryRepository implements LibraryQueryRepository {
     String artistId, {
     LibraryTrackOrder order = LibraryTrackOrder.title,
   }) async {
-    return const [];
+    return tracks
+        .where((track) => track.artistId == artistId)
+        .toList(growable: false);
   }
 
   @override
   Future<List<LibraryTrack>> getTracksByAlbumId(String albumId) async {
-    return const [];
+    return tracks
+        .where((track) => track.albumId == albumId)
+        .toList(growable: false);
   }
 
   @override
   Future<List<LibraryAlbum>> getAlbums() async {
-    return const [];
+    return albums;
   }
 
   @override
   Future<List<LibraryAlbum>> getRecentlyAddedAlbums(int limit) async {
-    return const [];
+    return albums.take(limit).toList(growable: false);
   }
 
   @override
   Future<LibraryAlbum?> getAlbumById(String albumId) async {
+    for (final album in albums) {
+      if (album.albumId == albumId) {
+        return album;
+      }
+    }
+
     return null;
   }
 
   @override
   Future<List<LibraryAlbum>> getAlbumsByArtistId(String artistId) async {
-    return const [];
+    return albums
+        .where((album) => album.artistId == artistId)
+        .toList(growable: false);
   }
 
   @override

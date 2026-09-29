@@ -27,6 +27,16 @@ abstract final class DatabaseMigrations {
     }
   }
 
+  static Future<bool> _columnExists(
+    Database db,
+    String table,
+    String column,
+  ) async {
+    final rows = await db.rawQuery('PRAGMA table_info($table)');
+
+    return rows.any((row) => row['name'] == column);
+  }
+
   static Future<void> _migrateTo(Database db, int targetVersion) async {
     switch (targetVersion) {
       case 1:
@@ -200,7 +210,86 @@ abstract final class DatabaseMigrations {
         return;
 
       case 16:
-        await ChartSchema.create(db);
+        await ChartSchema.createChartSnapshots(db);
+        await ChartSchema.createChartEntries(db);
+        await ChartSchema.createChartIndexes(db);
+        return;
+
+      case 17:
+        await ChartSchema.createChartMomentEvents(db);
+        await ChartSchema.createChartMomentIndexes(db);
+        return;
+
+      case 18:
+        if (!await _columnExists(
+          db,
+          DatabaseTables.chartEntries,
+          'artist_id',
+        )) {
+          await db.execute(
+            'ALTER TABLE ${DatabaseTables.chartEntries} '
+            'ADD COLUMN artist_id TEXT',
+          );
+        }
+
+        if (!await _columnExists(
+          db,
+          DatabaseTables.chartMomentEvents,
+          'entity_artist_id',
+        )) {
+          await db.execute(
+            'ALTER TABLE ${DatabaseTables.chartMomentEvents} '
+            'ADD COLUMN entity_artist_id TEXT',
+          );
+        }
+
+        if (!await _columnExists(
+          db,
+          DatabaseTables.chartMomentEvents,
+          'related_entity_artist_id',
+        )) {
+          await db.execute(
+            'ALTER TABLE ${DatabaseTables.chartMomentEvents} '
+            'ADD COLUMN related_entity_artist_id TEXT',
+          );
+        }
+
+        await db.execute('''
+          UPDATE ${DatabaseTables.chartEntries}
+          SET artist_id = (
+            SELECT playback.artist_id
+            FROM ${DatabaseTables.playbackSessions} AS playback
+            WHERE playback.song_id =
+                ${DatabaseTables.chartEntries}.entity_id
+            ORDER BY playback.started_at ASC, playback.id ASC
+            LIMIT 1
+          )
+          WHERE artist_id IS NULL
+            AND chart_snapshot_id IN (
+              SELECT id
+              FROM ${DatabaseTables.chartSnapshots}
+              WHERE chart_type = 'songs'
+            )
+        ''');
+
+        await db.execute('''
+          UPDATE ${DatabaseTables.chartEntries}
+          SET artist_id = (
+            SELECT playback.artist_id
+            FROM ${DatabaseTables.playbackSessions} AS playback
+            WHERE playback.album_id =
+                ${DatabaseTables.chartEntries}.entity_id
+            ORDER BY playback.started_at ASC, playback.id ASC
+            LIMIT 1
+          )
+          WHERE artist_id IS NULL
+            AND chart_snapshot_id IN (
+              SELECT id
+              FROM ${DatabaseTables.chartSnapshots}
+              WHERE chart_type = 'albums'
+            )
+        ''');
+
         return;
       default:
         throw UnsupportedError(

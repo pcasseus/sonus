@@ -46,6 +46,25 @@ void main() {
     });
   });
 
+  test(
+    'creates stable artist identity columns for charts and Moments',
+    () async {
+      final entryColumns = await database.rawQuery(
+        'PRAGMA table_info(${DatabaseTables.chartEntries})',
+      );
+
+      expect(entryColumns.map((row) => row['name']), contains('artist_id'));
+
+      final momentColumns = await database.rawQuery(
+        'PRAGMA table_info(${DatabaseTables.chartMomentEvents})',
+      );
+
+      expect(
+        momentColumns.map((row) => row['name']),
+        containsAll({'entity_artist_id', 'related_entity_artist_id'}),
+      );
+    },
+  );
   test('stores finalized historical chart identity independently', () async {
     const createdAt = '2026-10-04T04:00:00.000Z';
 

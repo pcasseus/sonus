@@ -152,6 +152,7 @@ void main() {
     expect(snapshot.entries, hasLength(2));
 
     expect(snapshot.entries[0].entity.entityId, 'song-a');
+    expect(snapshot.entries[0].entity.artistId, 'artist-album-a');
     expect(snapshot.entries[0].qualifiedStreamCount, 2);
     expect(snapshot.entries[0].rank, 1);
 
@@ -204,6 +205,7 @@ void main() {
     expect(snapshot.entries, hasLength(2));
 
     expect(snapshot.entries[0].entity.entityId, 'album-a');
+    expect(snapshot.entries[0].entity.artistId, 'artist-album-a');
     expect(snapshot.entries[0].qualifiedStreamCount, 2);
 
     expect(snapshot.entries[1].entity.entityId, 'album-b');
@@ -375,6 +377,100 @@ void main() {
     expect(entry.peakRank, 1);
   });
 
+  test(
+    'finalized snapshot does not promote provisional intraweek peak to career peak',
+    () async {
+      final plays = <QualifiedPlay>[
+        play(
+          id: 'target',
+          songId: 'song-c',
+          albumId: 'album-c',
+          qualifiedAt: DateTime.utc(2026, 9, 28, 1),
+        ),
+      ];
+
+      for (var index = 0; index < 6; index++) {
+        final songId = 'song-${index + 1}';
+        final albumId = 'album-${index + 1}';
+
+        plays.add(
+          play(
+            id: 'competitor-${index + 1}-a',
+            songId: songId,
+            albumId: albumId,
+            qualifiedAt: DateTime.utc(
+              2026,
+              9,
+              28,
+              2,
+            ).add(Duration(minutes: index * 2)),
+          ),
+        );
+
+        plays.add(
+          play(
+            id: 'competitor-${index + 1}-b',
+            songId: songId,
+            albumId: albumId,
+            qualifiedAt: DateTime.utc(
+              2026,
+              9,
+              28,
+              2,
+            ).add(Duration(minutes: index * 2 + 1)),
+          ),
+        );
+      }
+
+      final sessions = [
+        playbackSession(
+          id: 'session-target',
+          songId: 'song-c',
+          albumId: 'album-c',
+        ),
+        for (var index = 0; index < 6; index++) ...[
+          playbackSession(
+            id: 'session-competitor-${index + 1}-a',
+            songId: 'song-${index + 1}',
+            albumId: 'album-${index + 1}',
+          ),
+          playbackSession(
+            id: 'session-competitor-${index + 1}-b',
+            songId: 'song-${index + 1}',
+            albumId: 'album-${index + 1}',
+          ),
+        ],
+      ];
+
+      final builder = ChartSnapshotBuilderService(
+        qualifiedPlays: _FakeQualifiedPlayRepository(plays),
+        library: _FakeLibraryQueryRepository(
+          tracks: const [],
+          albums: const [],
+        ),
+        charts: _FakeChartRepository(),
+        playbackSessions: _FakePlaybackSessionRepository(sessions),
+      );
+
+      final snapshot = await builder.build(
+        chartType: ChartType.songs,
+        weekStartUtc: DateTime.utc(2026, 9, 27),
+        weekEndUtc: DateTime.utc(2026, 10, 4),
+        finalizedAt: DateTime.utc(2026, 10, 4),
+      );
+
+      final target = snapshot.entries.singleWhere(
+        (entry) => entry.entity.entityId == 'song-c',
+      );
+
+      // song-c temporarily held #1 after its first qualified play, but six
+      // two-stream competitors finish ahead of it. Its official career peak
+      // therefore comes from the finalized weekly rank, not that live #1.
+      expect(target.rank, 7);
+      expect(target.peakRank, 7);
+      expect(target.peakAchievedAt, target.lastQualifiedAt);
+    },
+  );
   test('live snapshot does not increment finalized weeks on chart', () async {
     final previous = ChartSnapshot(
       id: 'previous',
@@ -564,7 +660,7 @@ void main() {
 
       // Current/future stored snapshots must not leak their later peaks backward.
       expect(entry.peakRank, 1);
-      expect(entry.peakAchievedAt, DateTime.utc(2026, 9, 28, 10));
+      expect(entry.peakAchievedAt, DateTime.utc(2026, 9, 29, 10));
     },
   );
   test(
@@ -611,6 +707,7 @@ void main() {
 
       expect(entry.entity.entityId, 'deleted-song');
       expect(entry.entity.title, 'Original Song Title');
+      expect(entry.entity.artistId, 'artist-deleted-album');
       expect(entry.entity.artistName, 'Original Artist');
       expect(entry.entity.albumTitle, 'Original Album');
     },

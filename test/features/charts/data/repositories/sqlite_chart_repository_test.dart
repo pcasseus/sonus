@@ -43,6 +43,7 @@ void main() {
       entity: ChartEntitySnapshot(
         entityId: entityId,
         title: 'Title $entityId',
+        artistId: 'artist-$entityId',
         artistName: 'Artist $entityId',
         albumTitle: 'Album $entityId',
       ),
@@ -104,6 +105,7 @@ void main() {
     expect(restored.entries, hasLength(2));
 
     expect(restored.entries[0].entity.entityId, 'song-a');
+    expect(restored.entries[0].entity.artistId, 'artist-song-a');
     expect(restored.entries[0].rank, 1);
     expect(restored.entries[0].qualifiedStreamCount, 20);
 

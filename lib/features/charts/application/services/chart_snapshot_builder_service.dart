@@ -41,6 +41,7 @@ class ChartSnapshotBuilderService {
     required DateTime weekEndUtc,
     DateTime? finalizedAt,
     int revision = 1,
+    ChartRankObservationCallback? onRankObservation,
   }) async {
     final startUtc = weekStartUtc.toUtc();
     final endUtc = weekEndUtc.toUtc();
@@ -121,6 +122,7 @@ class ChartSnapshotBuilderService {
           weekStartUtc: startUtc,
           weekEndUtc: endUtc,
           revision: revision,
+          onRankObservation: onRankObservation,
         );
 
       case ChartType.albums:
@@ -142,6 +144,7 @@ class ChartSnapshotBuilderService {
           weekStartUtc: startUtc,
           weekEndUtc: endUtc,
           revision: revision,
+          onRankObservation: onRankObservation,
         );
     }
   }
@@ -152,6 +155,7 @@ class ChartSnapshotBuilderService {
     required DateTime weekStartUtc,
     required DateTime weekEndUtc,
     required int revision,
+    ChartRankObservationCallback? onRankObservation,
   }) async {
     final tracks = await _library.getTracks();
 
@@ -168,6 +172,7 @@ class ChartSnapshotBuilderService {
       events: _eventsFor(plays: plays, chartType: ChartType.songs),
       historyByEntityId: historyByEntityId,
       eligibleEntityIds: eligibleSongIds,
+      onRankObservation: onRankObservation,
     );
 
     final entries = <ChartEntry>[];
@@ -185,6 +190,7 @@ class ChartSnapshotBuilderService {
           entity: ChartEntitySnapshot(
             entityId: track.songId,
             title: track.title,
+            artistId: track.artistId,
             artistName: track.artistName,
             albumTitle: track.albumTitle,
           ),
@@ -209,6 +215,7 @@ class ChartSnapshotBuilderService {
     required DateTime weekStartUtc,
     required DateTime weekEndUtc,
     required int revision,
+    ChartRankObservationCallback? onRankObservation,
   }) async {
     final albums = await _library.getAlbums();
 
@@ -220,6 +227,7 @@ class ChartSnapshotBuilderService {
       events: _eventsFor(plays: plays, chartType: ChartType.albums),
       historyByEntityId: historyByEntityId,
       eligibleEntityIds: albumById.keys.toSet(),
+      onRankObservation: onRankObservation,
     );
 
     final entries = <ChartEntry>[];
@@ -237,6 +245,7 @@ class ChartSnapshotBuilderService {
           entity: ChartEntitySnapshot(
             entityId: album.albumId,
             title: album.title,
+            artistId: album.artistId,
             artistName: album.artistName,
           ),
           isFinalized: false,
@@ -272,6 +281,7 @@ class ChartSnapshotBuilderService {
     final ranked = _rankingEngine.rank(
       events: _eventsFor(plays: plays, chartType: ChartType.songs),
       historyByEntityId: historyByEntityId,
+      includeObservedPeakInResult: false,
     );
 
     final entries = ranked
@@ -312,6 +322,7 @@ class ChartSnapshotBuilderService {
     final ranked = _rankingEngine.rank(
       events: _eventsFor(plays: plays, chartType: ChartType.albums),
       historyByEntityId: historyByEntityId,
+      includeObservedPeakInResult: false,
     );
 
     final entries = ranked
@@ -346,6 +357,7 @@ class ChartSnapshotBuilderService {
               ChartType.albums => play.albumId,
             },
             qualifiedAt: play.qualifiedAt,
+            sourceEventId: play.id,
           ),
         )
         .toList(growable: false);
@@ -379,6 +391,7 @@ class ChartSnapshotBuilderService {
           identities[play.songId] = ChartEntitySnapshot(
             entityId: play.songId,
             title: session.songTitle,
+            artistId: session.artistId,
             artistName: session.artistName,
             albumTitle: session.albumTitle,
           );
@@ -387,6 +400,7 @@ class ChartSnapshotBuilderService {
           identities[play.albumId] = ChartEntitySnapshot(
             entityId: play.albumId,
             title: session.albumTitle,
+            artistId: session.artistId,
             artistName: session.artistName,
           );
       }
@@ -453,10 +467,6 @@ class ChartSnapshotBuilderService {
           snapshot.weekEndUtc.toUtc() == currentWeekStartUtc.toUtc();
 
       for (final entry in snapshot.entries) {
-        if (!entry.isOfficiallyCharting) {
-          continue;
-        }
-
         final entityId = entry.entity.entityId;
 
         final state = mutable.putIfAbsent(
@@ -464,13 +474,9 @@ class ChartSnapshotBuilderService {
           () => _MutableHistory(entityId),
         );
 
-        state.hasEverCharted = true;
-        state.finalizedWeeksOnChart++;
-
-        if (isPreviousWeek) {
-          state.previousFinalRank = entry.rank;
-        }
-
+        // Peak history spans the full persisted Top 200. This lets Moments
+        // distinguish a genuine first Top-200 appearance from a return to
+        // territory previously reached outside the official Top 100.
         if (state.peakRank == null || entry.peakRank < state.peakRank!) {
           state.peakRank = entry.peakRank;
           state.peakAchievedAt = entry.peakAchievedAt;
@@ -478,6 +484,21 @@ class ChartSnapshotBuilderService {
             state.peakAchievedAt != null &&
             entry.peakAchievedAt.isBefore(state.peakAchievedAt!)) {
           state.peakAchievedAt = entry.peakAchievedAt;
+        }
+        if (isPreviousWeek) {
+          state.previousExtendedRank = entry.rank;
+        }
+
+        // Official chart career accounting remains Top 100 only.
+        if (!entry.isOfficiallyCharting) {
+          continue;
+        }
+
+        state.hasEverCharted = true;
+        state.finalizedWeeksOnChart++;
+
+        if (isPreviousWeek) {
+          state.previousFinalRank = entry.rank;
         }
       }
     }
@@ -489,6 +510,7 @@ class ChartSnapshotBuilderService {
           finalizedWeeksOnChart: state.finalizedWeeksOnChart,
           hasEverCharted: state.hasEverCharted,
           previousFinalRank: state.previousFinalRank,
+          previousExtendedRank: state.previousExtendedRank,
           peakRank: state.peakRank,
           peakAchievedAt: state.peakAchievedAt,
         ),
@@ -524,6 +546,8 @@ class _MutableHistory {
   bool hasEverCharted = false;
 
   int? previousFinalRank;
+
+  int? previousExtendedRank;
 
   int? peakRank;
   DateTime? peakAchievedAt;

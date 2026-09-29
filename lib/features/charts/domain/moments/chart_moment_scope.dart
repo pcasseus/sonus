@@ -1,0 +1,1 @@
+enum ChartMomentScope { live, finalized }

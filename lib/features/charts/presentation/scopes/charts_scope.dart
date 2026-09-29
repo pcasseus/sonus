@@ -10,6 +10,7 @@ import '../../../library/application/repositories/library_query_repository.dart'
 import '../../application/services/chart_finalization_service.dart';
 import '../../application/services/chart_snapshot_builder_service.dart';
 import '../../application/services/live_chart_service.dart';
+import '../../data/repositories/sqlite_chart_moment_repository.dart';
 import '../../data/repositories/sqlite_chart_repository.dart';
 import '../controllers/charts_controller.dart';
 
@@ -84,6 +85,7 @@ class _ChartsScopeState extends State<ChartsScope> {
 
     final charts = SqliteChartRepository(database);
 
+    final moments = SqliteChartMomentRepository(database);
     final builder = ChartSnapshotBuilderService(
       qualifiedPlays: qualifiedPlays,
       library: library,
@@ -92,11 +94,12 @@ class _ChartsScopeState extends State<ChartsScope> {
     );
 
     final liveCharts = LiveChartService(builder: builder);
-
     final finalization = ChartFinalizationService(
       builder: builder,
       charts: charts,
       qualifiedPlays: qualifiedPlays,
+      moments: moments,
+      momentsActivationWeekStartUtc: DateTime(2026, 9, 27).toUtc(),
     );
 
     final controller = ChartsController(
@@ -104,6 +107,7 @@ class _ChartsScopeState extends State<ChartsScope> {
       finalization: finalization,
       charts: charts,
       library: library,
+      moments: moments,
       now: widget.now,
     );
 

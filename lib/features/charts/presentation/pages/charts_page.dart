@@ -9,11 +9,14 @@ import '../../../library/presentation/pages/album_profile_page.dart';
 import '../../../library/presentation/pages/artist_profile_page.dart';
 import '../../../player/application/controllers/playback_coordinator.dart';
 
+import '../../application/models/chart_moment_feed_item.dart';
 import '../../domain/entities/chart_entry.dart';
 import '../../domain/entities/chart_snapshot.dart';
 import '../../domain/models/chart_movement.dart';
 import '../../domain/models/chart_type.dart';
 import '../../domain/models/chart_view_size.dart';
+import '../formatters/chart_moment_feed_copy_formatter.dart';
+import '../models/charts_presentation_mode.dart';
 import '../controllers/charts_controller.dart';
 
 class ChartsPage extends StatelessWidget {
@@ -56,42 +59,48 @@ class ChartsPage extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(20, 22, 20, 40),
         children: [
           const _ChartsHeader(),
+          const SizedBox(height: 18),
+          _ChartsPresentationSelector(controller: controller),
           const SizedBox(height: 20),
-          _ChartTypeSelector(controller: controller),
-          const SizedBox(height: 18),
-          _WeekNavigator(controller: controller),
-          const SizedBox(height: 18),
-          _ViewSizeSelector(controller: controller),
 
-          if (controller.viewSize == ChartViewSize.top200) ...[
-            const SizedBox(height: 10),
-            const _ExtendedChartNotice(),
-          ],
+          if (controller.isShowingCharts) ...[
+            _ChartTypeSelector(controller: controller),
+            const SizedBox(height: 18),
+            _WeekNavigator(controller: controller),
+            const SizedBox(height: 18),
+            _ViewSizeSelector(controller: controller),
 
-          const SizedBox(height: 22),
-
-          if (controller.hasError && snapshot != null) ...[
-            _RefreshErrorBanner(onRetry: controller.refresh),
-            const SizedBox(height: 16),
-          ],
-
-          if (snapshot == null || snapshot.entries.isEmpty)
-            const _ChartsMessage(
-              key: ValueKey<String>('charts-empty'),
-              icon: Icons.leaderboard_outlined,
-              title: 'No chart entries yet',
-              message:
-                  'Qualified listening this week will build your Sonus Hot 100.',
-            )
-          else ...[
-            _SnapshotSummary(snapshot: snapshot),
-            const SizedBox(height: 14),
-
-            for (final entry in snapshot.entries) ...[
-              _ChartRow(entry: entry, controller: controller),
-              const Divider(height: 1),
+            if (controller.viewSize == ChartViewSize.top200) ...[
+              const SizedBox(height: 10),
+              const _ExtendedChartNotice(),
             ],
-          ],
+
+            const SizedBox(height: 22),
+
+            if (controller.hasError && snapshot != null) ...[
+              _RefreshErrorBanner(onRetry: controller.refresh),
+              const SizedBox(height: 16),
+            ],
+
+            if (snapshot == null || snapshot.entries.isEmpty)
+              const _ChartsMessage(
+                key: ValueKey<String>('charts-empty'),
+                icon: Icons.leaderboard_outlined,
+                title: 'No chart entries yet',
+                message:
+                    'Qualified listening this week will build your Sonus Hot 100.',
+              )
+            else ...[
+              _SnapshotSummary(snapshot: snapshot),
+              const SizedBox(height: 14),
+
+              for (final entry in snapshot.entries) ...[
+                _ChartRow(entry: entry, controller: controller),
+                const Divider(height: 1),
+              ],
+            ],
+          ] else
+            _MomentsFeed(controller: controller),
         ],
       ),
     );
@@ -129,6 +138,315 @@ class _ChartsHeader extends StatelessWidget {
       ],
     );
   }
+}
+
+class _ChartsPresentationSelector extends StatelessWidget {
+  const _ChartsPresentationSelector({required this.controller});
+
+  final ChartsController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return SegmentedButton<ChartsPresentationMode>(
+      key: const ValueKey<String>('charts-presentation-selector'),
+      segments: const [
+        ButtonSegment<ChartsPresentationMode>(
+          value: ChartsPresentationMode.charts,
+          label: Text('Charts'),
+          icon: Icon(Icons.leaderboard_rounded),
+        ),
+        ButtonSegment<ChartsPresentationMode>(
+          value: ChartsPresentationMode.moments,
+          label: Text('Moments'),
+          icon: Icon(Icons.auto_awesome_rounded),
+        ),
+      ],
+      selected: {controller.presentationMode},
+      onSelectionChanged: (selection) {
+        if (selection.isEmpty) {
+          return;
+        }
+
+        controller.selectPresentationMode(selection.first);
+      },
+    );
+  }
+}
+
+class _MomentsFeed extends StatelessWidget {
+  const _MomentsFeed({required this.controller});
+
+  final ChartsController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    if (controller.hasMomentFeedError && !controller.hasMomentFeedItems) {
+      return _ChartsMessage(
+        key: const ValueKey<String>('charts-moments-error'),
+        icon: Icons.error_outline_rounded,
+        title: 'Moments could not be loaded',
+        message:
+            'Your chart is still available. Try loading your Moments again.',
+        action: FilledButton.icon(
+          onPressed: controller.refresh,
+          icon: const Icon(Icons.refresh_rounded),
+          label: const Text('Retry'),
+        ),
+      );
+    }
+
+    if (!controller.hasMomentFeedItems) {
+      return const _ChartsMessage(
+        key: ValueKey<String>('charts-moments-empty'),
+        icon: Icons.auto_awesome_outlined,
+        title: 'No Moments yet',
+        message:
+            'As your Sonus Hot 100 changes, chart milestones and movement will appear here.',
+      );
+    }
+
+    return Column(
+      key: const ValueKey<String>('charts-moments-feed'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (controller.hasMomentFeedError) ...[
+          _MomentsRefreshErrorBanner(onRetry: controller.refresh),
+          const SizedBox(height: 14),
+        ],
+
+        for (
+          var index = 0;
+          index < controller.momentFeedItems.length;
+          index++
+        ) ...[
+          _MomentCard(
+            item: controller.momentFeedItems[index],
+            controller: controller,
+          ),
+          if (index != controller.momentFeedItems.length - 1)
+            const SizedBox(height: 14),
+        ],
+      ],
+    );
+  }
+}
+
+class _MomentCard extends StatelessWidget {
+  const _MomentCard({required this.item, required this.controller});
+
+  static const _formatter = ChartMomentFeedCopyFormatter();
+
+  final ChartMomentFeedItem item;
+  final ChartsController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final copy = _formatter.format(item);
+
+    final artworkPath = controller.artworkPathForMoment(item);
+
+    final fallbackIcon = item.chartType == ChartType.songs
+        ? Icons.music_note_rounded
+        : Icons.album_rounded;
+
+    final subjectLabel = switch (item.subjectType) {
+      ChartMomentFeedSubjectType.entity =>
+        item.chartType == ChartType.songs ? 'SONG' : 'ALBUM',
+      ChartMomentFeedSubjectType.artist =>
+        item.chartType == ChartType.songs
+            ? 'ARTIST \u2022 SONGS'
+            : 'ARTIST \u2022 ALBUMS',
+    };
+
+    return Material(
+      key: ValueKey<String>('charts-moment-${item.id}'),
+      color: colorScheme.surfaceContainerLow,
+      borderRadius: BorderRadius.circular(20),
+      clipBehavior: Clip.antiAlias,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _ChartArtwork(
+              key: ValueKey<String>('charts-moment-artwork-${item.id}'),
+              path: artworkPath,
+              fallbackIcon: fallbackIcon,
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Wrap(
+                    spacing: 7,
+                    runSpacing: 7,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      _MomentScopeBadge(item: item),
+                      _MomentTypeBadge(label: subjectLabel),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    copy.headline,
+                    key: ValueKey<String>('charts-moment-headline-${item.id}'),
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w900,
+                      height: 1.15,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    copy.body,
+                    key: ValueKey<String>('charts-moment-body-${item.id}'),
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                      height: 1.35,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    _formatMomentContext(item),
+                    key: ValueKey<String>('charts-moment-context-${item.id}'),
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MomentScopeBadge extends StatelessWidget {
+  const _MomentScopeBadge({required this.item});
+
+  final ChartMomentFeedItem item;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Container(
+      key: ValueKey<String>('charts-moment-scope-${item.id}'),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+      decoration: BoxDecoration(
+        color: item.isLive
+            ? colorScheme.primaryContainer
+            : colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        item.isLive ? 'LIVE' : 'FINAL',
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+          fontWeight: FontWeight.w900,
+          letterSpacing: 1,
+          color: item.isLive
+              ? colorScheme.onPrimaryContainer
+              : colorScheme.onSurfaceVariant,
+        ),
+      ),
+    );
+  }
+}
+
+class _MomentTypeBadge extends StatelessWidget {
+  const _MomentTypeBadge({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0.7,
+          color: colorScheme.onSurfaceVariant,
+        ),
+      ),
+    );
+  }
+}
+
+class _MomentsRefreshErrorBanner extends StatelessWidget {
+  const _MomentsRefreshErrorBanner({required this.onRetry});
+
+  final Future<void> Function() onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      key: const ValueKey<String>('charts-moments-refresh-error'),
+      color: Theme.of(context).colorScheme.errorContainer,
+      borderRadius: BorderRadius.circular(14),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          children: [
+            const Icon(Icons.error_outline_rounded),
+            const SizedBox(width: 10),
+            const Expanded(
+              child: Text(
+                'Moments refresh failed. Showing the last available feed.',
+              ),
+            ),
+            TextButton(onPressed: onRetry, child: const Text('Retry')),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+String _formatMomentContext(ChartMomentFeedItem item) {
+  if (item.isLive) {
+    final date = item.occurredAt.toLocal();
+
+    return '${_monthName(date.month)} ${date.day}, ${date.year}';
+  }
+
+  return 'Chart week ${_formatMomentWeek(item.weekStartUtc, item.weekEndUtc)}';
+}
+
+String _formatMomentWeek(DateTime weekStartUtc, DateTime weekEndUtc) {
+  final start = weekStartUtc.toUtc();
+  final inclusiveEnd = weekEndUtc.toUtc().subtract(const Duration(days: 1));
+
+  final sameMonth =
+      start.year == inclusiveEnd.year && start.month == inclusiveEnd.month;
+
+  if (sameMonth) {
+    return '${_monthName(start.month)} '
+        '${start.day}\u2013${inclusiveEnd.day}, '
+        '${start.year}';
+  }
+
+  if (start.year == inclusiveEnd.year) {
+    return '${_monthName(start.month)} ${start.day} \u2013 '
+        '${_monthName(inclusiveEnd.month)} ${inclusiveEnd.day}, '
+        '${start.year}';
+  }
+
+  return '${_monthName(start.month)} ${start.day}, ${start.year} \u2013 '
+      '${_monthName(inclusiveEnd.month)} '
+      '${inclusiveEnd.day}, ${inclusiveEnd.year}';
 }
 
 class _ChartTypeSelector extends StatelessWidget {
@@ -907,9 +1225,9 @@ void _openAlbum(BuildContext context, LibraryAlbum album) {
 }
 
 String _formatChartWeek(ChartSnapshot snapshot) {
-  final start = snapshot.weekStartUtc.toLocal();
+  final start = snapshot.weekStartUtc.toUtc();
 
-  final inclusiveEnd = snapshot.weekEndUtc.toLocal().subtract(
+  final inclusiveEnd = snapshot.weekEndUtc.toUtc().subtract(
     const Duration(days: 1),
   );
 
