@@ -7,6 +7,7 @@ import '../../../account/application/controllers/account_controller.dart';
 import '../../../artwork/application/services/artwork_assignment_service.dart';
 import '../../../artwork/application/services/artwork_file_picker.dart';
 import '../../../player/application/controllers/playback_coordinator.dart';
+import '../../../playlists/presentation/widgets/add_to_playlist_sheet.dart';
 import '../../application/models/library_track.dart';
 import '../../application/repositories/library_query_repository.dart';
 import '../../application/services/artist_profile_editing_service.dart';
@@ -192,6 +193,21 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
                   return const SizedBox.shrink();
                 }
 
+                final visibleTracks = controller.tracks
+                    .where(_hasAvailableMedia)
+                    .toList(growable: false);
+                final visibleFeaturedTracks = controller.featuredTracks
+                    .where(_hasAvailableMedia)
+                    .toList(growable: false);
+                final visibleAlbumIds = controller.allTracks
+                    .where(_hasAvailableMedia)
+                    .map((track) => track.albumId)
+                    .toSet();
+
+                final visibleAlbums = controller.albums
+                    .where((album) => visibleAlbumIds.contains(album.albumId))
+                    .toList(growable: false);
+
                 return RefreshIndicator(
                   onRefresh: controller.refresh,
                   child: ListView(
@@ -208,11 +224,11 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
                       const SizedBox(height: 28),
                       ArtistProfileSectionHeading(
                         title: 'Albums',
-                        count: controller.albums.length,
+                        count: visibleAlbums.length,
                       ),
                       const SizedBox(height: 12),
                       ArtistProfileAlbumsGrid(
-                        albums: controller.albums,
+                        albums: visibleAlbums,
                         onAlbumTap: (album) {
                           Navigator.of(context).push(
                             MaterialPageRoute<void>(
@@ -227,11 +243,11 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
                       const SizedBox(height: 28),
                       ArtistProfileSectionHeading(
                         title: 'Songs',
-                        count: controller.tracks.length,
+                        count: visibleTracks.length,
                       ),
                       const SizedBox(height: 8),
                       ArtistProfileTracksList(
-                        tracks: controller.tracks,
+                        tracks: visibleTracks,
                         isTrackPlayable: controller.isTrackPlayable,
                         canEditArtwork: controller.canEditTrackArtwork,
                         canEditTrack: controller.canEditTrack(userId),
@@ -239,6 +255,8 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
                         onPlay: controller.playTrack,
                         onPlayNext: controller.playNext,
                         onAddToQueue: controller.addToQueue,
+                        onAddToPlaylist: (track) =>
+                            showAddToPlaylistFlow(context, track),
                         onEditTrack: (track) =>
                             _editTrack(controller, track, userId),
                         onChangeArtwork: (track) =>
@@ -252,6 +270,38 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
                           isBlocked,
                         ),
                       ),
+                      if (visibleFeaturedTracks.isNotEmpty) ...[
+                        const SizedBox(height: 28),
+                        ArtistProfileSectionHeading(
+                          title: 'Featured On',
+                          count: visibleFeaturedTracks.length,
+                        ),
+                        const SizedBox(height: 8),
+                        ArtistProfileTracksList(
+                          tracks: visibleFeaturedTracks,
+                          isTrackPlayable: controller.isTrackPlayable,
+                          canEditArtwork: controller.canEditTrackArtwork,
+                          canEditTrack: controller.canEditTrack(userId),
+                          canSetBlocked: controller.canSetTrackBlocked(userId),
+                          onPlay: controller.playTrack,
+                          onPlayNext: controller.playNext,
+                          onAddToQueue: controller.addToQueue,
+                          onAddToPlaylist: (track) =>
+                              showAddToPlaylistFlow(context, track),
+                          onEditTrack: (track) =>
+                              _editTrack(controller, track, userId),
+                          onChangeArtwork: (track) =>
+                              _changeTrackArtwork(controller, track),
+                          onClearArtwork: (track) =>
+                              _clearTrackArtwork(controller, track),
+                          onSetBlocked: (track, isBlocked) => _setTrackBlocked(
+                            controller,
+                            track,
+                            userId,
+                            isBlocked,
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 );
@@ -260,25 +310,23 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
     );
   }
 
+  bool _hasAvailableMedia(LibraryTrack track) {
+    return track.isAvailable &&
+        track.filePath != null &&
+        track.filePath!.trim().isNotEmpty;
+  }
+
   Future<void> _handleArtistAction(
     ArtistProfileController controller,
     _ArtistMenuAction action,
     String? userId,
   ) async {
     if (action == _ArtistMenuAction.editName) {
-      if (userId == null || userId.trim().isEmpty) {
-        return;
-      }
-
       await _editArtistName(controller, userId);
       return;
     }
 
     if (action == _ArtistMenuAction.removeArtist) {
-      if (userId == null || userId.trim().isEmpty) {
-        return;
-      }
-
       await _removeArtist(controller, userId);
       return;
     }
@@ -288,7 +336,7 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
 
   Future<void> _removeArtist(
     ArtistProfileController controller,
-    String userId,
+    String? userId,
   ) async {
     final artist = controller.artist;
 
@@ -363,7 +411,7 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
 
   Future<void> _editArtistName(
     ArtistProfileController controller,
-    String userId,
+    String? userId,
   ) async {
     final artist = controller.artist;
 
@@ -491,10 +539,6 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
     LibraryTrack track,
     String? userId,
   ) async {
-    if (userId == null || userId.trim().isEmpty) {
-      return;
-    }
-
     try {
       final repository = _repository;
 

@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 
+import '../../application/models/library_album.dart';
 import '../../application/models/library_artist.dart';
+import '../../application/models/library_track.dart';
 import '../../application/repositories/library_query_repository.dart';
 
 class LibraryArtistsController extends ChangeNotifier {
@@ -15,11 +17,17 @@ class LibraryArtistsController extends ChangeNotifier {
   final LibraryQueryRepository _repository;
 
   List<LibraryArtist> _artists = const [];
+  List<LibraryAlbum> _albums = const [];
+  List<LibraryTrack> _tracks = const [];
 
   bool _isLoading = false;
   Object? _error;
 
   List<LibraryArtist> get artists => _artists;
+
+  List<LibraryAlbum> get albums => _albums;
+
+  List<LibraryTrack> get tracks => _tracks;
 
   bool get isLoading => _isLoading;
 
@@ -35,7 +43,15 @@ class LibraryArtistsController extends ChangeNotifier {
     notifyListeners();
 
     try {
-      _artists = await _repository.getArtists();
+      final results = await Future.wait<Object>([
+        _repository.getArtists(),
+        _repository.getAlbums(),
+        _repository.getTracks(),
+      ]);
+
+      _artists = results[0] as List<LibraryArtist>;
+      _albums = results[1] as List<LibraryAlbum>;
+      _tracks = results[2] as List<LibraryTrack>;
     } catch (error) {
       _error = error;
     } finally {

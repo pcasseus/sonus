@@ -1,0 +1,113 @@
+import 'package:sonus_next/core/identity/text_normalizer.dart';
+import 'package:sonus_next/features/import/domain/models/audio_metadata.dart';
+import 'package:sonus_next/features/import/domain/models/import_candidate.dart';
+
+class ImportIdentityMetadataNormalizer {
+  const ImportIdentityMetadataNormalizer();
+
+  AudioMetadata normalize({
+    required ImportCandidate candidate,
+    required AudioMetadata metadata,
+  }) {
+    if (candidate.structure != ImportCandidateStructure.artistAlbum) {
+      return metadata;
+    }
+
+    final folderArtist = _folderArtist(candidate.metadataFallbackPath);
+    if (folderArtist == null) {
+      return metadata;
+    }
+
+    final canonicalFolderArtist = TextNormalizer.canonicalize(folderArtist);
+    final canonicalRawArtist = TextNormalizer.canonicalize(metadata.artistName);
+
+    if (canonicalRawArtist == canonicalFolderArtist) {
+      return metadata.copyWith(
+        artistName: folderArtist,
+        albumArtistName: folderArtist,
+        featuredArtists: _deduplicate(metadata.featuredArtists),
+      );
+    }
+
+    final creditedArtists = _splitArtistCredit(metadata.artistName);
+
+    final folderArtistIndex = creditedArtists.indexWhere(
+      (artist) => TextNormalizer.canonicalize(artist) == canonicalFolderArtist,
+    );
+
+    if (folderArtistIndex >= 0) {
+      final features = <String>[
+        ...metadata.featuredArtists,
+        for (var i = 0; i < creditedArtists.length; i++)
+          if (i != folderArtistIndex) creditedArtists[i],
+      ];
+
+      return metadata.copyWith(
+        artistName: folderArtist,
+        albumArtistName: folderArtist,
+        featuredArtists: _deduplicate(features),
+      );
+    }
+
+    return metadata.copyWith(
+      albumArtistName: folderArtist,
+      featuredArtists: _deduplicate(metadata.featuredArtists),
+    );
+  }
+
+  String? _folderArtist(String? fallbackPath) {
+    final cleaned = fallbackPath?.trim();
+
+    if (cleaned == null || cleaned.isEmpty) {
+      return null;
+    }
+
+    final parts = cleaned
+        .split(RegExp(r'[\\/]'))
+        .map((part) => part.trim())
+        .where((part) => part.isNotEmpty)
+        .toList(growable: false);
+
+    if (parts.length < 3) {
+      return null;
+    }
+
+    return parts.first;
+  }
+
+  List<String> _splitArtistCredit(String rawCredit) {
+    final normalized = rawCredit.replaceAll(
+      RegExp(r'\s+(?:feat\.?|ft\.?|featuring)\s+', caseSensitive: false),
+      ' & ',
+    );
+
+    return normalized
+        .split(RegExp(r'\s+&\s+'))
+        .map((artist) => artist.trim())
+        .where((artist) => artist.isNotEmpty)
+        .toList(growable: false);
+  }
+
+  List<String> _deduplicate(Iterable<String> artists) {
+    final seen = <String>{};
+    final result = <String>[];
+
+    for (final artist in artists) {
+      final cleaned = artist.trim();
+
+      if (cleaned.isEmpty) {
+        continue;
+      }
+
+      final canonical = TextNormalizer.canonicalize(cleaned);
+
+      if (canonical.isEmpty || !seen.add(canonical)) {
+        continue;
+      }
+
+      result.add(cleaned);
+    }
+
+    return List.unmodifiable(result);
+  }
+}

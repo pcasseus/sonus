@@ -37,30 +37,33 @@ class LocalSyncDao {
   }
 
   Future<void> enqueue(SyncOutboxEntry entry) async {
-    await db.rawInsert(
-      '''
-      INSERT INTO ${DatabaseTables.syncOutbox} (
-        id,
-        user_id,
-        entity_type,
-        entity_id,
-        operation,
-        created_at,
-        updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(user_id, entity_type, entity_id) DO UPDATE SET
-        operation = excluded.operation,
-        updated_at = excluded.updated_at
-      ''',
-      [
-        entry.id,
-        entry.userId,
-        entry.entityType.name,
-        entry.entityId,
-        entry.operation.name,
-        entry.createdAt.toUtc().toIso8601String(),
-        entry.updatedAt.toUtc().toIso8601String(),
-      ],
+    final ownerId = entry.userId;
+
+    final where = ownerId == null
+        ? 'user_id IS NULL AND entity_type = ? AND entity_id = ?'
+        : 'user_id = ? AND entity_type = ? AND entity_id = ?';
+
+    final whereArgs = ownerId == null
+        ? <Object?>[entry.entityType.name, entry.entityId]
+        : <Object?>[ownerId, entry.entityType.name, entry.entityId];
+
+    final updated = await db.update(
+      DatabaseTables.syncOutbox,
+      {
+        'operation': entry.operation.name,
+        'updated_at': entry.updatedAt.toUtc().toIso8601String(),
+      },
+      where: where,
+      whereArgs: whereArgs,
+    );
+
+    if (updated != 0) {
+      return;
+    }
+
+    await db.insert(
+      DatabaseTables.syncOutbox,
+      LocalSyncRowMapper.outboxToRow(entry),
     );
   }
 
@@ -73,6 +76,94 @@ class LocalSyncDao {
     );
 
     return rows.map(LocalSyncRowMapper.outboxFromRow).toList(growable: false);
+  }
+
+  Future<List<SyncOutboxEntry>> findUnownedPending() async {
+    final rows = await db.query(
+      DatabaseTables.syncOutbox,
+      where: 'user_id IS NULL',
+      orderBy: 'created_at ASC, id ASC',
+    );
+
+    return rows.map(LocalSyncRowMapper.outboxFromRow).toList(growable: false);
+  }
+
+  Future<int> claimUnowned(String userId) async {
+    final normalizedUserId = userId.trim();
+
+    if (normalizedUserId.isEmpty) {
+      throw ArgumentError.value(userId, 'userId', 'Must not be blank.');
+    }
+
+    final unowned = await findUnownedPending();
+    var claimedCount = 0;
+
+    for (final anonymousEntry in unowned) {
+      final ownedRows = await db.query(
+        DatabaseTables.syncOutbox,
+        where: 'user_id = ? AND entity_type = ? AND entity_id = ?',
+        whereArgs: [
+          normalizedUserId,
+          anonymousEntry.entityType.name,
+          anonymousEntry.entityId,
+        ],
+        limit: 1,
+      );
+
+      if (ownedRows.isEmpty) {
+        final updated = await db.update(
+          DatabaseTables.syncOutbox,
+          {'user_id': normalizedUserId},
+          where: 'id = ? AND user_id IS NULL',
+          whereArgs: [anonymousEntry.id],
+        );
+
+        claimedCount += updated;
+        continue;
+      }
+
+      final ownedEntry = LocalSyncRowMapper.outboxFromRow(ownedRows.single);
+
+      final anonymousIsLater =
+          anonymousEntry.updatedAt.isAfter(ownedEntry.updatedAt) ||
+          (anonymousEntry.updatedAt == ownedEntry.updatedAt &&
+              anonymousEntry.id.compareTo(ownedEntry.id) > 0);
+
+      final winningOperation = anonymousIsLater
+          ? anonymousEntry.operation
+          : ownedEntry.operation;
+
+      final earliestCreatedAt =
+          anonymousEntry.createdAt.isBefore(ownedEntry.createdAt)
+          ? anonymousEntry.createdAt
+          : ownedEntry.createdAt;
+
+      final latestUpdatedAt =
+          anonymousEntry.updatedAt.isAfter(ownedEntry.updatedAt)
+          ? anonymousEntry.updatedAt
+          : ownedEntry.updatedAt;
+
+      await db.update(
+        DatabaseTables.syncOutbox,
+        {
+          'operation': winningOperation.name,
+          'created_at': earliestCreatedAt.toUtc().toIso8601String(),
+          'updated_at': latestUpdatedAt.toUtc().toIso8601String(),
+        },
+        where: 'id = ?',
+        whereArgs: [ownedEntry.id],
+      );
+
+      await db.delete(
+        DatabaseTables.syncOutbox,
+        where: 'id = ? AND user_id IS NULL',
+        whereArgs: [anonymousEntry.id],
+      );
+
+      claimedCount++;
+    }
+
+    return claimedCount;
   }
 
   Future<void> removeOutboxEntry({

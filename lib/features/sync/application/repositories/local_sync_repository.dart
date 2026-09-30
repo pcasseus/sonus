@@ -9,13 +9,13 @@ abstract interface class LocalSyncRepository {
   Future<List<SyncOutboxEntry>> getPending(String userId);
 
   Future<void> recordUpsert({
-    required String userId,
+    required String? userId,
     required CloudDataEntity entityType,
     required String entityId,
   });
 
   Future<void> recordDelete({
-    required String userId,
+    required String? userId,
     required CloudDataEntity entityType,
     required String entityId,
   });
@@ -24,4 +24,13 @@ abstract interface class LocalSyncRepository {
     required String userId,
     required String outboxEntryId,
   });
+}
+
+/// Ownership capability for pending mutations that were created before
+/// a Sonus account was attached.
+///
+/// This is deliberately separate from [LocalSyncRepository] so normal
+/// mutation consumers do not need account-attachment responsibilities.
+abstract interface class LocalSyncOwnershipRepository {
+  Future<int> claimUnowned(String userId);
 }

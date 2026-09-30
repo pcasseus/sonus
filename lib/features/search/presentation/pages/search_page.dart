@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -6,9 +7,11 @@ import 'package:provider/provider.dart';
 import '../../../library/application/models/library_album.dart';
 import '../../../library/application/models/library_artist.dart';
 import '../../../library/application/models/library_track.dart';
+import '../../../library/application/repositories/library_query_repository.dart';
 import '../../../library/presentation/pages/album_profile_page.dart';
 import '../../../library/presentation/pages/artist_profile_page.dart';
 import '../../../player/application/controllers/playback_coordinator.dart';
+import '../../../playlists/presentation/widgets/add_to_playlist_sheet.dart';
 import '../../application/repositories/library_search_repository.dart';
 import '../controllers/library_search_controller.dart';
 import '../../../account/application/controllers/account_controller.dart';
@@ -28,11 +31,36 @@ class _SearchPageState extends State<SearchPage> {
   LibrarySearchRepository? _repository;
   LibrarySearchController? _controller;
 
+  LibraryQueryRepository? _libraryQueryRepository;
+  List<LibraryAlbum> _availabilityAlbums = const [];
+  List<LibraryTrack> _availabilityTracks = const [];
+  bool _hasAvailabilityCatalog = false;
+  int _availabilityGeneration = 0;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
 
     final repository = context.watch<LibrarySearchRepository?>();
+    final libraryQueryRepository = context.watch<LibraryQueryRepository?>();
+
+    if (!identical(libraryQueryRepository, _libraryQueryRepository)) {
+      _libraryQueryRepository = libraryQueryRepository;
+      _availabilityGeneration++;
+
+      _availabilityAlbums = const [];
+      _availabilityTracks = const [];
+      _hasAvailabilityCatalog = false;
+
+      if (libraryQueryRepository != null) {
+        unawaited(
+          _loadAvailabilityCatalog(
+            libraryQueryRepository,
+            _availabilityGeneration,
+          ),
+        );
+      }
+    }
 
     if (identical(repository, _repository)) {
       return;
@@ -49,6 +77,38 @@ class _SearchPageState extends State<SearchPage> {
     }
 
     previousController?.dispose();
+  }
+
+  Future<void> _loadAvailabilityCatalog(
+    LibraryQueryRepository repository,
+    int generation,
+  ) async {
+    try {
+      final results = await Future.wait<Object>([
+        repository.getAlbums(),
+        repository.getTracks(),
+      ]);
+
+      if (!mounted || generation != _availabilityGeneration) {
+        return;
+      }
+
+      setState(() {
+        _availabilityAlbums = results[0] as List<LibraryAlbum>;
+        _availabilityTracks = results[1] as List<LibraryTrack>;
+        _hasAvailabilityCatalog = true;
+      });
+    } catch (_) {
+      if (!mounted || generation != _availabilityGeneration) {
+        return;
+      }
+
+      setState(() {
+        _availabilityAlbums = const [];
+        _availabilityTracks = const [];
+        _hasAvailabilityCatalog = false;
+      });
+    }
   }
 
   void _clearSearch() {
@@ -99,6 +159,12 @@ class _SearchPageState extends State<SearchPage> {
         ),
       ),
     );
+  }
+
+  bool _hasAvailableMedia(LibraryTrack track) {
+    return track.isAvailable &&
+        track.filePath != null &&
+        track.filePath!.trim().isNotEmpty;
   }
 
   bool _isPlayable(LibraryTrack track) {
@@ -292,6 +358,41 @@ class _SearchPageState extends State<SearchPage> {
     );
   }
 
+  List<LibraryAlbum> _visibleAlbums(List<LibraryAlbum> albums) {
+    final availableAlbumIds = _availabilityTracks
+        .where(_hasAvailableMedia)
+        .map((track) => track.albumId)
+        .toSet();
+
+    return albums
+        .where((album) => availableAlbumIds.contains(album.albumId))
+        .toList(growable: false);
+  }
+
+  List<LibraryArtist> _visibleArtists(List<LibraryArtist> artists) {
+    final availableTracks = _availabilityTracks
+        .where(_hasAvailableMedia)
+        .toList(growable: false);
+
+    final visibleArtistIds = availableTracks
+        .map((track) => track.artistId)
+        .toSet();
+
+    final availableAlbumIds = availableTracks
+        .map((track) => track.albumId)
+        .toSet();
+
+    for (final album in _availabilityAlbums) {
+      if (availableAlbumIds.contains(album.albumId)) {
+        visibleArtistIds.add(album.artistId);
+      }
+    }
+
+    return artists
+        .where((artist) => visibleArtistIds.contains(artist.artistId))
+        .toList(growable: false);
+  }
+
   Widget _buildBody(LibrarySearchController controller) {
     if (!controller.hasQuery) {
       return const _SearchPrompt();
@@ -305,31 +406,46 @@ class _SearchPageState extends State<SearchPage> {
       return const SizedBox.shrink();
     }
 
-    if (controller.showEmptyState) {
+    final results = controller.results;
+
+    final visibleTracks = results.tracks
+        .where(_hasAvailableMedia)
+        .toList(growable: false);
+
+    final visibleArtists = _hasAvailabilityCatalog
+        ? _visibleArtists(results.artists)
+        : results.artists;
+
+    final visibleAlbums = _hasAvailabilityCatalog
+        ? _visibleAlbums(results.albums)
+        : results.albums;
+
+    if (!controller.isSearching &&
+        visibleArtists.isEmpty &&
+        visibleAlbums.isEmpty &&
+        visibleTracks.isEmpty) {
       return _NoSearchResults(query: controller.query.trim());
     }
-
-    final results = controller.results;
 
     return ListView(
       key: const ValueKey<String>('search-results'),
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
       children: [
-        if (results.artists.isNotEmpty) ...[
-          _SectionHeader(title: 'Artists', count: results.artists.length),
-          for (final artist in results.artists)
+        if (visibleArtists.isNotEmpty) ...[
+          _SectionHeader(title: 'Artists', count: visibleArtists.length),
+          for (final artist in visibleArtists)
             _ArtistResultTile(artist: artist, onTap: () => _openArtist(artist)),
           const SizedBox(height: 18),
         ],
-        if (results.albums.isNotEmpty) ...[
-          _SectionHeader(title: 'Albums', count: results.albums.length),
-          for (final album in results.albums)
+        if (visibleAlbums.isNotEmpty) ...[
+          _SectionHeader(title: 'Albums', count: visibleAlbums.length),
+          for (final album in visibleAlbums)
             _AlbumResultTile(album: album, onTap: () => _openAlbum(album)),
           const SizedBox(height: 18),
         ],
-        if (results.tracks.isNotEmpty) ...[
-          _SectionHeader(title: 'Tracks', count: results.tracks.length),
-          for (final track in results.tracks)
+        if (visibleTracks.isNotEmpty) ...[
+          _SectionHeader(title: 'Tracks', count: visibleTracks.length),
+          for (final track in visibleTracks)
             _TrackResultTile(
               track: track,
               isPlayable: _isPlayable(track),
@@ -341,6 +457,8 @@ class _SearchPageState extends State<SearchPage> {
                     _playNext(track);
                   case _TrackSearchAction.addToQueue:
                     _addToQueue(track);
+                  case _TrackSearchAction.addToPlaylist:
+                    showAddToPlaylistFlow(context, track);
                   case _TrackSearchAction.goToArtist:
                     _openTrackArtist(track);
                   case _TrackSearchAction.goToAlbum:
@@ -608,6 +726,14 @@ class _TrackResultTile extends StatelessWidget {
                 title: Text('Add to queue'),
               ),
             ),
+            const PopupMenuItem<_TrackSearchAction>(
+              value: _TrackSearchAction.addToPlaylist,
+              child: ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(Icons.playlist_add_rounded),
+                title: Text('Add to playlist'),
+              ),
+            ),
             const PopupMenuDivider(),
             PopupMenuItem<_TrackSearchAction>(
               value: _TrackSearchAction.toggleBlocked,
@@ -731,6 +857,7 @@ class _ArtworkFallback extends StatelessWidget {
 enum _TrackSearchAction {
   playNext,
   addToQueue,
+  addToPlaylist,
   goToArtist,
   goToAlbum,
   toggleBlocked,

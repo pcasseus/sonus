@@ -33,10 +33,10 @@ void main() {
     test('selectIndex changes the active destination', () {
       final controller = AppShellController();
 
-      controller.selectIndex(4);
+      controller.selectIndex(5);
 
       expect(controller.currentDestination, AppDestination.settings);
-      expect(controller.currentIndex, 4);
+      expect(controller.currentIndex, 5);
     });
 
     test('notifies listeners when the destination changes', () {

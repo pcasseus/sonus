@@ -313,11 +313,11 @@ class _FakeEditingService extends TrackProfileEditingService {
 
   @override
   Future<TrackProfileEditResult> updateTrack({
-    required String userId,
+    required String? userId,
     required String songId,
     required String title,
     required int trackNumber,
-    int discNumber = 1,
+    required int discNumber,
     required List<String> featuredArtists,
     required bool isSingle,
     String? artistId,

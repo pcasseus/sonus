@@ -76,13 +76,11 @@ class LibraryTracksController extends ChangeNotifier {
   }
 
   bool canEditTrack(String? userId) {
-    return _trackProfileEditingService != null &&
-        userId != null &&
-        userId.trim().isNotEmpty;
+    return _trackProfileEditingService != null;
   }
 
   Future<bool> updateTrack({
-    required String userId,
+    String? userId,
     required LibraryTrack track,
     required String title,
     required int trackNumber,
@@ -95,7 +93,7 @@ class LibraryTracksController extends ChangeNotifier {
   }) async {
     final service = _trackProfileEditingService;
 
-    if (service == null || userId.trim().isEmpty) {
+    if (service == null) {
       return false;
     }
 

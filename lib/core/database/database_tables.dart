@@ -17,6 +17,10 @@ abstract final class DatabaseTables {
   static const String chartSnapshots = 'chart_snapshots';
   static const String chartEntries = 'chart_entries';
   static const String chartMomentEvents = 'chart_moment_events';
+
+  static const String playlists = 'playlists';
+  static const String playlistItems = 'playlist_items';
+
   static const String syncState = 'sync_state';
   static const String syncOutbox = 'sync_outbox';
 }

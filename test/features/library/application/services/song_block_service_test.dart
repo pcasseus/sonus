@@ -141,33 +141,34 @@ void main() {
     expect(pending.single.operation, SyncOutboxOperation.upsert);
   });
 
-  test(
-    'signed-out blocking updates locally without creating an outbox entry',
-    () async {
-      final songId = await createSong();
+  test('signed-out blocking records an unowned outbox upsert', () async {
+    final songId = await createSong();
 
-      final result = await service.setBlocked(
-        songId: songId,
-        isBlocked: true,
-        now: mutationTime,
-      );
+    final result = await service.setBlocked(
+      songId: songId,
+      isBlocked: true,
+      now: mutationTime,
+    );
 
-      expect(result.id, songId);
-      expect(result.isBlocked, isTrue);
-      expect(result.updatedAt, mutationTime);
+    expect(result.id, songId);
+    expect(result.isBlocked, isTrue);
+    expect(result.updatedAt, mutationTime);
 
-      final db = await appDatabase.database;
-      final stored = await SongDao(db).findById(songId);
+    final db = await appDatabase.database;
+    final stored = await SongDao(db).findById(songId);
 
-      expect(stored, isNotNull);
-      expect(stored!.isBlocked, isTrue);
-      expect(stored.updatedAt, mutationTime);
+    expect(stored, isNotNull);
+    expect(stored!.isBlocked, isTrue);
+    expect(stored.updatedAt, mutationTime);
 
-      final outboxRows = await db.query('sync_outbox');
+    final pending = await LocalSyncDao(db).findUnownedPending();
 
-      expect(outboxRows, isEmpty);
-    },
-  );
+    expect(pending, hasLength(1));
+    expect(pending.single.userId, isNull);
+    expect(pending.single.entityType, CloudDataEntity.song);
+    expect(pending.single.entityId, songId);
+    expect(pending.single.operation, SyncOutboxOperation.upsert);
+  });
   test('unblocks song and keeps the same permanent identity', () async {
     final songId = await createSong();
 
@@ -315,25 +316,31 @@ void main() {
     expect(await LocalSyncDao(db).findPending('user_1'), isEmpty);
   });
 
-  test('rejects blank user id before mutation', () async {
+  test('blank user id is normalized to an unowned mutation', () async {
     final songId = await createSong();
 
-    await expectLater(
-      () => service.setBlocked(
-        userId: '   ',
-        songId: songId,
-        isBlocked: true,
-        now: mutationTime,
-      ),
-      throwsA(isA<ArgumentError>()),
+    final result = await service.setBlocked(
+      userId: '   ',
+      songId: songId,
+      isBlocked: true,
+      now: mutationTime,
     );
+
+    expect(result.isBlocked, isTrue);
 
     final db = await appDatabase.database;
     final stored = await SongDao(db).findById(songId);
 
     expect(stored, isNotNull);
-    expect(stored!.isBlocked, isFalse);
-    expect(await LocalSyncDao(db).findPending(''), isEmpty);
+    expect(stored!.isBlocked, isTrue);
+
+    final pending = await LocalSyncDao(db).findUnownedPending();
+
+    expect(pending, hasLength(1));
+    expect(pending.single.userId, isNull);
+    expect(pending.single.entityType, CloudDataEntity.song);
+    expect(pending.single.entityId, songId);
+    expect(pending.single.operation, SyncOutboxOperation.upsert);
   });
 
   test('rejects blank song id before mutation', () async {

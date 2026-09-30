@@ -50,7 +50,7 @@ class OutboundSyncProcessor {
 
       switch (entry.operation) {
         case SyncOutboxOperation.upsert:
-          await _pushUpsert(entry);
+          await _pushUpsert(entry, userId: trimmedUserId);
 
         case SyncOutboxOperation.delete:
           await cloudSyncGateway.markDeleted(
@@ -68,7 +68,10 @@ class OutboundSyncProcessor {
     }
   }
 
-  Future<void> _pushUpsert(SyncOutboxEntry entry) async {
+  Future<void> _pushUpsert(
+    SyncOutboxEntry entry, {
+    required String userId,
+  }) async {
     switch (entry.entityType) {
       case CloudDataEntity.artworkAsset:
         final entity = await artworkAssetRepository.getById(entry.entityId);
@@ -80,14 +83,14 @@ class OutboundSyncProcessor {
         }
 
         final storageObjectKey = await cloudArtworkStorage.upload(
-          userId: entry.userId,
+          userId: userId,
           artworkAsset: entity,
         );
 
         await cloudSyncGateway.upsert(
           CloudRecordMapper.artworkAsset(
             artworkAsset: entity,
-            userId: entry.userId,
+            userId: userId,
             storageObjectKey: storageObjectKey,
           ),
         );
@@ -102,7 +105,7 @@ class OutboundSyncProcessor {
         }
 
         await cloudSyncGateway.upsert(
-          CloudRecordMapper.artist(artist: entity, userId: entry.userId),
+          CloudRecordMapper.artist(artist: entity, userId: userId),
         );
 
       case CloudDataEntity.album:
@@ -115,7 +118,7 @@ class OutboundSyncProcessor {
         }
 
         await cloudSyncGateway.upsert(
-          CloudRecordMapper.album(album: entity, userId: entry.userId),
+          CloudRecordMapper.album(album: entity, userId: userId),
         );
 
       case CloudDataEntity.albumEdition:
@@ -128,10 +131,7 @@ class OutboundSyncProcessor {
         }
 
         await cloudSyncGateway.upsert(
-          CloudRecordMapper.albumEdition(
-            albumEdition: entity,
-            userId: entry.userId,
-          ),
+          CloudRecordMapper.albumEdition(albumEdition: entity, userId: userId),
         );
 
       case CloudDataEntity.song:
@@ -144,7 +144,7 @@ class OutboundSyncProcessor {
         }
 
         await cloudSyncGateway.upsert(
-          CloudRecordMapper.song(song: entity, userId: entry.userId),
+          CloudRecordMapper.song(song: entity, userId: userId),
         );
     }
   }

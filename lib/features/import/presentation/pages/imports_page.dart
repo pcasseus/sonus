@@ -113,7 +113,7 @@ class _ImportsPageState extends State<ImportsPage> {
                       if (_reviewCount > 0) ...[
                         _NeedsReviewCard(
                           count: _reviewCount,
-                          canReview: _reviewService != null && _userId != null,
+                          canReview: _reviewService != null,
                           onReview: _openReviewPage,
                         ),
                         const SizedBox(height: 14),
@@ -205,7 +205,7 @@ class _ImportsPageState extends State<ImportsPage> {
                       ImportResultCard(
                         summary: controller.summary!,
                         reviewCount: _reviewCount,
-                        onReview: _reviewService != null && _userId != null
+                        onReview: _reviewService != null
                             ? _openReviewPage
                             : null,
                         onReset: controller.reset,
@@ -263,7 +263,7 @@ class _ImportsPageState extends State<ImportsPage> {
     final service = _reviewService;
     final userId = _userId;
 
-    if (service == null || userId == null) {
+    if (service == null) {
       return;
     }
 
@@ -333,7 +333,7 @@ class _NeedsReviewCard extends StatelessWidget {
               canReview
                   ? 'Review metadata Sonus could not confidently determine '
                         'during import.'
-                  : 'Sign in to review imported metadata.',
+                  : 'Review is currently unavailable.',
               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                 color: Theme.of(context).colorScheme.onSurfaceVariant,
               ),

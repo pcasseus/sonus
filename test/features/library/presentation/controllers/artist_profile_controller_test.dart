@@ -64,6 +64,48 @@ void main() {
       controller.dispose();
     });
 
+    test(
+      'loads featured tracks separately from primary artist tracks',
+      () async {
+        final artist = createArtist(name: 'Featured Artist');
+
+        final primaryTrack = createTrack(
+          songId: 'primary-song',
+          artistId: artist.artistId,
+        );
+
+        final featuredTrack = createTrack(
+          songId: 'featured-song',
+          artistId: 'other-artist',
+          featuredArtists: const ['featured artist'],
+        );
+
+        final unrelatedTrack = createTrack(
+          songId: 'unrelated-song',
+          artistId: 'other-artist',
+          featuredArtists: const ['Someone Else'],
+        );
+
+        final repository = FakeLibraryQueryRepository(
+          artist: artist,
+          tracks: [primaryTrack],
+          allTracks: [primaryTrack, featuredTrack, unrelatedTrack],
+        );
+
+        final controller = ArtistProfileController(
+          repository: repository,
+          artistId: artist.artistId,
+        );
+
+        await controller.load();
+
+        expect(controller.tracks, [primaryTrack]);
+        expect(controller.featuredTracks, [featuredTrack]);
+
+        controller.dispose();
+      },
+    );
+
     test('reports artist not found without loading albums or tracks', () async {
       final repository = FakeLibraryQueryRepository(artist: null);
 
@@ -516,10 +558,11 @@ void main() {
 
       expect(editableController.canEditTrack('user-1'), isTrue);
       expect(editableController.canEditTrack('  user-1  '), isTrue);
-      expect(editableController.canEditTrack(null), isFalse);
-      expect(editableController.canEditTrack(''), isFalse);
-      expect(editableController.canEditTrack('   '), isFalse);
+      expect(editableController.canEditTrack(null), isTrue);
+      expect(editableController.canEditTrack(''), isTrue);
+      expect(editableController.canEditTrack('   '), isTrue);
       expect(missingServiceController.canEditTrack('user-1'), isFalse);
+      expect(missingServiceController.canEditTrack(null), isFalse);
 
       editableController.dispose();
       missingServiceController.dispose();
@@ -609,7 +652,7 @@ void main() {
     });
 
     test(
-      'updateTrack does nothing when editing is unavailable or user id is blank',
+      'updateTrack rejects missing service but allows anonymous owner',
       () async {
         final repository = FakeLibraryQueryRepository(
           artist: createArtist(),
@@ -637,17 +680,17 @@ void main() {
 
         final service = FakeTrackProfileEditingService();
 
-        final blankUserController = ArtistProfileController(
+        final anonymousController = ArtistProfileController(
           repository: repository,
           artistId: 'artist-1',
           trackProfileEditingService: service,
         );
 
-        await blankUserController.load();
+        await anonymousController.load();
 
-        final blankUserResult = await blankUserController.updateTrack(
-          userId: '   ',
-          track: blankUserController.tracks.single,
+        final anonymousResult = await anonymousController.updateTrack(
+          userId: null,
+          track: anonymousController.tracks.single,
           title: 'Edited',
           trackNumber: 1,
           discNumber: 1,
@@ -655,13 +698,16 @@ void main() {
           isSingle: false,
         );
 
-        expect(blankUserResult, isFalse);
-        expect(service.updateCallCount, 0);
+        expect(anonymousResult, isTrue);
+        expect(service.updateCallCount, 1);
+        expect(service.lastUserId, isNull);
+        expect(service.lastSongId, 'song-edit');
 
         missingServiceController.dispose();
-        blankUserController.dispose();
+        anonymousController.dispose();
       },
     );
+
     test('reports whether artist profile editing is available', () {
       final repository = FakeLibraryQueryRepository();
 
@@ -678,11 +724,12 @@ void main() {
 
       expect(editableController.canEditArtist('user-1'), isTrue);
       expect(editableController.canEditArtist('  user-1  '), isTrue);
-      expect(editableController.canEditArtist(null), isFalse);
-      expect(editableController.canEditArtist(''), isFalse);
-      expect(editableController.canEditArtist('   '), isFalse);
+      expect(editableController.canEditArtist(null), isTrue);
+      expect(editableController.canEditArtist(''), isTrue);
+      expect(editableController.canEditArtist('   '), isTrue);
 
       expect(missingServiceController.canEditArtist('user-1'), isFalse);
+      expect(missingServiceController.canEditArtist(null), isFalse);
 
       editableController.dispose();
       missingServiceController.dispose();
@@ -704,14 +751,15 @@ void main() {
       );
 
       expect(controller.canRemoveArtist('user-1'), isFalse);
+      expect(controller.canRemoveArtist(null), isFalse);
 
       await controller.load();
 
       expect(controller.canRemoveArtist('user-1'), isTrue);
       expect(controller.canRemoveArtist('  user-1  '), isTrue);
-      expect(controller.canRemoveArtist(null), isFalse);
-      expect(controller.canRemoveArtist(''), isFalse);
-      expect(controller.canRemoveArtist('   '), isFalse);
+      expect(controller.canRemoveArtist(null), isTrue);
+      expect(controller.canRemoveArtist(''), isTrue);
+      expect(controller.canRemoveArtist('   '), isTrue);
 
       controller.dispose();
     });
@@ -742,7 +790,7 @@ void main() {
     });
 
     test(
-      'removeArtist does nothing when unavailable, blank, or not loaded',
+      'removeArtist rejects unavailable state but allows anonymous owner',
       () async {
         final repository = FakeLibraryQueryRepository(artist: createArtist());
 
@@ -762,19 +810,21 @@ void main() {
 
         final service = FakeArtistProfileEditingService();
 
-        final blankUserController = ArtistProfileController(
+        final anonymousController = ArtistProfileController(
           repository: repository,
           artistId: 'artist-1',
           artistProfileEditingService: service,
         );
 
-        await blankUserController.load();
+        await anonymousController.load();
 
-        expect(await blankUserController.removeArtist(userId: '   '), isFalse);
+        expect(await anonymousController.removeArtist(userId: null), isTrue);
 
-        expect(service.removeCallCount, 0);
+        expect(service.removeCallCount, 1);
+        expect(service.lastRemoveUserId, isNull);
+        expect(service.lastRemoveArtistId, 'artist-1');
 
-        blankUserController.dispose();
+        anonymousController.dispose();
 
         final notLoadedController = ArtistProfileController(
           repository: repository,
@@ -782,12 +832,9 @@ void main() {
           artistProfileEditingService: service,
         );
 
-        expect(
-          await notLoadedController.removeArtist(userId: 'user-1'),
-          isFalse,
-        );
+        expect(await notLoadedController.removeArtist(userId: null), isFalse);
 
-        expect(service.removeCallCount, 0);
+        expect(service.removeCallCount, 1);
 
         notLoadedController.dispose();
       },
@@ -827,7 +874,7 @@ void main() {
     );
 
     test(
-      'renameArtist does nothing when editing is unavailable or user id is blank',
+      'renameArtist rejects missing service but allows anonymous owner',
       () async {
         final repository = FakeLibraryQueryRepository(artist: createArtist());
 
@@ -842,30 +889,34 @@ void main() {
             .renameArtist(userId: 'user-1', name: 'Renamed Artist');
 
         expect(missingServiceResult, isFalse);
-        expect(repository.artistRequestCount, 1);
 
         missingServiceController.dispose();
 
         final service = FakeArtistProfileEditingService();
 
-        final blankUserController = ArtistProfileController(
+        final anonymousController = ArtistProfileController(
           repository: repository,
           artistId: 'artist-1',
           artistProfileEditingService: service,
         );
 
-        final blankUserResult = await blankUserController.renameArtist(
-          userId: '   ',
+        await anonymousController.load();
+
+        final anonymousResult = await anonymousController.renameArtist(
+          userId: null,
           name: 'Renamed Artist',
         );
 
-        expect(blankUserResult, isFalse);
-        expect(service.renameCallCount, 0);
-        expect(repository.artistRequestCount, 1);
+        expect(anonymousResult, isTrue);
+        expect(service.renameCallCount, 1);
+        expect(service.lastUserId, isNull);
+        expect(service.lastArtistId, 'artist-1');
+        expect(service.lastName, 'Renamed Artist');
 
-        blankUserController.dispose();
+        anonymousController.dispose();
       },
     );
+
     test('reports whether artist has playable tracks', () async {
       final repository = FakeLibraryQueryRepository(
         artist: createArtist(),
@@ -1377,6 +1428,7 @@ LibraryTrack createTrack({
   String artistId = 'artist-1',
   String? filePath,
   bool isAvailable = true,
+  List<String> featuredArtists = const [],
 }) {
   return LibraryTrack(
     songId: songId,
@@ -1391,7 +1443,7 @@ LibraryTrack createTrack({
     trackNumber: 1,
     durationSeconds: 180,
     isSingle: false,
-    featuredArtists: const [],
+    featuredArtists: featuredArtists,
     dateAdded: DateTime(2026, 1, 1),
     filePath: filePath ?? 'C:/Music/$songId.mp3',
     isAvailable: isAvailable,
@@ -1403,6 +1455,7 @@ class FakeLibraryQueryRepository implements LibraryQueryRepository {
     this.artist,
     this.albums = const [],
     this.tracks = const [],
+    this.allTracks = const [],
     this.artistError,
     this.artistLoader,
   });
@@ -1410,6 +1463,7 @@ class FakeLibraryQueryRepository implements LibraryQueryRepository {
   final LibraryArtist? artist;
   final List<LibraryAlbum> albums;
   final List<LibraryTrack> tracks;
+  final List<LibraryTrack> allTracks;
   final Object? artistError;
 
   final Future<LibraryArtist?> Function(String artistId)? artistLoader;
@@ -1461,7 +1515,7 @@ class FakeLibraryQueryRepository implements LibraryQueryRepository {
   Future<List<LibraryTrack>> getTracks({
     LibraryTrackOrder order = LibraryTrackOrder.title,
   }) async {
-    return const [];
+    return allTracks;
   }
 
   @override
@@ -1558,7 +1612,7 @@ class FakeTrackProfileEditingService extends TrackProfileEditingService {
 
   @override
   Future<TrackProfileEditResult> updateTrack({
-    required String userId,
+    required String? userId,
     required String songId,
     required String title,
     required int trackNumber,
@@ -1619,7 +1673,7 @@ class FakeArtistProfileEditingService extends ArtistProfileEditingService {
 
   @override
   Future<void> removeArtist({
-    required String userId,
+    required String? userId,
     required String artistId,
   }) async {
     removeCallCount++;
@@ -1629,7 +1683,7 @@ class FakeArtistProfileEditingService extends ArtistProfileEditingService {
 
   @override
   Future<Artist> renameArtist({
-    required String userId,
+    required String? userId,
     required String artistId,
     required String name,
     DateTime? now,

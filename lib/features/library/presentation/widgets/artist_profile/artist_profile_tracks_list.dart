@@ -15,6 +15,7 @@ class ArtistProfileTracksList extends StatelessWidget {
     required this.onPlay,
     required this.onPlayNext,
     required this.onAddToQueue,
+    required this.onAddToPlaylist,
     required this.onEditTrack,
     required this.onChangeArtwork,
     required this.onClearArtwork,
@@ -30,6 +31,7 @@ class ArtistProfileTracksList extends StatelessWidget {
   final Future<void> Function(LibraryTrack track) onPlay;
   final Future<void> Function(LibraryTrack track) onPlayNext;
   final Future<void> Function(LibraryTrack track) onAddToQueue;
+  final Future<void> Function(LibraryTrack track) onAddToPlaylist;
   final Future<void> Function(LibraryTrack track) onEditTrack;
   final Future<void> Function(LibraryTrack track) onChangeArtwork;
   final Future<void> Function(LibraryTrack track) onClearArtwork;
@@ -54,6 +56,7 @@ class ArtistProfileTracksList extends StatelessWidget {
             onPlay: () => onPlay(track),
             onPlayNext: () => onPlayNext(track),
             onAddToQueue: () => onAddToQueue(track),
+            onAddToPlaylist: () => onAddToPlaylist(track),
             onEditTrack: () => onEditTrack(track),
             onChangeArtwork: () => onChangeArtwork(track),
             onClearArtwork: () => onClearArtwork(track),
@@ -74,6 +77,7 @@ class _TrackTile extends StatelessWidget {
     required this.onPlay,
     required this.onPlayNext,
     required this.onAddToQueue,
+    required this.onAddToPlaylist,
     required this.onEditTrack,
     required this.onChangeArtwork,
     required this.onClearArtwork,
@@ -89,6 +93,7 @@ class _TrackTile extends StatelessWidget {
   final Future<void> Function() onPlay;
   final Future<void> Function() onPlayNext;
   final Future<void> Function() onAddToQueue;
+  final Future<void> Function() onAddToPlaylist;
   final Future<void> Function() onEditTrack;
   final Future<void> Function() onChangeArtwork;
   final Future<void> Function() onClearArtwork;
@@ -147,6 +152,8 @@ class _TrackTile extends StatelessWidget {
                     unawaited(onPlayNext());
                   case _TrackMenuAction.addToQueue:
                     unawaited(onAddToQueue());
+                  case _TrackMenuAction.addToPlaylist:
+                    unawaited(onAddToPlaylist());
                   case _TrackMenuAction.editDetails:
                     unawaited(onEditTrack());
                   case _TrackMenuAction.changeArtwork:
@@ -173,6 +180,14 @@ class _TrackTile extends StatelessWidget {
                   child: const ListTile(
                     leading: Icon(Icons.queue_music_rounded),
                     title: Text('Add to queue'),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                ),
+                PopupMenuItem(
+                  value: _TrackMenuAction.addToPlaylist,
+                  child: const ListTile(
+                    leading: Icon(Icons.playlist_add_rounded),
+                    title: Text('Add to playlist'),
                     contentPadding: EdgeInsets.zero,
                   ),
                 ),
@@ -281,6 +296,7 @@ class _TrackTile extends StatelessWidget {
 enum _TrackMenuAction {
   playNext,
   addToQueue,
+  addToPlaylist,
   editDetails,
   changeArtwork,
   clearArtwork,

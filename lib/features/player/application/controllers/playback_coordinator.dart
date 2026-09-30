@@ -109,14 +109,27 @@ class PlaybackCoordinator {
     );
   }
 
-  Future<void> removeBlockedSongFromQueue(String songId) async {
-    final normalizedSongId = songId.trim();
+  Future<void> removeBlockedSongFromQueue(String songId) {
+    return removeSongFromQueue(songId);
+  }
 
-    if (normalizedSongId.isEmpty) {
+  Future<void> removeSongFromQueue(String songId) {
+    return removeSongsFromQueue([songId]);
+  }
+
+  Future<void> removeSongsFromQueue(Iterable<String> songIds) async {
+    final normalizedSongIds = songIds
+        .map((songId) => songId.trim())
+        .where((songId) => songId.isNotEmpty)
+        .toSet();
+
+    if (normalizedSongIds.isEmpty) {
       return;
     }
 
-    await _removeQueuedTracksWhere((track) => track.songId == normalizedSongId);
+    await _removeQueuedTracksWhere(
+      (track) => normalizedSongIds.contains(track.songId),
+    );
   }
 
   Future<void> removeFromQueue(int index) {

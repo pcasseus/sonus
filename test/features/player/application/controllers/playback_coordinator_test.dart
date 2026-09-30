@@ -437,6 +437,28 @@ void main() {
     },
   );
 
+  test('generic queue sanitation removes multiple song identities', () async {
+    final engine = FakePlaybackEngine()
+      ..state = PlaybackState(
+        queue: const PlaybackQueue().replace(
+          tracks: [
+            playbackTrack('song_1'),
+            playbackTrack('song_2'),
+            playbackTrack('song_3'),
+          ],
+          startIndex: 0,
+        ),
+        status: PlaybackStatus.playing,
+      );
+
+    final coordinator = PlaybackCoordinator(engine: engine);
+
+    await coordinator.removeSongsFromQueue({'song_2', 'song_3'});
+
+    expect(engine.removedIndices, [2, 1]);
+    expect(engine.stopCalls, 0);
+  });
+
   test('queue sanitation is a no-op when identity is not queued', () async {
     final engine = FakePlaybackEngine()
       ..state = PlaybackState(

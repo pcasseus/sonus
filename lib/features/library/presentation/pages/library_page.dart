@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../application/models/library_artist.dart';
+import '../../application/models/library_track.dart';
 import '../../application/repositories/library_query_repository.dart';
 import '../controllers/library_artists_controller.dart';
 import '../widgets/library_artist_card.dart';
@@ -73,6 +74,22 @@ class _LibraryPageState extends State<LibraryPage> {
             return _LibraryLoadError(onRetry: controller.load);
           }
 
+          final albumOwnerById = {
+            for (final album in controller.albums)
+              album.albumId: album.artistId,
+          };
+
+          final visibleArtists = controller.artists
+              .where(
+                (artist) => controller.tracks.any(
+                  (track) =>
+                      _hasAvailableMedia(track) &&
+                      (track.artistId == artist.artistId ||
+                          albumOwnerById[track.albumId] == artist.artistId),
+                ),
+              )
+              .toList(growable: false);
+
           return RefreshIndicator(
             onRefresh: controller.refresh,
             child: CustomScrollView(
@@ -80,9 +97,9 @@ class _LibraryPageState extends State<LibraryPage> {
               physics: const AlwaysScrollableScrollPhysics(),
               slivers: [
                 SliverToBoxAdapter(
-                  child: _LibraryHeader(artistCount: controller.artists.length),
+                  child: _LibraryHeader(artistCount: visibleArtists.length),
                 ),
-                if (controller.isEmpty)
+                if (visibleArtists.isEmpty)
                   const SliverFillRemaining(
                     hasScrollBody: false,
                     child: _LibraryEmptyState(),
@@ -93,13 +110,13 @@ class _LibraryPageState extends State<LibraryPage> {
                     sliver: SliverGrid(
                       key: const PageStorageKey<String>('artists-grid'),
                       delegate: SliverChildBuilderDelegate((context, index) {
-                        final artist = controller.artists[index];
+                        final artist = visibleArtists[index];
 
                         return LibraryArtistCard(
                           artist: artist,
                           onTap: () => _openArtist(artist),
                         );
-                      }, childCount: controller.artists.length),
+                      }, childCount: visibleArtists.length),
                       gridDelegate:
                           const SliverGridDelegateWithFixedCrossAxisCount(
                             crossAxisCount: 2,
@@ -122,6 +139,12 @@ class _LibraryPageState extends State<LibraryPage> {
     _controller?.dispose();
     super.dispose();
   }
+}
+
+bool _hasAvailableMedia(LibraryTrack track) {
+  return track.isAvailable &&
+      track.filePath != null &&
+      track.filePath!.trim().isNotEmpty;
 }
 
 class _LibraryHeader extends StatelessWidget {

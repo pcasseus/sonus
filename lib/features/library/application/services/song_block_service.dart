@@ -13,12 +13,11 @@ class SongBlockService {
     required bool isBlocked,
     DateTime? now,
   }) {
-    final normalizedUserId = userId?.trim();
+    final trimmedUserId = userId?.trim();
+    final normalizedUserId = trimmedUserId == null || trimmedUserId.isEmpty
+        ? null
+        : trimmedUserId;
     final normalizedSongId = songId.trim();
-
-    if (normalizedUserId != null && normalizedUserId.isEmpty) {
-      throw ArgumentError.value(userId, 'userId', 'User id must not be blank.');
-    }
 
     if (normalizedSongId.isEmpty) {
       throw ArgumentError.value(songId, 'songId', 'Song id must not be blank.');
@@ -37,13 +36,11 @@ class SongBlockService {
 
       await context.songRepository.save(updated);
 
-      if (normalizedUserId != null) {
-        await context.localSyncRepository.recordUpsert(
-          userId: normalizedUserId,
-          entityType: CloudDataEntity.song,
-          entityId: updated.id,
-        );
-      }
+      await context.localSyncRepository.recordUpsert(
+        userId: normalizedUserId,
+        entityType: CloudDataEntity.song,
+        entityId: updated.id,
+      );
 
       return updated;
     });

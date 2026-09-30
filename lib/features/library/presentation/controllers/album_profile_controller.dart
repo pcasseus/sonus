@@ -85,14 +85,12 @@ class AlbumProfileController extends ChangeNotifier {
     final primaryEditionId = _album?.primaryEditionId;
 
     return _albumProfileEditingService != null &&
-        userId != null &&
-        userId.trim().isNotEmpty &&
         primaryEditionId != null &&
         primaryEditionId.trim().isNotEmpty;
   }
 
   Future<bool> updateProfile({
-    required String userId,
+    String? userId,
     required String title,
     required String editionTitle,
     required AlbumEditionType editionType,
@@ -106,7 +104,6 @@ class AlbumProfileController extends ChangeNotifier {
 
     if (service == null ||
         album == null ||
-        userId.trim().isEmpty ||
         primaryEditionId == null ||
         primaryEditionId.trim().isEmpty) {
       return false;
@@ -143,13 +140,11 @@ class AlbumProfileController extends ChangeNotifier {
   }
 
   bool canEditTrack(String? userId) {
-    return _trackProfileEditingService != null &&
-        userId != null &&
-        userId.trim().isNotEmpty;
+    return _trackProfileEditingService != null;
   }
 
   Future<bool> updateTrack({
-    required String userId,
+    String? userId,
     required LibraryTrack track,
     required String title,
     required int trackNumber,
@@ -162,7 +157,7 @@ class AlbumProfileController extends ChangeNotifier {
   }) async {
     final service = _trackProfileEditingService;
 
-    if (service == null || userId.trim().isEmpty) {
+    if (service == null) {
       return false;
     }
 

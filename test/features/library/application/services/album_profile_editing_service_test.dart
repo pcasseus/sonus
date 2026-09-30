@@ -494,27 +494,39 @@ void main() {
     expect(await LocalSyncDao(db).findPending('user_1'), isEmpty);
   });
 
-  test('rejects blank user id before mutation', () async {
+  test('signed-out album edit records unowned upsert', () async {
     final original = await createProfile();
 
-    await expectLater(
-      () => service.updateProfile(
-        userId: '   ',
-        albumId: original.album.id,
-        primaryEditionId: original.edition.id,
-        title: 'Changed Album',
-        editionTitle: original.edition.title,
-        editionType: original.edition.type,
-        releaseDate: original.edition.releaseDate,
-        genre: original.edition.genre,
-        now: mutationTime,
-      ),
-      throwsA(isA<ArgumentError>()),
+    final result = await service.updateProfile(
+      userId: null,
+      albumId: original.album.id,
+      primaryEditionId: original.edition.id,
+      title: 'Changed Album',
+      editionTitle: original.edition.title,
+      editionType: original.edition.type,
+      releaseDate: original.edition.releaseDate,
+      genre: original.edition.genre,
+      now: mutationTime,
     );
 
-    final db = await appDatabase.database;
+    expect(result.changed, isTrue);
+    expect(result.albumChanged, isTrue);
+    expect(result.primaryEditionChanged, isFalse);
 
-    expect(await LocalSyncDao(db).findPending(''), isEmpty);
+    final db = await appDatabase.database;
+    final stored = await AlbumDao(db).findById(original.album.id);
+
+    expect(stored, isNotNull);
+    expect(stored!.title, 'Changed Album');
+    expect(stored.updatedAt, mutationTime);
+
+    final pending = await LocalSyncDao(db).findUnownedPending();
+
+    expect(pending, hasLength(1));
+    expect(pending.single.userId, isNull);
+    expect(pending.single.entityType, CloudDataEntity.album);
+    expect(pending.single.entityId, original.album.id);
+    expect(pending.single.operation, SyncOutboxOperation.upsert);
   });
 
   test('rejects blank album id before mutation', () async {

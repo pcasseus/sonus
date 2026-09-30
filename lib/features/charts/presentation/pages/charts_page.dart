@@ -8,6 +8,7 @@ import '../../../library/application/models/library_track.dart';
 import '../../../library/presentation/pages/album_profile_page.dart';
 import '../../../library/presentation/pages/artist_profile_page.dart';
 import '../../../player/application/controllers/playback_coordinator.dart';
+import '../../../playlists/presentation/widgets/add_to_playlist_sheet.dart';
 
 import '../../application/models/chart_moment_feed_item.dart';
 import '../../domain/entities/chart_entry.dart';
@@ -1172,6 +1173,14 @@ Future<void> _showChartTrackContext(
                         Navigator.of(sheetContext).pop();
                         unawaited(playback.addToQueue(track));
                       },
+              ),
+              ListTile(
+                leading: const Icon(Icons.playlist_add_rounded),
+                title: const Text('Add to playlist'),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  unawaited(showAddToPlaylistFlow(context, track));
+                },
               ),
               ListTile(
                 leading: const Icon(Icons.album_outlined),

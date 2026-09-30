@@ -187,18 +187,22 @@ void main() {
     expect(await LocalSyncDao(db).findPending('user_1'), isEmpty);
   });
 
-  test('rejects blank user id before artist removal mutation', () async {
+  test('signed-out artist removal records unowned delete', () async {
     final original = await createArtist();
 
-    await expectLater(
-      () => service.removeArtist(userId: '   ', artistId: original.id),
-      throwsA(isA<ArgumentError>()),
-    );
+    await service.removeArtist(userId: null, artistId: original.id);
 
     final db = await appDatabase.database;
 
-    expect(await ArtistDao(db).findById(original.id), isNotNull);
-    expect(await LocalSyncDao(db).findPending(''), isEmpty);
+    expect(await ArtistDao(db).findById(original.id), isNull);
+
+    final pending = await LocalSyncDao(db).findUnownedPending();
+
+    expect(pending, hasLength(1));
+    expect(pending.single.userId, isNull);
+    expect(pending.single.entityType, CloudDataEntity.artist);
+    expect(pending.single.entityId, original.id);
+    expect(pending.single.operation, SyncOutboxOperation.delete);
   });
 
   test('rejects blank artist id before artist removal mutation', () async {
@@ -367,26 +371,34 @@ void main() {
     expect(await LocalSyncDao(db).findPending('user_1'), isEmpty);
   });
 
-  test('rejects blank user id before mutation', () async {
+  test('signed-out artist rename records unowned upsert', () async {
     final original = await createArtist();
 
-    await expectLater(
-      () => service.renameArtist(
-        userId: '   ',
-        artistId: original.id,
-        name: 'Renamed Artist',
-        now: mutationTime,
-      ),
-      throwsA(isA<ArgumentError>()),
+    final result = await service.renameArtist(
+      userId: null,
+      artistId: original.id,
+      name: 'Renamed Artist',
+      now: mutationTime,
     );
+
+    expect(result.id, original.id);
+    expect(result.name, 'Renamed Artist');
+    expect(result.updatedAt, mutationTime);
 
     final db = await appDatabase.database;
     final stored = await ArtistDao(db).findById(original.id);
 
     expect(stored, isNotNull);
-    expect(stored!.name, original.name);
-    expect(stored.updatedAt, original.updatedAt);
-    expect(await LocalSyncDao(db).findPending(''), isEmpty);
+    expect(stored!.name, 'Renamed Artist');
+    expect(stored.updatedAt, mutationTime);
+
+    final pending = await LocalSyncDao(db).findUnownedPending();
+
+    expect(pending, hasLength(1));
+    expect(pending.single.userId, isNull);
+    expect(pending.single.entityType, CloudDataEntity.artist);
+    expect(pending.single.entityId, original.id);
+    expect(pending.single.operation, SyncOutboxOperation.upsert);
   });
 
   test('rejects blank artist id before mutation', () async {

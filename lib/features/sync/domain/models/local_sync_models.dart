@@ -30,7 +30,7 @@ class SyncOutboxEntry {
   });
 
   final String id;
-  final String userId;
+  final String? userId;
   final CloudDataEntity entityType;
   final String entityId;
   final SyncOutboxOperation operation;

@@ -10,16 +10,12 @@ class ArtistCreationService {
   final SyncMutationRunner mutationRunner;
 
   Future<Artist> createOrReuse({
-    required String userId,
+    required String? userId,
     required String name,
     DateTime? now,
   }) {
-    final normalizedUserId = userId.trim();
+    final normalizedUserId = userId?.trim();
     final trimmedName = name.trim();
-
-    if (normalizedUserId.isEmpty) {
-      throw ArgumentError.value(userId, 'userId', 'User id must not be blank.');
-    }
 
     if (trimmedName.isEmpty) {
       throw ArgumentError.value(name, 'name', 'Artist name must not be blank.');

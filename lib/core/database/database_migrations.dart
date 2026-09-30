@@ -6,6 +6,7 @@ import 'schema/chart_schema.dart';
 import 'schema/import_schema.dart';
 import 'schema/library_schema.dart';
 import 'schema/lyrics_schema.dart';
+import 'schema/playlist_schema.dart';
 import 'schema/sync_schema.dart';
 
 abstract final class DatabaseMigrations {
@@ -291,6 +292,47 @@ abstract final class DatabaseMigrations {
         ''');
 
         return;
+      case 19:
+        await PlaylistSchema.create(db);
+        return;
+
+      case 20:
+        const legacyOutbox = 'sync_outbox_v19';
+
+        await db.execute('DROP INDEX IF EXISTS idx_sync_outbox_user_created');
+
+        await db.execute(
+          'ALTER TABLE ${DatabaseTables.syncOutbox} '
+          'RENAME TO $legacyOutbox',
+        );
+
+        await SyncSchema.createSyncOutbox(db);
+
+        await db.execute('''
+          INSERT INTO ${DatabaseTables.syncOutbox} (
+            id,
+            user_id,
+            entity_type,
+            entity_id,
+            operation,
+            created_at,
+            updated_at
+          )
+          SELECT
+            id,
+            user_id,
+            entity_type,
+            entity_id,
+            operation,
+            created_at,
+            updated_at
+          FROM $legacyOutbox
+        ''');
+
+        await db.execute('DROP TABLE $legacyOutbox');
+
+        return;
+
       default:
         throw UnsupportedError(
           'No Sonus database migration exists for version $targetVersion.',

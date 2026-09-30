@@ -63,7 +63,7 @@ class ImportReviewService {
   }
 
   Future<LibraryArtist> createOrReuseArtist({
-    required String userId,
+    required String? userId,
     required String name,
   }) async {
     final artist = await _artistCreationService.createOrReuse(
@@ -87,7 +87,7 @@ class ImportReviewService {
   }
 
   Future<TrackProfileEditResult> updateTrackAndResolve({
-    required String userId,
+    required String? userId,
     required ImportReviewQueueItem item,
     required String title,
     required int trackNumber,
@@ -99,11 +99,7 @@ class ImportReviewService {
     required String albumEditionId,
     DateTime? now,
   }) async {
-    final normalizedUserId = userId.trim();
-
-    if (normalizedUserId.isEmpty) {
-      throw ArgumentError.value(userId, 'userId', 'User id must not be blank.');
-    }
+    final normalizedUserId = userId?.trim();
 
     final currentReview = await _reviewRepository.getBySongId(
       item.review.songId,

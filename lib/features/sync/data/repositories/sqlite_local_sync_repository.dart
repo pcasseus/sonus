@@ -6,7 +6,8 @@ import '../daos/local_sync_dao.dart';
 typedef SyncIdGenerator = String Function();
 typedef SyncClock = DateTime Function();
 
-class SqliteLocalSyncRepository implements LocalSyncRepository {
+class SqliteLocalSyncRepository
+    implements LocalSyncRepository, LocalSyncOwnershipRepository {
   const SqliteLocalSyncRepository({
     required this.dao,
     required this.generateId,
@@ -34,12 +35,12 @@ class SqliteLocalSyncRepository implements LocalSyncRepository {
 
   @override
   Future<void> recordUpsert({
-    required String userId,
+    required String? userId,
     required CloudDataEntity entityType,
     required String entityId,
   }) {
     return _recordMutation(
-      userId: userId,
+      userId: _normalizeUserId(userId),
       entityType: entityType,
       entityId: entityId,
       operation: SyncOutboxOperation.upsert,
@@ -48,16 +49,21 @@ class SqliteLocalSyncRepository implements LocalSyncRepository {
 
   @override
   Future<void> recordDelete({
-    required String userId,
+    required String? userId,
     required CloudDataEntity entityType,
     required String entityId,
   }) {
     return _recordMutation(
-      userId: userId,
+      userId: _normalizeUserId(userId),
       entityType: entityType,
       entityId: entityId,
       operation: SyncOutboxOperation.delete,
     );
+  }
+
+  @override
+  Future<int> claimUnowned(String userId) {
+    return dao.claimUnowned(userId);
   }
 
   @override
@@ -69,7 +75,7 @@ class SqliteLocalSyncRepository implements LocalSyncRepository {
   }
 
   Future<void> _recordMutation({
-    required String userId,
+    required String? userId,
     required CloudDataEntity entityType,
     required String entityId,
     required SyncOutboxOperation operation,
@@ -87,5 +93,15 @@ class SqliteLocalSyncRepository implements LocalSyncRepository {
         updatedAt: timestamp,
       ),
     );
+  }
+
+  String? _normalizeUserId(String? userId) {
+    final normalized = userId?.trim();
+
+    if (normalized == null || normalized.isEmpty) {
+      return null;
+    }
+
+    return normalized;
   }
 }
