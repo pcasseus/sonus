@@ -11,6 +11,7 @@ import '../../../library/application/repositories/library_query_repository.dart'
 import '../../../library/application/services/artist_creation_service.dart';
 import '../../../library/application/services/track_profile_editing_service.dart';
 import '../../../library/data/daos/song_dao.dart';
+import '../../../player/application/controllers/playback_coordinator.dart';
 import '../../../library/data/repositories/sqlite_song_repository.dart';
 import '../../../player/data/daos/track_lyrics_dao.dart';
 import '../../../player/data/repositories/sqlite_track_lyrics_repository.dart';
@@ -57,6 +58,7 @@ class _ImportScopeState extends State<ImportScope> {
   LibraryQueryRepository? _libraryQueryRepository;
   ArtistCreationService? _artistCreationService;
   TrackProfileEditingService? _trackProfileEditingService;
+  PlaybackCoordinator? _playbackCoordinator;
   ImportWorkflowService? _workflowService;
   ImportReviewService? _reviewService;
   int _initializationVersion = 0;
@@ -72,6 +74,7 @@ class _ImportScopeState extends State<ImportScope> {
     final artistCreationService = context.watch<ArtistCreationService?>();
     final trackProfileEditingService = context
         .watch<TrackProfileEditingService?>();
+    final playbackCoordinator = context.read<PlaybackCoordinator>();
     final rawUserId = accountController?.user?.id.trim();
     final userId = rawUserId == null || rawUserId.isEmpty ? null : rawUserId;
 
@@ -79,7 +82,8 @@ class _ImportScopeState extends State<ImportScope> {
         userId == _userId &&
         identical(libraryQueryRepository, _libraryQueryRepository) &&
         identical(trackProfileEditingService, _trackProfileEditingService) &&
-        identical(artistCreationService, _artistCreationService)) {
+        identical(artistCreationService, _artistCreationService) &&
+        identical(playbackCoordinator, _playbackCoordinator)) {
       return;
     }
 
@@ -88,6 +92,7 @@ class _ImportScopeState extends State<ImportScope> {
     _libraryQueryRepository = libraryQueryRepository;
     _artistCreationService = artistCreationService;
     _trackProfileEditingService = trackProfileEditingService;
+    _playbackCoordinator = playbackCoordinator;
     _workflowService = null;
     _reviewService = null;
 
@@ -98,6 +103,7 @@ class _ImportScopeState extends State<ImportScope> {
       libraryQueryRepository: libraryQueryRepository,
       trackProfileEditingService: trackProfileEditingService,
       artistCreationService: artistCreationService,
+      playbackCoordinator: playbackCoordinator,
       version: version,
     );
   }
@@ -108,6 +114,7 @@ class _ImportScopeState extends State<ImportScope> {
     required LibraryQueryRepository? libraryQueryRepository,
     required TrackProfileEditingService? trackProfileEditingService,
     required ArtistCreationService? artistCreationService,
+    required PlaybackCoordinator playbackCoordinator,
     required int version,
   }) async {
     final sqliteDatabase = await database.database;
@@ -198,6 +205,7 @@ class _ImportScopeState extends State<ImportScope> {
       batchRunner: batchExecutor,
       importSourceRepository: importSourceRepository,
       mediaFileBindingRepository: mediaFileBindingRepository,
+      onSongsBecameUnavailable: playbackCoordinator.removeSongsFromQueue,
     );
 
     if (!mounted || version != _initializationVersion) {

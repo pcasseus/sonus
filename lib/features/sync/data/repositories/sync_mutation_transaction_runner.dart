@@ -10,6 +10,8 @@ import '../../../library/data/repositories/sqlite_album_edition_repository.dart'
 import '../../../library/data/repositories/sqlite_album_repository.dart';
 import '../../../library/data/repositories/sqlite_artist_repository.dart';
 import '../../../library/data/repositories/sqlite_song_repository.dart';
+import '../../../playlists/data/daos/playlist_dao.dart';
+import '../../../playlists/data/repositories/sqlite_playlist_repository.dart';
 import '../../application/services/sync_mutation_context.dart';
 import '../../application/services/sync_mutation_runner.dart';
 import '../daos/local_sync_dao.dart';
@@ -45,6 +47,7 @@ class SyncMutationTransactionRunner implements SyncMutationRunner {
           generateId: _generateId,
           now: _now,
         ),
+        playlistRepository: SqlitePlaylistRepository(PlaylistDao(transaction)),
       );
 
       return action(context);

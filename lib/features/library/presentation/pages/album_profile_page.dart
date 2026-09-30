@@ -8,6 +8,7 @@ import '../../../account/application/controllers/account_controller.dart';
 import '../../../artwork/application/services/artwork_assignment_service.dart';
 import '../../../artwork/application/services/artwork_file_picker.dart';
 import '../../../player/application/controllers/playback_coordinator.dart';
+import '../../../playlists/presentation/widgets/add_to_playlist_sheet.dart';
 import '../../application/models/library_album.dart';
 import '../../application/models/library_track.dart';
 import '../../application/repositories/library_query_repository.dart';
@@ -173,7 +174,9 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
                       const SizedBox(height: 28),
                       _SectionHeading(
                         title: 'Tracks',
-                        count: controller.tracks.length,
+                        count: controller.tracks
+                            .where(_hasAvailableMedia)
+                            .length,
                       ),
                       const SizedBox(height: 8),
                       _TracksList(
@@ -207,10 +210,6 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
     String? userId,
   ) async {
     if (action == _AlbumMenuAction.editProfile) {
-      if (userId == null || userId.trim().isEmpty) {
-        return;
-      }
-
       await _editAlbumProfile(controller, userId);
       return;
     }
@@ -220,7 +219,7 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
 
   Future<void> _editAlbumProfile(
     AlbumProfileController controller,
-    String userId,
+    String? userId,
   ) async {
     final album = controller.album;
     final repository = _repository;
@@ -317,10 +316,6 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
     LibraryTrack track,
     String? userId,
   ) async {
-    if (userId == null || userId.trim().isEmpty) {
-      return;
-    }
-
     try {
       final repository = _repository;
 
@@ -477,6 +472,12 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
   }
 }
 
+bool _hasAvailableMedia(LibraryTrack track) {
+  return track.isAvailable &&
+      track.filePath != null &&
+      track.filePath!.trim().isNotEmpty;
+}
+
 class _AlbumHeader extends StatelessWidget {
   const _AlbumHeader({
     required this.album,
@@ -528,21 +529,26 @@ class _AlbumHeader extends StatelessWidget {
             style: theme.textTheme.bodySmall,
           ),
         ],
-        if (controller.hasUnavailableTracks) ...[
-          const SizedBox(height: 10),
-          _AvailabilityNotice(
-            unavailableTrackCount: controller.unavailableTrackCount,
-          ),
-        ],
       ],
     );
   }
 
   String _summary() {
-    final trackCount = controller.tracks.length;
+    final visibleTracks = controller.tracks
+        .where(_hasAvailableMedia)
+        .toList(growable: false);
+
+    final trackCount = visibleTracks.length;
     final trackLabel = trackCount == 1 ? 'track' : 'tracks';
 
-    final runtime = _formatRuntime(controller.totalDuration);
+    final totalDuration = Duration(
+      seconds: visibleTracks.fold<int>(
+        0,
+        (total, track) => total + track.durationSeconds,
+      ),
+    );
+
+    final runtime = _formatRuntime(totalDuration);
 
     if (runtime.isEmpty) {
       return '$trackCount $trackLabel';
@@ -668,35 +674,6 @@ class _AlbumArtwork extends StatelessWidget {
   }
 }
 
-class _AvailabilityNotice extends StatelessWidget {
-  const _AvailabilityNotice({required this.unavailableTrackCount});
-
-  final int unavailableTrackCount;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final trackLabel = unavailableTrackCount == 1 ? 'track' : 'tracks';
-
-    return Container(
-      key: const ValueKey<String>('album-profile-availability-notice'),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.errorContainer,
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        '$unavailableTrackCount '
-        '$trackLabel unavailable',
-        style: theme.textTheme.bodySmall?.copyWith(
-          color: theme.colorScheme.onErrorContainer,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-    );
-  }
-}
-
 class _PlaybackControls extends StatelessWidget {
   const _PlaybackControls({required this.controller});
 
@@ -782,7 +759,14 @@ class _TracksList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tracks = controller.tracks;
+    final tracks = controller.tracks
+        .where(
+          (track) =>
+              track.isAvailable &&
+              track.filePath != null &&
+              track.filePath!.trim().isNotEmpty,
+        )
+        .toList(growable: false);
 
     if (tracks.isEmpty) {
       return const _EmptySection(message: 'No tracks yet');
@@ -801,6 +785,7 @@ class _TracksList extends StatelessWidget {
             onPlay: () => controller.playTrack(track),
             onPlayNext: () => controller.playNext(track),
             onAddToQueue: () => controller.addToQueue(track),
+            onAddToPlaylist: () => showAddToPlaylistFlow(context, track),
             onEditTrack: () => onEditTrack(track),
             onChangeArtwork: () => onChangeArtwork(track),
             onClearArtwork: () => onClearArtwork(track),
@@ -821,6 +806,7 @@ class _TrackTile extends StatelessWidget {
     required this.onPlay,
     required this.onPlayNext,
     required this.onAddToQueue,
+    required this.onAddToPlaylist,
     required this.onEditTrack,
     required this.onChangeArtwork,
     required this.onClearArtwork,
@@ -836,6 +822,7 @@ class _TrackTile extends StatelessWidget {
   final Future<void> Function() onPlay;
   final Future<void> Function() onPlayNext;
   final Future<void> Function() onAddToQueue;
+  final Future<void> Function() onAddToPlaylist;
   final Future<void> Function() onEditTrack;
   final Future<void> Function() onChangeArtwork;
   final Future<void> Function() onClearArtwork;
@@ -870,6 +857,8 @@ class _TrackTile extends StatelessWidget {
                   unawaited(onPlayNext());
                 case _TrackMenuAction.addToQueue:
                   unawaited(onAddToQueue());
+                case _TrackMenuAction.addToPlaylist:
+                  unawaited(onAddToPlaylist());
                 case _TrackMenuAction.editDetails:
                   unawaited(onEditTrack());
                 case _TrackMenuAction.changeArtwork:
@@ -896,6 +885,14 @@ class _TrackTile extends StatelessWidget {
                 child: const ListTile(
                   leading: Icon(Icons.queue_music_rounded),
                   title: Text('Add to queue'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+              PopupMenuItem(
+                value: _TrackMenuAction.addToPlaylist,
+                child: const ListTile(
+                  leading: Icon(Icons.playlist_add_rounded),
+                  title: Text('Add to playlist'),
                   contentPadding: EdgeInsets.zero,
                 ),
               ),
@@ -1003,6 +1000,7 @@ enum _AlbumMenuAction { editProfile, changeArtwork, clearArtwork }
 enum _TrackMenuAction {
   playNext,
   addToQueue,
+  addToPlaylist,
   editDetails,
   changeArtwork,
   clearArtwork,

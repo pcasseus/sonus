@@ -29,13 +29,14 @@ void main() {
     );
   }
 
-  testWidgets('shows all five primary destinations', (tester) async {
+  testWidgets('shows all six primary destinations', (tester) async {
     await tester.pumpWidget(buildSubject());
 
     expect(find.text('Home'), findsWidgets);
     expect(find.text('Hot 100'), findsOneWidget);
     expect(find.text('Tracks'), findsOneWidget);
     expect(find.text('Library'), findsOneWidget);
+    expect(find.text('Playlists'), findsOneWidget);
     expect(find.text('Settings'), findsOneWidget);
   });
 
@@ -89,6 +90,19 @@ void main() {
 
     expect(
       find.byKey(const ValueKey<String>('app-destination-tracks')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('tapping playlists shows playlists destination', (tester) async {
+    await tester.pumpWidget(buildSubject());
+
+    await tester.tap(find.byKey(const ValueKey<String>('app-tab-playlists')));
+
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey<String>('app-destination-playlists')),
       findsOneWidget,
     );
   });

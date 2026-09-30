@@ -6,6 +6,7 @@ import '../../../home/presentation/pages/home_page.dart';
 import '../../../import/presentation/pages/imports_page.dart';
 import '../../../library/presentation/pages/library_page.dart';
 import '../../../library/presentation/pages/tracks_page.dart';
+import '../../../playlists/presentation/pages/playlists_page.dart';
 import '../../../search/presentation/pages/search_page.dart';
 import '../../../settings/presentation/pages/settings_page.dart';
 import '../../application/controllers/app_shell_controller.dart';
@@ -94,6 +95,7 @@ class _AppShellPageState extends State<AppShellPage>
       AppDestination.tracks => const TracksPage(),
       AppDestination.library => const LibraryPage(),
       AppDestination.home => const HomePage(),
+      AppDestination.playlists => const PlaylistsPage(),
       AppDestination.settings => const SettingsPage(),
       AppDestination.hot100 => const ChartsPage(),
     };

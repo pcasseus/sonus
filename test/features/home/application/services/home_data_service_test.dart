@@ -296,6 +296,220 @@ void main() {
     },
   );
 
+  test(
+    'recently added hides track with blank file path even when marked available',
+    () async {
+      final tracks = [
+        _track(id: 'song_blank', title: 'Blank Path', filePath: '   '),
+        _track(id: 'song_visible', title: 'Visible'),
+      ];
+
+      final service = HomeDataService(
+        library: _FakeLibraryQueryRepository(tracks: tracks),
+        artistListeningDurations: _emptyArtistListeningDurations(),
+        analyticsRankings: AnalyticsEntityRankingService(
+          qualifiedPlays: _FakeQualifiedPlayRepository(),
+        ),
+      );
+
+      final snapshot = await service.load(referenceLocal: referenceLocal);
+
+      expect(snapshot.recentlyAddedTracks.map((track) => track.songId), [
+        'song_visible',
+      ]);
+    },
+  );
+
+  test('new albums hide albums without usable media', () async {
+    final tracks = [
+      _track(
+        id: 'song_missing',
+        title: 'Missing',
+        available: false,
+        albumId: 'album_missing',
+      ),
+      _track(id: 'song_visible', title: 'Visible', albumId: 'album_visible'),
+    ];
+
+    final albums = [
+      _album(
+        id: 'album_missing',
+        title: 'Missing Album',
+        dateAdded: DateTime.utc(2026, 9, 29),
+      ),
+      _album(
+        id: 'album_visible',
+        title: 'Visible Album',
+        dateAdded: DateTime.utc(2026, 9, 28),
+      ),
+    ];
+
+    final service = HomeDataService(
+      library: _FakeLibraryQueryRepository(tracks: tracks, albums: albums),
+      artistListeningDurations: _emptyArtistListeningDurations(),
+      analyticsRankings: AnalyticsEntityRankingService(
+        qualifiedPlays: _FakeQualifiedPlayRepository(),
+      ),
+    );
+
+    final snapshot = await service.load(referenceLocal: referenceLocal);
+
+    expect(snapshot.recentlyAddedAlbums.map((album) => album.albumId), [
+      'album_visible',
+    ]);
+  });
+
+  test(
+    'new albums keep album owner when available track has another primary artist',
+    () async {
+      final tracks = [
+        _track(
+          id: 'song_other_primary',
+          title: 'Other Primary',
+          artistId: 'artist_other',
+          albumId: 'album_owner',
+        ),
+      ];
+
+      final albums = [
+        _album(
+          id: 'album_owner',
+          title: 'Owned Album',
+          artistId: 'artist_owner',
+        ),
+      ];
+
+      final service = HomeDataService(
+        library: _FakeLibraryQueryRepository(tracks: tracks, albums: albums),
+        artistListeningDurations: _emptyArtistListeningDurations(),
+        analyticsRankings: AnalyticsEntityRankingService(
+          qualifiedPlays: _FakeQualifiedPlayRepository(),
+        ),
+      );
+
+      final snapshot = await service.load(referenceLocal: referenceLocal);
+
+      expect(snapshot.recentlyAddedAlbums, hasLength(1));
+      expect(snapshot.recentlyAddedAlbums.single.albumId, 'album_owner');
+    },
+  );
+
+  test('popular ranking retains unavailable track', () async {
+    final unavailableTrack = _track(
+      id: 'song_ranked',
+      title: 'Ranked Missing',
+      available: false,
+    );
+
+    final library = _FakeLibraryQueryRepository(tracks: [unavailableTrack]);
+
+    final qualifiedPlays = _FakeQualifiedPlayRepository([
+      ..._plays(
+        count: 3,
+        songId: 'song_ranked',
+        artistId: unavailableTrack.artistId,
+      ),
+    ]);
+
+    final service = HomeDataService(
+      library: library,
+      artistListeningDurations: _emptyArtistListeningDurations(),
+      analyticsRankings: AnalyticsEntityRankingService(
+        qualifiedPlays: qualifiedPlays,
+      ),
+    );
+
+    final snapshot = await service.load(referenceLocal: referenceLocal);
+
+    expect(snapshot.weeklyPopularTracks, hasLength(1));
+    expect(snapshot.weeklyPopularTracks.single.track.songId, 'song_ranked');
+    expect(snapshot.weeklyPopularTracks.single.track.isAvailable, isFalse);
+  });
+
+  test(
+    'top artist remains ranked but is marked unavailable without usable media',
+    () async {
+      final artist = _artist(id: 'artist_ranked', name: 'Ranked Artist');
+
+      final track = _track(
+        id: 'song_ranked_artist',
+        title: 'Ranked Artist Song',
+        artistId: artist.artistId,
+        available: false,
+      );
+
+      final library = _FakeLibraryQueryRepository(
+        tracks: [track],
+        artists: [artist],
+      );
+
+      final qualifiedPlays = _FakeQualifiedPlayRepository([
+        ..._plays(count: 2, songId: track.songId, artistId: artist.artistId),
+      ]);
+
+      final service = HomeDataService(
+        library: library,
+        artistListeningDurations: _emptyArtistListeningDurations(),
+        analyticsRankings: AnalyticsEntityRankingService(
+          qualifiedPlays: qualifiedPlays,
+        ),
+      );
+
+      final snapshot = await service.load(referenceLocal: referenceLocal);
+
+      expect(snapshot.weeklyTopArtists, hasLength(1));
+      expect(snapshot.weeklyTopArtists.single.isAvailable, isFalse);
+    },
+  );
+
+  test(
+    'top artist album owner is available when owned album has usable track with another primary artist',
+    () async {
+      final owner = _artist(id: 'artist_owner', name: 'Album Owner');
+
+      final track = _track(
+        id: 'song_other_primary',
+        title: 'Other Primary',
+        artistId: 'artist_other',
+        albumId: 'album_owner',
+      );
+
+      final album = _album(
+        id: 'album_owner',
+        title: 'Owned Album',
+        artistId: owner.artistId,
+      );
+
+      final library = _FakeLibraryQueryRepository(
+        tracks: [track],
+        albums: [album],
+        artists: [owner],
+      );
+
+      final qualifiedPlays = _FakeQualifiedPlayRepository([
+        ..._plays(
+          count: 2,
+          songId: 'song_historical_owner',
+          artistId: owner.artistId,
+        ),
+      ]);
+
+      final service = HomeDataService(
+        library: library,
+        artistListeningDurations: _emptyArtistListeningDurations(),
+        analyticsRankings: AnalyticsEntityRankingService(
+          qualifiedPlays: qualifiedPlays,
+        ),
+      );
+
+      final snapshot = await service.load(referenceLocal: referenceLocal);
+
+      expect(snapshot.weeklyTopArtists, hasLength(1));
+      expect(snapshot.weeklyTopArtists.single.artist.artistId, 'artist_owner');
+      expect(snapshot.weeklyTopArtists.single.isAvailable, isTrue);
+    },
+  );
+
   test('top artist exposes weekly audible listening duration', () async {
     final library = _FakeLibraryQueryRepository(
       tracks: [_track(id: 'song_1', title: 'Song 1')],
@@ -382,15 +596,21 @@ LibraryTrack _track({
   required String title,
   bool blocked = false,
   bool available = true,
+  String? filePath,
+  String? artistId,
+  String? albumId,
 }) {
+  final resolvedArtistId = artistId ?? 'artist_${id.replaceFirst('song_', '')}';
+  final resolvedAlbumId = albumId ?? 'album_${id.replaceFirst('song_', '')}';
+
   return LibraryTrack(
     songId: id,
     title: title,
-    artistId: 'artist_${id.replaceFirst('song_', '')}',
+    artistId: resolvedArtistId,
     artistName: 'Artist',
-    albumId: 'album_${id.replaceFirst('song_', '')}',
+    albumId: resolvedAlbumId,
     albumTitle: 'Album',
-    albumEditionId: 'edition_${id.replaceFirst('song_', '')}',
+    albumEditionId: 'edition_$resolvedAlbumId',
     albumEditionTitle: 'Standard',
     albumEditionType: AlbumEditionType.standard,
     trackNumber: 1,
@@ -400,18 +620,23 @@ LibraryTrack _track({
     dateAdded: DateTime.utc(2026, 9, 27),
     isAvailable: available,
     isSongBlocked: blocked,
-    filePath: 'C:/Music/$id.mp3',
+    filePath: filePath ?? 'C:/Music/$id.mp3',
   );
 }
 
-LibraryAlbum _album({required String id, required String title}) {
+LibraryAlbum _album({
+  required String id,
+  required String title,
+  String? artistId,
+  DateTime? dateAdded,
+}) {
   return LibraryAlbum(
     albumId: id,
     title: title,
-    artistId: 'artist_$id',
+    artistId: artistId ?? 'artist_$id',
     artistName: 'Artist',
     trackCount: 1,
-    dateAdded: DateTime.utc(2026, 9, 27),
+    dateAdded: dateAdded ?? DateTime.utc(2026, 9, 27),
   );
 }
 

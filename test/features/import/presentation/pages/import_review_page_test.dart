@@ -905,7 +905,7 @@ class _FakeEditingService extends TrackProfileEditingService {
 
   @override
   Future<TrackProfileEditResult> updateTrack({
-    required String userId,
+    required String? userId,
     required String songId,
     required String title,
     required int trackNumber,
@@ -1142,7 +1142,7 @@ class _FakeAlbumProfileEditingService extends AlbumProfileEditingService {
 
   @override
   Future<AlbumProfileEditResult> updateProfile({
-    required String userId,
+    required String? userId,
     required String albumId,
     required String primaryEditionId,
     required String title,
@@ -1197,7 +1197,7 @@ class _FakeArtistCreationService extends ArtistCreationService {
 
   @override
   Future<Artist> createOrReuse({
-    required String userId,
+    required String? userId,
     required String name,
     DateTime? now,
   }) async {

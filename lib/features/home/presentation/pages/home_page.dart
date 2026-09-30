@@ -10,6 +10,7 @@ import '../../../library/application/models/library_track.dart';
 import '../../../library/presentation/pages/album_profile_page.dart';
 import '../../../library/presentation/pages/artist_profile_page.dart';
 import '../../../player/application/controllers/playback_coordinator.dart';
+import '../../../playlists/presentation/widgets/add_to_playlist_sheet.dart';
 import '../../application/models/home_popular_track.dart';
 import '../../application/models/home_top_artist.dart';
 import '../controllers/home_controller.dart';
@@ -807,6 +808,14 @@ Future<void> _showTrackContext(BuildContext context, LibraryTrack track) async {
                         Navigator.of(sheetContext).pop();
                         unawaited(playback.addToQueue(track));
                       },
+              ),
+              ListTile(
+                leading: const Icon(Icons.playlist_add_rounded),
+                title: const Text('Add to playlist'),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  unawaited(showAddToPlaylistFlow(context, track));
+                },
               ),
               ListTile(
                 leading: const Icon(Icons.album_outlined),

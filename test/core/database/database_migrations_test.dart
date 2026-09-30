@@ -24,7 +24,7 @@ void main() {
       final result = await db.rawQuery('PRAGMA user_version');
 
       expect(result.single['user_version'], AppDatabase.databaseVersion);
-      expect(AppDatabase.databaseVersion, 18);
+      expect(AppDatabase.databaseVersion, 20);
     } finally {
       await appDatabase.close();
     }
@@ -1144,12 +1144,166 @@ void main() {
       }
     },
   );
+  test('migration runner upgrades version 18 schema to version 19', () async {
+    final db = await databaseFactoryFfi.openDatabase(inMemoryDatabasePath);
+
+    try {
+      await db.execute('PRAGMA foreign_keys = ON');
+      await LibrarySchema.create(db);
+
+      await DatabaseMigrations.migrate(db, oldVersion: 18, newVersion: 19);
+
+      final tables = await db.rawQuery('''
+        SELECT name
+        FROM sqlite_master
+        WHERE type = 'table'
+      ''');
+
+      final names = tables
+          .map((row) => row['name'])
+          .whereType<String>()
+          .toSet();
+
+      expect(names, contains(DatabaseTables.playlists));
+      expect(names, contains(DatabaseTables.playlistItems));
+
+      final playlistColumns = await db.rawQuery(
+        'PRAGMA table_info(${DatabaseTables.playlists})',
+      );
+
+      expect(
+        playlistColumns.map((row) => row['name']),
+        containsAll({'id', 'name', 'created_at', 'updated_at'}),
+      );
+
+      final itemColumns = await db.rawQuery(
+        'PRAGMA table_info(${DatabaseTables.playlistItems})',
+      );
+
+      expect(
+        itemColumns.map((row) => row['name']),
+        containsAll({
+          'id',
+          'playlist_id',
+          'song_id',
+          'position',
+          'created_at',
+          'updated_at',
+        }),
+      );
+    } finally {
+      await db.close();
+    }
+  });
+
+  test(
+    'migration runner upgrades version 19 schema to version 20 and preserves sync outbox',
+    () async {
+      final db = await databaseFactoryFfi.openDatabase(inMemoryDatabasePath);
+
+      try {
+        await db.execute('''
+          CREATE TABLE ${DatabaseTables.syncOutbox} (
+            id TEXT PRIMARY KEY NOT NULL,
+            user_id TEXT NOT NULL,
+            entity_type TEXT NOT NULL,
+            entity_id TEXT NOT NULL,
+            operation TEXT NOT NULL
+              CHECK (operation IN ('upsert', 'delete')),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+
+            UNIQUE(user_id, entity_type, entity_id)
+          )
+        ''');
+
+        await db.execute('''
+          CREATE INDEX idx_sync_outbox_user_created
+          ON ${DatabaseTables.syncOutbox}(
+            user_id,
+            created_at,
+            id
+          )
+        ''');
+
+        const timestamp = '2026-09-30T12:00:00.000Z';
+
+        await db.insert(DatabaseTables.syncOutbox, {
+          'id': 'owned_before_v20',
+          'user_id': 'user_1',
+          'entity_type': 'artist',
+          'entity_id': 'artist_1',
+          'operation': 'upsert',
+          'created_at': timestamp,
+          'updated_at': timestamp,
+        });
+
+        await DatabaseMigrations.migrate(db, oldVersion: 19, newVersion: 20);
+
+        final columns = await db.rawQuery(
+          'PRAGMA table_info(${DatabaseTables.syncOutbox})',
+        );
+
+        final userIdColumn = columns.singleWhere(
+          (row) => row['name'] == 'user_id',
+        );
+
+        expect(userIdColumn['notnull'], 0);
+
+        final preserved = await db.query(
+          DatabaseTables.syncOutbox,
+          where: 'id = ?',
+          whereArgs: ['owned_before_v20'],
+        );
+
+        expect(preserved, hasLength(1));
+        expect(preserved.single['user_id'], 'user_1');
+        expect(preserved.single['operation'], 'upsert');
+
+        await db.insert(DatabaseTables.syncOutbox, {
+          'id': 'unowned_after_v20',
+          'user_id': null,
+          'entity_type': 'song',
+          'entity_id': 'song_1',
+          'operation': 'delete',
+          'created_at': timestamp,
+          'updated_at': timestamp,
+        });
+
+        final unowned = await db.query(
+          DatabaseTables.syncOutbox,
+          where: 'user_id IS NULL',
+        );
+
+        expect(unowned, hasLength(1));
+
+        final indexes = await db.rawQuery('''
+          SELECT name
+          FROM sqlite_master
+          WHERE type = 'index'
+            AND tbl_name = '${DatabaseTables.syncOutbox}'
+        ''');
+
+        expect(
+          indexes.map((row) => row['name']),
+          containsAll({
+            'idx_sync_outbox_owned_entity',
+            'idx_sync_outbox_unowned_entity',
+            'idx_sync_outbox_user_created',
+          }),
+        );
+      } finally {
+        await db.close();
+      }
+    },
+  );
+
   test('migration runner fails loudly for unknown future migration', () async {
     final db = await databaseFactoryFfi.openDatabase(inMemoryDatabasePath);
 
     try {
       await expectLater(
-        DatabaseMigrations.migrate(db, oldVersion: 18, newVersion: 19),
+        DatabaseMigrations.migrate(db, oldVersion: 20, newVersion: 21),
         throwsA(isA<UnsupportedError>()),
       );
     } finally {

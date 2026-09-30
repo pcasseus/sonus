@@ -12,6 +12,8 @@ import 'import_batch_runner.dart';
 
 typedef ImportBatchIdFactory = String Function();
 typedef ImportSourceIdFactory = String Function();
+typedef SongsBecameUnavailableCallback =
+    Future<void> Function(Set<String> songIds);
 
 class ImportWorkflowService {
   const ImportWorkflowService({
@@ -19,6 +21,7 @@ class ImportWorkflowService {
     required this.batchRunner,
     this.importSourceRepository,
     this.mediaFileBindingRepository,
+    this.onSongsBecameUnavailable,
     this.batchIdFactory = EntityId.importBatch,
     this.sourceIdFactory = EntityId.importSource,
   });
@@ -27,6 +30,7 @@ class ImportWorkflowService {
   final ImportBatchRunner batchRunner;
   final ImportSourceRepository? importSourceRepository;
   final MediaFileBindingRepository? mediaFileBindingRepository;
+  final SongsBecameUnavailableCallback? onSongsBecameUnavailable;
   final ImportBatchIdFactory batchIdFactory;
   final ImportSourceIdFactory sourceIdFactory;
 
@@ -200,6 +204,7 @@ class ImportWorkflowService {
         .toSet();
 
     final bindings = await bindingRepository.getBySourceId(source.id);
+    final potentiallyUnavailableSongIds = <String>{};
 
     for (final binding in bindings) {
       if (seenPaths.contains(binding.normalizedPath)) {
@@ -213,11 +218,37 @@ class ImportWorkflowService {
       await bindingRepository.save(
         binding.copyWith(isAvailable: false, updatedAt: scannedAt),
       );
+
+      potentiallyUnavailableSongIds.add(binding.songId);
     }
 
     await sourceRepository.save(
       source.copyWith(lastScannedAt: scannedAt, updatedAt: scannedAt),
     );
+
+    final callback = onSongsBecameUnavailable;
+
+    if (callback == null || potentiallyUnavailableSongIds.isEmpty) {
+      return;
+    }
+
+    final unavailableSongIds = <String>{};
+
+    for (final songId in potentiallyUnavailableSongIds) {
+      final songBindings = await bindingRepository.getBySongId(songId);
+
+      final hasUsableBinding = songBindings.any(
+        (binding) => binding.isAvailable && binding.filePath.trim().isNotEmpty,
+      );
+
+      if (!hasUsableBinding) {
+        unavailableSongIds.add(songId);
+      }
+    }
+
+    if (unavailableSongIds.isNotEmpty) {
+      await callback(Set<String>.unmodifiable(unavailableSongIds));
+    }
   }
 
   Future<ImportExecutionSummary> _executeCandidates(

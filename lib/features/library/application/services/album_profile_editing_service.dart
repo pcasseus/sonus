@@ -26,7 +26,7 @@ class AlbumProfileEditingService {
   final SyncMutationRunner mutationRunner;
 
   Future<AlbumProfileEditResult> updateProfile({
-    required String userId,
+    required String? userId,
     required String albumId,
     required String primaryEditionId,
     required String title,
@@ -37,7 +37,7 @@ class AlbumProfileEditingService {
     String? artistId,
     DateTime? now,
   }) {
-    final normalizedUserId = userId.trim();
+    final normalizedUserId = userId?.trim();
     final normalizedAlbumId = albumId.trim();
     final normalizedEditionId = primaryEditionId.trim();
     final normalizedArtistId = artistId?.trim();
@@ -49,10 +49,6 @@ class AlbumProfileEditingService {
     final normalizedGenre = trimmedGenre == null || trimmedGenre.isEmpty
         ? null
         : trimmedGenre;
-
-    if (normalizedUserId.isEmpty) {
-      throw ArgumentError.value(userId, 'userId', 'User id must not be blank.');
-    }
 
     if (normalizedAlbumId.isEmpty) {
       throw ArgumentError.value(

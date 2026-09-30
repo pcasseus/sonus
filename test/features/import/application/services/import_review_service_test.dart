@@ -353,7 +353,7 @@ void main() {
     },
   );
 
-  test('rejects blank user id before editing or resolving', () async {
+  test('signed-out user can edit and resolve review', () async {
     final originalReview = review();
 
     final reviewRepository = _FakeReviewRepository(reviews: [originalReview]);
@@ -367,26 +367,32 @@ void main() {
       ),
       trackProfileEditingService: editingService,
       artistCreationService: _FakeArtistCreationService(),
+      now: () => resolvedAt,
     );
 
-    await expectLater(
-      service.updateTrackAndResolve(
-        userId: '   ',
-        item: ImportReviewQueueItem(review: originalReview, track: track()),
-        title: 'Corrected',
-        trackNumber: 1,
-        discNumber: 1,
-        featuredArtists: const [],
-        isSingle: false,
-        artistId: 'artist-1',
-        albumId: 'album-1',
-        albumEditionId: 'edition-1',
-      ),
-      throwsA(isA<ArgumentError>()),
+    final result = await service.updateTrackAndResolve(
+      userId: null,
+      item: ImportReviewQueueItem(review: originalReview, track: track()),
+      title: 'Corrected',
+      trackNumber: 1,
+      discNumber: 1,
+      featuredArtists: const [],
+      isSingle: false,
+      artistId: 'artist-1',
+      albumId: 'album-1',
+      albumEditionId: 'edition-1',
     );
 
-    expect(editingService.updateCallCount, 0);
-    expect(reviewRepository.saveCallCount, 0);
+    expect(result.changed, isTrue);
+    expect(editingService.updateCallCount, 1);
+    expect(editingService.lastUserId, isNull);
+    expect(reviewRepository.saveCallCount, 1);
+
+    final stored = await reviewRepository.getBySongId('song-1');
+
+    expect(stored, isNotNull);
+    expect(stored!.needsReview, isFalse);
+    expect(stored.resolvedAt, resolvedAt);
   });
 
   test('rejects an already resolved review', () async {
@@ -557,7 +563,7 @@ class _FakeTrackProfileEditingService extends TrackProfileEditingService {
 
   @override
   Future<TrackProfileEditResult> updateTrack({
-    required String userId,
+    required String? userId,
     required String songId,
     required String title,
     required int trackNumber,
@@ -632,7 +638,7 @@ class _FakeArtistCreationService extends ArtistCreationService {
 
   @override
   Future<Artist> createOrReuse({
-    required String userId,
+    required String? userId,
     required String name,
     DateTime? now,
   }) async {

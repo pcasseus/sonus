@@ -13,15 +13,11 @@ class ArtistProfileEditingService {
   final SyncMutationRunner mutationRunner;
 
   Future<void> removeArtist({
-    required String userId,
+    required String? userId,
     required String artistId,
   }) {
-    final normalizedUserId = userId.trim();
+    final normalizedUserId = userId?.trim();
     final normalizedArtistId = artistId.trim();
-
-    if (normalizedUserId.isEmpty) {
-      throw ArgumentError.value(userId, 'userId', 'User id must not be blank.');
-    }
 
     if (normalizedArtistId.isEmpty) {
       throw ArgumentError.value(
@@ -60,18 +56,14 @@ class ArtistProfileEditingService {
   }
 
   Future<Artist> renameArtist({
-    required String userId,
+    required String? userId,
     required String artistId,
     required String name,
     DateTime? now,
   }) {
-    final normalizedUserId = userId.trim();
+    final normalizedUserId = userId?.trim();
     final normalizedArtistId = artistId.trim();
     final trimmedName = name.trim();
-
-    if (normalizedUserId.isEmpty) {
-      throw ArgumentError.value(userId, 'userId', 'User id must not be blank.');
-    }
 
     if (normalizedArtistId.isEmpty) {
       throw ArgumentError.value(

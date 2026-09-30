@@ -62,6 +62,7 @@ void main() {
       expect(find.text('Play'), findsOneWidget);
       expect(find.text('Play next'), findsOneWidget);
       expect(find.text('Add to queue'), findsOneWidget);
+      expect(find.text('Add to playlist'), findsOneWidget);
       expect(find.text('Go to album'), findsOneWidget);
       expect(find.text('Go to artist'), findsOneWidget);
     },

@@ -810,10 +810,12 @@ void main() {
 
     expect(editableController.canEditTrack('user-1'), isTrue);
     expect(editableController.canEditTrack('  user-1  '), isTrue);
-    expect(editableController.canEditTrack(null), isFalse);
-    expect(editableController.canEditTrack(''), isFalse);
-    expect(editableController.canEditTrack('   '), isFalse);
+    expect(editableController.canEditTrack(null), isTrue);
+    expect(editableController.canEditTrack(''), isTrue);
+    expect(editableController.canEditTrack('   '), isTrue);
+
     expect(missingServiceController.canEditTrack('user-1'), isFalse);
+    expect(missingServiceController.canEditTrack(null), isFalse);
 
     await engine.dispose();
   });
@@ -916,7 +918,7 @@ void main() {
   });
 
   test(
-    'updateTrack does nothing when editing is unavailable or user id is blank',
+    'updateTrack rejects missing service but allows anonymous owner',
     () async {
       final repository = FakeLibraryQueryRepository()
         ..tracks = [track(id: 'song-edit')];
@@ -944,17 +946,17 @@ void main() {
 
       final service = FakeTrackProfileEditingService();
 
-      final blankUserController = LibraryTracksController(
+      final anonymousController = LibraryTracksController(
         repository: repository,
         playbackCoordinator: PlaybackCoordinator(engine: engine),
         trackProfileEditingService: service,
       );
 
-      await blankUserController.load();
+      await anonymousController.load();
 
-      final blankUserResult = await blankUserController.updateTrack(
-        userId: '   ',
-        track: blankUserController.tracks.single,
+      final anonymousResult = await anonymousController.updateTrack(
+        userId: null,
+        track: anonymousController.tracks.single,
         title: 'Edited',
         trackNumber: 1,
         discNumber: 1,
@@ -962,8 +964,10 @@ void main() {
         isSingle: false,
       );
 
-      expect(blankUserResult, isFalse);
-      expect(service.updateCallCount, 0);
+      expect(anonymousResult, isTrue);
+      expect(service.updateCallCount, 1);
+      expect(service.lastUserId, isNull);
+      expect(service.lastSongId, 'song-edit');
 
       await engine.dispose();
     },
@@ -1182,7 +1186,7 @@ class FakeTrackProfileEditingService extends TrackProfileEditingService {
 
   @override
   Future<TrackProfileEditResult> updateTrack({
-    required String userId,
+    required String? userId,
     required String songId,
     required String title,
     required int trackNumber,

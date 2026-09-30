@@ -8,6 +8,7 @@ import '../../../account/application/controllers/account_controller.dart';
 import '../../../artwork/application/services/artwork_assignment_service.dart';
 import '../../../artwork/application/services/artwork_file_picker.dart';
 import '../../../player/application/controllers/playback_coordinator.dart';
+import '../../../playlists/presentation/widgets/add_to_playlist_sheet.dart';
 import '../../application/models/library_artist.dart';
 import '../../application/models/library_track.dart';
 import '../../application/models/library_track_order.dart';
@@ -73,6 +74,10 @@ class _TracksPageState extends State<TracksPage> {
       child: AnimatedBuilder(
         animation: controller,
         builder: (context, _) {
+          final visibleTracks = controller.tracks
+              .where(_hasAvailableMedia)
+              .toList(growable: false);
+
           if (controller.isLoading && controller.tracks.isEmpty) {
             return const Center(child: CircularProgressIndicator());
           }
@@ -84,7 +89,7 @@ class _TracksPageState extends State<TracksPage> {
             );
           }
 
-          if (controller.isEmpty) {
+          if (!controller.isLoading && visibleTracks.isEmpty) {
             return RefreshIndicator(
               onRefresh: controller.refresh,
               child: ListView(
@@ -102,7 +107,7 @@ class _TracksPageState extends State<TracksPage> {
               physics: const AlwaysScrollableScrollPhysics(),
               slivers: [
                 SliverToBoxAdapter(
-                  child: _TracksHeader(trackCount: controller.tracks.length),
+                  child: _TracksHeader(trackCount: visibleTracks.length),
                 ),
                 SliverToBoxAdapter(
                   child: _TracksControls(controller: controller),
@@ -110,10 +115,10 @@ class _TracksPageState extends State<TracksPage> {
                 SliverPadding(
                   padding: const EdgeInsets.fromLTRB(16, 4, 16, 120),
                   sliver: SliverList.separated(
-                    itemCount: controller.tracks.length,
+                    itemCount: visibleTracks.length,
                     separatorBuilder: (_, _) => const SizedBox(height: 6),
                     itemBuilder: (context, index) {
-                      final track = controller.tracks[index];
+                      final track = visibleTracks[index];
 
                       return _TrackTile(
                         track: track,
@@ -124,6 +129,8 @@ class _TracksPageState extends State<TracksPage> {
                         onPlay: () => controller.playTrack(track),
                         onPlayNext: () => controller.playNext(track),
                         onAddToQueue: () => controller.addToQueue(track),
+                        onAddToPlaylist: () =>
+                            showAddToPlaylistFlow(context, track),
                         onEditTrack: () =>
                             _editTrack(controller, track, userId),
                         onChangeArtwork: () =>
@@ -147,15 +154,17 @@ class _TracksPageState extends State<TracksPage> {
     );
   }
 
+  bool _hasAvailableMedia(LibraryTrack track) {
+    return track.isAvailable &&
+        track.filePath != null &&
+        track.filePath!.trim().isNotEmpty;
+  }
+
   Future<void> _editTrack(
     LibraryTracksController controller,
     LibraryTrack track,
     String? userId,
   ) async {
-    if (userId == null || userId.trim().isEmpty) {
-      return;
-    }
-
     try {
       final repository = _repository;
 
@@ -520,6 +529,7 @@ class _TrackTile extends StatelessWidget {
     required this.onPlay,
     required this.onPlayNext,
     required this.onAddToQueue,
+    required this.onAddToPlaylist,
     required this.onEditTrack,
     required this.onChangeArtwork,
     required this.onClearArtwork,
@@ -535,6 +545,7 @@ class _TrackTile extends StatelessWidget {
   final Future<void> Function() onPlay;
   final Future<void> Function() onPlayNext;
   final Future<void> Function() onAddToQueue;
+  final Future<void> Function() onAddToPlaylist;
   final Future<void> Function() onEditTrack;
   final Future<void> Function() onChangeArtwork;
   final Future<void> Function() onClearArtwork;
@@ -589,6 +600,8 @@ class _TrackTile extends StatelessWidget {
                       unawaited(onPlayNext());
                     case _TrackMenuAction.addToQueue:
                       unawaited(onAddToQueue());
+                    case _TrackMenuAction.addToPlaylist:
+                      unawaited(onAddToPlaylist());
                     case _TrackMenuAction.editDetails:
                       unawaited(onEditTrack());
                     case _TrackMenuAction.changeArtwork:
@@ -619,6 +632,14 @@ class _TrackTile extends StatelessWidget {
                     ),
                   ),
                   const PopupMenuDivider(),
+                  PopupMenuItem(
+                    value: _TrackMenuAction.addToPlaylist,
+                    child: const ListTile(
+                      leading: Icon(Icons.playlist_add_rounded),
+                      title: Text('Add to playlist'),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
                   PopupMenuItem(
                     value: _TrackMenuAction.editDetails,
                     enabled: canEditTrack,
@@ -872,6 +893,7 @@ class _EmptyTracksState extends StatelessWidget {
 enum _TrackMenuAction {
   playNext,
   addToQueue,
+  addToPlaylist,
   editDetails,
   changeArtwork,
   clearArtwork,

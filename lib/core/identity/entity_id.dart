@@ -21,6 +21,8 @@ abstract final class EntityId {
 
   static String playlist() => 'playlist_${_uuid.v4()}';
 
+  static String playlistItem() => 'playlist_item_${_uuid.v4()}';
+
   static String playbackSession() => 'session_${_uuid.v4()}';
 
   static String listeningSegment() => 'segment_${_uuid.v4()}';

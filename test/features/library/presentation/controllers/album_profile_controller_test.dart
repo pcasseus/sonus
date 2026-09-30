@@ -477,6 +477,7 @@ void main() {
         album: createAlbum(),
         tracks: [createTrack()],
       );
+
       final service = FakeTrackProfileEditingService();
 
       final editableController = AlbumProfileController(
@@ -492,10 +493,12 @@ void main() {
 
       expect(editableController.canEditTrack('user-1'), isTrue);
       expect(editableController.canEditTrack('  user-1  '), isTrue);
-      expect(editableController.canEditTrack(null), isFalse);
-      expect(editableController.canEditTrack(''), isFalse);
-      expect(editableController.canEditTrack('   '), isFalse);
+      expect(editableController.canEditTrack(null), isTrue);
+      expect(editableController.canEditTrack(''), isTrue);
+      expect(editableController.canEditTrack('   '), isTrue);
+
       expect(missingServiceController.canEditTrack('user-1'), isFalse);
+      expect(missingServiceController.canEditTrack(null), isFalse);
 
       editableController.dispose();
       missingServiceController.dispose();
@@ -581,57 +584,63 @@ void main() {
       controller.dispose();
     });
 
-    test('updateTrack rejects unavailable editing capability', () async {
-      final repository = FakeLibraryQueryRepository(
-        album: createAlbum(),
-        tracks: [createTrack(songId: 'song-edit')],
-      );
+    test(
+      'updateTrack rejects missing service but allows anonymous owner',
+      () async {
+        final repository = FakeLibraryQueryRepository(
+          album: createAlbum(),
+          tracks: [createTrack(songId: 'song-edit')],
+        );
 
-      final missingServiceController = AlbumProfileController(
-        repository: repository,
-        albumId: 'album-1',
-      );
+        final missingServiceController = AlbumProfileController(
+          repository: repository,
+          albumId: 'album-1',
+        );
 
-      await missingServiceController.load();
+        await missingServiceController.load();
 
-      final missingServiceResult = await missingServiceController.updateTrack(
-        userId: 'user-1',
-        track: missingServiceController.tracks.single,
-        title: 'Edited',
-        trackNumber: 1,
-        discNumber: 1,
-        featuredArtists: const [],
-        isSingle: false,
-      );
+        final missingServiceResult = await missingServiceController.updateTrack(
+          userId: 'user-1',
+          track: missingServiceController.tracks.single,
+          title: 'Edited',
+          trackNumber: 1,
+          discNumber: 1,
+          featuredArtists: const [],
+          isSingle: false,
+        );
 
-      expect(missingServiceResult, isFalse);
+        expect(missingServiceResult, isFalse);
 
-      final service = FakeTrackProfileEditingService();
+        final service = FakeTrackProfileEditingService();
 
-      final blankUserController = AlbumProfileController(
-        repository: repository,
-        albumId: 'album-1',
-        trackProfileEditingService: service,
-      );
+        final anonymousController = AlbumProfileController(
+          repository: repository,
+          albumId: 'album-1',
+          trackProfileEditingService: service,
+        );
 
-      await blankUserController.load();
+        await anonymousController.load();
 
-      final blankUserResult = await blankUserController.updateTrack(
-        userId: '   ',
-        track: blankUserController.tracks.single,
-        title: 'Edited',
-        trackNumber: 1,
-        discNumber: 1,
-        featuredArtists: const [],
-        isSingle: false,
-      );
+        final anonymousResult = await anonymousController.updateTrack(
+          userId: null,
+          track: anonymousController.tracks.single,
+          title: 'Edited',
+          trackNumber: 1,
+          discNumber: 1,
+          featuredArtists: const [],
+          isSingle: false,
+        );
 
-      expect(blankUserResult, isFalse);
-      expect(service.updateCallCount, 0);
+        expect(anonymousResult, isTrue);
+        expect(service.updateCallCount, 1);
+        expect(service.lastUserId, isNull);
+        expect(service.lastSongId, 'song-edit');
 
-      missingServiceController.dispose();
-      blankUserController.dispose();
-    });
+        missingServiceController.dispose();
+        anonymousController.dispose();
+      },
+    );
+
     test('reports whether album profile editing is available', () async {
       final editableRepository = FakeLibraryQueryRepository(
         album: createAlbum(
@@ -651,9 +660,9 @@ void main() {
 
       expect(editableController.canEditAlbumProfile('user-1'), isTrue);
       expect(editableController.canEditAlbumProfile('  user-1  '), isTrue);
-      expect(editableController.canEditAlbumProfile(null), isFalse);
-      expect(editableController.canEditAlbumProfile(''), isFalse);
-      expect(editableController.canEditAlbumProfile('   '), isFalse);
+      expect(editableController.canEditAlbumProfile(null), isTrue);
+      expect(editableController.canEditAlbumProfile(''), isTrue);
+      expect(editableController.canEditAlbumProfile('   '), isTrue);
 
       final missingServiceController = AlbumProfileController(
         repository: editableRepository,
@@ -663,6 +672,7 @@ void main() {
       await missingServiceController.load();
 
       expect(missingServiceController.canEditAlbumProfile('user-1'), isFalse);
+      expect(missingServiceController.canEditAlbumProfile(null), isFalse);
 
       final missingEditionRepository = FakeLibraryQueryRepository(
         album: createAlbum(),
@@ -676,7 +686,7 @@ void main() {
 
       await missingEditionController.load();
 
-      expect(missingEditionController.canEditAlbumProfile('user-1'), isFalse);
+      expect(missingEditionController.canEditAlbumProfile(null), isFalse);
 
       editableController.dispose();
       missingServiceController.dispose();
@@ -789,7 +799,7 @@ void main() {
       },
     );
 
-    test('updateProfile does nothing when user id is blank', () async {
+    test('updateProfile allows anonymous owner', () async {
       final repository = FakeLibraryQueryRepository(
         album: createAlbum(
           primaryEditionId: 'edition-primary',
@@ -809,7 +819,7 @@ void main() {
       await controller.load();
 
       final updated = await controller.updateProfile(
-        userId: '   ',
+        userId: null,
         title: 'Renamed Album',
         editionTitle: 'Deluxe',
         editionType: AlbumEditionType.deluxe,
@@ -817,9 +827,11 @@ void main() {
         genre: null,
       );
 
-      expect(updated, isFalse);
-      expect(service.updateCallCount, 0);
-      expect(repository.albumRequestCount, 1);
+      expect(updated, isTrue);
+      expect(service.updateCallCount, 1);
+      expect(service.lastUserId, isNull);
+      expect(service.lastAlbumId, 'album-1');
+      expect(service.lastPrimaryEditionId, 'edition-primary');
 
       controller.dispose();
     });
@@ -1563,7 +1575,7 @@ class FakeTrackProfileEditingService extends TrackProfileEditingService {
 
   @override
   Future<TrackProfileEditResult> updateTrack({
-    required String userId,
+    required String? userId,
     required String songId,
     required String title,
     required int trackNumber,
@@ -1626,7 +1638,7 @@ class FakeAlbumProfileEditingService extends AlbumProfileEditingService {
 
   @override
   Future<AlbumProfileEditResult> updateProfile({
-    required String userId,
+    required String? userId,
     required String albumId,
     required String primaryEditionId,
     required String title,

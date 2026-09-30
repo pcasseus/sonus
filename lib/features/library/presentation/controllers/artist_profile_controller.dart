@@ -2,6 +2,8 @@ import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 
+import 'package:sonus_next/core/identity/text_normalizer.dart';
+
 import '../../../artwork/application/services/artwork_assignment_service.dart';
 import '../../../artwork/application/services/artwork_file_picker.dart';
 import '../../../player/application/controllers/playback_coordinator.dart';
@@ -61,6 +63,8 @@ class ArtistProfileController extends ChangeNotifier {
   LibraryArtist? _artist;
   List<LibraryAlbum> _albums = const [];
   List<LibraryTrack> _tracks = const [];
+  List<LibraryTrack> _allTracks = const [];
+  List<LibraryTrack> _featuredTracks = const [];
 
   bool _isLoading = false;
   bool _isShuffleEnabled = false;
@@ -73,6 +77,10 @@ class ArtistProfileController extends ChangeNotifier {
   List<LibraryAlbum> get albums => _albums;
 
   List<LibraryTrack> get tracks => _tracks;
+
+  List<LibraryTrack> get allTracks => _allTracks;
+
+  List<LibraryTrack> get featuredTracks => _featuredTracks;
 
   String? get headerArtworkPath {
     final path = _artist?.headerArtworkPath?.trim();
@@ -119,13 +127,11 @@ class ArtistProfileController extends ChangeNotifier {
   }
 
   bool canEditTrack(String? userId) {
-    return _trackProfileEditingService != null &&
-        userId != null &&
-        userId.trim().isNotEmpty;
+    return _trackProfileEditingService != null;
   }
 
   Future<bool> updateTrack({
-    required String userId,
+    String? userId,
     required LibraryTrack track,
     required String title,
     required int trackNumber,
@@ -138,7 +144,7 @@ class ArtistProfileController extends ChangeNotifier {
   }) async {
     final service = _trackProfileEditingService;
 
-    if (service == null || userId.trim().isEmpty) {
+    if (service == null) {
       return false;
     }
 
@@ -161,19 +167,17 @@ class ArtistProfileController extends ChangeNotifier {
   }
 
   bool canEditArtist(String? userId) {
-    return _artistProfileEditingService != null &&
-        userId != null &&
-        userId.trim().isNotEmpty;
+    return _artistProfileEditingService != null;
   }
 
   bool canRemoveArtist(String? userId) {
     return canEditArtist(userId) && _artist != null;
   }
 
-  Future<bool> removeArtist({required String userId}) async {
+  Future<bool> removeArtist({String? userId}) async {
     final service = _artistProfileEditingService;
 
-    if (service == null || userId.trim().isEmpty || _artist == null) {
+    if (service == null || _artist == null) {
       return false;
     }
 
@@ -232,15 +236,37 @@ class ArtistProfileController extends ChangeNotifier {
         _artist = null;
         _albums = const [];
         _tracks = const [];
+        _allTracks = const [];
+        _featuredTracks = const [];
         return;
       }
 
       final albums = await _repository.getAlbumsByArtistId(_artistId);
       final tracks = await _repository.getTracksByArtistId(_artistId);
+      final catalogTracks = await _repository.getTracks();
+      final allTracks = catalogTracks.isEmpty && tracks.isNotEmpty
+          ? tracks
+          : catalogTracks;
+
+      final canonicalArtistName = TextNormalizer.canonicalize(artist.name);
+
+      final featuredTracks = allTracks
+          .where(
+            (track) =>
+                track.artistId != _artistId &&
+                track.featuredArtists.any(
+                  (featuredArtist) =>
+                      TextNormalizer.canonicalize(featuredArtist) ==
+                      canonicalArtistName,
+                ),
+          )
+          .toList(growable: false);
 
       _artist = artist;
       _albums = albums;
       _tracks = tracks;
+      _allTracks = allTracks;
+      _featuredTracks = featuredTracks;
     } catch (error) {
       _error = error;
     } finally {
@@ -251,13 +277,10 @@ class ArtistProfileController extends ChangeNotifier {
 
   Future<void> refresh() => load();
 
-  Future<bool> renameArtist({
-    required String userId,
-    required String name,
-  }) async {
+  Future<bool> renameArtist({String? userId, required String name}) async {
     final service = _artistProfileEditingService;
 
-    if (service == null || userId.trim().isEmpty) {
+    if (service == null) {
       return false;
     }
 

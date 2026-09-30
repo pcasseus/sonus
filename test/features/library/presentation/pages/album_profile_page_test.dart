@@ -151,7 +151,9 @@ void main() {
       );
     });
 
-    testWidgets('shows unavailable track notice', (tester) async {
+    testWidgets('ghosts unavailable tracks from album count and summary', (
+      tester,
+    ) async {
       final repository = FakeLibraryQueryRepository(
         album: createAlbum(),
         tracks: [
@@ -165,26 +167,38 @@ void main() {
 
       expect(
         find.byKey(const ValueKey<String>('album-profile-availability-notice')),
-        findsOneWidget,
+        findsNothing,
       );
 
-      expect(find.text('1 track unavailable'), findsOneWidget);
+      expect(find.textContaining('1 track'), findsWidgets);
+      expect(find.textContaining('2 tracks'), findsNothing);
     });
 
-    testWidgets('pluralizes unavailable track notice', (tester) async {
-      final repository = FakeLibraryQueryRepository(
-        album: createAlbum(),
-        tracks: [
-          createTrack(songId: 'missing-1', filePath: '', isAvailable: false),
-          createTrack(songId: 'missing-2', filePath: '', isAvailable: false),
-        ],
-      );
+    testWidgets(
+      'all unavailable album tracks present as an empty current album',
+      (tester) async {
+        final repository = FakeLibraryQueryRepository(
+          album: createAlbum(),
+          tracks: [
+            createTrack(songId: 'missing-1', filePath: '', isAvailable: false),
+            createTrack(songId: 'missing-2', filePath: '', isAvailable: false),
+          ],
+        );
 
-      await tester.pumpWidget(buildSubject(repository: repository));
-      await tester.pumpAndSettle();
+        await tester.pumpWidget(buildSubject(repository: repository));
+        await tester.pumpAndSettle();
 
-      expect(find.text('2 tracks unavailable'), findsOneWidget);
-    });
+        expect(
+          find.byKey(
+            const ValueKey<String>('album-profile-availability-notice'),
+          ),
+          findsNothing,
+        );
+
+        expect(find.textContaining('0 tracks'), findsWidgets);
+        expect(find.text('No tracks yet'), findsOneWidget);
+      },
+    );
 
     testWidgets('shows empty track state', (tester) async {
       final repository = FakeLibraryQueryRepository(
@@ -512,13 +526,19 @@ void main() {
       expect(editingService.lastGenre, isNull);
     });
 
-    testWidgets('signed-out user cannot edit album details', (tester) async {
+    testWidgets('signed-out user can edit album details locally', (
+      tester,
+    ) async {
       final editingService = FakeAlbumProfileEditingService();
 
       await tester.pumpWidget(
         buildSubject(
           repository: FakeLibraryQueryRepository(
-            album: createAlbum(primaryEditionTitle: 'Standard'),
+            album: createAlbum(
+              primaryEditionId: 'edition-primary',
+              primaryEditionTitle: 'Standard',
+              primaryEditionType: AlbumEditionType.standard,
+            ),
           ),
           accountRepository: FakeAccountRepository(),
           albumProfileEditingService: editingService,
@@ -531,8 +551,29 @@ void main() {
         find.byKey(const ValueKey<String>('album-profile-artwork-menu')),
       );
 
-      expect(menu.enabled, isFalse);
-      expect(editingService.updateCallCount, 0);
+      expect(menu.enabled, isTrue);
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('album-profile-artwork-menu')),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Edit album details'));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('album-title-field')),
+        'Anonymous Album Edit',
+      );
+
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      expect(editingService.updateCallCount, 1);
+      expect(editingService.lastUserId, isNull);
+      expect(editingService.lastAlbumId, 'album-1');
+      expect(editingService.lastPrimaryEditionId, 'edition-primary');
+      expect(editingService.lastTitle, 'Anonymous Album Edit');
     });
 
     testWidgets('album editing remains unavailable without editing service', (
@@ -679,7 +720,7 @@ void main() {
       await engine.dispose();
     });
 
-    testWidgets('unavailable track is disabled and does not start playback', (
+    testWidgets('ghosts unavailable tracks from the album profile', (
       tester,
     ) async {
       final repository = FakeLibraryQueryRepository(
@@ -694,86 +735,46 @@ void main() {
         ],
       );
 
-      final engine = FakePlaybackEngine();
-
-      await tester.pumpWidget(
-        buildSubject(
-          repository: repository,
-          playbackCoordinator: PlaybackCoordinator(engine: engine),
-        ),
-      );
-
+      await tester.pumpWidget(buildSubject(repository: repository));
       await tester.pumpAndSettle();
-
-      final tileFinder = find.byKey(
-        const ValueKey<String>('album-track-missing-song'),
-      );
-
-      expect(tileFinder, findsOneWidget);
-
-      final tile = tester.widget<ListTile>(tileFinder);
-
-      expect(tile.enabled, isFalse);
-
-      expect(tile.onTap, isNull);
-
-      expect(engine.loadQueueCallCount, 0);
-
-      await engine.dispose();
-    });
-
-    testWidgets('unavailable track still exposes metadata editing', (
-      tester,
-    ) async {
-      final repository = FakeLibraryQueryRepository(
-        album: createAlbum(),
-        tracks: [
-          createTrack(
-            songId: 'missing-song',
-            title: 'Missing Song',
-            filePath: '',
-            isAvailable: false,
-          ),
-        ],
-      );
-
-      final editingService = TrackProfileEditingService(
-        mutationRunner: UnusedSyncMutationRunner(),
-      );
-
-      await tester.pumpWidget(
-        buildSubject(
-          repository: repository,
-          accountRepository: FakeAccountRepository(
-            currentUser: const AccountUser(id: 'user-1'),
-          ),
-          trackProfileEditingService: editingService,
-        ),
-      );
-
-      await tester.pumpAndSettle();
-
-      final tileFinder = find.byKey(
-        const ValueKey<String>('album-track-missing-song'),
-      );
-
-      final tile = tester.widget<ListTile>(tileFinder);
-      expect(tile.enabled, isFalse);
-
-      final menuFinder = find.byKey(
-        const ValueKey<String>('album-track-menu-missing-song'),
-      );
 
       expect(
-        tester.widget<PopupMenuButton<dynamic>>(menuFinder).enabled,
-        isTrue,
+        find.byKey(const ValueKey<String>('album-track-missing-song')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey<String>('album-track-menu-missing-song')),
+        findsNothing,
+      );
+      expect(find.text('Missing Song'), findsNothing);
+    });
+
+    testWidgets('ghosted album track exposes no row menu', (tester) async {
+      final repository = FakeLibraryQueryRepository(
+        album: createAlbum(),
+        tracks: [
+          createTrack(
+            songId: 'missing-song',
+            title: 'Missing Song',
+            filePath: '',
+            isAvailable: false,
+          ),
+        ],
       );
 
-      await tester.tap(menuFinder);
+      await tester.pumpWidget(buildSubject(repository: repository));
       await tester.pumpAndSettle();
 
-      expect(find.text('Edit song details'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey<String>('album-track-missing-song')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey<String>('album-track-menu-missing-song')),
+        findsNothing,
+      );
     });
+
     testWidgets('playback controls are disabled when no tracks are playable', (
       tester,
     ) async {
@@ -1149,7 +1150,7 @@ class FakeAccountRepository implements AccountRepository {
 
 typedef FakeAlbumProfileUpdateCallback =
     Future<void> Function({
-      required String userId,
+      required String? userId,
       required String albumId,
       required String primaryEditionId,
       required String title,
@@ -1179,7 +1180,7 @@ class FakeAlbumProfileEditingService extends AlbumProfileEditingService {
 
   @override
   Future<AlbumProfileEditResult> updateProfile({
-    required String userId,
+    required String? userId,
     required String albumId,
     required String primaryEditionId,
     required String title,

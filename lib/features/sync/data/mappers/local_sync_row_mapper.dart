@@ -45,7 +45,7 @@ abstract final class LocalSyncRowMapper {
   static SyncOutboxEntry outboxFromRow(Map<String, Object?> row) {
     return SyncOutboxEntry(
       id: row['id'] as String,
-      userId: row['user_id'] as String,
+      userId: row['user_id'] as String?,
       entityType: CloudDataEntity.values.firstWhere(
         (value) => value.name == row['entity_type'],
       ),

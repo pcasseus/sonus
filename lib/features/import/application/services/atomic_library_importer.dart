@@ -1,6 +1,7 @@
 import 'package:sonus_next/core/database/app_database.dart';
 import 'package:sonus_next/core/identity/entity_id.dart';
 import 'package:sonus_next/core/identity/text_normalizer.dart';
+import 'package:sonus_next/features/import/application/identity/import_identity_metadata_normalizer.dart';
 import 'package:sonus_next/features/import/application/identity/library_identity_resolver.dart';
 import 'package:sonus_next/features/import/data/daos/media_file_binding_dao.dart';
 import 'package:sonus_next/features/import/data/daos/song_import_review_dao.dart';
@@ -108,7 +109,10 @@ class AtomicLibraryImporter {
           songRepository: songRepository,
         );
 
-        final match = await resolver.resolve(metadata);
+        final effectiveMetadata = const ImportIdentityMetadataNormalizer()
+            .normalize(candidate: candidate, metadata: metadata);
+
+        final match = await resolver.resolve(effectiveMetadata);
 
         if (match.hasAmbiguity) {
           return ImportResult(
@@ -126,7 +130,7 @@ class AtomicLibraryImporter {
 
         if (artist == null) {
           artist = EntityFactory.createArtist(
-            name: metadata.artistName,
+            name: effectiveMetadata.artistName,
             now: timestamp,
           );
 
@@ -145,17 +149,17 @@ class AtomicLibraryImporter {
 
         if (albumArtist == null) {
           final canonicalTrackArtist = TextNormalizer.canonicalize(
-            metadata.artistName,
+            effectiveMetadata.artistName,
           );
           final canonicalAlbumArtist = TextNormalizer.canonicalize(
-            metadata.effectiveAlbumArtistName,
+            effectiveMetadata.effectiveAlbumArtistName,
           );
 
           if (canonicalAlbumArtist == canonicalTrackArtist) {
             albumArtist = artist;
           } else {
             albumArtist = EntityFactory.createArtist(
-              name: metadata.effectiveAlbumArtistName,
+              name: effectiveMetadata.effectiveAlbumArtistName,
               now: timestamp,
             );
 
@@ -195,7 +199,7 @@ class AtomicLibraryImporter {
         if (edition == null) {
           edition = EntityFactory.createAlbumEdition(
             albumId: album.id,
-            title: metadata.albumTitle,
+            title: effectiveMetadata.albumTitle,
             isPrimary: true,
             releaseDate: metadata.releaseDate,
             genre: metadata.genre,
@@ -225,7 +229,7 @@ class AtomicLibraryImporter {
             discNumber: metadata.discNumber,
             durationSeconds: metadata.durationSeconds,
             isSingle: metadata.isSingle,
-            featuredArtists: metadata.featuredArtists,
+            featuredArtists: effectiveMetadata.featuredArtists,
             now: timestamp,
           );
 

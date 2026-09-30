@@ -83,7 +83,7 @@ void main() {
   ImportReviewController buildController({
     required List<SongImportReview> reviews,
     required Map<String, LibraryTrack> tracks,
-    String userId = 'user-1',
+    String? userId = 'user-1',
     Object? editError,
     Object? reviewSaveError,
     ArtworkAssignmentService? artworkAssignmentService,
@@ -113,7 +113,8 @@ void main() {
         libraryQueryRepository: libraryRepository,
         trackProfileEditingService: editingService,
         artistCreationService:
-            artistCreationService ?? _FakeArtistCreationService(),
+            artistCreationService ??
+            _FakeArtistCreationService(libraryRepository: libraryRepository),
         now: () => DateTime.utc(2026, 9, 17, 13),
       ),
       userId: userId,
@@ -769,32 +770,39 @@ void main() {
     },
   );
 
-  test('blank user id cannot create artist', () async {
+  test('signed-out user can create artist', () async {
     final controller = buildController(
       reviews: [review('song-1')],
       tracks: {'song-1': track('song-1', 'Needs Review')},
-      userId: '   ',
+      userId: null,
     );
 
     await controller.load();
 
     final created = await controller.createOrReuseArtist('Victoria Justice');
 
-    expect(created, isNull);
-    expect(controller.hasError, isTrue);
-    expect(controller.error, isA<ArgumentError>());
+    expect(created, isNotNull);
+    expect(created!.artistId, 'artist-created');
+    expect(created.name, 'Victoria Justice');
+
+    expect(controller.hasError, isFalse);
     expect(controller.isCreatingArtist, isFalse);
+    expect(controller.isBusy, isFalse);
+
+    expect(controller.artists, hasLength(1));
+    expect(controller.artists.single.artistId, 'artist-created');
+
     expect(controller.remainingCount, 1);
     expect(controller.currentItem!.track.songId, 'song-1');
 
     controller.dispose();
   });
 
-  test('blank user id cannot resolve current review', () async {
+  test('signed-out user can resolve current review', () async {
     final controller = buildController(
       reviews: [review('song-1')],
       tracks: {'song-1': track('song-1', 'Needs Review')},
-      userId: '   ',
+      userId: null,
     );
 
     await controller.load();
@@ -810,11 +818,11 @@ void main() {
       albumEditionId: 'edition-song-1',
     );
 
-    expect(result, isFalse);
-    expect(controller.hasError, isTrue);
-    expect(controller.error, isA<ArgumentError>());
-    expect(controller.remainingCount, 1);
-    expect(controller.currentItem!.track.songId, 'song-1');
+    expect(result, isTrue);
+    expect(controller.hasError, isFalse);
+    expect(controller.remainingCount, 0);
+    expect(controller.currentItem, isNull);
+    expect(controller.isComplete, isTrue);
 
     controller.dispose();
   });
@@ -954,7 +962,7 @@ class _FakeEditingService extends TrackProfileEditingService {
 
   @override
   Future<TrackProfileEditResult> updateTrack({
-    required String userId,
+    required String? userId,
     required String songId,
     required String title,
     required int trackNumber,
@@ -1220,7 +1228,7 @@ class _FakeAlbumProfileEditingService extends AlbumProfileEditingService {
 
   @override
   Future<AlbumProfileEditResult> updateProfile({
-    required String userId,
+    required String? userId,
     required String albumId,
     required String primaryEditionId,
     required String title,
@@ -1284,7 +1292,7 @@ class _FakeArtistCreationService extends ArtistCreationService {
 
   @override
   Future<Artist> createOrReuse({
-    required String userId,
+    required String? userId,
     required String name,
     DateTime? now,
   }) async {

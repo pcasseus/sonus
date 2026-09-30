@@ -99,6 +99,74 @@ void main() {
       expect(find.text('3:00'), findsOneWidget);
     });
 
+    testWidgets(
+      'keeps owned album visible when available track has another primary artist',
+      (tester) async {
+        final repository = FakeLibraryQueryRepository(
+          artist: createArtist(),
+          albums: [createAlbum()],
+          tracks: const [],
+          allTracks: [
+            createTrack(
+              songId: 'album-owner-song',
+              title: 'Album Owner Song',
+              artistId: 'other-artist',
+            ),
+          ],
+        );
+
+        await tester.pumpWidget(buildSubject(repository: repository));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const ValueKey<String>('artist-album-album-1')),
+          findsOneWidget,
+        );
+
+        expect(
+          find.byKey(const ValueKey<String>('artist-track-album-owner-song')),
+          findsNothing,
+        );
+      },
+    );
+
+    testWidgets(
+      'shows Featured On separately when artist is a featured performer',
+      (tester) async {
+        final primaryTrack = createTrack(
+          songId: 'primary-song',
+          title: 'Primary Song',
+        );
+
+        final featuredTrack = createTrack(
+          songId: 'featured-song',
+          title: 'Featured Song',
+          artistId: 'other-artist',
+          featuredArtists: const ['Test Artist'],
+        );
+
+        final repository = FakeLibraryQueryRepository(
+          artist: createArtist(),
+          tracks: [primaryTrack],
+          allTracks: [primaryTrack, featuredTrack],
+        );
+
+        await tester.pumpWidget(buildSubject(repository: repository));
+        await tester.pumpAndSettle();
+
+        await tester.drag(
+          find.byKey(const PageStorageKey<String>('artist-profile-scroll')),
+          const Offset(0, -900),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('Songs'), findsOneWidget);
+        expect(find.text('Primary Song'), findsOneWidget);
+        expect(find.text('Featured On'), findsOneWidget);
+        expect(find.text('Featured Song'), findsOneWidget);
+      },
+    );
+
     testWidgets('shows empty album and song sections', (tester) async {
       final repository = FakeLibraryQueryRepository(artist: createArtist());
 
@@ -109,6 +177,8 @@ void main() {
       expect(find.text('No albums yet'), findsOneWidget);
 
       expect(find.text('No songs yet'), findsOneWidget);
+
+      expect(find.text('Featured On'), findsNothing);
     });
 
     testWidgets('shows artist not found state', (tester) async {
@@ -285,7 +355,7 @@ void main() {
       await engine.dispose();
     });
 
-    testWidgets('unavailable song is disabled and does not start playback', (
+    testWidgets('ghosts unavailable songs from the artist profile', (
       tester,
     ) async {
       final repository = FakeLibraryQueryRepository(
@@ -300,102 +370,47 @@ void main() {
         ],
       );
 
-      final engine = FakePlaybackEngine();
-
-      await tester.pumpWidget(
-        buildSubject(
-          repository: repository,
-          playbackCoordinator: PlaybackCoordinator(engine: engine),
-        ),
-      );
-
+      await tester.pumpWidget(buildSubject(repository: repository));
       await tester.pumpAndSettle();
-
-      expect(find.text('Unavailable • Test Album'), findsOneWidget);
-
-      await tester.drag(
-        find.byKey(const PageStorageKey<String>('artist-profile-scroll')),
-        const Offset(0, -500),
-      );
-
-      await tester.pumpAndSettle();
-
-      final tileFinder = find.byKey(
-        const ValueKey<String>('artist-track-missing-song'),
-      );
-
-      expect(tileFinder, findsOneWidget);
-
-      final tile = tester.widget<ListTile>(tileFinder);
-
-      expect(tile.enabled, isFalse);
-
-      expect(tile.onTap, isNull);
-
-      expect(engine.loadQueueCallCount, 0);
-
-      await engine.dispose();
-    });
-
-    testWidgets('unavailable track still exposes metadata editing', (
-      tester,
-    ) async {
-      final repository = FakeLibraryQueryRepository(
-        artist: createArtist(),
-        tracks: [
-          createTrack(
-            songId: 'missing-song',
-            title: 'Missing Song',
-            filePath: '',
-            isAvailable: false,
-          ),
-        ],
-      );
-
-      final editingService = TrackProfileEditingService(
-        mutationRunner: UnusedSyncMutationRunner(),
-      );
-
-      await tester.pumpWidget(
-        buildSubject(
-          repository: repository,
-          accountRepository: FakeAccountRepository(
-            currentUser: const AccountUser(id: 'user-1'),
-          ),
-          trackProfileEditingService: editingService,
-        ),
-      );
-
-      await tester.pumpAndSettle();
-
-      await tester.drag(
-        find.byKey(const PageStorageKey<String>('artist-profile-scroll')),
-        const Offset(0, -500),
-      );
-
-      await tester.pumpAndSettle();
-
-      final tileFinder = find.byKey(
-        const ValueKey<String>('artist-track-missing-song'),
-      );
-
-      final tile = tester.widget<ListTile>(tileFinder);
-      expect(tile.enabled, isFalse);
-
-      final menuFinder = find.byKey(
-        const ValueKey<String>('artist-track-menu-missing-song'),
-      );
 
       expect(
-        tester.widget<PopupMenuButton<dynamic>>(menuFinder).enabled,
-        isTrue,
+        find.byKey(const ValueKey<String>('artist-track-missing-song')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey<String>('artist-track-menu-missing-song')),
+        findsNothing,
+      );
+      expect(find.text('Missing Song'), findsNothing);
+      expect(find.text('Unavailable ? Test Album'), findsNothing);
+    });
+
+    testWidgets('ghosted artist track exposes no row menu', (tester) async {
+      final repository = FakeLibraryQueryRepository(
+        artist: createArtist(),
+        tracks: [
+          createTrack(
+            songId: 'missing-song',
+            title: 'Missing Song',
+            filePath: '',
+            isAvailable: false,
+          ),
+        ],
       );
 
-      await tester.tap(menuFinder);
+      await tester.pumpWidget(buildSubject(repository: repository));
       await tester.pumpAndSettle();
 
-      expect(find.text('Edit song details'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey<String>('artist-track-missing-song')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey<String>('artist-track-menu-missing-song')),
+        findsNothing,
+      );
     });
+
     testWidgets('playback controls are disabled when no tracks are playable', (
       tester,
     ) async {
@@ -519,7 +534,7 @@ void main() {
     expect(editingService.renameCallCount, 0);
   });
 
-  testWidgets('signed-out user cannot rename artist', (tester) async {
+  testWidgets('signed-out user can rename artist locally', (tester) async {
     final repository = FakeLibraryQueryRepository(artist: createArtist());
 
     final editingService = FakeArtistProfileEditingService();
@@ -538,11 +553,31 @@ void main() {
       find.byKey(const ValueKey<String>('artist-profile-artwork-menu')),
     );
 
-    expect(menu.enabled, isFalse);
-    expect(editingService.renameCallCount, 0);
+    expect(menu.enabled, isTrue);
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('artist-profile-artwork-menu')),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Edit artist name'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('artist-name-field')),
+      'Anonymous Rename',
+    );
+
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect(editingService.renameCallCount, 1);
+    expect(editingService.lastUserId, isNull);
+    expect(editingService.lastArtistId, 'artist-1');
+    expect(editingService.lastName, 'Anonymous Rename');
   });
 
-  testWidgets('artist rename remains unavailable without account provider', (
+  testWidgets('artist editing remains available without account provider', (
     tester,
   ) async {
     final repository = FakeLibraryQueryRepository(artist: createArtist());
@@ -562,7 +597,7 @@ void main() {
       find.byKey(const ValueKey<String>('artist-profile-artwork-menu')),
     );
 
-    expect(menu.enabled, isFalse);
+    expect(menu.enabled, isTrue);
     expect(editingService.renameCallCount, 0);
   });
 
@@ -685,7 +720,7 @@ void main() {
       final repository = FakeLibraryQueryRepository(artist: createArtist());
 
       final editingService = FakeArtistProfileEditingService(
-        onRemove: ({required String artistId, required String userId}) async {
+        onRemove: ({required String artistId, required String? userId}) async {
           throw const ArtistStillReferencedException();
         },
       );
@@ -743,7 +778,7 @@ void main() {
     final repository = FakeLibraryQueryRepository(artist: createArtist());
 
     final editingService = FakeArtistProfileEditingService(
-      onRemove: ({required String artistId, required String userId}) async {
+      onRemove: ({required String artistId, required String? userId}) async {
         throw StateError('boom');
       },
     );
@@ -949,14 +984,16 @@ LibraryAlbum createAlbum() {
 LibraryTrack createTrack({
   String songId = 'song-1',
   String title = 'Test Song',
+  String artistId = 'artist-1',
   String? filePath,
   bool isAvailable = true,
   bool isSongBlocked = false,
+  List<String> featuredArtists = const [],
 }) {
   return LibraryTrack(
     songId: songId,
     title: title,
-    artistId: 'artist-1',
+    artistId: artistId,
     artistName: 'Test Artist',
     albumId: 'album-1',
     albumTitle: 'Test Album',
@@ -966,7 +1003,7 @@ LibraryTrack createTrack({
     trackNumber: 1,
     durationSeconds: 180,
     isSingle: false,
-    featuredArtists: const [],
+    featuredArtists: featuredArtists,
     dateAdded: DateTime(2026, 1, 1),
     filePath: filePath ?? '/music/$songId.mp3',
     isAvailable: isAvailable,
@@ -979,6 +1016,7 @@ class FakeLibraryQueryRepository implements LibraryQueryRepository {
     this.artist,
     this.albums = const [],
     this.tracks = const [],
+    this.allTracks = const [],
     this.artistError,
     this.artistLoader,
   });
@@ -986,6 +1024,7 @@ class FakeLibraryQueryRepository implements LibraryQueryRepository {
   LibraryArtist? artist;
   final List<LibraryAlbum> albums;
   final List<LibraryTrack> tracks;
+  final List<LibraryTrack> allTracks;
   final Object? artistError;
 
   final Future<LibraryArtist?> Function(String artistId)? artistLoader;
@@ -1024,7 +1063,7 @@ class FakeLibraryQueryRepository implements LibraryQueryRepository {
   Future<List<LibraryTrack>> getTracks({
     LibraryTrackOrder order = LibraryTrackOrder.title,
   }) async {
-    return const [];
+    return allTracks;
   }
 
   @override
@@ -1139,13 +1178,13 @@ class FakeAccountRepository implements AccountRepository {
 
 typedef FakeArtistRenameCallback =
     Future<void> Function({
-      required String userId,
+      required String? userId,
       required String artistId,
       required String name,
     });
 
 typedef FakeArtistRemoveCallback =
-    Future<void> Function({required String userId, required String artistId});
+    Future<void> Function({required String? userId, required String artistId});
 
 class FakeArtistProfileEditingService extends ArtistProfileEditingService {
   FakeArtistProfileEditingService({this.onRename, this.onRemove})
@@ -1162,7 +1201,7 @@ class FakeArtistProfileEditingService extends ArtistProfileEditingService {
 
   @override
   Future<void> removeArtist({
-    required String userId,
+    required String? userId,
     required String artistId,
   }) async {
     removeCallCount++;
@@ -1174,7 +1213,7 @@ class FakeArtistProfileEditingService extends ArtistProfileEditingService {
 
   @override
   Future<Artist> renameArtist({
-    required String userId,
+    required String? userId,
     required String artistId,
     required String name,
     DateTime? now,

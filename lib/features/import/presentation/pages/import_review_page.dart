@@ -23,7 +23,7 @@ class ImportReviewPage extends StatefulWidget {
   });
 
   final ImportReviewService service;
-  final String userId;
+  final String? userId;
   final ArtworkAssignmentService? artworkAssignmentService;
   final ArtworkFilePicker? artworkFilePicker;
   final AlbumProfileEditingService? albumProfileEditingService;

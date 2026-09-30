@@ -45,9 +45,9 @@ void main() {
   tearDown(() async {
     await appDatabase.close();
   });
-
   ImportCandidate candidate({
     String filePath = r'C:\Music\Artist Name\Album Name\01 Song Name.mp3',
+    String? metadataFallbackPath,
     String? sourceId,
     ImportCandidateStructure structure = ImportCandidateStructure.singleFile,
   }) {
@@ -55,6 +55,7 @@ void main() {
       filePath: filePath,
       normalizedPath: filePath.replaceAll('\\', '/').toLowerCase(),
       discoveredAt: now,
+      metadataFallbackPath: metadataFallbackPath,
       sourceId: sourceId,
       structure: structure,
     );
@@ -733,6 +734,187 @@ void main() {
       expect(bindings, hasLength(2));
 
       expect(bindings.every((binding) => !binding.isAvailable), isTrue);
+    },
+  );
+
+  test(
+    'matching artist folder preserves punctuation-bearing artist name',
+    () async {
+      final result = await importer.import(
+        candidate: candidate(
+          filePath:
+              r'C:\Music\Earth, Wind & Fire\Greatest Hits\01 September.mp3',
+          metadataFallbackPath:
+              r'Earth, Wind & Fire\Greatest Hits\01 September.mp3',
+          structure: ImportCandidateStructure.artistAlbum,
+        ),
+        metadata: metadata(
+          artistName: 'Earth, Wind & Fire',
+          albumTitle: 'Greatest Hits',
+          title: 'September',
+        ),
+        now: now,
+      );
+
+      expect(result.status, ImportResultStatus.imported);
+      expect(result.songId, isNotNull);
+
+      final db = await appDatabase.database;
+      final artists = await ArtistDao(db).findAll();
+
+      expect(artists, hasLength(1));
+      expect(artists.single.name, 'Earth, Wind & Fire');
+
+      final albums = await AlbumDao(db).findByArtistId(artists.single.id);
+      expect(albums, hasLength(1));
+
+      final editions = await AlbumEditionDao(
+        db,
+      ).findByAlbumId(albums.single.id);
+      expect(editions, hasLength(1));
+
+      final songs = await SongDao(db).findByEditionId(editions.single.id);
+
+      expect(songs, hasLength(1));
+      expect(songs.single.artistId, artists.single.id);
+      expect(songs.single.featuredArtists, isEmpty);
+    },
+  );
+
+  test('artist folder parses explicit feature marker conservatively', () async {
+    final result = await importer.import(
+      candidate: candidate(
+        filePath: r'C:\Music\Megan Thee Stallion\Megan\01 Explicit Feature.mp3',
+        metadataFallbackPath:
+            r'Megan Thee Stallion\Megan\01 Explicit Feature.mp3',
+        structure: ImportCandidateStructure.artistAlbum,
+      ),
+      metadata: metadata(
+        artistName: 'Megan Thee Stallion feat. Cardi B',
+        albumTitle: 'Megan',
+        title: 'Explicit Feature',
+      ),
+      now: now,
+    );
+
+    expect(result.status, ImportResultStatus.imported);
+    expect(result.songId, isNotNull);
+
+    final db = await appDatabase.database;
+    final artists = await ArtistDao(db).findAll();
+
+    expect(artists, hasLength(1));
+    expect(artists.single.name, 'Megan Thee Stallion');
+
+    final albums = await AlbumDao(db).findByArtistId(artists.single.id);
+    expect(albums, hasLength(1));
+
+    final editions = await AlbumEditionDao(db).findByAlbumId(albums.single.id);
+    expect(editions, hasLength(1));
+
+    final songs = await SongDao(db).findByEditionId(editions.single.id);
+
+    expect(songs, hasLength(1));
+    expect(songs.single.artistId, artists.single.id);
+    expect(songs.single.featuredArtists, ['Cardi B']);
+  });
+
+  test(
+    'artist-folder headliner owns collaboration and other credited artist becomes feature',
+    () async {
+      final result = await importer.import(
+        candidate: candidate(
+          filePath: r'C:\Music\Megan Thee Stallion\Megan\01 Collaboration.mp3',
+          metadataFallbackPath:
+              r'Megan Thee Stallion\Megan\01 Collaboration.mp3',
+          structure: ImportCandidateStructure.artistAlbum,
+        ),
+        metadata: metadata(
+          artistName: 'Megan Thee Stallion & Cardi B',
+          albumTitle: 'Megan',
+          title: 'Collaboration',
+        ),
+        now: now,
+      );
+
+      expect(result.status, ImportResultStatus.imported);
+      expect(result.songId, isNotNull);
+
+      final db = await appDatabase.database;
+      final artists = await ArtistDao(db).findAll();
+
+      expect(artists, hasLength(1));
+      expect(artists.single.name, 'Megan Thee Stallion');
+
+      final albums = await AlbumDao(db).findByArtistId(artists.single.id);
+
+      expect(albums, hasLength(1));
+      expect(albums.single.title, 'Megan');
+
+      final editions = await AlbumEditionDao(
+        db,
+      ).findByAlbumId(albums.single.id);
+
+      expect(editions, hasLength(1));
+
+      final songs = await SongDao(db).findByEditionId(editions.single.id);
+
+      expect(songs, hasLength(1));
+      expect(songs.single.artistId, artists.single.id);
+      expect(songs.single.featuredArtists, ['Cardi B']);
+    },
+  );
+
+  test(
+    'artist-folder album keeps folder owner when track has different performer',
+    () async {
+      final result = await importer.import(
+        candidate: candidate(
+          filePath: r'C:\Music\Cheetah Girls\Cheetah Girls\01 Solo Track.mp3',
+          metadataFallbackPath:
+              r'Cheetah Girls\Cheetah Girls\01 Solo Track.mp3',
+          structure: ImportCandidateStructure.artistAlbum,
+        ),
+        metadata: metadata(
+          artistName: 'Adrienne Bailon',
+          albumTitle: 'Cheetah Girls',
+          title: 'Solo Track',
+        ),
+        now: now,
+      );
+
+      expect(result.status, ImportResultStatus.imported);
+      expect(result.songId, isNotNull);
+
+      final db = await appDatabase.database;
+      final artists = await ArtistDao(db).findAll();
+
+      expect(artists, hasLength(2));
+
+      final albumArtist = artists.singleWhere(
+        (artist) => artist.name == 'Cheetah Girls',
+      );
+      final trackArtist = artists.singleWhere(
+        (artist) => artist.name == 'Adrienne Bailon',
+      );
+
+      final albums = await AlbumDao(db).findByArtistId(albumArtist.id);
+
+      expect(albums, hasLength(1));
+      expect(albums.single.title, 'Cheetah Girls');
+      expect(await AlbumDao(db).findByArtistId(trackArtist.id), isEmpty);
+
+      final editions = await AlbumEditionDao(
+        db,
+      ).findByAlbumId(albums.single.id);
+
+      expect(editions, hasLength(1));
+
+      final songs = await SongDao(db).findByEditionId(editions.single.id);
+
+      expect(songs, hasLength(1));
+      expect(songs.single.artistId, trackArtist.id);
+      expect(songs.single.featuredArtists, isEmpty);
     },
   );
 

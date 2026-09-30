@@ -282,30 +282,37 @@ void main() {
     expect(await LocalSyncDao(db).findPending('user_1'), isEmpty);
   });
 
-  test('rejects blank user id before mutation', () async {
+  test('signed-out track edit records unowned upsert', () async {
     final original = await createSong();
 
-    await expectLater(
-      () => service.updateTrack(
-        userId: '   ',
-        songId: original.id,
-        title: 'Changed Song',
-        trackNumber: 1,
-        discNumber: 1,
-        featuredArtists: const [],
-        isSingle: false,
-        now: mutationTime,
-      ),
-      throwsA(isA<ArgumentError>()),
+    final result = await service.updateTrack(
+      userId: null,
+      songId: original.id,
+      title: 'Changed Song',
+      trackNumber: 1,
+      discNumber: 1,
+      featuredArtists: const [],
+      isSingle: false,
+      now: mutationTime,
     );
+
+    expect(result.changed, isTrue);
+    expect(result.song.title, 'Changed Song');
 
     final db = await appDatabase.database;
     final stored = await SongDao(db).findById(original.id);
 
     expect(stored, isNotNull);
-    expect(stored!.title, original.title);
-    expect(stored.updatedAt, originalTime);
-    expect(await LocalSyncDao(db).findPending(''), isEmpty);
+    expect(stored!.title, 'Changed Song');
+    expect(stored.updatedAt, mutationTime);
+
+    final pending = await LocalSyncDao(db).findUnownedPending();
+
+    expect(pending, hasLength(1));
+    expect(pending.single.userId, isNull);
+    expect(pending.single.entityType, CloudDataEntity.song);
+    expect(pending.single.entityId, original.id);
+    expect(pending.single.operation, SyncOutboxOperation.upsert);
   });
 
   test('rejects blank song id before mutation', () async {

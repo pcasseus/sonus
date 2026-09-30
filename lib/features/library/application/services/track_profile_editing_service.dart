@@ -16,7 +16,7 @@ class TrackProfileEditingService {
   final SyncMutationRunner mutationRunner;
 
   Future<TrackProfileEditResult> updateTrack({
-    required String userId,
+    required String? userId,
     required String songId,
     required String title,
     required int trackNumber,
@@ -28,7 +28,7 @@ class TrackProfileEditingService {
     String? albumEditionId,
     DateTime? now,
   }) {
-    final normalizedUserId = userId.trim();
+    final normalizedUserId = userId?.trim();
     final normalizedSongId = songId.trim();
     final trimmedTitle = title.trim();
     final normalizedFeaturedArtists = _normalizeFeaturedArtists(
@@ -38,10 +38,6 @@ class TrackProfileEditingService {
     final normalizedArtistId = artistId?.trim();
     final normalizedAlbumId = albumId?.trim();
     final normalizedAlbumEditionId = albumEditionId?.trim();
-
-    if (normalizedUserId.isEmpty) {
-      throw ArgumentError.value(userId, 'userId', 'User id must not be blank.');
-    }
 
     if (normalizedSongId.isEmpty) {
       throw ArgumentError.value(songId, 'songId', 'Song id must not be blank.');

@@ -1,4 +1,4 @@
-﻿import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart';
 
 import '../../../artwork/application/services/artwork_assignment_service.dart';
 import '../../../artwork/application/services/artwork_file_picker.dart';
@@ -13,13 +13,13 @@ import '../../application/services/import_review_service.dart';
 class ImportReviewController extends ChangeNotifier {
   ImportReviewController({
     required ImportReviewService service,
-    required String userId,
+    required String? userId,
     ArtworkAssignmentService? artworkAssignmentService,
     ArtworkFilePicker? artworkFilePicker,
     AlbumProfileEditingService? albumProfileEditingService,
   }) : this._(
          service,
-         userId.trim(),
+         userId?.trim(),
          artworkAssignmentService,
          artworkFilePicker,
          albumProfileEditingService,
@@ -34,7 +34,7 @@ class ImportReviewController extends ChangeNotifier {
   );
 
   final ImportReviewService _service;
-  final String _userId;
+  final String? _userId;
   final ArtworkAssignmentService? _artworkAssignmentService;
   final ArtworkFilePicker? _artworkFilePicker;
   final AlbumProfileEditingService? _albumProfileEditingService;
@@ -369,10 +369,6 @@ class ImportReviewController extends ChangeNotifier {
       return false;
     }
 
-    if (_userId.isEmpty) {
-      return false;
-    }
-
     final primaryEditionId = album.primaryEditionId?.trim();
 
     if (primaryEditionId == null || primaryEditionId.isEmpty) {
@@ -413,16 +409,6 @@ class ImportReviewController extends ChangeNotifier {
       return null;
     }
 
-    if (_userId.isEmpty) {
-      _error = ArgumentError.value(
-        _userId,
-        'userId',
-        'User id must not be blank.',
-      );
-      notifyListeners();
-      return null;
-    }
-
     _isCreatingArtist = true;
     _error = null;
     notifyListeners();
@@ -458,16 +444,6 @@ class ImportReviewController extends ChangeNotifier {
     final item = currentItem;
 
     if (item == null || _isSaving) {
-      return false;
-    }
-
-    if (_userId.isEmpty) {
-      _error = ArgumentError.value(
-        _userId,
-        'userId',
-        'User id must not be blank.',
-      );
-      notifyListeners();
       return false;
     }
 

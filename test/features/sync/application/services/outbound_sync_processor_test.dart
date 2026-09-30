@@ -472,14 +472,14 @@ class FakeLocalSyncRepository implements LocalSyncRepository {
 
   @override
   Future<void> recordUpsert({
-    required String userId,
+    required String? userId,
     required CloudDataEntity entityType,
     required String entityId,
   }) async {}
 
   @override
   Future<void> recordDelete({
-    required String userId,
+    required String? userId,
     required CloudDataEntity entityType,
     required String entityId,
   }) async {}

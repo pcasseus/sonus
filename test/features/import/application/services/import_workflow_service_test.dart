@@ -4,7 +4,11 @@ import 'package:sonus_next/features/import/application/models/import_batch.dart'
 import 'package:sonus_next/features/import/application/models/import_execution_summary.dart';
 import 'package:sonus_next/features/import/application/services/import_batch_runner.dart';
 import 'package:sonus_next/features/import/application/services/import_workflow_service.dart';
+import 'package:sonus_next/features/import/domain/entities/import_source.dart';
+import 'package:sonus_next/features/import/domain/entities/media_file_binding.dart';
 import 'package:sonus_next/features/import/domain/models/import_candidate.dart';
+import 'package:sonus_next/features/import/domain/repositories/import_source_repository.dart';
+import 'package:sonus_next/features/import/domain/repositories/media_file_binding_repository.dart';
 import 'package:sonus_next/features/import/domain/services/import_candidate_discovery.dart';
 
 void main() {
@@ -135,6 +139,104 @@ void main() {
     expect(progress.single.status, ImportBatchStatus.running);
   });
 
+  test('rescan notifies only songs with no remaining usable binding', () async {
+    final source = ImportSource(
+      id: 'source_1',
+      rootPath: r'C:\Music',
+      normalizedRootPath: 'c:/music',
+      createdAt: createdAt,
+      updatedAt: createdAt,
+    );
+
+    final otherSource = ImportSource(
+      id: 'source_2',
+      rootPath: r'D:\Backup',
+      normalizedRootPath: 'd:/backup',
+      createdAt: createdAt,
+      updatedAt: createdAt,
+    );
+
+    final sourceRepository = _FakeImportSourceRepository([source, otherSource]);
+
+    final bindingRepository = _FakeMediaFileBindingRepository([
+      MediaFileBinding(
+        id: 'binding_only',
+        songId: 'song_only',
+        filePath: r'C:\Music\Only.mp3',
+        normalizedPath: 'c:/music/only.mp3',
+        sourceId: source.id,
+        isAvailable: true,
+        createdAt: createdAt,
+        updatedAt: createdAt,
+      ),
+      MediaFileBinding(
+        id: 'binding_multi_missing',
+        songId: 'song_multi',
+        filePath: r'C:\Music\Multi.mp3',
+        normalizedPath: 'c:/music/multi.mp3',
+        sourceId: source.id,
+        isAvailable: true,
+        createdAt: createdAt,
+        updatedAt: createdAt,
+      ),
+      MediaFileBinding(
+        id: 'binding_multi_surviving',
+        songId: 'song_multi',
+        filePath: r'D:\Backup\Multi.mp3',
+        normalizedPath: 'd:/backup/multi.mp3',
+        sourceId: otherSource.id,
+        isAvailable: true,
+        createdAt: createdAt,
+        updatedAt: createdAt,
+      ),
+    ]);
+
+    Set<String>? unavailableSongIds;
+
+    final service = ImportWorkflowService(
+      candidateDiscovery: _FakeImportCandidateDiscovery(),
+      batchRunner: _RecordingImportBatchRunner(),
+      importSourceRepository: sourceRepository,
+      mediaFileBindingRepository: bindingRepository,
+      batchIdFactory: () => 'import_batch_rescan',
+      onSongsBecameUnavailable: (songIds) async {
+        unavailableSongIds = Set<String>.of(songIds);
+      },
+    );
+
+    await service.rescanSource(
+      source.id,
+      createdAt: createdAt,
+      completedAt: completedAt,
+    );
+
+    final onlyBindings = await bindingRepository.getBySongId('song_only');
+
+    final multiBindings = await bindingRepository.getBySongId('song_multi');
+
+    expect(onlyBindings.single.isAvailable, isFalse);
+
+    expect(
+      multiBindings
+          .firstWhere((binding) => binding.id == 'binding_multi_missing')
+          .isAvailable,
+      isFalse,
+    );
+
+    expect(
+      multiBindings
+          .firstWhere((binding) => binding.id == 'binding_multi_surviving')
+          .isAvailable,
+      isTrue,
+    );
+
+    expect(unavailableSongIds, {'song_only'});
+
+    final updatedSource = await sourceRepository.getById(source.id);
+
+    expect(updatedSource?.lastScannedAt, completedAt);
+  });
+
   test('discovery failure prevents batch execution', () async {
     final discovery = _ThrowingImportCandidateDiscovery();
     final runner = _RecordingImportBatchRunner();
@@ -152,6 +254,119 @@ void main() {
 
     expect(runner.lastBatch, isNull);
   });
+}
+
+class _FakeImportSourceRepository implements ImportSourceRepository {
+  _FakeImportSourceRepository(List<ImportSource> sources)
+    : _sources = List<ImportSource>.of(sources);
+
+  final List<ImportSource> _sources;
+
+  @override
+  Future<void> create(ImportSource source) async {
+    _sources.add(source);
+  }
+
+  @override
+  Future<void> save(ImportSource source) async {
+    final index = _sources.indexWhere((candidate) => candidate.id == source.id);
+
+    if (index == -1) {
+      throw StateError('Import source not found: ${source.id}');
+    }
+
+    _sources[index] = source;
+  }
+
+  @override
+  Future<ImportSource?> getById(String id) async {
+    for (final source in _sources) {
+      if (source.id == id) {
+        return source;
+      }
+    }
+
+    return null;
+  }
+
+  @override
+  Future<ImportSource?> getByNormalizedRootPath(
+    String normalizedRootPath,
+  ) async {
+    for (final source in _sources) {
+      if (source.normalizedRootPath == normalizedRootPath) {
+        return source;
+      }
+    }
+
+    return null;
+  }
+
+  @override
+  Future<List<ImportSource>> getAll() async {
+    return List<ImportSource>.unmodifiable(_sources);
+  }
+}
+
+class _FakeMediaFileBindingRepository implements MediaFileBindingRepository {
+  _FakeMediaFileBindingRepository(List<MediaFileBinding> bindings)
+    : _bindings = List<MediaFileBinding>.of(bindings);
+
+  final List<MediaFileBinding> _bindings;
+
+  @override
+  Future<void> create(MediaFileBinding binding) async {
+    _bindings.add(binding);
+  }
+
+  @override
+  Future<void> save(MediaFileBinding binding) async {
+    final index = _bindings.indexWhere(
+      (candidate) => candidate.id == binding.id,
+    );
+
+    if (index == -1) {
+      throw StateError('Media binding not found: ${binding.id}');
+    }
+
+    _bindings[index] = binding;
+  }
+
+  @override
+  Future<MediaFileBinding?> getById(String id) async {
+    for (final binding in _bindings) {
+      if (binding.id == id) {
+        return binding;
+      }
+    }
+
+    return null;
+  }
+
+  @override
+  Future<MediaFileBinding?> getByNormalizedPath(String normalizedPath) async {
+    for (final binding in _bindings) {
+      if (binding.normalizedPath == normalizedPath) {
+        return binding;
+      }
+    }
+
+    return null;
+  }
+
+  @override
+  Future<List<MediaFileBinding>> getBySongId(String songId) async {
+    return _bindings
+        .where((binding) => binding.songId == songId)
+        .toList(growable: false);
+  }
+
+  @override
+  Future<List<MediaFileBinding>> getBySourceId(String sourceId) async {
+    return _bindings
+        .where((binding) => binding.sourceId == sourceId)
+        .toList(growable: false);
+  }
 }
 
 class _FakeImportCandidateDiscovery implements ImportCandidateDiscovery {

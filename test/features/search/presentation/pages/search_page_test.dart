@@ -207,7 +207,9 @@ void main() {
       );
     });
 
-    testWidgets('unavailable track is visibly unavailable', (tester) async {
+    testWidgets('ghosts unavailable tracks from search results', (
+      tester,
+    ) async {
       final repository = _FakeSearchRepository(
         result: LibrarySearchResults(
           tracks: [
@@ -233,11 +235,157 @@ void main() {
 
       expect(
         find.byKey(const ValueKey<String>('search-track-song-unavailable')),
-        findsOneWidget,
+        findsNothing,
+      );
+      expect(
+        find.byKey(
+          const ValueKey<String>('search-track-menu-song-unavailable'),
+        ),
+        findsNothing,
+      );
+      expect(find.text('Unavailable Track'), findsNothing);
+    });
+
+    testWidgets(
+      'ghosts artist result when full library has no available media',
+      (tester) async {
+        final results = _results();
+
+        final queryRepository = _FakeLibraryQueryRepository(
+          artist: results.artists.single,
+          album: results.albums.single,
+          tracks: [
+            _track(
+              songId: 'missing-song',
+              title: 'Missing Song',
+              isAvailable: false,
+              filePath: null,
+            ),
+          ],
+        );
+
+        await tester.pumpWidget(
+          _SearchTestApp(
+            repository: _FakeSearchRepository(
+              result: LibrarySearchResults(artists: results.artists),
+            ),
+            libraryQueryRepository: queryRepository,
+          ),
+        );
+
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('search-field')),
+          'query',
+        );
+
+        await tester.pump(const Duration(milliseconds: 300));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const ValueKey<String>('search-artist-artist-1')),
+          findsNothing,
+        );
+        expect(
+          find.byKey(const ValueKey<String>('search-empty')),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets('ghosts album result when album has no available media', (
+      tester,
+    ) async {
+      final results = _results();
+
+      final queryRepository = _FakeLibraryQueryRepository(
+        album: results.albums.single,
+        tracks: [
+          _track(
+            songId: 'missing-song',
+            title: 'Missing Song',
+            isAvailable: false,
+            filePath: null,
+          ),
+        ],
       );
 
-      expect(find.text('Query Artist • Unavailable'), findsOneWidget);
+      await tester.pumpWidget(
+        _SearchTestApp(
+          repository: _FakeSearchRepository(
+            result: LibrarySearchResults(albums: results.albums),
+          ),
+          libraryQueryRepository: queryRepository,
+        ),
+      );
+
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('search-field')),
+        'query',
+      );
+
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey<String>('search-album-album-1')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey<String>('search-empty')),
+        findsOneWidget,
+      );
     });
+
+    testWidgets(
+      'keeps artist and album visible when owned album has available track with another primary artist',
+      (tester) async {
+        final results = _results();
+
+        final queryRepository = _FakeLibraryQueryRepository(
+          artist: results.artists.single,
+          album: results.albums.single,
+          tracks: [
+            _track(
+              songId: 'other-primary-song',
+              title: 'Other Primary Song',
+              artistId: 'other-primary',
+              artistName: 'Other Primary',
+              albumId: 'album-1',
+              albumTitle: 'Query Album',
+            ),
+          ],
+        );
+
+        await tester.pumpWidget(
+          _SearchTestApp(
+            repository: _FakeSearchRepository(
+              result: LibrarySearchResults(
+                artists: results.artists,
+                albums: results.albums,
+              ),
+            ),
+            libraryQueryRepository: queryRepository,
+          ),
+        );
+
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('search-field')),
+          'query',
+        );
+
+        await tester.pump(const Duration(milliseconds: 300));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const ValueKey<String>('search-artist-artist-1')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey<String>('search-album-album-1')),
+          findsOneWidget,
+        );
+      },
+    );
 
     testWidgets('tapping playable track starts playback', (tester) async {
       final engine = _RecordingPlaybackEngine();
@@ -328,6 +476,8 @@ void main() {
 
       await tester.pumpAndSettle();
 
+      expect(find.text('Add to playlist'), findsOneWidget);
+
       await tester.tap(find.text('Add to queue'));
 
       await tester.pumpAndSettle();
@@ -336,7 +486,9 @@ void main() {
       expect(engine.appendedTracks.single.songId, 'song-1');
     });
 
-    testWidgets('unavailable track does not invoke playback', (tester) async {
+    testWidgets('ghosted unavailable search track cannot invoke playback', (
+      tester,
+    ) async {
       final engine = _RecordingPlaybackEngine();
 
       final unavailableTrack = _track(
@@ -363,20 +515,10 @@ void main() {
       await tester.pump(const Duration(milliseconds: 300));
       await tester.pump();
 
-      final tile = tester.widget<ListTile>(
-        find.byKey(const ValueKey<String>('search-track-song-unavailable')),
-      );
-
-      expect(tile.enabled, isTrue);
-      expect(tile.onTap, isNull);
-
       expect(
-        find.byKey(
-          const ValueKey<String>('search-track-menu-song-unavailable'),
-        ),
-        findsOneWidget,
+        find.byKey(const ValueKey<String>('search-track-song-unavailable')),
+        findsNothing,
       );
-
       expect(engine.loadedQueues, isEmpty);
       expect(engine.appendedTracks, isEmpty);
       expect(engine.insertedTracks, isEmpty);
@@ -717,6 +859,10 @@ LibrarySearchResults _results() {
 LibraryTrack _track({
   required String songId,
   required String title,
+  String artistId = 'artist-1',
+  String artistName = 'Query Artist',
+  String albumId = 'album-1',
+  String albumTitle = 'Query Album',
   bool isAvailable = true,
   bool isSongBlocked = false,
   String? filePath = r'C:\Music\Query Track.mp3',
@@ -724,10 +870,10 @@ LibraryTrack _track({
   return LibraryTrack(
     songId: songId,
     title: title,
-    artistId: 'artist-1',
-    artistName: 'Query Artist',
-    albumId: 'album-1',
-    albumTitle: 'Query Album',
+    artistId: artistId,
+    artistName: artistName,
+    albumId: albumId,
+    albumTitle: albumTitle,
     albumEditionId: 'edition-1',
     albumEditionTitle: 'Query Album',
     albumEditionType: AlbumEditionType.standard,
@@ -889,16 +1035,36 @@ class _RecordingPlaybackEngine implements PlaybackEngine {
 }
 
 class _FakeLibraryQueryRepository implements LibraryQueryRepository {
-  _FakeLibraryQueryRepository({this.artist, this.album});
+  _FakeLibraryQueryRepository({this.artist, this.album, this.tracks});
 
   final LibraryArtist? artist;
   final LibraryAlbum? album;
+  final List<LibraryTrack>? tracks;
 
   @override
   Future<List<LibraryTrack>> getTracks({
     LibraryTrackOrder order = LibraryTrackOrder.title,
   }) async {
-    return const [];
+    final explicitTracks = tracks;
+
+    if (explicitTracks != null) {
+      return explicitTracks;
+    }
+
+    if (artist == null && album == null) {
+      return const [];
+    }
+
+    return [
+      _track(
+        songId: 'query-repository-song',
+        title: 'Query Repository Song',
+        artistId: artist?.artistId ?? album!.artistId,
+        artistName: artist?.name ?? album!.artistName,
+        albumId: album?.albumId ?? 'album-1',
+        albumTitle: album?.title ?? 'Query Album',
+      ),
+    ];
   }
 
   @override

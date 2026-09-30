@@ -168,7 +168,9 @@ void main() {
       expect(find.text('1 song in your library'), findsOneWidget);
     });
 
-    testWidgets('marks unavailable tracks as non-playable', (tester) async {
+    testWidgets('ghosts unavailable tracks from the library list', (
+      tester,
+    ) async {
       final repository = FakeLibraryQueryRepository(
         tracks: [
           createTrack(songId: 'available', title: 'Available Song'),
@@ -184,34 +186,22 @@ void main() {
       await tester.pumpWidget(buildSubject(repository: repository));
       await tester.pumpAndSettle();
 
-      final availableTile = tester.widget<InkWell>(
-        find.byKey(const ValueKey<String>('track-available')),
-      );
-
-      final unavailableTile = tester.widget<InkWell>(
-        find.byKey(const ValueKey<String>('track-unavailable')),
-      );
-
-      expect(availableTile.onTap, isNotNull);
-      expect(unavailableTile.onTap, isNull);
-
       expect(
-        find.byKey(const ValueKey<String>('track-unavailable-unavailable')),
+        find.byKey(const ValueKey<String>('track-available')),
         findsOneWidget,
       );
-      expect(find.text('Unavailable'), findsOneWidget);
-
       expect(
-        tester
-            .widget<PopupMenuButton<dynamic>>(
-              find.byKey(const ValueKey<String>('track-menu-unavailable')),
-            )
-            .enabled,
-        isFalse,
+        find.byKey(const ValueKey<String>('track-unavailable')),
+        findsNothing,
       );
+      expect(
+        find.byKey(const ValueKey<String>('track-menu-unavailable')),
+        findsNothing,
+      );
+      expect(find.text('Unavailable Song'), findsNothing);
     });
 
-    testWidgets('unavailable track still exposes metadata editing', (
+    testWidgets('ghosted unavailable track exposes no library row menu', (
       tester,
     ) async {
       final repository = FakeLibraryQueryRepository(
@@ -225,48 +215,18 @@ void main() {
         ],
       );
 
-      final accountController = AccountController(
-        repository: FakeAccountRepository(
-          currentUser: const AccountUser(
-            id: 'user-1',
-            email: 'user@example.com',
-          ),
-        ),
-      );
-
-      final editingService = TrackProfileEditingService(
-        mutationRunner: UnusedSyncMutationRunner(),
-      );
-
-      await tester.pumpWidget(
-        buildSubject(
-          repository: repository,
-          accountController: accountController,
-          trackProfileEditingService: editingService,
-        ),
-      );
-
+      await tester.pumpWidget(buildSubject(repository: repository));
       await tester.pumpAndSettle();
-
-      final tile = tester.widget<InkWell>(
-        find.byKey(const ValueKey<String>('track-unavailable')),
-      );
-
-      expect(tile.onTap, isNull);
-
-      final menuFinder = find.byKey(
-        const ValueKey<String>('track-menu-unavailable'),
-      );
 
       expect(
-        tester.widget<PopupMenuButton<dynamic>>(menuFinder).enabled,
-        isTrue,
+        find.byKey(const ValueKey<String>('track-unavailable')),
+        findsNothing,
       );
-
-      await tester.tap(menuFinder);
-      await tester.pumpAndSettle();
-
-      expect(find.text('Edit song details'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey<String>('track-menu-unavailable')),
+        findsNothing,
+      );
+      expect(find.text('Unavailable Song'), findsNothing);
     });
 
     testWidgets('changing order reloads tracks using selected order', (

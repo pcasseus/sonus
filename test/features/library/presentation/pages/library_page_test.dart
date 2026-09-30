@@ -9,6 +9,7 @@ import 'package:sonus_next/features/library/application/models/library_artist.da
 import 'package:sonus_next/features/library/application/models/library_track.dart';
 import 'package:sonus_next/features/library/application/models/library_track_order.dart';
 import 'package:sonus_next/features/library/application/repositories/library_query_repository.dart';
+import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/presentation/pages/library_page.dart';
 
 void main() {
@@ -198,6 +199,61 @@ void main() {
       expect(find.text('S'), findsOneWidget);
     });
 
+    testWidgets('ghosts artist whose only media is unavailable', (
+      tester,
+    ) async {
+      final repository = FakeLibraryQueryRepository(
+        artists: [
+          createArtist(artistId: 'available-artist', name: 'Available Artist'),
+          createArtist(artistId: 'missing-artist', name: 'Missing Artist'),
+        ],
+        tracks: [
+          createTrack(songId: 'available-song', artistId: 'available-artist'),
+          createTrack(
+            songId: 'missing-song',
+            artistId: 'missing-artist',
+            filePath: '',
+            isAvailable: false,
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(buildSubject(repository: repository));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Available Artist'), findsOneWidget);
+      expect(find.text('Missing Artist'), findsNothing);
+      expect(find.text('1 artist in your library'), findsOneWidget);
+    });
+
+    testWidgets(
+      'keeps album owner visible when available track has another primary artist',
+      (tester) async {
+        final repository = FakeLibraryQueryRepository(
+          artists: [createArtist(artistId: 'album-owner', name: 'Album Owner')],
+          albums: [
+            createAlbum(albumId: 'owned-album', artistId: 'album-owner'),
+          ],
+          tracks: [
+            createTrack(
+              songId: 'other-primary-song',
+              artistId: 'other-primary',
+              albumId: 'owned-album',
+            ),
+          ],
+        );
+
+        await tester.pumpWidget(buildSubject(repository: repository));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Album Owner'), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey<String>('artist-open-album-owner')),
+          findsOneWidget,
+        );
+      },
+    );
+
     testWidgets('tapping an artist opens the artist profile', (tester) async {
       final repository = FakeLibraryQueryRepository(
         artists: [
@@ -284,14 +340,60 @@ LibraryArtist createArtist({
   );
 }
 
+LibraryAlbum createAlbum({
+  String albumId = 'album-1',
+  String artistId = 'artist-1',
+}) {
+  return LibraryAlbum(
+    albumId: albumId,
+    title: 'Test Album',
+    artistId: artistId,
+    artistName: 'Test Artist',
+    trackCount: 1,
+    dateAdded: DateTime(2026, 1, 1),
+  );
+}
+
+LibraryTrack createTrack({
+  String songId = 'song-1',
+  String artistId = 'artist-1',
+  String albumId = 'album-1',
+  String? filePath,
+  bool isAvailable = true,
+}) {
+  return LibraryTrack(
+    songId: songId,
+    title: 'Test Song',
+    artistId: artistId,
+    artistName: 'Test Artist',
+    albumId: albumId,
+    albumTitle: 'Test Album',
+    albumEditionId: 'edition-1',
+    albumEditionTitle: 'Standard',
+    albumEditionType: AlbumEditionType.values.first,
+    trackNumber: 1,
+    durationSeconds: 180,
+    isSingle: false,
+    featuredArtists: const [],
+    dateAdded: DateTime(2026, 1, 1),
+    filePath: filePath ?? '/music/$songId.mp3',
+    isAvailable: isAvailable,
+    isSongBlocked: false,
+  );
+}
+
 class FakeLibraryQueryRepository implements LibraryQueryRepository {
   FakeLibraryQueryRepository({
     this.artists = const [],
+    this.albums = const [],
+    this.tracks,
     this.artistsError,
     this.artistsLoader,
   });
 
   final List<LibraryArtist> artists;
+  final List<LibraryAlbum> albums;
+  final List<LibraryTrack>? tracks;
   final Object? artistsError;
   final Future<List<LibraryArtist>> Function()? artistsLoader;
 
@@ -316,12 +418,27 @@ class FakeLibraryQueryRepository implements LibraryQueryRepository {
   Future<List<LibraryTrack>> getTracks({
     LibraryTrackOrder order = LibraryTrackOrder.title,
   }) async {
-    return const [];
+    final explicitTracks = tracks;
+
+    if (explicitTracks != null) {
+      return explicitTracks;
+    }
+
+    final loadedArtists = await getArtists();
+
+    return loadedArtists
+        .map(
+          (artist) => createTrack(
+            songId: 'song-${artist.artistId}',
+            artistId: artist.artistId,
+          ),
+        )
+        .toList(growable: false);
   }
 
   @override
   Future<List<LibraryAlbum>> getAlbums() async {
-    return const [];
+    return albums;
   }
 
   @override
