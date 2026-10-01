@@ -4,6 +4,9 @@ import '../../../sync/application/services/sync_mutation_context.dart';
 import '../../../sync/application/services/sync_mutation_runner.dart';
 import '../../../sync/domain/models/sync_data_contract.dart';
 import '../../domain/entities/song_artist_credit.dart';
+import '../../domain/repositories/song_repository.dart';
+import '../../domain/repositories/song_artist_credit_repository.dart';
+import '../../domain/repositories/artist_repository.dart';
 
 class SongArtistCreditInput {
   const SongArtistCreditInput({
@@ -97,6 +100,26 @@ class SongArtistCreditService {
     required String primaryArtistId,
     required Iterable<SongArtistCreditInput> additionalCredits,
     DateTime? now,
+  }) {
+    return replaceCreditsWithRepositories(
+      artistRepository: context.artistRepository,
+      songRepository: context.songRepository,
+      songArtistCreditRepository: context.songArtistCreditRepository,
+      songId: songId,
+      primaryArtistId: primaryArtistId,
+      additionalCredits: additionalCredits,
+      now: now,
+    );
+  }
+
+  static Future<List<SongArtistCredit>> replaceCreditsWithRepositories({
+    required ArtistRepository artistRepository,
+    required SongRepository songRepository,
+    required SongArtistCreditRepository songArtistCreditRepository,
+    required String songId,
+    required String primaryArtistId,
+    required Iterable<SongArtistCreditInput> additionalCredits,
+    DateTime? now,
   }) async {
     final normalizedSongId = songId.trim();
     final normalizedPrimaryArtistId = primaryArtistId.trim();
@@ -113,13 +136,13 @@ class SongArtistCreditService {
       );
     }
 
-    final song = await context.songRepository.getById(normalizedSongId);
+    final song = await songRepository.getById(normalizedSongId);
 
     if (song == null) {
       throw StateError('Song not found: $normalizedSongId');
     }
 
-    final primaryArtist = await context.artistRepository.getById(
+    final primaryArtist = await artistRepository.getById(
       normalizedPrimaryArtistId,
     );
 
@@ -128,7 +151,7 @@ class SongArtistCreditService {
     }
 
     final timestamp = now ?? DateTime.now();
-    final allArtists = await context.artistRepository.getAll();
+    final allArtists = await artistRepository.getAll();
 
     final artistsByCanonicalName = <String, List<String>>{};
 
@@ -175,9 +198,7 @@ class SongArtistCreditService {
       String? linkedArtistId;
 
       if (explicitArtistId != null && explicitArtistId.isNotEmpty) {
-        final explicitArtist = await context.artistRepository.getById(
-          explicitArtistId,
-        );
+        final explicitArtist = await artistRepository.getById(explicitArtistId);
 
         if (explicitArtist == null) {
           throw StateError('Artist not found: $explicitArtistId');
@@ -208,10 +229,10 @@ class SongArtistCreditService {
       );
     }
 
-    await context.songArtistCreditRepository.deleteBySongId(song.id);
+    await songArtistCreditRepository.deleteBySongId(song.id);
 
     for (final credit in credits) {
-      await context.songArtistCreditRepository.create(credit);
+      await songArtistCreditRepository.create(credit);
     }
 
     return List<SongArtistCredit>.unmodifiable(credits);

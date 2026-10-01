@@ -18,6 +18,10 @@ import 'package:sonus_next/features/library/data/daos/album_dao.dart';
 import 'package:sonus_next/features/library/data/daos/album_edition_dao.dart';
 import 'package:sonus_next/features/library/data/daos/artist_dao.dart';
 import 'package:sonus_next/features/library/data/daos/song_dao.dart';
+import 'package:sonus_next/features/library/application/services/song_artist_credit_service.dart';
+import 'package:sonus_next/features/library/data/daos/song_artist_credit_dao.dart';
+import 'package:sonus_next/features/library/data/repositories/sqlite_song_artist_credit_repository.dart';
+import 'package:sonus_next/features/library/domain/entities/song_artist_credit.dart';
 import 'package:sonus_next/features/library/data/repositories/sqlite_album_edition_repository.dart';
 import 'package:sonus_next/features/library/data/repositories/sqlite_album_repository.dart';
 import 'package:sonus_next/features/library/data/repositories/sqlite_artist_repository.dart';
@@ -57,6 +61,9 @@ class AtomicLibraryImporter {
           AlbumEditionDao(transaction),
         );
         final songRepository = SqliteSongRepository(SongDao(transaction));
+        final songArtistCreditRepository = SqliteSongArtistCreditRepository(
+          SongArtistCreditDao(transaction),
+        );
         final bindingRepository = SqliteMediaFileBindingRepository(
           MediaFileBindingDao(transaction),
         );
@@ -235,6 +242,44 @@ class AtomicLibraryImporter {
 
           await songRepository.create(song);
 
+          final structuredCredits =
+              await SongArtistCreditService.replaceCreditsWithRepositories(
+                artistRepository: artistRepository,
+                songRepository: songRepository,
+                songArtistCreditRepository: songArtistCreditRepository,
+                songId: song.id,
+                primaryArtistId: artist.id,
+                additionalCredits: [
+                  for (final featuredArtist
+                      in effectiveMetadata.featuredArtists)
+                    SongArtistCreditInput(
+                      creditedName: featuredArtist,
+                      role: SongArtistCreditRole.featured,
+                    ),
+                ],
+                now: timestamp,
+              );
+
+          final authoritativeFeaturedArtists = [
+            for (final credit in structuredCredits)
+              if (credit.role == SongArtistCreditRole.featured)
+                credit.creditedName,
+          ];
+
+          if (!_listsEqual(
+            song.featuredArtists,
+            authoritativeFeaturedArtists,
+          )) {
+            song = song.copyWith(
+              featuredArtists: List<String>.unmodifiable(
+                authoritativeFeaturedArtists,
+              ),
+              updatedAt: timestamp,
+            );
+
+            await songRepository.save(song);
+          }
+
           final reviewReasons = _deriveReviewReasons(
             candidate: candidate,
             metadata: metadata,
@@ -361,6 +406,20 @@ class AtomicLibraryImporter {
         ),
       );
     }
+  }
+
+  bool _listsEqual(List<String> first, List<String> second) {
+    if (first.length != second.length) {
+      return false;
+    }
+
+    for (var index = 0; index < first.length; index++) {
+      if (first[index] != second[index]) {
+        return false;
+      }
+    }
+
+    return true;
   }
 
   List<ImportReviewReason> _deriveReviewReasons({
