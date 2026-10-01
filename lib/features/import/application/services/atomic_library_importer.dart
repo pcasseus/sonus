@@ -116,8 +116,29 @@ class AtomicLibraryImporter {
           songRepository: songRepository,
         );
 
-        final effectiveMetadata = const ImportIdentityMetadataNormalizer()
-            .normalize(candidate: candidate, metadata: metadata);
+        const metadataNormalizer = ImportIdentityMetadataNormalizer();
+
+        final ambiguousArtistCredit = metadataNormalizer
+            .ambiguousSeparatorArtistCredit(
+              candidate: candidate,
+              metadata: metadata,
+            );
+
+        var effectiveMetadata = metadataNormalizer.normalize(
+          candidate: candidate,
+          metadata: metadata,
+        );
+
+        if (ambiguousArtistCredit != null) {
+          final safePrimaryArtist = effectiveMetadata.effectiveAlbumArtistName
+              .trim();
+
+          if (safePrimaryArtist.isNotEmpty) {
+            effectiveMetadata = effectiveMetadata.copyWith(
+              artistName: safePrimaryArtist,
+            );
+          }
+        }
 
         final match = await resolver.resolve(effectiveMetadata);
 
@@ -284,6 +305,7 @@ class AtomicLibraryImporter {
             candidate: candidate,
             metadata: metadata,
             metadataSource: metadataSource,
+            ambiguousArtistCredit: ambiguousArtistCredit,
           );
 
           if (reviewReasons.isNotEmpty) {
@@ -292,6 +314,11 @@ class AtomicLibraryImporter {
                 songId: song.id,
                 metadataSource: metadataSource,
                 reasons: List.unmodifiable(reviewReasons),
+                payload: ambiguousArtistCredit == null
+                    ? null
+                    : ImportReviewPayload(
+                        rawArtistCredit: ambiguousArtistCredit,
+                      ),
                 createdAt: timestamp,
                 updatedAt: timestamp,
               ),
@@ -426,6 +453,7 @@ class AtomicLibraryImporter {
     required ImportCandidate candidate,
     required AudioMetadata metadata,
     required MetadataSource metadataSource,
+    required String? ambiguousArtistCredit,
   }) {
     final reasons = <ImportReviewReason>[];
 
@@ -451,6 +479,10 @@ class AtomicLibraryImporter {
 
     if (candidate.structure == ImportCandidateStructure.looseAlbum) {
       reasons.add(ImportReviewReason.looseFolder);
+    }
+
+    if (ambiguousArtistCredit != null) {
+      reasons.add(ImportReviewReason.ambiguousArtistCredit);
     }
 
     return reasons;

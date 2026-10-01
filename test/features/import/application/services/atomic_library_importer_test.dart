@@ -820,7 +820,7 @@ void main() {
   });
 
   test(
-    'artist-folder headliner owns collaboration and other credited artist becomes feature',
+    'artist-folder ambiguous separator credit avoids composite identity and creates review',
     () async {
       final result = await importer.import(
         candidate: candidate(
@@ -861,7 +861,16 @@ void main() {
 
       expect(songs, hasLength(1));
       expect(songs.single.artistId, artists.single.id);
-      expect(songs.single.featuredArtists, ['Cardi B']);
+      expect(songs.single.featuredArtists, isEmpty);
+
+      final review = await SongImportReviewDao(db).findBySongId(result.songId!);
+
+      expect(review, isNotNull);
+      expect(
+        review!.reasons,
+        contains(ImportReviewReason.ambiguousArtistCredit),
+      );
+      expect(review.payload?.rawArtistCredit, 'Megan Thee Stallion & Cardi B');
     },
   );
 

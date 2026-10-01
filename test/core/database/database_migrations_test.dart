@@ -24,7 +24,7 @@ void main() {
       final result = await db.rawQuery('PRAGMA user_version');
 
       expect(result.single['user_version'], AppDatabase.databaseVersion);
-      expect(AppDatabase.databaseVersion, 21);
+      expect(AppDatabase.databaseVersion, 22);
     } finally {
       await appDatabase.close();
     }
@@ -1298,12 +1298,84 @@ void main() {
     },
   );
 
+  test(
+    'migration runner upgrades version 21 schema to version 22 and preserves import reviews',
+    () async {
+      final db = await databaseFactoryFfi.openDatabase(inMemoryDatabasePath);
+
+      try {
+        await db.execute('PRAGMA foreign_keys = ON');
+
+        await db.execute('''
+          CREATE TABLE ${DatabaseTables.songs} (
+            id TEXT PRIMARY KEY NOT NULL
+          )
+        ''');
+
+        await db.execute('''
+          CREATE TABLE ${DatabaseTables.songImportReviews} (
+            song_id TEXT PRIMARY KEY NOT NULL,
+            metadata_source TEXT NOT NULL
+              CHECK (metadata_source IN ('embedded', 'mixed', 'fallback')),
+            review_reasons TEXT NOT NULL DEFAULT '[]',
+            resolved_at TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+
+            FOREIGN KEY (song_id)
+              REFERENCES ${DatabaseTables.songs}(id)
+              ON UPDATE CASCADE
+              ON DELETE CASCADE
+          )
+        ''');
+
+        const songId = 'song_before_review_payload';
+        const createdAt = '2026-10-01T12:00:00.000Z';
+        const updatedAt = '2026-10-01T13:00:00.000Z';
+
+        await db.insert(DatabaseTables.songs, {'id': songId});
+
+        await db.insert(DatabaseTables.songImportReviews, {
+          'song_id': songId,
+          'metadata_source': 'embedded',
+          'review_reasons': '["missingTrackNumber"]',
+          'resolved_at': null,
+          'created_at': createdAt,
+          'updated_at': updatedAt,
+        });
+
+        await DatabaseMigrations.migrate(db, oldVersion: 21, newVersion: 22);
+
+        final columns = await db.rawQuery(
+          'PRAGMA table_info(${DatabaseTables.songImportReviews})',
+        );
+
+        expect(columns.map((row) => row['name']), contains('review_payload'));
+
+        final rows = await db.query(
+          DatabaseTables.songImportReviews,
+          where: 'song_id = ?',
+          whereArgs: [songId],
+        );
+
+        expect(rows, hasLength(1));
+        expect(rows.single['metadata_source'], 'embedded');
+        expect(rows.single['review_reasons'], '["missingTrackNumber"]');
+        expect(rows.single['review_payload'], isNull);
+        expect(rows.single['resolved_at'], isNull);
+        expect(rows.single['created_at'], createdAt);
+        expect(rows.single['updated_at'], updatedAt);
+      } finally {
+        await db.close();
+      }
+    },
+  );
   test('migration runner fails loudly for unknown future migration', () async {
     final db = await databaseFactoryFfi.openDatabase(inMemoryDatabasePath);
 
     try {
       await expectLater(
-        DatabaseMigrations.migrate(db, oldVersion: 21, newVersion: 22),
+        DatabaseMigrations.migrate(db, oldVersion: 22, newVersion: 23),
         throwsA(isA<UnsupportedError>()),
       );
     } finally {

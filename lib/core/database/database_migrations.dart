@@ -341,6 +341,12 @@ abstract final class DatabaseMigrations {
         await _backfillSongArtistCredits(db);
         return;
 
+      case 22:
+        await db.execute(
+          'ALTER TABLE ${DatabaseTables.songImportReviews} '
+          'ADD COLUMN review_payload TEXT',
+        );
+        return;
       default:
         throw UnsupportedError(
           'No Sonus database migration exists for version $targetVersion.',

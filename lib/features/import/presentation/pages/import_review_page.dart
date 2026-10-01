@@ -533,6 +533,8 @@ class _ImportReviewPageState extends State<ImportReviewPage> {
         return 'Missing duration';
       case ImportReviewReason.looseFolder:
         return 'Loose folder structure';
+      case ImportReviewReason.ambiguousArtistCredit:
+        return 'Artist credit needs confirmation';
     }
   }
 
