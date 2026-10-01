@@ -132,38 +132,35 @@ void main() {
     expect(credits[1].creditedName, 'Tate McRae');
   });
 
-  test(
-    'preserves collaborator separately from legacy featured artists',
-    () async {
-      final credits = await service.replaceCredits(
-        userId: null,
-        songId: 'song_1',
-        primaryArtistId: 'artist_madison',
-        additionalCredits: const [
-          SongArtistCreditInput(
-            creditedName: 'Artist A',
-            role: SongArtistCreditRole.collaborator,
-          ),
-          SongArtistCreditInput(
-            creditedName: 'Artist B',
-            role: SongArtistCreditRole.featured,
-          ),
-        ],
-      );
+  test('preserves guest separately from legacy featured artists', () async {
+    final credits = await service.replaceCredits(
+      userId: null,
+      songId: 'song_1',
+      primaryArtistId: 'artist_madison',
+      additionalCredits: const [
+        SongArtistCreditInput(
+          creditedName: 'Artist A',
+          role: SongArtistCreditRole.guest,
+        ),
+        SongArtistCreditInput(
+          creditedName: 'Artist B',
+          role: SongArtistCreditRole.featured,
+        ),
+      ],
+    );
 
-      expect(credits, hasLength(3));
-      expect(credits[1].role, SongArtistCreditRole.collaborator);
-      expect(credits[2].role, SongArtistCreditRole.featured);
+    expect(credits, hasLength(3));
+    expect(credits[1].role, SongArtistCreditRole.guest);
+    expect(credits[2].role, SongArtistCreditRole.featured);
 
-      final songRows = await db.query(
-        DatabaseTables.songs,
-        where: 'id = ?',
-        whereArgs: ['song_1'],
-      );
+    final songRows = await db.query(
+      DatabaseTables.songs,
+      where: 'id = ?',
+      whereArgs: ['song_1'],
+    );
 
-      expect(songRows.single['featured_artists'], '["Artist B"]');
-    },
-  );
+    expect(songRows.single['featured_artists'], '["Artist B"]');
+  });
 
   test(
     'links old unlinked credits when an Artist later enters the library',

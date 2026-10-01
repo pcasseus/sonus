@@ -1,4 +1,4 @@
-enum SongArtistCreditRole { primary, featured, collaborator }
+enum SongArtistCreditRole { primary, coPrimary, featured, guest }
 
 class SongArtistCredit {
   static const Object _unset = Object();

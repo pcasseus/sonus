@@ -144,7 +144,7 @@ abstract final class LibrarySchema {
         canonical_credited_name TEXT NOT NULL
           CHECK (length(trim(canonical_credited_name)) > 0),
         role TEXT NOT NULL
-          CHECK (role IN ('primary', 'featured', 'collaborator')),
+          CHECK (role IN ('primary', 'coPrimary', 'featured', 'guest')),
         position INTEGER NOT NULL
           CHECK (position >= 0),
         created_at TEXT NOT NULL,
