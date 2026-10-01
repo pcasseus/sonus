@@ -9,6 +9,7 @@ abstract final class LibrarySchema {
     await _createAlbums(db);
     await _createAlbumEditions(db);
     await _createSongs(db);
+    await createSongArtistCredits(db);
     await _createMediaFileBindings(db);
     await _createIndexes(db);
   }
@@ -130,6 +131,57 @@ abstract final class LibrarySchema {
         ON DELETE SET NULL
     )
   ''');
+  }
+
+  static Future<void> createSongArtistCredits(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE ${DatabaseTables.songArtistCredits} (
+        id TEXT PRIMARY KEY NOT NULL,
+        song_id TEXT NOT NULL,
+        artist_id TEXT,
+        credited_name TEXT NOT NULL
+          CHECK (length(trim(credited_name)) > 0),
+        canonical_credited_name TEXT NOT NULL
+          CHECK (length(trim(canonical_credited_name)) > 0),
+        role TEXT NOT NULL
+          CHECK (role IN ('primary', 'featured', 'collaborator')),
+        position INTEGER NOT NULL
+          CHECK (position >= 0),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+
+        FOREIGN KEY (song_id)
+          REFERENCES ${DatabaseTables.songs}(id)
+          ON UPDATE CASCADE
+          ON DELETE CASCADE,
+
+        FOREIGN KEY (artist_id)
+          REFERENCES ${DatabaseTables.artists}(id)
+          ON UPDATE CASCADE
+          ON DELETE SET NULL,
+
+        UNIQUE(song_id, position)
+      )
+    ''');
+
+    await createSongArtistCreditIndexes(db);
+  }
+
+  static Future<void> createSongArtistCreditIndexes(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE INDEX idx_song_artist_credits_song_position
+      ON ${DatabaseTables.songArtistCredits}(song_id, position)
+    ''');
+
+    await db.execute('''
+      CREATE INDEX idx_song_artist_credits_artist_id
+      ON ${DatabaseTables.songArtistCredits}(artist_id)
+    ''');
+
+    await db.execute('''
+      CREATE INDEX idx_song_artist_credits_canonical_name
+      ON ${DatabaseTables.songArtistCredits}(canonical_credited_name)
+    ''');
   }
 
   static Future<void> _createMediaFileBindings(DatabaseExecutor db) async {

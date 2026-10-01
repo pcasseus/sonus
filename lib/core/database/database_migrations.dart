@@ -1,5 +1,9 @@
+import 'dart:convert';
+
 import 'package:sqflite/sqflite.dart';
 
+import '../identity/entity_id.dart';
+import '../identity/text_normalizer.dart';
 import 'database_tables.dart';
 import 'schema/analytics_schema.dart';
 import 'schema/chart_schema.dart';
@@ -332,11 +336,113 @@ abstract final class DatabaseMigrations {
         await db.execute('DROP TABLE $legacyOutbox');
 
         return;
+      case 21:
+        await LibrarySchema.createSongArtistCredits(db);
+        await _backfillSongArtistCredits(db);
+        return;
 
       default:
         throw UnsupportedError(
           'No Sonus database migration exists for version $targetVersion.',
         );
+    }
+  }
+
+  static Future<void> _backfillSongArtistCredits(Database db) async {
+    final songs = await db.rawQuery('''
+      SELECT
+        s.id AS song_id,
+        s.artist_id AS artist_id,
+        s.featured_artists AS featured_artists,
+        s.created_at AS created_at,
+        s.updated_at AS updated_at,
+        a.name AS artist_name,
+        a.canonical_name AS artist_canonical_name
+      FROM ${DatabaseTables.songs} AS s
+      INNER JOIN ${DatabaseTables.artists} AS a
+        ON a.id = s.artist_id
+      ORDER BY s.created_at ASC, s.id ASC
+    ''');
+
+    for (final row in songs) {
+      final songId = row['song_id'] as String;
+      final artistId = row['artist_id'] as String;
+      final artistName = row['artist_name'] as String;
+      final canonicalArtistName = row['artist_canonical_name'] as String;
+      final createdAt = row['created_at'] as String;
+      final updatedAt = row['updated_at'] as String;
+
+      var position = 0;
+
+      await db.insert(DatabaseTables.songArtistCredits, {
+        'id': EntityId.songArtistCredit(),
+        'song_id': songId,
+        'artist_id': artistId,
+        'credited_name': artistName,
+        'canonical_credited_name': canonicalArtistName,
+        'role': 'primary',
+        'position': position++,
+        'created_at': createdAt,
+        'updated_at': updatedAt,
+      });
+
+      final encodedFeatures = row['featured_artists'] as String? ?? '[]';
+
+      dynamic decoded;
+
+      try {
+        decoded = jsonDecode(encodedFeatures);
+      } catch (_) {
+        decoded = const <dynamic>[];
+      }
+
+      if (decoded is! List) {
+        continue;
+      }
+
+      final seen = <String>{canonicalArtistName};
+
+      for (final value in decoded) {
+        if (value is! String) {
+          continue;
+        }
+
+        final creditedName = value.trim();
+
+        if (creditedName.isEmpty) {
+          continue;
+        }
+
+        final canonicalName = TextNormalizer.canonicalize(creditedName);
+
+        if (canonicalName.isEmpty || !seen.add(canonicalName)) {
+          continue;
+        }
+
+        final matchingArtists = await db.query(
+          DatabaseTables.artists,
+          columns: ['id'],
+          where: 'canonical_name = ?',
+          whereArgs: [canonicalName],
+          limit: 2,
+        );
+
+        final linkedArtistId = matchingArtists.length == 1
+            ? matchingArtists.single['id'] as String
+            : null;
+
+        await db.insert(DatabaseTables.songArtistCredits, {
+          'id': EntityId.songArtistCredit(),
+          'song_id': songId,
+          'artist_id': linkedArtistId,
+          'credited_name': creditedName,
+          'canonical_credited_name': canonicalName,
+          'role': 'featured',
+          'position': position++,
+          'created_at': createdAt,
+          'updated_at': updatedAt,
+        });
+      }
     }
   }
 }
