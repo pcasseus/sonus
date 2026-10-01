@@ -2,6 +2,8 @@ import '../../../../core/identity/text_normalizer.dart';
 import '../../../sync/application/services/sync_mutation_runner.dart';
 import '../../../sync/domain/models/sync_data_contract.dart';
 import '../../domain/entities/song.dart';
+import '../../domain/entities/song_artist_credit.dart';
+import 'song_artist_credit_service.dart';
 
 class TrackProfileEditResult {
   const TrackProfileEditResult({required this.song, required this.changed});
@@ -162,16 +164,42 @@ class TrackProfileEditingService {
         featuredArtists: List<String>.unmodifiable(normalizedFeaturedArtists),
         updatedAt: timestamp,
       );
+      final structuredCredits =
+          await SongArtistCreditService.replaceCreditsInContext(
+        context: context,
+        songId: updated.id,
+        primaryArtistId: targetArtistId,
+        additionalCredits: [
+          for (final featuredArtist in normalizedFeaturedArtists)
+            SongArtistCreditInput(
+              creditedName: featuredArtist,
+              role: SongArtistCreditRole.featured,
+            ),
+        ],
+        now: timestamp,
+      );
 
-      await context.songRepository.save(updated);
+      final authoritativeFeaturedArtists = [
+        for (final credit in structuredCredits)
+          if (credit.role == SongArtistCreditRole.featured)
+            credit.creditedName,
+      ];
+
+      final persisted = updated.copyWith(
+        featuredArtists: List<String>.unmodifiable(
+          authoritativeFeaturedArtists,
+        ),
+      );
+
+      await context.songRepository.save(persisted);
 
       await context.localSyncRepository.recordUpsert(
         userId: normalizedUserId,
         entityType: CloudDataEntity.song,
-        entityId: updated.id,
+        entityId: persisted.id,
       );
 
-      return TrackProfileEditResult(song: updated, changed: true);
+      return TrackProfileEditResult(song: persisted, changed: true);
     });
   }
 
