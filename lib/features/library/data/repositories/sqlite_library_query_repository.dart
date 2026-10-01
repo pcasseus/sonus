@@ -8,7 +8,10 @@ import '../../application/repositories/library_query_repository.dart';
 import '../daos/library_query_dao.dart';
 
 class SqliteLibraryQueryRepository
-    implements LibraryQueryRepository, LibrarySearchRepository {
+    implements
+        LibraryQueryRepository,
+        StructuredArtistQueryRepository,
+        LibrarySearchRepository {
   const SqliteLibraryQueryRepository(this.dao);
 
   final LibraryQueryDao dao;
@@ -36,6 +39,32 @@ class SqliteLibraryQueryRepository
     LibraryTrackOrder order = LibraryTrackOrder.title,
   }) {
     return dao.findTracksByArtistId(artistId, order: order);
+  }
+
+  @override
+  Future<List<LibraryArtist>> getProfileEligibleArtists() {
+    return dao.findProfileEligibleArtists();
+  }
+
+  @override
+  Future<LibraryArtist?> getProfileEligibleArtistById(String artistId) {
+    return dao.findProfileEligibleArtistById(artistId);
+  }
+
+  @override
+  Future<List<LibraryTrack>> getMainTracksByArtistId(
+    String artistId, {
+    LibraryTrackOrder order = LibraryTrackOrder.title,
+  }) {
+    return dao.findMainTracksByArtistId(artistId, order: order);
+  }
+
+  @override
+  Future<List<LibraryTrack>> getCollaborationTracksByArtistId(
+    String artistId, {
+    LibraryTrackOrder order = LibraryTrackOrder.title,
+  }) {
+    return dao.findCollaborationTracksByArtistId(artistId, order: order);
   }
 
   @override

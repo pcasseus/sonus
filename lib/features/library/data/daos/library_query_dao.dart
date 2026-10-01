@@ -292,6 +292,96 @@ class LibraryQueryDao {
     return rows.map(LibraryTrackRowMapper.fromRow).toList(growable: false);
   }
 
+  Future<List<LibraryTrack>> findMainTracksByArtistId(
+    String artistId, {
+    LibraryTrackOrder order = LibraryTrackOrder.title,
+  }) {
+    return _findTracksByStructuredArtistRoles(
+      artistId,
+      roles: const ['primary', 'coPrimary'],
+      order: order,
+    );
+  }
+
+  Future<List<LibraryTrack>> findCollaborationTracksByArtistId(
+    String artistId, {
+    LibraryTrackOrder order = LibraryTrackOrder.title,
+  }) {
+    return _findTracksByStructuredArtistRoles(
+      artistId,
+      roles: const ['featured', 'guest'],
+      order: order,
+    );
+  }
+
+  Future<List<LibraryTrack>> _findTracksByStructuredArtistRoles(
+    String artistId, {
+    required List<String> roles,
+    LibraryTrackOrder order = LibraryTrackOrder.title,
+  }) async {
+    if (roles.isEmpty) {
+      return const [];
+    }
+
+    final placeholders = List.filled(roles.length, '?').join(', ');
+
+    final rows = await db.rawQuery(
+      '''
+      SELECT DISTINCT
+        s.id AS song_id,
+        s.title AS song_title,
+        s.artist_id AS artist_id,
+        ar.name AS artist_name,
+        s.album_id AS album_id,
+        al.title AS album_title,
+        s.album_edition_id AS album_edition_id,
+        ae.title AS album_edition_title,
+        ae.type AS edition_type,
+        s.track_number AS track_number,
+        s.disc_number AS disc_number,
+        s.duration_seconds AS duration_seconds,
+        s.is_single AS is_single,
+        s.is_blocked AS song_is_blocked,
+        s.featured_artists AS featured_artists,
+        s.created_at AS created_at,
+        m.file_path AS file_path,
+        COALESCE(m.is_available, 0) AS is_available,
+        COALESCE(sa.id, ea.id) AS artwork_id,
+        COALESCE(sa.file_path, ea.file_path) AS artwork_path
+      FROM ${DatabaseTables.songs} s
+      INNER JOIN ${DatabaseTables.songArtistCredits} sac
+        ON sac.song_id = s.id
+      INNER JOIN ${DatabaseTables.artists} ar
+        ON ar.id = s.artist_id
+      INNER JOIN ${DatabaseTables.albums} al
+        ON al.id = s.album_id
+      INNER JOIN ${DatabaseTables.albumEditions} ae
+        ON ae.id = s.album_edition_id
+      LEFT JOIN ${DatabaseTables.artworkAssets} sa
+        ON sa.id = s.artwork_id
+      LEFT JOIN ${DatabaseTables.artworkAssets} ea
+        ON ea.id = ae.artwork_id
+      LEFT JOIN ${DatabaseTables.mediaFileBindings} m
+        ON m.id = (
+          SELECT mb.id
+          FROM ${DatabaseTables.mediaFileBindings} mb
+          WHERE mb.song_id = s.id
+          ORDER BY
+            mb.is_available DESC,
+            mb.created_at ASC,
+            mb.id ASC
+          LIMIT 1
+        )
+      WHERE sac.artist_id = ?
+        AND sac.role IN ($placeholders)
+      ORDER BY ${_trackOrderBy(order)}
+      ''',
+      [artistId, ...roles],
+    );
+
+    return rows.map(LibraryTrackRowMapper.fromRow).toList(growable: false);
+  }
+
   Future<List<LibraryTrack>> findTracksByAlbumId(String albumId) async {
     final rows = await db.rawQuery(
       '''
@@ -415,6 +505,64 @@ class LibraryQueryDao {
     ''');
 
     return rows.map(LibraryArtistRowMapper.fromRow).toList(growable: false);
+  }
+
+  Future<List<LibraryArtist>> findProfileEligibleArtists() async {
+    final rows = await db.rawQuery('''
+      SELECT
+        ar.id AS artist_id,
+        ar.name AS artist_name,
+        ar.header_artwork_id AS header_artwork_id,
+        ha.file_path AS header_artwork_path,
+        ar.top_artists_artwork_id AS top_artists_artwork_id,
+        ta.file_path AS top_artists_artwork_path,
+        COUNT(DISTINCT al.id) AS album_count,
+        (
+          SELECT COUNT(DISTINCT main_credit.song_id)
+          FROM ${DatabaseTables.songArtistCredits} main_credit
+          WHERE main_credit.artist_id = ar.id
+            AND main_credit.role IN ('primary', 'coPrimary')
+        ) AS song_count,
+        ar.created_at AS created_at
+      FROM ${DatabaseTables.artists} ar
+      LEFT JOIN ${DatabaseTables.artworkAssets} ha
+        ON ha.id = ar.header_artwork_id
+      LEFT JOIN ${DatabaseTables.artworkAssets} ta
+        ON ta.id = ar.top_artists_artwork_id
+      LEFT JOIN ${DatabaseTables.albums} al
+        ON al.artist_id = ar.id
+      WHERE EXISTS (
+        SELECT 1
+        FROM ${DatabaseTables.songArtistCredits} eligibility_credit
+        WHERE eligibility_credit.artist_id = ar.id
+          AND eligibility_credit.role IN ('primary', 'coPrimary')
+      )
+      GROUP BY
+        ar.id,
+        ar.name,
+        ar.header_artwork_id,
+        ha.file_path,
+        ar.top_artists_artwork_id,
+        ta.file_path,
+        ar.created_at
+      ORDER BY
+        ar.name COLLATE NOCASE ASC,
+        ar.id ASC
+    ''');
+
+    return rows.map(LibraryArtistRowMapper.fromRow).toList(growable: false);
+  }
+
+  Future<LibraryArtist?> findProfileEligibleArtistById(String artistId) async {
+    final artists = await findProfileEligibleArtists();
+
+    for (final artist in artists) {
+      if (artist.artistId == artistId) {
+        return artist;
+      }
+    }
+
+    return null;
   }
 
   Future<LibraryAlbum?> findAlbumById(String albumId) async {

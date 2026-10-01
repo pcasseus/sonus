@@ -230,7 +230,14 @@ class ArtistProfileController extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final artist = await _repository.getArtistById(_artistId);
+      final structuredRepository =
+          _repository is StructuredArtistQueryRepository
+          ? _repository as StructuredArtistQueryRepository
+          : null;
+
+      final artist = structuredRepository != null
+          ? await structuredRepository.getProfileEligibleArtistById(_artistId)
+          : await _repository.getArtistById(_artistId);
 
       if (artist == null) {
         _artist = null;
@@ -242,25 +249,41 @@ class ArtistProfileController extends ChangeNotifier {
       }
 
       final albums = await _repository.getAlbumsByArtistId(_artistId);
-      final tracks = await _repository.getTracksByArtistId(_artistId);
-      final catalogTracks = await _repository.getTracks();
-      final allTracks = catalogTracks.isEmpty && tracks.isNotEmpty
-          ? tracks
-          : catalogTracks;
 
-      final canonicalArtistName = TextNormalizer.canonicalize(artist.name);
+      final List<LibraryTrack> tracks;
+      final List<LibraryTrack> featuredTracks;
+      final List<LibraryTrack> allTracks;
 
-      final featuredTracks = allTracks
-          .where(
-            (track) =>
-                track.artistId != _artistId &&
-                track.featuredArtists.any(
-                  (featuredArtist) =>
-                      TextNormalizer.canonicalize(featuredArtist) ==
-                      canonicalArtistName,
-                ),
-          )
-          .toList(growable: false);
+      if (structuredRepository != null) {
+        tracks = await structuredRepository.getMainTracksByArtistId(_artistId);
+
+        featuredTracks = await structuredRepository
+            .getCollaborationTracksByArtistId(_artistId);
+
+        allTracks = [...tracks, ...featuredTracks];
+      } else {
+        tracks = await _repository.getTracksByArtistId(_artistId);
+
+        final catalogTracks = await _repository.getTracks();
+
+        allTracks = catalogTracks.isEmpty && tracks.isNotEmpty
+            ? tracks
+            : catalogTracks;
+
+        final canonicalArtistName = TextNormalizer.canonicalize(artist.name);
+
+        featuredTracks = allTracks
+            .where(
+              (track) =>
+                  track.artistId != _artistId &&
+                  track.featuredArtists.any(
+                    (featuredArtist) =>
+                        TextNormalizer.canonicalize(featuredArtist) ==
+                        canonicalArtistName,
+                  ),
+            )
+            .toList(growable: false);
+      }
 
       _artist = artist;
       _albums = albums;

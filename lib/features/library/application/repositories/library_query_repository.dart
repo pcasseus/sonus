@@ -31,3 +31,19 @@ abstract interface class LibraryQueryRepository {
 
   Future<LibraryArtist?> getArtistById(String artistId);
 }
+
+abstract interface class StructuredArtistQueryRepository {
+  Future<List<LibraryArtist>> getProfileEligibleArtists();
+
+  Future<LibraryArtist?> getProfileEligibleArtistById(String artistId);
+
+  Future<List<LibraryTrack>> getMainTracksByArtistId(
+    String artistId, {
+    LibraryTrackOrder order = LibraryTrackOrder.title,
+  });
+
+  Future<List<LibraryTrack>> getCollaborationTracksByArtistId(
+    String artistId, {
+    LibraryTrackOrder order = LibraryTrackOrder.title,
+  });
+}
