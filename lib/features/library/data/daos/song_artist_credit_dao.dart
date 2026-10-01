@@ -38,6 +38,14 @@ class SongArtistCreditDao {
     );
   }
 
+  Future<void> deleteBySongId(String songId) async {
+    await db.delete(
+      DatabaseTables.songArtistCredits,
+      where: 'song_id = ?',
+      whereArgs: [songId],
+    );
+  }
+
   Future<SongArtistCredit?> findById(String id) async {
     final rows = await db.query(
       DatabaseTables.songArtistCredits,

@@ -9,6 +9,7 @@ import 'package:sonus_next/features/library/domain/repositories/album_edition_re
 import 'package:sonus_next/features/library/domain/repositories/album_repository.dart';
 import 'package:sonus_next/features/library/domain/repositories/artist_repository.dart';
 import 'package:sonus_next/features/library/domain/repositories/song_repository.dart';
+import 'package:sonus_next/features/library/domain/repositories/song_artist_credit_repository.dart';
 import 'package:sonus_next/features/sync/application/repositories/local_sync_repository.dart';
 import 'package:sonus_next/features/sync/application/services/inbound_cloud_record_applier.dart';
 import 'package:sonus_next/features/sync/application/services/sync_mutation_context.dart';
@@ -240,6 +241,7 @@ class _TestContextBundle {
       album = _FakeAlbumRepository(),
       edition = _FakeAlbumEditionRepository(),
       song = _FakeSongRepository(),
+      credit = _FakeSongArtistCreditRepository(),
       artwork = _FakeArtworkRepository(),
       localSync = _FakeLocalSyncRepository() {
     context = SyncMutationContext(
@@ -247,6 +249,7 @@ class _TestContextBundle {
       albumRepository: album,
       albumEditionRepository: edition,
       songRepository: song,
+      songArtistCreditRepository: credit,
       artworkAssetRepository: artwork,
       localSyncRepository: localSync,
     );
@@ -256,6 +259,7 @@ class _TestContextBundle {
   final _FakeAlbumRepository album;
   final _FakeAlbumEditionRepository edition;
   final _FakeSongRepository song;
+  final _FakeSongArtistCreditRepository credit;
   final _FakeArtworkRepository artwork;
   final _FakeLocalSyncRepository localSync;
 
@@ -346,6 +350,11 @@ class _FakeSongRepository implements SongRepository {
     saved = song;
   }
 
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _FakeSongArtistCreditRepository implements SongArtistCreditRepository {
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

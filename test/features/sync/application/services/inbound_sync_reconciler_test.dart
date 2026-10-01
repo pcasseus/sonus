@@ -5,6 +5,7 @@ import 'package:sonus_next/features/library/domain/repositories/album_edition_re
 import 'package:sonus_next/features/library/domain/repositories/album_repository.dart';
 import 'package:sonus_next/features/library/domain/repositories/artist_repository.dart';
 import 'package:sonus_next/features/library/domain/repositories/song_repository.dart';
+import 'package:sonus_next/features/library/domain/repositories/song_artist_credit_repository.dart';
 import 'package:sonus_next/features/sync/application/repositories/local_sync_repository.dart';
 import 'package:sonus_next/features/sync/application/services/cloud_sync_reader.dart';
 import 'package:sonus_next/features/sync/application/services/inbound_sync_reconciler.dart';
@@ -633,12 +634,14 @@ class _Bundle {
       album = _FakeAlbumRepository(),
       edition = _FakeAlbumEditionRepository(),
       song = _FakeSongRepository(),
+      credit = _FakeSongArtistCreditRepository(),
       artwork = _FakeArtworkRepository() {
     final context = SyncMutationContext(
       artistRepository: artist,
       albumRepository: album,
       albumEditionRepository: edition,
       songRepository: song,
+      songArtistCreditRepository: credit,
       artworkAssetRepository: artwork,
       localSyncRepository: transactionSync,
     );
@@ -660,6 +663,7 @@ class _Bundle {
   final _FakeAlbumRepository album;
   final _FakeAlbumEditionRepository edition;
   final _FakeSongRepository song;
+  final _FakeSongArtistCreditRepository credit;
   final _FakeArtworkRepository artwork;
 
   late final _FakeSyncMutationRunner runner;
@@ -773,6 +777,11 @@ class _FakeAlbumEditionRepository implements AlbumEditionRepository {
 }
 
 class _FakeSongRepository implements SongRepository {
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _FakeSongArtistCreditRepository implements SongArtistCreditRepository {
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

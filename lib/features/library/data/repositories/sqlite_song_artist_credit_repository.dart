@@ -23,6 +23,11 @@ class SqliteSongArtistCreditRepository implements SongArtistCreditRepository {
   }
 
   @override
+  Future<void> deleteBySongId(String songId) {
+    return dao.deleteBySongId(songId);
+  }
+
+  @override
   Future<SongArtistCredit?> getById(String id) {
     return dao.findById(id);
   }

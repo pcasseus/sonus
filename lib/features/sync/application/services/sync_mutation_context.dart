@@ -3,6 +3,7 @@ import '../../../library/domain/repositories/album_edition_repository.dart';
 import '../../../library/domain/repositories/album_repository.dart';
 import '../../../library/domain/repositories/artist_repository.dart';
 import '../../../library/domain/repositories/song_repository.dart';
+import '../../../library/domain/repositories/song_artist_credit_repository.dart';
 import '../../../playlists/domain/repositories/playlist_repository.dart';
 import '../repositories/local_sync_repository.dart';
 
@@ -12,6 +13,7 @@ class SyncMutationContext {
     required this.albumRepository,
     required this.albumEditionRepository,
     required this.songRepository,
+    required this.songArtistCreditRepository,
     required this.artworkAssetRepository,
     required this.localSyncRepository,
     this.playlistRepository,
@@ -21,6 +23,7 @@ class SyncMutationContext {
   final AlbumRepository albumRepository;
   final AlbumEditionRepository albumEditionRepository;
   final SongRepository songRepository;
+  final SongArtistCreditRepository songArtistCreditRepository;
   final ArtworkAssetRepository artworkAssetRepository;
   final LocalSyncRepository localSyncRepository;
   final PlaylistRepository? playlistRepository;

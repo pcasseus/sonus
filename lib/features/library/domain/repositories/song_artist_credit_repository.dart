@@ -7,6 +7,8 @@ abstract interface class SongArtistCreditRepository {
 
   Future<void> delete(String id);
 
+  Future<void> deleteBySongId(String songId);
+
   Future<SongArtistCredit?> getById(String id);
 
   Future<List<SongArtistCredit>> getBySongId(String songId);
