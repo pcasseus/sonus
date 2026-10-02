@@ -347,10 +347,57 @@ abstract final class DatabaseMigrations {
           'ADD COLUMN review_payload TEXT',
         );
         return;
+      case 23:
+        await LibrarySchema.createAlbumEditionTracks(db);
+        await _backfillAlbumEditionTracks(db);
+        return;
+
       default:
         throw UnsupportedError(
           'No Sonus database migration exists for version $targetVersion.',
         );
+    }
+  }
+
+  static Future<void> _backfillAlbumEditionTracks(Database db) async {
+    final songs = await db.query(
+      DatabaseTables.songs,
+      columns: [
+        'id',
+        'album_edition_id',
+        'disc_number',
+        'track_number',
+        'created_at',
+        'updated_at',
+      ],
+      orderBy:
+          'album_edition_id ASC, '
+          'disc_number ASC, '
+          'track_number ASC, '
+          'title COLLATE NOCASE ASC, '
+          'id ASC',
+    );
+
+    String? currentEditionId;
+    var sortPosition = 0;
+
+    for (final row in songs) {
+      final editionId = row['album_edition_id'] as String;
+
+      if (editionId != currentEditionId) {
+        currentEditionId = editionId;
+        sortPosition = 0;
+      }
+
+      await db.insert(DatabaseTables.albumEditionTracks, {
+        'album_edition_id': editionId,
+        'song_id': row['id'] as String,
+        'disc_number': row['disc_number'] as int? ?? 1,
+        'track_number': row['track_number'] as int? ?? 0,
+        'sort_position': sortPosition++,
+        'created_at': row['created_at'] as String,
+        'updated_at': row['updated_at'] as String,
+      });
     }
   }
 

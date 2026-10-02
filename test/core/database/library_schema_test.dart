@@ -34,6 +34,7 @@ void main() {
     expect(names, contains(DatabaseTables.artists));
     expect(names, contains(DatabaseTables.albums));
     expect(names, contains(DatabaseTables.albumEditions));
+    expect(names, contains(DatabaseTables.albumEditionTracks));
     expect(names, contains(DatabaseTables.songs));
     expect(names, contains(DatabaseTables.mediaFileBindings));
     expect(names, contains(DatabaseTables.importBatches));

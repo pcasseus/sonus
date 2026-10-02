@@ -9,6 +9,7 @@ abstract final class LibrarySchema {
     await _createAlbums(db);
     await _createAlbumEditions(db);
     await _createSongs(db);
+    await createAlbumEditionTracks(db);
     await createSongArtistCredits(db);
     await _createMediaFileBindings(db);
     await _createIndexes(db);
@@ -131,6 +132,50 @@ abstract final class LibrarySchema {
         ON DELETE SET NULL
     )
   ''');
+  }
+
+  static Future<void> createAlbumEditionTracks(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE ${DatabaseTables.albumEditionTracks} (
+        album_edition_id TEXT NOT NULL,
+        song_id TEXT NOT NULL,
+        disc_number INTEGER NOT NULL DEFAULT 1
+          CHECK (disc_number >= 0),
+        track_number INTEGER NOT NULL DEFAULT 0
+          CHECK (track_number >= 0),
+        sort_position INTEGER NOT NULL
+          CHECK (sort_position >= 0),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+
+        PRIMARY KEY (album_edition_id, song_id),
+
+        FOREIGN KEY (album_edition_id)
+          REFERENCES ${DatabaseTables.albumEditions}(id)
+          ON UPDATE CASCADE
+          ON DELETE CASCADE,
+
+        FOREIGN KEY (song_id)
+          REFERENCES ${DatabaseTables.songs}(id)
+          ON UPDATE CASCADE
+          ON DELETE CASCADE
+      )
+    ''');
+
+    await db.execute('''
+      CREATE INDEX idx_album_edition_tracks_edition_order
+      ON ${DatabaseTables.albumEditionTracks}(
+        album_edition_id,
+        sort_position,
+        disc_number,
+        track_number
+      )
+    ''');
+
+    await db.execute('''
+      CREATE INDEX idx_album_edition_tracks_song_id
+      ON ${DatabaseTables.albumEditionTracks}(song_id)
+    ''');
   }
 
   static Future<void> createSongArtistCredits(DatabaseExecutor db) async {
