@@ -194,13 +194,6 @@ class TrackProfileEditingService {
       );
 
       final membershipRepository = context.albumEditionTrackRepository;
-
-      if (membershipRepository == null) {
-        throw StateError(
-          'Album edition track repository is unavailable for track editing.',
-        );
-      }
-
       await _persistCompatibilityMembership(
         membershipRepository: membershipRepository,
         originalSong: song,

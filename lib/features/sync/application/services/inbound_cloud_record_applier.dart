@@ -1,5 +1,7 @@
 import '../../../library/domain/entities/album.dart';
 import '../../../library/domain/entities/album_edition.dart';
+import '../../../library/domain/repositories/album_edition_track_repository.dart';
+import '../../../library/domain/entities/album_edition_track.dart';
 import '../../../library/domain/entities/artist.dart';
 import '../../../library/domain/entities/song.dart';
 import '../../domain/models/cloud_records.dart';
@@ -145,10 +147,97 @@ class InboundCloudRecordApplier {
 
     if (existing == null) {
       await context.songRepository.create(entity);
+    } else {
+      await context.songRepository.save(entity);
+    }
+
+    final membershipRepository = context.albumEditionTrackRepository;
+
+    await _reconcileSongCompatibilityMembership(
+      membershipRepository: membershipRepository,
+      previousSong: existing,
+      incomingSong: entity,
+    );
+  }
+
+  Future<void> _reconcileSongCompatibilityMembership({
+    required AlbumEditionTrackRepository membershipRepository,
+    required Song? previousSong,
+    required Song incomingSong,
+  }) async {
+    final targetMemberships = await membershipRepository.getByEditionId(
+      incomingSong.albumEditionId,
+    );
+
+    AlbumEditionTrack? targetMembership;
+
+    for (final membership in targetMemberships) {
+      if (membership.songId == incomingSong.id) {
+        targetMembership = membership;
+        break;
+      }
+    }
+
+    if (targetMembership == null) {
+      final nextSortPosition = targetMemberships.isEmpty
+          ? 0
+          : targetMemberships
+                    .map((membership) => membership.sortPosition)
+                    .reduce((left, right) => left > right ? left : right) +
+                1;
+
+      await membershipRepository.create(
+        AlbumEditionTrack(
+          albumEditionId: incomingSong.albumEditionId,
+          songId: incomingSong.id,
+          discNumber: incomingSong.discNumber,
+          trackNumber: incomingSong.trackNumber,
+          sortPosition: nextSortPosition,
+          createdAt: incomingSong.createdAt,
+          updatedAt: incomingSong.updatedAt,
+        ),
+      );
+    } else {
+      final placementChanged =
+          targetMembership.discNumber != incomingSong.discNumber ||
+          targetMembership.trackNumber != incomingSong.trackNumber;
+
+      if (placementChanged) {
+        await membershipRepository.save(
+          targetMembership.copyWith(
+            discNumber: incomingSong.discNumber,
+            trackNumber: incomingSong.trackNumber,
+            updatedAt: incomingSong.updatedAt,
+          ),
+        );
+      }
+    }
+
+    if (previousSong == null) {
       return;
     }
 
-    await context.songRepository.save(entity);
+    final albumChanged = previousSong.albumId != incomingSong.albumId;
+
+    if (!albumChanged ||
+        previousSong.albumEditionId == incomingSong.albumEditionId) {
+      return;
+    }
+
+    final previousMemberships = await membershipRepository.getByEditionId(
+      previousSong.albumEditionId,
+    );
+
+    final hadPreviousCompatibilityMembership = previousMemberships.any(
+      (membership) => membership.songId == incomingSong.id,
+    );
+
+    if (hadPreviousCompatibilityMembership) {
+      await membershipRepository.delete(
+        editionId: previousSong.albumEditionId,
+        songId: incomingSong.id,
+      );
+    }
   }
 
   AlbumEditionType _albumEditionType(String value) {

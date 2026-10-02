@@ -2,6 +2,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sonus_next/features/artwork/domain/repositories/artwork_asset_repository.dart';
 import 'package:sonus_next/features/library/domain/entities/artist.dart';
 import 'package:sonus_next/features/library/domain/repositories/album_edition_repository.dart';
+import 'package:sonus_next/features/library/domain/repositories/album_edition_track_repository.dart';
+import 'package:sonus_next/features/library/domain/entities/album_edition_track.dart';
 import 'package:sonus_next/features/library/domain/repositories/album_repository.dart';
 import 'package:sonus_next/features/library/domain/repositories/artist_repository.dart';
 import 'package:sonus_next/features/library/domain/repositories/song_repository.dart';
@@ -633,6 +635,7 @@ class _Bundle {
       artist = _FakeArtistRepository(),
       album = _FakeAlbumRepository(),
       edition = _FakeAlbumEditionRepository(),
+      membership = _FakeAlbumEditionTrackRepository(),
       song = _FakeSongRepository(),
       credit = _FakeSongArtistCreditRepository(),
       artwork = _FakeArtworkRepository() {
@@ -640,6 +643,7 @@ class _Bundle {
       artistRepository: artist,
       albumRepository: album,
       albumEditionRepository: edition,
+      albumEditionTrackRepository: membership,
       songRepository: song,
       songArtistCreditRepository: credit,
       artworkAssetRepository: artwork,
@@ -662,6 +666,7 @@ class _Bundle {
   final _FakeArtistRepository artist;
   final _FakeAlbumRepository album;
   final _FakeAlbumEditionRepository edition;
+  final _FakeAlbumEditionTrackRepository membership;
   final _FakeSongRepository song;
   final _FakeSongArtistCreditRepository credit;
   final _FakeArtworkRepository artwork;
@@ -774,6 +779,53 @@ class _FakeAlbumRepository implements AlbumRepository {
 class _FakeAlbumEditionRepository implements AlbumEditionRepository {
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _FakeAlbumEditionTrackRepository implements AlbumEditionTrackRepository {
+  final List<AlbumEditionTrack> memberships = <AlbumEditionTrack>[];
+
+  @override
+  Future<void> create(AlbumEditionTrack membership) async {
+    memberships.add(membership);
+  }
+
+  @override
+  Future<void> save(AlbumEditionTrack membership) async {
+    final index = memberships.indexWhere((existing) => existing == membership);
+
+    if (index < 0) {
+      throw StateError('Membership not found.');
+    }
+
+    memberships[index] = membership;
+  }
+
+  @override
+  Future<List<AlbumEditionTrack>> getByEditionId(String editionId) async {
+    return [
+      for (final membership in memberships)
+        if (membership.albumEditionId == editionId) membership,
+    ];
+  }
+
+  @override
+  Future<List<AlbumEditionTrack>> getBySongId(String songId) async {
+    return [
+      for (final membership in memberships)
+        if (membership.songId == songId) membership,
+    ];
+  }
+
+  @override
+  Future<void> delete({
+    required String editionId,
+    required String songId,
+  }) async {
+    memberships.removeWhere(
+      (membership) =>
+          membership.albumEditionId == editionId && membership.songId == songId,
+    );
+  }
 }
 
 class _FakeSongRepository implements SongRepository {

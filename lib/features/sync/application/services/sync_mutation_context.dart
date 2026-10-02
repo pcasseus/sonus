@@ -13,7 +13,7 @@ class SyncMutationContext {
     required this.artistRepository,
     required this.albumRepository,
     required this.albumEditionRepository,
-    this.albumEditionTrackRepository,
+    required this.albumEditionTrackRepository,
     required this.songRepository,
     required this.songArtistCreditRepository,
     required this.artworkAssetRepository,
@@ -24,7 +24,7 @@ class SyncMutationContext {
   final ArtistRepository artistRepository;
   final AlbumRepository albumRepository;
   final AlbumEditionRepository albumEditionRepository;
-  final AlbumEditionTrackRepository? albumEditionTrackRepository;
+  final AlbumEditionTrackRepository albumEditionTrackRepository;
   final SongRepository songRepository;
   final SongArtistCreditRepository songArtistCreditRepository;
   final ArtworkAssetRepository artworkAssetRepository;
