@@ -268,6 +268,13 @@ class AtomicLibraryImporter {
                 artistRepository: artistRepository,
                 songRepository: songRepository,
                 songArtistCreditRepository: songArtistCreditRepository,
+                onArtistCreated: syncUserId == null || syncUserId.isEmpty
+                    ? null
+                    : (artistId) => localSyncRepository.recordUpsert(
+                        userId: syncUserId,
+                        entityType: CloudDataEntity.artist,
+                        entityId: artistId,
+                      ),
                 songId: song.id,
                 primaryArtistId: artist.id,
                 additionalCredits: [

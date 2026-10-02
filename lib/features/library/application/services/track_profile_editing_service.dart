@@ -166,23 +166,23 @@ class TrackProfileEditingService {
       );
       final structuredCredits =
           await SongArtistCreditService.replaceCreditsInContext(
-        context: context,
-        songId: updated.id,
-        primaryArtistId: targetArtistId,
-        additionalCredits: [
-          for (final featuredArtist in normalizedFeaturedArtists)
-            SongArtistCreditInput(
-              creditedName: featuredArtist,
-              role: SongArtistCreditRole.featured,
-            ),
-        ],
-        now: timestamp,
-      );
+            context: context,
+            userId: normalizedUserId,
+            songId: updated.id,
+            primaryArtistId: targetArtistId,
+            additionalCredits: [
+              for (final featuredArtist in normalizedFeaturedArtists)
+                SongArtistCreditInput(
+                  creditedName: featuredArtist,
+                  role: SongArtistCreditRole.featured,
+                ),
+            ],
+            now: timestamp,
+          );
 
       final authoritativeFeaturedArtists = [
         for (final credit in structuredCredits)
-          if (credit.role == SongArtistCreditRole.featured)
-            credit.creditedName,
+          if (credit.role == SongArtistCreditRole.featured) credit.creditedName,
       ];
 
       final persisted = updated.copyWith(

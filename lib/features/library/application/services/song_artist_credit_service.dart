@@ -1,5 +1,6 @@
 import '../../../../core/identity/entity_id.dart';
 import '../../../../core/identity/text_normalizer.dart';
+import '../../domain/entities/entity_factory.dart';
 import '../../../sync/application/services/sync_mutation_context.dart';
 import '../../../sync/application/services/sync_mutation_runner.dart';
 import '../../../sync/domain/models/sync_data_contract.dart';
@@ -59,6 +60,7 @@ class SongArtistCreditService {
 
       final credits = await replaceCreditsInContext(
         context: context,
+        userId: normalizedUserId,
         songId: normalizedSongId,
         primaryArtistId: normalizedPrimaryArtistId,
         additionalCredits: additionalCredits,
@@ -96,6 +98,7 @@ class SongArtistCreditService {
 
   static Future<List<SongArtistCredit>> replaceCreditsInContext({
     required SyncMutationContext context,
+    required String? userId,
     required String songId,
     required String primaryArtistId,
     required Iterable<SongArtistCreditInput> additionalCredits,
@@ -105,6 +108,11 @@ class SongArtistCreditService {
       artistRepository: context.artistRepository,
       songRepository: context.songRepository,
       songArtistCreditRepository: context.songArtistCreditRepository,
+      onArtistCreated: (artistId) => context.localSyncRepository.recordUpsert(
+        userId: userId,
+        entityType: CloudDataEntity.artist,
+        entityId: artistId,
+      ),
       songId: songId,
       primaryArtistId: primaryArtistId,
       additionalCredits: additionalCredits,
@@ -119,6 +127,7 @@ class SongArtistCreditService {
     required String songId,
     required String primaryArtistId,
     required Iterable<SongArtistCreditInput> additionalCredits,
+    Future<void> Function(String artistId)? onArtistCreated,
     DateTime? now,
   }) async {
     final normalizedSongId = songId.trim();
@@ -211,6 +220,27 @@ class SongArtistCreditService {
 
         if (matches.length == 1) {
           linkedArtistId = matches.single;
+        } else if (input.role == SongArtistCreditRole.coPrimary) {
+          if (matches.length > 1) {
+            throw StateError(
+              'Co-primary artist identity is ambiguous: $creditedName',
+            );
+          }
+
+          final createdArtist = EntityFactory.createArtist(
+            name: creditedName,
+            now: timestamp,
+          );
+
+          await artistRepository.create(createdArtist);
+
+          artistsByCanonicalName
+              .putIfAbsent(canonicalName, () => <String>[])
+              .add(createdArtist.id);
+
+          linkedArtistId = createdArtist.id;
+
+          await onArtistCreated?.call(createdArtist.id);
         }
       }
 
