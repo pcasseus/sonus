@@ -392,6 +392,220 @@ void main() {
       expect(pending, isEmpty);
     },
   );
+  test('single-disc auto-renumber follows dragged visual order', () async {
+    final fixture = await createFixture();
+
+    final result = await service.reorderEdition(
+      albumEditionId: fixture.standardEdition.id,
+      orderedSongIds: [fixture.songC.id, fixture.songA.id, fixture.songB.id],
+      userId: ' user_1 ',
+      autoRenumber: true,
+      now: mutationTime,
+    );
+
+    expect(result.changed, isTrue);
+
+    final db = await appDatabase.database;
+
+    final memberships = await AlbumEditionTrackDao(
+      db,
+    ).findByEditionId(fixture.standardEdition.id);
+
+    expect(memberships.map((membership) => membership.songId), [
+      fixture.songC.id,
+      fixture.songA.id,
+      fixture.songB.id,
+    ]);
+
+    expect(memberships.map((membership) => membership.sortPosition), [0, 1, 2]);
+
+    expect(memberships.map((membership) => membership.discNumber), [1, 1, 1]);
+
+    expect(memberships.map((membership) => membership.trackNumber), [1, 2, 3]);
+
+    for (final membership in memberships) {
+      expect(membership.orderingAuthority, AlbumEditionTrackAuthority.manual);
+      expect(membership.numberingAuthority, AlbumEditionTrackAuthority.manual);
+      expect(membership.updatedAt, mutationTime);
+    }
+
+    final storedC = await SongDao(db).findById(fixture.songC.id);
+    final storedA = await SongDao(db).findById(fixture.songA.id);
+    final storedB = await SongDao(db).findById(fixture.songB.id);
+
+    expect(storedC!.discNumber, 1);
+    expect(storedC.trackNumber, 1);
+
+    expect(storedA!.discNumber, 1);
+    expect(storedA.trackNumber, 2);
+
+    expect(storedB!.discNumber, 1);
+    expect(storedB.trackNumber, 3);
+
+    final pending = await LocalSyncDao(db).findPending('user_1');
+
+    expect(pending, hasLength(3));
+    expect(pending.map((mutation) => mutation.entityType).toSet(), {
+      CloudDataEntity.song,
+    });
+    expect(pending.map((mutation) => mutation.entityId).toSet(), {
+      fixture.songA.id,
+      fixture.songB.id,
+      fixture.songC.id,
+    });
+  });
+
+  test(
+    'multi-disc auto-renumber preserves disc assignment and numbers within each disc',
+    () async {
+      final fixture = await createFixture();
+      final db = await appDatabase.database;
+      final membershipDao = AlbumEditionTrackDao(db);
+
+      await membershipDao.insert(
+        AlbumEditionTrack(
+          albumEditionId: fixture.deluxeEdition.id,
+          songId: fixture.songB.id,
+          discNumber: 1,
+          trackNumber: 50,
+          sortPosition: 8,
+          createdAt: originalTime,
+          updatedAt: originalTime,
+        ),
+      );
+
+      await membershipDao.insert(
+        AlbumEditionTrack(
+          albumEditionId: fixture.deluxeEdition.id,
+          songId: fixture.songC.id,
+          discNumber: 2,
+          trackNumber: 40,
+          sortPosition: 9,
+          createdAt: originalTime,
+          updatedAt: originalTime,
+        ),
+      );
+
+      final result = await service.reorderEdition(
+        albumEditionId: fixture.deluxeEdition.id,
+        orderedSongIds: [fixture.songB.id, fixture.songA.id, fixture.songC.id],
+        userId: 'user_1',
+        autoRenumber: true,
+        now: mutationTime,
+      );
+
+      expect(result.changed, isTrue);
+
+      final memberships = await membershipDao.findByEditionId(
+        fixture.deluxeEdition.id,
+      );
+
+      expect(memberships.map((membership) => membership.songId), [
+        fixture.songB.id,
+        fixture.songA.id,
+        fixture.songC.id,
+      ]);
+
+      expect(memberships.map((membership) => membership.sortPosition), [
+        0,
+        1,
+        2,
+      ]);
+
+      final songBMembership = memberships.singleWhere(
+        (membership) => membership.songId == fixture.songB.id,
+      );
+
+      final songAMembership = memberships.singleWhere(
+        (membership) => membership.songId == fixture.songA.id,
+      );
+
+      final songCMembership = memberships.singleWhere(
+        (membership) => membership.songId == fixture.songC.id,
+      );
+
+      // Existing disc assignments survive the drag.
+      expect(songBMembership.discNumber, 1);
+      expect(songAMembership.discNumber, 2);
+      expect(songCMembership.discNumber, 2);
+
+      // Number independently inside each disc.
+      expect(songBMembership.trackNumber, 1);
+      expect(songAMembership.trackNumber, 1);
+      expect(songCMembership.trackNumber, 2);
+
+      for (final membership in memberships) {
+        expect(membership.orderingAuthority, AlbumEditionTrackAuthority.manual);
+        expect(
+          membership.numberingAuthority,
+          AlbumEditionTrackAuthority.manual,
+        );
+      }
+
+      // Deluxe is not these Songs' compatibility edition, so their
+      // Standard compatibility projections must remain untouched.
+      final storedA = await SongDao(db).findById(fixture.songA.id);
+      final storedB = await SongDao(db).findById(fixture.songB.id);
+      final storedC = await SongDao(db).findById(fixture.songC.id);
+
+      expect(storedA!.albumEditionId, fixture.standardEdition.id);
+      expect(storedA.discNumber, fixture.songA.discNumber);
+      expect(storedA.trackNumber, fixture.songA.trackNumber);
+
+      expect(storedB!.albumEditionId, fixture.standardEdition.id);
+      expect(storedB.discNumber, fixture.songB.discNumber);
+      expect(storedB.trackNumber, fixture.songB.trackNumber);
+
+      expect(storedC!.albumEditionId, fixture.standardEdition.id);
+      expect(storedC.discNumber, fixture.songC.discNumber);
+      expect(storedC.trackNumber, fixture.songC.trackNumber);
+
+      final pending = await LocalSyncDao(db).findPending('user_1');
+      expect(pending, isEmpty);
+    },
+  );
+
+  test(
+    'explicit auto-renumber locks numbering authority even when numbers already match',
+    () async {
+      final fixture = await createFixture();
+
+      final result = await service.reorderEdition(
+        albumEditionId: fixture.standardEdition.id,
+        orderedSongIds: [fixture.songA.id, fixture.songB.id, fixture.songC.id],
+        userId: 'user_1',
+        autoRenumber: true,
+        now: mutationTime,
+      );
+
+      expect(result.changed, isTrue);
+
+      final db = await appDatabase.database;
+
+      final memberships = await AlbumEditionTrackDao(
+        db,
+      ).findByEditionId(fixture.standardEdition.id);
+
+      expect(memberships.map((membership) => membership.trackNumber), [
+        1,
+        2,
+        3,
+      ]);
+
+      for (final membership in memberships) {
+        expect(
+          membership.numberingAuthority,
+          AlbumEditionTrackAuthority.manual,
+        );
+        expect(membership.orderingAuthority, AlbumEditionTrackAuthority.manual);
+      }
+
+      // Track numbers were already 1/2/3, so the Song projection
+      // itself did not need to change or generate cloud mutations.
+      final pending = await LocalSyncDao(db).findPending('user_1');
+      expect(pending, isEmpty);
+    },
+  );
 }
 
 class _Fixture {

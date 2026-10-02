@@ -32,8 +32,11 @@ class AlbumEditionTrackOrderingService {
   Future<AlbumEditionReorderResult> reorderEdition({
     required String albumEditionId,
     required List<String> orderedSongIds,
+    String? userId,
+    bool autoRenumber = false,
     DateTime? now,
   }) {
+    final normalizedUserId = userId?.trim();
     final normalizedEditionId = albumEditionId.trim();
 
     if (normalizedEditionId.isEmpty) {
@@ -104,18 +107,35 @@ class AlbumEditionTrackOrderingService {
 
       var changed = false;
       final reordered = <AlbumEditionTrack>[];
+      final nextTrackNumberByDisc = <int, int>{};
 
       for (var index = 0; index < normalizedSongIds.length; index++) {
         final songId = normalizedSongIds[index];
         final membership = bySongId[songId]!;
 
+        final targetTrackNumber = autoRenumber
+            ? nextTrackNumberByDisc.update(
+                membership.discNumber,
+                (current) => current + 1,
+                ifAbsent: () => 1,
+              )
+            : membership.trackNumber;
+
+        final targetNumberingAuthority = autoRenumber
+            ? AlbumEditionTrackAuthority.manual
+            : membership.numberingAuthority;
+
         final membershipChanged =
             membership.sortPosition != index ||
-            membership.orderingAuthority != AlbumEditionTrackAuthority.manual;
+            membership.orderingAuthority != AlbumEditionTrackAuthority.manual ||
+            membership.trackNumber != targetTrackNumber ||
+            membership.numberingAuthority != targetNumberingAuthority;
 
         final updatedMembership = membershipChanged
             ? membership.copyWith(
+                trackNumber: targetTrackNumber,
                 sortPosition: index,
+                numberingAuthority: targetNumberingAuthority,
                 orderingAuthority: AlbumEditionTrackAuthority.manual,
                 updatedAt: timestamp,
               )
@@ -124,6 +144,46 @@ class AlbumEditionTrackOrderingService {
         if (membershipChanged) {
           await context.albumEditionTrackRepository.save(updatedMembership);
           changed = true;
+        }
+
+        if (autoRenumber) {
+          final song = await context.songRepository.getById(songId);
+
+          if (song == null) {
+            throw StateError('Song not found: $songId');
+          }
+
+          if (song.albumId != edition.albumId) {
+            throw StateError(
+              'Song $songId does not belong to album ${edition.albumId}.',
+            );
+          }
+
+          final isCompatibilityEdition =
+              song.albumEditionId == normalizedEditionId;
+
+          final compatibilityPlacementChanged =
+              isCompatibilityEdition &&
+              (song.discNumber != updatedMembership.discNumber ||
+                  song.trackNumber != updatedMembership.trackNumber);
+
+          if (compatibilityPlacementChanged) {
+            final updatedSong = song.copyWith(
+              discNumber: updatedMembership.discNumber,
+              trackNumber: updatedMembership.trackNumber,
+              updatedAt: timestamp,
+            );
+
+            await context.songRepository.save(updatedSong);
+
+            await context.localSyncRepository.recordUpsert(
+              userId: normalizedUserId,
+              entityType: CloudDataEntity.song,
+              entityId: updatedSong.id,
+            );
+
+            changed = true;
+          }
         }
 
         reordered.add(updatedMembership);
