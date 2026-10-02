@@ -19,6 +19,7 @@ import '../../application/services/song_block_service.dart';
 import '../../domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/application/services/track_profile_editing_service.dart';
 import '../controllers/album_profile_controller.dart';
+import 'album_studio_page.dart';
 import '../widgets/album_profile_edit_dialog.dart';
 import '../widgets/track_profile_edit_dialog.dart';
 
@@ -104,12 +105,23 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
                   key: const ValueKey<String>('album-profile-artwork-menu'),
                   enabled:
                       controller.canEditArtwork ||
-                      controller.canEditAlbumProfile(userId),
+                      controller.canEditAlbumProfile(userId) ||
+                      controller.canEditAlbumStudio(userId),
                   tooltip: 'Album actions',
                   onSelected: (action) {
                     unawaited(_handleAlbumAction(controller, action, userId));
                   },
                   itemBuilder: (context) => [
+                    PopupMenuItem(
+                      value: _AlbumMenuAction.studio,
+                      enabled: controller.canEditAlbumStudio(userId),
+                      child: const ListTile(
+                        leading: Icon(Icons.tune_rounded),
+                        title: Text('Album Studio'),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                    ),
+                    const PopupMenuDivider(),
                     PopupMenuItem(
                       value: _AlbumMenuAction.editProfile,
                       enabled: controller.canEditAlbumProfile(userId),
@@ -223,12 +235,33 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
     _AlbumMenuAction action,
     String? userId,
   ) async {
+    if (action == _AlbumMenuAction.studio) {
+      await _openAlbumStudio(controller, userId);
+      return;
+    }
     if (action == _AlbumMenuAction.editProfile) {
       await _editAlbumProfile(controller, userId);
       return;
     }
 
     await _handleArtworkAction(controller, action);
+  }
+
+  Future<void> _openAlbumStudio(
+    AlbumProfileController controller,
+    String? userId,
+  ) async {
+    if (!controller.canEditAlbumStudio(userId)) {
+      return;
+    }
+
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (routeContext) {
+          return AlbumStudioPage(controller: controller, userId: userId);
+        },
+      ),
+    );
   }
 
   Future<void> _editAlbumProfile(
@@ -296,6 +329,7 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
   ) async {
     try {
       final changed = switch (action) {
+        _AlbumMenuAction.studio => false,
         _AlbumMenuAction.editProfile => false,
         _AlbumMenuAction.changeArtwork => await controller.changeArtwork(),
         _AlbumMenuAction.clearArtwork => await controller.clearArtwork(),
@@ -306,6 +340,7 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
       }
 
       final message = switch (action) {
+        _AlbumMenuAction.studio => '',
         _AlbumMenuAction.editProfile => '',
         _AlbumMenuAction.changeArtwork => 'Album artwork updated.',
         _AlbumMenuAction.clearArtwork => 'Album artwork cleared.',
@@ -1120,7 +1155,7 @@ class _TrackTile extends StatelessWidget {
   }
 }
 
-enum _AlbumMenuAction { editProfile, changeArtwork, clearArtwork }
+enum _AlbumMenuAction { studio, editProfile, changeArtwork, clearArtwork }
 
 enum _TrackMenuAction {
   playNext,

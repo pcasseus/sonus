@@ -8,6 +8,7 @@ import 'package:sonus_next/features/account/domain/repositories/account_reposito
 import 'package:provider/provider.dart';
 
 import 'package:sonus_next/features/library/application/services/album_profile_editing_service.dart';
+import 'package:sonus_next/features/library/application/services/album_edition_track_ordering_service.dart';
 import 'package:sonus_next/features/library/application/services/song_block_service.dart';
 import 'package:sonus_next/features/library/application/services/track_profile_editing_service.dart';
 import 'package:sonus_next/features/library/domain/entities/album.dart';
@@ -19,6 +20,7 @@ import 'package:sonus_next/features/library/application/models/library_track.dar
 import 'package:sonus_next/features/library/application/models/library_track_order.dart';
 import 'package:sonus_next/features/library/application/repositories/library_query_repository.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
+import 'package:sonus_next/features/library/domain/entities/album_edition_track.dart';
 import 'package:sonus_next/features/library/domain/entities/song.dart';
 import 'package:sonus_next/features/library/presentation/pages/album_profile_page.dart';
 import 'package:sonus_next/features/player/application/controllers/playback_coordinator.dart';
@@ -1022,6 +1024,267 @@ void main() {
         expect(find.text('Removed from blacklist.'), findsOneWidget);
       },
     );
+
+    testWidgets(
+      'Album Studio opens and single-disc placement hides disc by default',
+      (tester) async {
+        final repository = FakeEditionAwareLibraryQueryRepository(
+          album: createAlbum(
+            primaryEditionId: 'edition-standard',
+            primaryEditionTitle: 'Standard',
+          ),
+          editions: [
+            createLibraryEdition(
+              editionId: 'edition-standard',
+              title: 'Standard',
+              type: AlbumEditionType.standard,
+              isPrimary: true,
+            ),
+          ],
+          editionTracks: {
+            'edition-standard': [
+              createTrack(
+                songId: 'studio-song',
+                title: 'Studio Song',
+                albumEditionId: 'edition-standard',
+                albumEditionTitle: 'Standard',
+                trackNumber: 2,
+                discNumber: 1,
+              ),
+            ],
+          },
+        );
+
+        final service = FakeAlbumEditionTrackOrderingService();
+
+        await tester.pumpWidget(
+          buildSubject(
+            repository: repository,
+            albumEditionTrackOrderingService: service,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(
+          find.byKey(const ValueKey<String>('album-profile-artwork-menu')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('Album Studio'), findsOneWidget);
+
+        await tester.tap(find.text('Album Studio'));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const ValueKey<String>('album-studio-page')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey<String>('album-studio-track-studio-song')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(
+            const ValueKey<String>('album-studio-placement-studio-song'),
+          ),
+          findsOneWidget,
+        );
+        expect(find.text('Track 2'), findsOneWidget);
+        expect(find.textContaining('Disc 1'), findsNothing);
+
+        await tester.tap(
+          find.byKey(
+            const ValueKey<String>('album-studio-edit-placement-studio-song'),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const ValueKey<String>('album-studio-track-number-field')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey<String>('album-studio-disc-number-field')),
+          findsNothing,
+        );
+        expect(find.text('Edit disc number'), findsOneWidget);
+
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('album-studio-track-number-field')),
+          '7',
+        );
+
+        await tester.tap(
+          find.byKey(const ValueKey<String>('album-studio-save-placement')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(service.placementCallCount, 1);
+        expect(service.lastEditionId, 'edition-standard');
+        expect(service.lastSongId, 'studio-song');
+        expect(service.lastDiscNumber, 1);
+        expect(service.lastTrackNumber, 7);
+      },
+    );
+
+    testWidgets('Album Studio edition selector swaps the editable track list', (
+      tester,
+    ) async {
+      final repository = FakeEditionAwareLibraryQueryRepository(
+        album: createAlbum(
+          title: 'Concept Album',
+          primaryEditionId: 'edition-standard',
+          primaryEditionTitle: 'Standard',
+        ),
+        editions: [
+          createLibraryEdition(
+            editionId: 'edition-standard',
+            title: 'Standard',
+            type: AlbumEditionType.standard,
+            isPrimary: true,
+          ),
+          createLibraryEdition(
+            editionId: 'edition-deluxe',
+            title: 'Deluxe',
+            type: AlbumEditionType.deluxe,
+          ),
+        ],
+        editionTracks: {
+          'edition-standard': [
+            createTrack(
+              songId: 'standard-studio-song',
+              title: 'Standard Studio Song',
+              albumEditionId: 'edition-standard',
+              albumEditionTitle: 'Standard',
+            ),
+          ],
+          'edition-deluxe': [
+            createTrack(
+              songId: 'deluxe-studio-song',
+              title: 'Deluxe Studio Song',
+              albumEditionId: 'edition-deluxe',
+              albumEditionTitle: 'Deluxe',
+              albumEditionType: AlbumEditionType.deluxe,
+            ),
+          ],
+        },
+      );
+
+      await tester.pumpWidget(
+        buildSubject(
+          repository: repository,
+          albumEditionTrackOrderingService:
+              FakeAlbumEditionTrackOrderingService(),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('album-profile-artwork-menu')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Album Studio'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Standard Studio Song'), findsOneWidget);
+      expect(find.text('Deluxe Studio Song'), findsNothing);
+
+      final selector = find.byKey(
+        const ValueKey<String>('album-studio-edition-selector'),
+      );
+
+      expect(selector, findsOneWidget);
+
+      await tester.tap(
+        find.descendant(of: selector, matching: find.text('Deluxe')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Standard Studio Song'), findsNothing);
+      expect(find.text('Deluxe Studio Song'), findsOneWidget);
+    });
+
+    testWidgets(
+      'Album Studio reorder forwards visual order and auto-renumber',
+      (tester) async {
+        final repository = FakeEditionAwareLibraryQueryRepository(
+          album: createAlbum(
+            primaryEditionId: 'edition-standard',
+            primaryEditionTitle: 'Standard',
+          ),
+          editions: [
+            createLibraryEdition(
+              editionId: 'edition-standard',
+              title: 'Standard',
+              type: AlbumEditionType.standard,
+              isPrimary: true,
+            ),
+          ],
+          editionTracks: {
+            'edition-standard': [
+              createTrack(
+                songId: 'song-a',
+                title: 'Song A',
+                albumEditionId: 'edition-standard',
+                trackNumber: 1,
+              ),
+              createTrack(
+                songId: 'song-b',
+                title: 'Song B',
+                albumEditionId: 'edition-standard',
+                trackNumber: 2,
+              ),
+              createTrack(
+                songId: 'song-c',
+                title: 'Song C',
+                albumEditionId: 'edition-standard',
+                trackNumber: 3,
+              ),
+            ],
+          },
+        );
+
+        final service = FakeAlbumEditionTrackOrderingService();
+
+        await tester.pumpWidget(
+          buildSubject(
+            repository: repository,
+            albumEditionTrackOrderingService: service,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(
+          find.byKey(const ValueKey<String>('album-profile-artwork-menu')),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Album Studio'));
+        await tester.pumpAndSettle();
+
+        final autoRenumberFinder = find.byKey(
+          const ValueKey<String>('album-studio-auto-renumber'),
+        );
+
+        await tester.tap(autoRenumberFinder);
+        await tester.pump();
+
+        expect(tester.widget<SwitchListTile>(autoRenumberFinder).value, isTrue);
+
+        final listFinder = find.byKey(
+          const ValueKey<String>('album-studio-track-list'),
+        );
+
+        final list = tester.widget<ReorderableListView>(listFinder);
+
+        list.onReorderItem!(0, 2);
+        await tester.pumpAndSettle();
+
+        expect(service.reorderCallCount, 1);
+        expect(service.lastEditionId, 'edition-standard');
+        expect(service.lastAutoRenumber, isTrue);
+        expect(service.lastOrderedSongIds, ['song-b', 'song-c', 'song-a']);
+      },
+    );
   });
 }
 
@@ -1030,29 +1293,31 @@ Widget buildSubject({
   PlaybackCoordinator? playbackCoordinator,
   AccountRepository? accountRepository,
   AlbumProfileEditingService? albumProfileEditingService,
+  AlbumEditionTrackOrderingService? albumEditionTrackOrderingService,
   TrackProfileEditingService? trackProfileEditingService,
   SongBlockService? songBlockService,
 }) {
-  return Provider<SongBlockService?>.value(
-    value: songBlockService,
-    child: Provider<LibraryQueryRepository?>.value(
-      value: repository,
-      child: Provider<PlaybackCoordinator?>.value(
-        value: playbackCoordinator,
-        child: Provider<AlbumProfileEditingService?>.value(
-          value: albumProfileEditingService,
-          child: Provider<TrackProfileEditingService?>.value(
-            value: trackProfileEditingService,
-            child: AccountScope(
-              repository: accountRepository,
-              child: const MaterialApp(
-                home: AlbumProfilePage(
-                  albumId: 'album-1',
-                  initialAlbumTitle: 'Test Album',
-                ),
-              ),
-            ),
-          ),
+  return MultiProvider(
+    providers: [
+      Provider<SongBlockService?>.value(value: songBlockService),
+      Provider<LibraryQueryRepository?>.value(value: repository),
+      Provider<PlaybackCoordinator?>.value(value: playbackCoordinator),
+      Provider<AlbumProfileEditingService?>.value(
+        value: albumProfileEditingService,
+      ),
+      Provider<AlbumEditionTrackOrderingService?>.value(
+        value: albumEditionTrackOrderingService,
+      ),
+      Provider<TrackProfileEditingService?>.value(
+        value: trackProfileEditingService,
+      ),
+    ],
+    child: AccountScope(
+      repository: accountRepository,
+      child: const MaterialApp(
+        home: AlbumProfilePage(
+          albumId: 'album-1',
+          initialAlbumTitle: 'Test Album',
         ),
       ),
     ),
@@ -1121,6 +1386,7 @@ LibraryTrack createTrack({
   String albumEditionTitle = 'Standard',
   AlbumEditionType albumEditionType = AlbumEditionType.standard,
   int trackNumber = 1,
+  int discNumber = 1,
   int durationSeconds = 180,
   List<String> featuredArtists = const [],
   String? filePath,
@@ -1138,6 +1404,7 @@ LibraryTrack createTrack({
     albumEditionTitle: albumEditionTitle,
     albumEditionType: albumEditionType,
     trackNumber: trackNumber,
+    discNumber: discNumber,
     durationSeconds: durationSeconds,
     isSingle: false,
     featuredArtists: featuredArtists,
@@ -1272,6 +1539,75 @@ class FakeEditionAwareLibraryQueryRepository extends FakeLibraryQueryRepository
   @override
   Future<List<LibraryTrack>> getTracksByAlbumEditionId(String editionId) async {
     return editionTracks[editionId] ?? const [];
+  }
+}
+
+class FakeAlbumEditionTrackOrderingService
+    extends AlbumEditionTrackOrderingService {
+  FakeAlbumEditionTrackOrderingService()
+    : super(mutationRunner: UnusedSyncMutationRunner());
+
+  int reorderCallCount = 0;
+  int placementCallCount = 0;
+
+  String? lastUserId;
+  String? lastEditionId;
+  List<String>? lastOrderedSongIds;
+  bool? lastAutoRenumber;
+  String? lastSongId;
+  int? lastDiscNumber;
+  int? lastTrackNumber;
+
+  @override
+  Future<AlbumEditionReorderResult> reorderEdition({
+    required String albumEditionId,
+    required List<String> orderedSongIds,
+    String? userId,
+    bool autoRenumber = false,
+    DateTime? now,
+  }) async {
+    reorderCallCount++;
+    lastUserId = userId;
+    lastEditionId = albumEditionId;
+    lastOrderedSongIds = List<String>.from(orderedSongIds);
+    lastAutoRenumber = autoRenumber;
+
+    return const AlbumEditionReorderResult(memberships: [], changed: true);
+  }
+
+  @override
+  Future<AlbumEditionTrackPlacementResult> updateTrackPlacement({
+    required String? userId,
+    required String albumEditionId,
+    required String songId,
+    required int discNumber,
+    required int trackNumber,
+    DateTime? now,
+  }) async {
+    placementCallCount++;
+    lastUserId = userId;
+    lastEditionId = albumEditionId;
+    lastSongId = songId;
+    lastDiscNumber = discNumber;
+    lastTrackNumber = trackNumber;
+
+    final timestamp = now ?? DateTime.utc(2026, 1, 1);
+
+    return AlbumEditionTrackPlacementResult(
+      membership: AlbumEditionTrack(
+        albumEditionId: albumEditionId,
+        songId: songId,
+        discNumber: discNumber,
+        trackNumber: trackNumber,
+        sortPosition: 0,
+        numberingAuthority: AlbumEditionTrackAuthority.manual,
+        orderingAuthority: AlbumEditionTrackAuthority.inferred,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      ),
+      changed: true,
+      compatibilitySongChanged: false,
+    );
   }
 }
 
