@@ -16,6 +16,9 @@ import 'package:sonus_next/features/import/domain/models/import_result.dart';
 import 'package:sonus_next/features/import/domain/models/resolved_metadata.dart';
 import 'package:sonus_next/features/library/data/daos/album_dao.dart';
 import 'package:sonus_next/features/library/data/daos/album_edition_dao.dart';
+import 'package:sonus_next/features/library/domain/entities/album_edition_track.dart';
+import 'package:sonus_next/features/library/data/repositories/sqlite_album_edition_track_repository.dart';
+import 'package:sonus_next/features/library/data/daos/album_edition_track_dao.dart';
 import 'package:sonus_next/features/library/data/daos/artist_dao.dart';
 import 'package:sonus_next/features/library/data/daos/song_dao.dart';
 import 'package:sonus_next/features/library/application/services/song_artist_credit_service.dart';
@@ -59,6 +62,9 @@ class AtomicLibraryImporter {
         final albumRepository = SqliteAlbumRepository(AlbumDao(transaction));
         final editionRepository = SqliteAlbumEditionRepository(
           AlbumEditionDao(transaction),
+        );
+        final albumEditionTrackRepository = SqliteAlbumEditionTrackRepository(
+          AlbumEditionTrackDao(transaction),
         );
         final songRepository = SqliteSongRepository(SongDao(transaction));
         final songArtistCreditRepository = SqliteSongArtistCreditRepository(
@@ -262,6 +268,28 @@ class AtomicLibraryImporter {
           );
 
           await songRepository.create(song);
+
+          final existingEditionMemberships = await albumEditionTrackRepository
+              .getByEditionId(edition.id);
+
+          final nextSortPosition = existingEditionMemberships.isEmpty
+              ? 0
+              : existingEditionMemberships
+                        .map((membership) => membership.sortPosition)
+                        .reduce((left, right) => left > right ? left : right) +
+                    1;
+
+          await albumEditionTrackRepository.create(
+            AlbumEditionTrack(
+              albumEditionId: edition.id,
+              songId: song.id,
+              discNumber: song.discNumber,
+              trackNumber: song.trackNumber,
+              sortPosition: nextSortPosition,
+              createdAt: timestamp,
+              updatedAt: timestamp,
+            ),
+          );
 
           final structuredCredits =
               await SongArtistCreditService.replaceCreditsWithRepositories(
