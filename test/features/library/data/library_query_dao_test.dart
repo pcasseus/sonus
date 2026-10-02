@@ -9,11 +9,13 @@ import 'package:sonus_next/features/import/domain/entities/media_file_binding.da
 import 'package:sonus_next/features/library/application/models/library_track_order.dart';
 import 'package:sonus_next/features/library/data/daos/album_dao.dart';
 import 'package:sonus_next/features/library/data/daos/album_edition_dao.dart';
+import 'package:sonus_next/features/library/data/daos/album_edition_track_dao.dart';
 import 'package:sonus_next/features/library/data/daos/artist_dao.dart';
 import 'package:sonus_next/features/library/data/daos/library_query_dao.dart';
 import 'package:sonus_next/features/library/data/daos/song_dao.dart';
 import 'package:sonus_next/features/library/domain/entities/album.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
+import 'package:sonus_next/features/library/domain/entities/album_edition_track.dart';
 import 'package:sonus_next/features/library/domain/entities/artist.dart';
 import 'package:sonus_next/features/library/domain/entities/song.dart';
 
@@ -401,6 +403,115 @@ void main() {
     expect(albums.single.primaryEditionType, AlbumEditionType.expanded);
   });
 
+  test(
+    'album edition query returns all editions with presentation metadata',
+    () async {
+      final fixture = await _createFixture(appDatabase);
+
+      final editions = await LibraryQueryDao(
+        fixture.db,
+      ).findAlbumEditions(fixture.album.id);
+
+      expect(editions, hasLength(2));
+
+      expect(editions[0].editionId, fixture.standardEdition.id);
+      expect(editions[0].albumId, fixture.album.id);
+      expect(editions[0].title, 'Query Album');
+      expect(editions[0].type, AlbumEditionType.standard);
+      expect(editions[0].isPrimary, isTrue);
+      expect(editions[0].releaseDate, DateTime.utc(2026, 1, 15));
+      expect(editions[0].genre, 'Pop');
+
+      expect(editions[1].editionId, fixture.deluxeEdition.id);
+      expect(editions[1].title, 'Query Album Deluxe');
+      expect(editions[1].type, AlbumEditionType.deluxe);
+      expect(editions[1].isPrimary, isFalse);
+      expect(editions[1].releaseDate, DateTime.utc(2026, 6, 20));
+    },
+  );
+
+  test(
+    'edition track query uses membership order and edition-specific placement',
+    () async {
+      final fixture = await _createFixture(appDatabase);
+      final membershipDao = AlbumEditionTrackDao(fixture.db);
+      final now = DateTime.utc(2026, 10, 1, 20);
+
+      await membershipDao.insert(
+        AlbumEditionTrack(
+          albumEditionId: fixture.standardEdition.id,
+          songId: fixture.alphaSong.id,
+          discNumber: 1,
+          trackNumber: 9,
+          sortPosition: 10,
+          createdAt: now,
+          updatedAt: now,
+        ),
+      );
+
+      await membershipDao.insert(
+        AlbumEditionTrack(
+          albumEditionId: fixture.standardEdition.id,
+          songId: fixture.betaSong.id,
+          discNumber: 1,
+          trackNumber: 4,
+          sortPosition: 2,
+          createdAt: now,
+          updatedAt: now,
+        ),
+      );
+
+      await membershipDao.insert(
+        AlbumEditionTrack(
+          albumEditionId: fixture.deluxeEdition.id,
+          songId: fixture.alphaSong.id,
+          discNumber: 2,
+          trackNumber: 5,
+          sortPosition: 1,
+          createdAt: now,
+          updatedAt: now,
+        ),
+      );
+
+      final queryDao = LibraryQueryDao(fixture.db);
+
+      final standard = await queryDao.findTracksByAlbumEditionId(
+        fixture.standardEdition.id,
+      );
+
+      expect(standard.map((track) => track.songId), [
+        fixture.betaSong.id,
+        fixture.alphaSong.id,
+      ]);
+
+      expect(standard[0].albumEditionId, fixture.standardEdition.id);
+      expect(standard[0].trackNumber, 4);
+      expect(standard[0].discNumber, 1);
+
+      expect(standard[1].trackNumber, 9);
+
+      final deluxe = await queryDao.findTracksByAlbumEditionId(
+        fixture.deluxeEdition.id,
+      );
+
+      expect(deluxe, hasLength(1));
+
+      final sharedSong = deluxe.single;
+
+      expect(sharedSong.songId, fixture.alphaSong.id);
+      expect(sharedSong.albumEditionId, fixture.deluxeEdition.id);
+      expect(sharedSong.albumEditionTitle, 'Query Album Deluxe');
+      expect(sharedSong.albumEditionType, AlbumEditionType.deluxe);
+
+      expect(sharedSong.discNumber, 2);
+      expect(sharedSong.trackNumber, 5);
+
+      // The permanent Song still points at its compatibility/default edition.
+      expect(fixture.alphaSong.albumEditionId, fixture.standardEdition.id);
+      expect(fixture.alphaSong.discNumber, 2);
+      expect(fixture.alphaSong.trackNumber, 1);
+    },
+  );
   test('recent track query respects newest-first limit', () async {
     final fixture = await _createFixture(appDatabase);
 

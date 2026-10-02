@@ -1,4 +1,5 @@
 import '../models/library_album.dart';
+import '../models/library_album_edition.dart';
 import '../models/library_artist.dart';
 import '../models/library_track.dart';
 import '../models/library_track_order.dart';
@@ -30,6 +31,12 @@ abstract interface class LibraryQueryRepository {
   Future<List<LibraryArtist>> getArtists();
 
   Future<LibraryArtist?> getArtistById(String artistId);
+}
+
+abstract interface class AlbumEditionQueryRepository {
+  Future<List<LibraryAlbumEdition>> getAlbumEditions(String albumId);
+
+  Future<List<LibraryTrack>> getTracksByAlbumEditionId(String editionId);
 }
 
 abstract interface class StructuredArtistQueryRepository {

@@ -2,11 +2,13 @@ import 'package:sqflite/sqflite.dart';
 
 import '../../../../core/database/database_tables.dart';
 import '../../application/models/library_album.dart';
+import '../../application/models/library_album_edition.dart';
 import '../../application/models/library_artist.dart';
 import '../../application/models/library_track.dart';
 import '../../application/models/library_track_order.dart';
 import '../../../search/application/models/library_search_results.dart';
 import '../mappers/library_album_row_mapper.dart';
+import '../mappers/library_album_edition_row_mapper.dart';
 import '../mappers/library_artist_row_mapper.dart';
 import '../mappers/library_track_row_mapper.dart';
 
@@ -436,6 +438,103 @@ class LibraryQueryDao {
         s.id ASC
       ''',
       [albumId],
+    );
+
+    return rows.map(LibraryTrackRowMapper.fromRow).toList(growable: false);
+  }
+
+  Future<List<LibraryAlbumEdition>> findAlbumEditions(String albumId) async {
+    final rows = await db.rawQuery(
+      '''
+      SELECT
+        ae.id AS album_edition_id,
+        ae.album_id AS album_id,
+        ae.title AS album_edition_title,
+        ae.type AS edition_type,
+        ae.is_primary AS is_primary,
+        ae.release_date AS release_date,
+        ae.genre AS genre,
+        ae.artwork_id AS artwork_id,
+        aa.file_path AS artwork_path,
+        ae.created_at AS created_at
+      FROM ${DatabaseTables.albumEditions} ae
+      LEFT JOIN ${DatabaseTables.artworkAssets} aa
+        ON aa.id = ae.artwork_id
+      WHERE ae.album_id = ?
+      ORDER BY
+        ae.is_primary DESC,
+        ae.release_date ASC,
+        ae.title COLLATE NOCASE ASC,
+        ae.id ASC
+      ''',
+      [albumId],
+    );
+
+    return rows
+        .map(LibraryAlbumEditionRowMapper.fromRow)
+        .toList(growable: false);
+  }
+
+  Future<List<LibraryTrack>> findTracksByAlbumEditionId(
+    String editionId,
+  ) async {
+    final rows = await db.rawQuery(
+      '''
+      SELECT
+        s.id AS song_id,
+        s.title AS song_title,
+        s.artist_id AS artist_id,
+        ar.name AS artist_name,
+        s.album_id AS album_id,
+        al.title AS album_title,
+        aet.album_edition_id AS album_edition_id,
+        ae.title AS album_edition_title,
+        ae.type AS edition_type,
+        aet.track_number AS track_number,
+        aet.disc_number AS disc_number,
+        s.duration_seconds AS duration_seconds,
+        s.is_single AS is_single,
+        s.is_blocked AS song_is_blocked,
+        s.featured_artists AS featured_artists,
+        s.created_at AS created_at,
+        m.file_path AS file_path,
+        COALESCE(m.is_available, 0) AS is_available,
+        COALESCE(sa.id, ea.id) AS artwork_id,
+        COALESCE(sa.file_path, ea.file_path) AS artwork_path
+      FROM ${DatabaseTables.albumEditionTracks} aet
+      INNER JOIN ${DatabaseTables.songs} s
+        ON s.id = aet.song_id
+      INNER JOIN ${DatabaseTables.artists} ar
+        ON ar.id = s.artist_id
+      INNER JOIN ${DatabaseTables.albums} al
+        ON al.id = s.album_id
+      INNER JOIN ${DatabaseTables.albumEditions} ae
+        ON ae.id = aet.album_edition_id
+        AND ae.album_id = al.id
+      LEFT JOIN ${DatabaseTables.artworkAssets} sa
+        ON sa.id = s.artwork_id
+      LEFT JOIN ${DatabaseTables.artworkAssets} ea
+        ON ea.id = ae.artwork_id
+      LEFT JOIN ${DatabaseTables.mediaFileBindings} m
+        ON m.id = (
+          SELECT mb.id
+          FROM ${DatabaseTables.mediaFileBindings} mb
+          WHERE mb.song_id = s.id
+          ORDER BY
+            mb.is_available DESC,
+            mb.created_at ASC,
+            mb.id ASC
+          LIMIT 1
+        )
+      WHERE aet.album_edition_id = ?
+      ORDER BY
+        aet.sort_position ASC,
+        aet.disc_number ASC,
+        aet.track_number ASC,
+        s.title COLLATE NOCASE ASC,
+        s.id ASC
+      ''',
+      [editionId],
     );
 
     return rows.map(LibraryTrackRowMapper.fromRow).toList(growable: false);

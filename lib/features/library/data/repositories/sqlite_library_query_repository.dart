@@ -1,6 +1,7 @@
 import '../../../search/application/models/library_search_results.dart';
 import '../../../search/application/repositories/library_search_repository.dart';
 import '../../application/models/library_album.dart';
+import '../../application/models/library_album_edition.dart';
 import '../../application/models/library_artist.dart';
 import '../../application/models/library_track.dart';
 import '../../application/models/library_track_order.dart';
@@ -10,6 +11,7 @@ import '../daos/library_query_dao.dart';
 class SqliteLibraryQueryRepository
     implements
         LibraryQueryRepository,
+        AlbumEditionQueryRepository,
         StructuredArtistQueryRepository,
         LibrarySearchRepository {
   const SqliteLibraryQueryRepository(this.dao);
@@ -70,6 +72,16 @@ class SqliteLibraryQueryRepository
   @override
   Future<List<LibraryTrack>> getTracksByAlbumId(String albumId) {
     return dao.findTracksByAlbumId(albumId);
+  }
+
+  @override
+  Future<List<LibraryAlbumEdition>> getAlbumEditions(String albumId) {
+    return dao.findAlbumEditions(albumId);
+  }
+
+  @override
+  Future<List<LibraryTrack>> getTracksByAlbumEditionId(String editionId) {
+    return dao.findTracksByAlbumEditionId(editionId);
   }
 
   @override
