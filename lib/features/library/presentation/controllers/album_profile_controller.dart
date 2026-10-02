@@ -10,6 +10,7 @@ import '../../application/models/library_album_edition.dart';
 import '../../application/models/library_track.dart';
 import '../../application/repositories/library_query_repository.dart';
 import '../../application/services/album_profile_editing_service.dart';
+import '../../application/services/album_edition_track_ordering_service.dart';
 import '../../application/services/song_block_service.dart';
 import '../../application/services/track_profile_editing_service.dart';
 import '../../domain/entities/album_edition.dart';
@@ -20,6 +21,7 @@ class AlbumProfileController extends ChangeNotifier {
     required String albumId,
     PlaybackCoordinator? playbackCoordinator,
     AlbumProfileEditingService? albumProfileEditingService,
+    AlbumEditionTrackOrderingService? albumEditionTrackOrderingService,
     TrackProfileEditingService? trackProfileEditingService,
     SongBlockService? songBlockService,
     ArtworkAssignmentService? artworkAssignmentService,
@@ -30,6 +32,7 @@ class AlbumProfileController extends ChangeNotifier {
          albumId,
          playbackCoordinator,
          albumProfileEditingService,
+         albumEditionTrackOrderingService,
          trackProfileEditingService,
          songBlockService,
          artworkAssignmentService,
@@ -42,6 +45,7 @@ class AlbumProfileController extends ChangeNotifier {
     this._albumId,
     this._playbackCoordinator,
     this._albumProfileEditingService,
+    this._albumEditionTrackOrderingService,
     this._trackProfileEditingService,
     this._songBlockService,
     this._artworkAssignmentService,
@@ -53,6 +57,7 @@ class AlbumProfileController extends ChangeNotifier {
   final String _albumId;
   final PlaybackCoordinator? _playbackCoordinator;
   final AlbumProfileEditingService? _albumProfileEditingService;
+  final AlbumEditionTrackOrderingService? _albumEditionTrackOrderingService;
   final TrackProfileEditingService? _trackProfileEditingService;
   final SongBlockService? _songBlockService;
   final ArtworkAssignmentService? _artworkAssignmentService;
@@ -146,6 +151,75 @@ class AlbumProfileController extends ChangeNotifier {
 
   bool get canEditTrackArtwork {
     return _artworkAssignmentService != null && _artworkFilePicker != null;
+  }
+
+  bool canEditAlbumStudio(String? userId) {
+    return _albumEditionTrackOrderingService != null &&
+        _selectedEdition != null &&
+        _repository is AlbumEditionQueryRepository;
+  }
+
+  Future<bool> reorderSelectedEdition({
+    String? userId,
+    required List<String> orderedSongIds,
+    bool autoRenumber = false,
+  }) async {
+    final service = _albumEditionTrackOrderingService;
+    final selectedEdition = _selectedEdition;
+
+    if (service == null ||
+        selectedEdition == null ||
+        _repository is! AlbumEditionQueryRepository) {
+      return false;
+    }
+
+    final result = await service.reorderEdition(
+      albumEditionId: selectedEdition.editionId,
+      orderedSongIds: orderedSongIds,
+      userId: userId,
+      autoRenumber: autoRenumber,
+    );
+
+    if (!result.changed) {
+      return false;
+    }
+
+    await refresh();
+
+    return true;
+  }
+
+  Future<bool> updateSelectedEditionTrackPlacement({
+    String? userId,
+    required LibraryTrack track,
+    required int discNumber,
+    required int trackNumber,
+  }) async {
+    final service = _albumEditionTrackOrderingService;
+    final selectedEdition = _selectedEdition;
+
+    if (service == null ||
+        selectedEdition == null ||
+        _repository is! AlbumEditionQueryRepository ||
+        track.albumEditionId != selectedEdition.editionId) {
+      return false;
+    }
+
+    final result = await service.updateTrackPlacement(
+      userId: userId,
+      albumEditionId: selectedEdition.editionId,
+      songId: track.songId,
+      discNumber: discNumber,
+      trackNumber: trackNumber,
+    );
+
+    if (!result.changed) {
+      return false;
+    }
+
+    await refresh();
+
+    return true;
   }
 
   bool canEditTrack(String? userId) {

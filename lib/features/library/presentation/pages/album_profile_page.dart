@@ -14,6 +14,7 @@ import '../../application/models/library_album_edition.dart';
 import '../../application/models/library_track.dart';
 import '../../application/repositories/library_query_repository.dart';
 import '../../application/services/album_profile_editing_service.dart';
+import '../../application/services/album_edition_track_ordering_service.dart';
 import '../../application/services/song_block_service.dart';
 import '../../domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/application/services/track_profile_editing_service.dart';
@@ -57,6 +58,8 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
       albumId: widget.albumId,
       playbackCoordinator: context.read<PlaybackCoordinator?>(),
       albumProfileEditingService: context.read<AlbumProfileEditingService?>(),
+      albumEditionTrackOrderingService: context
+          .read<AlbumEditionTrackOrderingService?>(),
       trackProfileEditingService: context.read<TrackProfileEditingService?>(),
       songBlockService: context.read<SongBlockService?>(),
       artworkAssignmentService: context.read<ArtworkAssignmentService?>(),
