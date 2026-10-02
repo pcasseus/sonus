@@ -1,6 +1,8 @@
 import '../../../../core/identity/text_normalizer.dart';
 import '../../../sync/application/services/sync_mutation_runner.dart';
 import '../../../sync/domain/models/sync_data_contract.dart';
+import '../../domain/entities/album_edition_track.dart';
+import '../../domain/repositories/album_edition_track_repository.dart';
 import '../../domain/entities/song.dart';
 import '../../domain/entities/song_artist_credit.dart';
 import 'song_artist_credit_service.dart';
@@ -191,6 +193,21 @@ class TrackProfileEditingService {
         ),
       );
 
+      final membershipRepository = context.albumEditionTrackRepository;
+
+      if (membershipRepository == null) {
+        throw StateError(
+          'Album edition track repository is unavailable for track editing.',
+        );
+      }
+
+      await _persistCompatibilityMembership(
+        membershipRepository: membershipRepository,
+        originalSong: song,
+        persistedSong: persisted,
+        now: timestamp,
+      );
+
       await context.songRepository.save(persisted);
 
       await context.localSyncRepository.recordUpsert(
@@ -201,6 +218,126 @@ class TrackProfileEditingService {
 
       return TrackProfileEditResult(song: persisted, changed: true);
     });
+  }
+
+  Future<void> _persistCompatibilityMembership({
+    required AlbumEditionTrackRepository membershipRepository,
+    required Song originalSong,
+    required Song persistedSong,
+    required DateTime now,
+  }) async {
+    final existingMemberships = await membershipRepository.getBySongId(
+      persistedSong.id,
+    );
+
+    AlbumEditionTrack? originalCompatibilityMembership;
+
+    for (final membership in existingMemberships) {
+      if (membership.albumEditionId == originalSong.albumEditionId) {
+        originalCompatibilityMembership = membership;
+        break;
+      }
+    }
+
+    final editionChanged =
+        originalSong.albumEditionId != persistedSong.albumEditionId;
+
+    if (!editionChanged) {
+      if (originalCompatibilityMembership == null) {
+        final targetMemberships = await membershipRepository.getByEditionId(
+          persistedSong.albumEditionId,
+        );
+
+        final nextSortPosition = targetMemberships.isEmpty
+            ? 0
+            : targetMemberships
+                      .map((membership) => membership.sortPosition)
+                      .reduce((left, right) => left > right ? left : right) +
+                  1;
+
+        await membershipRepository.create(
+          AlbumEditionTrack(
+            albumEditionId: persistedSong.albumEditionId,
+            songId: persistedSong.id,
+            discNumber: persistedSong.discNumber,
+            trackNumber: persistedSong.trackNumber,
+            sortPosition: nextSortPosition,
+            createdAt: persistedSong.createdAt,
+            updatedAt: now,
+          ),
+        );
+
+        return;
+      }
+
+      final membershipChanged =
+          originalCompatibilityMembership.discNumber !=
+              persistedSong.discNumber ||
+          originalCompatibilityMembership.trackNumber !=
+              persistedSong.trackNumber;
+
+      if (membershipChanged) {
+        await membershipRepository.save(
+          originalCompatibilityMembership.copyWith(
+            discNumber: persistedSong.discNumber,
+            trackNumber: persistedSong.trackNumber,
+            updatedAt: now,
+          ),
+        );
+      }
+
+      return;
+    }
+
+    final targetMemberships = await membershipRepository.getByEditionId(
+      persistedSong.albumEditionId,
+    );
+
+    AlbumEditionTrack? existingTargetMembership;
+
+    for (final membership in targetMemberships) {
+      if (membership.songId == persistedSong.id) {
+        existingTargetMembership = membership;
+        break;
+      }
+    }
+
+    if (existingTargetMembership == null) {
+      final nextSortPosition = targetMemberships.isEmpty
+          ? 0
+          : targetMemberships
+                    .map((membership) => membership.sortPosition)
+                    .reduce((left, right) => left > right ? left : right) +
+                1;
+
+      await membershipRepository.create(
+        AlbumEditionTrack(
+          albumEditionId: persistedSong.albumEditionId,
+          songId: persistedSong.id,
+          discNumber: persistedSong.discNumber,
+          trackNumber: persistedSong.trackNumber,
+          sortPosition: nextSortPosition,
+          createdAt: now,
+          updatedAt: now,
+        ),
+      );
+    } else {
+      await membershipRepository.save(
+        existingTargetMembership.copyWith(
+          discNumber: persistedSong.discNumber,
+          trackNumber: persistedSong.trackNumber,
+          updatedAt: now,
+        ),
+      );
+    }
+    final albumChanged = originalSong.albumId != persistedSong.albumId;
+
+    if (albumChanged && originalCompatibilityMembership != null) {
+      await membershipRepository.delete(
+        editionId: originalCompatibilityMembership.albumEditionId,
+        songId: persistedSong.id,
+      );
+    }
   }
 
   List<String> _normalizeFeaturedArtists(List<String> artists) {

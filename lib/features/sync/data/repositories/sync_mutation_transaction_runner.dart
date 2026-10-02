@@ -4,6 +4,8 @@ import '../../../artwork/data/daos/artwork_asset_dao.dart';
 import '../../../artwork/data/repositories/sqlite_artwork_asset_repository.dart';
 import '../../../library/data/daos/album_dao.dart';
 import '../../../library/data/daos/album_edition_dao.dart';
+import '../../../library/data/repositories/sqlite_album_edition_track_repository.dart';
+import '../../../library/data/daos/album_edition_track_dao.dart';
 import '../../../library/data/daos/artist_dao.dart';
 import '../../../library/data/daos/song_dao.dart';
 import '../../../library/data/daos/song_artist_credit_dao.dart';
@@ -39,6 +41,9 @@ class SyncMutationTransactionRunner implements SyncMutationRunner {
         albumRepository: SqliteAlbumRepository(AlbumDao(transaction)),
         albumEditionRepository: SqliteAlbumEditionRepository(
           AlbumEditionDao(transaction),
+        ),
+        albumEditionTrackRepository: SqliteAlbumEditionTrackRepository(
+          AlbumEditionTrackDao(transaction),
         ),
         songRepository: SqliteSongRepository(SongDao(transaction)),
         songArtistCreditRepository: SqliteSongArtistCreditRepository(
