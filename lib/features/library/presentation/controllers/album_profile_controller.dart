@@ -6,6 +6,7 @@ import '../../../artwork/application/services/artwork_assignment_service.dart';
 import '../../../artwork/application/services/artwork_file_picker.dart';
 import '../../../player/application/controllers/playback_coordinator.dart';
 import '../../application/models/library_album.dart';
+import '../../application/models/library_album_edition.dart';
 import '../../application/models/library_track.dart';
 import '../../application/repositories/library_query_repository.dart';
 import '../../application/services/album_profile_editing_service.dart';
@@ -59,6 +60,8 @@ class AlbumProfileController extends ChangeNotifier {
   final Random _random;
 
   LibraryAlbum? _album;
+  List<LibraryAlbumEdition> _editions = const [];
+  LibraryAlbumEdition? _selectedEdition;
   List<LibraryTrack> _tracks = const [];
 
   bool _isLoading = false;
@@ -69,6 +72,12 @@ class AlbumProfileController extends ChangeNotifier {
 
   LibraryAlbum? get album => _album;
 
+  List<LibraryAlbumEdition> get editions => _editions;
+
+  LibraryAlbumEdition? get selectedEdition => _selectedEdition;
+
+  bool get hasEditionQueryCapability =>
+      _repository is AlbumEditionQueryRepository;
   List<LibraryTrack> get tracks => _tracks;
 
   String? get artworkPath {
@@ -352,6 +361,10 @@ class AlbumProfileController extends ChangeNotifier {
   }
 
   int get editionCount {
+    if (_editions.isNotEmpty) {
+      return _editions.length;
+    }
+
     return _tracks.map((track) => track.albumEditionId).toSet().length;
   }
 
@@ -360,6 +373,14 @@ class AlbumProfileController extends ChangeNotifier {
   }
 
   List<String> get editionTitles {
+    if (_editions.isNotEmpty) {
+      return List<String>.unmodifiable(
+        _editions
+            .map((edition) => edition.title.trim())
+            .where((title) => title.isNotEmpty),
+      );
+    }
+
     final editionIds = <String>{};
     final titles = <String>[];
 
@@ -379,6 +400,8 @@ class AlbumProfileController extends ChangeNotifier {
   }
 
   Future<void> load() async {
+    final preferredEditionId = _selectedEdition?.editionId;
+
     _isLoading = true;
     _error = null;
     notifyListeners();
@@ -388,13 +411,41 @@ class AlbumProfileController extends ChangeNotifier {
 
       if (album == null) {
         _album = null;
+        _editions = const [];
+        _selectedEdition = null;
         _tracks = const [];
         return;
+      }
+
+      final Object repository = _repository;
+
+      if (repository is AlbumEditionQueryRepository) {
+        final editions = await repository.getAlbumEditions(_albumId);
+
+        if (editions.isNotEmpty) {
+          final selectedEdition = _chooseEdition(
+            editions,
+            preferredEditionId: preferredEditionId,
+            primaryEditionId: album.primaryEditionId,
+          );
+
+          final tracks = await repository.getTracksByAlbumEditionId(
+            selectedEdition.editionId,
+          );
+
+          _album = album;
+          _editions = editions;
+          _selectedEdition = selectedEdition;
+          _tracks = tracks;
+          return;
+        }
       }
 
       final tracks = await _repository.getTracksByAlbumId(_albumId);
 
       _album = album;
+      _editions = const [];
+      _selectedEdition = null;
       _tracks = tracks;
     } catch (error) {
       _error = error;
@@ -406,6 +457,87 @@ class AlbumProfileController extends ChangeNotifier {
 
   Future<void> refresh() {
     return load();
+  }
+
+  Future<bool> selectEdition(String editionId) async {
+    final Object repository = _repository;
+
+    if (repository is! AlbumEditionQueryRepository) {
+      return false;
+    }
+
+    final normalizedEditionId = editionId.trim();
+
+    if (normalizedEditionId.isEmpty) {
+      return false;
+    }
+
+    LibraryAlbumEdition? edition;
+
+    for (final candidate in _editions) {
+      if (candidate.editionId == normalizedEditionId) {
+        edition = candidate;
+        break;
+      }
+    }
+
+    if (edition == null) {
+      return false;
+    }
+
+    if (_selectedEdition?.editionId == edition.editionId) {
+      return true;
+    }
+
+    try {
+      final tracks = await repository.getTracksByAlbumEditionId(
+        edition.editionId,
+      );
+
+      _selectedEdition = edition;
+      _tracks = tracks;
+      notifyListeners();
+
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  LibraryAlbumEdition _chooseEdition(
+    List<LibraryAlbumEdition> editions, {
+    String? preferredEditionId,
+    String? primaryEditionId,
+  }) {
+    final normalizedPreferredEditionId = preferredEditionId?.trim();
+
+    if (normalizedPreferredEditionId != null &&
+        normalizedPreferredEditionId.isNotEmpty) {
+      for (final edition in editions) {
+        if (edition.editionId == normalizedPreferredEditionId) {
+          return edition;
+        }
+      }
+    }
+
+    final normalizedPrimaryEditionId = primaryEditionId?.trim();
+
+    if (normalizedPrimaryEditionId != null &&
+        normalizedPrimaryEditionId.isNotEmpty) {
+      for (final edition in editions) {
+        if (edition.editionId == normalizedPrimaryEditionId) {
+          return edition;
+        }
+      }
+    }
+
+    for (final edition in editions) {
+      if (edition.isPrimary) {
+        return edition;
+      }
+    }
+
+    return editions.first;
   }
 
   Future<void> playTrack(LibraryTrack track) async {

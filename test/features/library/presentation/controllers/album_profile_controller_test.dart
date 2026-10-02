@@ -7,6 +7,7 @@ import 'package:sonus_next/features/artwork/application/services/artwork_assignm
 import 'package:sonus_next/features/artwork/application/services/artwork_file_picker.dart';
 import 'package:sonus_next/features/artwork/domain/entities/artwork_asset.dart';
 import 'package:sonus_next/features/library/application/models/library_album.dart';
+import 'package:sonus_next/features/library/application/models/library_album_edition.dart';
 import 'package:sonus_next/features/library/application/models/library_artist.dart';
 import 'package:sonus_next/features/library/application/models/library_track.dart';
 import 'package:sonus_next/features/library/application/models/library_track_order.dart';
@@ -233,6 +234,262 @@ void main() {
       controller.dispose();
     });
 
+    test('edition-aware repository loads primary edition by default', () async {
+      final repository = FakeEditionAwareLibraryQueryRepository(
+        album: createAlbum(
+          primaryEditionId: 'edition-standard',
+          primaryEditionTitle: 'Standard',
+          primaryEditionType: AlbumEditionType.standard,
+        ),
+        editions: [
+          createLibraryEdition(
+            editionId: 'edition-standard',
+            title: 'Standard',
+            type: AlbumEditionType.standard,
+            isPrimary: true,
+          ),
+          createLibraryEdition(
+            editionId: 'edition-deluxe',
+            title: 'Deluxe',
+            type: AlbumEditionType.deluxe,
+          ),
+        ],
+        editionTracks: {
+          'edition-standard': [
+            createTrack(
+              songId: 'standard-1',
+              albumEditionId: 'edition-standard',
+              albumEditionTitle: 'Standard',
+            ),
+            createTrack(
+              songId: 'standard-2',
+              albumEditionId: 'edition-standard',
+              albumEditionTitle: 'Standard',
+            ),
+          ],
+          'edition-deluxe': [
+            createTrack(
+              songId: 'deluxe-1',
+              albumEditionId: 'edition-deluxe',
+              albumEditionTitle: 'Deluxe',
+              albumEditionType: AlbumEditionType.deluxe,
+            ),
+          ],
+        },
+      );
+
+      final controller = AlbumProfileController(
+        repository: repository,
+        albumId: 'album-1',
+      );
+
+      await controller.load();
+
+      expect(controller.editions, hasLength(2));
+      expect(controller.selectedEdition?.editionId, 'edition-standard');
+
+      expect(controller.tracks.map((track) => track.songId), [
+        'standard-1',
+        'standard-2',
+      ]);
+
+      expect(controller.editionCount, 2);
+      expect(controller.hasMultipleEditions, isTrue);
+      expect(controller.editionTitles, ['Standard', 'Deluxe']);
+
+      expect(repository.requestedEditionAlbumId, 'album-1');
+      expect(repository.requestedTrackEditionIds, ['edition-standard']);
+
+      // The capability path does not use the legacy whole-album track query.
+      expect(repository.requestedTracksAlbumId, isNull);
+
+      controller.dispose();
+    });
+
+    test('selectEdition swaps the complete playback context', () async {
+      final repository = FakeEditionAwareLibraryQueryRepository(
+        album: createAlbum(
+          primaryEditionId: 'edition-standard',
+          primaryEditionTitle: 'Standard',
+          primaryEditionType: AlbumEditionType.standard,
+        ),
+        editions: [
+          createLibraryEdition(
+            editionId: 'edition-standard',
+            title: 'Standard',
+            type: AlbumEditionType.standard,
+            isPrimary: true,
+          ),
+          createLibraryEdition(
+            editionId: 'edition-deluxe',
+            title: 'Deluxe',
+            type: AlbumEditionType.deluxe,
+          ),
+        ],
+        editionTracks: {
+          'edition-standard': [
+            createTrack(
+              songId: 'shared-song',
+              albumEditionId: 'edition-standard',
+              albumEditionTitle: 'Standard',
+              trackNumber: 1,
+            ),
+          ],
+          'edition-deluxe': [
+            createTrack(
+              songId: 'shared-song',
+              albumEditionId: 'edition-deluxe',
+              albumEditionTitle: 'Deluxe',
+              albumEditionType: AlbumEditionType.deluxe,
+              trackNumber: 3,
+            ),
+            createTrack(
+              songId: 'deluxe-bonus',
+              albumEditionId: 'edition-deluxe',
+              albumEditionTitle: 'Deluxe',
+              albumEditionType: AlbumEditionType.deluxe,
+              trackNumber: 4,
+            ),
+          ],
+        },
+      );
+
+      final engine = FakePlaybackEngine();
+
+      final controller = AlbumProfileController(
+        repository: repository,
+        albumId: 'album-1',
+        playbackCoordinator: PlaybackCoordinator(engine: engine),
+      );
+
+      await controller.load();
+
+      final changed = await controller.selectEdition('edition-deluxe');
+
+      expect(changed, isTrue);
+      expect(controller.selectedEdition?.editionId, 'edition-deluxe');
+      expect(controller.selectedEdition?.type, AlbumEditionType.deluxe);
+
+      expect(controller.tracks.map((track) => track.songId), [
+        'shared-song',
+        'deluxe-bonus',
+      ]);
+
+      expect(controller.tracks.first.trackNumber, 3);
+
+      await controller.playAll();
+
+      expect(engine.loadQueueCallCount, 1);
+      expect(engine.lastLoadedTracks!.map((track) => track.songId), [
+        'shared-song',
+        'deluxe-bonus',
+      ]);
+      expect(engine.lastStartIndex, 0);
+      expect(engine.lastAutoPlay, isTrue);
+
+      controller.dispose();
+      await engine.dispose();
+    });
+
+    test(
+      'refresh preserves the selected edition when it still exists',
+      () async {
+        final repository = FakeEditionAwareLibraryQueryRepository(
+          album: createAlbum(
+            primaryEditionId: 'edition-standard',
+            primaryEditionTitle: 'Standard',
+            primaryEditionType: AlbumEditionType.standard,
+          ),
+          editions: [
+            createLibraryEdition(
+              editionId: 'edition-standard',
+              title: 'Standard',
+              type: AlbumEditionType.standard,
+              isPrimary: true,
+            ),
+            createLibraryEdition(
+              editionId: 'edition-deluxe',
+              title: 'Deluxe',
+              type: AlbumEditionType.deluxe,
+            ),
+          ],
+          editionTracks: {
+            'edition-standard': [
+              createTrack(
+                songId: 'standard-song',
+                albumEditionId: 'edition-standard',
+              ),
+            ],
+            'edition-deluxe': [
+              createTrack(
+                songId: 'deluxe-song',
+                albumEditionId: 'edition-deluxe',
+                albumEditionTitle: 'Deluxe',
+                albumEditionType: AlbumEditionType.deluxe,
+              ),
+            ],
+          },
+        );
+
+        final controller = AlbumProfileController(
+          repository: repository,
+          albumId: 'album-1',
+        );
+
+        await controller.load();
+        await controller.selectEdition('edition-deluxe');
+        await controller.refresh();
+
+        expect(controller.selectedEdition?.editionId, 'edition-deluxe');
+        expect(controller.tracks.single.songId, 'deluxe-song');
+
+        expect(repository.requestedTrackEditionIds, [
+          'edition-standard',
+          'edition-deluxe',
+          'edition-deluxe',
+        ]);
+
+        controller.dispose();
+      },
+    );
+
+    test('legacy repository keeps whole-album fallback behavior', () async {
+      final repository = FakeLibraryQueryRepository(
+        album: createAlbum(),
+        tracks: [
+          createTrack(
+            songId: 'standard-song',
+            albumEditionId: 'edition-standard',
+            albumEditionTitle: 'Standard',
+          ),
+          createTrack(
+            songId: 'deluxe-song',
+            albumEditionId: 'edition-deluxe',
+            albumEditionTitle: 'Deluxe',
+            albumEditionType: AlbumEditionType.deluxe,
+          ),
+        ],
+      );
+
+      final controller = AlbumProfileController(
+        repository: repository,
+        albumId: 'album-1',
+      );
+
+      await controller.load();
+
+      expect(controller.hasEditionQueryCapability, isFalse);
+      expect(controller.editions, isEmpty);
+      expect(controller.selectedEdition, isNull);
+      expect(controller.tracks, hasLength(2));
+      expect(controller.editionCount, 2);
+      expect(controller.editionTitles, ['Standard', 'Deluxe']);
+      expect(repository.requestedTracksAlbumId, 'album-1');
+
+      expect(await controller.selectEdition('edition-deluxe'), isFalse);
+
+      controller.dispose();
+    });
     test('reports not found when album does not exist', () async {
       final repository = FakeLibraryQueryRepository();
 
@@ -1384,6 +1641,30 @@ LibraryAlbum createAlbum({
   );
 }
 
+LibraryAlbumEdition createLibraryEdition({
+  required String editionId,
+  required String title,
+  required AlbumEditionType type,
+  bool isPrimary = false,
+  DateTime? releaseDate,
+  String? genre,
+  String? artworkId,
+  String? artworkPath,
+}) {
+  return LibraryAlbumEdition(
+    editionId: editionId,
+    albumId: 'album-1',
+    title: title,
+    type: type,
+    isPrimary: isPrimary,
+    releaseDate: releaseDate,
+    genre: genre,
+    artworkId: artworkId,
+    artworkPath: artworkPath,
+    dateAdded: DateTime(2026, 1, 1),
+  );
+}
+
 LibraryTrack createTrack({
   String songId = 'song-1',
   String title = 'Test Song',
@@ -1514,6 +1795,36 @@ class FakeLibraryQueryRepository implements LibraryQueryRepository {
   @override
   Future<LibraryArtist?> getArtistById(String artistId) async {
     return null;
+  }
+}
+
+class FakeEditionAwareLibraryQueryRepository extends FakeLibraryQueryRepository
+    implements AlbumEditionQueryRepository {
+  FakeEditionAwareLibraryQueryRepository({
+    super.album,
+    super.tracks = const [],
+    super.albumError,
+    super.albumLoader,
+    this.editions = const [],
+    this.editionTracks = const {},
+  });
+
+  final List<LibraryAlbumEdition> editions;
+  final Map<String, List<LibraryTrack>> editionTracks;
+
+  String? requestedEditionAlbumId;
+  final List<String> requestedTrackEditionIds = [];
+
+  @override
+  Future<List<LibraryAlbumEdition>> getAlbumEditions(String albumId) async {
+    requestedEditionAlbumId = albumId;
+    return editions;
+  }
+
+  @override
+  Future<List<LibraryTrack>> getTracksByAlbumEditionId(String editionId) async {
+    requestedTrackEditionIds.add(editionId);
+    return editionTracks[editionId] ?? const [];
   }
 }
 
