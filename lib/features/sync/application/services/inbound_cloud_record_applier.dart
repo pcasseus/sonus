@@ -145,18 +145,41 @@ class InboundCloudRecordApplier {
 
     final existing = await context.songRepository.getById(record.id);
 
-    if (existing == null) {
-      await context.songRepository.create(entity);
-    } else {
-      await context.songRepository.save(entity);
+    final membershipRepository = context.albumEditionTrackRepository;
+    final targetMemberships = await membershipRepository.getByEditionId(
+      entity.albumEditionId,
+    );
+
+    AlbumEditionTrack? targetMembership;
+
+    for (final membership in targetMemberships) {
+      if (membership.songId == entity.id) {
+        targetMembership = membership;
+        break;
+      }
     }
 
-    final membershipRepository = context.albumEditionTrackRepository;
+    final effectiveEntity =
+        targetMembership?.numberingAuthority ==
+            AlbumEditionTrackAuthority.manual
+        ? entity.copyWith(
+            discNumber: targetMembership!.discNumber,
+            trackNumber: targetMembership.trackNumber,
+          )
+        : entity;
+
+    if (existing == null) {
+      await context.songRepository.create(effectiveEntity);
+    } else {
+      await context.songRepository.save(effectiveEntity);
+    }
 
     await _reconcileSongCompatibilityMembership(
       membershipRepository: membershipRepository,
       previousSong: existing,
-      incomingSong: entity,
+      incomingSong: effectiveEntity,
+      targetMemberships: targetMemberships,
+      targetMembership: targetMembership,
     );
   }
 
@@ -164,20 +187,9 @@ class InboundCloudRecordApplier {
     required AlbumEditionTrackRepository membershipRepository,
     required Song? previousSong,
     required Song incomingSong,
+    required List<AlbumEditionTrack> targetMemberships,
+    required AlbumEditionTrack? targetMembership,
   }) async {
-    final targetMemberships = await membershipRepository.getByEditionId(
-      incomingSong.albumEditionId,
-    );
-
-    AlbumEditionTrack? targetMembership;
-
-    for (final membership in targetMemberships) {
-      if (membership.songId == incomingSong.id) {
-        targetMembership = membership;
-        break;
-      }
-    }
-
     if (targetMembership == null) {
       final nextSortPosition = targetMemberships.isEmpty
           ? 0
@@ -202,7 +214,9 @@ class InboundCloudRecordApplier {
           targetMembership.discNumber != incomingSong.discNumber ||
           targetMembership.trackNumber != incomingSong.trackNumber;
 
-      if (placementChanged) {
+      if (placementChanged &&
+          targetMembership.numberingAuthority !=
+              AlbumEditionTrackAuthority.manual) {
         await membershipRepository.save(
           targetMembership.copyWith(
             discNumber: incomingSong.discNumber,

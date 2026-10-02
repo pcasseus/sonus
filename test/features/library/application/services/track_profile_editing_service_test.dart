@@ -557,6 +557,14 @@ void main() {
       expect(memberships.single.discNumber, 2);
       expect(memberships.single.trackNumber, 9);
       expect(memberships.single.sortPosition, 7);
+      expect(
+        memberships.single.numberingAuthority,
+        AlbumEditionTrackAuthority.manual,
+      );
+      expect(
+        memberships.single.orderingAuthority,
+        AlbumEditionTrackAuthority.inferred,
+      );
       expect(memberships.single.createdAt, originalTime);
       expect(memberships.single.updatedAt, mutationTime);
     },
@@ -586,6 +594,14 @@ void main() {
     expect(memberships.single.discNumber, original.discNumber);
     expect(memberships.single.trackNumber, original.trackNumber);
     expect(memberships.single.sortPosition, 7);
+    expect(
+      memberships.single.numberingAuthority,
+      AlbumEditionTrackAuthority.inferred,
+    );
+    expect(
+      memberships.single.orderingAuthority,
+      AlbumEditionTrackAuthority.inferred,
+    );
     expect(memberships.single.updatedAt, originalTime);
   });
   test(
@@ -644,6 +660,14 @@ void main() {
       expect(deluxeMembership.discNumber, 2);
       expect(deluxeMembership.trackNumber, 12);
       expect(deluxeMembership.sortPosition, 0);
+      expect(
+        deluxeMembership.numberingAuthority,
+        AlbumEditionTrackAuthority.manual,
+      );
+      expect(
+        deluxeMembership.orderingAuthority,
+        AlbumEditionTrackAuthority.inferred,
+      );
       expect(deluxeMembership.createdAt, mutationTime);
       expect(deluxeMembership.updatedAt, mutationTime);
     },

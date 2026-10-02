@@ -256,10 +256,98 @@ void main() {
         expect(membership.discNumber, 2);
         expect(membership.trackNumber, 8);
         expect(membership.sortPosition, 9);
+        expect(
+          membership.numberingAuthority,
+          AlbumEditionTrackAuthority.inferred,
+        );
+        expect(
+          membership.orderingAuthority,
+          AlbumEditionTrackAuthority.inferred,
+        );
         expect(membership.createdAt, DateTime.utc(2026, 9, 1));
         expect(membership.updatedAt, DateTime.utc(2026, 9, 20));
       },
     );
+    test('inbound song preserves manual compatibility numbering', () async {
+      final bundle = _TestContextBundle();
+
+      bundle.song.existing = Song(
+        id: 'song-manual',
+        artistId: 'artist-1',
+        albumId: 'album-1',
+        albumEditionId: 'edition-1',
+        title: 'Local Song',
+        canonicalTitle: 'local song',
+        trackNumber: 9,
+        discNumber: 2,
+        durationSeconds: 200,
+        isSingle: false,
+        isBlocked: false,
+        featuredArtists: const [],
+        createdAt: DateTime.utc(2026, 9, 1),
+        updatedAt: DateTime.utc(2026, 9, 10),
+      );
+
+      bundle.membership.memberships.add(
+        AlbumEditionTrack(
+          albumEditionId: 'edition-1',
+          songId: 'song-manual',
+          discNumber: 2,
+          trackNumber: 9,
+          sortPosition: 6,
+          numberingAuthority: AlbumEditionTrackAuthority.manual,
+          orderingAuthority: AlbumEditionTrackAuthority.manual,
+          createdAt: DateTime.utc(2026, 9, 1),
+          updatedAt: DateTime.utc(2026, 9, 10),
+        ),
+      );
+
+      final record = _recordFromRow(CloudDataEntity.song, {
+        'id': 'song-manual',
+        'user_id': 'user-1',
+        'artist_id': 'artist-1',
+        'album_id': 'album-1',
+        'album_edition_id': 'edition-1',
+        'title': 'Cloud Song',
+        'canonical_title': 'cloud song',
+        'track_number': 3,
+        'disc_number': 1,
+        'duration_seconds': 225,
+        'is_single': false,
+        'is_blocked': false,
+        'featured_artists': <String>[],
+        'artwork_id': null,
+        'created_at': '2026-09-01T00:00:00.000Z',
+        'updated_at': '2026-09-20T00:00:00.000Z',
+        'server_updated_at': '2026-09-20T00:00:01.000Z',
+        'deleted_at': null,
+      });
+
+      await applier.apply(record: record, context: bundle.context);
+
+      final savedSong = bundle.song.saved;
+
+      expect(savedSong, isNotNull);
+      expect(savedSong!.title, 'Cloud Song');
+      expect(savedSong.durationSeconds, 225);
+
+      // Manual membership numbering remains the compatibility projection.
+      expect(savedSong.discNumber, 2);
+      expect(savedSong.trackNumber, 9);
+
+      final membership = bundle.membership.memberships.single;
+
+      expect(membership.discNumber, 2);
+      expect(membership.trackNumber, 9);
+      expect(membership.sortPosition, 6);
+      expect(membership.numberingAuthority, AlbumEditionTrackAuthority.manual);
+      expect(membership.orderingAuthority, AlbumEditionTrackAuthority.manual);
+      expect(membership.createdAt, DateTime.utc(2026, 9, 1));
+      expect(membership.updatedAt, DateTime.utc(2026, 9, 10));
+
+      // No membership rewrite occurred.
+      expect(bundle.membership.saved, isNull);
+    });
 
     test(
       'same-album inbound edition change preserves prior membership',

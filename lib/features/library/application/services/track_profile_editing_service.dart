@@ -219,6 +219,10 @@ class TrackProfileEditingService {
     required Song persistedSong,
     required DateTime now,
   }) async {
+    final numberingChanged =
+        originalSong.discNumber != persistedSong.discNumber ||
+        originalSong.trackNumber != persistedSong.trackNumber;
+
     final existingMemberships = await membershipRepository.getBySongId(
       persistedSong.id,
     );
@@ -255,6 +259,9 @@ class TrackProfileEditingService {
             discNumber: persistedSong.discNumber,
             trackNumber: persistedSong.trackNumber,
             sortPosition: nextSortPosition,
+            numberingAuthority: numberingChanged
+                ? AlbumEditionTrackAuthority.manual
+                : AlbumEditionTrackAuthority.inferred,
             createdAt: persistedSong.createdAt,
             updatedAt: now,
           ),
@@ -274,6 +281,9 @@ class TrackProfileEditingService {
           originalCompatibilityMembership.copyWith(
             discNumber: persistedSong.discNumber,
             trackNumber: persistedSong.trackNumber,
+            numberingAuthority: numberingChanged
+                ? AlbumEditionTrackAuthority.manual
+                : originalCompatibilityMembership.numberingAuthority,
             updatedAt: now,
           ),
         );
@@ -310,6 +320,9 @@ class TrackProfileEditingService {
           discNumber: persistedSong.discNumber,
           trackNumber: persistedSong.trackNumber,
           sortPosition: nextSortPosition,
+          numberingAuthority: numberingChanged
+              ? AlbumEditionTrackAuthority.manual
+              : AlbumEditionTrackAuthority.inferred,
           createdAt: now,
           updatedAt: now,
         ),
@@ -319,6 +332,9 @@ class TrackProfileEditingService {
         existingTargetMembership.copyWith(
           discNumber: persistedSong.discNumber,
           trackNumber: persistedSong.trackNumber,
+          numberingAuthority: numberingChanged
+              ? AlbumEditionTrackAuthority.manual
+              : existingTargetMembership.numberingAuthority,
           updatedAt: now,
         ),
       );
