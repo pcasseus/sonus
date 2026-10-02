@@ -1,3 +1,5 @@
+enum AlbumEditionTrackAuthority { inferred, manual }
+
 class AlbumEditionTrack {
   const AlbumEditionTrack({
     required this.albumEditionId,
@@ -5,6 +7,8 @@ class AlbumEditionTrack {
     required this.discNumber,
     required this.trackNumber,
     required this.sortPosition,
+    this.numberingAuthority = AlbumEditionTrackAuthority.inferred,
+    this.orderingAuthority = AlbumEditionTrackAuthority.inferred,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -14,6 +18,8 @@ class AlbumEditionTrack {
   final int discNumber;
   final int trackNumber;
   final int sortPosition;
+  final AlbumEditionTrackAuthority numberingAuthority;
+  final AlbumEditionTrackAuthority orderingAuthority;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -21,6 +27,8 @@ class AlbumEditionTrack {
     int? discNumber,
     int? trackNumber,
     int? sortPosition,
+    AlbumEditionTrackAuthority? numberingAuthority,
+    AlbumEditionTrackAuthority? orderingAuthority,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -30,6 +38,8 @@ class AlbumEditionTrack {
       discNumber: discNumber ?? this.discNumber,
       trackNumber: trackNumber ?? this.trackNumber,
       sortPosition: sortPosition ?? this.sortPosition,
+      numberingAuthority: numberingAuthority ?? this.numberingAuthority,
+      orderingAuthority: orderingAuthority ?? this.orderingAuthority,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );

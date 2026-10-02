@@ -352,6 +352,21 @@ abstract final class DatabaseMigrations {
         await _backfillAlbumEditionTracks(db);
         return;
 
+      case 24:
+        await db.execute(
+          "ALTER TABLE ${DatabaseTables.albumEditionTracks} "
+          "ADD COLUMN numbering_authority TEXT NOT NULL DEFAULT 'inferred' "
+          "CHECK (numbering_authority IN ('inferred', 'manual'))",
+        );
+
+        await db.execute(
+          "ALTER TABLE ${DatabaseTables.albumEditionTracks} "
+          "ADD COLUMN ordering_authority TEXT NOT NULL DEFAULT 'inferred' "
+          "CHECK (ordering_authority IN ('inferred', 'manual'))",
+        );
+
+        return;
+
       default:
         throw UnsupportedError(
           'No Sonus database migration exists for version $targetVersion.',

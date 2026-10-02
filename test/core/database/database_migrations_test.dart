@@ -24,7 +24,7 @@ void main() {
       final result = await db.rawQuery('PRAGMA user_version');
 
       expect(result.single['user_version'], AppDatabase.databaseVersion);
-      expect(AppDatabase.databaseVersion, 23);
+      expect(AppDatabase.databaseVersion, 24);
     } finally {
       await appDatabase.close();
     }
@@ -1370,12 +1370,55 @@ void main() {
       }
     },
   );
+  test('version 23 membership authority defaults to inferred', () async {
+    final db = await databaseFactoryFfi.openDatabase(inMemoryDatabasePath);
+
+    try {
+      await db.execute('''
+          CREATE TABLE ${DatabaseTables.albumEditionTracks} (
+            album_edition_id TEXT NOT NULL,
+            song_id TEXT NOT NULL,
+            disc_number INTEGER NOT NULL DEFAULT 1,
+            track_number INTEGER NOT NULL DEFAULT 0,
+            sort_position INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (album_edition_id, song_id)
+          )
+        ''');
+
+      final now = DateTime.utc(2026, 10, 2).toIso8601String();
+
+      await db.insert(DatabaseTables.albumEditionTracks, {
+        'album_edition_id': 'edition-1',
+        'song_id': 'song-1',
+        'disc_number': 2,
+        'track_number': 7,
+        'sort_position': 4,
+        'created_at': now,
+        'updated_at': now,
+      });
+
+      await DatabaseMigrations.migrate(db, oldVersion: 23, newVersion: 24);
+
+      final rows = await db.query(DatabaseTables.albumEditionTracks);
+
+      expect(rows, hasLength(1));
+      expect(rows.single['disc_number'], 2);
+      expect(rows.single['track_number'], 7);
+      expect(rows.single['sort_position'], 4);
+      expect(rows.single['numbering_authority'], 'inferred');
+      expect(rows.single['ordering_authority'], 'inferred');
+    } finally {
+      await db.close();
+    }
+  });
   test('migration runner fails loudly for unknown future migration', () async {
     final db = await databaseFactoryFfi.openDatabase(inMemoryDatabasePath);
 
     try {
       await expectLater(
-        DatabaseMigrations.migrate(db, oldVersion: 23, newVersion: 24),
+        DatabaseMigrations.migrate(db, oldVersion: 24, newVersion: 25),
         throwsA(isA<UnsupportedError>()),
       );
     } finally {

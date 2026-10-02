@@ -362,4 +362,22 @@ void main() {
       isTrue,
     );
   });
+
+  test('album edition track authority columns use inferred defaults', () async {
+    final db = await appDatabase.database;
+
+    final columns = await db.rawQuery(
+      'PRAGMA table_info(${DatabaseTables.albumEditionTracks})',
+    );
+
+    final byName = {
+      for (final column in columns) column['name'] as String: column,
+    };
+
+    expect(byName['numbering_authority'], isNotNull);
+    expect(byName['ordering_authority'], isNotNull);
+
+    expect(byName['numbering_authority']!['dflt_value'], "'inferred'");
+    expect(byName['ordering_authority']!['dflt_value'], "'inferred'");
+  });
 }

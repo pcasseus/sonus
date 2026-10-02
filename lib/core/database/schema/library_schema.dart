@@ -145,6 +145,10 @@ abstract final class LibrarySchema {
           CHECK (track_number >= 0),
         sort_position INTEGER NOT NULL
           CHECK (sort_position >= 0),
+        numbering_authority TEXT NOT NULL DEFAULT 'inferred'
+          CHECK (numbering_authority IN ('inferred', 'manual')),
+        ordering_authority TEXT NOT NULL DEFAULT 'inferred'
+          CHECK (ordering_authority IN ('inferred', 'manual')),
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
 
