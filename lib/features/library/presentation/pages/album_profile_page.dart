@@ -114,39 +114,13 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
                   itemBuilder: (context) => [
                     PopupMenuItem(
                       value: _AlbumMenuAction.studio,
-                      enabled: controller.canEditAlbumStudio(userId),
+                      enabled:
+                          controller.canEditAlbumStudio(userId) ||
+                          controller.canEditAlbumProfile(userId) ||
+                          controller.canEditArtwork,
                       child: const ListTile(
                         leading: Icon(Icons.tune_rounded),
                         title: Text('Album Studio'),
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                    ),
-                    const PopupMenuDivider(),
-                    PopupMenuItem(
-                      value: _AlbumMenuAction.editProfile,
-                      enabled: controller.canEditAlbumProfile(userId),
-                      child: const ListTile(
-                        leading: Icon(Icons.edit_outlined),
-                        title: Text('Edit album details'),
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                    ),
-                    const PopupMenuDivider(),
-                    PopupMenuItem(
-                      value: _AlbumMenuAction.changeArtwork,
-                      enabled: controller.canEditArtwork,
-                      child: const ListTile(
-                        leading: Icon(Icons.image_rounded),
-                        title: Text('Change artwork'),
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                    ),
-                    PopupMenuItem(
-                      value: _AlbumMenuAction.clearArtwork,
-                      enabled: controller.canEditArtwork,
-                      child: const ListTile(
-                        leading: Icon(Icons.hide_image_rounded),
-                        title: Text('Clear artwork'),
                         contentPadding: EdgeInsets.zero,
                       ),
                     ),
@@ -251,14 +225,34 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
     AlbumProfileController controller,
     String? userId,
   ) async {
-    if (!controller.canEditAlbumStudio(userId)) {
+    if (!controller.canEditAlbumStudio(userId) &&
+        !controller.canEditAlbumProfile(userId) &&
+        !controller.canEditArtwork) {
       return;
     }
 
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
         builder: (routeContext) {
-          return AlbumStudioPage(controller: controller, userId: userId);
+          return AlbumStudioPage(
+            controller: controller,
+            userId: userId,
+            onEditDetails: controller.canEditAlbumProfile(userId)
+                ? () => _editAlbumProfile(controller, userId)
+                : null,
+            onChangeArtwork: controller.canEditArtwork
+                ? () => _handleArtworkAction(
+                    controller,
+                    _AlbumMenuAction.changeArtwork,
+                  )
+                : null,
+            onClearArtwork: controller.canEditArtwork
+                ? () => _handleArtworkAction(
+                    controller,
+                    _AlbumMenuAction.clearArtwork,
+                  )
+                : null,
+          );
         },
       ),
     );

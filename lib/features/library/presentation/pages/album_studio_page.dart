@@ -11,10 +11,16 @@ class AlbumStudioPage extends StatefulWidget {
     super.key,
     required this.controller,
     required this.userId,
+    this.onEditDetails,
+    this.onChangeArtwork,
+    this.onClearArtwork,
   });
 
   final AlbumProfileController controller;
   final String? userId;
+  final Future<void> Function()? onEditDetails;
+  final Future<void> Function()? onChangeArtwork;
+  final Future<void> Function()? onClearArtwork;
 
   @override
   State<AlbumStudioPage> createState() => _AlbumStudioPageState();
@@ -37,64 +43,71 @@ class _AlbumStudioPageState extends State<AlbumStudioPage> {
         return Scaffold(
           key: const ValueKey<String>('album-studio-page'),
           appBar: AppBar(title: const Text('Album Studio')),
-          body: edition == null
-              ? const Center(
-                  child: Text('No album edition is available to edit.'),
+          body: Column(
+            children: [
+              _AlbumStudioManagement(
+                onEditDetails: widget.onEditDetails,
+                onChangeArtwork: widget.onChangeArtwork,
+                onClearArtwork: widget.onClearArtwork,
+              ),
+              if (edition == null)
+                const Expanded(
+                  child: Center(
+                    child: Text('No album edition is available to edit.'),
+                  ),
                 )
-              : Column(
-                  children: [
-                    if (controller.editions.length > 1)
-                      _EditionSelector(controller: controller),
-                    SwitchListTile(
-                      key: const ValueKey<String>('album-studio-auto-renumber'),
-                      title: const Text('Auto-renumber after reorder'),
-                      subtitle: const Text(
-                        'Keeps each track on its current disc and '
-                        'renumbers tracks within each disc.',
-                      ),
-                      value: _autoRenumber,
-                      onChanged: _isSavingOrder
-                          ? null
-                          : (value) {
-                              setState(() {
-                                _autoRenumber = value;
-                              });
-                            },
-                    ),
-                    if (_isSavingOrder)
-                      const LinearProgressIndicator(
-                        key: ValueKey<String>('album-studio-reorder-progress'),
-                      ),
-                    Expanded(
-                      child: tracks.isEmpty
-                          ? const Center(
-                              child: Text('No tracks in this edition.'),
-                            )
-                          : _StudioTrackList(
-                              controller: controller,
-                              tracks: tracks,
-                              autoRenumber: _autoRenumber,
-                              isBusy: _isSavingOrder,
-                              userId: widget.userId,
-                              onReorderStarted: () {
-                                setState(() {
-                                  _isSavingOrder = true;
-                                });
-                              },
-                              onReorderFinished: () {
-                                if (!mounted) {
-                                  return;
-                                }
-
-                                setState(() {
-                                  _isSavingOrder = false;
-                                });
-                              },
-                              onEditPlacement: _editPlacement,
-                            ),
-                    ),
-                  ],
+              else ...[
+                if (controller.editions.length > 1)
+                  _EditionSelector(controller: controller),
+                SwitchListTile(
+                  key: const ValueKey<String>('album-studio-auto-renumber'),
+                  title: const Text('Auto-renumber after reorder'),
+                  subtitle: const Text(
+                    'Keeps each track on its current disc and '
+                    'renumbers tracks within each disc.',
+                  ),
+                  value: _autoRenumber,
+                  onChanged: _isSavingOrder
+                      ? null
+                      : (value) {
+                          setState(() {
+                            _autoRenumber = value;
+                          });
+                        },
                 ),
+                if (_isSavingOrder)
+                  const LinearProgressIndicator(
+                    key: ValueKey<String>('album-studio-reorder-progress'),
+                  ),
+                Expanded(
+                  child: tracks.isEmpty
+                      ? const Center(child: Text('No tracks in this edition.'))
+                      : _StudioTrackList(
+                          controller: controller,
+                          tracks: tracks,
+                          autoRenumber: _autoRenumber,
+                          isBusy: _isSavingOrder,
+                          userId: widget.userId,
+                          onReorderStarted: () {
+                            setState(() {
+                              _isSavingOrder = true;
+                            });
+                          },
+                          onReorderFinished: () {
+                            if (!mounted) {
+                              return;
+                            }
+
+                            setState(() {
+                              _isSavingOrder = false;
+                            });
+                          },
+                          onEditPlacement: _editPlacement,
+                        ),
+                ),
+              ],
+            ],
+          ),
         );
       },
     );
@@ -141,6 +154,68 @@ class _AlbumStudioPageState extends State<AlbumStudioPage> {
         const SnackBar(content: Text('Could not update track placement.')),
       );
     }
+  }
+}
+
+class _AlbumStudioManagement extends StatelessWidget {
+  const _AlbumStudioManagement({
+    required this.onEditDetails,
+    required this.onChangeArtwork,
+    required this.onClearArtwork,
+  });
+
+  final Future<void> Function()? onEditDetails;
+  final Future<void> Function()? onChangeArtwork;
+  final Future<void> Function()? onClearArtwork;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+      child: Card(
+        child: Column(
+          children: [
+            ListTile(
+              key: const ValueKey<String>('album-studio-edit-details'),
+              leading: const Icon(Icons.edit_outlined),
+              title: const Text('Edit album details'),
+              subtitle: const Text(
+                'Title, artist, edition, release date, and genre',
+              ),
+              enabled: onEditDetails != null,
+              onTap: onEditDetails == null
+                  ? null
+                  : () {
+                      unawaited(onEditDetails!());
+                    },
+            ),
+            const Divider(height: 1),
+            ListTile(
+              key: const ValueKey<String>('album-studio-change-artwork'),
+              leading: const Icon(Icons.image_rounded),
+              title: const Text('Change artwork'),
+              enabled: onChangeArtwork != null,
+              onTap: onChangeArtwork == null
+                  ? null
+                  : () {
+                      unawaited(onChangeArtwork!());
+                    },
+            ),
+            ListTile(
+              key: const ValueKey<String>('album-studio-clear-artwork'),
+              leading: const Icon(Icons.hide_image_rounded),
+              title: const Text('Clear artwork'),
+              enabled: onClearArtwork != null,
+              onTap: onClearArtwork == null
+                  ? null
+                  : () {
+                      unawaited(onClearArtwork!());
+                    },
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 

@@ -22,7 +22,9 @@ import 'package:sonus_next/features/library/application/repositories/library_que
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition_track.dart';
 import 'package:sonus_next/features/library/domain/entities/song.dart';
+import 'package:sonus_next/features/library/presentation/controllers/album_profile_controller.dart';
 import 'package:sonus_next/features/library/presentation/pages/album_profile_page.dart';
+import 'package:sonus_next/features/library/presentation/pages/album_studio_page.dart';
 import 'package:sonus_next/features/player/application/controllers/playback_coordinator.dart';
 import 'package:sonus_next/features/player/domain/models/playback_repeat_mode.dart';
 import 'package:sonus_next/features/player/domain/models/playback_state.dart';
@@ -466,9 +468,17 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('Edit album details'), findsOneWidget);
+      expect(find.text('Album Studio'), findsOneWidget);
+      expect(find.text('Edit album details'), findsNothing);
+      expect(find.text('Change artwork'), findsNothing);
+      expect(find.text('Clear artwork'), findsNothing);
 
-      await tester.tap(find.text('Edit album details'));
+      await tester.tap(find.text('Album Studio'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('album-studio-edit-details')),
+      );
       await tester.pumpAndSettle();
 
       final titleField = find.byKey(
@@ -527,9 +537,16 @@ void main() {
       expect(editingService.lastEditionType, AlbumEditionType.deluxe);
       expect(editingService.lastReleaseDate, DateTime(2025, 6, 20));
       expect(editingService.lastGenre, 'Alternative');
-
-      expect(find.text('Renamed Album'), findsWidgets);
       expect(find.text('Album details updated.'), findsOneWidget);
+
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey<String>('album-studio-page')),
+        findsNothing,
+      );
+      expect(find.text('Renamed Album'), findsWidgets);
     });
 
     testWidgets('album edit can change album artist', (tester) async {
@@ -558,7 +575,12 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Edit album details'));
+      await tester.tap(find.text('Album Studio'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('album-studio-edit-details')),
+      );
       await tester.pumpAndSettle();
 
       final artistField = find.byKey(
@@ -604,7 +626,12 @@ void main() {
         find.byKey(const ValueKey<String>('album-profile-artwork-menu')),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Edit album details'));
+      await tester.tap(find.text('Album Studio'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('album-studio-edit-details')),
+      );
       await tester.pumpAndSettle();
 
       await tester.enterText(
@@ -654,7 +681,12 @@ void main() {
         find.byKey(const ValueKey<String>('album-profile-artwork-menu')),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Edit album details'));
+      await tester.tap(find.text('Album Studio'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('album-studio-edit-details')),
+      );
       await tester.pumpAndSettle();
 
       await tester.enterText(
@@ -706,7 +738,12 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Edit album details'));
+      await tester.tap(find.text('Album Studio'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('album-studio-edit-details')),
+      );
       await tester.pumpAndSettle();
 
       await tester.enterText(
@@ -1127,6 +1164,60 @@ void main() {
       },
     );
 
+    testWidgets(
+      'Album Studio routes artwork actions through management controls',
+      (tester) async {
+        final controller = AlbumProfileController(
+          repository: FakeLibraryQueryRepository(album: createAlbum()),
+          albumId: 'album-1',
+        );
+
+        addTearDown(controller.dispose);
+
+        await controller.load();
+
+        var changeArtworkCallCount = 0;
+        var clearArtworkCallCount = 0;
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: AlbumStudioPage(
+              controller: controller,
+              userId: null,
+              onChangeArtwork: () async {
+                changeArtworkCallCount++;
+              },
+              onClearArtwork: () async {
+                clearArtworkCallCount++;
+              },
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final changeArtwork = find.byKey(
+          const ValueKey<String>('album-studio-change-artwork'),
+        );
+        final clearArtwork = find.byKey(
+          const ValueKey<String>('album-studio-clear-artwork'),
+        );
+
+        expect(changeArtwork, findsOneWidget);
+        expect(clearArtwork, findsOneWidget);
+
+        await tester.tap(changeArtwork);
+        await tester.pumpAndSettle();
+
+        expect(changeArtworkCallCount, 1);
+        expect(clearArtworkCallCount, 0);
+
+        await tester.tap(clearArtwork);
+        await tester.pumpAndSettle();
+
+        expect(changeArtworkCallCount, 1);
+        expect(clearArtworkCallCount, 1);
+      },
+    );
     testWidgets('Album Studio edition selector swaps the editable track list', (
       tester,
     ) async {
