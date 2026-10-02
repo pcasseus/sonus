@@ -13,6 +13,7 @@ import 'package:sonus_next/features/library/application/services/track_profile_e
 import 'package:sonus_next/features/library/domain/entities/album.dart';
 import 'package:sonus_next/features/sync/application/services/sync_mutation_runner.dart';
 import 'package:sonus_next/features/library/application/models/library_album.dart';
+import 'package:sonus_next/features/library/application/models/library_album_edition.dart';
 import 'package:sonus_next/features/library/application/models/library_artist.dart';
 import 'package:sonus_next/features/library/application/models/library_track.dart';
 import 'package:sonus_next/features/library/application/models/library_track_order.dart';
@@ -151,6 +152,151 @@ void main() {
       );
     });
 
+    testWidgets('edition selector switches the full album presentation', (
+      tester,
+    ) async {
+      final repository = FakeEditionAwareLibraryQueryRepository(
+        album: createAlbum(
+          title: 'Concept Album',
+          primaryEditionId: 'edition-standard',
+          primaryEditionTitle: 'Standard',
+          primaryEditionType: AlbumEditionType.standard,
+          releaseDate: DateTime(2024, 5, 17),
+          genre: 'Pop',
+        ),
+        editions: [
+          createLibraryEdition(
+            editionId: 'edition-standard',
+            title: 'Standard',
+            type: AlbumEditionType.standard,
+            isPrimary: true,
+            releaseDate: DateTime(2024, 5, 17),
+            genre: 'Pop',
+          ),
+          createLibraryEdition(
+            editionId: 'edition-deluxe',
+            title: 'Concept Album Deluxe',
+            type: AlbumEditionType.deluxe,
+            releaseDate: DateTime(2025, 6, 20),
+            genre: 'Alternative',
+          ),
+        ],
+        editionTracks: {
+          'edition-standard': [
+            createTrack(
+              songId: 'standard-track',
+              title: 'Standard Song',
+              albumEditionId: 'edition-standard',
+              albumEditionTitle: 'Standard',
+              albumEditionType: AlbumEditionType.standard,
+              trackNumber: 1,
+            ),
+          ],
+          'edition-deluxe': [
+            createTrack(
+              songId: 'deluxe-track-1',
+              title: 'Deluxe Song',
+              albumEditionId: 'edition-deluxe',
+              albumEditionTitle: 'Concept Album Deluxe',
+              albumEditionType: AlbumEditionType.deluxe,
+              trackNumber: 5,
+            ),
+            createTrack(
+              songId: 'deluxe-track-2',
+              title: 'Bonus Song',
+              albumEditionId: 'edition-deluxe',
+              albumEditionTitle: 'Concept Album Deluxe',
+              albumEditionType: AlbumEditionType.deluxe,
+              trackNumber: 6,
+            ),
+          ],
+        },
+      );
+
+      await tester.pumpWidget(buildSubject(repository: repository));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey<String>('album-profile-edition-selector')),
+        findsOneWidget,
+      );
+
+      expect(find.text('Concept Album'), findsWidgets);
+      expect(find.text('Standard'), findsWidgets);
+      expect(find.text('Standard Song'), findsOneWidget);
+      expect(find.text('Deluxe Song'), findsNothing);
+
+      expect(find.text('May 17, 2024 • Pop'), findsOneWidget);
+
+      final segmentedButton = find.byKey(
+        const ValueKey<String>('album-profile-edition-segmented-button'),
+      );
+
+      expect(segmentedButton, findsOneWidget);
+
+      await tester.tap(
+        find.descendant(of: segmentedButton, matching: find.text('Deluxe')),
+      );
+
+      await tester.pumpAndSettle();
+
+      expect(find.text('Concept Album Deluxe'), findsWidgets);
+
+      expect(
+        find.byKey(
+          const ValueKey<String>('album-profile-selected-edition-label'),
+        ),
+        findsOneWidget,
+      );
+
+      expect(find.text('Deluxe'), findsWidgets);
+      expect(find.text('Standard Song'), findsNothing);
+      expect(find.text('Deluxe Song'), findsOneWidget);
+      expect(find.text('Bonus Song'), findsOneWidget);
+
+      expect(find.text('June 20, 2025 • Alternative'), findsOneWidget);
+
+      expect(find.text('2 tracks • 6 min'), findsOneWidget);
+    });
+
+    testWidgets('single explicit edition does not show edition selector', (
+      tester,
+    ) async {
+      final repository = FakeEditionAwareLibraryQueryRepository(
+        album: createAlbum(
+          primaryEditionId: 'edition-standard',
+          primaryEditionTitle: 'Standard',
+        ),
+        editions: [
+          createLibraryEdition(
+            editionId: 'edition-standard',
+            title: 'Standard',
+            type: AlbumEditionType.standard,
+            isPrimary: true,
+          ),
+        ],
+        editionTracks: {
+          'edition-standard': [
+            createTrack(
+              songId: 'only-song',
+              albumEditionId: 'edition-standard',
+              albumEditionTitle: 'Standard',
+            ),
+          ],
+        },
+      );
+
+      await tester.pumpWidget(buildSubject(repository: repository));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey<String>('album-profile-edition-selector')),
+        findsNothing,
+      );
+
+      expect(find.text('Standard'), findsOneWidget);
+      expect(find.text('only-song'), findsNothing);
+    });
     testWidgets('ghosts unavailable tracks from album count and summary', (
       tester,
     ) async {
@@ -940,6 +1086,30 @@ LibraryAlbum createAlbum({
   );
 }
 
+LibraryAlbumEdition createLibraryEdition({
+  required String editionId,
+  required String title,
+  required AlbumEditionType type,
+  bool isPrimary = false,
+  DateTime? releaseDate,
+  String? genre,
+  String? artworkId,
+  String? artworkPath,
+}) {
+  return LibraryAlbumEdition(
+    editionId: editionId,
+    albumId: 'album-1',
+    title: title,
+    type: type,
+    isPrimary: isPrimary,
+    releaseDate: releaseDate,
+    genre: genre,
+    artworkId: artworkId,
+    artworkPath: artworkPath,
+    dateAdded: DateTime(2026, 1, 1),
+  );
+}
+
 LibraryTrack createTrack({
   String songId = 'song-1',
   String title = 'Test Song',
@@ -1077,6 +1247,31 @@ class FakeLibraryQueryRepository implements LibraryQueryRepository {
   @override
   Future<LibraryArtist?> getArtistById(String artistId) async {
     return null;
+  }
+}
+
+class FakeEditionAwareLibraryQueryRepository extends FakeLibraryQueryRepository
+    implements AlbumEditionQueryRepository {
+  FakeEditionAwareLibraryQueryRepository({
+    super.album,
+    super.tracks = const [],
+    super.albumError,
+    super.albumLoader,
+    this.editions = const [],
+    this.editionTracks = const {},
+  });
+
+  final List<LibraryAlbumEdition> editions;
+  final Map<String, List<LibraryTrack>> editionTracks;
+
+  @override
+  Future<List<LibraryAlbumEdition>> getAlbumEditions(String albumId) async {
+    return editions;
+  }
+
+  @override
+  Future<List<LibraryTrack>> getTracksByAlbumEditionId(String editionId) async {
+    return editionTracks[editionId] ?? const [];
   }
 }
 

@@ -10,10 +10,12 @@ import '../../../artwork/application/services/artwork_file_picker.dart';
 import '../../../player/application/controllers/playback_coordinator.dart';
 import '../../../playlists/presentation/widgets/add_to_playlist_sheet.dart';
 import '../../application/models/library_album.dart';
+import '../../application/models/library_album_edition.dart';
 import '../../application/models/library_track.dart';
 import '../../application/repositories/library_query_repository.dart';
 import '../../application/services/album_profile_editing_service.dart';
 import '../../application/services/song_block_service.dart';
+import '../../domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/application/services/track_profile_editing_service.dart';
 import '../controllers/album_profile_controller.dart';
 import '../widgets/album_profile_edit_dialog.dart';
@@ -78,10 +80,15 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
             : AnimatedBuilder(
                 animation: controller,
                 builder: (context, _) {
+                  final album = controller.album;
+
                   return Text(
-                    controller.album?.title ??
-                        widget.initialAlbumTitle ??
-                        'Album',
+                    album == null
+                        ? widget.initialAlbumTitle ?? 'Album'
+                        : _presentationAlbumTitle(
+                            album,
+                            controller.selectedEdition,
+                          ),
                   );
                 },
               ),
@@ -167,9 +174,13 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
                       _AlbumHeader(
                         album: album,
                         controller: controller,
-                        artworkPath: controller.artworkPath,
+                        artworkPath: _presentationArtworkPath(controller),
                       ),
                       const SizedBox(height: 20),
+                      if (controller.editions.length > 1) ...[
+                        _EditionSelector(controller: controller),
+                        const SizedBox(height: 20),
+                      ],
                       _PlaybackControls(controller: controller),
                       const SizedBox(height: 28),
                       _SectionHeading(
@@ -499,7 +510,7 @@ class _AlbumHeader extends StatelessWidget {
         _AlbumArtwork(album: album, artworkPath: artworkPath),
         const SizedBox(height: 18),
         Text(
-          album.title,
+          _presentationAlbumTitle(album, controller.selectedEdition),
           key: ValueKey<String>('album-profile-title-${album.albumId}'),
           textAlign: TextAlign.center,
           style: theme.textTheme.headlineSmall?.copyWith(
@@ -513,6 +524,19 @@ class _AlbumHeader extends StatelessWidget {
           textAlign: TextAlign.center,
           style: theme.textTheme.titleMedium,
         ),
+        if (controller.selectedEdition != null) ...[
+          const SizedBox(height: 6),
+          Text(
+            _editionDisplayLabel(controller.selectedEdition!),
+            key: const ValueKey<String>('album-profile-selected-edition-label'),
+            textAlign: TextAlign.center,
+            style: theme.textTheme.labelLarge?.copyWith(
+              color: theme.colorScheme.primary,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+
         const SizedBox(height: 10),
         Text(
           _summary(),
@@ -559,32 +583,35 @@ class _AlbumHeader extends StatelessWidget {
 
   String _metadata(LibraryAlbum album) {
     final parts = <String>[];
+    final selectedEdition = controller.selectedEdition;
 
-    final releaseDate = album.releaseDate;
+    final releaseDate = selectedEdition?.releaseDate ?? album.releaseDate;
 
     if (releaseDate != null) {
       parts.add(_formatDate(releaseDate));
     }
 
-    final genre = album.genre?.trim();
+    final genre = (selectedEdition?.genre ?? album.genre)?.trim();
 
     if (genre != null && genre.isNotEmpty) {
       parts.add(genre);
     }
 
-    if (controller.hasMultipleEditions) {
-      parts.add('${controller.editionCount} editions');
-    } else {
-      final editionTitle = album.primaryEditionTitle?.trim();
+    if (selectedEdition == null) {
+      if (controller.hasMultipleEditions) {
+        parts.add('${controller.editionCount} editions');
+      } else {
+        final editionTitle = album.primaryEditionTitle?.trim();
 
-      if (editionTitle != null &&
-          editionTitle.isNotEmpty &&
-          editionTitle.toLowerCase() != 'standard') {
-        parts.add(editionTitle);
+        if (editionTitle != null &&
+            editionTitle.isNotEmpty &&
+            editionTitle.toLowerCase() != 'standard') {
+          parts.add(editionTitle);
+        }
       }
     }
 
-    return parts.join(' \u2022 ');
+    return parts.join(' • ');
   }
 
   String _formatRuntime(Duration duration) {
@@ -672,6 +699,101 @@ class _AlbumArtwork extends StatelessWidget {
       ),
     );
   }
+}
+
+class _EditionSelector extends StatelessWidget {
+  const _EditionSelector({required this.controller});
+
+  final AlbumProfileController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final selectedEdition = controller.selectedEdition;
+
+    if (selectedEdition == null || controller.editions.length < 2) {
+      return const SizedBox.shrink();
+    }
+
+    return SingleChildScrollView(
+      key: const ValueKey<String>('album-profile-edition-selector'),
+      scrollDirection: Axis.horizontal,
+      child: SegmentedButton<String>(
+        key: const ValueKey<String>('album-profile-edition-segmented-button'),
+        segments: [
+          for (final edition in controller.editions)
+            ButtonSegment<String>(
+              value: edition.editionId,
+              label: Text(_editionDisplayLabel(edition)),
+            ),
+        ],
+        selected: {selectedEdition.editionId},
+        showSelectedIcon: false,
+        onSelectionChanged: (selection) {
+          if (selection.isEmpty) {
+            return;
+          }
+
+          unawaited(controller.selectEdition(selection.first));
+        },
+      ),
+    );
+  }
+}
+
+String? _presentationArtworkPath(AlbumProfileController controller) {
+  final editionPath = controller.selectedEdition?.artworkPath?.trim();
+
+  if (editionPath != null && editionPath.isNotEmpty) {
+    return editionPath;
+  }
+
+  return controller.artworkPath;
+}
+
+String _presentationAlbumTitle(
+  LibraryAlbum album,
+  LibraryAlbumEdition? edition,
+) {
+  if (edition == null) {
+    return album.title;
+  }
+
+  final editionTitle = edition.title.trim();
+
+  if (editionTitle.isEmpty || _isGenericEditionTitle(editionTitle)) {
+    return album.title;
+  }
+
+  return editionTitle;
+}
+
+String _editionDisplayLabel(LibraryAlbumEdition edition) {
+  final title = edition.title.trim();
+
+  if (title.isNotEmpty && _isGenericEditionTitle(title)) {
+    return title;
+  }
+
+  return switch (edition.type) {
+    AlbumEditionType.standard => 'Standard',
+    AlbumEditionType.deluxe => 'Deluxe',
+    AlbumEditionType.expanded => 'Expanded',
+    AlbumEditionType.anniversary => 'Anniversary',
+    AlbumEditionType.remaster => 'Remaster',
+    AlbumEditionType.other => title.isEmpty ? 'Other' : title,
+  };
+}
+
+bool _isGenericEditionTitle(String title) {
+  return switch (title.trim().toLowerCase()) {
+    'standard' ||
+    'deluxe' ||
+    'expanded' ||
+    'anniversary' ||
+    'remaster' ||
+    'other' => true,
+    _ => false,
+  };
 }
 
 class _PlaybackControls extends StatelessWidget {
