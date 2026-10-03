@@ -512,6 +512,70 @@ void main() {
         expect(find.text('Removed from blacklist.'), findsOneWidget);
       },
     );
+    testWidgets('Track Studio edits and saves a track from the Tracks menu', (
+      tester,
+    ) async {
+      final repository = FakeLibraryQueryRepository(
+        tracks: [createTrack(songId: 'song-studio', title: 'Original Title')],
+      );
+      final editingService = FakeTrackStudioEditingService();
+
+      await tester.pumpWidget(
+        buildSubject(
+          repository: repository,
+          trackProfileEditingService: editingService,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final menuFinder = find.byKey(
+        const ValueKey<String>('track-menu-song-studio'),
+      );
+
+      expect(menuFinder, findsOneWidget);
+
+      await tester.tap(menuFinder);
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Edit details'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey<String>('track-studio-page')),
+        findsOneWidget,
+      );
+      expect(find.text('Track Studio'), findsOneWidget);
+
+      final titleField = find.byKey(
+        const ValueKey<String>('track-title-field'),
+      );
+
+      expect(titleField, findsOneWidget);
+
+      await tester.enterText(titleField, 'Studio Title');
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('track-studio-save-button')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(editingService.updateCallCount, 1);
+      expect(editingService.lastUserId, isNull);
+      expect(editingService.lastSongId, 'song-studio');
+      expect(editingService.lastTitle, 'Studio Title');
+      expect(editingService.lastTrackNumber, 1);
+      expect(editingService.lastDiscNumber, 1);
+      expect(editingService.lastFeaturedArtists, isEmpty);
+      expect(editingService.lastIsSingle, isFalse);
+      expect(editingService.lastArtistId, 'artist-1');
+      expect(editingService.lastAlbumId, 'album-1');
+      expect(editingService.lastAlbumEditionId, 'edition-1');
+
+      expect(
+        find.byKey(const ValueKey<String>('track-studio-page')),
+        findsNothing,
+      );
+    });
   });
 }
 
