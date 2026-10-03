@@ -5,7 +5,9 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:sonus_next/core/database/app_database.dart';
 import 'package:sonus_next/core/database/database_tables.dart';
+import 'package:sonus_next/features/library/application/services/song_artist_credit_service.dart';
 import 'package:sonus_next/features/library/application/services/track_profile_editing_service.dart';
+import 'package:sonus_next/features/library/domain/entities/song_artist_credit.dart';
 import 'package:sonus_next/features/sync/data/repositories/sync_mutation_transaction_runner.dart';
 
 void main() {
@@ -154,6 +156,68 @@ void main() {
     },
   );
 
+  test(
+    'structured edit preserves co-primary and guest roles while only featured projects to Song',
+    () async {
+      final result = await service.updateTrackWithCredits(
+        userId: null,
+        songId: 'song_1',
+        title: 'Test Song',
+        trackNumber: 1,
+        discNumber: 1,
+        additionalCredits: const [
+          SongArtistCreditInput(
+            creditedName: 'Second Artist',
+            role: SongArtistCreditRole.coPrimary,
+            artistId: 'artist_second',
+          ),
+          SongArtistCreditInput(
+            creditedName: 'Guest Artist',
+            role: SongArtistCreditRole.guest,
+          ),
+          SongArtistCreditInput(
+            creditedName: 'Featured Artist',
+            role: SongArtistCreditRole.featured,
+          ),
+        ],
+        isSingle: false,
+        now: DateTime.utc(2026, 10, 1, 12),
+      );
+
+      expect(result.changed, isTrue);
+
+      final credits = await db.query(
+        DatabaseTables.songArtistCredits,
+        where: 'song_id = ?',
+        whereArgs: ['song_1'],
+        orderBy: 'position ASC',
+      );
+
+      expect(credits, hasLength(4));
+
+      expect(credits[0]['artist_id'], 'artist_primary');
+      expect(credits[0]['credited_name'], 'Primary Artist');
+      expect(credits[0]['role'], 'primary');
+
+      expect(credits[1]['artist_id'], 'artist_second');
+      expect(credits[1]['credited_name'], 'Second Artist');
+      expect(credits[1]['role'], 'coPrimary');
+
+      expect(credits[2]['artist_id'], isNull);
+      expect(credits[2]['credited_name'], 'Guest Artist');
+      expect(credits[2]['role'], 'guest');
+
+      expect(credits[3]['artist_id'], isNull);
+      expect(credits[3]['credited_name'], 'Featured Artist');
+      expect(credits[3]['role'], 'featured');
+
+      final song = await _songRow(db);
+
+      expect(jsonDecode(song['featured_artists'] as String), [
+        'Featured Artist',
+      ]);
+    },
+  );
   test('credit persistence failure rolls back the Song edit', () async {
     await db.execute('''
         CREATE TRIGGER fail_song_artist_credit_insert

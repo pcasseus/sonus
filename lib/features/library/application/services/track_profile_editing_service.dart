@@ -32,12 +32,43 @@ class TrackProfileEditingService {
     String? albumEditionId,
     DateTime? now,
   }) {
+    return updateTrackWithCredits(
+      userId: userId,
+      songId: songId,
+      title: title,
+      trackNumber: trackNumber,
+      discNumber: discNumber,
+      additionalCredits: [
+        for (final featuredArtist in featuredArtists)
+          SongArtistCreditInput(
+            creditedName: featuredArtist,
+            role: SongArtistCreditRole.featured,
+          ),
+      ],
+      isSingle: isSingle,
+      artistId: artistId,
+      albumId: albumId,
+      albumEditionId: albumEditionId,
+      now: now,
+    );
+  }
+
+  Future<TrackProfileEditResult> updateTrackWithCredits({
+    required String? userId,
+    required String songId,
+    required String title,
+    required int trackNumber,
+    required int discNumber,
+    required Iterable<SongArtistCreditInput> additionalCredits,
+    required bool isSingle,
+    String? artistId,
+    String? albumId,
+    String? albumEditionId,
+    DateTime? now,
+  }) {
     final normalizedUserId = userId?.trim();
     final normalizedSongId = songId.trim();
     final trimmedTitle = title.trim();
-    final normalizedFeaturedArtists = _normalizeFeaturedArtists(
-      featuredArtists,
-    );
 
     final normalizedArtistId = artistId?.trim();
     final normalizedAlbumId = albumId?.trim();
@@ -116,6 +147,15 @@ class TrackProfileEditingService {
         throw StateError('Artist not found: $targetArtistId');
       }
 
+      final normalizedAdditionalCredits = _normalizeAdditionalCredits(
+        additionalCredits,
+        primaryCanonicalName: targetArtist.canonicalName,
+      );
+
+      final projectedFeaturedArtists = [
+        for (final credit in normalizedAdditionalCredits)
+          if (credit.role == SongArtistCreditRole.featured) credit.creditedName,
+      ];
       final targetAlbum = await context.albumRepository.getById(targetAlbumId);
 
       if (targetAlbum == null) {
@@ -139,6 +179,17 @@ class TrackProfileEditingService {
 
       final canonicalTitle = TextNormalizer.canonicalize(trimmedTitle);
 
+      final existingStructuredCredits = await context.songArtistCreditRepository
+          .getBySongId(song.id);
+
+      final structuredCreditsChanged = _structuredCreditsChanged(
+        existingCredits: existingStructuredCredits,
+        song: song,
+        primaryArtistId: targetArtistId,
+        primaryCanonicalName: targetArtist.canonicalName,
+        desiredAdditionalCredits: normalizedAdditionalCredits,
+      );
+
       final changed =
           song.artistId != targetArtistId ||
           song.albumId != targetAlbumId ||
@@ -148,7 +199,8 @@ class TrackProfileEditingService {
           song.trackNumber != trackNumber ||
           song.discNumber != discNumber ||
           song.isSingle != isSingle ||
-          !_listsEqual(song.featuredArtists, normalizedFeaturedArtists);
+          !_listsEqual(song.featuredArtists, projectedFeaturedArtists) ||
+          structuredCreditsChanged;
 
       if (!changed) {
         return TrackProfileEditResult(song: song, changed: false);
@@ -163,7 +215,7 @@ class TrackProfileEditingService {
         trackNumber: trackNumber,
         discNumber: discNumber,
         isSingle: isSingle,
-        featuredArtists: List<String>.unmodifiable(normalizedFeaturedArtists),
+        featuredArtists: List<String>.unmodifiable(projectedFeaturedArtists),
         updatedAt: timestamp,
       );
       final structuredCredits =
@@ -172,13 +224,7 @@ class TrackProfileEditingService {
             userId: normalizedUserId,
             songId: updated.id,
             primaryArtistId: targetArtistId,
-            additionalCredits: [
-              for (final featuredArtist in normalizedFeaturedArtists)
-                SongArtistCreditInput(
-                  creditedName: featuredArtist,
-                  role: SongArtistCreditRole.featured,
-                ),
-            ],
+            additionalCredits: normalizedAdditionalCredits,
             now: timestamp,
           );
 
@@ -349,11 +395,139 @@ class TrackProfileEditingService {
     }
   }
 
-  List<String> _normalizeFeaturedArtists(List<String> artists) {
-    return [
-      for (final artist in artists)
-        if (artist.trim().isNotEmpty) artist.trim(),
+  List<SongArtistCreditInput> _normalizeAdditionalCredits(
+    Iterable<SongArtistCreditInput> credits, {
+    required String primaryCanonicalName,
+  }) {
+    final seenCanonicalNames = <String>{primaryCanonicalName};
+    final normalized = <SongArtistCreditInput>[];
+
+    for (final credit in credits) {
+      if (credit.role == SongArtistCreditRole.primary) {
+        throw ArgumentError('Additional credits may not use the primary role.');
+      }
+
+      final creditedName = credit.creditedName.trim();
+
+      if (creditedName.isEmpty) {
+        continue;
+      }
+
+      final canonicalName = TextNormalizer.canonicalize(creditedName);
+
+      if (canonicalName.isEmpty || !seenCanonicalNames.add(canonicalName)) {
+        continue;
+      }
+
+      final normalizedArtistId = credit.artistId?.trim();
+
+      normalized.add(
+        SongArtistCreditInput(
+          creditedName: creditedName,
+          role: credit.role,
+          artistId: normalizedArtistId == null || normalizedArtistId.isEmpty
+              ? null
+              : normalizedArtistId,
+        ),
+      );
+    }
+
+    return List<SongArtistCreditInput>.unmodifiable(normalized);
+  }
+
+  bool _structuredCreditsChanged({
+    required List<SongArtistCredit> existingCredits,
+    required Song song,
+    required String primaryArtistId,
+    required String primaryCanonicalName,
+    required List<SongArtistCreditInput> desiredAdditionalCredits,
+  }) {
+    if (existingCredits.isEmpty) {
+      final legacyAdditionalCredits = _normalizeAdditionalCredits([
+        for (final featuredArtist in song.featuredArtists)
+          SongArtistCreditInput(
+            creditedName: featuredArtist,
+            role: SongArtistCreditRole.featured,
+          ),
+      ], primaryCanonicalName: primaryCanonicalName);
+
+      return !_additionalCreditInputsEqual(
+        legacyAdditionalCredits,
+        desiredAdditionalCredits,
+      );
+    }
+
+    final orderedCredits = List<SongArtistCredit>.from(existingCredits)
+      ..sort((left, right) => left.position.compareTo(right.position));
+
+    final primaryCredits = [
+      for (final credit in orderedCredits)
+        if (credit.role == SongArtistCreditRole.primary) credit,
     ];
+
+    if (primaryCredits.length != 1 ||
+        primaryCredits.single.artistId != primaryArtistId) {
+      return true;
+    }
+
+    final currentAdditionalCredits = [
+      for (final credit in orderedCredits)
+        if (credit.role != SongArtistCreditRole.primary) credit,
+    ];
+
+    if (currentAdditionalCredits.length != desiredAdditionalCredits.length) {
+      return true;
+    }
+
+    for (var index = 0; index < desiredAdditionalCredits.length; index++) {
+      final current = currentAdditionalCredits[index];
+      final desired = desiredAdditionalCredits[index];
+
+      if (current.creditedName != desired.creditedName ||
+          current.role != desired.role) {
+        return true;
+      }
+
+      final explicitDesiredArtistId = desired.artistId?.trim();
+
+      if (explicitDesiredArtistId != null &&
+          explicitDesiredArtistId.isNotEmpty &&
+          current.artistId != explicitDesiredArtistId) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  bool _additionalCreditInputsEqual(
+    List<SongArtistCreditInput> first,
+    List<SongArtistCreditInput> second,
+  ) {
+    if (first.length != second.length) {
+      return false;
+    }
+
+    for (var index = 0; index < first.length; index++) {
+      final left = first[index];
+      final right = second[index];
+
+      if (left.creditedName != right.creditedName || left.role != right.role) {
+        return false;
+      }
+
+      final leftArtistId = left.artistId?.trim();
+      final rightArtistId = right.artistId?.trim();
+
+      if ((leftArtistId?.isNotEmpty ?? false) ||
+          (rightArtistId?.isNotEmpty ?? false)) {
+        if (leftArtistId != rightArtistId) {
+          return false;
+        }
+      }
+    }
+
+    return true;
   }
 
   bool _listsEqual(List<String> first, List<String> second) {
