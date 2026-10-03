@@ -20,6 +20,7 @@ import '../../domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/application/services/track_profile_editing_service.dart';
 import '../controllers/album_profile_controller.dart';
 import 'album_studio_page.dart';
+import 'track_studio_page.dart';
 import '../widgets/album_profile_edit_dialog.dart';
 import '../widgets/track_profile_edit_dialog.dart';
 
@@ -373,15 +374,23 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
         return;
       }
 
-      final draft = await showDialog<TrackProfileEditDraft>(
-        context: context,
-        builder: (dialogContext) {
-          return TrackProfileEditDialog(
-            track: track,
-            artists: artists,
-            albums: albums,
-          );
-        },
+      final draft = await Navigator.of(context).push<TrackProfileEditDraft>(
+        MaterialPageRoute<TrackProfileEditDraft>(
+          builder: (routeContext) {
+            return TrackStudioPage(
+              track: track,
+              artists: artists,
+              albums: albums,
+              canEditDetails: controller.canEditTrack(userId),
+              onChangeArtwork: controller.canEditTrackArtwork
+                  ? () => _changeTrackArtwork(controller, track)
+                  : null,
+              onClearArtwork: controller.canEditTrackArtwork
+                  ? () => _clearTrackArtwork(controller, track)
+                  : null,
+            );
+          },
+        ),
       );
 
       if (!mounted || draft == null) {
@@ -1013,12 +1022,8 @@ class _TrackTile extends StatelessWidget {
                   unawaited(onAddToQueue());
                 case _TrackMenuAction.addToPlaylist:
                   unawaited(onAddToPlaylist());
-                case _TrackMenuAction.editDetails:
+                case _TrackMenuAction.trackStudio:
                   unawaited(onEditTrack());
-                case _TrackMenuAction.changeArtwork:
-                  unawaited(onChangeArtwork());
-                case _TrackMenuAction.clearArtwork:
-                  unawaited(onClearArtwork());
                 case _TrackMenuAction.toggleBlocked:
                   unawaited(onSetBlocked(!track.isSongBlocked));
               }
@@ -1051,20 +1056,11 @@ class _TrackTile extends StatelessWidget {
                 ),
               ),
               PopupMenuItem(
-                value: _TrackMenuAction.editDetails,
-                enabled: canEditTrack,
+                value: _TrackMenuAction.trackStudio,
+                enabled: canEditTrack || canEditArtwork,
                 child: const ListTile(
                   leading: Icon(Icons.edit_outlined),
-                  title: Text('Edit song details'),
-                  contentPadding: EdgeInsets.zero,
-                ),
-              ),
-              PopupMenuItem(
-                value: _TrackMenuAction.changeArtwork,
-                enabled: canEditArtwork,
-                child: const ListTile(
-                  leading: Icon(Icons.image_rounded),
-                  title: Text('Change artwork'),
+                  title: Text('Track Studio'),
                   contentPadding: EdgeInsets.zero,
                 ),
               ),
@@ -1086,15 +1082,6 @@ class _TrackTile extends StatelessWidget {
                 ),
               ),
               const PopupMenuDivider(),
-              PopupMenuItem(
-                value: _TrackMenuAction.clearArtwork,
-                enabled: canEditArtwork,
-                child: const ListTile(
-                  leading: Icon(Icons.hide_image_rounded),
-                  title: Text('Clear artwork'),
-                  contentPadding: EdgeInsets.zero,
-                ),
-              ),
             ],
           ),
         ],
@@ -1155,9 +1142,7 @@ enum _TrackMenuAction {
   playNext,
   addToQueue,
   addToPlaylist,
-  editDetails,
-  changeArtwork,
-  clearArtwork,
+  trackStudio,
   toggleBlocked,
 }
 

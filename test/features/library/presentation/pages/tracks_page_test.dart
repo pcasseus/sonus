@@ -537,7 +537,7 @@ void main() {
       await tester.tap(menuFinder);
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Edit song details'));
+      await tester.tap(find.text('Track Studio'));
       await tester.pumpAndSettle();
 
       expect(

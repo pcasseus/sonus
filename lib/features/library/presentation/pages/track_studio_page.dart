@@ -15,6 +15,7 @@ class TrackStudioPage extends StatefulWidget {
     this.onCreateArtist,
     this.onChangeArtwork,
     this.onClearArtwork,
+    this.canEditDetails = true,
   });
 
   final LibraryTrack track;
@@ -23,6 +24,7 @@ class TrackStudioPage extends StatefulWidget {
   final TrackArtistCreationCallback? onCreateArtist;
   final Future<void> Function()? onChangeArtwork;
   final Future<void> Function()? onClearArtwork;
+  final bool canEditDetails;
 
   @override
   State<TrackStudioPage> createState() => _TrackStudioPageState();
@@ -96,7 +98,7 @@ class _TrackStudioPageState extends State<TrackStudioPage> {
         actions: [
           TextButton(
             key: const ValueKey<String>('track-studio-save-button'),
-            onPressed: _submit,
+            onPressed: widget.canEditDetails ? _submit : null,
             child: const Text('Save'),
           ),
           const SizedBox(width: 8),

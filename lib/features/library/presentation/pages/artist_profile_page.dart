@@ -21,6 +21,7 @@ import '../widgets/artist_profile/artist_profile_playback_controls.dart';
 import '../widgets/artist_profile/artist_profile_section_heading.dart';
 import '../widgets/track_profile_edit_dialog.dart';
 import 'album_profile_page.dart';
+import 'track_studio_page.dart';
 
 class ArtistProfilePage extends StatefulWidget {
   const ArtistProfilePage({
@@ -553,15 +554,23 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
         return;
       }
 
-      final draft = await showDialog<TrackProfileEditDraft>(
-        context: context,
-        builder: (dialogContext) {
-          return TrackProfileEditDialog(
-            track: track,
-            artists: artists,
-            albums: albums,
-          );
-        },
+      final draft = await Navigator.of(context).push<TrackProfileEditDraft>(
+        MaterialPageRoute<TrackProfileEditDraft>(
+          builder: (routeContext) {
+            return TrackStudioPage(
+              track: track,
+              artists: artists,
+              albums: albums,
+              canEditDetails: controller.canEditTrack(userId),
+              onChangeArtwork: controller.canEditTrackArtwork
+                  ? () => _changeTrackArtwork(controller, track)
+                  : null,
+              onClearArtwork: controller.canEditTrackArtwork
+                  ? () => _clearTrackArtwork(controller, track)
+                  : null,
+            );
+          },
+        ),
       );
 
       if (!mounted || draft == null) {

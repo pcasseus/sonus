@@ -1376,6 +1376,50 @@ void main() {
         expect(service.lastOrderedSongIds, ['song-b', 'song-c', 'song-a']);
       },
     );
+
+    testWidgets('Album Track Studio opens from the track menu', (tester) async {
+      final repository = FakeLibraryQueryRepository(
+        album: createAlbum(),
+        tracks: [createTrack(songId: 'studio-song', title: 'Studio Song')],
+      );
+
+      final accountRepository = FakeAccountRepository(
+        currentUser: const AccountUser(id: 'user-1', email: 'user@example.com'),
+      );
+
+      final editingService = EnabledTrackStudioEditingService();
+
+      await tester.pumpWidget(
+        buildSubject(
+          repository: repository,
+          accountRepository: accountRepository,
+          trackProfileEditingService: editingService,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final menuFinder = find.byKey(
+        const ValueKey<String>('album-track-menu-studio-song'),
+      );
+
+      expect(menuFinder, findsOneWidget);
+
+      await tester.tap(menuFinder);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Track Studio'), findsOneWidget);
+      expect(find.text('Edit song details'), findsNothing);
+      expect(find.text('Change artwork'), findsNothing);
+      expect(find.text('Clear artwork'), findsNothing);
+
+      await tester.tap(find.text('Track Studio'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey<String>('track-studio-page')),
+        findsOneWidget,
+      );
+    });
   });
 }
 
@@ -1862,6 +1906,11 @@ class FakeAlbumProfileEditingService extends AlbumProfileEditingService {
       primaryEditionChanged: true,
     );
   }
+}
+
+class EnabledTrackStudioEditingService extends TrackProfileEditingService {
+  EnabledTrackStudioEditingService()
+    : super(mutationRunner: UnusedSyncMutationRunner());
 }
 
 class UnusedSyncMutationRunner implements SyncMutationRunner {
