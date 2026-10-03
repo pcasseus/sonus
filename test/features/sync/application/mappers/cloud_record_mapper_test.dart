@@ -86,6 +86,13 @@ void main() {
           isSingle: false,
           isBlocked: true,
           featuredArtists: const ['Feature'],
+          versionLabel: 'Studio Demo',
+          versionCharacteristics: const [
+            SongVersionCharacteristic.demo,
+            SongVersionCharacteristic.acoustic,
+          ],
+          releaseStatus: SongReleaseStatus.unreleased,
+          isLeak: true,
           artworkId: 'artwork_1',
           createdAt: createdAt,
           updatedAt: updatedAt,
@@ -99,6 +106,10 @@ void main() {
         expect(record.discNumber, 2);
         expect(record.durationSeconds, 215);
         expect(record.isBlocked, isTrue);
+        expect(record.versionLabel, 'Studio Demo');
+        expect(record.versionCharacteristics, const ['demo', 'acoustic']);
+        expect(record.releaseStatus, 'unreleased');
+        expect(record.isLeak, isTrue);
       },
     );
 

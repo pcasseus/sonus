@@ -88,6 +88,11 @@ abstract final class SupabaseCloudRecordMapper {
           SupabaseSyncContract.isSingleColumn: record.isSingle,
           SupabaseSyncContract.isBlockedColumn: record.isBlocked,
           SupabaseSyncContract.featuredArtistsColumn: record.featuredArtists,
+          SupabaseSyncContract.versionLabelColumn: record.versionLabel,
+          SupabaseSyncContract.versionCharacteristicsColumn:
+              record.versionCharacteristics,
+          SupabaseSyncContract.releaseStatusColumn: record.releaseStatus,
+          SupabaseSyncContract.isLeakColumn: record.isLeak,
           SupabaseSyncContract.artworkIdColumn: record.artworkId,
         });
 
@@ -219,6 +224,21 @@ abstract final class SupabaseCloudRecordMapper {
         row,
         SupabaseSyncContract.featuredArtistsColumn,
       ),
+      versionLabel: _optionalString(
+        row,
+        SupabaseSyncContract.versionLabelColumn,
+      ),
+      versionCharacteristics: _stringListOrDefault(
+        row,
+        SupabaseSyncContract.versionCharacteristicsColumn,
+        const [],
+      ),
+      releaseStatus: _stringOrDefault(
+        row,
+        SupabaseSyncContract.releaseStatusColumn,
+        'released',
+      ),
+      isLeak: _boolOrDefault(row, SupabaseSyncContract.isLeakColumn, false),
       artworkId: _optionalString(row, SupabaseSyncContract.artworkIdColumn),
       createdAt: _requiredDateTime(row, SupabaseSyncContract.createdAtColumn),
       updatedAt: _requiredDateTime(row, SupabaseSyncContract.updatedAtColumn),
@@ -255,6 +275,24 @@ abstract final class SupabaseCloudRecordMapper {
 
     if (value == null) {
       return null;
+    }
+
+    if (value is! String) {
+      throw StateError('Invalid $column.');
+    }
+
+    return value;
+  }
+
+  static String _stringOrDefault(
+    Map<String, dynamic> row,
+    String column,
+    String defaultValue,
+  ) {
+    final value = row[column];
+
+    if (value == null) {
+      return defaultValue;
     }
 
     if (value is! String) {
@@ -328,6 +366,32 @@ abstract final class SupabaseCloudRecordMapper {
 
     if (value is! List) {
       throw StateError('Invalid or missing $column.');
+    }
+
+    return value
+        .map((item) {
+          if (item is! String) {
+            throw StateError('Invalid $column item.');
+          }
+
+          return item;
+        })
+        .toList(growable: false);
+  }
+
+  static List<String> _stringListOrDefault(
+    Map<String, dynamic> row,
+    String column,
+    List<String> defaultValue,
+  ) {
+    final value = row[column];
+
+    if (value == null) {
+      return List<String>.unmodifiable(defaultValue);
+    }
+
+    if (value is! List) {
+      throw StateError('Invalid $column.');
     }
 
     return value

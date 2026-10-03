@@ -157,6 +157,10 @@ void main() {
         'is_single': true,
         'is_blocked': true,
         'featured_artists': ['Feature One', 'Feature Two'],
+        'version_label': 'Festival Mix',
+        'version_characteristics': ['live', 'remix'],
+        'release_status': 'unreleased',
+        'is_leak': true,
         'artwork_id': null,
         'created_at': '2026-09-10T10:00:00.000Z',
         'updated_at': '2026-09-11T11:00:00.000Z',
@@ -175,6 +179,13 @@ void main() {
       expect(song?.isSingle, isTrue);
       expect(song?.isBlocked, isTrue);
       expect(song?.featuredArtists, ['Feature One', 'Feature Two']);
+      expect(song?.versionLabel, 'Festival Mix');
+      expect(song?.versionCharacteristics, const [
+        SongVersionCharacteristic.live,
+        SongVersionCharacteristic.remix,
+      ]);
+      expect(song?.releaseStatus, SongReleaseStatus.unreleased);
+      expect(song?.isLeak, isTrue);
       final createdMembership = bundle.membership.created;
 
       expect(createdMembership, isNotNull);

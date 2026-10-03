@@ -24,7 +24,7 @@ void main() {
       final result = await db.rawQuery('PRAGMA user_version');
 
       expect(result.single['user_version'], AppDatabase.databaseVersion);
-      expect(AppDatabase.databaseVersion, 24);
+      expect(AppDatabase.databaseVersion, 25);
     } finally {
       await appDatabase.close();
     }
@@ -1413,12 +1413,119 @@ void main() {
       await db.close();
     }
   });
+  test('migration 25 adds song version metadata with safe defaults', () async {
+    final db = await databaseFactoryFfi.openDatabase(inMemoryDatabasePath);
+
+    try {
+      const createdAt = '2026-10-03T12:00:00.000Z';
+
+      await db.execute('''
+        CREATE TABLE ${DatabaseTables.songs} (
+          id TEXT PRIMARY KEY NOT NULL,
+          artist_id TEXT NOT NULL,
+          album_id TEXT NOT NULL,
+          album_edition_id TEXT NOT NULL,
+          title TEXT NOT NULL,
+          canonical_title TEXT NOT NULL,
+          track_number INTEGER NOT NULL DEFAULT 0,
+          disc_number INTEGER NOT NULL DEFAULT 1,
+          duration_seconds INTEGER NOT NULL DEFAULT 0,
+          is_single INTEGER NOT NULL DEFAULT 0,
+          is_blocked INTEGER NOT NULL DEFAULT 0,
+          featured_artists TEXT NOT NULL DEFAULT '[]',
+          artwork_id TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+      ''');
+
+      await db.insert(DatabaseTables.songs, {
+        'id': 'song_before_v25',
+        'artist_id': 'artist_1',
+        'album_id': 'album_1',
+        'album_edition_id': 'edition_1',
+        'title': 'Existing Song',
+        'canonical_title': 'existing song',
+        'track_number': 1,
+        'disc_number': 1,
+        'duration_seconds': 180,
+        'is_single': 0,
+        'is_blocked': 0,
+        'featured_artists': '[]',
+        'created_at': createdAt,
+        'updated_at': createdAt,
+      });
+
+      await DatabaseMigrations.migrate(db, oldVersion: 24, newVersion: 25);
+
+      final rows = await db.query(
+        DatabaseTables.songs,
+        where: 'id = ?',
+        whereArgs: ['song_before_v25'],
+      );
+
+      expect(rows, hasLength(1));
+
+      final row = rows.single;
+
+      expect(row['id'], 'song_before_v25');
+      expect(row['version_label'], isNull);
+      expect(row['version_characteristics'], '[]');
+      expect(row['release_status'], 'released');
+      expect(row['is_leak'], 0);
+
+      await db.update(
+        DatabaseTables.songs,
+        {
+          'version_label': 'Early Mix',
+          'version_characteristics': '["demo","acoustic"]',
+          'release_status': 'unreleased',
+          'is_leak': 1,
+        },
+        where: 'id = ?',
+        whereArgs: ['song_before_v25'],
+      );
+
+      final updated = await db.query(
+        DatabaseTables.songs,
+        where: 'id = ?',
+        whereArgs: ['song_before_v25'],
+      );
+
+      expect(updated.single['version_label'], 'Early Mix');
+      expect(updated.single['version_characteristics'], '["demo","acoustic"]');
+      expect(updated.single['release_status'], 'unreleased');
+      expect(updated.single['is_leak'], 1);
+
+      await expectLater(
+        db.update(
+          DatabaseTables.songs,
+          {'release_status': 'bootleg'},
+          where: 'id = ?',
+          whereArgs: ['song_before_v25'],
+        ),
+        throwsA(isA<DatabaseException>()),
+      );
+
+      await expectLater(
+        db.update(
+          DatabaseTables.songs,
+          {'is_leak': 2},
+          where: 'id = ?',
+          whereArgs: ['song_before_v25'],
+        ),
+        throwsA(isA<DatabaseException>()),
+      );
+    } finally {
+      await db.close();
+    }
+  });
   test('migration runner fails loudly for unknown future migration', () async {
     final db = await databaseFactoryFfi.openDatabase(inMemoryDatabasePath);
 
     try {
       await expectLater(
-        DatabaseMigrations.migrate(db, oldVersion: 24, newVersion: 25),
+        DatabaseMigrations.migrate(db, oldVersion: 25, newVersion: 26),
         throwsA(isA<UnsupportedError>()),
       );
     } finally {

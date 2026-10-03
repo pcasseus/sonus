@@ -71,6 +71,10 @@ void main() {
         durationSeconds: 180,
         isSingle: false,
         featuredArtists: const ['Featured Artist'],
+        versionLabel: 'Early Mix',
+        versionCharacteristics: const ['demo', 'acoustic'],
+        releaseStatus: 'unreleased',
+        isLeak: true,
         artworkId: 'artwork_1',
         createdAt: createdAt,
         updatedAt: updatedAt,
@@ -79,6 +83,10 @@ void main() {
       expect(record.albumEditionId, 'edition_1');
       expect(record.durationSeconds, 180);
       expect(record.featuredArtists, const ['Featured Artist']);
+      expect(record.versionLabel, 'Early Mix');
+      expect(record.versionCharacteristics, const ['demo', 'acoustic']);
+      expect(record.releaseStatus, 'unreleased');
+      expect(record.isLeak, isTrue);
     });
 
     test('artwork cloud record uses storage object key', () {

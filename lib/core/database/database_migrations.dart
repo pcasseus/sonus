@@ -367,6 +367,30 @@ abstract final class DatabaseMigrations {
 
         return;
 
+      case 25:
+        await db.execute(
+          "ALTER TABLE ${DatabaseTables.songs} "
+          "ADD COLUMN version_label TEXT",
+        );
+
+        await db.execute(
+          "ALTER TABLE ${DatabaseTables.songs} "
+          "ADD COLUMN version_characteristics TEXT NOT NULL DEFAULT '[]'",
+        );
+
+        await db.execute(
+          "ALTER TABLE ${DatabaseTables.songs} "
+          "ADD COLUMN release_status TEXT NOT NULL DEFAULT 'released' "
+          "CHECK (release_status IN ('released', 'unreleased'))",
+        );
+
+        await db.execute(
+          "ALTER TABLE ${DatabaseTables.songs} "
+          "ADD COLUMN is_leak INTEGER NOT NULL DEFAULT 0 "
+          "CHECK (is_leak IN (0, 1))",
+        );
+
+        return;
       default:
         throw UnsupportedError(
           'No Sonus database migration exists for version $targetVersion.',

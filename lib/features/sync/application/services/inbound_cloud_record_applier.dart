@@ -138,6 +138,12 @@ class InboundCloudRecordApplier {
       isSingle: record.isSingle,
       isBlocked: record.isBlocked,
       featuredArtists: record.featuredArtists,
+      versionLabel: record.versionLabel,
+      versionCharacteristics: record.versionCharacteristics
+          .map(SongVersionCharacteristic.values.byName)
+          .toList(growable: false),
+      releaseStatus: SongReleaseStatus.values.byName(record.releaseStatus),
+      isLeak: record.isLeak,
       artworkId: record.artworkId,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,

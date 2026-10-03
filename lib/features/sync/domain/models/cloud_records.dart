@@ -92,6 +92,10 @@ class CloudSongRecord extends CloudOwnedRecord {
     required this.isSingle,
     this.isBlocked = false,
     required this.featuredArtists,
+    this.versionLabel,
+    this.versionCharacteristics = const [],
+    this.releaseStatus = 'released',
+    this.isLeak = false,
     required super.createdAt,
     required super.updatedAt,
     super.deletedAt,
@@ -109,6 +113,10 @@ class CloudSongRecord extends CloudOwnedRecord {
   final bool isSingle;
   final bool isBlocked;
   final List<String> featuredArtists;
+  final String? versionLabel;
+  final List<String> versionCharacteristics;
+  final String releaseStatus;
+  final bool isLeak;
   final String? artworkId;
 }
 

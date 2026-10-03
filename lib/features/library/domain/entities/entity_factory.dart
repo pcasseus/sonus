@@ -69,6 +69,10 @@ abstract final class EntityFactory {
     required int durationSeconds,
     bool isSingle = false,
     List<String> featuredArtists = const [],
+    String? versionLabel,
+    List<SongVersionCharacteristic> versionCharacteristics = const [],
+    SongReleaseStatus releaseStatus = SongReleaseStatus.released,
+    bool isLeak = false,
     DateTime? now,
   }) {
     final timestamp = now ?? DateTime.now();
@@ -85,6 +89,10 @@ abstract final class EntityFactory {
       durationSeconds: durationSeconds,
       isSingle: isSingle,
       featuredArtists: List.unmodifiable(featuredArtists),
+      versionLabel: versionLabel?.trim(),
+      versionCharacteristics: List.unmodifiable(versionCharacteristics),
+      releaseStatus: releaseStatus,
+      isLeak: isLeak,
       createdAt: timestamp,
       updatedAt: timestamp,
     );

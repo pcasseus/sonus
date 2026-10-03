@@ -69,7 +69,7 @@ void main() {
     expect(restored.type, AlbumEditionType.deluxe);
   });
 
-  test('song round trip preserves featured artists', () {
+  test('song round trip preserves structured version metadata', () {
     final song = Song(
       id: 'song_1',
       artistId: 'artist_1',
@@ -81,16 +81,58 @@ void main() {
       durationSeconds: 241,
       isSingle: true,
       featuredArtists: const ['Guest One', 'Guest Two'],
+      versionLabel: 'Festival Mix',
+      versionCharacteristics: const [
+        SongVersionCharacteristic.live,
+        SongVersionCharacteristic.remix,
+      ],
+      releaseStatus: SongReleaseStatus.unreleased,
+      isLeak: true,
       createdAt: createdAt,
       updatedAt: updatedAt,
     );
 
-    final restored = SongRowMapper.fromRow(SongRowMapper.toRow(song));
+    final row = SongRowMapper.toRow(song);
+    final restored = SongRowMapper.fromRow(row);
 
     expect(restored, song);
     expect(restored.featuredArtists, ['Guest One', 'Guest Two']);
     expect(restored.trackNumber, 2);
     expect(restored.durationSeconds, 241);
     expect(restored.isSingle, isTrue);
+    expect(restored.versionLabel, 'Festival Mix');
+    expect(restored.versionCharacteristics, const [
+      SongVersionCharacteristic.live,
+      SongVersionCharacteristic.remix,
+    ]);
+    expect(restored.releaseStatus, SongReleaseStatus.unreleased);
+    expect(restored.isLeak, isTrue);
+  });
+
+  test('song mapper defaults missing version metadata for legacy rows', () {
+    final row = <String, Object?>{
+      'id': 'song_legacy',
+      'artist_id': 'artist_1',
+      'album_id': 'album_1',
+      'album_edition_id': 'edition_1',
+      'title': 'Legacy Song',
+      'canonical_title': 'legacy song',
+      'track_number': 1,
+      'disc_number': 1,
+      'duration_seconds': 180,
+      'is_single': 0,
+      'is_blocked': 0,
+      'featured_artists': '[]',
+      'artwork_id': null,
+      'created_at': createdAt.toIso8601String(),
+      'updated_at': updatedAt.toIso8601String(),
+    };
+
+    final restored = SongRowMapper.fromRow(row);
+
+    expect(restored.versionLabel, isNull);
+    expect(restored.versionCharacteristics, isEmpty);
+    expect(restored.releaseStatus, SongReleaseStatus.released);
+    expect(restored.isLeak, isFalse);
   });
 }

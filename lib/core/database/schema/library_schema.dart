@@ -108,6 +108,12 @@ abstract final class LibrarySchema {
         CHECK (is_blocked IN (0, 1)),
       featured_artists TEXT NOT NULL DEFAULT '[]',
       artwork_id TEXT,
+      version_label TEXT,
+      version_characteristics TEXT NOT NULL DEFAULT '[]',
+      release_status TEXT NOT NULL DEFAULT 'released'
+        CHECK (release_status IN ('released', 'unreleased')),
+      is_leak INTEGER NOT NULL DEFAULT 0
+        CHECK (is_leak IN (0, 1)),
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
 

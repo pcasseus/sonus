@@ -71,6 +71,12 @@ abstract final class CloudRecordMapper {
       isSingle: song.isSingle,
       isBlocked: song.isBlocked,
       featuredArtists: List<String>.unmodifiable(song.featuredArtists),
+      versionLabel: song.versionLabel,
+      versionCharacteristics: List<String>.unmodifiable(
+        song.versionCharacteristics.map((value) => value.name),
+      ),
+      releaseStatus: song.releaseStatus.name,
+      isLeak: song.isLeak,
       artworkId: song.artworkId,
       createdAt: song.createdAt,
       updatedAt: song.updatedAt,
