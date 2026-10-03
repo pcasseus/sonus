@@ -788,3 +788,77 @@ class UnusedSyncMutationRunner implements SyncMutationRunner {
 
   PlaybackState get currentState => const PlaybackState();
 }
+
+class FakeTrackStudioEditingService extends TrackProfileEditingService {
+  FakeTrackStudioEditingService()
+    : super(mutationRunner: UnusedTrackStudioSyncMutationRunner());
+
+  int updateCallCount = 0;
+
+  String? lastUserId;
+  String? lastSongId;
+  String? lastTitle;
+  int? lastTrackNumber;
+  int? lastDiscNumber;
+  List<String>? lastFeaturedArtists;
+  bool? lastIsSingle;
+  String? lastArtistId;
+  String? lastAlbumId;
+  String? lastAlbumEditionId;
+
+  @override
+  Future<TrackProfileEditResult> updateTrack({
+    required String? userId,
+    required String songId,
+    required String title,
+    required int trackNumber,
+    required int discNumber,
+    required List<String> featuredArtists,
+    required bool isSingle,
+    String? artistId,
+    String? albumId,
+    String? albumEditionId,
+    DateTime? now,
+  }) async {
+    updateCallCount++;
+
+    lastUserId = userId;
+    lastSongId = songId;
+    lastTitle = title;
+    lastTrackNumber = trackNumber;
+    lastDiscNumber = discNumber;
+    lastFeaturedArtists = List<String>.from(featuredArtists);
+    lastIsSingle = isSingle;
+    lastArtistId = artistId;
+    lastAlbumId = albumId;
+    lastAlbumEditionId = albumEditionId;
+
+    final timestamp = now ?? DateTime.utc(2026, 10, 2);
+
+    return TrackProfileEditResult(
+      song: Song(
+        id: songId,
+        artistId: artistId ?? 'artist-1',
+        albumId: albumId ?? 'album-1',
+        albumEditionId: albumEditionId ?? 'edition-1',
+        title: title,
+        canonicalTitle: title.trim().toLowerCase(),
+        trackNumber: trackNumber,
+        discNumber: discNumber,
+        durationSeconds: 180,
+        isSingle: isSingle,
+        featuredArtists: List<String>.from(featuredArtists),
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      ),
+      changed: true,
+    );
+  }
+}
+
+class UnusedTrackStudioSyncMutationRunner implements SyncMutationRunner {
+  @override
+  Future<T> run<T>(SyncMutationAction<T> action) {
+    throw StateError('Sync mutation runner should not be used by this fake.');
+  }
+}

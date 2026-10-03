@@ -17,6 +17,7 @@ import '../../application/services/artist_creation_service.dart';
 import '../../application/services/song_block_service.dart';
 import '../../application/services/track_profile_editing_service.dart';
 import '../controllers/library_tracks_controller.dart';
+import 'track_studio_page.dart';
 import '../widgets/track_profile_edit_dialog.dart';
 
 class TracksPage extends StatefulWidget {
@@ -180,34 +181,39 @@ class _TracksPageState extends State<TracksPage> {
       }
 
       final artistCreationService = context.read<ArtistCreationService?>();
+      final draft = await Navigator.of(context).push<TrackProfileEditDraft>(
+        MaterialPageRoute<TrackProfileEditDraft>(
+          builder: (routeContext) {
+            return TrackStudioPage(
+              track: track,
+              artists: artists,
+              albums: albums,
+              onCreateArtist: artistCreationService == null
+                  ? null
+                  : (name) async {
+                      final artist = await artistCreationService.createOrReuse(
+                        userId: userId,
+                        name: name,
+                      );
 
-      final draft = await showDialog<TrackProfileEditDraft>(
-        context: context,
-        builder: (dialogContext) {
-          return TrackProfileEditDialog(
-            track: track,
-            artists: artists,
-            albums: albums,
-            onCreateArtist: artistCreationService == null
-                ? null
-                : (name) async {
-                    final artist = await artistCreationService.createOrReuse(
-                      userId: userId,
-                      name: name,
-                    );
-
-                    return LibraryArtist(
-                      artistId: artist.id,
-                      name: artist.name,
-                      albumCount: 0,
-                      songCount: 0,
-                      dateAdded: artist.createdAt,
-                    );
-                  },
-          );
-        },
+                      return LibraryArtist(
+                        artistId: artist.id,
+                        name: artist.name,
+                        albumCount: 0,
+                        songCount: 0,
+                        dateAdded: artist.createdAt,
+                      );
+                    },
+              onChangeArtwork: controller.canEditArtwork
+                  ? () => _changeArtwork(controller, track)
+                  : null,
+              onClearArtwork: controller.canEditArtwork
+                  ? () => _clearArtwork(controller, track)
+                  : null,
+            );
+          },
+        ),
       );
-
       if (!mounted || draft == null) {
         return;
       }
