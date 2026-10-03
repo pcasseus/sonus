@@ -1079,6 +1079,112 @@ void main() {
       expect(secondSong.albumEditionId, editions.single.id);
     },
   );
+  test('import strips live suffix into structured version metadata', () async {
+    final result = await importer.import(
+      candidate: candidate(),
+      metadata: metadata(title: 'Song Name (Live)'),
+      now: now,
+    );
+
+    expect(result.status, ImportResultStatus.imported);
+
+    final db = await appDatabase.database;
+    final songs = await SongDao(db).findAll();
+
+    expect(songs, hasLength(1));
+
+    final song = songs.single;
+
+    expect(song.title, 'Song Name');
+    expect(song.canonicalTitle, 'song name');
+    expect(song.versionLabel, 'Live');
+    expect(song.versionCharacteristics, const [SongVersionCharacteristic.live]);
+  });
+
+  test('import strips remix suffix into structured version metadata', () async {
+    final result = await importer.import(
+      candidate: candidate(
+        filePath: r'C:\Music\Artist Name\Album Name\02 Song Name Remix.mp3',
+      ),
+      metadata: metadata(title: 'Song Name [Remix]', trackNumber: 2),
+      now: now,
+    );
+
+    expect(result.status, ImportResultStatus.imported);
+
+    final db = await appDatabase.database;
+    final songs = await SongDao(db).findAll();
+
+    final song = songs.single;
+
+    expect(song.title, 'Song Name');
+    expect(song.versionLabel, 'Remix');
+    expect(song.versionCharacteristics, const [
+      SongVersionCharacteristic.remix,
+    ]);
+  });
+
+  test('import preserves unrecognized terminal qualifier', () async {
+    final result = await importer.import(
+      candidate: candidate(),
+      metadata: metadata(title: 'Song Name (From The Motion Picture)'),
+      now: now,
+    );
+
+    expect(result.status, ImportResultStatus.imported);
+
+    final db = await appDatabase.database;
+    final songs = await SongDao(db).findAll();
+
+    expect(songs, hasLength(1));
+
+    final song = songs.single;
+
+    expect(song.title, 'Song Name (From The Motion Picture)');
+    expect(song.versionLabel, isNull);
+    expect(song.versionCharacteristics, isEmpty);
+  });
+
+  test('standard and live imports remain separate song identities', () async {
+    final standard = await importer.import(
+      candidate: candidate(
+        filePath: r'C:\Music\Artist Name\Album Name\01 Song Name.mp3',
+      ),
+      metadata: metadata(title: 'Song Name', trackNumber: 1),
+      now: now,
+    );
+
+    final live = await importer.import(
+      candidate: candidate(
+        filePath: r'C:\Music\Artist Name\Album Name\02 Song Name Live.mp3',
+      ),
+      metadata: metadata(title: 'Song Name (Live)', trackNumber: 2),
+      now: now.add(const Duration(seconds: 1)),
+    );
+
+    expect(standard.status, ImportResultStatus.imported);
+    expect(live.status, ImportResultStatus.imported);
+    expect(live.songId, isNot(standard.songId));
+
+    final db = await appDatabase.database;
+    final songs = await SongDao(db).findAll();
+
+    expect(songs, hasLength(2));
+
+    final standardSong = songs.singleWhere(
+      (song) => song.versionCharacteristics.isEmpty,
+    );
+
+    final liveSong = songs.singleWhere(
+      (song) =>
+          song.versionCharacteristics.contains(SongVersionCharacteristic.live),
+    );
+
+    expect(standardSong.title, 'Song Name');
+    expect(liveSong.title, 'Song Name');
+    expect(standardSong.canonicalTitle, liveSong.canonicalTitle);
+    expect(liveSong.versionLabel, 'Live');
+  });
   test('signed-in import records newly created cloud entities', () async {
     final signedInImporter = AtomicLibraryImporter(
       appDatabase: appDatabase,

@@ -1,6 +1,7 @@
 import 'package:sonus_next/core/identity/text_normalizer.dart';
 import 'package:sonus_next/features/import/domain/models/audio_metadata.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
+import 'package:sonus_next/features/library/domain/entities/song.dart';
 import 'package:sonus_next/features/library/domain/repositories/album_edition_repository.dart';
 import 'package:sonus_next/features/library/domain/repositories/album_repository.dart';
 import 'package:sonus_next/features/library/domain/repositories/artist_repository.dart';
@@ -21,7 +22,11 @@ class LibraryIdentityResolver {
   final AlbumEditionRepository albumEditionRepository;
   final SongRepository songRepository;
 
-  Future<LibraryIdentityMatch> resolve(AudioMetadata metadata) async {
+  Future<LibraryIdentityMatch> resolve(
+    AudioMetadata metadata, {
+    String? versionLabel,
+    List<SongVersionCharacteristic> versionCharacteristics = const [],
+  }) async {
     final canonicalTrackArtist = TextNormalizer.canonicalize(
       metadata.artistName,
     );
@@ -150,7 +155,12 @@ class LibraryIdentityResolver {
         .where(
           (song) =>
               song.artistId == trackArtist.id &&
-              song.canonicalTitle == canonicalSong,
+              song.canonicalTitle == canonicalSong &&
+              _sameVersionIdentity(
+                song: song,
+                versionLabel: versionLabel,
+                versionCharacteristics: versionCharacteristics,
+              ),
         )
         .toList(growable: false);
 
@@ -165,6 +175,35 @@ class LibraryIdentityResolver {
       editionAmbiguous: false,
       songAmbiguous: songMatches.length > 1,
     );
+  }
+
+  bool _sameVersionIdentity({
+    required Song song,
+    required String? versionLabel,
+    required List<SongVersionCharacteristic> versionCharacteristics,
+  }) {
+    final normalizedExpectedLabel = _normalizeVersionLabel(versionLabel);
+    final normalizedSongLabel = _normalizeVersionLabel(song.versionLabel);
+
+    if (normalizedSongLabel != normalizedExpectedLabel) {
+      return false;
+    }
+
+    final songCharacteristics = song.versionCharacteristics.toSet();
+    final expectedCharacteristics = versionCharacteristics.toSet();
+
+    return songCharacteristics.length == expectedCharacteristics.length &&
+        songCharacteristics.containsAll(expectedCharacteristics);
+  }
+
+  String? _normalizeVersionLabel(String? value) {
+    final cleaned = value?.trim();
+
+    if (cleaned == null || cleaned.isEmpty) {
+      return null;
+    }
+
+    return TextNormalizer.canonicalize(cleaned);
   }
 
   _EditionResolution _resolveEdition(

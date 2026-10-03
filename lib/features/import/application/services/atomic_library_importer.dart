@@ -3,6 +3,7 @@ import 'package:sonus_next/core/identity/entity_id.dart';
 import 'package:sonus_next/core/identity/text_normalizer.dart';
 import 'package:sonus_next/features/import/application/identity/import_identity_metadata_normalizer.dart';
 import 'package:sonus_next/features/import/application/identity/library_identity_resolver.dart';
+import 'package:sonus_next/features/import/application/metadata/track_title_version_interpreter.dart';
 import 'package:sonus_next/features/import/data/daos/media_file_binding_dao.dart';
 import 'package:sonus_next/features/import/data/daos/song_import_review_dao.dart';
 import 'package:sonus_next/features/import/data/repositories/sqlite_media_file_binding_repository.dart';
@@ -145,9 +146,21 @@ class AtomicLibraryImporter {
             );
           }
         }
+        const titleInterpreter = TrackTitleVersionInterpreter();
 
-        final match = await resolver.resolve(effectiveMetadata);
+        final interpretedTitle = titleInterpreter.interpret(
+          effectiveMetadata.title,
+        );
 
+        effectiveMetadata = effectiveMetadata.copyWith(
+          title: interpretedTitle.title,
+        );
+
+        final match = await resolver.resolve(
+          effectiveMetadata,
+          versionLabel: interpretedTitle.versionLabel,
+          versionCharacteristics: interpretedTitle.versionCharacteristics,
+        );
         if (match.hasAmbiguity) {
           return ImportResult(
             status: ImportResultStatus.failed,
@@ -258,12 +271,14 @@ class AtomicLibraryImporter {
             artistId: artist.id,
             albumId: album.id,
             albumEditionId: edition.id,
-            title: metadata.title,
+            title: effectiveMetadata.title,
             trackNumber: metadata.trackNumber,
             discNumber: metadata.discNumber,
             durationSeconds: metadata.durationSeconds,
             isSingle: metadata.isSingle,
             featuredArtists: effectiveMetadata.featuredArtists,
+            versionLabel: interpretedTitle.versionLabel,
+            versionCharacteristics: interpretedTitle.versionCharacteristics,
             now: timestamp,
           );
 
