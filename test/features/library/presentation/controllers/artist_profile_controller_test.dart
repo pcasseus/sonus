@@ -16,6 +16,7 @@ import 'package:sonus_next/features/library/application/services/artist_profile_
 import 'package:sonus_next/features/library/application/services/song_block_service.dart';
 import 'package:sonus_next/features/library/application/services/song_artist_credit_service.dart';
 import 'package:sonus_next/features/library/domain/entities/song_artist_credit.dart';
+import 'package:sonus_next/features/library/domain/repositories/song_artist_credit_repository.dart';
 import 'package:sonus_next/features/library/application/services/track_profile_editing_service.dart';
 import 'package:sonus_next/features/sync/application/services/sync_mutation_runner.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
@@ -673,6 +674,92 @@ void main() {
         expect(credits[1].artistId, isNull);
 
         expect(repository.artistRequestCount, 2);
+
+        controller.dispose();
+      },
+    );
+    test(
+      'getTrackAdditionalCredits excludes primary and returns structured credits in position order',
+      () async {
+        final now = DateTime.utc(2026, 1, 1);
+
+        final creditRepository = FakeSongArtistCreditRepository(
+          credits: [
+            SongArtistCredit(
+              id: 'credit-primary',
+              songId: 'song-credit-read',
+              artistId: 'artist-primary',
+              creditedName: 'Primary Artist',
+              canonicalCreditedName: 'primary artist',
+              role: SongArtistCreditRole.primary,
+              position: 0,
+              createdAt: now,
+              updatedAt: now,
+            ),
+            SongArtistCredit(
+              id: 'credit-coprimary',
+              songId: 'song-credit-read',
+              artistId: 'artist-coprimary',
+              creditedName: 'Co Primary Artist',
+              canonicalCreditedName: 'co primary artist',
+              role: SongArtistCreditRole.coPrimary,
+              position: 3,
+              createdAt: now,
+              updatedAt: now,
+            ),
+            SongArtistCredit(
+              id: 'credit-guest',
+              songId: 'song-credit-read',
+              creditedName: 'Guest Artist',
+              canonicalCreditedName: 'guest artist',
+              role: SongArtistCreditRole.guest,
+              position: 1,
+              createdAt: now,
+              updatedAt: now,
+            ),
+            SongArtistCredit(
+              id: 'credit-featured',
+              songId: 'song-credit-read',
+              creditedName: 'Featured Artist',
+              canonicalCreditedName: 'featured artist',
+              role: SongArtistCreditRole.featured,
+              position: 2,
+              createdAt: now,
+              updatedAt: now,
+            ),
+          ],
+        );
+
+        final controller = ArtistProfileController(
+          repository: FakeLibraryQueryRepository(
+            artist: createArtist(),
+            tracks: const [],
+          ),
+          artistId: 'artist-1',
+          songArtistCreditRepository: creditRepository,
+        );
+
+        final credits = await controller.getTrackAdditionalCredits(
+          'song-credit-read',
+        );
+
+        expect(credits, hasLength(3));
+
+        expect(credits.map((credit) => credit.role).toList(), [
+          SongArtistCreditRole.guest,
+          SongArtistCreditRole.featured,
+          SongArtistCreditRole.coPrimary,
+        ]);
+
+        expect(credits.map((credit) => credit.creditedName).toList(), [
+          'Guest Artist',
+          'Featured Artist',
+          'Co Primary Artist',
+        ]);
+
+        expect(credits[0].artistId, isNull);
+        expect(credits[1].artistId, isNull);
+        expect(credits[2].artistId, 'artist-coprimary');
 
         controller.dispose();
       },
@@ -1658,6 +1745,54 @@ class FakeSongBlockService extends SongBlockService {
       createdAt: timestamp,
       updatedAt: timestamp,
     );
+  }
+}
+
+class FakeSongArtistCreditRepository implements SongArtistCreditRepository {
+  FakeSongArtistCreditRepository({this.credits = const []});
+
+  List<SongArtistCredit> credits;
+
+  @override
+  Future<void> create(SongArtistCredit credit) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<void> save(SongArtistCredit credit) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<void> delete(String id) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<void> deleteBySongId(String songId) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SongArtistCredit?> getById(String id) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<List<SongArtistCredit>> getBySongId(String songId) async {
+    return credits.where((credit) => credit.songId == songId).toList();
+  }
+
+  @override
+  Future<List<SongArtistCredit>> getByArtistId(String artistId) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<List<SongArtistCredit>> getUnlinkedByCanonicalName(
+    String canonicalName,
+  ) {
+    throw UnimplementedError();
   }
 }
 

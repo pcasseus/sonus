@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../domain/repositories/song_artist_credit_repository.dart';
 import '../../../account/application/controllers/account_controller.dart';
 import '../../../artwork/application/services/artwork_assignment_service.dart';
 import '../../../artwork/application/services/artwork_file_picker.dart';
@@ -58,6 +59,7 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
       repository: repository,
       artistId: widget.artistId,
       playbackCoordinator: context.read<PlaybackCoordinator?>(),
+      songArtistCreditRepository: context.read<SongArtistCreditRepository?>(),
       trackProfileEditingService: context.read<TrackProfileEditingService?>(),
       artworkAssignmentService: context.read<ArtworkAssignmentService?>(),
       artworkFilePicker: context.read<ArtworkFilePicker?>(),

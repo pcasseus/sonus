@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../domain/repositories/song_artist_credit_repository.dart';
 import '../../../account/application/controllers/account_controller.dart';
 import '../../../artwork/application/services/artwork_assignment_service.dart';
 import '../../../artwork/application/services/artwork_file_picker.dart';
@@ -62,6 +63,7 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
       albumProfileEditingService: context.read<AlbumProfileEditingService?>(),
       albumEditionTrackOrderingService: context
           .read<AlbumEditionTrackOrderingService?>(),
+      songArtistCreditRepository: context.read<SongArtistCreditRepository?>(),
       trackProfileEditingService: context.read<TrackProfileEditingService?>(),
       songBlockService: context.read<SongBlockService?>(),
       artworkAssignmentService: context.read<ArtworkAssignmentService?>(),

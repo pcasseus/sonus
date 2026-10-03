@@ -19,14 +19,17 @@ import '../../application/services/artist_creation_service.dart';
 import '../../application/services/artist_profile_editing_service.dart';
 import '../../application/services/song_block_service.dart';
 import '../../application/services/track_profile_editing_service.dart';
+import '../../domain/repositories/song_artist_credit_repository.dart';
 import '../../data/daos/album_edition_dao.dart';
 import '../../data/daos/artist_dao.dart';
 import '../../data/daos/library_query_dao.dart';
 import '../../data/daos/song_dao.dart';
+import '../../data/daos/song_artist_credit_dao.dart';
 import '../../data/repositories/sqlite_album_edition_repository.dart';
 import '../../data/repositories/sqlite_artist_repository.dart';
 import '../../data/repositories/sqlite_library_query_repository.dart';
 import '../../data/repositories/sqlite_song_repository.dart';
+import '../../data/repositories/sqlite_song_artist_credit_repository.dart';
 
 class LibraryQueryScope extends StatefulWidget {
   const LibraryQueryScope({super.key, required this.child, this.database});
@@ -50,6 +53,7 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
   ArtistCreationService? _artistCreationService;
   ArtistProfileEditingService? _artistProfileEditingService;
   SongBlockService? _songBlockService;
+  SongArtistCreditRepository? _songArtistCreditRepository;
   TrackProfileEditingService? _trackProfileEditingService;
 
   @override
@@ -100,6 +104,9 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
       mutationRunner: SyncMutationTransactionRunner(appDatabase: _database),
     );
 
+    final songArtistCreditRepository = SqliteSongArtistCreditRepository(
+      SongArtistCreditDao(database),
+    );
     final trackProfileEditingService = TrackProfileEditingService(
       mutationRunner: SyncMutationTransactionRunner(appDatabase: _database),
     );
@@ -117,6 +124,7 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
       _artistCreationService = artistCreationService;
       _artistProfileEditingService = artistProfileEditingService;
       _songBlockService = songBlockService;
+      _songArtistCreditRepository = songArtistCreditRepository;
       _trackProfileEditingService = trackProfileEditingService;
     });
   }
@@ -142,6 +150,9 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
           value: _artistProfileEditingService,
         ),
         Provider<SongBlockService?>.value(value: _songBlockService),
+        Provider<SongArtistCreditRepository?>.value(
+          value: _songArtistCreditRepository,
+        ),
         Provider<TrackProfileEditingService?>.value(
           value: _trackProfileEditingService,
         ),

@@ -11,6 +11,8 @@ import '../../application/repositories/library_query_repository.dart';
 import '../../application/services/song_block_service.dart';
 import '../../application/services/song_artist_credit_service.dart';
 import '../../application/services/track_profile_editing_service.dart';
+import '../../domain/entities/song_artist_credit.dart';
+import '../../domain/repositories/song_artist_credit_repository.dart';
 
 class LibraryTracksController extends ChangeNotifier {
   factory LibraryTracksController({
@@ -18,6 +20,7 @@ class LibraryTracksController extends ChangeNotifier {
     required PlaybackCoordinator playbackCoordinator,
     ArtworkAssignmentService? artworkAssignmentService,
     ArtworkFilePicker? artworkFilePicker,
+    SongArtistCreditRepository? songArtistCreditRepository,
     TrackProfileEditingService? trackProfileEditingService,
     SongBlockService? songBlockService,
     Random? random,
@@ -27,6 +30,7 @@ class LibraryTracksController extends ChangeNotifier {
       playbackCoordinator,
       artworkAssignmentService,
       artworkFilePicker,
+      songArtistCreditRepository,
       trackProfileEditingService,
       songBlockService,
       random ?? Random(),
@@ -38,6 +42,7 @@ class LibraryTracksController extends ChangeNotifier {
     this._playbackCoordinator,
     this._artworkAssignmentService,
     this._artworkFilePicker,
+    this._songArtistCreditRepository,
     this._trackProfileEditingService,
     this._songBlockService,
     this._random,
@@ -47,6 +52,7 @@ class LibraryTracksController extends ChangeNotifier {
   final PlaybackCoordinator _playbackCoordinator;
   final ArtworkAssignmentService? _artworkAssignmentService;
   final ArtworkFilePicker? _artworkFilePicker;
+  final SongArtistCreditRepository? _songArtistCreditRepository;
   final TrackProfileEditingService? _trackProfileEditingService;
   final SongBlockService? _songBlockService;
   final Random _random;
@@ -74,6 +80,26 @@ class LibraryTracksController extends ChangeNotifier {
 
   bool get canEditArtwork {
     return _artworkAssignmentService != null && _artworkFilePicker != null;
+  }
+
+  Future<List<SongArtistCredit>> getTrackAdditionalCredits(
+    String songId,
+  ) async {
+    final repository = _songArtistCreditRepository;
+
+    if (repository == null) {
+      return const [];
+    }
+
+    final credits = await repository.getBySongId(songId);
+
+    final additionalCredits =
+        credits
+            .where((credit) => credit.role != SongArtistCreditRole.primary)
+            .toList(growable: false)
+          ..sort((a, b) => a.position.compareTo(b.position));
+
+    return List<SongArtistCredit>.unmodifiable(additionalCredits);
   }
 
   bool canEditTrack(String? userId) {

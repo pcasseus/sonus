@@ -14,6 +14,8 @@ import '../../application/services/album_edition_track_ordering_service.dart';
 import '../../application/services/song_block_service.dart';
 import '../../application/services/song_artist_credit_service.dart';
 import '../../application/services/track_profile_editing_service.dart';
+import '../../domain/entities/song_artist_credit.dart';
+import '../../domain/repositories/song_artist_credit_repository.dart';
 import '../../domain/entities/album_edition.dart';
 
 class AlbumProfileController extends ChangeNotifier {
@@ -23,6 +25,7 @@ class AlbumProfileController extends ChangeNotifier {
     PlaybackCoordinator? playbackCoordinator,
     AlbumProfileEditingService? albumProfileEditingService,
     AlbumEditionTrackOrderingService? albumEditionTrackOrderingService,
+    SongArtistCreditRepository? songArtistCreditRepository,
     TrackProfileEditingService? trackProfileEditingService,
     SongBlockService? songBlockService,
     ArtworkAssignmentService? artworkAssignmentService,
@@ -34,6 +37,7 @@ class AlbumProfileController extends ChangeNotifier {
          playbackCoordinator,
          albumProfileEditingService,
          albumEditionTrackOrderingService,
+         songArtistCreditRepository,
          trackProfileEditingService,
          songBlockService,
          artworkAssignmentService,
@@ -47,6 +51,7 @@ class AlbumProfileController extends ChangeNotifier {
     this._playbackCoordinator,
     this._albumProfileEditingService,
     this._albumEditionTrackOrderingService,
+    this._songArtistCreditRepository,
     this._trackProfileEditingService,
     this._songBlockService,
     this._artworkAssignmentService,
@@ -59,6 +64,7 @@ class AlbumProfileController extends ChangeNotifier {
   final PlaybackCoordinator? _playbackCoordinator;
   final AlbumProfileEditingService? _albumProfileEditingService;
   final AlbumEditionTrackOrderingService? _albumEditionTrackOrderingService;
+  final SongArtistCreditRepository? _songArtistCreditRepository;
   final TrackProfileEditingService? _trackProfileEditingService;
   final SongBlockService? _songBlockService;
   final ArtworkAssignmentService? _artworkAssignmentService;
@@ -221,6 +227,26 @@ class AlbumProfileController extends ChangeNotifier {
     await refresh();
 
     return true;
+  }
+
+  Future<List<SongArtistCredit>> getTrackAdditionalCredits(
+    String songId,
+  ) async {
+    final repository = _songArtistCreditRepository;
+
+    if (repository == null) {
+      return const [];
+    }
+
+    final credits = await repository.getBySongId(songId);
+
+    final additionalCredits =
+        credits
+            .where((credit) => credit.role != SongArtistCreditRole.primary)
+            .toList(growable: false)
+          ..sort((a, b) => a.position.compareTo(b.position));
+
+    return List<SongArtistCredit>.unmodifiable(additionalCredits);
   }
 
   bool canEditTrack(String? userId) {

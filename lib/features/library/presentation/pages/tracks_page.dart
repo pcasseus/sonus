@@ -16,6 +16,7 @@ import '../../application/repositories/library_query_repository.dart';
 import '../../application/services/artist_creation_service.dart';
 import '../../application/services/song_block_service.dart';
 import '../../application/services/track_profile_editing_service.dart';
+import '../../domain/repositories/song_artist_credit_repository.dart';
 import '../controllers/library_tracks_controller.dart';
 import '../models/track_profile_edit_draft.dart';
 import 'track_studio_page.dart';
@@ -48,6 +49,7 @@ class _TracksPageState extends State<TracksPage> {
     _controller = LibraryTracksController(
       repository: repository,
       playbackCoordinator: context.read<PlaybackCoordinator>(),
+      songArtistCreditRepository: context.read<SongArtistCreditRepository?>(),
       trackProfileEditingService: context.read<TrackProfileEditingService?>(),
       songBlockService: context.read<SongBlockService?>(),
       artworkAssignmentService: context.read<ArtworkAssignmentService?>(),
