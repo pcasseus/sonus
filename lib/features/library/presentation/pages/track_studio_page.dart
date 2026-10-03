@@ -39,7 +39,6 @@ class _TrackStudioPageState extends State<TrackStudioPage> {
   late final TextEditingController _titleController;
   late final TextEditingController _trackNumberController;
   late final TextEditingController _discNumberController;
-  late final TextEditingController _featuredArtistsController;
 
   late List<TrackProfileCreditDraft> _additionalCredits;
   late List<LibraryArtist> _artists;
@@ -58,19 +57,6 @@ class _TrackStudioPageState extends State<TrackStudioPage> {
     _discNumberController = TextEditingController(
       text: widget.track.discNumber.toString(),
     );
-    final initialFeaturedArtists = widget.initialAdditionalCredits
-        .where((credit) => credit.role == SongArtistCreditRole.featured)
-        .map((credit) => credit.creditedName)
-        .toList(growable: false);
-
-    _featuredArtistsController = TextEditingController(
-      text:
-          (initialFeaturedArtists.isNotEmpty
-                  ? initialFeaturedArtists
-                  : widget.track.featuredArtists)
-              .join(', '),
-    );
-
     _additionalCredits = List<TrackProfileCreditDraft>.from(
       widget.initialAdditionalCredits,
     );
@@ -85,7 +71,6 @@ class _TrackStudioPageState extends State<TrackStudioPage> {
     _titleController.dispose();
     _trackNumberController.dispose();
     _discNumberController.dispose();
-    _featuredArtistsController.dispose();
     super.dispose();
   }
 
@@ -275,15 +260,59 @@ class _TrackStudioPageState extends State<TrackStudioPage> {
               ),
               const SizedBox(height: 12),
 
-              TextFormField(
-                key: const ValueKey<String>('track-featured-artists-field'),
-                controller: _featuredArtistsController,
-                textInputAction: TextInputAction.done,
-                decoration: const InputDecoration(
-                  labelText: 'Featured artists',
-                  helperText: 'Separate multiple artists with commas.',
-                ),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Credits',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                  ),
+                  TextButton.icon(
+                    key: const ValueKey<String>('track-add-credit-button'),
+                    onPressed: _addCredit,
+                    icon: const Icon(Icons.add_rounded),
+                    label: const Text('Add credit'),
+                  ),
+                ],
               ),
+              const SizedBox(height: 8),
+
+              if (_additionalCredits.isEmpty)
+                const Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text('No additional artist credits.'),
+                )
+              else
+                for (var index = 0; index < _additionalCredits.length; index++)
+                  Card(
+                    key: ValueKey<String>('track-credit-row-$index'),
+                    margin: const EdgeInsets.only(bottom: 8),
+                    child: ListTile(
+                      title: Text(_additionalCredits[index].creditedName),
+                      subtitle: Text(
+                        _creditRoleLabel(_additionalCredits[index].role),
+                      ),
+                      trailing: Wrap(
+                        spacing: 4,
+                        children: [
+                          IconButton(
+                            key: ValueKey<String>('track-edit-credit-$index'),
+                            tooltip: 'Edit credit',
+                            onPressed: () => _editCredit(index),
+                            icon: const Icon(Icons.edit_rounded),
+                          ),
+                          IconButton(
+                            key: ValueKey<String>('track-remove-credit-$index'),
+                            tooltip: 'Remove credit',
+                            onPressed: () => _removeCredit(index),
+                            icon: const Icon(Icons.delete_outline_rounded),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
               const SizedBox(height: 8),
 
               SwitchListTile(
@@ -413,6 +442,147 @@ class _TrackStudioPageState extends State<TrackStudioPage> {
     }
   }
 
+  String _creditRoleLabel(SongArtistCreditRole role) {
+    switch (role) {
+      case SongArtistCreditRole.coPrimary:
+        return 'Co-primary';
+      case SongArtistCreditRole.featured:
+        return 'Featured';
+      case SongArtistCreditRole.guest:
+        return 'Guest';
+      case SongArtistCreditRole.primary:
+        return 'Primary';
+    }
+  }
+
+  Future<void> _addCredit() async {
+    final credit = await _showCreditEditor();
+
+    if (!mounted || credit == null) {
+      return;
+    }
+
+    setState(() {
+      _additionalCredits.add(credit);
+    });
+  }
+
+  Future<void> _editCredit(int index) async {
+    final original = _additionalCredits[index];
+    final updated = await _showCreditEditor(initialCredit: original);
+
+    if (!mounted || updated == null) {
+      return;
+    }
+
+    setState(() {
+      _additionalCredits[index] = updated;
+    });
+  }
+
+  void _removeCredit(int index) {
+    setState(() {
+      _additionalCredits.removeAt(index);
+    });
+  }
+
+  Future<TrackProfileCreditDraft?> _showCreditEditor({
+    TrackProfileCreditDraft? initialCredit,
+  }) async {
+    var creditedName = initialCredit?.creditedName ?? '';
+    var role = initialCredit?.role ?? SongArtistCreditRole.featured;
+
+    return showDialog<TrackProfileCreditDraft>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: Text(initialCredit == null ? 'Add credit' : 'Edit credit'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextFormField(
+                    key: const ValueKey<String>('track-credit-name-field'),
+                    initialValue: creditedName,
+                    autofocus: true,
+                    decoration: const InputDecoration(labelText: 'Artist name'),
+                    onChanged: (value) {
+                      creditedName = value;
+                    },
+                  ),
+                  const SizedBox(height: 12),
+                  DropdownButtonFormField<SongArtistCreditRole>(
+                    key: const ValueKey<String>('track-credit-role-field'),
+                    initialValue: role,
+                    decoration: const InputDecoration(labelText: 'Role'),
+                    items: const [
+                      DropdownMenuItem(
+                        value: SongArtistCreditRole.coPrimary,
+                        child: Text('Co-primary'),
+                      ),
+                      DropdownMenuItem(
+                        value: SongArtistCreditRole.featured,
+                        child: Text('Featured'),
+                      ),
+                      DropdownMenuItem(
+                        value: SongArtistCreditRole.guest,
+                        child: Text('Guest'),
+                      ),
+                    ],
+                    onChanged: (value) {
+                      if (value == null) {
+                        return;
+                      }
+
+                      setDialogState(() {
+                        role = value;
+                      });
+                    },
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  key: const ValueKey<String>('track-credit-save-button'),
+                  onPressed: () {
+                    final name = creditedName.trim();
+
+                    if (name.isEmpty) {
+                      return;
+                    }
+
+                    final originalName = initialCredit?.creditedName
+                        .trim()
+                        .toLowerCase();
+                    final preservesIdentity =
+                        originalName != null &&
+                        originalName == name.toLowerCase();
+
+                    Navigator.of(dialogContext).pop(
+                      TrackProfileCreditDraft(
+                        creditedName: name,
+                        role: role,
+                        artistId: preservesIdentity
+                            ? initialCredit!.artistId
+                            : null,
+                      ),
+                    );
+                  },
+                  child: const Text('Save'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   void _submit() {
     if (!_formKey.currentState!.validate()) {
       return;
@@ -434,50 +604,10 @@ class _TrackStudioPageState extends State<TrackStudioPage> {
       break;
     }
 
-    final featuredArtists = _featuredArtistsController.text
-        .split(',')
-        .map((artist) => artist.trim())
-        .where((artist) => artist.isNotEmpty)
+    final featuredArtists = _additionalCredits
+        .where((credit) => credit.role == SongArtistCreditRole.featured)
+        .map((credit) => credit.creditedName)
         .toList(growable: false);
-
-    final existingFeaturedCredits = {
-      for (final credit in _additionalCredits)
-        if (credit.role == SongArtistCreditRole.featured)
-          credit.creditedName.trim().toLowerCase(): credit,
-    };
-
-    final submittedFeaturedCredits = featuredArtists
-        .map((name) {
-          final existing = existingFeaturedCredits[name.toLowerCase()];
-
-          return TrackProfileCreditDraft(
-            creditedName: name,
-            role: SongArtistCreditRole.featured,
-            artistId: existing?.artistId,
-          );
-        })
-        .toList(growable: false);
-
-    final submittedAdditionalCredits = <TrackProfileCreditDraft>[];
-    var featuredIndex = 0;
-
-    for (final credit in _additionalCredits) {
-      if (credit.role != SongArtistCreditRole.featured) {
-        submittedAdditionalCredits.add(credit);
-        continue;
-      }
-
-      if (featuredIndex < submittedFeaturedCredits.length) {
-        submittedAdditionalCredits.add(submittedFeaturedCredits[featuredIndex]);
-        featuredIndex++;
-      }
-    }
-
-    while (featuredIndex < submittedFeaturedCredits.length) {
-      submittedAdditionalCredits.add(submittedFeaturedCredits[featuredIndex]);
-      featuredIndex++;
-    }
-
     Navigator.of(context).pop(
       TrackProfileEditDraft(
         title: _titleController.text.trim(),
@@ -485,7 +615,7 @@ class _TrackStudioPageState extends State<TrackStudioPage> {
         discNumber: int.parse(_discNumberController.text.trim()),
         featuredArtists: featuredArtists,
         additionalCredits: List<TrackProfileCreditDraft>.unmodifiable(
-          submittedAdditionalCredits,
+          _additionalCredits,
         ),
         isSingle: _isSingle,
         artistId: _artistId,

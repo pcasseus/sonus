@@ -16,6 +16,7 @@ import 'package:sonus_next/features/library/application/services/song_block_serv
 import 'package:sonus_next/features/library/application/services/track_profile_editing_service.dart';
 import 'package:sonus_next/features/library/application/services/song_artist_credit_service.dart';
 import 'package:sonus_next/features/library/domain/entities/song_artist_credit.dart';
+import 'package:sonus_next/features/library/domain/repositories/song_artist_credit_repository.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/domain/entities/song.dart';
 import 'package:sonus_next/features/library/presentation/pages/tracks_page.dart';
@@ -580,6 +581,164 @@ void main() {
         findsNothing,
       );
     });
+    testWidgets('Track Studio edits ordered structured artist credits', (
+      tester,
+    ) async {
+      final timestamp = DateTime.utc(2026, 10, 3);
+      final repository = FakeLibraryQueryRepository(
+        tracks: [createTrack(songId: 'song-credits', title: 'Credit Test')],
+      );
+      final creditRepository = FakeSongArtistCreditRepository(
+        credits: [
+          SongArtistCredit(
+            id: 'credit-co-primary',
+            songId: 'song-credits',
+            artistId: 'artist-partner',
+            creditedName: 'Partner',
+            canonicalCreditedName: 'partner',
+            role: SongArtistCreditRole.coPrimary,
+            position: 1,
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          ),
+          SongArtistCredit(
+            id: 'credit-feature',
+            songId: 'song-credits',
+            artistId: 'artist-feature',
+            creditedName: 'Feature Artist',
+            canonicalCreditedName: 'feature artist',
+            role: SongArtistCreditRole.featured,
+            position: 2,
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          ),
+          SongArtistCredit(
+            id: 'credit-guest',
+            songId: 'song-credits',
+            creditedName: 'Guest Artist',
+            canonicalCreditedName: 'guest artist',
+            role: SongArtistCreditRole.guest,
+            position: 3,
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          ),
+        ],
+      );
+      final editingService = FakeTrackStudioEditingService();
+
+      await tester.pumpWidget(
+        buildSubject(
+          repository: repository,
+          trackProfileEditingService: editingService,
+          songArtistCreditRepository: creditRepository,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('track-menu-song-credits')),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Track Studio'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey<String>('track-credit-row-0')),
+        findsOneWidget,
+      );
+      expect(find.text('Partner'), findsOneWidget);
+      expect(find.text('Feature Artist'), findsOneWidget);
+      expect(find.text('Guest Artist'), findsOneWidget);
+
+      // Rename the co-primary credit. Its old linked Artist ID must not survive.
+      final editFirst = find.byKey(
+        const ValueKey<String>('track-edit-credit-0'),
+      );
+      await tester.ensureVisible(editFirst);
+      await tester.tap(editFirst);
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('track-credit-name-field')),
+        'Renamed Partner',
+      );
+      await tester.tap(
+        find.byKey(const ValueKey<String>('track-credit-save-button')),
+      );
+      await tester.pumpAndSettle();
+
+      // Change the second credit's role without changing its name.
+      // Its existing linked Artist identity should remain intact.
+      final editSecond = find.byKey(
+        const ValueKey<String>('track-edit-credit-1'),
+      );
+      await tester.ensureVisible(editSecond);
+      await tester.tap(editSecond);
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('track-credit-role-field')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Guest').last);
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('track-credit-save-button')),
+      );
+      await tester.pumpAndSettle();
+
+      // Add a new feature. New free-form credits remain unlinked.
+      final addCredit = find.byKey(
+        const ValueKey<String>('track-add-credit-button'),
+      );
+      await tester.ensureVisible(addCredit);
+      await tester.tap(addCredit);
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('track-credit-name-field')),
+        'New Feature',
+      );
+      await tester.tap(
+        find.byKey(const ValueKey<String>('track-credit-save-button')),
+      );
+      await tester.pumpAndSettle();
+
+      // Remove the original third-row guest credit.
+      final removeThird = find.byKey(
+        const ValueKey<String>('track-remove-credit-2'),
+      );
+      await tester.ensureVisible(removeThird);
+      await tester.tap(removeThird);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Guest Artist'), findsNothing);
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('track-studio-save-button')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(editingService.structuredUpdateCallCount, 1);
+
+      final submitted = editingService.lastAdditionalCredits;
+      expect(submitted, isNotNull);
+      expect(submitted, hasLength(3));
+
+      expect(submitted![0].creditedName, 'Renamed Partner');
+      expect(submitted[0].role, SongArtistCreditRole.coPrimary);
+      expect(submitted[0].artistId, isNull);
+
+      expect(submitted[1].creditedName, 'Feature Artist');
+      expect(submitted[1].role, SongArtistCreditRole.guest);
+      expect(submitted[1].artistId, 'artist-feature');
+
+      expect(submitted[2].creditedName, 'New Feature');
+      expect(submitted[2].role, SongArtistCreditRole.featured);
+      expect(submitted[2].artistId, isNull);
+    });
   });
 }
 
@@ -588,6 +747,7 @@ Widget buildSubject({
   AccountController? accountController,
   TrackProfileEditingService? trackProfileEditingService,
   SongBlockService? songBlockService,
+  SongArtistCreditRepository? songArtistCreditRepository,
   PlaybackEngine? engine,
 }) {
   final playbackEngine = engine ?? NoOpPlaybackEngine();
@@ -604,6 +764,9 @@ Widget buildSubject({
         value: trackProfileEditingService,
       ),
       Provider<SongBlockService?>.value(value: songBlockService),
+      Provider<SongArtistCreditRepository?>.value(
+        value: songArtistCreditRepository,
+      ),
       Provider<PlaybackCoordinator>.value(value: coordinator),
     ],
     child: const MaterialApp(home: Scaffold(body: TracksPage())),
@@ -967,5 +1130,53 @@ class UnusedTrackStudioSyncMutationRunner implements SyncMutationRunner {
   @override
   Future<T> run<T>(SyncMutationAction<T> action) {
     throw StateError('Sync mutation runner should not be used by this fake.');
+  }
+}
+
+class FakeSongArtistCreditRepository implements SongArtistCreditRepository {
+  FakeSongArtistCreditRepository({this.credits = const []});
+
+  final List<SongArtistCredit> credits;
+
+  @override
+  Future<List<SongArtistCredit>> getBySongId(String songId) async {
+    return credits
+        .where((credit) => credit.songId == songId)
+        .toList(growable: false);
+  }
+
+  @override
+  Future<void> create(SongArtistCredit credit) async {}
+
+  @override
+  Future<void> save(SongArtistCredit credit) async {}
+
+  @override
+  Future<void> delete(String id) async {}
+
+  @override
+  Future<void> deleteBySongId(String songId) async {}
+
+  @override
+  Future<SongArtistCredit?> getById(String id) async => null;
+
+  @override
+  Future<List<SongArtistCredit>> getByArtistId(String artistId) async {
+    return credits
+        .where((credit) => credit.artistId == artistId)
+        .toList(growable: false);
+  }
+
+  @override
+  Future<List<SongArtistCredit>> getUnlinkedByCanonicalName(
+    String canonicalName,
+  ) async {
+    return credits
+        .where(
+          (credit) =>
+              credit.artistId == null &&
+              credit.canonicalCreditedName == canonicalName,
+        )
+        .toList(growable: false);
   }
 }
