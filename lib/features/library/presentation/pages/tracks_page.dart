@@ -15,6 +15,7 @@ import '../../application/models/library_track_order.dart';
 import '../../application/repositories/library_query_repository.dart';
 import '../../application/services/artist_creation_service.dart';
 import '../../application/services/song_block_service.dart';
+import '../../application/services/song_artist_credit_service.dart';
 import '../../application/services/track_profile_editing_service.dart';
 import '../../domain/repositories/song_artist_credit_repository.dart';
 import '../controllers/library_tracks_controller.dart';
@@ -177,11 +178,23 @@ class _TracksPageState extends State<TracksPage> {
 
       final artists = await repository.getArtists();
       final albums = await repository.getAlbums();
+      final structuredCredits = await controller.getTrackAdditionalCredits(
+        track.songId,
+      );
 
       if (!mounted) {
         return;
       }
 
+      final initialAdditionalCredits = structuredCredits
+          .map(
+            (credit) => TrackProfileCreditDraft(
+              creditedName: credit.creditedName,
+              role: credit.role,
+              artistId: credit.artistId,
+            ),
+          )
+          .toList(growable: false);
       final artistCreationService = context.read<ArtistCreationService?>();
       final draft = await Navigator.of(context).push<TrackProfileEditDraft>(
         MaterialPageRoute<TrackProfileEditDraft>(
@@ -190,6 +203,7 @@ class _TracksPageState extends State<TracksPage> {
               track: track,
               artists: artists,
               albums: albums,
+              initialAdditionalCredits: initialAdditionalCredits,
               canEditDetails: controller.canEditTrack(userId),
               onCreateArtist: artistCreationService == null
                   ? null
@@ -221,13 +235,19 @@ class _TracksPageState extends State<TracksPage> {
         return;
       }
 
-      final changed = await controller.updateTrack(
+      final changed = await controller.updateTrackWithCredits(
         userId: userId,
         track: track,
         title: draft.title,
         trackNumber: draft.trackNumber,
         discNumber: draft.discNumber,
-        featuredArtists: draft.featuredArtists,
+        additionalCredits: draft.additionalCredits.map(
+          (credit) => SongArtistCreditInput(
+            creditedName: credit.creditedName,
+            role: credit.role,
+            artistId: credit.artistId,
+          ),
+        ),
         isSingle: draft.isSingle,
         artistId: draft.artistId,
         albumId: draft.albumId,

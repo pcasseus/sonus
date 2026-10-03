@@ -17,6 +17,7 @@ import '../../application/repositories/library_query_repository.dart';
 import '../../application/services/album_profile_editing_service.dart';
 import '../../application/services/album_edition_track_ordering_service.dart';
 import '../../application/services/song_block_service.dart';
+import '../../application/services/song_artist_credit_service.dart';
 import '../../domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/application/services/track_profile_editing_service.dart';
 import '../controllers/album_profile_controller.dart';
@@ -371,11 +372,23 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
 
       final artists = await repository.getArtists();
       final albums = await repository.getAlbums();
+      final structuredCredits = await controller.getTrackAdditionalCredits(
+        track.songId,
+      );
 
       if (!mounted) {
         return;
       }
 
+      final initialAdditionalCredits = structuredCredits
+          .map(
+            (credit) => TrackProfileCreditDraft(
+              creditedName: credit.creditedName,
+              role: credit.role,
+              artistId: credit.artistId,
+            ),
+          )
+          .toList(growable: false);
       final draft = await Navigator.of(context).push<TrackProfileEditDraft>(
         MaterialPageRoute<TrackProfileEditDraft>(
           builder: (routeContext) {
@@ -383,6 +396,7 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
               track: track,
               artists: artists,
               albums: albums,
+              initialAdditionalCredits: initialAdditionalCredits,
               canEditDetails: controller.canEditTrack(userId),
               onChangeArtwork: controller.canEditTrackArtwork
                   ? () => _changeTrackArtwork(controller, track)
@@ -399,13 +413,19 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
         return;
       }
 
-      final changed = await controller.updateTrack(
+      final changed = await controller.updateTrackWithCredits(
         userId: userId,
         track: track,
         title: draft.title,
         trackNumber: draft.trackNumber,
         discNumber: draft.discNumber,
-        featuredArtists: draft.featuredArtists,
+        additionalCredits: draft.additionalCredits.map(
+          (credit) => SongArtistCreditInput(
+            creditedName: credit.creditedName,
+            role: credit.role,
+            artistId: credit.artistId,
+          ),
+        ),
         isSingle: draft.isSingle,
         artistId: draft.artistId,
         albumId: draft.albumId,

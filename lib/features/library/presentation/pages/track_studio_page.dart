@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../../application/models/library_album.dart';
 import '../../application/models/library_artist.dart';
 import '../../application/models/library_track.dart';
+import '../../domain/entities/song_artist_credit.dart';
 import '../models/track_profile_edit_draft.dart';
 
 class TrackStudioPage extends StatefulWidget {
@@ -12,6 +13,7 @@ class TrackStudioPage extends StatefulWidget {
     required this.track,
     this.artists = const [],
     this.albums = const [],
+    this.initialAdditionalCredits = const [],
     this.onCreateArtist,
     this.onChangeArtwork,
     this.onClearArtwork,
@@ -21,6 +23,7 @@ class TrackStudioPage extends StatefulWidget {
   final LibraryTrack track;
   final List<LibraryArtist> artists;
   final List<LibraryAlbum> albums;
+  final List<TrackProfileCreditDraft> initialAdditionalCredits;
   final TrackArtistCreationCallback? onCreateArtist;
   final Future<void> Function()? onChangeArtwork;
   final Future<void> Function()? onClearArtwork;
@@ -38,6 +41,7 @@ class _TrackStudioPageState extends State<TrackStudioPage> {
   late final TextEditingController _discNumberController;
   late final TextEditingController _featuredArtistsController;
 
+  late List<TrackProfileCreditDraft> _additionalCredits;
   late List<LibraryArtist> _artists;
   late String _artistId;
   late String _albumId;
@@ -54,10 +58,22 @@ class _TrackStudioPageState extends State<TrackStudioPage> {
     _discNumberController = TextEditingController(
       text: widget.track.discNumber.toString(),
     );
+    final initialFeaturedArtists = widget.initialAdditionalCredits
+        .where((credit) => credit.role == SongArtistCreditRole.featured)
+        .map((credit) => credit.creditedName)
+        .toList(growable: false);
+
     _featuredArtistsController = TextEditingController(
-      text: widget.track.featuredArtists.join(', '),
+      text:
+          (initialFeaturedArtists.isNotEmpty
+                  ? initialFeaturedArtists
+                  : widget.track.featuredArtists)
+              .join(', '),
     );
 
+    _additionalCredits = List<TrackProfileCreditDraft>.from(
+      widget.initialAdditionalCredits,
+    );
     _artists = List<LibraryArtist>.from(widget.artists);
     _artistId = widget.track.artistId;
     _albumId = widget.track.albumId;
@@ -424,12 +440,53 @@ class _TrackStudioPageState extends State<TrackStudioPage> {
         .where((artist) => artist.isNotEmpty)
         .toList(growable: false);
 
+    final existingFeaturedCredits = {
+      for (final credit in _additionalCredits)
+        if (credit.role == SongArtistCreditRole.featured)
+          credit.creditedName.trim().toLowerCase(): credit,
+    };
+
+    final submittedFeaturedCredits = featuredArtists
+        .map((name) {
+          final existing = existingFeaturedCredits[name.toLowerCase()];
+
+          return TrackProfileCreditDraft(
+            creditedName: name,
+            role: SongArtistCreditRole.featured,
+            artistId: existing?.artistId,
+          );
+        })
+        .toList(growable: false);
+
+    final submittedAdditionalCredits = <TrackProfileCreditDraft>[];
+    var featuredIndex = 0;
+
+    for (final credit in _additionalCredits) {
+      if (credit.role != SongArtistCreditRole.featured) {
+        submittedAdditionalCredits.add(credit);
+        continue;
+      }
+
+      if (featuredIndex < submittedFeaturedCredits.length) {
+        submittedAdditionalCredits.add(submittedFeaturedCredits[featuredIndex]);
+        featuredIndex++;
+      }
+    }
+
+    while (featuredIndex < submittedFeaturedCredits.length) {
+      submittedAdditionalCredits.add(submittedFeaturedCredits[featuredIndex]);
+      featuredIndex++;
+    }
+
     Navigator.of(context).pop(
       TrackProfileEditDraft(
         title: _titleController.text.trim(),
         trackNumber: int.parse(_trackNumberController.text.trim()),
         discNumber: int.parse(_discNumberController.text.trim()),
         featuredArtists: featuredArtists,
+        additionalCredits: List<TrackProfileCreditDraft>.unmodifiable(
+          submittedAdditionalCredits,
+        ),
         isSingle: _isSingle,
         artistId: _artistId,
         albumId: _albumId,

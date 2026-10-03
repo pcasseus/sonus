@@ -14,6 +14,8 @@ import 'package:sonus_next/features/library/application/models/library_track_ord
 import 'package:sonus_next/features/library/application/repositories/library_query_repository.dart';
 import 'package:sonus_next/features/library/application/services/song_block_service.dart';
 import 'package:sonus_next/features/library/application/services/track_profile_editing_service.dart';
+import 'package:sonus_next/features/library/application/services/song_artist_credit_service.dart';
+import 'package:sonus_next/features/library/domain/entities/song_artist_credit.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/domain/entities/song.dart';
 import 'package:sonus_next/features/library/presentation/pages/tracks_page.dart';
@@ -559,12 +561,14 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      expect(editingService.structuredUpdateCallCount, 1);
       expect(editingService.updateCallCount, 1);
       expect(editingService.lastUserId, isNull);
       expect(editingService.lastSongId, 'song-studio');
       expect(editingService.lastTitle, 'Studio Title');
       expect(editingService.lastTrackNumber, 1);
       expect(editingService.lastDiscNumber, 1);
+      expect(editingService.lastAdditionalCredits, isEmpty);
       expect(editingService.lastFeaturedArtists, isEmpty);
       expect(editingService.lastIsSingle, isFalse);
       expect(editingService.lastArtistId, 'artist-1');
@@ -858,6 +862,8 @@ class FakeTrackStudioEditingService extends TrackProfileEditingService {
     : super(mutationRunner: UnusedTrackStudioSyncMutationRunner());
 
   int updateCallCount = 0;
+  int structuredUpdateCallCount = 0;
+  List<SongArtistCreditInput>? lastAdditionalCredits;
 
   String? lastUserId;
   String? lastSongId;
@@ -869,6 +875,43 @@ class FakeTrackStudioEditingService extends TrackProfileEditingService {
   String? lastArtistId;
   String? lastAlbumId;
   String? lastAlbumEditionId;
+
+  @override
+  Future<TrackProfileEditResult> updateTrackWithCredits({
+    required String? userId,
+    required String songId,
+    required String title,
+    required int trackNumber,
+    required int discNumber,
+    required Iterable<SongArtistCreditInput> additionalCredits,
+    required bool isSingle,
+    String? artistId,
+    String? albumId,
+    String? albumEditionId,
+    DateTime? now,
+  }) async {
+    structuredUpdateCallCount++;
+    lastAdditionalCredits = List<SongArtistCreditInput>.from(additionalCredits);
+
+    final featuredArtists = lastAdditionalCredits!
+        .where((credit) => credit.role == SongArtistCreditRole.featured)
+        .map((credit) => credit.creditedName)
+        .toList(growable: false);
+
+    return updateTrack(
+      userId: userId,
+      songId: songId,
+      title: title,
+      trackNumber: trackNumber,
+      discNumber: discNumber,
+      featuredArtists: featuredArtists,
+      isSingle: isSingle,
+      artistId: artistId,
+      albumId: albumId,
+      albumEditionId: albumEditionId,
+      now: now,
+    );
+  }
 
   @override
   Future<TrackProfileEditResult> updateTrack({
