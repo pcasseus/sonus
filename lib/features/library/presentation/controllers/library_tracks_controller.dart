@@ -9,6 +9,7 @@ import '../../application/models/library_track.dart';
 import '../../application/models/library_track_order.dart';
 import '../../application/repositories/library_query_repository.dart';
 import '../../application/services/song_block_service.dart';
+import '../../application/services/song_artist_credit_service.dart';
 import '../../application/services/track_profile_editing_service.dart';
 
 class LibraryTracksController extends ChangeNotifier {
@@ -104,6 +105,42 @@ class LibraryTracksController extends ChangeNotifier {
       trackNumber: trackNumber,
       discNumber: discNumber,
       featuredArtists: featuredArtists,
+      isSingle: isSingle,
+      artistId: artistId,
+      albumId: albumId,
+      albumEditionId: albumEditionId,
+    );
+
+    await refresh();
+
+    return true;
+  }
+
+  Future<bool> updateTrackWithCredits({
+    String? userId,
+    required LibraryTrack track,
+    required String title,
+    required int trackNumber,
+    required int discNumber,
+    required Iterable<SongArtistCreditInput> additionalCredits,
+    required bool isSingle,
+    String? artistId,
+    String? albumId,
+    String? albumEditionId,
+  }) async {
+    final service = _trackProfileEditingService;
+
+    if (service == null) {
+      return false;
+    }
+
+    await service.updateTrackWithCredits(
+      userId: userId,
+      songId: track.songId,
+      title: title,
+      trackNumber: trackNumber,
+      discNumber: discNumber,
+      additionalCredits: additionalCredits,
       isSingle: isSingle,
       artistId: artistId,
       albumId: albumId,

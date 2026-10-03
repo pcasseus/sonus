@@ -9,6 +9,8 @@ import 'package:sonus_next/features/library/application/models/library_track.dar
 import 'package:sonus_next/features/library/application/models/library_track_order.dart';
 import 'package:sonus_next/features/library/application/repositories/library_query_repository.dart';
 import 'package:sonus_next/features/library/application/services/song_block_service.dart';
+import 'package:sonus_next/features/library/application/services/song_artist_credit_service.dart';
+import 'package:sonus_next/features/library/domain/entities/song_artist_credit.dart';
 import 'package:sonus_next/features/library/application/services/track_profile_editing_service.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/domain/entities/song.dart';
@@ -873,6 +875,83 @@ void main() {
     await engine.dispose();
   });
 
+  test(
+    'updateTrackWithCredits forwards structured credits and refreshes tracks',
+    () async {
+      var trackRequestCount = 0;
+
+      final repository = FakeLibraryQueryRepository();
+      final originalTrack = track(
+        id: 'song-structured-edit',
+        title: 'Original Title',
+      );
+      final refreshedTrack = track(
+        id: 'song-structured-edit',
+        title: 'Structured Title',
+      );
+
+      repository.tracks = [originalTrack];
+
+      final service = FakeTrackProfileEditingService();
+      final engine = FakePlaybackEngine();
+
+      final controller = LibraryTracksController(
+        repository: _CountingLibraryQueryRepository(
+          delegate: repository,
+          onGetTracks: () {
+            trackRequestCount++;
+
+            repository.tracks = trackRequestCount == 1
+                ? [originalTrack]
+                : [refreshedTrack];
+          },
+        ),
+        playbackCoordinator: PlaybackCoordinator(engine: engine),
+        trackProfileEditingService: service,
+      );
+
+      await controller.load();
+
+      final changed = await controller.updateTrackWithCredits(
+        userId: 'user-1',
+        track: controller.tracks.single,
+        title: 'Structured Title',
+        trackNumber: 7,
+        discNumber: 2,
+        additionalCredits: const [
+          SongArtistCreditInput(
+            creditedName: 'Co Primary Artist',
+            role: SongArtistCreditRole.coPrimary,
+            artistId: 'artist-co-primary',
+          ),
+          SongArtistCreditInput(
+            creditedName: 'Guest Artist',
+            role: SongArtistCreditRole.guest,
+          ),
+        ],
+        isSingle: true,
+      );
+
+      expect(changed, isTrue);
+      expect(service.structuredUpdateCallCount, 1);
+      expect(service.lastUserId, 'user-1');
+      expect(service.lastSongId, 'song-structured-edit');
+
+      final credits = service.lastAdditionalCredits!;
+      expect(credits, hasLength(2));
+      expect(credits[0].creditedName, 'Co Primary Artist');
+      expect(credits[0].role, SongArtistCreditRole.coPrimary);
+      expect(credits[0].artistId, 'artist-co-primary');
+      expect(credits[1].creditedName, 'Guest Artist');
+      expect(credits[1].role, SongArtistCreditRole.guest);
+      expect(credits[1].artistId, isNull);
+
+      expect(trackRequestCount, 2);
+      expect(controller.tracks.single.title, 'Structured Title');
+
+      await engine.dispose();
+    },
+  );
   test('unavailable track can still have metadata edited', () async {
     final unavailableTrack = track(
       id: 'unavailable-edit',
@@ -1175,6 +1254,8 @@ class FakeTrackProfileEditingService extends TrackProfileEditingService {
     : super(mutationRunner: UnusedTrackSyncMutationRunner());
 
   int updateCallCount = 0;
+  int structuredUpdateCallCount = 0;
+  List<SongArtistCreditInput>? lastAdditionalCredits;
 
   String? lastUserId;
   String? lastSongId;
@@ -1227,6 +1308,38 @@ class FakeTrackProfileEditingService extends TrackProfileEditingService {
         updatedAt: timestamp,
       ),
       changed: true,
+    );
+  }
+
+  @override
+  Future<TrackProfileEditResult> updateTrackWithCredits({
+    required String? userId,
+    required String songId,
+    required String title,
+    required int trackNumber,
+    required int discNumber,
+    required Iterable<SongArtistCreditInput> additionalCredits,
+    required bool isSingle,
+    String? artistId,
+    String? albumId,
+    String? albumEditionId,
+    DateTime? now,
+  }) async {
+    structuredUpdateCallCount++;
+    lastAdditionalCredits = List<SongArtistCreditInput>.from(additionalCredits);
+
+    return updateTrack(
+      userId: userId,
+      songId: songId,
+      title: title,
+      trackNumber: trackNumber,
+      discNumber: discNumber,
+      featuredArtists: const [],
+      isSingle: isSingle,
+      artistId: artistId,
+      albumId: albumId,
+      albumEditionId: albumEditionId,
+      now: now,
     );
   }
 }
