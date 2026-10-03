@@ -17,8 +17,8 @@ import '../../application/services/artist_creation_service.dart';
 import '../../application/services/song_block_service.dart';
 import '../../application/services/track_profile_editing_service.dart';
 import '../controllers/library_tracks_controller.dart';
+import '../models/track_profile_edit_draft.dart';
 import 'track_studio_page.dart';
-import '../widgets/track_profile_edit_dialog.dart';
 
 class TracksPage extends StatefulWidget {
   const TracksPage({super.key});

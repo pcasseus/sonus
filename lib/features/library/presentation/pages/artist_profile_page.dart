@@ -14,12 +14,12 @@ import '../../application/services/artist_profile_editing_service.dart';
 import '../../application/services/song_block_service.dart';
 import 'package:sonus_next/features/library/application/services/track_profile_editing_service.dart';
 import '../controllers/artist_profile_controller.dart';
+import '../models/track_profile_edit_draft.dart';
 import '../widgets/artist_profile/artist_profile_albums_grid.dart';
 import '../widgets/artist_profile/artist_profile_header.dart';
 import '../widgets/artist_profile/artist_profile_tracks_list.dart';
 import '../widgets/artist_profile/artist_profile_playback_controls.dart';
 import '../widgets/artist_profile/artist_profile_section_heading.dart';
-import '../widgets/track_profile_edit_dialog.dart';
 import 'album_profile_page.dart';
 import 'track_studio_page.dart';
 

@@ -7,6 +7,7 @@ import '../../../artwork/application/services/artwork_file_picker.dart';
 
 import '../../../library/application/services/album_profile_editing_service.dart';
 import '../../../library/presentation/widgets/album_profile_edit_dialog.dart';
+import '../../../library/presentation/models/track_profile_edit_draft.dart';
 import '../../../library/presentation/widgets/track_profile_edit_dialog.dart';
 import '../../application/services/import_review_service.dart';
 import '../../domain/entities/song_import_review.dart';

@@ -4,7 +4,7 @@ import 'package:flutter/services.dart';
 import '../../application/models/library_album.dart';
 import '../../application/models/library_artist.dart';
 import '../../application/models/library_track.dart';
-import '../widgets/track_profile_edit_dialog.dart';
+import '../models/track_profile_edit_draft.dart';
 
 class TrackStudioPage extends StatefulWidget {
   const TrackStudioPage({

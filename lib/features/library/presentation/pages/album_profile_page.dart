@@ -19,10 +19,10 @@ import '../../application/services/song_block_service.dart';
 import '../../domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/application/services/track_profile_editing_service.dart';
 import '../controllers/album_profile_controller.dart';
+import '../models/track_profile_edit_draft.dart';
 import 'album_studio_page.dart';
 import 'track_studio_page.dart';
 import '../widgets/album_profile_edit_dialog.dart';
-import '../widgets/track_profile_edit_dialog.dart';
 
 class AlbumProfilePage extends StatefulWidget {
   const AlbumProfilePage({
