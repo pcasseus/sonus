@@ -12,6 +12,7 @@ import '../../application/services/song_block_service.dart';
 import '../../application/services/song_artist_credit_service.dart';
 import '../../application/services/track_profile_editing_service.dart';
 import '../../domain/entities/song_artist_credit.dart';
+import '../../domain/entities/song.dart';
 import '../../domain/repositories/song_artist_credit_repository.dart';
 
 class LibraryTracksController extends ChangeNotifier {
@@ -150,6 +151,10 @@ class LibraryTracksController extends ChangeNotifier {
     required int discNumber,
     required Iterable<SongArtistCreditInput> additionalCredits,
     required bool isSingle,
+    String? versionLabel,
+    List<SongVersionCharacteristic> versionCharacteristics = const [],
+    SongReleaseStatus releaseStatus = SongReleaseStatus.released,
+    bool isLeak = false,
     String? artistId,
     String? albumId,
     String? albumEditionId,
@@ -168,6 +173,11 @@ class LibraryTracksController extends ChangeNotifier {
       discNumber: discNumber,
       additionalCredits: additionalCredits,
       isSingle: isSingle,
+      versionLabel: versionLabel,
+      versionCharacteristics: versionCharacteristics,
+      releaseStatus: releaseStatus,
+      isLeak: isLeak,
+      updateVersionMetadata: true,
       artistId: artistId,
       albumId: albumId,
       albumEditionId: albumEditionId,

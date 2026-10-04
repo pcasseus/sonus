@@ -1,4 +1,5 @@
 import '../../application/models/library_artist.dart';
+import '../../domain/entities/song.dart';
 import '../../domain/entities/song_artist_credit.dart';
 
 typedef TrackArtistCreationCallback =
@@ -27,6 +28,10 @@ class TrackProfileEditDraft {
     required this.featuredArtists,
     this.additionalCredits = const [],
     required this.isSingle,
+    this.versionLabel,
+    this.versionCharacteristics = const [],
+    this.releaseStatus = SongReleaseStatus.released,
+    this.isLeak = false,
     required this.artistId,
     required this.albumId,
     required this.albumEditionId,
@@ -39,6 +44,10 @@ class TrackProfileEditDraft {
   final List<TrackProfileCreditDraft> additionalCredits;
   final bool isSingle;
 
+  final String? versionLabel;
+  final List<SongVersionCharacteristic> versionCharacteristics;
+  final SongReleaseStatus releaseStatus;
+  final bool isLeak;
   final String artistId;
   final String albumId;
   final String albumEditionId;

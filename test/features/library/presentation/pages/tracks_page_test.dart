@@ -643,6 +643,16 @@ void main() {
       await tester.tap(find.text('Track Studio'));
       await tester.pumpAndSettle();
 
+      final studioList = find.descendant(
+        of: find.byKey(const ValueKey<String>('track-studio-page')),
+        matching: find.byType(ListView),
+      );
+      expect(studioList, findsOneWidget);
+
+      await tester.drag(studioList, const Offset(0, -500));
+      await tester.pumpAndSettle();
+      await tester.pumpAndSettle();
+
       expect(
         find.byKey(const ValueKey<String>('track-credit-row-0')),
         findsOneWidget,
@@ -1048,6 +1058,11 @@ class FakeTrackStudioEditingService extends TrackProfileEditingService {
     required int discNumber,
     required Iterable<SongArtistCreditInput> additionalCredits,
     required bool isSingle,
+    String? versionLabel,
+    List<SongVersionCharacteristic> versionCharacteristics = const [],
+    SongReleaseStatus releaseStatus = SongReleaseStatus.released,
+    bool isLeak = false,
+    bool updateVersionMetadata = false,
     String? artistId,
     String? albumId,
     String? albumEditionId,

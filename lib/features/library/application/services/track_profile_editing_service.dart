@@ -61,6 +61,11 @@ class TrackProfileEditingService {
     required int discNumber,
     required Iterable<SongArtistCreditInput> additionalCredits,
     required bool isSingle,
+    String? versionLabel,
+    List<SongVersionCharacteristic> versionCharacteristics = const [],
+    SongReleaseStatus releaseStatus = SongReleaseStatus.released,
+    bool isLeak = false,
+    bool updateVersionMetadata = false,
     String? artistId,
     String? albumId,
     String? albumEditionId,
@@ -73,7 +78,7 @@ class TrackProfileEditingService {
     final normalizedArtistId = artistId?.trim();
     final normalizedAlbumId = albumId?.trim();
     final normalizedAlbumEditionId = albumEditionId?.trim();
-
+    final normalizedVersionLabel = versionLabel?.trim();
     if (normalizedSongId.isEmpty) {
       throw ArgumentError.value(songId, 'songId', 'Song id must not be blank.');
     }
@@ -138,7 +143,18 @@ class TrackProfileEditingService {
       final targetArtistId = normalizedArtistId ?? song.artistId;
       final targetAlbumId = normalizedAlbumId ?? song.albumId;
       final targetEditionId = normalizedAlbumEditionId ?? song.albumEditionId;
-
+      final targetVersionLabel = updateVersionMetadata
+          ? (normalizedVersionLabel == null || normalizedVersionLabel.isEmpty
+                ? null
+                : normalizedVersionLabel)
+          : song.versionLabel;
+      final targetVersionCharacteristics = updateVersionMetadata
+          ? List<SongVersionCharacteristic>.unmodifiable(versionCharacteristics)
+          : song.versionCharacteristics;
+      final targetReleaseStatus = updateVersionMetadata
+          ? releaseStatus
+          : song.releaseStatus;
+      final targetIsLeak = updateVersionMetadata ? isLeak : song.isLeak;
       final targetArtist = await context.artistRepository.getById(
         targetArtistId,
       );
@@ -199,6 +215,15 @@ class TrackProfileEditingService {
           song.trackNumber != trackNumber ||
           song.discNumber != discNumber ||
           song.isSingle != isSingle ||
+          song.versionLabel != targetVersionLabel ||
+          !(song.versionCharacteristics.length ==
+                  targetVersionCharacteristics.length &&
+              song.versionCharacteristics.asMap().entries.every(
+                (entry) =>
+                    entry.value == targetVersionCharacteristics[entry.key],
+              )) ||
+          song.releaseStatus != targetReleaseStatus ||
+          song.isLeak != targetIsLeak ||
           !_listsEqual(song.featuredArtists, projectedFeaturedArtists) ||
           structuredCreditsChanged;
 
@@ -215,6 +240,10 @@ class TrackProfileEditingService {
         trackNumber: trackNumber,
         discNumber: discNumber,
         isSingle: isSingle,
+        versionLabel: targetVersionLabel,
+        versionCharacteristics: targetVersionCharacteristics,
+        releaseStatus: targetReleaseStatus,
+        isLeak: targetIsLeak,
         featuredArtists: List<String>.unmodifiable(projectedFeaturedArtists),
         updatedAt: timestamp,
       );

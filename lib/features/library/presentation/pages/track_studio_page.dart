@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../../application/models/library_album.dart';
 import '../../application/models/library_artist.dart';
 import '../../application/models/library_track.dart';
+import '../../domain/entities/song.dart';
 import '../../domain/entities/song_artist_credit.dart';
 import '../models/track_profile_edit_draft.dart';
 
@@ -39,12 +40,16 @@ class _TrackStudioPageState extends State<TrackStudioPage> {
   late final TextEditingController _titleController;
   late final TextEditingController _trackNumberController;
   late final TextEditingController _discNumberController;
+  late final TextEditingController _versionLabelController;
 
   late List<TrackProfileCreditDraft> _additionalCredits;
   late List<LibraryArtist> _artists;
   late String _artistId;
   late String _albumId;
   late bool _isSingle;
+  late Set<SongVersionCharacteristic> _versionCharacteristics;
+  late SongReleaseStatus _releaseStatus;
+  late bool _isLeak;
 
   @override
   void initState() {
@@ -57,6 +62,9 @@ class _TrackStudioPageState extends State<TrackStudioPage> {
     _discNumberController = TextEditingController(
       text: widget.track.discNumber.toString(),
     );
+    _versionLabelController = TextEditingController(
+      text: widget.track.versionLabel ?? '',
+    );
     _additionalCredits = List<TrackProfileCreditDraft>.from(
       widget.initialAdditionalCredits,
     );
@@ -64,6 +72,9 @@ class _TrackStudioPageState extends State<TrackStudioPage> {
     _artistId = widget.track.artistId;
     _albumId = widget.track.albumId;
     _isSingle = widget.track.isSingle;
+    _versionCharacteristics = widget.track.versionCharacteristics.toSet();
+    _releaseStatus = widget.track.releaseStatus;
+    _isLeak = widget.track.isLeak;
   }
 
   @override
@@ -71,6 +82,7 @@ class _TrackStudioPageState extends State<TrackStudioPage> {
     _titleController.dispose();
     _trackNumberController.dispose();
     _discNumberController.dispose();
+    _versionLabelController.dispose();
     super.dispose();
   }
 
@@ -258,7 +270,93 @@ class _TrackStudioPageState extends State<TrackStudioPage> {
                   ),
                 ],
               ),
+              const SizedBox(height: 24),
+
+              Text('Version', style: Theme.of(context).textTheme.titleMedium),
               const SizedBox(height: 12),
+
+              TextFormField(
+                key: const ValueKey<String>('track-version-label-field'),
+                controller: _versionLabelController,
+                decoration: const InputDecoration(
+                  labelText: 'Version label',
+                  hintText: 'Live, Remix, 2024 Remaster...',
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final characteristic
+                        in SongVersionCharacteristic.values)
+                      FilterChip(
+                        key: ValueKey<String>(
+                          'track-version-${characteristic.name}',
+                        ),
+                        label: Text(
+                          _versionCharacteristicLabel(characteristic),
+                        ),
+                        selected: _versionCharacteristics.contains(
+                          characteristic,
+                        ),
+                        onSelected: (selected) {
+                          setState(() {
+                            if (selected) {
+                              _versionCharacteristics.add(characteristic);
+                            } else {
+                              _versionCharacteristics.remove(characteristic);
+                            }
+                          });
+                        },
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+
+              DropdownButtonFormField<SongReleaseStatus>(
+                key: const ValueKey<String>('track-release-status-field'),
+                initialValue: _releaseStatus,
+                decoration: const InputDecoration(labelText: 'Release status'),
+                items: const [
+                  DropdownMenuItem(
+                    value: SongReleaseStatus.released,
+                    child: Text('Released'),
+                  ),
+                  DropdownMenuItem(
+                    value: SongReleaseStatus.unreleased,
+                    child: Text('Unreleased'),
+                  ),
+                ],
+                onChanged: (value) {
+                  if (value == null) {
+                    return;
+                  }
+
+                  setState(() {
+                    _releaseStatus = value;
+                  });
+                },
+              ),
+
+              SwitchListTile(
+                key: const ValueKey<String>('track-leak-toggle'),
+                contentPadding: EdgeInsets.zero,
+                title: const Text('Leak'),
+                subtitle: const Text('Mark this track as leaked material.'),
+                value: _isLeak,
+                onChanged: (value) {
+                  setState(() {
+                    _isLeak = value;
+                  });
+                },
+              ),
+
+              const SizedBox(height: 24),
 
               Row(
                 children: [
@@ -442,6 +540,31 @@ class _TrackStudioPageState extends State<TrackStudioPage> {
     }
   }
 
+  String _versionCharacteristicLabel(SongVersionCharacteristic characteristic) {
+    switch (characteristic) {
+      case SongVersionCharacteristic.remix:
+        return 'Remix';
+      case SongVersionCharacteristic.live:
+        return 'Live';
+      case SongVersionCharacteristic.acoustic:
+        return 'Acoustic';
+      case SongVersionCharacteristic.demo:
+        return 'Demo';
+      case SongVersionCharacteristic.instrumental:
+        return 'Instrumental';
+      case SongVersionCharacteristic.edit:
+        return 'Edit';
+      case SongVersionCharacteristic.radioEdit:
+        return 'Radio Edit';
+      case SongVersionCharacteristic.extended:
+        return 'Extended';
+      case SongVersionCharacteristic.remaster:
+        return 'Remaster';
+      case SongVersionCharacteristic.alternate:
+        return 'Alternate';
+    }
+  }
+
   String _creditRoleLabel(SongArtistCreditRole role) {
     switch (role) {
       case SongArtistCreditRole.coPrimary:
@@ -618,6 +741,16 @@ class _TrackStudioPageState extends State<TrackStudioPage> {
           _additionalCredits,
         ),
         isSingle: _isSingle,
+        versionLabel: _versionLabelController.text.trim().isEmpty
+            ? null
+            : _versionLabelController.text.trim(),
+        versionCharacteristics: List<SongVersionCharacteristic>.unmodifiable(
+          SongVersionCharacteristic.values.where(
+            _versionCharacteristics.contains,
+          ),
+        ),
+        releaseStatus: _releaseStatus,
+        isLeak: _isLeak,
         artistId: _artistId,
         albumId: _albumId,
         albumEditionId: albumEditionId,

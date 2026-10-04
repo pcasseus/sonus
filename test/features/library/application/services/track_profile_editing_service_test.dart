@@ -328,6 +328,127 @@ void main() {
     expect(pending.single.operation, SyncOutboxOperation.upsert);
   });
 
+  test('updates and clears structured version metadata', () async {
+    final original = await createSong(featuredArtists: const []);
+
+    final firstResult = await service.updateTrackWithCredits(
+      userId: 'user_1',
+      songId: original.id,
+      title: original.title,
+      trackNumber: original.trackNumber,
+      discNumber: original.discNumber,
+      additionalCredits: const [],
+      isSingle: original.isSingle,
+      versionLabel: '  2024 Remaster  ',
+      versionCharacteristics: const [SongVersionCharacteristic.remaster],
+      releaseStatus: SongReleaseStatus.unreleased,
+      isLeak: true,
+      updateVersionMetadata: true,
+      now: mutationTime,
+    );
+
+    expect(firstResult.changed, isTrue);
+    expect(firstResult.song.versionLabel, '2024 Remaster');
+    expect(firstResult.song.versionCharacteristics, const [
+      SongVersionCharacteristic.remaster,
+    ]);
+    expect(firstResult.song.releaseStatus, SongReleaseStatus.unreleased);
+    expect(firstResult.song.isLeak, isTrue);
+
+    final secondMutationTime = mutationTime.add(const Duration(minutes: 1));
+
+    final secondResult = await service.updateTrackWithCredits(
+      userId: 'user_1',
+      songId: original.id,
+      title: original.title,
+      trackNumber: original.trackNumber,
+      discNumber: original.discNumber,
+      additionalCredits: const [],
+      isSingle: original.isSingle,
+      versionLabel: '   ',
+      versionCharacteristics: const [],
+      releaseStatus: SongReleaseStatus.released,
+      isLeak: false,
+      updateVersionMetadata: true,
+      now: secondMutationTime,
+    );
+
+    expect(secondResult.changed, isTrue);
+    expect(secondResult.song.versionLabel, isNull);
+    expect(secondResult.song.versionCharacteristics, isEmpty);
+    expect(secondResult.song.releaseStatus, SongReleaseStatus.released);
+    expect(secondResult.song.isLeak, isFalse);
+
+    final db = await appDatabase.database;
+    final stored = await SongDao(db).findById(original.id);
+
+    expect(stored, isNotNull);
+    expect(stored!.versionLabel, isNull);
+    expect(stored.versionCharacteristics, isEmpty);
+    expect(stored.releaseStatus, SongReleaseStatus.released);
+    expect(stored.isLeak, isFalse);
+    expect(stored.updatedAt, secondMutationTime);
+  });
+
+  test('legacy track edit preserves existing version metadata', () async {
+    final original = await createSong(featuredArtists: const []);
+
+    final versioned = await service.updateTrackWithCredits(
+      userId: 'user_1',
+      songId: original.id,
+      title: original.title,
+      trackNumber: original.trackNumber,
+      discNumber: original.discNumber,
+      additionalCredits: const [],
+      isSingle: original.isSingle,
+      versionLabel: 'Live Remix',
+      versionCharacteristics: const [
+        SongVersionCharacteristic.live,
+        SongVersionCharacteristic.remix,
+      ],
+      releaseStatus: SongReleaseStatus.unreleased,
+      isLeak: true,
+      updateVersionMetadata: true,
+      now: mutationTime,
+    );
+
+    expect(versioned.song.versionLabel, 'Live Remix');
+
+    final secondMutationTime = mutationTime.add(const Duration(minutes: 1));
+
+    final result = await service.updateTrack(
+      userId: 'user_1',
+      songId: original.id,
+      title: 'Legacy Rename',
+      trackNumber: original.trackNumber,
+      discNumber: original.discNumber,
+      featuredArtists: versioned.song.featuredArtists,
+      isSingle: original.isSingle,
+      now: secondMutationTime,
+    );
+
+    expect(result.changed, isTrue);
+    expect(result.song.title, 'Legacy Rename');
+    expect(result.song.versionLabel, 'Live Remix');
+    expect(result.song.versionCharacteristics, const [
+      SongVersionCharacteristic.live,
+      SongVersionCharacteristic.remix,
+    ]);
+    expect(result.song.releaseStatus, SongReleaseStatus.unreleased);
+    expect(result.song.isLeak, isTrue);
+
+    final db = await appDatabase.database;
+    final stored = await SongDao(db).findById(original.id);
+
+    expect(stored, isNotNull);
+    expect(stored!.versionLabel, 'Live Remix');
+    expect(stored.versionCharacteristics, const [
+      SongVersionCharacteristic.live,
+      SongVersionCharacteristic.remix,
+    ]);
+    expect(stored.releaseStatus, SongReleaseStatus.unreleased);
+    expect(stored.isLeak, isTrue);
+  });
   test('rejects blank song id before mutation', () async {
     await expectLater(
       () => service.updateTrack(
