@@ -39,6 +39,10 @@ class TrackTitleVersionInterpreter {
       return InterpretedTrackTitle(title: cleaned);
     }
 
+    if (!_isSupportedQualifier(qualifier)) {
+      return InterpretedTrackTitle(title: cleaned);
+    }
+
     final characteristics = _characteristicsFor(qualifier);
 
     if (characteristics.isEmpty) {
@@ -75,7 +79,8 @@ class TrackTitleVersionInterpreter {
       add(SongVersionCharacteristic.extended);
     }
 
-    if (_containsWord(normalized, 'remaster')) {
+    if (_containsWord(normalized, 'remaster') ||
+        _containsWord(normalized, 'remastered')) {
       add(SongVersionCharacteristic.remaster);
     }
 
@@ -110,6 +115,53 @@ class TrackTitleVersionInterpreter {
     }
 
     return result;
+  }
+
+  bool _isSupportedQualifier(String qualifier) {
+    final normalized = qualifier.toLowerCase().trim();
+
+    final tokens = normalized
+        .split(RegExp(r'[^a-z0-9]+'))
+        .where((token) => token.isNotEmpty)
+        .toList(growable: false);
+
+    if (tokens.isEmpty) {
+      return false;
+    }
+
+    const allowedTokens = <String>{
+      'radio',
+      'edit',
+      'extended',
+      'mix',
+      'remaster',
+      'remastered',
+      'instrumental',
+      'acoustic',
+      'demo',
+      'live',
+      'remix',
+      'alternate',
+      'alternative',
+      'version',
+    };
+
+    final hasRemaster =
+        tokens.contains('remaster') || tokens.contains('remastered');
+
+    for (final token in tokens) {
+      if (allowedTokens.contains(token)) {
+        continue;
+      }
+
+      if (hasRemaster && RegExp(r'^\d{4}$').hasMatch(token)) {
+        continue;
+      }
+
+      return false;
+    }
+
+    return true;
   }
 
   bool _containsWord(String value, String phrase) {
