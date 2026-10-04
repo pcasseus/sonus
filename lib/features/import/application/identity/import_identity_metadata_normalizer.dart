@@ -1,9 +1,12 @@
+import 'package:sonus_next/core/identity/artist_credit_parser.dart';
 import 'package:sonus_next/core/identity/text_normalizer.dart';
 import 'package:sonus_next/features/import/domain/models/audio_metadata.dart';
 import 'package:sonus_next/features/import/domain/models/import_candidate.dart';
 
 class ImportIdentityMetadataNormalizer {
   const ImportIdentityMetadataNormalizer();
+
+  static const _artistCreditParser = ArtistCreditParser();
 
   AudioMetadata normalize({
     required ImportCandidate candidate,
@@ -31,9 +34,8 @@ class ImportIdentityMetadataNormalizer {
       );
     }
 
-    final explicitFeatureCredit = _parseExplicitFeatureCredit(
-      metadata.artistName,
-    );
+    final explicitFeatureCredit = _artistCreditParser
+        .parseExplicitFeatureCredit(metadata.artistName);
 
     if (explicitFeatureCredit != null &&
         TextNormalizer.canonicalize(explicitFeatureCredit.primaryArtist) ==
@@ -81,7 +83,7 @@ class ImportIdentityMetadataNormalizer {
       return null;
     }
 
-    if (_parseExplicitFeatureCredit(rawCredit) != null) {
+    if (_artistCreditParser.parseExplicitFeatureCredit(rawCredit) != null) {
       return null;
     }
 
@@ -122,48 +124,6 @@ class ImportIdentityMetadataNormalizer {
     return parts.first;
   }
 
-  _ExplicitFeatureCredit? _parseExplicitFeatureCredit(String rawCredit) {
-    final cleaned = rawCredit.trim();
-
-    if (cleaned.isEmpty) {
-      return null;
-    }
-
-    final wrappedMatch = RegExp(
-      r'^(.*?)\s*[\[(]\s*(?:feat\.?|ft\.?|featuring)\s+(.+?)\s*[\])]$',
-      caseSensitive: false,
-    ).firstMatch(cleaned);
-
-    if (wrappedMatch != null) {
-      return _featureCreditFromMatch(wrappedMatch);
-    }
-
-    final directMatch = RegExp(
-      r'^(.*?)\s+(?:feat\.?|ft\.?|featuring)\s+(.+)$',
-      caseSensitive: false,
-    ).firstMatch(cleaned);
-
-    if (directMatch == null) {
-      return null;
-    }
-
-    return _featureCreditFromMatch(directMatch);
-  }
-
-  _ExplicitFeatureCredit? _featureCreditFromMatch(RegExpMatch match) {
-    final primaryArtist = match.group(1)?.trim() ?? '';
-    final featuredArtist = match.group(2)?.trim() ?? '';
-
-    if (primaryArtist.isEmpty || featuredArtist.isEmpty) {
-      return null;
-    }
-
-    return _ExplicitFeatureCredit(
-      primaryArtist: primaryArtist,
-      featuredArtist: featuredArtist,
-    );
-  }
-
   List<String> _deduplicate(Iterable<String> artists) {
     final seen = <String>{};
     final result = <String>[];
@@ -186,14 +146,4 @@ class ImportIdentityMetadataNormalizer {
 
     return List.unmodifiable(result);
   }
-}
-
-class _ExplicitFeatureCredit {
-  const _ExplicitFeatureCredit({
-    required this.primaryArtist,
-    required this.featuredArtist,
-  });
-
-  final String primaryArtist;
-  final String featuredArtist;
 }

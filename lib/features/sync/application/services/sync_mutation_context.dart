@@ -3,6 +3,7 @@ import '../../../library/domain/repositories/album_edition_repository.dart';
 import '../../../library/domain/repositories/album_edition_track_repository.dart';
 import '../../../library/domain/repositories/album_repository.dart';
 import '../../../library/domain/repositories/artist_repository.dart';
+import '../../../library/domain/repositories/artist_identity_repair_repository.dart';
 import '../../../library/domain/repositories/song_repository.dart';
 import '../../../library/domain/repositories/song_artist_credit_repository.dart';
 import '../../../playlists/domain/repositories/playlist_repository.dart';
@@ -11,6 +12,7 @@ import '../repositories/local_sync_repository.dart';
 class SyncMutationContext {
   const SyncMutationContext({
     required this.artistRepository,
+    this.artistIdentityRepairRepository,
     required this.albumRepository,
     required this.albumEditionRepository,
     required this.albumEditionTrackRepository,
@@ -22,6 +24,7 @@ class SyncMutationContext {
   });
 
   final ArtistRepository artistRepository;
+  final ArtistIdentityRepairRepository? artistIdentityRepairRepository;
   final AlbumRepository albumRepository;
   final AlbumEditionRepository albumEditionRepository;
   final AlbumEditionTrackRepository albumEditionTrackRepository;
