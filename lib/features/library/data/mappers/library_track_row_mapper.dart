@@ -2,11 +2,16 @@ import 'dart:convert';
 
 import '../../application/models/library_track.dart';
 import '../../domain/entities/album_edition.dart';
+import '../../domain/entities/song.dart';
 
 abstract final class LibraryTrackRowMapper {
   static LibraryTrack fromRow(Map<String, Object?> row) {
     final decodedFeaturedArtists = jsonDecode(
       row['featured_artists'] as String? ?? '[]',
+    );
+
+    final decodedVersionCharacteristics = jsonDecode(
+      row['version_characteristics'] as String? ?? '[]',
     );
 
     final editionTypeName = row['edition_type'] as String?;
@@ -35,6 +40,15 @@ abstract final class LibraryTrackRowMapper {
       featuredArtists: List<String>.unmodifiable(
         (decodedFeaturedArtists as List<dynamic>).cast<String>(),
       ),
+      versionLabel: row['version_label'] as String?,
+      versionCharacteristics: (decodedVersionCharacteristics as List<dynamic>)
+          .cast<String>()
+          .map(SongVersionCharacteristic.values.byName)
+          .toList(growable: false),
+      releaseStatus: SongReleaseStatus.values.byName(
+        row['release_status'] as String? ?? 'released',
+      ),
+      isLeak: (row['is_leak'] as int? ?? 0) == 1,
       dateAdded: DateTime.parse(row['created_at'] as String),
       filePath: row['file_path'] as String?,
       isAvailable: (row['is_available'] as int? ?? 0) == 1,

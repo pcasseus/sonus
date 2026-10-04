@@ -93,6 +93,7 @@ void main() {
       expect(record.isPrimary, isFalse);
       expect(record.genre, 'Pop');
       expect(record.artworkId, 'artwork-1');
+
       expect(
         record.releaseDate,
         DateTime.parse('2026-08-01T00:00:00.000Z').toUtc(),
@@ -115,6 +116,10 @@ void main() {
           'duration_seconds': 245,
           'is_single': true,
           'featured_artists': ['Feature One', 'Feature Two'],
+          'version_label': 'Festival Mix',
+          'version_characteristics': ['live', 'remix'],
+          'release_status': 'unreleased',
+          'is_leak': true,
           'artwork_id': 'artwork-1',
           'created_at': '2026-09-10T10:00:00.000Z',
           'updated_at': '2026-09-11T11:00:00.000Z',
@@ -135,6 +140,10 @@ void main() {
       expect(record.isSingle, isTrue);
       expect(record.featuredArtists, ['Feature One', 'Feature Two']);
       expect(record.artworkId, 'artwork-1');
+      expect(record.versionLabel, 'Festival Mix');
+      expect(record.versionCharacteristics, ['live', 'remix']);
+      expect(record.releaseStatus, 'unreleased');
+      expect(record.isLeak, isTrue);
     });
 
     test('historical song row without disc number defaults to one', () {
@@ -164,6 +173,10 @@ void main() {
 
       expect(record.trackNumber, 9);
       expect(record.discNumber, 1);
+      expect(record.versionLabel, isNull);
+      expect(record.versionCharacteristics, isEmpty);
+      expect(record.releaseStatus, 'released');
+      expect(record.isLeak, isFalse);
     });
     test('maps artwork row', () {
       final item = SupabaseCloudRecordMapper.fromRow(

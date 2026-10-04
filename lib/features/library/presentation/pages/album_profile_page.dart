@@ -4,20 +4,27 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../domain/repositories/song_artist_credit_repository.dart';
 import '../../../account/application/controllers/account_controller.dart';
 import '../../../artwork/application/services/artwork_assignment_service.dart';
 import '../../../artwork/application/services/artwork_file_picker.dart';
 import '../../../player/application/controllers/playback_coordinator.dart';
 import '../../../playlists/presentation/widgets/add_to_playlist_sheet.dart';
 import '../../application/models/library_album.dart';
+import '../../application/models/library_album_edition.dart';
 import '../../application/models/library_track.dart';
 import '../../application/repositories/library_query_repository.dart';
 import '../../application/services/album_profile_editing_service.dart';
+import '../../application/services/album_edition_track_ordering_service.dart';
 import '../../application/services/song_block_service.dart';
+import '../../application/services/song_artist_credit_service.dart';
+import '../../domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/application/services/track_profile_editing_service.dart';
 import '../controllers/album_profile_controller.dart';
+import '../models/track_profile_edit_draft.dart';
+import 'album_studio_page.dart';
+import 'track_studio_page.dart';
 import '../widgets/album_profile_edit_dialog.dart';
-import '../widgets/track_profile_edit_dialog.dart';
 
 class AlbumProfilePage extends StatefulWidget {
   const AlbumProfilePage({
@@ -55,6 +62,9 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
       albumId: widget.albumId,
       playbackCoordinator: context.read<PlaybackCoordinator?>(),
       albumProfileEditingService: context.read<AlbumProfileEditingService?>(),
+      albumEditionTrackOrderingService: context
+          .read<AlbumEditionTrackOrderingService?>(),
+      songArtistCreditRepository: context.read<SongArtistCreditRepository?>(),
       trackProfileEditingService: context.read<TrackProfileEditingService?>(),
       songBlockService: context.read<SongBlockService?>(),
       artworkAssignmentService: context.read<ArtworkAssignmentService?>(),
@@ -78,10 +88,15 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
             : AnimatedBuilder(
                 animation: controller,
                 builder: (context, _) {
+                  final album = controller.album;
+
                   return Text(
-                    controller.album?.title ??
-                        widget.initialAlbumTitle ??
-                        'Album',
+                    album == null
+                        ? widget.initialAlbumTitle ?? 'Album'
+                        : _presentationAlbumTitle(
+                            album,
+                            controller.selectedEdition,
+                          ),
                   );
                 },
               ),
@@ -94,37 +109,22 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
                   key: const ValueKey<String>('album-profile-artwork-menu'),
                   enabled:
                       controller.canEditArtwork ||
-                      controller.canEditAlbumProfile(userId),
+                      controller.canEditAlbumProfile(userId) ||
+                      controller.canEditAlbumStudio(userId),
                   tooltip: 'Album actions',
                   onSelected: (action) {
                     unawaited(_handleAlbumAction(controller, action, userId));
                   },
                   itemBuilder: (context) => [
                     PopupMenuItem(
-                      value: _AlbumMenuAction.editProfile,
-                      enabled: controller.canEditAlbumProfile(userId),
+                      value: _AlbumMenuAction.studio,
+                      enabled:
+                          controller.canEditAlbumStudio(userId) ||
+                          controller.canEditAlbumProfile(userId) ||
+                          controller.canEditArtwork,
                       child: const ListTile(
-                        leading: Icon(Icons.edit_outlined),
-                        title: Text('Edit album details'),
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                    ),
-                    const PopupMenuDivider(),
-                    PopupMenuItem(
-                      value: _AlbumMenuAction.changeArtwork,
-                      enabled: controller.canEditArtwork,
-                      child: const ListTile(
-                        leading: Icon(Icons.image_rounded),
-                        title: Text('Change artwork'),
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                    ),
-                    PopupMenuItem(
-                      value: _AlbumMenuAction.clearArtwork,
-                      enabled: controller.canEditArtwork,
-                      child: const ListTile(
-                        leading: Icon(Icons.hide_image_rounded),
-                        title: Text('Clear artwork'),
+                        leading: Icon(Icons.tune_rounded),
+                        title: Text('Album Studio'),
                         contentPadding: EdgeInsets.zero,
                       ),
                     ),
@@ -167,9 +167,13 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
                       _AlbumHeader(
                         album: album,
                         controller: controller,
-                        artworkPath: controller.artworkPath,
+                        artworkPath: _presentationArtworkPath(controller),
                       ),
                       const SizedBox(height: 20),
+                      if (controller.editions.length > 1) ...[
+                        _EditionSelector(controller: controller),
+                        const SizedBox(height: 20),
+                      ],
                       _PlaybackControls(controller: controller),
                       const SizedBox(height: 28),
                       _SectionHeading(
@@ -209,12 +213,53 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
     _AlbumMenuAction action,
     String? userId,
   ) async {
+    if (action == _AlbumMenuAction.studio) {
+      await _openAlbumStudio(controller, userId);
+      return;
+    }
     if (action == _AlbumMenuAction.editProfile) {
       await _editAlbumProfile(controller, userId);
       return;
     }
 
     await _handleArtworkAction(controller, action);
+  }
+
+  Future<void> _openAlbumStudio(
+    AlbumProfileController controller,
+    String? userId,
+  ) async {
+    if (!controller.canEditAlbumStudio(userId) &&
+        !controller.canEditAlbumProfile(userId) &&
+        !controller.canEditArtwork) {
+      return;
+    }
+
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (routeContext) {
+          return AlbumStudioPage(
+            controller: controller,
+            userId: userId,
+            onEditDetails: controller.canEditAlbumProfile(userId)
+                ? () => _editAlbumProfile(controller, userId)
+                : null,
+            onChangeArtwork: controller.canEditArtwork
+                ? () => _handleArtworkAction(
+                    controller,
+                    _AlbumMenuAction.changeArtwork,
+                  )
+                : null,
+            onClearArtwork: controller.canEditArtwork
+                ? () => _handleArtworkAction(
+                    controller,
+                    _AlbumMenuAction.clearArtwork,
+                  )
+                : null,
+          );
+        },
+      ),
+    );
   }
 
   Future<void> _editAlbumProfile(
@@ -282,6 +327,7 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
   ) async {
     try {
       final changed = switch (action) {
+        _AlbumMenuAction.studio => false,
         _AlbumMenuAction.editProfile => false,
         _AlbumMenuAction.changeArtwork => await controller.changeArtwork(),
         _AlbumMenuAction.clearArtwork => await controller.clearArtwork(),
@@ -292,6 +338,7 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
       }
 
       final message = switch (action) {
+        _AlbumMenuAction.studio => '',
         _AlbumMenuAction.editProfile => '',
         _AlbumMenuAction.changeArtwork => 'Album artwork updated.',
         _AlbumMenuAction.clearArtwork => 'Album artwork cleared.',
@@ -325,34 +372,65 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
 
       final artists = await repository.getArtists();
       final albums = await repository.getAlbums();
+      final structuredCredits = await controller.getTrackAdditionalCredits(
+        track.songId,
+      );
 
       if (!mounted) {
         return;
       }
 
-      final draft = await showDialog<TrackProfileEditDraft>(
-        context: context,
-        builder: (dialogContext) {
-          return TrackProfileEditDialog(
-            track: track,
-            artists: artists,
-            albums: albums,
-          );
-        },
+      final initialAdditionalCredits = structuredCredits
+          .map(
+            (credit) => TrackProfileCreditDraft(
+              creditedName: credit.creditedName,
+              role: credit.role,
+              artistId: credit.artistId,
+            ),
+          )
+          .toList(growable: false);
+      final draft = await Navigator.of(context).push<TrackProfileEditDraft>(
+        MaterialPageRoute<TrackProfileEditDraft>(
+          builder: (routeContext) {
+            return TrackStudioPage(
+              track: track,
+              artists: artists,
+              albums: albums,
+              initialAdditionalCredits: initialAdditionalCredits,
+              canEditDetails: controller.canEditTrack(userId),
+              onChangeArtwork: controller.canEditTrackArtwork
+                  ? () => _changeTrackArtwork(controller, track)
+                  : null,
+              onClearArtwork: controller.canEditTrackArtwork
+                  ? () => _clearTrackArtwork(controller, track)
+                  : null,
+            );
+          },
+        ),
       );
 
       if (!mounted || draft == null) {
         return;
       }
 
-      final changed = await controller.updateTrack(
+      final changed = await controller.updateTrackWithCredits(
         userId: userId,
         track: track,
         title: draft.title,
         trackNumber: draft.trackNumber,
         discNumber: draft.discNumber,
-        featuredArtists: draft.featuredArtists,
+        additionalCredits: draft.additionalCredits.map(
+          (credit) => SongArtistCreditInput(
+            creditedName: credit.creditedName,
+            role: credit.role,
+            artistId: credit.artistId,
+          ),
+        ),
         isSingle: draft.isSingle,
+        versionLabel: draft.versionLabel,
+        versionCharacteristics: draft.versionCharacteristics,
+        releaseStatus: draft.releaseStatus,
+        isLeak: draft.isLeak,
         artistId: draft.artistId,
         albumId: draft.albumId,
         albumEditionId: draft.albumEditionId,
@@ -499,7 +577,7 @@ class _AlbumHeader extends StatelessWidget {
         _AlbumArtwork(album: album, artworkPath: artworkPath),
         const SizedBox(height: 18),
         Text(
-          album.title,
+          _presentationAlbumTitle(album, controller.selectedEdition),
           key: ValueKey<String>('album-profile-title-${album.albumId}'),
           textAlign: TextAlign.center,
           style: theme.textTheme.headlineSmall?.copyWith(
@@ -513,6 +591,19 @@ class _AlbumHeader extends StatelessWidget {
           textAlign: TextAlign.center,
           style: theme.textTheme.titleMedium,
         ),
+        if (controller.selectedEdition != null) ...[
+          const SizedBox(height: 6),
+          Text(
+            _editionDisplayLabel(controller.selectedEdition!),
+            key: const ValueKey<String>('album-profile-selected-edition-label'),
+            textAlign: TextAlign.center,
+            style: theme.textTheme.labelLarge?.copyWith(
+              color: theme.colorScheme.primary,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+
         const SizedBox(height: 10),
         Text(
           _summary(),
@@ -559,32 +650,35 @@ class _AlbumHeader extends StatelessWidget {
 
   String _metadata(LibraryAlbum album) {
     final parts = <String>[];
+    final selectedEdition = controller.selectedEdition;
 
-    final releaseDate = album.releaseDate;
+    final releaseDate = selectedEdition?.releaseDate ?? album.releaseDate;
 
     if (releaseDate != null) {
       parts.add(_formatDate(releaseDate));
     }
 
-    final genre = album.genre?.trim();
+    final genre = (selectedEdition?.genre ?? album.genre)?.trim();
 
     if (genre != null && genre.isNotEmpty) {
       parts.add(genre);
     }
 
-    if (controller.hasMultipleEditions) {
-      parts.add('${controller.editionCount} editions');
-    } else {
-      final editionTitle = album.primaryEditionTitle?.trim();
+    if (selectedEdition == null) {
+      if (controller.hasMultipleEditions) {
+        parts.add('${controller.editionCount} editions');
+      } else {
+        final editionTitle = album.primaryEditionTitle?.trim();
 
-      if (editionTitle != null &&
-          editionTitle.isNotEmpty &&
-          editionTitle.toLowerCase() != 'standard') {
-        parts.add(editionTitle);
+        if (editionTitle != null &&
+            editionTitle.isNotEmpty &&
+            editionTitle.toLowerCase() != 'standard') {
+          parts.add(editionTitle);
+        }
       }
     }
 
-    return parts.join(' \u2022 ');
+    return parts.join(' • ');
   }
 
   String _formatRuntime(Duration duration) {
@@ -672,6 +766,101 @@ class _AlbumArtwork extends StatelessWidget {
       ),
     );
   }
+}
+
+class _EditionSelector extends StatelessWidget {
+  const _EditionSelector({required this.controller});
+
+  final AlbumProfileController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final selectedEdition = controller.selectedEdition;
+
+    if (selectedEdition == null || controller.editions.length < 2) {
+      return const SizedBox.shrink();
+    }
+
+    return SingleChildScrollView(
+      key: const ValueKey<String>('album-profile-edition-selector'),
+      scrollDirection: Axis.horizontal,
+      child: SegmentedButton<String>(
+        key: const ValueKey<String>('album-profile-edition-segmented-button'),
+        segments: [
+          for (final edition in controller.editions)
+            ButtonSegment<String>(
+              value: edition.editionId,
+              label: Text(_editionDisplayLabel(edition)),
+            ),
+        ],
+        selected: {selectedEdition.editionId},
+        showSelectedIcon: false,
+        onSelectionChanged: (selection) {
+          if (selection.isEmpty) {
+            return;
+          }
+
+          unawaited(controller.selectEdition(selection.first));
+        },
+      ),
+    );
+  }
+}
+
+String? _presentationArtworkPath(AlbumProfileController controller) {
+  final editionPath = controller.selectedEdition?.artworkPath?.trim();
+
+  if (editionPath != null && editionPath.isNotEmpty) {
+    return editionPath;
+  }
+
+  return controller.artworkPath;
+}
+
+String _presentationAlbumTitle(
+  LibraryAlbum album,
+  LibraryAlbumEdition? edition,
+) {
+  if (edition == null) {
+    return album.title;
+  }
+
+  final editionTitle = edition.title.trim();
+
+  if (editionTitle.isEmpty || _isGenericEditionTitle(editionTitle)) {
+    return album.title;
+  }
+
+  return editionTitle;
+}
+
+String _editionDisplayLabel(LibraryAlbumEdition edition) {
+  final title = edition.title.trim();
+
+  if (title.isNotEmpty && _isGenericEditionTitle(title)) {
+    return title;
+  }
+
+  return switch (edition.type) {
+    AlbumEditionType.standard => 'Standard',
+    AlbumEditionType.deluxe => 'Deluxe',
+    AlbumEditionType.expanded => 'Expanded',
+    AlbumEditionType.anniversary => 'Anniversary',
+    AlbumEditionType.remaster => 'Remaster',
+    AlbumEditionType.other => title.isEmpty ? 'Other' : title,
+  };
+}
+
+bool _isGenericEditionTitle(String title) {
+  return switch (title.trim().toLowerCase()) {
+    'standard' ||
+    'deluxe' ||
+    'expanded' ||
+    'anniversary' ||
+    'remaster' ||
+    'other' => true,
+    _ => false,
+  };
 }
 
 class _PlaybackControls extends StatelessWidget {
@@ -859,12 +1048,8 @@ class _TrackTile extends StatelessWidget {
                   unawaited(onAddToQueue());
                 case _TrackMenuAction.addToPlaylist:
                   unawaited(onAddToPlaylist());
-                case _TrackMenuAction.editDetails:
+                case _TrackMenuAction.trackStudio:
                   unawaited(onEditTrack());
-                case _TrackMenuAction.changeArtwork:
-                  unawaited(onChangeArtwork());
-                case _TrackMenuAction.clearArtwork:
-                  unawaited(onClearArtwork());
                 case _TrackMenuAction.toggleBlocked:
                   unawaited(onSetBlocked(!track.isSongBlocked));
               }
@@ -897,20 +1082,11 @@ class _TrackTile extends StatelessWidget {
                 ),
               ),
               PopupMenuItem(
-                value: _TrackMenuAction.editDetails,
-                enabled: canEditTrack,
+                value: _TrackMenuAction.trackStudio,
+                enabled: canEditTrack || canEditArtwork,
                 child: const ListTile(
                   leading: Icon(Icons.edit_outlined),
-                  title: Text('Edit song details'),
-                  contentPadding: EdgeInsets.zero,
-                ),
-              ),
-              PopupMenuItem(
-                value: _TrackMenuAction.changeArtwork,
-                enabled: canEditArtwork,
-                child: const ListTile(
-                  leading: Icon(Icons.image_rounded),
-                  title: Text('Change artwork'),
+                  title: Text('Track Studio'),
                   contentPadding: EdgeInsets.zero,
                 ),
               ),
@@ -932,15 +1108,6 @@ class _TrackTile extends StatelessWidget {
                 ),
               ),
               const PopupMenuDivider(),
-              PopupMenuItem(
-                value: _TrackMenuAction.clearArtwork,
-                enabled: canEditArtwork,
-                child: const ListTile(
-                  leading: Icon(Icons.hide_image_rounded),
-                  title: Text('Clear artwork'),
-                  contentPadding: EdgeInsets.zero,
-                ),
-              ),
             ],
           ),
         ],
@@ -995,15 +1162,13 @@ class _TrackTile extends StatelessWidget {
   }
 }
 
-enum _AlbumMenuAction { editProfile, changeArtwork, clearArtwork }
+enum _AlbumMenuAction { studio, editProfile, changeArtwork, clearArtwork }
 
 enum _TrackMenuAction {
   playNext,
   addToQueue,
   addToPlaylist,
-  editDetails,
-  changeArtwork,
-  clearArtwork,
+  trackStudio,
   toggleBlocked,
 }
 

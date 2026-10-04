@@ -7,6 +7,7 @@ void main() {
   group('cloud library migration', () {
     late String migration;
     late String discNumberMigration;
+    late String songVersionMetadataMigration;
 
     setUpAll(() {
       migration = File(
@@ -14,6 +15,9 @@ void main() {
       ).readAsStringSync();
       discNumberMigration = File(
         'supabase/migrations/20260917_000002_song_disc_number.sql',
+      ).readAsStringSync();
+      songVersionMetadataMigration = File(
+        'supabase/migrations/20261003_000003_song_version_metadata.sql',
       ).readAsStringSync();
     });
 
@@ -193,6 +197,43 @@ void main() {
       expect(
         discNumberMigration,
         contains('check (${SupabaseSyncContract.discNumberColumn} >= 0)'),
+      );
+    });
+    test('adds song version metadata to cloud songs', () {
+      expect(
+        songVersionMetadataMigration,
+        contains('add column if not exists version_label text'),
+      );
+
+      expect(
+        songVersionMetadataMigration,
+        contains(
+          "add column if not exists version_characteristics text[] not null default '{}'",
+        ),
+      );
+
+      expect(
+        songVersionMetadataMigration,
+        contains(
+          "add column if not exists release_status text not null default 'released'",
+        ),
+      );
+
+      expect(
+        songVersionMetadataMigration,
+        contains(
+          'add column if not exists is_leak boolean not null default false',
+        ),
+      );
+
+      expect(
+        songVersionMetadataMigration,
+        contains('songs_release_status_valid'),
+      );
+
+      expect(
+        songVersionMetadataMigration,
+        contains("check (release_status in ('released', 'unreleased'))"),
       );
     });
     test('artists persist blacklist state in cloud schema', () {

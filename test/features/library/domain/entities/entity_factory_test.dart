@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/domain/entities/entity_factory.dart';
+import 'package:sonus_next/features/library/domain/entities/song.dart';
 
 void main() {
   group('EntityFactory', () {
@@ -66,6 +67,49 @@ void main() {
       expect(song.albumEditionId, 'edition_test');
     });
 
+    test('creates song with structured version metadata', () {
+      final song = EntityFactory.createSong(
+        artistId: 'artist_test',
+        albumId: 'album_test',
+        albumEditionId: 'edition_test',
+        title: 'Versioned Song',
+        trackNumber: 4,
+        durationSeconds: 205,
+        versionLabel: '  Early Mix  ',
+        versionCharacteristics: const [
+          SongVersionCharacteristic.demo,
+          SongVersionCharacteristic.acoustic,
+        ],
+        releaseStatus: SongReleaseStatus.unreleased,
+        isLeak: true,
+        now: now,
+      );
+
+      expect(song.versionLabel, 'Early Mix');
+      expect(song.versionCharacteristics, const [
+        SongVersionCharacteristic.demo,
+        SongVersionCharacteristic.acoustic,
+      ]);
+      expect(song.releaseStatus, SongReleaseStatus.unreleased);
+      expect(song.isLeak, isTrue);
+    });
+
+    test('createSong defaults version metadata safely', () {
+      final song = EntityFactory.createSong(
+        artistId: 'artist_test',
+        albumId: 'album_test',
+        albumEditionId: 'edition_test',
+        title: 'Plain Song',
+        trackNumber: 1,
+        durationSeconds: 180,
+        now: now,
+      );
+
+      expect(song.versionLabel, isNull);
+      expect(song.versionCharacteristics, isEmpty);
+      expect(song.releaseStatus, SongReleaseStatus.released);
+      expect(song.isLeak, isFalse);
+    });
     test('creates unique IDs for separate entities with identical names', () {
       final first = EntityFactory.createArtist(name: 'Same Artist', now: now);
 

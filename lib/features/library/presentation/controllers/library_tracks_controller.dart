@@ -9,7 +9,11 @@ import '../../application/models/library_track.dart';
 import '../../application/models/library_track_order.dart';
 import '../../application/repositories/library_query_repository.dart';
 import '../../application/services/song_block_service.dart';
+import '../../application/services/song_artist_credit_service.dart';
 import '../../application/services/track_profile_editing_service.dart';
+import '../../domain/entities/song_artist_credit.dart';
+import '../../domain/entities/song.dart';
+import '../../domain/repositories/song_artist_credit_repository.dart';
 
 class LibraryTracksController extends ChangeNotifier {
   factory LibraryTracksController({
@@ -17,6 +21,7 @@ class LibraryTracksController extends ChangeNotifier {
     required PlaybackCoordinator playbackCoordinator,
     ArtworkAssignmentService? artworkAssignmentService,
     ArtworkFilePicker? artworkFilePicker,
+    SongArtistCreditRepository? songArtistCreditRepository,
     TrackProfileEditingService? trackProfileEditingService,
     SongBlockService? songBlockService,
     Random? random,
@@ -26,6 +31,7 @@ class LibraryTracksController extends ChangeNotifier {
       playbackCoordinator,
       artworkAssignmentService,
       artworkFilePicker,
+      songArtistCreditRepository,
       trackProfileEditingService,
       songBlockService,
       random ?? Random(),
@@ -37,6 +43,7 @@ class LibraryTracksController extends ChangeNotifier {
     this._playbackCoordinator,
     this._artworkAssignmentService,
     this._artworkFilePicker,
+    this._songArtistCreditRepository,
     this._trackProfileEditingService,
     this._songBlockService,
     this._random,
@@ -46,6 +53,7 @@ class LibraryTracksController extends ChangeNotifier {
   final PlaybackCoordinator _playbackCoordinator;
   final ArtworkAssignmentService? _artworkAssignmentService;
   final ArtworkFilePicker? _artworkFilePicker;
+  final SongArtistCreditRepository? _songArtistCreditRepository;
   final TrackProfileEditingService? _trackProfileEditingService;
   final SongBlockService? _songBlockService;
   final Random _random;
@@ -73,6 +81,26 @@ class LibraryTracksController extends ChangeNotifier {
 
   bool get canEditArtwork {
     return _artworkAssignmentService != null && _artworkFilePicker != null;
+  }
+
+  Future<List<SongArtistCredit>> getTrackAdditionalCredits(
+    String songId,
+  ) async {
+    final repository = _songArtistCreditRepository;
+
+    if (repository == null) {
+      return const [];
+    }
+
+    final credits = await repository.getBySongId(songId);
+
+    final additionalCredits =
+        credits
+            .where((credit) => credit.role != SongArtistCreditRole.primary)
+            .toList(growable: false)
+          ..sort((a, b) => a.position.compareTo(b.position));
+
+    return List<SongArtistCredit>.unmodifiable(additionalCredits);
   }
 
   bool canEditTrack(String? userId) {
@@ -105,6 +133,51 @@ class LibraryTracksController extends ChangeNotifier {
       discNumber: discNumber,
       featuredArtists: featuredArtists,
       isSingle: isSingle,
+      artistId: artistId,
+      albumId: albumId,
+      albumEditionId: albumEditionId,
+    );
+
+    await refresh();
+
+    return true;
+  }
+
+  Future<bool> updateTrackWithCredits({
+    String? userId,
+    required LibraryTrack track,
+    required String title,
+    required int trackNumber,
+    required int discNumber,
+    required Iterable<SongArtistCreditInput> additionalCredits,
+    required bool isSingle,
+    String? versionLabel,
+    List<SongVersionCharacteristic> versionCharacteristics = const [],
+    SongReleaseStatus releaseStatus = SongReleaseStatus.released,
+    bool isLeak = false,
+    String? artistId,
+    String? albumId,
+    String? albumEditionId,
+  }) async {
+    final service = _trackProfileEditingService;
+
+    if (service == null) {
+      return false;
+    }
+
+    await service.updateTrackWithCredits(
+      userId: userId,
+      songId: track.songId,
+      title: title,
+      trackNumber: trackNumber,
+      discNumber: discNumber,
+      additionalCredits: additionalCredits,
+      isSingle: isSingle,
+      versionLabel: versionLabel,
+      versionCharacteristics: versionCharacteristics,
+      releaseStatus: releaseStatus,
+      isLeak: isLeak,
+      updateVersionMetadata: true,
       artistId: artistId,
       albumId: albumId,
       albumEditionId: albumEditionId,

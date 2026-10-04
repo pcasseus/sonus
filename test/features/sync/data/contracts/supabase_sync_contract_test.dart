@@ -38,6 +38,15 @@ void main() {
       });
     });
 
+    test('declares song version metadata columns', () {
+      expect(SupabaseSyncContract.versionLabelColumn, 'version_label');
+      expect(
+        SupabaseSyncContract.versionCharacteristicsColumn,
+        'version_characteristics',
+      );
+      expect(SupabaseSyncContract.releaseStatusColumn, 'release_status');
+      expect(SupabaseSyncContract.isLeakColumn, 'is_leak');
+    });
     test('declares artwork storage separately from local file paths', () {
       expect(SupabaseSyncContract.artworkBucket, 'artwork');
       expect(SupabaseSyncContract.storageObjectKeyColumn, 'storage_object_key');

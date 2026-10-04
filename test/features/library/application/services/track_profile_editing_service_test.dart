@@ -5,6 +5,8 @@ import 'package:sonus_next/core/database/app_database.dart';
 import 'package:sonus_next/features/library/application/services/track_profile_editing_service.dart';
 import 'package:sonus_next/features/library/data/daos/album_dao.dart';
 import 'package:sonus_next/features/library/data/daos/album_edition_dao.dart';
+import 'package:sonus_next/features/library/domain/entities/album_edition_track.dart';
+import 'package:sonus_next/features/library/data/daos/album_edition_track_dao.dart';
 import 'package:sonus_next/features/library/data/daos/artist_dao.dart';
 import 'package:sonus_next/features/library/data/daos/song_dao.dart';
 import 'package:sonus_next/features/library/domain/entities/entity_factory.dart';
@@ -87,6 +89,17 @@ void main() {
     await AlbumDao(db).insert(album);
     await AlbumEditionDao(db).insert(edition);
     await SongDao(db).insert(song);
+    await AlbumEditionTrackDao(db).insert(
+      AlbumEditionTrack(
+        albumEditionId: edition.id,
+        songId: song.id,
+        discNumber: song.discNumber,
+        trackNumber: song.trackNumber,
+        sortPosition: 7,
+        createdAt: originalTime,
+        updatedAt: originalTime,
+      ),
+    );
 
     return song;
   }
@@ -315,6 +328,127 @@ void main() {
     expect(pending.single.operation, SyncOutboxOperation.upsert);
   });
 
+  test('updates and clears structured version metadata', () async {
+    final original = await createSong(featuredArtists: const []);
+
+    final firstResult = await service.updateTrackWithCredits(
+      userId: 'user_1',
+      songId: original.id,
+      title: original.title,
+      trackNumber: original.trackNumber,
+      discNumber: original.discNumber,
+      additionalCredits: const [],
+      isSingle: original.isSingle,
+      versionLabel: '  2024 Remaster  ',
+      versionCharacteristics: const [SongVersionCharacteristic.remaster],
+      releaseStatus: SongReleaseStatus.unreleased,
+      isLeak: true,
+      updateVersionMetadata: true,
+      now: mutationTime,
+    );
+
+    expect(firstResult.changed, isTrue);
+    expect(firstResult.song.versionLabel, '2024 Remaster');
+    expect(firstResult.song.versionCharacteristics, const [
+      SongVersionCharacteristic.remaster,
+    ]);
+    expect(firstResult.song.releaseStatus, SongReleaseStatus.unreleased);
+    expect(firstResult.song.isLeak, isTrue);
+
+    final secondMutationTime = mutationTime.add(const Duration(minutes: 1));
+
+    final secondResult = await service.updateTrackWithCredits(
+      userId: 'user_1',
+      songId: original.id,
+      title: original.title,
+      trackNumber: original.trackNumber,
+      discNumber: original.discNumber,
+      additionalCredits: const [],
+      isSingle: original.isSingle,
+      versionLabel: '   ',
+      versionCharacteristics: const [],
+      releaseStatus: SongReleaseStatus.released,
+      isLeak: false,
+      updateVersionMetadata: true,
+      now: secondMutationTime,
+    );
+
+    expect(secondResult.changed, isTrue);
+    expect(secondResult.song.versionLabel, isNull);
+    expect(secondResult.song.versionCharacteristics, isEmpty);
+    expect(secondResult.song.releaseStatus, SongReleaseStatus.released);
+    expect(secondResult.song.isLeak, isFalse);
+
+    final db = await appDatabase.database;
+    final stored = await SongDao(db).findById(original.id);
+
+    expect(stored, isNotNull);
+    expect(stored!.versionLabel, isNull);
+    expect(stored.versionCharacteristics, isEmpty);
+    expect(stored.releaseStatus, SongReleaseStatus.released);
+    expect(stored.isLeak, isFalse);
+    expect(stored.updatedAt, secondMutationTime);
+  });
+
+  test('legacy track edit preserves existing version metadata', () async {
+    final original = await createSong(featuredArtists: const []);
+
+    final versioned = await service.updateTrackWithCredits(
+      userId: 'user_1',
+      songId: original.id,
+      title: original.title,
+      trackNumber: original.trackNumber,
+      discNumber: original.discNumber,
+      additionalCredits: const [],
+      isSingle: original.isSingle,
+      versionLabel: 'Live Remix',
+      versionCharacteristics: const [
+        SongVersionCharacteristic.live,
+        SongVersionCharacteristic.remix,
+      ],
+      releaseStatus: SongReleaseStatus.unreleased,
+      isLeak: true,
+      updateVersionMetadata: true,
+      now: mutationTime,
+    );
+
+    expect(versioned.song.versionLabel, 'Live Remix');
+
+    final secondMutationTime = mutationTime.add(const Duration(minutes: 1));
+
+    final result = await service.updateTrack(
+      userId: 'user_1',
+      songId: original.id,
+      title: 'Legacy Rename',
+      trackNumber: original.trackNumber,
+      discNumber: original.discNumber,
+      featuredArtists: versioned.song.featuredArtists,
+      isSingle: original.isSingle,
+      now: secondMutationTime,
+    );
+
+    expect(result.changed, isTrue);
+    expect(result.song.title, 'Legacy Rename');
+    expect(result.song.versionLabel, 'Live Remix');
+    expect(result.song.versionCharacteristics, const [
+      SongVersionCharacteristic.live,
+      SongVersionCharacteristic.remix,
+    ]);
+    expect(result.song.releaseStatus, SongReleaseStatus.unreleased);
+    expect(result.song.isLeak, isTrue);
+
+    final db = await appDatabase.database;
+    final stored = await SongDao(db).findById(original.id);
+
+    expect(stored, isNotNull);
+    expect(stored!.versionLabel, 'Live Remix');
+    expect(stored.versionCharacteristics, const [
+      SongVersionCharacteristic.live,
+      SongVersionCharacteristic.remix,
+    ]);
+    expect(stored.releaseStatus, SongReleaseStatus.unreleased);
+    expect(stored.isLeak, isTrue);
+  });
   test('rejects blank song id before mutation', () async {
     await expectLater(
       () => service.updateTrack(
@@ -502,6 +636,15 @@ void main() {
     expect(storedSecond, isNotNull);
     expect(storedSecond!.title, 'Second Song');
     expect(storedSecond.updatedAt, originalTime);
+    final rolledBackMemberships = await AlbumEditionTrackDao(
+      db,
+    ).findBySongId(secondSong.id);
+
+    expect(rolledBackMemberships, hasLength(1));
+    expect(rolledBackMemberships.single.trackNumber, secondSong.trackNumber);
+    expect(rolledBackMemberships.single.discNumber, secondSong.discNumber);
+    expect(rolledBackMemberships.single.sortPosition, 7);
+    expect(rolledBackMemberships.single.updatedAt, originalTime);
 
     final pending = await LocalSyncDao(db).findPending('user_1');
 
@@ -509,6 +652,147 @@ void main() {
     expect(pending.single.entityId, firstSong.id);
   });
 
+  test(
+    'track number edit updates membership and preserves sort position',
+    () async {
+      final original = await createSong(trackNumber: 1);
+
+      await service.updateTrack(
+        userId: 'user_1',
+        songId: original.id,
+        title: original.title,
+        trackNumber: 9,
+        discNumber: 2,
+        featuredArtists: original.featuredArtists,
+        isSingle: original.isSingle,
+        now: mutationTime,
+      );
+
+      final db = await appDatabase.database;
+      final memberships = await AlbumEditionTrackDao(
+        db,
+      ).findBySongId(original.id);
+
+      expect(memberships, hasLength(1));
+      expect(memberships.single.albumEditionId, original.albumEditionId);
+      expect(memberships.single.discNumber, 2);
+      expect(memberships.single.trackNumber, 9);
+      expect(memberships.single.sortPosition, 7);
+      expect(
+        memberships.single.numberingAuthority,
+        AlbumEditionTrackAuthority.manual,
+      );
+      expect(
+        memberships.single.orderingAuthority,
+        AlbumEditionTrackAuthority.inferred,
+      );
+      expect(memberships.single.createdAt, originalTime);
+      expect(memberships.single.updatedAt, mutationTime);
+    },
+  );
+
+  test('metadata-only edit leaves edition membership unchanged', () async {
+    final original = await createSong();
+
+    await service.updateTrack(
+      userId: 'user_1',
+      songId: original.id,
+      title: 'Metadata Only Edit',
+      trackNumber: original.trackNumber,
+      discNumber: original.discNumber,
+      featuredArtists: original.featuredArtists,
+      isSingle: original.isSingle,
+      now: mutationTime,
+    );
+
+    final db = await appDatabase.database;
+    final memberships = await AlbumEditionTrackDao(
+      db,
+    ).findBySongId(original.id);
+
+    expect(memberships, hasLength(1));
+    expect(memberships.single.albumEditionId, original.albumEditionId);
+    expect(memberships.single.discNumber, original.discNumber);
+    expect(memberships.single.trackNumber, original.trackNumber);
+    expect(memberships.single.sortPosition, 7);
+    expect(
+      memberships.single.numberingAuthority,
+      AlbumEditionTrackAuthority.inferred,
+    );
+    expect(
+      memberships.single.orderingAuthority,
+      AlbumEditionTrackAuthority.inferred,
+    );
+    expect(memberships.single.updatedAt, originalTime);
+  });
+  test(
+    'same-album edition reassignment preserves existing edition membership',
+    () async {
+      final original = await createSong();
+
+      final db = await appDatabase.database;
+
+      final deluxeEdition = EntityFactory.createAlbumEdition(
+        albumId: original.albumId,
+        title: 'Deluxe',
+        isPrimary: false,
+        now: originalTime,
+      );
+
+      await AlbumEditionDao(db).insert(deluxeEdition);
+
+      final result = await service.updateTrack(
+        userId: 'user_1',
+        songId: original.id,
+        title: original.title,
+        trackNumber: 12,
+        discNumber: 2,
+        featuredArtists: original.featuredArtists,
+        isSingle: original.isSingle,
+        albumEditionId: deluxeEdition.id,
+        now: mutationTime,
+      );
+
+      expect(result.changed, isTrue);
+      expect(result.song.id, original.id);
+      expect(result.song.albumId, original.albumId);
+      expect(result.song.albumEditionId, deluxeEdition.id);
+
+      final memberships = await AlbumEditionTrackDao(
+        db,
+      ).findBySongId(original.id);
+
+      expect(memberships, hasLength(2));
+
+      final standardMembership = memberships.singleWhere(
+        (membership) => membership.albumEditionId == original.albumEditionId,
+      );
+
+      expect(standardMembership.discNumber, original.discNumber);
+      expect(standardMembership.trackNumber, original.trackNumber);
+      expect(standardMembership.sortPosition, 7);
+      expect(standardMembership.createdAt, originalTime);
+      expect(standardMembership.updatedAt, originalTime);
+
+      final deluxeMembership = memberships.singleWhere(
+        (membership) => membership.albumEditionId == deluxeEdition.id,
+      );
+
+      expect(deluxeMembership.discNumber, 2);
+      expect(deluxeMembership.trackNumber, 12);
+      expect(deluxeMembership.sortPosition, 0);
+      expect(
+        deluxeMembership.numberingAuthority,
+        AlbumEditionTrackAuthority.manual,
+      );
+      expect(
+        deluxeMembership.orderingAuthority,
+        AlbumEditionTrackAuthority.inferred,
+      );
+      expect(deluxeMembership.createdAt, mutationTime);
+      expect(deluxeMembership.updatedAt, mutationTime);
+    },
+  );
   test('reassigns song artist album and edition atomically', () async {
     final original = await createSong();
 
@@ -562,6 +846,28 @@ void main() {
     expect(stored!.artistId, targetArtist.id);
     expect(stored.albumId, targetAlbum.id);
     expect(stored.albumEditionId, targetEdition.id);
+    final oldMemberships = await AlbumEditionTrackDao(
+      db,
+    ).findByEditionId(original.albumEditionId);
+
+    expect(
+      oldMemberships.where((membership) => membership.songId == original.id),
+      isEmpty,
+    );
+
+    final targetMemberships = await AlbumEditionTrackDao(
+      db,
+    ).findByEditionId(targetEdition.id);
+
+    final movedMembership = targetMemberships.singleWhere(
+      (membership) => membership.songId == original.id,
+    );
+
+    expect(movedMembership.discNumber, 1);
+    expect(movedMembership.trackNumber, original.trackNumber);
+    expect(movedMembership.sortPosition, 0);
+    expect(movedMembership.createdAt, mutationTime);
+    expect(movedMembership.updatedAt, mutationTime);
 
     final pending = await LocalSyncDao(db).findPending('user_1');
 

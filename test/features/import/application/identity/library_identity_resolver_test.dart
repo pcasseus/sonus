@@ -384,6 +384,104 @@ void main() {
       expect(result.hasAmbiguity, isFalse);
     },
   );
+  test(
+    'distinguishes standard and live versions sharing canonical title',
+    () async {
+      final liveSong = Song(
+        id: 'song_live',
+        artistId: artist.id,
+        albumId: album.id,
+        albumEditionId: edition.id,
+        title: 'Song Name',
+        canonicalTitle: 'song name',
+        trackNumber: 2,
+        durationSeconds: 210,
+        isSingle: false,
+        featuredArtists: const [],
+        versionLabel: 'Live',
+        versionCharacteristics: const [SongVersionCharacteristic.live],
+        createdAt: now,
+        updatedAt: now,
+      );
+
+      final standardResult = await resolver(
+        songs: [song, liveSong],
+      ).resolve(metadata());
+
+      expect(standardResult.song?.id, song.id);
+      expect(standardResult.songAmbiguous, isFalse);
+
+      final liveResult = await resolver(songs: [song, liveSong]).resolve(
+        metadata(),
+        versionLabel: 'Live',
+        versionCharacteristics: const [SongVersionCharacteristic.live],
+      );
+
+      expect(liveResult.song?.id, liveSong.id);
+      expect(liveResult.songAmbiguous, isFalse);
+    },
+  );
+
+  test('version label comparison is canonicalized', () async {
+    final liveSong = Song(
+      id: 'song_live',
+      artistId: artist.id,
+      albumId: album.id,
+      albumEditionId: edition.id,
+      title: 'Song Name',
+      canonicalTitle: 'song name',
+      trackNumber: 2,
+      durationSeconds: 210,
+      isSingle: false,
+      featuredArtists: const [],
+      versionLabel: 'Live',
+      versionCharacteristics: const [SongVersionCharacteristic.live],
+      createdAt: now,
+      updatedAt: now,
+    );
+
+    final result = await resolver(songs: [liveSong]).resolve(
+      metadata(),
+      versionLabel: '  LIVE  ',
+      versionCharacteristics: const [SongVersionCharacteristic.live],
+    );
+
+    expect(result.song?.id, liveSong.id);
+    expect(result.songAmbiguous, isFalse);
+  });
+  test('version characteristic order does not change song identity', () async {
+    final liveRemixSong = Song(
+      id: 'song_live_remix',
+      artistId: artist.id,
+      albumId: album.id,
+      albumEditionId: edition.id,
+      title: 'Song Name',
+      canonicalTitle: 'song name',
+      trackNumber: 2,
+      durationSeconds: 210,
+      isSingle: false,
+      featuredArtists: const [],
+      versionLabel: 'Live Remix',
+      versionCharacteristics: const [
+        SongVersionCharacteristic.live,
+        SongVersionCharacteristic.remix,
+      ],
+      createdAt: now,
+      updatedAt: now,
+    );
+
+    final result = await resolver(songs: [liveRemixSong]).resolve(
+      metadata(),
+      versionLabel: 'Live Remix',
+      versionCharacteristics: const [
+        SongVersionCharacteristic.remix,
+        SongVersionCharacteristic.live,
+      ],
+    );
+
+    expect(result.song?.id, liveRemixSong.id);
+    expect(result.songAmbiguous, isFalse);
+  });
   test('multiple unresolved album editions are treated as ambiguous', () async {
     final now = DateTime.utc(2026, 9, 10, 12);
 

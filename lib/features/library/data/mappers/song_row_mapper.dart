@@ -18,6 +18,14 @@ abstract final class SongRowMapper {
       'is_blocked': song.isBlocked ? 1 : 0,
       'artwork_id': song.artworkId,
       'featured_artists': jsonEncode(song.featuredArtists),
+      'version_label': song.versionLabel,
+      'version_characteristics': jsonEncode(
+        song.versionCharacteristics
+            .map((characteristic) => characteristic.name)
+            .toList(growable: false),
+      ),
+      'release_status': song.releaseStatus.name,
+      'is_leak': song.isLeak ? 1 : 0,
       'created_at': song.createdAt.toUtc().toIso8601String(),
       'updated_at': song.updatedAt.toUtc().toIso8601String(),
     };
@@ -28,6 +36,9 @@ abstract final class SongRowMapper {
       row['featured_artists'] as String? ?? '[]',
     );
 
+    final decodedVersionCharacteristics = jsonDecode(
+      row['version_characteristics'] as String? ?? '[]',
+    );
     return Song(
       id: row['id'] as String,
       artistId: row['artist_id'] as String,
@@ -44,6 +55,15 @@ abstract final class SongRowMapper {
       featuredArtists: List<String>.unmodifiable(
         (decodedFeaturedArtists as List<dynamic>).cast<String>(),
       ),
+      versionLabel: row['version_label'] as String?,
+      versionCharacteristics: (decodedVersionCharacteristics as List<dynamic>)
+          .cast<String>()
+          .map(SongVersionCharacteristic.values.byName)
+          .toList(growable: false),
+      releaseStatus: SongReleaseStatus.values.byName(
+        row['release_status'] as String? ?? 'released',
+      ),
+      isLeak: (row['is_leak'] as int? ?? 0) == 1,
       createdAt: DateTime.parse(row['created_at'] as String),
       updatedAt: DateTime.parse(row['updated_at'] as String),
     );

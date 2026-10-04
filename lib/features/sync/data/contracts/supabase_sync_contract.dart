@@ -40,6 +40,10 @@ abstract final class SupabaseSyncContract {
   static const String isSingleColumn = 'is_single';
   static const String isBlockedColumn = 'is_blocked';
   static const String featuredArtistsColumn = 'featured_artists';
+  static const String versionLabelColumn = 'version_label';
+  static const String versionCharacteristicsColumn = 'version_characteristics';
+  static const String releaseStatusColumn = 'release_status';
+  static const String isLeakColumn = 'is_leak';
 
   static const String storageObjectKeyColumn = 'storage_object_key';
 

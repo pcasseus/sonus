@@ -112,6 +112,10 @@ void main() {
         durationSeconds: 240,
         isSingle: false,
         featuredArtists: const ['Feature One', 'Feature Two'],
+        versionLabel: 'Festival Mix',
+        versionCharacteristics: const ['live', 'remix'],
+        releaseStatus: 'unreleased',
+        isLeak: true,
         artworkId: 'artwork_1',
         createdAt: createdAt,
         updatedAt: updatedAt,
@@ -135,6 +139,13 @@ void main() {
         'Feature One',
         'Feature Two',
       ]);
+      expect(row[SupabaseSyncContract.versionLabelColumn], 'Festival Mix');
+      expect(row[SupabaseSyncContract.versionCharacteristicsColumn], const [
+        'live',
+        'remix',
+      ]);
+      expect(row[SupabaseSyncContract.releaseStatusColumn], 'unreleased');
+      expect(row[SupabaseSyncContract.isLeakColumn], isTrue);
     });
 
     test('maps artwork asset record to artwork table and row', () {

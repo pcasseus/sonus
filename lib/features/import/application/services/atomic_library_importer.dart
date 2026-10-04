@@ -3,6 +3,7 @@ import 'package:sonus_next/core/identity/entity_id.dart';
 import 'package:sonus_next/core/identity/text_normalizer.dart';
 import 'package:sonus_next/features/import/application/identity/import_identity_metadata_normalizer.dart';
 import 'package:sonus_next/features/import/application/identity/library_identity_resolver.dart';
+import 'package:sonus_next/features/import/application/metadata/track_title_version_interpreter.dart';
 import 'package:sonus_next/features/import/data/daos/media_file_binding_dao.dart';
 import 'package:sonus_next/features/import/data/daos/song_import_review_dao.dart';
 import 'package:sonus_next/features/import/data/repositories/sqlite_media_file_binding_repository.dart';
@@ -16,8 +17,15 @@ import 'package:sonus_next/features/import/domain/models/import_result.dart';
 import 'package:sonus_next/features/import/domain/models/resolved_metadata.dart';
 import 'package:sonus_next/features/library/data/daos/album_dao.dart';
 import 'package:sonus_next/features/library/data/daos/album_edition_dao.dart';
+import 'package:sonus_next/features/library/domain/entities/album_edition_track.dart';
+import 'package:sonus_next/features/library/data/repositories/sqlite_album_edition_track_repository.dart';
+import 'package:sonus_next/features/library/data/daos/album_edition_track_dao.dart';
 import 'package:sonus_next/features/library/data/daos/artist_dao.dart';
 import 'package:sonus_next/features/library/data/daos/song_dao.dart';
+import 'package:sonus_next/features/library/application/services/song_artist_credit_service.dart';
+import 'package:sonus_next/features/library/data/daos/song_artist_credit_dao.dart';
+import 'package:sonus_next/features/library/data/repositories/sqlite_song_artist_credit_repository.dart';
+import 'package:sonus_next/features/library/domain/entities/song_artist_credit.dart';
 import 'package:sonus_next/features/library/data/repositories/sqlite_album_edition_repository.dart';
 import 'package:sonus_next/features/library/data/repositories/sqlite_album_repository.dart';
 import 'package:sonus_next/features/library/data/repositories/sqlite_artist_repository.dart';
@@ -56,7 +64,13 @@ class AtomicLibraryImporter {
         final editionRepository = SqliteAlbumEditionRepository(
           AlbumEditionDao(transaction),
         );
+        final albumEditionTrackRepository = SqliteAlbumEditionTrackRepository(
+          AlbumEditionTrackDao(transaction),
+        );
         final songRepository = SqliteSongRepository(SongDao(transaction));
+        final songArtistCreditRepository = SqliteSongArtistCreditRepository(
+          SongArtistCreditDao(transaction),
+        );
         final bindingRepository = SqliteMediaFileBindingRepository(
           MediaFileBindingDao(transaction),
         );
@@ -109,11 +123,44 @@ class AtomicLibraryImporter {
           songRepository: songRepository,
         );
 
-        final effectiveMetadata = const ImportIdentityMetadataNormalizer()
-            .normalize(candidate: candidate, metadata: metadata);
+        const metadataNormalizer = ImportIdentityMetadataNormalizer();
 
-        final match = await resolver.resolve(effectiveMetadata);
+        final ambiguousArtistCredit = metadataNormalizer
+            .ambiguousSeparatorArtistCredit(
+              candidate: candidate,
+              metadata: metadata,
+            );
 
+        var effectiveMetadata = metadataNormalizer.normalize(
+          candidate: candidate,
+          metadata: metadata,
+        );
+
+        if (ambiguousArtistCredit != null) {
+          final safePrimaryArtist = effectiveMetadata.effectiveAlbumArtistName
+              .trim();
+
+          if (safePrimaryArtist.isNotEmpty) {
+            effectiveMetadata = effectiveMetadata.copyWith(
+              artistName: safePrimaryArtist,
+            );
+          }
+        }
+        const titleInterpreter = TrackTitleVersionInterpreter();
+
+        final interpretedTitle = titleInterpreter.interpret(
+          effectiveMetadata.title,
+        );
+
+        effectiveMetadata = effectiveMetadata.copyWith(
+          title: interpretedTitle.title,
+        );
+
+        final match = await resolver.resolve(
+          effectiveMetadata,
+          versionLabel: interpretedTitle.versionLabel,
+          versionCharacteristics: interpretedTitle.versionCharacteristics,
+        );
         if (match.hasAmbiguity) {
           return ImportResult(
             status: ImportResultStatus.failed,
@@ -224,21 +271,91 @@ class AtomicLibraryImporter {
             artistId: artist.id,
             albumId: album.id,
             albumEditionId: edition.id,
-            title: metadata.title,
+            title: effectiveMetadata.title,
             trackNumber: metadata.trackNumber,
             discNumber: metadata.discNumber,
             durationSeconds: metadata.durationSeconds,
             isSingle: metadata.isSingle,
             featuredArtists: effectiveMetadata.featuredArtists,
+            versionLabel: interpretedTitle.versionLabel,
+            versionCharacteristics: interpretedTitle.versionCharacteristics,
             now: timestamp,
           );
 
           await songRepository.create(song);
 
+          final existingEditionMemberships = await albumEditionTrackRepository
+              .getByEditionId(edition.id);
+
+          final nextSortPosition = existingEditionMemberships.isEmpty
+              ? 0
+              : existingEditionMemberships
+                        .map((membership) => membership.sortPosition)
+                        .reduce((left, right) => left > right ? left : right) +
+                    1;
+
+          await albumEditionTrackRepository.create(
+            AlbumEditionTrack(
+              albumEditionId: edition.id,
+              songId: song.id,
+              discNumber: song.discNumber,
+              trackNumber: song.trackNumber,
+              sortPosition: nextSortPosition,
+              createdAt: timestamp,
+              updatedAt: timestamp,
+            ),
+          );
+
+          final structuredCredits =
+              await SongArtistCreditService.replaceCreditsWithRepositories(
+                artistRepository: artistRepository,
+                songRepository: songRepository,
+                songArtistCreditRepository: songArtistCreditRepository,
+                onArtistCreated: syncUserId == null || syncUserId.isEmpty
+                    ? null
+                    : (artistId) => localSyncRepository.recordUpsert(
+                        userId: syncUserId,
+                        entityType: CloudDataEntity.artist,
+                        entityId: artistId,
+                      ),
+                songId: song.id,
+                primaryArtistId: artist.id,
+                additionalCredits: [
+                  for (final featuredArtist
+                      in effectiveMetadata.featuredArtists)
+                    SongArtistCreditInput(
+                      creditedName: featuredArtist,
+                      role: SongArtistCreditRole.featured,
+                    ),
+                ],
+                now: timestamp,
+              );
+
+          final authoritativeFeaturedArtists = [
+            for (final credit in structuredCredits)
+              if (credit.role == SongArtistCreditRole.featured)
+                credit.creditedName,
+          ];
+
+          if (!_listsEqual(
+            song.featuredArtists,
+            authoritativeFeaturedArtists,
+          )) {
+            song = song.copyWith(
+              featuredArtists: List<String>.unmodifiable(
+                authoritativeFeaturedArtists,
+              ),
+              updatedAt: timestamp,
+            );
+
+            await songRepository.save(song);
+          }
+
           final reviewReasons = _deriveReviewReasons(
             candidate: candidate,
             metadata: metadata,
             metadataSource: metadataSource,
+            ambiguousArtistCredit: ambiguousArtistCredit,
           );
 
           if (reviewReasons.isNotEmpty) {
@@ -247,6 +364,11 @@ class AtomicLibraryImporter {
                 songId: song.id,
                 metadataSource: metadataSource,
                 reasons: List.unmodifiable(reviewReasons),
+                payload: ambiguousArtistCredit == null
+                    ? null
+                    : ImportReviewPayload(
+                        rawArtistCredit: ambiguousArtistCredit,
+                      ),
                 createdAt: timestamp,
                 updatedAt: timestamp,
               ),
@@ -363,10 +485,25 @@ class AtomicLibraryImporter {
     }
   }
 
+  bool _listsEqual(List<String> first, List<String> second) {
+    if (first.length != second.length) {
+      return false;
+    }
+
+    for (var index = 0; index < first.length; index++) {
+      if (first[index] != second[index]) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
   List<ImportReviewReason> _deriveReviewReasons({
     required ImportCandidate candidate,
     required AudioMetadata metadata,
     required MetadataSource metadataSource,
+    required String? ambiguousArtistCredit,
   }) {
     final reasons = <ImportReviewReason>[];
 
@@ -392,6 +529,10 @@ class AtomicLibraryImporter {
 
     if (candidate.structure == ImportCandidateStructure.looseAlbum) {
       reasons.add(ImportReviewReason.looseFolder);
+    }
+
+    if (ambiguousArtistCredit != null) {
+      reasons.add(ImportReviewReason.ambiguousArtistCredit);
     }
 
     return reasons;

@@ -9,6 +9,8 @@ abstract final class LibrarySchema {
     await _createAlbums(db);
     await _createAlbumEditions(db);
     await _createSongs(db);
+    await createAlbumEditionTracks(db);
+    await createSongArtistCredits(db);
     await _createMediaFileBindings(db);
     await _createIndexes(db);
   }
@@ -106,6 +108,12 @@ abstract final class LibrarySchema {
         CHECK (is_blocked IN (0, 1)),
       featured_artists TEXT NOT NULL DEFAULT '[]',
       artwork_id TEXT,
+      version_label TEXT,
+      version_characteristics TEXT NOT NULL DEFAULT '[]',
+      release_status TEXT NOT NULL DEFAULT 'released'
+        CHECK (release_status IN ('released', 'unreleased')),
+      is_leak INTEGER NOT NULL DEFAULT 0
+        CHECK (is_leak IN (0, 1)),
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
 
@@ -130,6 +138,105 @@ abstract final class LibrarySchema {
         ON DELETE SET NULL
     )
   ''');
+  }
+
+  static Future<void> createAlbumEditionTracks(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE ${DatabaseTables.albumEditionTracks} (
+        album_edition_id TEXT NOT NULL,
+        song_id TEXT NOT NULL,
+        disc_number INTEGER NOT NULL DEFAULT 1
+          CHECK (disc_number >= 0),
+        track_number INTEGER NOT NULL DEFAULT 0
+          CHECK (track_number >= 0),
+        sort_position INTEGER NOT NULL
+          CHECK (sort_position >= 0),
+        numbering_authority TEXT NOT NULL DEFAULT 'inferred'
+          CHECK (numbering_authority IN ('inferred', 'manual')),
+        ordering_authority TEXT NOT NULL DEFAULT 'inferred'
+          CHECK (ordering_authority IN ('inferred', 'manual')),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+
+        PRIMARY KEY (album_edition_id, song_id),
+
+        FOREIGN KEY (album_edition_id)
+          REFERENCES ${DatabaseTables.albumEditions}(id)
+          ON UPDATE CASCADE
+          ON DELETE CASCADE,
+
+        FOREIGN KEY (song_id)
+          REFERENCES ${DatabaseTables.songs}(id)
+          ON UPDATE CASCADE
+          ON DELETE CASCADE
+      )
+    ''');
+
+    await db.execute('''
+      CREATE INDEX idx_album_edition_tracks_edition_order
+      ON ${DatabaseTables.albumEditionTracks}(
+        album_edition_id,
+        sort_position,
+        disc_number,
+        track_number
+      )
+    ''');
+
+    await db.execute('''
+      CREATE INDEX idx_album_edition_tracks_song_id
+      ON ${DatabaseTables.albumEditionTracks}(song_id)
+    ''');
+  }
+
+  static Future<void> createSongArtistCredits(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE ${DatabaseTables.songArtistCredits} (
+        id TEXT PRIMARY KEY NOT NULL,
+        song_id TEXT NOT NULL,
+        artist_id TEXT,
+        credited_name TEXT NOT NULL
+          CHECK (length(trim(credited_name)) > 0),
+        canonical_credited_name TEXT NOT NULL
+          CHECK (length(trim(canonical_credited_name)) > 0),
+        role TEXT NOT NULL
+          CHECK (role IN ('primary', 'coPrimary', 'featured', 'guest')),
+        position INTEGER NOT NULL
+          CHECK (position >= 0),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+
+        FOREIGN KEY (song_id)
+          REFERENCES ${DatabaseTables.songs}(id)
+          ON UPDATE CASCADE
+          ON DELETE CASCADE,
+
+        FOREIGN KEY (artist_id)
+          REFERENCES ${DatabaseTables.artists}(id)
+          ON UPDATE CASCADE
+          ON DELETE SET NULL,
+
+        UNIQUE(song_id, position)
+      )
+    ''');
+
+    await createSongArtistCreditIndexes(db);
+  }
+
+  static Future<void> createSongArtistCreditIndexes(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE INDEX idx_song_artist_credits_song_position
+      ON ${DatabaseTables.songArtistCredits}(song_id, position)
+    ''');
+
+    await db.execute('''
+      CREATE INDEX idx_song_artist_credits_artist_id
+      ON ${DatabaseTables.songArtistCredits}(artist_id)
+    ''');
+
+    await db.execute('''
+      CREATE INDEX idx_song_artist_credits_canonical_name
+      ON ${DatabaseTables.songArtistCredits}(canonical_credited_name)
+    ''');
   }
 
   static Future<void> _createMediaFileBindings(DatabaseExecutor db) async {

@@ -1,9 +1,12 @@
+import 'package:sonus_next/core/identity/artist_credit_parser.dart';
 import 'package:sonus_next/core/identity/text_normalizer.dart';
 import 'package:sonus_next/features/import/domain/models/audio_metadata.dart';
 import 'package:sonus_next/features/import/domain/models/import_candidate.dart';
 
 class ImportIdentityMetadataNormalizer {
   const ImportIdentityMetadataNormalizer();
+
+  static const _artistCreditParser = ArtistCreditParser();
 
   AudioMetadata normalize({
     required ImportCandidate candidate,
@@ -14,11 +17,13 @@ class ImportIdentityMetadataNormalizer {
     }
 
     final folderArtist = _folderArtist(candidate.metadataFallbackPath);
+
     if (folderArtist == null) {
       return metadata;
     }
 
     final canonicalFolderArtist = TextNormalizer.canonicalize(folderArtist);
+
     final canonicalRawArtist = TextNormalizer.canonicalize(metadata.artistName);
 
     if (canonicalRawArtist == canonicalFolderArtist) {
@@ -29,23 +34,19 @@ class ImportIdentityMetadataNormalizer {
       );
     }
 
-    final creditedArtists = _splitArtistCredit(metadata.artistName);
+    final explicitFeatureCredit = _artistCreditParser
+        .parseExplicitFeatureCredit(metadata.artistName);
 
-    final folderArtistIndex = creditedArtists.indexWhere(
-      (artist) => TextNormalizer.canonicalize(artist) == canonicalFolderArtist,
-    );
-
-    if (folderArtistIndex >= 0) {
-      final features = <String>[
-        ...metadata.featuredArtists,
-        for (var i = 0; i < creditedArtists.length; i++)
-          if (i != folderArtistIndex) creditedArtists[i],
-      ];
-
+    if (explicitFeatureCredit != null &&
+        TextNormalizer.canonicalize(explicitFeatureCredit.primaryArtist) ==
+            canonicalFolderArtist) {
       return metadata.copyWith(
         artistName: folderArtist,
         albumArtistName: folderArtist,
-        featuredArtists: _deduplicate(features),
+        featuredArtists: _deduplicate([
+          ...metadata.featuredArtists,
+          explicitFeatureCredit.featuredArtist,
+        ]),
       );
     }
 
@@ -53,6 +54,54 @@ class ImportIdentityMetadataNormalizer {
       albumArtistName: folderArtist,
       featuredArtists: _deduplicate(metadata.featuredArtists),
     );
+  }
+
+  String? ambiguousSeparatorArtistCredit({
+    required ImportCandidate candidate,
+    required AudioMetadata metadata,
+  }) {
+    if (candidate.structure != ImportCandidateStructure.artistAlbum) {
+      return null;
+    }
+
+    final folderArtist = _folderArtist(candidate.metadataFallbackPath);
+
+    if (folderArtist == null) {
+      return null;
+    }
+
+    final rawCredit = metadata.artistName.trim();
+
+    if (rawCredit.isEmpty) {
+      return null;
+    }
+
+    final canonicalFolderArtist = TextNormalizer.canonicalize(folderArtist);
+    final canonicalRawCredit = TextNormalizer.canonicalize(rawCredit);
+
+    if (canonicalRawCredit == canonicalFolderArtist) {
+      return null;
+    }
+
+    if (_artistCreditParser.parseExplicitFeatureCredit(rawCredit) != null) {
+      return null;
+    }
+
+    final parts = rawCredit
+        .split(RegExp(r'\s+&\s+'))
+        .map((part) => part.trim())
+        .where((part) => part.isNotEmpty)
+        .toList(growable: false);
+
+    if (parts.length < 2) {
+      return null;
+    }
+
+    final containsFolderArtist = parts.any(
+      (part) => TextNormalizer.canonicalize(part) == canonicalFolderArtist,
+    );
+
+    return containsFolderArtist ? rawCredit : null;
   }
 
   String? _folderArtist(String? fallbackPath) {
@@ -73,19 +122,6 @@ class ImportIdentityMetadataNormalizer {
     }
 
     return parts.first;
-  }
-
-  List<String> _splitArtistCredit(String rawCredit) {
-    final normalized = rawCredit.replaceAll(
-      RegExp(r'\s+(?:feat\.?|ft\.?|featuring)\s+', caseSensitive: false),
-      ' & ',
-    );
-
-    return normalized
-        .split(RegExp(r'\s+&\s+'))
-        .map((artist) => artist.trim())
-        .where((artist) => artist.isNotEmpty)
-        .toList(growable: false);
   }
 
   List<String> _deduplicate(Iterable<String> artists) {

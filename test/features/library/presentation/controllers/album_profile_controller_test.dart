@@ -7,12 +7,18 @@ import 'package:sonus_next/features/artwork/application/services/artwork_assignm
 import 'package:sonus_next/features/artwork/application/services/artwork_file_picker.dart';
 import 'package:sonus_next/features/artwork/domain/entities/artwork_asset.dart';
 import 'package:sonus_next/features/library/application/models/library_album.dart';
+import 'package:sonus_next/features/library/application/models/library_album_edition.dart';
 import 'package:sonus_next/features/library/application/models/library_artist.dart';
 import 'package:sonus_next/features/library/application/models/library_track.dart';
 import 'package:sonus_next/features/library/application/models/library_track_order.dart';
 import 'package:sonus_next/features/library/application/repositories/library_query_repository.dart';
 import 'package:sonus_next/features/library/application/services/album_profile_editing_service.dart';
+import 'package:sonus_next/features/library/application/services/album_edition_track_ordering_service.dart';
+import 'package:sonus_next/features/library/domain/entities/album_edition_track.dart';
 import 'package:sonus_next/features/library/application/services/song_block_service.dart';
+import 'package:sonus_next/features/library/application/services/song_artist_credit_service.dart';
+import 'package:sonus_next/features/library/domain/entities/song_artist_credit.dart';
+import 'package:sonus_next/features/library/domain/repositories/song_artist_credit_repository.dart';
 import 'package:sonus_next/features/library/application/services/track_profile_editing_service.dart';
 import 'package:sonus_next/features/library/domain/entities/album.dart';
 import 'package:sonus_next/features/library/domain/entities/song.dart';
@@ -233,6 +239,448 @@ void main() {
       controller.dispose();
     });
 
+    test('edition-aware repository loads primary edition by default', () async {
+      final repository = FakeEditionAwareLibraryQueryRepository(
+        album: createAlbum(
+          primaryEditionId: 'edition-standard',
+          primaryEditionTitle: 'Standard',
+          primaryEditionType: AlbumEditionType.standard,
+        ),
+        editions: [
+          createLibraryEdition(
+            editionId: 'edition-standard',
+            title: 'Standard',
+            type: AlbumEditionType.standard,
+            isPrimary: true,
+          ),
+          createLibraryEdition(
+            editionId: 'edition-deluxe',
+            title: 'Deluxe',
+            type: AlbumEditionType.deluxe,
+          ),
+        ],
+        editionTracks: {
+          'edition-standard': [
+            createTrack(
+              songId: 'standard-1',
+              albumEditionId: 'edition-standard',
+              albumEditionTitle: 'Standard',
+            ),
+            createTrack(
+              songId: 'standard-2',
+              albumEditionId: 'edition-standard',
+              albumEditionTitle: 'Standard',
+            ),
+          ],
+          'edition-deluxe': [
+            createTrack(
+              songId: 'deluxe-1',
+              albumEditionId: 'edition-deluxe',
+              albumEditionTitle: 'Deluxe',
+              albumEditionType: AlbumEditionType.deluxe,
+            ),
+          ],
+        },
+      );
+
+      final controller = AlbumProfileController(
+        repository: repository,
+        albumId: 'album-1',
+      );
+
+      await controller.load();
+
+      expect(controller.editions, hasLength(2));
+      expect(controller.selectedEdition?.editionId, 'edition-standard');
+
+      expect(controller.tracks.map((track) => track.songId), [
+        'standard-1',
+        'standard-2',
+      ]);
+
+      expect(controller.editionCount, 2);
+      expect(controller.hasMultipleEditions, isTrue);
+      expect(controller.editionTitles, ['Standard', 'Deluxe']);
+
+      expect(repository.requestedEditionAlbumId, 'album-1');
+      expect(repository.requestedTrackEditionIds, ['edition-standard']);
+
+      // The capability path does not use the legacy whole-album track query.
+      expect(repository.requestedTracksAlbumId, isNull);
+
+      controller.dispose();
+    });
+
+    test('selectEdition swaps the complete playback context', () async {
+      final repository = FakeEditionAwareLibraryQueryRepository(
+        album: createAlbum(
+          primaryEditionId: 'edition-standard',
+          primaryEditionTitle: 'Standard',
+          primaryEditionType: AlbumEditionType.standard,
+        ),
+        editions: [
+          createLibraryEdition(
+            editionId: 'edition-standard',
+            title: 'Standard',
+            type: AlbumEditionType.standard,
+            isPrimary: true,
+          ),
+          createLibraryEdition(
+            editionId: 'edition-deluxe',
+            title: 'Deluxe',
+            type: AlbumEditionType.deluxe,
+          ),
+        ],
+        editionTracks: {
+          'edition-standard': [
+            createTrack(
+              songId: 'shared-song',
+              albumEditionId: 'edition-standard',
+              albumEditionTitle: 'Standard',
+              trackNumber: 1,
+            ),
+          ],
+          'edition-deluxe': [
+            createTrack(
+              songId: 'shared-song',
+              albumEditionId: 'edition-deluxe',
+              albumEditionTitle: 'Deluxe',
+              albumEditionType: AlbumEditionType.deluxe,
+              trackNumber: 3,
+            ),
+            createTrack(
+              songId: 'deluxe-bonus',
+              albumEditionId: 'edition-deluxe',
+              albumEditionTitle: 'Deluxe',
+              albumEditionType: AlbumEditionType.deluxe,
+              trackNumber: 4,
+            ),
+          ],
+        },
+      );
+
+      final engine = FakePlaybackEngine();
+
+      final controller = AlbumProfileController(
+        repository: repository,
+        albumId: 'album-1',
+        playbackCoordinator: PlaybackCoordinator(engine: engine),
+      );
+
+      await controller.load();
+
+      final changed = await controller.selectEdition('edition-deluxe');
+
+      expect(changed, isTrue);
+      expect(controller.selectedEdition?.editionId, 'edition-deluxe');
+      expect(controller.selectedEdition?.type, AlbumEditionType.deluxe);
+
+      expect(controller.tracks.map((track) => track.songId), [
+        'shared-song',
+        'deluxe-bonus',
+      ]);
+
+      expect(controller.tracks.first.trackNumber, 3);
+
+      await controller.playAll();
+
+      expect(engine.loadQueueCallCount, 1);
+      expect(engine.lastLoadedTracks!.map((track) => track.songId), [
+        'shared-song',
+        'deluxe-bonus',
+      ]);
+      expect(engine.lastStartIndex, 0);
+      expect(engine.lastAutoPlay, isTrue);
+
+      controller.dispose();
+      await engine.dispose();
+    });
+
+    test(
+      'refresh preserves the selected edition when it still exists',
+      () async {
+        final repository = FakeEditionAwareLibraryQueryRepository(
+          album: createAlbum(
+            primaryEditionId: 'edition-standard',
+            primaryEditionTitle: 'Standard',
+            primaryEditionType: AlbumEditionType.standard,
+          ),
+          editions: [
+            createLibraryEdition(
+              editionId: 'edition-standard',
+              title: 'Standard',
+              type: AlbumEditionType.standard,
+              isPrimary: true,
+            ),
+            createLibraryEdition(
+              editionId: 'edition-deluxe',
+              title: 'Deluxe',
+              type: AlbumEditionType.deluxe,
+            ),
+          ],
+          editionTracks: {
+            'edition-standard': [
+              createTrack(
+                songId: 'standard-song',
+                albumEditionId: 'edition-standard',
+              ),
+            ],
+            'edition-deluxe': [
+              createTrack(
+                songId: 'deluxe-song',
+                albumEditionId: 'edition-deluxe',
+                albumEditionTitle: 'Deluxe',
+                albumEditionType: AlbumEditionType.deluxe,
+              ),
+            ],
+          },
+        );
+
+        final controller = AlbumProfileController(
+          repository: repository,
+          albumId: 'album-1',
+        );
+
+        await controller.load();
+        await controller.selectEdition('edition-deluxe');
+        await controller.refresh();
+
+        expect(controller.selectedEdition?.editionId, 'edition-deluxe');
+        expect(controller.tracks.single.songId, 'deluxe-song');
+
+        expect(repository.requestedTrackEditionIds, [
+          'edition-standard',
+          'edition-deluxe',
+          'edition-deluxe',
+        ]);
+
+        controller.dispose();
+      },
+    );
+
+    test(
+      'Album Studio reorder targets selected edition and preserves selection',
+      () async {
+        final repository = FakeEditionAwareLibraryQueryRepository(
+          album: createAlbum(
+            primaryEditionId: 'edition-standard',
+            primaryEditionTitle: 'Standard',
+            primaryEditionType: AlbumEditionType.standard,
+          ),
+          editions: [
+            createLibraryEdition(
+              editionId: 'edition-standard',
+              title: 'Standard',
+              type: AlbumEditionType.standard,
+              isPrimary: true,
+            ),
+            createLibraryEdition(
+              editionId: 'edition-deluxe',
+              title: 'Deluxe',
+              type: AlbumEditionType.deluxe,
+            ),
+          ],
+          editionTracks: {
+            'edition-standard': [
+              createTrack(
+                songId: 'standard-song',
+                albumEditionId: 'edition-standard',
+              ),
+            ],
+            'edition-deluxe': [
+              createTrack(
+                songId: 'deluxe-a',
+                albumEditionId: 'edition-deluxe',
+                albumEditionTitle: 'Deluxe',
+                albumEditionType: AlbumEditionType.deluxe,
+              ),
+              createTrack(
+                songId: 'deluxe-b',
+                albumEditionId: 'edition-deluxe',
+                albumEditionTitle: 'Deluxe',
+                albumEditionType: AlbumEditionType.deluxe,
+              ),
+            ],
+          },
+        );
+
+        final service = FakeAlbumEditionTrackOrderingService();
+
+        final controller = AlbumProfileController(
+          repository: repository,
+          albumId: 'album-1',
+          albumEditionTrackOrderingService: service,
+        );
+
+        await controller.load();
+        await controller.selectEdition('edition-deluxe');
+
+        expect(controller.canEditAlbumStudio(null), isTrue);
+
+        final changed = await controller.reorderSelectedEdition(
+          userId: ' user-1 ',
+          orderedSongIds: const ['deluxe-b', 'deluxe-a'],
+          autoRenumber: true,
+        );
+
+        expect(changed, isTrue);
+        expect(service.reorderCallCount, 1);
+        expect(service.lastUserId, ' user-1 ');
+        expect(service.lastEditionId, 'edition-deluxe');
+        expect(service.lastOrderedSongIds, ['deluxe-b', 'deluxe-a']);
+        expect(service.lastAutoRenumber, isTrue);
+
+        expect(controller.selectedEdition?.editionId, 'edition-deluxe');
+
+        expect(repository.requestedTrackEditionIds, [
+          'edition-standard',
+          'edition-deluxe',
+          'edition-deluxe',
+        ]);
+
+        controller.dispose();
+      },
+    );
+
+    test(
+      'Album Studio placement targets selected edition membership',
+      () async {
+        final repository = FakeEditionAwareLibraryQueryRepository(
+          album: createAlbum(
+            primaryEditionId: 'edition-standard',
+            primaryEditionTitle: 'Standard',
+            primaryEditionType: AlbumEditionType.standard,
+          ),
+          editions: [
+            createLibraryEdition(
+              editionId: 'edition-standard',
+              title: 'Standard',
+              type: AlbumEditionType.standard,
+              isPrimary: true,
+            ),
+            createLibraryEdition(
+              editionId: 'edition-deluxe',
+              title: 'Deluxe',
+              type: AlbumEditionType.deluxe,
+            ),
+          ],
+          editionTracks: {
+            'edition-standard': [
+              createTrack(
+                songId: 'shared-song',
+                albumEditionId: 'edition-standard',
+              ),
+            ],
+            'edition-deluxe': [
+              createTrack(
+                songId: 'shared-song',
+                albumEditionId: 'edition-deluxe',
+                albumEditionTitle: 'Deluxe',
+                albumEditionType: AlbumEditionType.deluxe,
+                trackNumber: 5,
+                discNumber: 2,
+              ),
+            ],
+          },
+        );
+
+        final service = FakeAlbumEditionTrackOrderingService();
+
+        final controller = AlbumProfileController(
+          repository: repository,
+          albumId: 'album-1',
+          albumEditionTrackOrderingService: service,
+        );
+
+        await controller.load();
+        await controller.selectEdition('edition-deluxe');
+
+        final track = controller.tracks.single;
+
+        final changed = await controller.updateSelectedEditionTrackPlacement(
+          userId: null,
+          track: track,
+          discNumber: 3,
+          trackNumber: 12,
+        );
+
+        expect(changed, isTrue);
+        expect(service.placementCallCount, 1);
+        expect(service.lastEditionId, 'edition-deluxe');
+        expect(service.lastSongId, 'shared-song');
+        expect(service.lastDiscNumber, 3);
+        expect(service.lastTrackNumber, 12);
+
+        expect(controller.selectedEdition?.editionId, 'edition-deluxe');
+
+        controller.dispose();
+      },
+    );
+
+    test(
+      'Album Studio is unavailable without explicit edition capability',
+      () async {
+        final controller = AlbumProfileController(
+          repository: FakeLibraryQueryRepository(
+            album: createAlbum(),
+            tracks: [createTrack()],
+          ),
+          albumId: 'album-1',
+          albumEditionTrackOrderingService:
+              FakeAlbumEditionTrackOrderingService(),
+        );
+
+        await controller.load();
+
+        expect(controller.canEditAlbumStudio(null), isFalse);
+
+        expect(
+          await controller.reorderSelectedEdition(
+            orderedSongIds: const ['song-1'],
+          ),
+          isFalse,
+        );
+
+        controller.dispose();
+      },
+    );
+    test('legacy repository keeps whole-album fallback behavior', () async {
+      final repository = FakeLibraryQueryRepository(
+        album: createAlbum(),
+        tracks: [
+          createTrack(
+            songId: 'standard-song',
+            albumEditionId: 'edition-standard',
+            albumEditionTitle: 'Standard',
+          ),
+          createTrack(
+            songId: 'deluxe-song',
+            albumEditionId: 'edition-deluxe',
+            albumEditionTitle: 'Deluxe',
+            albumEditionType: AlbumEditionType.deluxe,
+          ),
+        ],
+      );
+
+      final controller = AlbumProfileController(
+        repository: repository,
+        albumId: 'album-1',
+      );
+
+      await controller.load();
+
+      expect(controller.hasEditionQueryCapability, isFalse);
+      expect(controller.editions, isEmpty);
+      expect(controller.selectedEdition, isNull);
+      expect(controller.tracks, hasLength(2));
+      expect(controller.editionCount, 2);
+      expect(controller.editionTitles, ['Standard', 'Deluxe']);
+      expect(repository.requestedTracksAlbumId, 'album-1');
+
+      expect(await controller.selectEdition('edition-deluxe'), isFalse);
+
+      controller.dispose();
+    });
     test('reports not found when album does not exist', () async {
       final repository = FakeLibraryQueryRepository();
 
@@ -545,6 +993,155 @@ void main() {
       controller.dispose();
     });
 
+    test(
+      'updateTrackWithCredits forwards structured credits and refreshes album profile',
+      () async {
+        final repository = FakeLibraryQueryRepository(
+          album: createAlbum(),
+          tracks: [
+            createTrack(
+              songId: 'song-structured-edit',
+              title: 'Original Title',
+            ),
+          ],
+        );
+        final service = FakeTrackProfileEditingService();
+
+        final controller = AlbumProfileController(
+          repository: repository,
+          albumId: 'album-1',
+          trackProfileEditingService: service,
+        );
+
+        await controller.load();
+
+        expect(repository.albumRequestCount, 1);
+
+        final changed = await controller.updateTrackWithCredits(
+          userId: 'user-1',
+          track: controller.tracks.single,
+          title: 'Structured Title',
+          trackNumber: 7,
+          discNumber: 3,
+          additionalCredits: const [
+            SongArtistCreditInput(
+              creditedName: 'Co Primary Artist',
+              role: SongArtistCreditRole.coPrimary,
+              artistId: 'artist-co-primary',
+            ),
+            SongArtistCreditInput(
+              creditedName: 'Guest Artist',
+              role: SongArtistCreditRole.guest,
+            ),
+          ],
+          isSingle: true,
+        );
+
+        expect(changed, isTrue);
+        expect(service.structuredUpdateCallCount, 1);
+        expect(service.lastUserId, 'user-1');
+        expect(service.lastSongId, 'song-structured-edit');
+
+        final credits = service.lastAdditionalCredits!;
+        expect(credits, hasLength(2));
+        expect(credits[0].creditedName, 'Co Primary Artist');
+        expect(credits[0].role, SongArtistCreditRole.coPrimary);
+        expect(credits[0].artistId, 'artist-co-primary');
+        expect(credits[1].creditedName, 'Guest Artist');
+        expect(credits[1].role, SongArtistCreditRole.guest);
+        expect(credits[1].artistId, isNull);
+
+        expect(repository.albumRequestCount, 2);
+
+        controller.dispose();
+      },
+    );
+    test(
+      'getTrackAdditionalCredits excludes primary and returns structured credits in position order',
+      () async {
+        final now = DateTime.utc(2026, 1, 1);
+
+        final creditRepository = FakeSongArtistCreditRepository(
+          credits: [
+            SongArtistCredit(
+              id: 'credit-primary',
+              songId: 'song-credit-read',
+              artistId: 'artist-primary',
+              creditedName: 'Primary Artist',
+              canonicalCreditedName: 'primary artist',
+              role: SongArtistCreditRole.primary,
+              position: 0,
+              createdAt: now,
+              updatedAt: now,
+            ),
+            SongArtistCredit(
+              id: 'credit-coprimary',
+              songId: 'song-credit-read',
+              artistId: 'artist-coprimary',
+              creditedName: 'Co Primary Artist',
+              canonicalCreditedName: 'co primary artist',
+              role: SongArtistCreditRole.coPrimary,
+              position: 3,
+              createdAt: now,
+              updatedAt: now,
+            ),
+            SongArtistCredit(
+              id: 'credit-guest',
+              songId: 'song-credit-read',
+              creditedName: 'Guest Artist',
+              canonicalCreditedName: 'guest artist',
+              role: SongArtistCreditRole.guest,
+              position: 1,
+              createdAt: now,
+              updatedAt: now,
+            ),
+            SongArtistCredit(
+              id: 'credit-featured',
+              songId: 'song-credit-read',
+              creditedName: 'Featured Artist',
+              canonicalCreditedName: 'featured artist',
+              role: SongArtistCreditRole.featured,
+              position: 2,
+              createdAt: now,
+              updatedAt: now,
+            ),
+          ],
+        );
+
+        final controller = AlbumProfileController(
+          repository: FakeLibraryQueryRepository(
+            album: createAlbum(),
+            tracks: const [],
+          ),
+          albumId: 'album-1',
+          songArtistCreditRepository: creditRepository,
+        );
+
+        final credits = await controller.getTrackAdditionalCredits(
+          'song-credit-read',
+        );
+
+        expect(credits, hasLength(3));
+
+        expect(credits.map((credit) => credit.role).toList(), [
+          SongArtistCreditRole.guest,
+          SongArtistCreditRole.featured,
+          SongArtistCreditRole.coPrimary,
+        ]);
+
+        expect(credits.map((credit) => credit.creditedName).toList(), [
+          'Guest Artist',
+          'Featured Artist',
+          'Co Primary Artist',
+        ]);
+
+        expect(credits[0].artistId, isNull);
+        expect(credits[1].artistId, isNull);
+        expect(credits[2].artistId, 'artist-coprimary');
+
+        controller.dispose();
+      },
+    );
     test('unavailable album track can still have metadata edited', () async {
       final repository = FakeLibraryQueryRepository(
         album: createAlbum(),
@@ -1384,6 +1981,30 @@ LibraryAlbum createAlbum({
   );
 }
 
+LibraryAlbumEdition createLibraryEdition({
+  required String editionId,
+  required String title,
+  required AlbumEditionType type,
+  bool isPrimary = false,
+  DateTime? releaseDate,
+  String? genre,
+  String? artworkId,
+  String? artworkPath,
+}) {
+  return LibraryAlbumEdition(
+    editionId: editionId,
+    albumId: 'album-1',
+    title: title,
+    type: type,
+    isPrimary: isPrimary,
+    releaseDate: releaseDate,
+    genre: genre,
+    artworkId: artworkId,
+    artworkPath: artworkPath,
+    dateAdded: DateTime(2026, 1, 1),
+  );
+}
+
 LibraryTrack createTrack({
   String songId = 'song-1',
   String title = 'Test Song',
@@ -1517,6 +2138,105 @@ class FakeLibraryQueryRepository implements LibraryQueryRepository {
   }
 }
 
+class FakeEditionAwareLibraryQueryRepository extends FakeLibraryQueryRepository
+    implements AlbumEditionQueryRepository {
+  FakeEditionAwareLibraryQueryRepository({
+    super.album,
+    super.tracks = const [],
+    super.albumError,
+    super.albumLoader,
+    this.editions = const [],
+    this.editionTracks = const {},
+  });
+
+  final List<LibraryAlbumEdition> editions;
+  final Map<String, List<LibraryTrack>> editionTracks;
+
+  String? requestedEditionAlbumId;
+  final List<String> requestedTrackEditionIds = [];
+
+  @override
+  Future<List<LibraryAlbumEdition>> getAlbumEditions(String albumId) async {
+    requestedEditionAlbumId = albumId;
+    return editions;
+  }
+
+  @override
+  Future<List<LibraryTrack>> getTracksByAlbumEditionId(String editionId) async {
+    requestedTrackEditionIds.add(editionId);
+    return editionTracks[editionId] ?? const [];
+  }
+}
+
+class FakeAlbumEditionTrackOrderingService
+    extends AlbumEditionTrackOrderingService {
+  FakeAlbumEditionTrackOrderingService()
+    : super(mutationRunner: UnusedSyncMutationRunner());
+
+  int reorderCallCount = 0;
+  int placementCallCount = 0;
+
+  String? lastUserId;
+  String? lastEditionId;
+  List<String>? lastOrderedSongIds;
+  bool? lastAutoRenumber;
+  String? lastSongId;
+  int? lastDiscNumber;
+  int? lastTrackNumber;
+
+  @override
+  Future<AlbumEditionReorderResult> reorderEdition({
+    required String albumEditionId,
+    required List<String> orderedSongIds,
+    String? userId,
+    bool autoRenumber = false,
+    DateTime? now,
+  }) async {
+    reorderCallCount++;
+    lastUserId = userId;
+    lastEditionId = albumEditionId;
+    lastOrderedSongIds = List<String>.from(orderedSongIds);
+    lastAutoRenumber = autoRenumber;
+
+    return const AlbumEditionReorderResult(memberships: [], changed: true);
+  }
+
+  @override
+  Future<AlbumEditionTrackPlacementResult> updateTrackPlacement({
+    required String? userId,
+    required String albumEditionId,
+    required String songId,
+    required int discNumber,
+    required int trackNumber,
+    DateTime? now,
+  }) async {
+    placementCallCount++;
+    lastUserId = userId;
+    lastEditionId = albumEditionId;
+    lastSongId = songId;
+    lastDiscNumber = discNumber;
+    lastTrackNumber = trackNumber;
+
+    final timestamp = now ?? DateTime.utc(2026, 1, 1);
+
+    return AlbumEditionTrackPlacementResult(
+      membership: AlbumEditionTrack(
+        albumEditionId: albumEditionId,
+        songId: songId,
+        discNumber: discNumber,
+        trackNumber: trackNumber,
+        sortPosition: 0,
+        numberingAuthority: AlbumEditionTrackAuthority.manual,
+        orderingAuthority: AlbumEditionTrackAuthority.inferred,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      ),
+      changed: true,
+      compatibilitySongChanged: false,
+    );
+  }
+}
+
 class FakeSongBlockService extends SongBlockService {
   FakeSongBlockService() : super(mutationRunner: UnusedSyncMutationRunner());
 
@@ -1559,11 +2279,61 @@ class FakeSongBlockService extends SongBlockService {
   }
 }
 
+class FakeSongArtistCreditRepository implements SongArtistCreditRepository {
+  FakeSongArtistCreditRepository({this.credits = const []});
+
+  List<SongArtistCredit> credits;
+
+  @override
+  Future<void> create(SongArtistCredit credit) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<void> save(SongArtistCredit credit) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<void> delete(String id) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<void> deleteBySongId(String songId) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<SongArtistCredit?> getById(String id) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<List<SongArtistCredit>> getBySongId(String songId) async {
+    return credits.where((credit) => credit.songId == songId).toList();
+  }
+
+  @override
+  Future<List<SongArtistCredit>> getByArtistId(String artistId) {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<List<SongArtistCredit>> getUnlinkedByCanonicalName(
+    String canonicalName,
+  ) {
+    throw UnimplementedError();
+  }
+}
+
 class FakeTrackProfileEditingService extends TrackProfileEditingService {
   FakeTrackProfileEditingService()
     : super(mutationRunner: UnusedSyncMutationRunner());
 
   int updateCallCount = 0;
+  int structuredUpdateCallCount = 0;
+  List<SongArtistCreditInput>? lastAdditionalCredits;
 
   String? lastUserId;
   String? lastSongId;
@@ -1616,6 +2386,43 @@ class FakeTrackProfileEditingService extends TrackProfileEditingService {
         updatedAt: timestamp,
       ),
       changed: true,
+    );
+  }
+
+  @override
+  Future<TrackProfileEditResult> updateTrackWithCredits({
+    required String? userId,
+    required String songId,
+    required String title,
+    required int trackNumber,
+    required int discNumber,
+    required Iterable<SongArtistCreditInput> additionalCredits,
+    required bool isSingle,
+    String? versionLabel,
+    List<SongVersionCharacteristic> versionCharacteristics = const [],
+    SongReleaseStatus releaseStatus = SongReleaseStatus.released,
+    bool isLeak = false,
+    bool updateVersionMetadata = false,
+    String? artistId,
+    String? albumId,
+    String? albumEditionId,
+    DateTime? now,
+  }) async {
+    structuredUpdateCallCount++;
+    lastAdditionalCredits = List<SongArtistCreditInput>.from(additionalCredits);
+
+    return updateTrack(
+      userId: userId,
+      songId: songId,
+      title: title,
+      trackNumber: trackNumber,
+      discNumber: discNumber,
+      featuredArtists: const [],
+      isSingle: isSingle,
+      artistId: artistId,
+      albumId: albumId,
+      albumEditionId: albumEditionId,
+      now: now,
     );
   }
 }

@@ -15,9 +15,12 @@ import '../../application/models/library_track_order.dart';
 import '../../application/repositories/library_query_repository.dart';
 import '../../application/services/artist_creation_service.dart';
 import '../../application/services/song_block_service.dart';
+import '../../application/services/song_artist_credit_service.dart';
 import '../../application/services/track_profile_editing_service.dart';
+import '../../domain/repositories/song_artist_credit_repository.dart';
 import '../controllers/library_tracks_controller.dart';
-import '../widgets/track_profile_edit_dialog.dart';
+import '../models/track_profile_edit_draft.dart';
+import 'track_studio_page.dart';
 
 class TracksPage extends StatefulWidget {
   const TracksPage({super.key});
@@ -47,6 +50,7 @@ class _TracksPageState extends State<TracksPage> {
     _controller = LibraryTracksController(
       repository: repository,
       playbackCoordinator: context.read<PlaybackCoordinator>(),
+      songArtistCreditRepository: context.read<SongArtistCreditRepository?>(),
       trackProfileEditingService: context.read<TrackProfileEditingService?>(),
       songBlockService: context.read<SongBlockService?>(),
       artworkAssignmentService: context.read<ArtworkAssignmentService?>(),
@@ -174,52 +178,81 @@ class _TracksPageState extends State<TracksPage> {
 
       final artists = await repository.getArtists();
       final albums = await repository.getAlbums();
+      final structuredCredits = await controller.getTrackAdditionalCredits(
+        track.songId,
+      );
 
       if (!mounted) {
         return;
       }
 
+      final initialAdditionalCredits = structuredCredits
+          .map(
+            (credit) => TrackProfileCreditDraft(
+              creditedName: credit.creditedName,
+              role: credit.role,
+              artistId: credit.artistId,
+            ),
+          )
+          .toList(growable: false);
       final artistCreationService = context.read<ArtistCreationService?>();
+      final draft = await Navigator.of(context).push<TrackProfileEditDraft>(
+        MaterialPageRoute<TrackProfileEditDraft>(
+          builder: (routeContext) {
+            return TrackStudioPage(
+              track: track,
+              artists: artists,
+              albums: albums,
+              initialAdditionalCredits: initialAdditionalCredits,
+              canEditDetails: controller.canEditTrack(userId),
+              onCreateArtist: artistCreationService == null
+                  ? null
+                  : (name) async {
+                      final artist = await artistCreationService.createOrReuse(
+                        userId: userId,
+                        name: name,
+                      );
 
-      final draft = await showDialog<TrackProfileEditDraft>(
-        context: context,
-        builder: (dialogContext) {
-          return TrackProfileEditDialog(
-            track: track,
-            artists: artists,
-            albums: albums,
-            onCreateArtist: artistCreationService == null
-                ? null
-                : (name) async {
-                    final artist = await artistCreationService.createOrReuse(
-                      userId: userId,
-                      name: name,
-                    );
-
-                    return LibraryArtist(
-                      artistId: artist.id,
-                      name: artist.name,
-                      albumCount: 0,
-                      songCount: 0,
-                      dateAdded: artist.createdAt,
-                    );
-                  },
-          );
-        },
+                      return LibraryArtist(
+                        artistId: artist.id,
+                        name: artist.name,
+                        albumCount: 0,
+                        songCount: 0,
+                        dateAdded: artist.createdAt,
+                      );
+                    },
+              onChangeArtwork: controller.canEditArtwork
+                  ? () => _changeArtwork(controller, track)
+                  : null,
+              onClearArtwork: controller.canEditArtwork
+                  ? () => _clearArtwork(controller, track)
+                  : null,
+            );
+          },
+        ),
       );
-
       if (!mounted || draft == null) {
         return;
       }
 
-      final changed = await controller.updateTrack(
+      final changed = await controller.updateTrackWithCredits(
         userId: userId,
         track: track,
         title: draft.title,
         trackNumber: draft.trackNumber,
         discNumber: draft.discNumber,
-        featuredArtists: draft.featuredArtists,
+        additionalCredits: draft.additionalCredits.map(
+          (credit) => SongArtistCreditInput(
+            creditedName: credit.creditedName,
+            role: credit.role,
+            artistId: credit.artistId,
+          ),
+        ),
         isSingle: draft.isSingle,
+        versionLabel: draft.versionLabel,
+        versionCharacteristics: draft.versionCharacteristics,
+        releaseStatus: draft.releaseStatus,
+        isLeak: draft.isLeak,
         artistId: draft.artistId,
         albumId: draft.albumId,
         albumEditionId: draft.albumEditionId,
@@ -602,12 +635,8 @@ class _TrackTile extends StatelessWidget {
                       unawaited(onAddToQueue());
                     case _TrackMenuAction.addToPlaylist:
                       unawaited(onAddToPlaylist());
-                    case _TrackMenuAction.editDetails:
+                    case _TrackMenuAction.trackStudio:
                       unawaited(onEditTrack());
-                    case _TrackMenuAction.changeArtwork:
-                      unawaited(onChangeArtwork());
-                    case _TrackMenuAction.clearArtwork:
-                      unawaited(onClearArtwork());
                     case _TrackMenuAction.toggleBlocked:
                       unawaited(onSetBlocked(!track.isSongBlocked));
                   }
@@ -641,20 +670,11 @@ class _TrackTile extends StatelessWidget {
                     ),
                   ),
                   PopupMenuItem(
-                    value: _TrackMenuAction.editDetails,
-                    enabled: canEditTrack,
+                    value: _TrackMenuAction.trackStudio,
+                    enabled: canEditTrack || canEditArtwork,
                     child: const ListTile(
                       leading: Icon(Icons.edit_outlined),
-                      title: Text('Edit song details'),
-                      contentPadding: EdgeInsets.zero,
-                    ),
-                  ),
-                  PopupMenuItem(
-                    value: _TrackMenuAction.changeArtwork,
-                    enabled: canEditArtwork,
-                    child: const ListTile(
-                      leading: Icon(Icons.image_rounded),
-                      title: Text('Change artwork'),
+                      title: Text('Track Studio'),
                       contentPadding: EdgeInsets.zero,
                     ),
                   ),
@@ -676,15 +696,6 @@ class _TrackTile extends StatelessWidget {
                     ),
                   ),
                   const PopupMenuDivider(),
-                  PopupMenuItem(
-                    value: _TrackMenuAction.clearArtwork,
-                    enabled: canEditArtwork,
-                    child: const ListTile(
-                      leading: Icon(Icons.hide_image_rounded),
-                      title: Text('Clear artwork'),
-                      contentPadding: EdgeInsets.zero,
-                    ),
-                  ),
                 ],
               ),
             ],
@@ -894,9 +905,7 @@ enum _TrackMenuAction {
   playNext,
   addToQueue,
   addToPlaylist,
-  editDetails,
-  changeArtwork,
-  clearArtwork,
+  trackStudio,
   toggleBlocked,
 }
 

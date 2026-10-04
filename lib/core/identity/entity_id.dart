@@ -11,6 +11,8 @@ abstract final class EntityId {
 
   static String song() => 'song_${_uuid.v4()}';
 
+  static String songArtistCredit() => 'song_artist_credit_${_uuid.v4()}';
+
   static String mediaFileBinding() => 'media_${_uuid.v4()}';
 
   static String importBatch() => 'import_batch_${_uuid.v4()}';

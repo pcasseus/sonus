@@ -1,4 +1,5 @@
 import '../../domain/entities/album_edition.dart';
+import '../../domain/entities/song.dart';
 
 class LibraryTrack {
   const LibraryTrack({
@@ -16,6 +17,10 @@ class LibraryTrack {
     required this.durationSeconds,
     required this.isSingle,
     required this.featuredArtists,
+    this.versionLabel,
+    this.versionCharacteristics = const [],
+    this.releaseStatus = SongReleaseStatus.released,
+    this.isLeak = false,
     required this.dateAdded,
     required this.isAvailable,
     this.isSongBlocked = false,
@@ -43,6 +48,10 @@ class LibraryTrack {
   final bool isSingle;
   final List<String> featuredArtists;
 
+  final String? versionLabel;
+  final List<SongVersionCharacteristic> versionCharacteristics;
+  final SongReleaseStatus releaseStatus;
+  final bool isLeak;
   final DateTime dateAdded;
 
   final String? filePath;

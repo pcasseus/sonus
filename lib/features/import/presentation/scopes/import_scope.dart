@@ -9,6 +9,10 @@ import '../../../../core/database/app_database.dart';
 import '../../../account/application/controllers/account_controller.dart';
 import '../../../library/application/repositories/library_query_repository.dart';
 import '../../../library/application/services/artist_creation_service.dart';
+import '../../../library/application/services/malformed_artist_identity_repair_scan_service.dart';
+import '../../../library/application/services/malformed_artist_identity_repair_service.dart';
+import '../../../library/data/daos/artist_dao.dart';
+import '../../../library/data/repositories/sqlite_artist_repository.dart';
 import '../../../library/application/services/track_profile_editing_service.dart';
 import '../../../library/data/daos/song_dao.dart';
 import '../../../player/application/controllers/playback_coordinator.dart';
@@ -63,6 +67,7 @@ class _ImportScopeState extends State<ImportScope> {
   ImportReviewService? _reviewService;
   int _initializationVersion = 0;
   bool _durationRepairStarted = false;
+  bool _artistIdentityRepairStarted = false;
 
   @override
   void didChangeDependencies() {
@@ -174,6 +179,16 @@ class _ImportScopeState extends State<ImportScope> {
       mutationRunner: SyncMutationTransactionRunner(appDatabase: database),
     );
 
+    final artistIdentityRepairService = MalformedArtistIdentityRepairService(
+      mutationRunner: SyncMutationTransactionRunner(appDatabase: database),
+    );
+
+    final artistIdentityRepairScanService =
+        MalformedArtistIdentityRepairScanService(
+          artistRepository: SqliteArtistRepository(ArtistDao(sqliteDatabase)),
+          repairArtist: artistIdentityRepairService.repairArtist,
+        );
+
     final atomicImporter = AtomicLibraryImporter(
       appDatabase: database,
       userId: userId,
@@ -225,6 +240,12 @@ class _ImportScopeState extends State<ImportScope> {
             .repair(userId: userId)
             .then((_) => reviewCleanupService.cleanupStaleDurationReasons()),
       );
+    }
+
+    if (!_artistIdentityRepairStarted) {
+      _artistIdentityRepairStarted = true;
+
+      unawaited(artistIdentityRepairScanService.repairAll(userId: userId));
     }
   }
 

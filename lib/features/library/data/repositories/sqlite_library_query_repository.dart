@@ -1,6 +1,7 @@
 import '../../../search/application/models/library_search_results.dart';
 import '../../../search/application/repositories/library_search_repository.dart';
 import '../../application/models/library_album.dart';
+import '../../application/models/library_album_edition.dart';
 import '../../application/models/library_artist.dart';
 import '../../application/models/library_track.dart';
 import '../../application/models/library_track_order.dart';
@@ -8,7 +9,11 @@ import '../../application/repositories/library_query_repository.dart';
 import '../daos/library_query_dao.dart';
 
 class SqliteLibraryQueryRepository
-    implements LibraryQueryRepository, LibrarySearchRepository {
+    implements
+        LibraryQueryRepository,
+        AlbumEditionQueryRepository,
+        StructuredArtistQueryRepository,
+        LibrarySearchRepository {
   const SqliteLibraryQueryRepository(this.dao);
 
   final LibraryQueryDao dao;
@@ -39,8 +44,44 @@ class SqliteLibraryQueryRepository
   }
 
   @override
+  Future<List<LibraryArtist>> getProfileEligibleArtists() {
+    return dao.findProfileEligibleArtists();
+  }
+
+  @override
+  Future<LibraryArtist?> getProfileEligibleArtistById(String artistId) {
+    return dao.findProfileEligibleArtistById(artistId);
+  }
+
+  @override
+  Future<List<LibraryTrack>> getMainTracksByArtistId(
+    String artistId, {
+    LibraryTrackOrder order = LibraryTrackOrder.title,
+  }) {
+    return dao.findMainTracksByArtistId(artistId, order: order);
+  }
+
+  @override
+  Future<List<LibraryTrack>> getCollaborationTracksByArtistId(
+    String artistId, {
+    LibraryTrackOrder order = LibraryTrackOrder.title,
+  }) {
+    return dao.findCollaborationTracksByArtistId(artistId, order: order);
+  }
+
+  @override
   Future<List<LibraryTrack>> getTracksByAlbumId(String albumId) {
     return dao.findTracksByAlbumId(albumId);
+  }
+
+  @override
+  Future<List<LibraryAlbumEdition>> getAlbumEditions(String albumId) {
+    return dao.findAlbumEditions(albumId);
+  }
+
+  @override
+  Future<List<LibraryTrack>> getTracksByAlbumEditionId(String editionId) {
+    return dao.findTracksByAlbumEditionId(editionId);
   }
 
   @override

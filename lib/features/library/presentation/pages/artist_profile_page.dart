@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../domain/repositories/song_artist_credit_repository.dart';
 import '../../../account/application/controllers/account_controller.dart';
 import '../../../artwork/application/services/artwork_assignment_service.dart';
 import '../../../artwork/application/services/artwork_file_picker.dart';
@@ -12,15 +13,17 @@ import '../../application/models/library_track.dart';
 import '../../application/repositories/library_query_repository.dart';
 import '../../application/services/artist_profile_editing_service.dart';
 import '../../application/services/song_block_service.dart';
+import '../../application/services/song_artist_credit_service.dart';
 import 'package:sonus_next/features/library/application/services/track_profile_editing_service.dart';
 import '../controllers/artist_profile_controller.dart';
+import '../models/track_profile_edit_draft.dart';
 import '../widgets/artist_profile/artist_profile_albums_grid.dart';
 import '../widgets/artist_profile/artist_profile_header.dart';
 import '../widgets/artist_profile/artist_profile_tracks_list.dart';
 import '../widgets/artist_profile/artist_profile_playback_controls.dart';
 import '../widgets/artist_profile/artist_profile_section_heading.dart';
-import '../widgets/track_profile_edit_dialog.dart';
 import 'album_profile_page.dart';
+import 'track_studio_page.dart';
 
 class ArtistProfilePage extends StatefulWidget {
   const ArtistProfilePage({
@@ -57,6 +60,7 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
       repository: repository,
       artistId: widget.artistId,
       playbackCoordinator: context.read<PlaybackCoordinator?>(),
+      songArtistCreditRepository: context.read<SongArtistCreditRepository?>(),
       trackProfileEditingService: context.read<TrackProfileEditingService?>(),
       artworkAssignmentService: context.read<ArtworkAssignmentService?>(),
       artworkFilePicker: context.read<ArtworkFilePicker?>(),
@@ -548,34 +552,65 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
 
       final artists = await repository.getArtists();
       final albums = await repository.getAlbums();
+      final structuredCredits = await controller.getTrackAdditionalCredits(
+        track.songId,
+      );
 
       if (!mounted) {
         return;
       }
 
-      final draft = await showDialog<TrackProfileEditDraft>(
-        context: context,
-        builder: (dialogContext) {
-          return TrackProfileEditDialog(
-            track: track,
-            artists: artists,
-            albums: albums,
-          );
-        },
+      final initialAdditionalCredits = structuredCredits
+          .map(
+            (credit) => TrackProfileCreditDraft(
+              creditedName: credit.creditedName,
+              role: credit.role,
+              artistId: credit.artistId,
+            ),
+          )
+          .toList(growable: false);
+      final draft = await Navigator.of(context).push<TrackProfileEditDraft>(
+        MaterialPageRoute<TrackProfileEditDraft>(
+          builder: (routeContext) {
+            return TrackStudioPage(
+              track: track,
+              artists: artists,
+              albums: albums,
+              initialAdditionalCredits: initialAdditionalCredits,
+              canEditDetails: controller.canEditTrack(userId),
+              onChangeArtwork: controller.canEditTrackArtwork
+                  ? () => _changeTrackArtwork(controller, track)
+                  : null,
+              onClearArtwork: controller.canEditTrackArtwork
+                  ? () => _clearTrackArtwork(controller, track)
+                  : null,
+            );
+          },
+        ),
       );
 
       if (!mounted || draft == null) {
         return;
       }
 
-      final changed = await controller.updateTrack(
+      final changed = await controller.updateTrackWithCredits(
         userId: userId,
         track: track,
         title: draft.title,
         trackNumber: draft.trackNumber,
         discNumber: draft.discNumber,
-        featuredArtists: draft.featuredArtists,
+        additionalCredits: draft.additionalCredits.map(
+          (credit) => SongArtistCreditInput(
+            creditedName: credit.creditedName,
+            role: credit.role,
+            artistId: credit.artistId,
+          ),
+        ),
         isSingle: draft.isSingle,
+        versionLabel: draft.versionLabel,
+        versionCharacteristics: draft.versionCharacteristics,
+        releaseStatus: draft.releaseStatus,
+        isLeak: draft.isLeak,
         artistId: draft.artistId,
         albumId: draft.albumId,
         albumEditionId: draft.albumEditionId,

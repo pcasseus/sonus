@@ -1,5 +1,7 @@
 import '../../../library/domain/entities/album.dart';
 import '../../../library/domain/entities/album_edition.dart';
+import '../../../library/domain/repositories/album_edition_track_repository.dart';
+import '../../../library/domain/entities/album_edition_track.dart';
 import '../../../library/domain/entities/artist.dart';
 import '../../../library/domain/entities/song.dart';
 import '../../domain/models/cloud_records.dart';
@@ -136,6 +138,12 @@ class InboundCloudRecordApplier {
       isSingle: record.isSingle,
       isBlocked: record.isBlocked,
       featuredArtists: record.featuredArtists,
+      versionLabel: record.versionLabel,
+      versionCharacteristics: record.versionCharacteristics
+          .map(SongVersionCharacteristic.values.byName)
+          .toList(growable: false),
+      releaseStatus: SongReleaseStatus.values.byName(record.releaseStatus),
+      isLeak: record.isLeak,
       artworkId: record.artworkId,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
@@ -143,12 +151,113 @@ class InboundCloudRecordApplier {
 
     final existing = await context.songRepository.getById(record.id);
 
+    final membershipRepository = context.albumEditionTrackRepository;
+    final targetMemberships = await membershipRepository.getByEditionId(
+      entity.albumEditionId,
+    );
+
+    AlbumEditionTrack? targetMembership;
+
+    for (final membership in targetMemberships) {
+      if (membership.songId == entity.id) {
+        targetMembership = membership;
+        break;
+      }
+    }
+
+    final effectiveEntity =
+        targetMembership?.numberingAuthority ==
+            AlbumEditionTrackAuthority.manual
+        ? entity.copyWith(
+            discNumber: targetMembership!.discNumber,
+            trackNumber: targetMembership.trackNumber,
+          )
+        : entity;
+
     if (existing == null) {
-      await context.songRepository.create(entity);
+      await context.songRepository.create(effectiveEntity);
+    } else {
+      await context.songRepository.save(effectiveEntity);
+    }
+
+    await _reconcileSongCompatibilityMembership(
+      membershipRepository: membershipRepository,
+      previousSong: existing,
+      incomingSong: effectiveEntity,
+      targetMemberships: targetMemberships,
+      targetMembership: targetMembership,
+    );
+  }
+
+  Future<void> _reconcileSongCompatibilityMembership({
+    required AlbumEditionTrackRepository membershipRepository,
+    required Song? previousSong,
+    required Song incomingSong,
+    required List<AlbumEditionTrack> targetMemberships,
+    required AlbumEditionTrack? targetMembership,
+  }) async {
+    if (targetMembership == null) {
+      final nextSortPosition = targetMemberships.isEmpty
+          ? 0
+          : targetMemberships
+                    .map((membership) => membership.sortPosition)
+                    .reduce((left, right) => left > right ? left : right) +
+                1;
+
+      await membershipRepository.create(
+        AlbumEditionTrack(
+          albumEditionId: incomingSong.albumEditionId,
+          songId: incomingSong.id,
+          discNumber: incomingSong.discNumber,
+          trackNumber: incomingSong.trackNumber,
+          sortPosition: nextSortPosition,
+          createdAt: incomingSong.createdAt,
+          updatedAt: incomingSong.updatedAt,
+        ),
+      );
+    } else {
+      final placementChanged =
+          targetMembership.discNumber != incomingSong.discNumber ||
+          targetMembership.trackNumber != incomingSong.trackNumber;
+
+      if (placementChanged &&
+          targetMembership.numberingAuthority !=
+              AlbumEditionTrackAuthority.manual) {
+        await membershipRepository.save(
+          targetMembership.copyWith(
+            discNumber: incomingSong.discNumber,
+            trackNumber: incomingSong.trackNumber,
+            updatedAt: incomingSong.updatedAt,
+          ),
+        );
+      }
+    }
+
+    if (previousSong == null) {
       return;
     }
 
-    await context.songRepository.save(entity);
+    final albumChanged = previousSong.albumId != incomingSong.albumId;
+
+    if (!albumChanged ||
+        previousSong.albumEditionId == incomingSong.albumEditionId) {
+      return;
+    }
+
+    final previousMemberships = await membershipRepository.getByEditionId(
+      previousSong.albumEditionId,
+    );
+
+    final hadPreviousCompatibilityMembership = previousMemberships.any(
+      (membership) => membership.songId == incomingSong.id,
+    );
+
+    if (hadPreviousCompatibilityMembership) {
+      await membershipRepository.delete(
+        editionId: previousSong.albumEditionId,
+        songId: incomingSong.id,
+      );
+    }
   }
 
   AlbumEditionType _albumEditionType(String value) {

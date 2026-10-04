@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sonus_next/features/library/application/models/library_artist.dart';
 import 'package:sonus_next/features/library/application/models/library_track.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
+import 'package:sonus_next/features/library/presentation/models/track_profile_edit_draft.dart';
 import 'package:sonus_next/features/library/presentation/widgets/track_profile_edit_dialog.dart';
 
 void main() {

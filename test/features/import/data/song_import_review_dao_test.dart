@@ -83,6 +83,33 @@ void main() {
     await SongDao(db).insert(song);
   }
 
+  test('dao persists ambiguous artist credit review payload', () async {
+    final db = await appDatabase.database;
+    final dao = SongImportReviewDao(db);
+    final now = DateTime.utc(2026, 10, 1, 12);
+
+    await createSong(db, suffix: 'ambiguous_credit', now: now);
+
+    final review = SongImportReview(
+      songId: 'song_ambiguous_credit',
+      metadataSource: MetadataSource.embedded,
+      reasons: const [ImportReviewReason.ambiguousArtistCredit],
+      payload: const ImportReviewPayload(
+        rawArtistCredit: 'Megan Thee Stallion & Cardi B',
+      ),
+      createdAt: now,
+      updatedAt: now,
+    );
+
+    await dao.insert(review);
+
+    final restored = await dao.findBySongId(review.songId);
+
+    expect(restored, isNotNull);
+    expect(restored!.reasons, const [ImportReviewReason.ambiguousArtistCredit]);
+    expect(restored.payload?.rawArtistCredit, 'Megan Thee Stallion & Cardi B');
+    expect(restored.needsReview, isTrue);
+  });
   test('dao inserts and restores complete review state', () async {
     final db = await appDatabase.database;
     final dao = SongImportReviewDao(db);

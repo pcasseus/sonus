@@ -1,3 +1,18 @@
+enum SongReleaseStatus { released, unreleased }
+
+enum SongVersionCharacteristic {
+  remix,
+  live,
+  acoustic,
+  demo,
+  instrumental,
+  edit,
+  radioEdit,
+  extended,
+  remaster,
+  alternate,
+}
+
 class Song {
   static const Object _unset = Object();
 
@@ -17,6 +32,10 @@ class Song {
     required this.updatedAt,
     this.featuredArtists = const [],
     this.artworkId,
+    this.versionLabel,
+    this.versionCharacteristics = const [],
+    this.releaseStatus = SongReleaseStatus.released,
+    this.isLeak = false,
   });
 
   final String id;
@@ -32,6 +51,10 @@ class Song {
   final bool isBlocked;
   final List<String> featuredArtists;
   final String? artworkId;
+  final String? versionLabel;
+  final List<SongVersionCharacteristic> versionCharacteristics;
+  final SongReleaseStatus releaseStatus;
+  final bool isLeak;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -49,6 +72,10 @@ class Song {
     bool? isBlocked,
     List<String>? featuredArtists,
     Object? artworkId = _unset,
+    Object? versionLabel = _unset,
+    List<SongVersionCharacteristic>? versionCharacteristics,
+    SongReleaseStatus? releaseStatus,
+    bool? isLeak,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -68,6 +95,13 @@ class Song {
       artworkId: identical(artworkId, _unset)
           ? this.artworkId
           : artworkId as String?,
+      versionLabel: identical(versionLabel, _unset)
+          ? this.versionLabel
+          : versionLabel as String?,
+      versionCharacteristics:
+          versionCharacteristics ?? this.versionCharacteristics,
+      releaseStatus: releaseStatus ?? this.releaseStatus,
+      isLeak: isLeak ?? this.isLeak,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );

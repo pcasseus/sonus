@@ -5,6 +5,28 @@ import 'package:sonus_next/features/import/domain/entities/song_import_review.da
 import 'package:sonus_next/features/import/domain/models/resolved_metadata.dart';
 
 void main() {
+  test('mapper round-trips ambiguous artist credit payload', () {
+    final now = DateTime.utc(2026, 10, 1, 12);
+
+    final review = SongImportReview(
+      songId: 'song_ambiguous_credit',
+      metadataSource: MetadataSource.embedded,
+      reasons: const [ImportReviewReason.ambiguousArtistCredit],
+      payload: const ImportReviewPayload(
+        rawArtistCredit: 'Megan Thee Stallion & Cardi B',
+      ),
+      createdAt: now,
+      updatedAt: now,
+    );
+
+    final row = SongImportReviewRowMapper.toRow(review);
+    final restored = SongImportReviewRowMapper.fromRow(row);
+
+    expect(restored.reasons, const [ImportReviewReason.ambiguousArtistCredit]);
+    expect(restored.payload?.rawArtistCredit, 'Megan Thee Stallion & Cardi B');
+    expect(restored.needsReview, isTrue);
+  });
+
   test('song import review mapper round-trips every persisted field', () {
     final createdAt = DateTime.utc(2026, 9, 17, 12);
     final updatedAt = DateTime.utc(2026, 9, 17, 13);
@@ -40,6 +62,20 @@ void main() {
     expect(restored.needsReview, isFalse);
   });
 
+  test('mapper treats absent review payload as null', () {
+    final now = DateTime.utc(2026, 9, 17, 12);
+
+    final restored = SongImportReviewRowMapper.fromRow({
+      'song_id': 'song_without_payload',
+      'metadata_source': 'embedded',
+      'review_reasons': '["missingTrackNumber"]',
+      'resolved_at': null,
+      'created_at': now.toIso8601String(),
+      'updated_at': now.toIso8601String(),
+    });
+
+    expect(restored.payload, isNull);
+  });
   test('mapper preserves unresolved review state', () {
     final now = DateTime.utc(2026, 9, 17, 12);
 

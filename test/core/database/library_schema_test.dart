@@ -34,6 +34,7 @@ void main() {
     expect(names, contains(DatabaseTables.artists));
     expect(names, contains(DatabaseTables.albums));
     expect(names, contains(DatabaseTables.albumEditions));
+    expect(names, contains(DatabaseTables.albumEditionTracks));
     expect(names, contains(DatabaseTables.songs));
     expect(names, contains(DatabaseTables.mediaFileBindings));
     expect(names, contains(DatabaseTables.importBatches));
@@ -277,6 +278,27 @@ void main() {
       throwsA(isA<DatabaseException>()),
     );
   });
+  test('song version metadata columns use safe defaults', () async {
+    final db = await appDatabase.database;
+
+    final columns = await db.rawQuery(
+      'PRAGMA table_info(${DatabaseTables.songs})',
+    );
+
+    final byName = {
+      for (final column in columns) column['name'] as String: column,
+    };
+
+    expect(byName['version_label'], isNotNull);
+    expect(byName['version_characteristics'], isNotNull);
+    expect(byName['release_status'], isNotNull);
+    expect(byName['is_leak'], isNotNull);
+
+    expect(byName['version_label']!['dflt_value'], isNull);
+    expect(byName['version_characteristics']!['dflt_value'], "'[]'");
+    expect(byName['release_status']!['dflt_value'], "'released'");
+    expect(byName['is_leak']!['dflt_value'], '0');
+  });
   test('media file location belongs to binding, not song', () async {
     final db = await appDatabase.database;
 
@@ -360,5 +382,23 @@ void main() {
       ),
       isTrue,
     );
+  });
+
+  test('album edition track authority columns use inferred defaults', () async {
+    final db = await appDatabase.database;
+
+    final columns = await db.rawQuery(
+      'PRAGMA table_info(${DatabaseTables.albumEditionTracks})',
+    );
+
+    final byName = {
+      for (final column in columns) column['name'] as String: column,
+    };
+
+    expect(byName['numbering_authority'], isNotNull);
+    expect(byName['ordering_authority'], isNotNull);
+
+    expect(byName['numbering_authority']!['dflt_value'], "'inferred'");
+    expect(byName['ordering_authority']!['dflt_value'], "'inferred'");
   });
 }

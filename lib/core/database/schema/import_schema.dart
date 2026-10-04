@@ -35,6 +35,7 @@ abstract final class ImportSchema {
         metadata_source TEXT NOT NULL
           CHECK (metadata_source IN ('embedded', 'mixed', 'fallback')),
         review_reasons TEXT NOT NULL DEFAULT '[]',
+        review_payload TEXT,
         resolved_at TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,

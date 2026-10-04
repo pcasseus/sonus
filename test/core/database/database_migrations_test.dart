@@ -24,7 +24,7 @@ void main() {
       final result = await db.rawQuery('PRAGMA user_version');
 
       expect(result.single['user_version'], AppDatabase.databaseVersion);
-      expect(AppDatabase.databaseVersion, 20);
+      expect(AppDatabase.databaseVersion, 25);
     } finally {
       await appDatabase.close();
     }
@@ -1298,12 +1298,234 @@ void main() {
     },
   );
 
+  test(
+    'migration runner upgrades version 21 schema to version 22 and preserves import reviews',
+    () async {
+      final db = await databaseFactoryFfi.openDatabase(inMemoryDatabasePath);
+
+      try {
+        await db.execute('PRAGMA foreign_keys = ON');
+
+        await db.execute('''
+          CREATE TABLE ${DatabaseTables.songs} (
+            id TEXT PRIMARY KEY NOT NULL
+          )
+        ''');
+
+        await db.execute('''
+          CREATE TABLE ${DatabaseTables.songImportReviews} (
+            song_id TEXT PRIMARY KEY NOT NULL,
+            metadata_source TEXT NOT NULL
+              CHECK (metadata_source IN ('embedded', 'mixed', 'fallback')),
+            review_reasons TEXT NOT NULL DEFAULT '[]',
+            resolved_at TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+
+            FOREIGN KEY (song_id)
+              REFERENCES ${DatabaseTables.songs}(id)
+              ON UPDATE CASCADE
+              ON DELETE CASCADE
+          )
+        ''');
+
+        const songId = 'song_before_review_payload';
+        const createdAt = '2026-10-01T12:00:00.000Z';
+        const updatedAt = '2026-10-01T13:00:00.000Z';
+
+        await db.insert(DatabaseTables.songs, {'id': songId});
+
+        await db.insert(DatabaseTables.songImportReviews, {
+          'song_id': songId,
+          'metadata_source': 'embedded',
+          'review_reasons': '["missingTrackNumber"]',
+          'resolved_at': null,
+          'created_at': createdAt,
+          'updated_at': updatedAt,
+        });
+
+        await DatabaseMigrations.migrate(db, oldVersion: 21, newVersion: 22);
+
+        final columns = await db.rawQuery(
+          'PRAGMA table_info(${DatabaseTables.songImportReviews})',
+        );
+
+        expect(columns.map((row) => row['name']), contains('review_payload'));
+
+        final rows = await db.query(
+          DatabaseTables.songImportReviews,
+          where: 'song_id = ?',
+          whereArgs: [songId],
+        );
+
+        expect(rows, hasLength(1));
+        expect(rows.single['metadata_source'], 'embedded');
+        expect(rows.single['review_reasons'], '["missingTrackNumber"]');
+        expect(rows.single['review_payload'], isNull);
+        expect(rows.single['resolved_at'], isNull);
+        expect(rows.single['created_at'], createdAt);
+        expect(rows.single['updated_at'], updatedAt);
+      } finally {
+        await db.close();
+      }
+    },
+  );
+  test('version 23 membership authority defaults to inferred', () async {
+    final db = await databaseFactoryFfi.openDatabase(inMemoryDatabasePath);
+
+    try {
+      await db.execute('''
+          CREATE TABLE ${DatabaseTables.albumEditionTracks} (
+            album_edition_id TEXT NOT NULL,
+            song_id TEXT NOT NULL,
+            disc_number INTEGER NOT NULL DEFAULT 1,
+            track_number INTEGER NOT NULL DEFAULT 0,
+            sort_position INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (album_edition_id, song_id)
+          )
+        ''');
+
+      final now = DateTime.utc(2026, 10, 2).toIso8601String();
+
+      await db.insert(DatabaseTables.albumEditionTracks, {
+        'album_edition_id': 'edition-1',
+        'song_id': 'song-1',
+        'disc_number': 2,
+        'track_number': 7,
+        'sort_position': 4,
+        'created_at': now,
+        'updated_at': now,
+      });
+
+      await DatabaseMigrations.migrate(db, oldVersion: 23, newVersion: 24);
+
+      final rows = await db.query(DatabaseTables.albumEditionTracks);
+
+      expect(rows, hasLength(1));
+      expect(rows.single['disc_number'], 2);
+      expect(rows.single['track_number'], 7);
+      expect(rows.single['sort_position'], 4);
+      expect(rows.single['numbering_authority'], 'inferred');
+      expect(rows.single['ordering_authority'], 'inferred');
+    } finally {
+      await db.close();
+    }
+  });
+  test('migration 25 adds song version metadata with safe defaults', () async {
+    final db = await databaseFactoryFfi.openDatabase(inMemoryDatabasePath);
+
+    try {
+      const createdAt = '2026-10-03T12:00:00.000Z';
+
+      await db.execute('''
+        CREATE TABLE ${DatabaseTables.songs} (
+          id TEXT PRIMARY KEY NOT NULL,
+          artist_id TEXT NOT NULL,
+          album_id TEXT NOT NULL,
+          album_edition_id TEXT NOT NULL,
+          title TEXT NOT NULL,
+          canonical_title TEXT NOT NULL,
+          track_number INTEGER NOT NULL DEFAULT 0,
+          disc_number INTEGER NOT NULL DEFAULT 1,
+          duration_seconds INTEGER NOT NULL DEFAULT 0,
+          is_single INTEGER NOT NULL DEFAULT 0,
+          is_blocked INTEGER NOT NULL DEFAULT 0,
+          featured_artists TEXT NOT NULL DEFAULT '[]',
+          artwork_id TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+      ''');
+
+      await db.insert(DatabaseTables.songs, {
+        'id': 'song_before_v25',
+        'artist_id': 'artist_1',
+        'album_id': 'album_1',
+        'album_edition_id': 'edition_1',
+        'title': 'Existing Song',
+        'canonical_title': 'existing song',
+        'track_number': 1,
+        'disc_number': 1,
+        'duration_seconds': 180,
+        'is_single': 0,
+        'is_blocked': 0,
+        'featured_artists': '[]',
+        'created_at': createdAt,
+        'updated_at': createdAt,
+      });
+
+      await DatabaseMigrations.migrate(db, oldVersion: 24, newVersion: 25);
+
+      final rows = await db.query(
+        DatabaseTables.songs,
+        where: 'id = ?',
+        whereArgs: ['song_before_v25'],
+      );
+
+      expect(rows, hasLength(1));
+
+      final row = rows.single;
+
+      expect(row['id'], 'song_before_v25');
+      expect(row['version_label'], isNull);
+      expect(row['version_characteristics'], '[]');
+      expect(row['release_status'], 'released');
+      expect(row['is_leak'], 0);
+
+      await db.update(
+        DatabaseTables.songs,
+        {
+          'version_label': 'Early Mix',
+          'version_characteristics': '["demo","acoustic"]',
+          'release_status': 'unreleased',
+          'is_leak': 1,
+        },
+        where: 'id = ?',
+        whereArgs: ['song_before_v25'],
+      );
+
+      final updated = await db.query(
+        DatabaseTables.songs,
+        where: 'id = ?',
+        whereArgs: ['song_before_v25'],
+      );
+
+      expect(updated.single['version_label'], 'Early Mix');
+      expect(updated.single['version_characteristics'], '["demo","acoustic"]');
+      expect(updated.single['release_status'], 'unreleased');
+      expect(updated.single['is_leak'], 1);
+
+      await expectLater(
+        db.update(
+          DatabaseTables.songs,
+          {'release_status': 'bootleg'},
+          where: 'id = ?',
+          whereArgs: ['song_before_v25'],
+        ),
+        throwsA(isA<DatabaseException>()),
+      );
+
+      await expectLater(
+        db.update(
+          DatabaseTables.songs,
+          {'is_leak': 2},
+          where: 'id = ?',
+          whereArgs: ['song_before_v25'],
+        ),
+        throwsA(isA<DatabaseException>()),
+      );
+    } finally {
+      await db.close();
+    }
+  });
   test('migration runner fails loudly for unknown future migration', () async {
     final db = await databaseFactoryFfi.openDatabase(inMemoryDatabasePath);
 
     try {
       await expectLater(
-        DatabaseMigrations.migrate(db, oldVersion: 20, newVersion: 21),
+        DatabaseMigrations.migrate(db, oldVersion: 25, newVersion: 26),
         throwsA(isA<UnsupportedError>()),
       );
     } finally {
