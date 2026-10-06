@@ -18,7 +18,7 @@ void main() {
       );
 
       expect(controller.currentDestination, AppDestination.library);
-      expect(controller.currentIndex, 3);
+      expect(controller.currentIndex, AppDestination.library.index);
     });
 
     test('selectDestination changes the active destination', () {
@@ -27,16 +27,16 @@ void main() {
       controller.selectDestination(AppDestination.tracks);
 
       expect(controller.currentDestination, AppDestination.tracks);
-      expect(controller.currentIndex, 2);
+      expect(controller.currentIndex, AppDestination.tracks.index);
     });
 
     test('selectIndex changes the active destination', () {
       final controller = AppShellController();
 
-      controller.selectIndex(5);
+      controller.selectIndex(AppDestination.settings.index);
 
       expect(controller.currentDestination, AppDestination.settings);
-      expect(controller.currentIndex, 5);
+      expect(controller.currentIndex, AppDestination.settings.index);
     });
 
     test('notifies listeners when the destination changes', () {

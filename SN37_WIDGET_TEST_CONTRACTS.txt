@@ -1,0 +1,338 @@
+SN-37 WIDGET TEST CONTRACTS
+
+================================================================================
+FILE: .\lib\features\analytics\application\models\monthly_insights\monthly_track_insight_row.dart
+================================================================================
+import '../../../../library/application/models/library_track.dart';
+import 'monthly_ranked_entity.dart';
+
+class MonthlyTrackInsightRow {
+  const MonthlyTrackInsightRow({
+    required this.track,
+    required this.ranking,
+    required this.listeningDuration,
+  });
+
+  final LibraryTrack track;
+  final MonthlyRankedEntity ranking;
+  final Duration listeningDuration;
+
+  int get rank => ranking.rank;
+  int? get previousRank => ranking.previousRank;
+  int? get rankMovement => ranking.rankMovement;
+
+  int get streams => ranking.streams;
+  int get previousStreams => ranking.previousStreams;
+  int get lifetimeStreams => ranking.lifetimeStreams;
+
+  int get streamChange => ranking.streamChange.absoluteChange;
+  double? get streamPercentChange => ranking.streamChange.percentChange;
+
+  bool get isNew => ranking.isNew;
+}
+
+================================================================================
+FILE: .\lib\features\analytics\application\models\monthly_insights\monthly_artist_insight_row.dart
+================================================================================
+import '../../../../library/application/models/library_artist.dart';
+import 'monthly_ranked_entity.dart';
+
+class MonthlyArtistInsightRow {
+  const MonthlyArtistInsightRow({
+    required this.artist,
+    required this.ranking,
+    required this.listeningDuration,
+  });
+
+  final LibraryArtist artist;
+  final MonthlyRankedEntity ranking;
+  final Duration listeningDuration;
+
+  int get rank => ranking.rank;
+  int? get previousRank => ranking.previousRank;
+  int? get rankMovement => ranking.rankMovement;
+
+  int get streams => ranking.streams;
+  int get previousStreams => ranking.previousStreams;
+  int get lifetimeStreams => ranking.lifetimeStreams;
+
+  int get streamChange => ranking.streamChange.absoluteChange;
+  double? get streamPercentChange => ranking.streamChange.percentChange;
+
+  bool get isNew => ranking.isNew;
+}
+
+================================================================================
+FILE: .\lib\features\analytics\application\models\monthly_insights\monthly_album_insight_row.dart
+================================================================================
+import '../../../../library/application/models/library_album.dart';
+import 'monthly_ranked_entity.dart';
+
+class MonthlyAlbumInsightRow {
+  const MonthlyAlbumInsightRow({
+    required this.album,
+    required this.ranking,
+    required this.listeningDuration,
+  });
+
+  final LibraryAlbum album;
+  final MonthlyRankedEntity ranking;
+  final Duration listeningDuration;
+
+  int get rank => ranking.rank;
+  int? get previousRank => ranking.previousRank;
+  int? get rankMovement => ranking.rankMovement;
+
+  int get streams => ranking.streams;
+  int get previousStreams => ranking.previousStreams;
+  int get lifetimeStreams => ranking.lifetimeStreams;
+
+  int get streamChange => ranking.streamChange.absoluteChange;
+  double? get streamPercentChange => ranking.streamChange.percentChange;
+
+  bool get isNew => ranking.isNew;
+}
+
+================================================================================
+FILE: .\lib\features\analytics\application\models\monthly_insights\monthly_listening_insights_presentation_data.dart
+================================================================================
+import '../monthly_insights/monthly_album_insight_row.dart';
+import '../monthly_insights/monthly_artist_insight_row.dart';
+import '../monthly_insights/monthly_listening_insights.dart';
+import '../monthly_insights/monthly_track_insight_row.dart';
+
+class MonthlyListeningInsightsPresentationData {
+  const MonthlyListeningInsightsPresentationData({
+    required this.insights,
+    required this.tracks,
+    required this.artists,
+    required this.albums,
+  });
+
+  final MonthlyListeningInsights insights;
+
+  final List<MonthlyTrackInsightRow> tracks;
+  final List<MonthlyArtistInsightRow> artists;
+  final List<MonthlyAlbumInsightRow> albums;
+}
+
+================================================================================
+FILE: .\lib\features\library\application\models\library_track.dart
+================================================================================
+import '../../domain/entities/album_edition.dart';
+import '../../domain/entities/song.dart';
+
+class LibraryTrack {
+  const LibraryTrack({
+    required this.songId,
+    required this.title,
+    required this.artistId,
+    required this.artistName,
+    required this.albumId,
+    required this.albumTitle,
+    required this.albumEditionId,
+    required this.albumEditionTitle,
+    required this.albumEditionType,
+    required this.trackNumber,
+    this.discNumber = 1,
+    required this.durationSeconds,
+    required this.isSingle,
+    required this.featuredArtists,
+    this.versionLabel,
+    this.versionCharacteristics = const [],
+    this.releaseStatus = SongReleaseStatus.released,
+    this.isLeak = false,
+    required this.dateAdded,
+    required this.isAvailable,
+    this.isSongBlocked = false,
+    this.filePath,
+    this.artworkId,
+    this.artworkPath,
+  });
+
+  final String songId;
+  final String title;
+
+  final String artistId;
+  final String artistName;
+
+  final String albumId;
+  final String albumTitle;
+
+  final String albumEditionId;
+  final String albumEditionTitle;
+  final AlbumEditionType albumEditionType;
+
+  final int trackNumber;
+  final int discNumber;
+  final int durationSeconds;
+  final bool isSingle;
+  final List<String> featuredArtists;
+
+  final String? versionLabel;
+  final List<SongVersionCharacteristic> versionCharacteristics;
+  final SongReleaseStatus releaseStatus;
+  final bool isLeak;
+  final DateTime dateAdded;
+
+  final String? filePath;
+  final bool isAvailable;
+
+  final bool isSongBlocked;
+
+  bool get isBlocked => isSongBlocked;
+
+  final String? artworkId;
+  final String? artworkPath;
+}
+
+================================================================================
+FILE: .\lib\features\library\application\models\library_artist.dart
+================================================================================
+class LibraryArtist {
+  const LibraryArtist({
+    required this.artistId,
+    required this.name,
+    required this.albumCount,
+    required this.songCount,
+    required this.dateAdded,
+    this.headerArtworkId,
+    this.headerArtworkPath,
+    this.topArtistsArtworkId,
+    this.topArtistsArtworkPath,
+  });
+
+  final String artistId;
+  final String name;
+
+  final int albumCount;
+  final int songCount;
+
+  final String? headerArtworkId;
+  final String? headerArtworkPath;
+
+  final String? topArtistsArtworkId;
+  final String? topArtistsArtworkPath;
+
+  final DateTime dateAdded;
+}
+
+================================================================================
+FILE: .\lib\features\library\application\models\library_album.dart
+================================================================================
+import '../../domain/entities/album_edition.dart';
+
+class LibraryAlbum {
+  const LibraryAlbum({
+    required this.albumId,
+    required this.title,
+    required this.artistId,
+    required this.artistName,
+    required this.trackCount,
+    required this.dateAdded,
+    this.primaryEditionId,
+    this.primaryEditionTitle,
+    this.primaryEditionType,
+    this.releaseDate,
+    this.genre,
+    this.artworkId,
+    this.artworkPath,
+  });
+
+  final String albumId;
+  final String title;
+
+  final String artistId;
+  final String artistName;
+
+  final String? primaryEditionId;
+  final String? primaryEditionTitle;
+  final AlbumEditionType? primaryEditionType;
+
+  final DateTime? releaseDate;
+  final String? genre;
+
+  final String? artworkId;
+  final String? artworkPath;
+
+  final int trackCount;
+  final DateTime dateAdded;
+}
+
+================================================================================
+FILE: .\lib\features\analytics\application\models\monthly_insights\monthly_ranked_entity.dart
+================================================================================
+import 'monthly_ranking_change.dart';
+
+class MonthlyRankedEntity {
+  const MonthlyRankedEntity({
+    required this.entityId,
+    required this.rank,
+    required this.previousRank,
+    required this.streams,
+    required this.previousStreams,
+    required this.lifetimeStreams,
+  });
+
+  final String entityId;
+
+  final int rank;
+  final int? previousRank;
+
+  final int streams;
+  final int previousStreams;
+  final int lifetimeStreams;
+
+  MonthlyRankingChange get streamChange => MonthlyRankingChange(
+    currentValue: streams,
+    previousValue: previousStreams,
+  );
+
+  bool get isNew => previousRank == null && previousStreams == 0;
+
+  int? get rankMovement {
+    final previous = previousRank;
+
+    if (previous == null) {
+      return null;
+    }
+
+    return previous - rank;
+  }
+
+  bool get movedUp => (rankMovement ?? 0) > 0;
+
+  bool get movedDown => (rankMovement ?? 0) < 0;
+
+  bool get stayedAtSameRank => rankMovement == 0;
+}
+
+================================================================================
+FILE: .\lib\features\analytics\application\models\monthly_insights\monthly_daily_listening.dart
+================================================================================
+class MonthlyDailyListening {
+  const MonthlyDailyListening({
+    required this.localDate,
+    required this.streams,
+    required this.listeningDuration,
+  });
+
+  final DateTime localDate;
+  final int streams;
+  final Duration listeningDuration;
+}
+
+================================================================================
+FILE: .\lib\features\analytics\application\models\monthly_insights\monthly_hourly_listening.dart
+================================================================================
+class MonthlyHourlyListening {
+  const MonthlyHourlyListening({
+    required this.hour,
+    required this.streams,
+    required this.listeningDuration,
+  });
+
+  final int hour;
+  final int streams;
+  final Duration listeningDuration;
+}
