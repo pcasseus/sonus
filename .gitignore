@@ -45,3 +45,7 @@ app.*.map.json
 /android/app/release
 
 sonus.local.json
+
+# Local Sonus development audit artifacts
+SN*_AUDIT.txt
+SN*_CONTRACTS.txt
