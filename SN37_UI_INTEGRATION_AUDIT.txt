@@ -1,0 +1,3889 @@
+SN-37 UI INTEGRATION AUDIT
+
+================================================================================
+FILE: .\lib\features\home\presentation\pages\home_page.dart
+================================================================================
+import 'dart:async';
+import 'dart:io';
+
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
+import '../../../library/application/models/library_album.dart';
+import '../../../library/application/models/library_artist.dart';
+import '../../../library/application/models/library_track.dart';
+import '../../../library/presentation/pages/album_profile_page.dart';
+import '../../../library/presentation/pages/artist_profile_page.dart';
+import '../../../player/application/controllers/playback_coordinator.dart';
+import '../../../playlists/presentation/widgets/add_to_playlist_sheet.dart';
+import '../../application/models/home_popular_track.dart';
+import '../../application/models/home_top_artist.dart';
+import '../controllers/home_controller.dart';
+
+class HomePage extends StatelessWidget {
+  const HomePage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = context.watch<HomeController?>();
+
+    if (controller == null) {
+      return const _HomeMessage(
+        icon: Icons.hourglass_empty_rounded,
+        title: 'Home is getting ready',
+        message: 'Your Sonus Home data is still initializing.',
+      );
+    }
+
+    final snapshot = controller.snapshot;
+
+    if (controller.isLoading && snapshot == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (controller.hasError && snapshot == null) {
+      return _HomeError(onRetry: controller.load);
+    }
+
+    if (snapshot == null || snapshot.isEmpty) {
+      return RefreshIndicator(
+        onRefresh: controller.refresh,
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.fromLTRB(20, 28, 20, 40),
+          children: const [
+            SizedBox(height: 100),
+            _HomeMessage(
+              icon: Icons.home_outlined,
+              title: 'Your Home is empty',
+              message: 'Import music to get started.',
+            ),
+          ],
+        ),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: controller.refresh,
+      child: ListView(
+        key: const PageStorageKey<String>('home-scroll'),
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(0, 20, 0, 40),
+        children: [
+          if (controller.hasError)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
+              child: _RefreshErrorBanner(onRetry: controller.refresh),
+            ),
+
+          if (snapshot.weeklyPopularTracks.isNotEmpty) ...[
+            const _SectionHeading(title: 'Popular This Week'),
+            const SizedBox(height: 12),
+            _PopularTracksRail(entries: snapshot.weeklyPopularTracks),
+            const SizedBox(height: 30),
+          ],
+
+          if (snapshot.weeklyTopArtists.isNotEmpty) ...[
+            const _SectionHeading(title: 'Top Artists'),
+            const SizedBox(height: 12),
+            _TopArtistsRail(entries: snapshot.weeklyTopArtists),
+            const SizedBox(height: 30),
+          ],
+
+          if (snapshot.recentlyAddedTracks.isNotEmpty) ...[
+            const _SectionHeading(title: 'Recently Added'),
+            const SizedBox(height: 12),
+            _RecentlyAddedTracksRail(tracks: snapshot.recentlyAddedTracks),
+            const SizedBox(height: 30),
+          ],
+
+          if (snapshot.recentlyAddedAlbums.isNotEmpty) ...[
+            const _SectionHeading(title: 'New Albums'),
+            const SizedBox(height: 12),
+            _AlbumsRail(albums: snapshot.recentlyAddedAlbums),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _SectionHeading extends StatelessWidget {
+  const _SectionHeading({required this.title});
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      child: Text(
+        title,
+        style: Theme.of(
+          context,
+        ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
+      ),
+    );
+  }
+}
+
+class _PopularTracksRail extends StatelessWidget {
+  const _PopularTracksRail({required this.entries});
+
+  final List<HomePopularTrack> entries;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 270,
+      child: ListView.separated(
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        scrollDirection: Axis.horizontal,
+        itemCount: entries.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 14),
+        itemBuilder: (context, index) {
+          final entry = entries[index];
+
+          return _PopularTrackCard(
+            entry: entry,
+            onTap: () {
+              unawaited(_showTrackContext(context, entry.track));
+            },
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _PopularTrackCard extends StatelessWidget {
+  const _PopularTrackCard({required this.entry, required this.onTap});
+
+  final HomePopularTrack entry;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final track = entry.track;
+
+    return SizedBox(
+      width: 170,
+      child: InkWell(
+        key: ValueKey<String>('home-popular-track-${track.songId}'),
+        borderRadius: BorderRadius.circular(20),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.only(bottom: 6),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Stack(
+                children: [
+                  _SquareArtwork(
+                    path: track.artworkPath,
+                    fallbackIcon: Icons.music_note_rounded,
+                    size: 170,
+                  ),
+                  Positioned(
+                    top: 10,
+                    left: 10,
+                    child: _RankBadge(rank: entry.rank),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Text(
+                track.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                track.artistName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall,
+              ),
+              const SizedBox(height: 3),
+              Text(
+                '${entry.qualifiedStreamCount} weekly streams',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TopArtistsRail extends StatelessWidget {
+  const _TopArtistsRail({required this.entries});
+
+  final List<HomeTopArtist> entries;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 235,
+      child: ListView.separated(
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        scrollDirection: Axis.horizontal,
+        itemCount: entries.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 14),
+        itemBuilder: (context, index) {
+          final entry = entries[index];
+
+          return _ArtistCard(
+            entry: entry,
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => ArtistProfilePage(
+                    artistId: entry.artist.artistId,
+                    initialArtistName: entry.artist.name,
+                  ),
+                ),
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _ArtistCard extends StatelessWidget {
+  const _ArtistCard({required this.entry, required this.onTap});
+
+  final HomeTopArtist entry;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return SizedBox(
+      width: 160,
+      child: InkWell(
+        key: ValueKey<String>('home-top-artist-${entry.artist.artistId}'),
+        borderRadius: BorderRadius.circular(20),
+        onTap: onTap,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Stack(
+              children: [
+                _ArtistArtwork(artist: entry.artist, size: 160),
+                Positioned(
+                  top: 10,
+                  left: 10,
+                  child: _RankBadge(rank: entry.rank),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text(
+              entry.artist.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 3),
+            Text(
+              '${entry.qualifiedStreamCount} weekly streams',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodySmall,
+            ),
+            const SizedBox(height: 2),
+            Text(
+              _formatListeningDuration(entry.weeklyListeningDuration),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RecentlyAddedTracksRail extends StatelessWidget {
+  const _RecentlyAddedTracksRail({required this.tracks});
+
+  final List<LibraryTrack> tracks;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 225,
+      child: ListView.separated(
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        scrollDirection: Axis.horizontal,
+        itemCount: tracks.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 14),
+        itemBuilder: (context, index) {
+          final track = tracks[index];
+
+          return _RecentTrackCard(
+            track: track,
+            onTap: track.isBlocked
+                ? null
+                : () {
+                    unawaited(_showTrackContext(context, track));
+                  },
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _RecentTrackCard extends StatelessWidget {
+  const _RecentTrackCard({required this.track, required this.onTap});
+
+  final LibraryTrack track;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDisabled = track.isBlocked;
+
+    return SizedBox(
+      width: 150,
+      child: InkWell(
+        key: ValueKey<String>('home-recent-track-${track.songId}'),
+        borderRadius: BorderRadius.circular(18),
+        onTap: onTap,
+        child: Opacity(
+          opacity: isDisabled ? 0.55 : 1,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Stack(
+                children: [
+                  _SquareArtwork(
+                    path: track.artworkPath,
+                    fallbackIcon: Icons.music_note_rounded,
+                    size: 150,
+                  ),
+                  if (isDisabled)
+                    Positioned.fill(
+                      child: DecoratedBox(
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.surface.withValues(
+                            alpha: 0.45,
+                          ),
+                          borderRadius: BorderRadius.circular(18),
+                        ),
+                        child: const Center(child: Icon(Icons.block_rounded)),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Text(
+                track.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                track.artistName,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AlbumsRail extends StatelessWidget {
+  const _AlbumsRail({required this.albums});
+
+  final List<LibraryAlbum> albums;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 230,
+      child: ListView.separated(
+        padding: const EdgeInsets.symmetric(horizontal: 20),
+        scrollDirection: Axis.horizontal,
+        itemCount: albums.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 14),
+        itemBuilder: (context, index) {
+          final album = albums[index];
+
+          return _AlbumCard(
+            album: album,
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => AlbumProfilePage(
+                    albumId: album.albumId,
+                    initialAlbumTitle: album.title,
+                  ),
+                ),
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _AlbumCard extends StatelessWidget {
+  const _AlbumCard({required this.album, required this.onTap});
+
+  final LibraryAlbum album;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return SizedBox(
+      width: 160,
+      child: InkWell(
+        key: ValueKey<String>('home-new-album-${album.albumId}'),
+        borderRadius: BorderRadius.circular(18),
+        onTap: onTap,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _AlbumArtwork(album: album, size: 160),
+            const SizedBox(height: 10),
+            Text(
+              album.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 3),
+            Text(
+              album.artistName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodySmall,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RankBadge extends StatelessWidget {
+  const _RankBadge({required this.rank});
+
+  final int rank;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: colorScheme.surface.withValues(alpha: 0.9),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+        child: Text(
+          '#$rank',
+          style: Theme.of(
+            context,
+          ).textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w800),
+        ),
+      ),
+    );
+  }
+}
+
+class _SquareArtwork extends StatelessWidget {
+  const _SquareArtwork({
+    required this.path,
+    required this.fallbackIcon,
+    required this.size,
+  });
+
+  final String? path;
+  final IconData fallbackIcon;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final normalizedPath = path?.trim();
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(18),
+      child: SizedBox.square(
+        dimension: size,
+        child: normalizedPath != null && normalizedPath.isNotEmpty
+            ? Image.file(
+                File(normalizedPath),
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) => _ArtworkFallback(icon: fallbackIcon),
+              )
+            : _ArtworkFallback(icon: fallbackIcon),
+      ),
+    );
+  }
+}
+
+class _ArtworkFallback extends StatelessWidget {
+  const _ArtworkFallback({required this.icon});
+
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return ColoredBox(
+      color: colorScheme.surfaceContainerHighest,
+      child: Center(
+        child: Icon(icon, size: 42, color: colorScheme.onSurfaceVariant),
+      ),
+    );
+  }
+}
+
+class _ArtistArtwork extends StatelessWidget {
+  const _ArtistArtwork({required this.artist, required this.size});
+
+  final LibraryArtist artist;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final topArtistsPath = artist.topArtistsArtworkPath?.trim();
+    final headerPath = artist.headerArtworkPath?.trim();
+
+    final path = topArtistsPath != null && topArtistsPath.isNotEmpty
+        ? topArtistsPath
+        : headerPath != null && headerPath.isNotEmpty
+        ? headerPath
+        : null;
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(size / 2),
+      child: SizedBox.square(
+        dimension: size,
+        child: path == null
+            ? const _ArtworkFallback(icon: Icons.person_rounded)
+            : Image.file(
+                File(path),
+                key: ValueKey<String>(
+                  'home-top-artist-artwork-${artist.artistId}',
+                ),
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) =>
+                    const _ArtworkFallback(icon: Icons.person_rounded),
+              ),
+      ),
+    );
+  }
+}
+
+class _AlbumArtwork extends StatelessWidget {
+  const _AlbumArtwork({required this.album, required this.size});
+
+  final LibraryAlbum album;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final path = album.artworkPath?.trim();
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(18),
+      child: SizedBox.square(
+        dimension: size,
+        child: path == null || path.isEmpty
+            ? const _ArtworkFallback(icon: Icons.album_rounded)
+            : Image.file(
+                File(path),
+                key: ValueKey<String>(
+                  'home-new-album-artwork-${album.albumId}',
+                ),
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) =>
+                    const _ArtworkFallback(icon: Icons.album_rounded),
+              ),
+      ),
+    );
+  }
+}
+
+class _HomeMessage extends StatelessWidget {
+  const _HomeMessage({
+    required this.icon,
+    required this.title,
+    required this.message,
+  });
+
+  final IconData icon;
+  final String title;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Center(
+      child: Column(
+        children: [
+          Icon(icon, size: 42, color: theme.colorScheme.onSurfaceVariant),
+          const SizedBox(height: 14),
+          Text(
+            title,
+            textAlign: TextAlign.center,
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HomeError extends StatelessWidget {
+  const _HomeError({required this.onRetry});
+
+  final Future<void> Function() onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.error_outline_rounded, size: 42),
+            const SizedBox(height: 12),
+            const Text('Home could not be loaded.'),
+            const SizedBox(height: 14),
+            FilledButton.tonal(
+              onPressed: () {
+                unawaited(onRetry());
+              },
+              child: const Text('Retry'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _RefreshErrorBanner extends StatelessWidget {
+  const _RefreshErrorBanner({required this.onRetry});
+
+  final Future<void> Function() onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Material(
+      color: colorScheme.errorContainer,
+      borderRadius: BorderRadius.circular(14),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
+        child: Row(
+          children: [
+            Icon(
+              Icons.error_outline_rounded,
+              color: colorScheme.onErrorContainer,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Home could not refresh.',
+                style: TextStyle(color: colorScheme.onErrorContainer),
+              ),
+            ),
+            TextButton(
+              onPressed: () {
+                unawaited(onRetry());
+              },
+              child: const Text('Retry'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+Future<void> _showTrackContext(BuildContext context, LibraryTrack track) async {
+  if (track.isBlocked || !track.isAvailable) {
+    return;
+  }
+
+  final playback = context.read<PlaybackCoordinator?>();
+
+  await showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    builder: (sheetContext) {
+      return SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              ListTile(
+                title: Text(
+                  track.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                subtitle: Text(
+                  '${track.artistName} � ${track.albumTitle}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.play_arrow_rounded),
+                title: const Text('Play'),
+                enabled: playback != null,
+                onTap: playback == null
+                    ? null
+                    : () {
+                        Navigator.of(sheetContext).pop();
+                        unawaited(playback.playTrack(track));
+                      },
+              ),
+              ListTile(
+                leading: const Icon(Icons.playlist_play_rounded),
+                title: const Text('Play next'),
+                enabled: playback != null,
+                onTap: playback == null
+                    ? null
+                    : () {
+                        Navigator.of(sheetContext).pop();
+                        unawaited(playback.playNext(track));
+                      },
+              ),
+              ListTile(
+                leading: const Icon(Icons.queue_music_rounded),
+                title: const Text('Add to queue'),
+                enabled: playback != null,
+                onTap: playback == null
+                    ? null
+                    : () {
+                        Navigator.of(sheetContext).pop();
+                        unawaited(playback.addToQueue(track));
+                      },
+              ),
+              ListTile(
+                leading: const Icon(Icons.playlist_add_rounded),
+                title: const Text('Add to playlist'),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  unawaited(showAddToPlaylistFlow(context, track));
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.album_outlined),
+                title: const Text('Go to album'),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => AlbumProfilePage(
+                        albumId: track.albumId,
+                        initialAlbumTitle: track.albumTitle,
+                      ),
+                    ),
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.person_outline_rounded),
+                title: const Text('Go to artist'),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => ArtistProfilePage(
+                        artistId: track.artistId,
+                        initialArtistName: track.artistName,
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
+
+String _formatListeningDuration(Duration duration) {
+  final totalMinutes = duration.inMinutes;
+
+  if (totalMinutes < 60) {
+    return '$totalMinutes min listening';
+  }
+
+  final hours = totalMinutes ~/ 60;
+  final minutes = totalMinutes % 60;
+
+  if (minutes == 0) {
+    return '${hours}h listening';
+  }
+
+  return '${hours}h ${minutes}m listening';
+}
+
+================================================================================
+FILE: .\lib\features\home\presentation\scopes\home_scope.dart
+================================================================================
+import 'dart:async';
+
+import 'package:flutter/widgets.dart';
+import 'package:provider/provider.dart';
+
+import '../../../analytics/application/services/analytics_artist_listening_duration_service.dart';
+import '../../../analytics/application/services/analytics_entity_ranking_service.dart';
+import '../../../analytics/domain/repositories/playback_listening_segment_repository.dart';
+import '../../../analytics/domain/repositories/playback_session_repository.dart';
+import '../../../analytics/domain/repositories/qualified_play_repository.dart';
+import '../../../library/application/repositories/library_query_repository.dart';
+import '../../application/services/home_data_service.dart';
+import '../controllers/home_controller.dart';
+
+class HomeScope extends StatefulWidget {
+  const HomeScope({super.key, required this.child, this.now});
+
+  final Widget child;
+  final HomeControllerNow? now;
+
+  @override
+  State<HomeScope> createState() => _HomeScopeState();
+}
+
+class _HomeScopeState extends State<HomeScope> {
+  LibraryQueryRepository? _library;
+  QualifiedPlayRepository? _qualifiedPlays;
+  PlaybackSessionRepository? _playbackSessions;
+  PlaybackListeningSegmentRepository? _listeningSegments;
+
+  HomeController? _controller;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+
+    final library = context.watch<LibraryQueryRepository?>();
+    final qualifiedPlays = context.watch<QualifiedPlayRepository?>();
+    final playbackSessions = context.watch<PlaybackSessionRepository?>();
+    final listeningSegments = context
+        .watch<PlaybackListeningSegmentRepository?>();
+
+    if (identical(library, _library) &&
+        identical(qualifiedPlays, _qualifiedPlays) &&
+        identical(playbackSessions, _playbackSessions) &&
+        identical(listeningSegments, _listeningSegments)) {
+      return;
+    }
+
+    _library = library;
+    _qualifiedPlays = qualifiedPlays;
+    _playbackSessions = playbackSessions;
+    _listeningSegments = listeningSegments;
+
+    _recreateController();
+  }
+
+  @override
+  void didUpdateWidget(HomeScope oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (!identical(oldWidget.now, widget.now)) {
+      _recreateController();
+    }
+  }
+
+  void _recreateController() {
+    final previousController = _controller;
+    _controller = null;
+
+    previousController?.dispose();
+
+    final library = _library;
+    final qualifiedPlays = _qualifiedPlays;
+    final playbackSessions = _playbackSessions;
+    final listeningSegments = _listeningSegments;
+
+    if (library == null ||
+        qualifiedPlays == null ||
+        playbackSessions == null ||
+        listeningSegments == null) {
+      return;
+    }
+
+    final service = HomeDataService(
+      library: library,
+      analyticsRankings: AnalyticsEntityRankingService(
+        qualifiedPlays: qualifiedPlays,
+      ),
+      artistListeningDurations: AnalyticsArtistListeningDurationService(
+        playbackSessions: playbackSessions,
+        listeningSegments: listeningSegments,
+      ),
+    );
+
+    final controller = HomeController(service: service, now: widget.now);
+
+    _controller = controller;
+
+    unawaited(controller.load());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ChangeNotifierProvider<HomeController?>.value(
+      value: _controller,
+      child: widget.child,
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller?.dispose();
+    super.dispose();
+  }
+}
+
+================================================================================
+FILE: .\lib\features\charts\presentation\pages\charts_page.dart
+================================================================================
+import 'dart:async';
+import 'dart:io';
+
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+import '../../../library/application/models/library_album.dart';
+import '../../../library/application/models/library_track.dart';
+import '../../../library/presentation/pages/album_profile_page.dart';
+import '../../../library/presentation/pages/artist_profile_page.dart';
+import '../../../player/application/controllers/playback_coordinator.dart';
+import '../../../playlists/presentation/widgets/add_to_playlist_sheet.dart';
+
+import '../../application/models/chart_moment_feed_item.dart';
+import '../../domain/entities/chart_entry.dart';
+import '../../domain/entities/chart_snapshot.dart';
+import '../../domain/models/chart_movement.dart';
+import '../../domain/models/chart_type.dart';
+import '../../domain/models/chart_view_size.dart';
+import '../formatters/chart_moment_feed_copy_formatter.dart';
+import '../models/charts_presentation_mode.dart';
+import '../controllers/charts_controller.dart';
+
+class ChartsPage extends StatelessWidget {
+  const ChartsPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = context.watch<ChartsController?>();
+
+    if (controller == null) {
+      return const _ChartsMessage(
+        key: ValueKey<String>('charts-initializing'),
+        icon: Icons.bar_chart_rounded,
+        title: 'Sonus Hot 100 is getting ready',
+        message: 'Your chart data is still initializing.',
+      );
+    }
+
+    final snapshot = controller.snapshot;
+
+    if (controller.isLoading && snapshot == null) {
+      return const Center(
+        key: ValueKey<String>('charts-loading'),
+        child: CircularProgressIndicator(),
+      );
+    }
+
+    if (controller.hasError && snapshot == null) {
+      return _ChartsError(
+        key: const ValueKey<String>('charts-error'),
+        onRetry: controller.load,
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: controller.refresh,
+      child: ListView(
+        key: const PageStorageKey<String>('charts-scroll'),
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(20, 22, 20, 40),
+        children: [
+          const _ChartsHeader(),
+          const SizedBox(height: 18),
+          _ChartsPresentationSelector(controller: controller),
+          const SizedBox(height: 20),
+
+          if (controller.isShowingCharts) ...[
+            _ChartTypeSelector(controller: controller),
+            const SizedBox(height: 18),
+            _WeekNavigator(controller: controller),
+            const SizedBox(height: 18),
+            _ViewSizeSelector(controller: controller),
+
+            if (controller.viewSize == ChartViewSize.top200) ...[
+              const SizedBox(height: 10),
+              const _ExtendedChartNotice(),
+            ],
+
+            const SizedBox(height: 22),
+
+            if (controller.hasError && snapshot != null) ...[
+              _RefreshErrorBanner(onRetry: controller.refresh),
+              const SizedBox(height: 16),
+            ],
+
+            if (snapshot == null || snapshot.entries.isEmpty)
+              const _ChartsMessage(
+                key: ValueKey<String>('charts-empty'),
+                icon: Icons.leaderboard_outlined,
+                title: 'No chart entries yet',
+                message:
+                    'Qualified listening this week will build your Sonus Hot 100.',
+              )
+            else ...[
+              _SnapshotSummary(snapshot: snapshot),
+              const SizedBox(height: 14),
+
+              for (final entry in snapshot.entries) ...[
+                _ChartRow(entry: entry, controller: controller),
+                const Divider(height: 1),
+              ],
+            ],
+          ] else
+            _MomentsFeed(controller: controller),
+        ],
+      ),
+    );
+  }
+}
+
+class _ChartsHeader extends StatelessWidget {
+  const _ChartsHeader();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Column(
+      key: const ValueKey<String>('charts-header'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'SONUS',
+          style: theme.textTheme.labelLarge?.copyWith(
+            letterSpacing: 2.4,
+            fontWeight: FontWeight.w800,
+            color: theme.colorScheme.primary,
+          ),
+        ),
+        const SizedBox(height: 3),
+        Text(
+          'Hot 100',
+          key: const ValueKey<String>('charts-title'),
+          style: theme.textTheme.displaySmall?.copyWith(
+            fontWeight: FontWeight.w900,
+            height: 1,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ChartsPresentationSelector extends StatelessWidget {
+  const _ChartsPresentationSelector({required this.controller});
+
+  final ChartsController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return SegmentedButton<ChartsPresentationMode>(
+      key: const ValueKey<String>('charts-presentation-selector'),
+      segments: const [
+        ButtonSegment<ChartsPresentationMode>(
+          value: ChartsPresentationMode.charts,
+          label: Text('Charts'),
+          icon: Icon(Icons.leaderboard_rounded),
+        ),
+        ButtonSegment<ChartsPresentationMode>(
+          value: ChartsPresentationMode.moments,
+          label: Text('Moments'),
+          icon: Icon(Icons.auto_awesome_rounded),
+        ),
+      ],
+      selected: {controller.presentationMode},
+      onSelectionChanged: (selection) {
+        if (selection.isEmpty) {
+          return;
+        }
+
+        controller.selectPresentationMode(selection.first);
+      },
+    );
+  }
+}
+
+class _MomentsFeed extends StatelessWidget {
+  const _MomentsFeed({required this.controller});
+
+  final ChartsController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    if (controller.hasMomentFeedError && !controller.hasMomentFeedItems) {
+      return _ChartsMessage(
+        key: const ValueKey<String>('charts-moments-error'),
+        icon: Icons.error_outline_rounded,
+        title: 'Moments could not be loaded',
+        message:
+            'Your chart is still available. Try loading your Moments again.',
+        action: FilledButton.icon(
+          onPressed: controller.refresh,
+          icon: const Icon(Icons.refresh_rounded),
+          label: const Text('Retry'),
+        ),
+      );
+    }
+
+    if (!controller.hasMomentFeedItems) {
+      return const _ChartsMessage(
+        key: ValueKey<String>('charts-moments-empty'),
+        icon: Icons.auto_awesome_outlined,
+        title: 'No Moments yet',
+        message:
+            'As your Sonus Hot 100 changes, chart milestones and movement will appear here.',
+      );
+    }
+
+    return Column(
+      key: const ValueKey<String>('charts-moments-feed'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (controller.hasMomentFeedError) ...[
+          _MomentsRefreshErrorBanner(onRetry: controller.refresh),
+          const SizedBox(height: 14),
+        ],
+
+        for (
+          var index = 0;
+          index < controller.momentFeedItems.length;
+          index++
+        ) ...[
+          _MomentCard(
+            item: controller.momentFeedItems[index],
+            controller: controller,
+          ),
+          if (index != controller.momentFeedItems.length - 1)
+            const SizedBox(height: 14),
+        ],
+      ],
+    );
+  }
+}
+
+class _MomentCard extends StatelessWidget {
+  const _MomentCard({required this.item, required this.controller});
+
+  static const _formatter = ChartMomentFeedCopyFormatter();
+
+  final ChartMomentFeedItem item;
+  final ChartsController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final copy = _formatter.format(item);
+
+    final artworkPath = controller.artworkPathForMoment(item);
+
+    final fallbackIcon = item.chartType == ChartType.songs
+        ? Icons.music_note_rounded
+        : Icons.album_rounded;
+
+    final subjectLabel = switch (item.subjectType) {
+      ChartMomentFeedSubjectType.entity =>
+        item.chartType == ChartType.songs ? 'SONG' : 'ALBUM',
+      ChartMomentFeedSubjectType.artist =>
+        item.chartType == ChartType.songs
+            ? 'ARTIST \u2022 SONGS'
+            : 'ARTIST \u2022 ALBUMS',
+    };
+
+    return Material(
+      key: ValueKey<String>('charts-moment-${item.id}'),
+      color: colorScheme.surfaceContainerLow,
+      borderRadius: BorderRadius.circular(20),
+      clipBehavior: Clip.antiAlias,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _ChartArtwork(
+              key: ValueKey<String>('charts-moment-artwork-${item.id}'),
+              path: artworkPath,
+              fallbackIcon: fallbackIcon,
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Wrap(
+                    spacing: 7,
+                    runSpacing: 7,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      _MomentScopeBadge(item: item),
+                      _MomentTypeBadge(label: subjectLabel),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    copy.headline,
+                    key: ValueKey<String>('charts-moment-headline-${item.id}'),
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w900,
+                      height: 1.15,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    copy.body,
+                    key: ValueKey<String>('charts-moment-body-${item.id}'),
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                      height: 1.35,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Text(
+                    _formatMomentContext(item),
+                    key: ValueKey<String>('charts-moment-context-${item.id}'),
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MomentScopeBadge extends StatelessWidget {
+  const _MomentScopeBadge({required this.item});
+
+  final ChartMomentFeedItem item;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Container(
+      key: ValueKey<String>('charts-moment-scope-${item.id}'),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+      decoration: BoxDecoration(
+        color: item.isLive
+            ? colorScheme.primaryContainer
+            : colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        item.isLive ? 'LIVE' : 'FINAL',
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+          fontWeight: FontWeight.w900,
+          letterSpacing: 1,
+          color: item.isLive
+              ? colorScheme.onPrimaryContainer
+              : colorScheme.onSurfaceVariant,
+        ),
+      ),
+    );
+  }
+}
+
+class _MomentTypeBadge extends StatelessWidget {
+  const _MomentTypeBadge({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        label,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+          fontWeight: FontWeight.w800,
+          letterSpacing: 0.7,
+          color: colorScheme.onSurfaceVariant,
+        ),
+      ),
+    );
+  }
+}
+
+class _MomentsRefreshErrorBanner extends StatelessWidget {
+  const _MomentsRefreshErrorBanner({required this.onRetry});
+
+  final Future<void> Function() onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      key: const ValueKey<String>('charts-moments-refresh-error'),
+      color: Theme.of(context).colorScheme.errorContainer,
+      borderRadius: BorderRadius.circular(14),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          children: [
+            const Icon(Icons.error_outline_rounded),
+            const SizedBox(width: 10),
+            const Expanded(
+              child: Text(
+                'Moments refresh failed. Showing the last available feed.',
+              ),
+            ),
+            TextButton(onPressed: onRetry, child: const Text('Retry')),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+String _formatMomentContext(ChartMomentFeedItem item) {
+  if (item.isLive) {
+    final date = item.occurredAt.toLocal();
+
+    return '${_monthName(date.month)} ${date.day}, ${date.year}';
+  }
+
+  return 'Chart week ${_formatMomentWeek(item.weekStartUtc, item.weekEndUtc)}';
+}
+
+String _formatMomentWeek(DateTime weekStartUtc, DateTime weekEndUtc) {
+  final start = weekStartUtc.toUtc();
+  final inclusiveEnd = weekEndUtc.toUtc().subtract(const Duration(days: 1));
+
+  final sameMonth =
+      start.year == inclusiveEnd.year && start.month == inclusiveEnd.month;
+
+  if (sameMonth) {
+    return '${_monthName(start.month)} '
+        '${start.day}\u2013${inclusiveEnd.day}, '
+        '${start.year}';
+  }
+
+  if (start.year == inclusiveEnd.year) {
+    return '${_monthName(start.month)} ${start.day} \u2013 '
+        '${_monthName(inclusiveEnd.month)} ${inclusiveEnd.day}, '
+        '${start.year}';
+  }
+
+  return '${_monthName(start.month)} ${start.day}, ${start.year} \u2013 '
+      '${_monthName(inclusiveEnd.month)} '
+      '${inclusiveEnd.day}, ${inclusiveEnd.year}';
+}
+
+class _ChartTypeSelector extends StatelessWidget {
+  const _ChartTypeSelector({required this.controller});
+
+  final ChartsController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return SegmentedButton<ChartType>(
+      key: const ValueKey<String>('charts-type-selector'),
+      segments: const [
+        ButtonSegment<ChartType>(
+          value: ChartType.songs,
+          label: Text('Songs'),
+          icon: Icon(Icons.music_note_rounded),
+        ),
+        ButtonSegment<ChartType>(
+          value: ChartType.albums,
+          label: Text('Albums'),
+          icon: Icon(Icons.album_rounded),
+        ),
+      ],
+      selected: {controller.chartType},
+      onSelectionChanged: (selection) {
+        if (selection.isEmpty) {
+          return;
+        }
+
+        controller.selectChartType(selection.first);
+      },
+    );
+  }
+}
+
+class _WeekNavigator extends StatelessWidget {
+  const _WeekNavigator({required this.controller});
+
+  final ChartsController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final snapshot = controller.snapshot;
+
+    if (snapshot == null) {
+      return const SizedBox.shrink();
+    }
+
+    return Row(
+      key: const ValueKey<String>('charts-week-navigation'),
+      children: [
+        IconButton(
+          key: const ValueKey<String>('charts-older-week'),
+          tooltip: 'Older chart week',
+          onPressed: controller.canGoToOlderWeek
+              ? controller.showOlderWeek
+              : null,
+          icon: const Icon(Icons.chevron_left_rounded),
+        ),
+        Expanded(
+          child: Column(
+            children: [
+              Text(
+                _formatChartWeek(snapshot),
+                key: const ValueKey<String>('charts-week-label'),
+                textAlign: TextAlign.center,
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 6),
+              _SnapshotStatusBadge(snapshot: snapshot),
+            ],
+          ),
+        ),
+        IconButton(
+          key: const ValueKey<String>('charts-calendar'),
+          tooltip: 'Choose chart week',
+          onPressed: controller.history.isEmpty
+              ? null
+              : () => _showWeekCalendar(context, controller),
+          icon: const Icon(Icons.calendar_month_rounded),
+        ),
+        IconButton(
+          key: const ValueKey<String>('charts-newer-week'),
+          tooltip: 'Newer chart week',
+          onPressed: controller.canGoToNewerWeek
+              ? controller.showNewerWeek
+              : null,
+          icon: const Icon(Icons.chevron_right_rounded),
+        ),
+      ],
+    );
+  }
+}
+
+class _SnapshotStatusBadge extends StatelessWidget {
+  const _SnapshotStatusBadge({required this.snapshot});
+
+  final ChartSnapshot snapshot;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Container(
+      key: const ValueKey<String>('charts-snapshot-status'),
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+      decoration: BoxDecoration(
+        color: snapshot.isLive
+            ? colorScheme.primaryContainer
+            : colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        snapshot.isLive ? 'LIVE' : 'FINAL',
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+          fontWeight: FontWeight.w900,
+          letterSpacing: 1.2,
+          color: snapshot.isLive
+              ? colorScheme.onPrimaryContainer
+              : colorScheme.onSurfaceVariant,
+        ),
+      ),
+    );
+  }
+}
+
+class _ViewSizeSelector extends StatelessWidget {
+  const _ViewSizeSelector({required this.controller});
+
+  final ChartsController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      key: const ValueKey<String>('charts-size-selector'),
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          for (final size in ChartViewSize.values) ...[
+            ChoiceChip(
+              key: ValueKey<String>('charts-size-${size.limit}'),
+              label: Text('Top ${size.limit}'),
+              selected: controller.viewSize == size,
+              onSelected: (_) {
+                controller.selectViewSize(size);
+              },
+            ),
+            if (size != ChartViewSize.values.last) const SizedBox(width: 8),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _ExtendedChartNotice extends StatelessWidget {
+  const _ExtendedChartNotice();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Container(
+      key: const ValueKey<String>('charts-extended-notice'),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.info_outline_rounded,
+            size: 18,
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Top 100 is the official chart. Positions 101\u2013200 are extended standings.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SnapshotSummary extends StatelessWidget {
+  const _SnapshotSummary({required this.snapshot});
+
+  final ChartSnapshot snapshot;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Row(
+      key: const ValueKey<String>('charts-snapshot-summary'),
+      children: [
+        Expanded(
+          child: Text(
+            snapshot.chartType == ChartType.songs ? 'Songs' : 'Albums',
+            style: theme.textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+        Text(
+          '${snapshot.entries.length} positions',
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _ChartRow extends StatelessWidget {
+  const _ChartRow({required this.entry, required this.controller});
+
+  final ChartEntry entry;
+  final ChartsController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final track = controller.trackForEntry(entry);
+    final album = controller.albumForEntry(entry);
+
+    final canInteract = switch (controller.chartType) {
+      ChartType.songs => controller.isTrackInteractive(entry),
+      ChartType.albums => controller.isAlbumInteractive(entry),
+    };
+
+    final artworkPath = switch (controller.chartType) {
+      ChartType.songs => track?.artworkPath,
+      ChartType.albums => album?.artworkPath,
+    };
+
+    final fallbackIcon = controller.chartType == ChartType.songs
+        ? Icons.music_note_rounded
+        : Icons.album_rounded;
+
+    return Material(
+      key: ValueKey<String>('charts-entry-${entry.entity.entityId}'),
+      color: entry.rank <= 3
+          ? Theme.of(context).colorScheme.surfaceContainerLow
+          : Colors.transparent,
+      borderRadius: BorderRadius.circular(18),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: canInteract
+            ? () {
+                if (controller.chartType == ChartType.songs && track != null) {
+                  unawaited(_showChartTrackContext(context, track));
+                  return;
+                }
+
+                if (controller.chartType == ChartType.albums && album != null) {
+                  _openAlbum(context, album);
+                }
+              }
+            : null,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 13),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              SizedBox(
+                width: 42,
+                child: Text(
+                  '${entry.rank}',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              _ChartArtwork(
+                path: artworkPath,
+                fallbackIcon: fallbackIcon,
+                key: ValueKey<String>(
+                  'charts-artwork-${entry.entity.entityId}',
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: _ChartMetadata(
+                  entry: entry,
+                  controller: controller,
+                  track: track,
+                  album: album,
+                ),
+              ),
+              if (canInteract)
+                const Padding(
+                  padding: EdgeInsets.only(left: 8),
+                  child: Icon(Icons.chevron_right_rounded),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ChartArtwork extends StatelessWidget {
+  const _ChartArtwork({
+    super.key,
+    required this.path,
+    required this.fallbackIcon,
+  });
+
+  final String? path;
+  final IconData fallbackIcon;
+
+  @override
+  Widget build(BuildContext context) {
+    final normalizedPath = path?.trim();
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: SizedBox.square(
+        dimension: 64,
+        child: normalizedPath != null && normalizedPath.isNotEmpty
+            ? Image.file(
+                File(normalizedPath),
+                fit: BoxFit.cover,
+                errorBuilder: (_, _, _) =>
+                    _ChartArtworkFallback(icon: fallbackIcon),
+              )
+            : _ChartArtworkFallback(icon: fallbackIcon),
+      ),
+    );
+  }
+}
+
+class _ChartArtworkFallback extends StatelessWidget {
+  const _ChartArtworkFallback({required this.icon});
+
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return ColoredBox(
+      color: colorScheme.surfaceContainerHighest,
+      child: Center(
+        child: Icon(icon, size: 30, color: colorScheme.onSurfaceVariant),
+      ),
+    );
+  }
+}
+
+class _ChartMetadata extends StatelessWidget {
+  const _ChartMetadata({
+    required this.entry,
+    required this.controller,
+    required this.track,
+    required this.album,
+  });
+
+  final ChartEntry entry;
+  final ChartsController controller;
+  final LibraryTrack? track;
+  final LibraryAlbum? album;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    final subtitleParts = <String>[
+      entry.entity.artistName,
+      if (controller.chartType == ChartType.songs &&
+          entry.entity.albumTitle != null &&
+          entry.entity.albumTitle!.trim().isNotEmpty)
+        entry.entity.albumTitle!.trim(),
+    ];
+
+    final unavailableLiveTrack =
+        controller.isViewingLive &&
+        controller.chartType == ChartType.songs &&
+        track != null &&
+        !controller.isTrackInteractive(entry);
+
+    final missingCurrentEntity = switch (controller.chartType) {
+      ChartType.songs => track == null,
+      ChartType.albums => album == null,
+    };
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          entry.entity.title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.titleMedium?.copyWith(
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          subtitleParts.join(' \u2022 '),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 7),
+        Wrap(
+          spacing: 10,
+          runSpacing: 4,
+          crossAxisAlignment: WrapCrossAlignment.center,
+          children: [
+            _MovementLabel(entry: entry),
+            Text(
+              '${entry.qualifiedStreamCount} streams',
+              style: theme.textTheme.bodySmall,
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Wrap(
+          spacing: 10,
+          runSpacing: 4,
+          children: [
+            Text(
+              'Peak #${entry.peakRank}',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
+            Text(
+              '${entry.weeksOnChart} '
+              '${entry.weeksOnChart == 1 ? 'week' : 'weeks'}',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
+            if (entry.isOffChartStanding)
+              Text(
+                'EXTENDED',
+                key: ValueKey<String>(
+                  'charts-extended-${entry.entity.entityId}',
+                ),
+                style: theme.textTheme.labelSmall?.copyWith(
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0.8,
+                  color: colorScheme.primary,
+                ),
+              ),
+            if (unavailableLiveTrack)
+              Text(
+                track!.isBlocked ? 'BLACKLISTED' : 'UNAVAILABLE',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  fontWeight: FontWeight.w800,
+                  color: colorScheme.error,
+                ),
+              ),
+            if (controller.isViewingHistory && missingCurrentEntity)
+              Text(
+                'HISTORICAL',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  color: colorScheme.onSurfaceVariant,
+                ),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _MovementLabel extends StatelessWidget {
+  const _MovementLabel({required this.entry});
+
+  final ChartEntry entry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      switch (entry.movement) {
+        ChartMovement.newEntry => 'NEW',
+        ChartMovement.reentry => 'RE-ENTRY',
+        ChartMovement.up => '\u25B2 ${_movementDistance(entry)}',
+        ChartMovement.down => '\u25BC ${_movementDistance(entry)}',
+        ChartMovement.same => '\u2014',
+      },
+      style: Theme.of(
+        context,
+      ).textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w800),
+    );
+  }
+
+  int _movementDistance(ChartEntry entry) {
+    final previous = entry.previousFinalRank;
+
+    if (previous == null) {
+      return 0;
+    }
+
+    return (previous - entry.rank).abs();
+  }
+}
+
+class _ChartsError extends StatelessWidget {
+  const _ChartsError({super.key, required this.onRetry});
+
+  final Future<void> Function() onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return _ChartsMessage(
+      icon: Icons.error_outline_rounded,
+      title: 'Sonus Hot 100 could not be loaded',
+      message: 'Try loading your chart again.',
+      action: FilledButton.icon(
+        onPressed: onRetry,
+        icon: const Icon(Icons.refresh_rounded),
+        label: const Text('Retry'),
+      ),
+    );
+  }
+}
+
+class _RefreshErrorBanner extends StatelessWidget {
+  const _RefreshErrorBanner({required this.onRetry});
+
+  final Future<void> Function() onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      key: const ValueKey<String>('charts-refresh-error'),
+      color: Theme.of(context).colorScheme.errorContainer,
+      borderRadius: BorderRadius.circular(14),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          children: [
+            const Icon(Icons.error_outline_rounded),
+            const SizedBox(width: 10),
+            const Expanded(child: Text('Chart refresh failed.')),
+            TextButton(onPressed: onRetry, child: const Text('Retry')),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ChartsMessage extends StatelessWidget {
+  const _ChartsMessage({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.message,
+    this.action,
+  });
+
+  final IconData icon;
+  final String title;
+  final String message;
+  final Widget? action;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 48, color: theme.colorScheme.onSurfaceVariant),
+            const SizedBox(height: 14),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            if (action != null) ...[const SizedBox(height: 18), action!],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+Future<void> _showWeekCalendar(
+  BuildContext context,
+  ChartsController controller,
+) async {
+  final history = controller.history;
+
+  if (history.isEmpty) {
+    return;
+  }
+
+  final availableDates = {
+    for (final snapshot in history)
+      DateUtils.dateOnly(snapshot.weekStartUtc.toLocal()),
+  };
+
+  final earliest = history.last.weekStartUtc.toLocal();
+  final latest = history.first.weekStartUtc.toLocal();
+
+  final selected = await showDatePicker(
+    context: context,
+    helpText: 'Choose a Sonus Hot 100 week',
+    initialDate:
+        controller.selectedHistoricalSnapshot?.weekStartUtc.toLocal() ?? latest,
+    firstDate: DateUtils.dateOnly(earliest),
+    lastDate: DateUtils.dateOnly(latest),
+    selectableDayPredicate: (date) {
+      return availableDates.contains(DateUtils.dateOnly(date));
+    },
+  );
+
+  if (selected == null) {
+    return;
+  }
+
+  for (final snapshot in history) {
+    final localStart = DateUtils.dateOnly(snapshot.weekStartUtc.toLocal());
+
+    if (localStart == DateUtils.dateOnly(selected)) {
+      controller.selectHistoricalWeek(snapshot.weekStartUtc);
+      return;
+    }
+  }
+}
+
+Future<void> _showChartTrackContext(
+  BuildContext context,
+  LibraryTrack track,
+) async {
+  if (track.isBlocked ||
+      !track.isAvailable ||
+      track.filePath == null ||
+      track.filePath!.trim().isEmpty) {
+    return;
+  }
+
+  final playback = context.read<PlaybackCoordinator?>();
+
+  await showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    builder: (sheetContext) {
+      return SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              ListTile(
+                title: Text(
+                  track.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                subtitle: Text(
+                  '${track.artistName} \u2022 ${track.albumTitle}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.play_arrow_rounded),
+                title: const Text('Play'),
+                enabled: playback != null,
+                onTap: playback == null
+                    ? null
+                    : () {
+                        Navigator.of(sheetContext).pop();
+                        unawaited(playback.playTrack(track));
+                      },
+              ),
+              ListTile(
+                leading: const Icon(Icons.playlist_play_rounded),
+                title: const Text('Play next'),
+                enabled: playback != null,
+                onTap: playback == null
+                    ? null
+                    : () {
+                        Navigator.of(sheetContext).pop();
+                        unawaited(playback.playNext(track));
+                      },
+              ),
+              ListTile(
+                leading: const Icon(Icons.queue_music_rounded),
+                title: const Text('Add to queue'),
+                enabled: playback != null,
+                onTap: playback == null
+                    ? null
+                    : () {
+                        Navigator.of(sheetContext).pop();
+                        unawaited(playback.addToQueue(track));
+                      },
+              ),
+              ListTile(
+                leading: const Icon(Icons.playlist_add_rounded),
+                title: const Text('Add to playlist'),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  unawaited(showAddToPlaylistFlow(context, track));
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.album_outlined),
+                title: const Text('Go to album'),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => AlbumProfilePage(
+                        albumId: track.albumId,
+                        initialAlbumTitle: track.albumTitle,
+                      ),
+                    ),
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.person_outline_rounded),
+                title: const Text('Go to artist'),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => ArtistProfilePage(
+                        artistId: track.artistId,
+                        initialArtistName: track.artistName,
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
+
+void _openAlbum(BuildContext context, LibraryAlbum album) {
+  Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      builder: (_) => AlbumProfilePage(
+        albumId: album.albumId,
+        initialAlbumTitle: album.title,
+      ),
+    ),
+  );
+}
+
+String _formatChartWeek(ChartSnapshot snapshot) {
+  final start = snapshot.weekStartUtc.toUtc();
+
+  final inclusiveEnd = snapshot.weekEndUtc.toUtc().subtract(
+    const Duration(days: 1),
+  );
+
+  final sameMonth =
+      start.year == inclusiveEnd.year && start.month == inclusiveEnd.month;
+
+  if (sameMonth) {
+    return '${_monthName(start.month)} '
+        '${start.day}\u2013${inclusiveEnd.day}, '
+        '${start.year}';
+  }
+
+  if (start.year == inclusiveEnd.year) {
+    return '${_monthName(start.month)} ${start.day} \u2013 '
+        '${_monthName(inclusiveEnd.month)} ${inclusiveEnd.day}, '
+        '${start.year}';
+  }
+
+  return '${_monthName(start.month)} ${start.day}, ${start.year} \u2013 '
+      '${_monthName(inclusiveEnd.month)} '
+      '${inclusiveEnd.day}, ${inclusiveEnd.year}';
+}
+
+String _monthName(int month) {
+  return const [
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
+  ][month - 1];
+}
+
+================================================================================
+FILE: .\lib\features\charts\presentation\scopes\charts_scope.dart
+================================================================================
+import 'dart:async';
+
+import 'package:flutter/widgets.dart';
+import 'package:provider/provider.dart';
+
+import '../../../../core/database/app_database.dart';
+import '../../../analytics/domain/repositories/playback_session_repository.dart';
+import '../../../analytics/domain/repositories/qualified_play_repository.dart';
+import '../../../library/application/repositories/library_query_repository.dart';
+import '../../application/services/chart_finalization_service.dart';
+import '../../application/services/chart_snapshot_builder_service.dart';
+import '../../application/services/live_chart_service.dart';
+import '../../data/repositories/sqlite_chart_moment_repository.dart';
+import '../../data/repositories/sqlite_chart_repository.dart';
+import '../controllers/charts_controller.dart';
+
+class ChartsScope extends StatefulWidget {
+  const ChartsScope({super.key, required this.child, this.now});
+
+  final Widget child;
+  final ChartsControllerNow? now;
+
+  @override
+  State<ChartsScope> createState() => _ChartsScopeState();
+}
+
+class _ChartsScopeState extends State<ChartsScope> {
+  AppDatabase? _database;
+  LibraryQueryRepository? _library;
+  QualifiedPlayRepository? _qualifiedPlays;
+  PlaybackSessionRepository? _playbackSessions;
+
+  ChartsController? _controller;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+
+    final database = context.watch<AppDatabase>();
+    final library = context.watch<LibraryQueryRepository?>();
+    final qualifiedPlays = context.watch<QualifiedPlayRepository?>();
+    final playbackSessions = context.watch<PlaybackSessionRepository?>();
+
+    if (identical(database, _database) &&
+        identical(library, _library) &&
+        identical(qualifiedPlays, _qualifiedPlays) &&
+        identical(playbackSessions, _playbackSessions)) {
+      return;
+    }
+
+    _database = database;
+    _library = library;
+    _qualifiedPlays = qualifiedPlays;
+    _playbackSessions = playbackSessions;
+
+    _recreateController();
+  }
+
+  @override
+  void didUpdateWidget(ChartsScope oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (!identical(oldWidget.now, widget.now)) {
+      _recreateController();
+    }
+  }
+
+  void _recreateController() {
+    final previousController = _controller;
+    _controller = null;
+
+    previousController?.dispose();
+
+    final database = _database;
+    final library = _library;
+    final qualifiedPlays = _qualifiedPlays;
+    final playbackSessions = _playbackSessions;
+
+    if (database == null ||
+        library == null ||
+        qualifiedPlays == null ||
+        playbackSessions == null) {
+      return;
+    }
+
+    final charts = SqliteChartRepository(database);
+
+    final moments = SqliteChartMomentRepository(database);
+    final builder = ChartSnapshotBuilderService(
+      qualifiedPlays: qualifiedPlays,
+      library: library,
+      charts: charts,
+      playbackSessions: playbackSessions,
+    );
+
+    final liveCharts = LiveChartService(builder: builder);
+    final finalization = ChartFinalizationService(
+      builder: builder,
+      charts: charts,
+      qualifiedPlays: qualifiedPlays,
+      moments: moments,
+      momentsActivationWeekStartUtc: DateTime(2026, 9, 27).toUtc(),
+    );
+
+    final controller = ChartsController(
+      liveCharts: liveCharts,
+      finalization: finalization,
+      charts: charts,
+      library: library,
+      moments: moments,
+      now: widget.now,
+    );
+
+    _controller = controller;
+
+    unawaited(controller.load());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ChangeNotifierProvider<ChartsController?>.value(
+      value: _controller,
+      child: widget.child,
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller?.dispose();
+    super.dispose();
+  }
+}
+
+================================================================================
+FILE: .\lib\features\analytics\presentation\pages\listening_history_page.dart
+================================================================================
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
+import '../../application/models/listening_history_entry.dart';
+import '../../application/services/listening_history_service.dart';
+import '../../domain/entities/playback_session.dart';
+import '../../domain/repositories/playback_session_repository.dart';
+import '../../domain/repositories/qualified_play_repository.dart';
+import '../controllers/listening_history_controller.dart';
+
+class ListeningHistoryPage extends StatefulWidget {
+  const ListeningHistoryPage({super.key, this.controller});
+
+  final ListeningHistoryController? controller;
+
+  @override
+  State<ListeningHistoryPage> createState() => _ListeningHistoryPageState();
+}
+
+class _ListeningHistoryPageState extends State<ListeningHistoryPage> {
+  ListeningHistoryController? _controller;
+
+  PlaybackSessionRepository? _playbackSessions;
+  QualifiedPlayRepository? _qualifiedPlays;
+
+  bool _ownsController = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+
+    final suppliedController = widget.controller;
+
+    if (suppliedController != null) {
+      if (!identical(_controller, suppliedController)) {
+        _disposeOwnedController();
+
+        _controller = suppliedController;
+        _ownsController = false;
+      }
+
+      return;
+    }
+
+    final playbackSessions = context.watch<PlaybackSessionRepository?>();
+    final qualifiedPlays = context.watch<QualifiedPlayRepository?>();
+
+    if (playbackSessions == null || qualifiedPlays == null) {
+      _playbackSessions = playbackSessions;
+      _qualifiedPlays = qualifiedPlays;
+
+      _disposeOwnedController();
+      _controller = null;
+
+      return;
+    }
+
+    if (identical(playbackSessions, _playbackSessions) &&
+        identical(qualifiedPlays, _qualifiedPlays) &&
+        _controller != null) {
+      return;
+    }
+
+    _playbackSessions = playbackSessions;
+    _qualifiedPlays = qualifiedPlays;
+
+    _disposeOwnedController();
+
+    final controller = ListeningHistoryController(
+      service: ListeningHistoryService(
+        playbackSessions: playbackSessions,
+        qualifiedPlays: qualifiedPlays,
+      ),
+    );
+
+    _controller = controller;
+    _ownsController = true;
+
+    unawaited(controller.load());
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = _controller;
+
+    return Scaffold(
+      key: const ValueKey<String>('listening-history-page'),
+      appBar: AppBar(
+        title: const Text('Listening history'),
+        actions: [
+          if (controller != null)
+            ListenableBuilder(
+              listenable: controller,
+              builder: (context, child) {
+                return Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (controller.hasDateFilter)
+                      IconButton(
+                        key: const ValueKey<String>(
+                          'listening-history-clear-filter',
+                        ),
+                        tooltip: 'Clear date filter',
+                        onPressed: controller.isLoading
+                            ? null
+                            : () {
+                                unawaited(controller.clearDateRange());
+                              },
+                        icon: const Icon(Icons.filter_alt_off_rounded),
+                      ),
+                    IconButton(
+                      key: const ValueKey<String>(
+                        'listening-history-filter-button',
+                      ),
+                      tooltip: 'Filter by date',
+                      onPressed: controller.isLoading
+                          ? null
+                          : () {
+                              unawaited(_chooseDateRange(controller));
+                            },
+                      icon: Icon(
+                        controller.hasDateFilter
+                            ? Icons.filter_alt_rounded
+                            : Icons.filter_alt_outlined,
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+        ],
+      ),
+      body: controller == null
+          ? const _InitializingState()
+          : ListenableBuilder(
+              listenable: controller,
+              builder: (context, child) {
+                return _HistoryBody(controller: controller);
+              },
+            ),
+    );
+  }
+
+  Future<void> _chooseDateRange(ListeningHistoryController controller) async {
+    final now = DateTime.now();
+
+    final initialStart = controller.startedAtOrAfter?.toLocal();
+    final initialBefore = controller.startedBefore?.toLocal();
+
+    final initialRange = initialStart != null && initialBefore != null
+        ? DateTimeRange(
+            start: DateTime(
+              initialStart.year,
+              initialStart.month,
+              initialStart.day,
+            ),
+            end: DateTime(
+              initialBefore.year,
+              initialBefore.month,
+              initialBefore.day,
+            ).subtract(const Duration(days: 1)),
+          )
+        : null;
+
+    final range = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(1970),
+      lastDate: DateTime(now.year + 1),
+      initialDateRange: initialRange,
+    );
+
+    if (range == null || !mounted) {
+      return;
+    }
+
+    final startLocal = DateTime(
+      range.start.year,
+      range.start.month,
+      range.start.day,
+    );
+
+    final endExclusiveLocal = DateTime(
+      range.end.year,
+      range.end.month,
+      range.end.day,
+    ).add(const Duration(days: 1));
+
+    await controller.setDateRange(
+      startedAtOrAfter: startLocal.toUtc(),
+      startedBefore: endExclusiveLocal.toUtc(),
+    );
+  }
+
+  void _disposeOwnedController() {
+    if (_ownsController) {
+      _controller?.dispose();
+    }
+
+    _ownsController = false;
+  }
+
+  @override
+  void dispose() {
+    _disposeOwnedController();
+    super.dispose();
+  }
+}
+
+class _InitializingState extends StatelessWidget {
+  const _InitializingState();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      key: ValueKey<String>('listening-history-initializing'),
+      child: CircularProgressIndicator(),
+    );
+  }
+}
+
+class _HistoryBody extends StatelessWidget {
+  const _HistoryBody({required this.controller});
+
+  final ListeningHistoryController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    if (controller.isLoading && controller.entries.isEmpty) {
+      return const Center(
+        key: ValueKey<String>('listening-history-loading'),
+        child: CircularProgressIndicator(),
+      );
+    }
+
+    if (controller.hasError && controller.entries.isEmpty) {
+      return _HistoryErrorState(controller: controller);
+    }
+
+    if (controller.isEmpty) {
+      return RefreshIndicator(
+        onRefresh: controller.refresh,
+        child: ListView(
+          key: const ValueKey<String>('listening-history-empty'),
+          physics: const AlwaysScrollableScrollPhysics(),
+          children: const [
+            SizedBox(height: 180),
+            Icon(Icons.history_rounded, size: 48),
+            SizedBox(height: 16),
+            Center(
+              child: Text(
+                'No listening history yet.',
+                textAlign: TextAlign.center,
+              ),
+            ),
+            SizedBox(height: 8),
+            Center(
+              child: Padding(
+                padding: EdgeInsets.symmetric(horizontal: 32),
+                child: Text(
+                  'Songs you listen to will appear here, including sessions that do not qualify as streams.',
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: controller.refresh,
+      child: ListView.builder(
+        key: const ValueKey<String>('listening-history-list'),
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
+        itemCount:
+            controller.entries.length +
+            (controller.hasMore || controller.isLoadingMore ? 1 : 0),
+        itemBuilder: (context, index) {
+          if (index < controller.entries.length) {
+            return _HistoryEntryCard(entry: controller.entries[index]);
+          }
+
+          return _LoadMoreSection(controller: controller);
+        },
+      ),
+    );
+  }
+}
+
+class _HistoryErrorState extends StatelessWidget {
+  const _HistoryErrorState({required this.controller});
+
+  final ListeningHistoryController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      key: const ValueKey<String>('listening-history-error'),
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.error_outline_rounded, size: 48),
+            const SizedBox(height: 16),
+            Text(
+              'Could not load listening history.',
+              style: Theme.of(context).textTheme.titleMedium,
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            const Text('Try again in a moment.', textAlign: TextAlign.center),
+            const SizedBox(height: 20),
+            FilledButton.icon(
+              key: const ValueKey<String>('listening-history-retry'),
+              onPressed: controller.isLoading
+                  ? null
+                  : () {
+                      unawaited(controller.refresh());
+                    },
+              icon: const Icon(Icons.refresh_rounded),
+              label: const Text('Retry'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _HistoryEntryCard extends StatelessWidget {
+  const _HistoryEntryCard({required this.entry});
+
+  final ListeningHistoryEntry entry;
+
+  @override
+  Widget build(BuildContext context) {
+    final session = entry.session;
+    final theme = Theme.of(context);
+
+    final localStartedAt = session.startedAt.toLocal();
+    final localizations = MaterialLocalizations.of(context);
+
+    final dateText = localizations.formatMediumDate(localStartedAt);
+    final timeText = localizations.formatTimeOfDay(
+      TimeOfDay.fromDateTime(localStartedAt),
+    );
+
+    return Card(
+      key: ValueKey<String>('listening-history-entry-${session.id}'),
+      margin: const EdgeInsets.only(bottom: 10),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        session.songTitle,
+                        key: ValueKey<String>(
+                          'listening-history-title-${session.id}',
+                        ),
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        session.artistName,
+                        key: ValueKey<String>(
+                          'listening-history-artist-${session.id}',
+                        ),
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                _QualificationBadge(entry: entry),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Text(
+              _albumLabel(session),
+              key: ValueKey<String>('listening-history-album-${session.id}'),
+              style: theme.textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '$dateText at $timeText',
+              key: ValueKey<String>('listening-history-time-${session.id}'),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 12,
+              runSpacing: 4,
+              children: [
+                Text(
+                  'Listened ${_formatDuration(session.listenedDuration)}',
+                  key: ValueKey<String>(
+                    'listening-history-duration-${session.id}',
+                  ),
+                  style: theme.textTheme.bodySmall,
+                ),
+                Text(
+                  _endReasonLabel(session.endReason),
+                  key: ValueKey<String>(
+                    'listening-history-end-reason-${session.id}',
+                  ),
+                  style: theme.textTheme.bodySmall,
+                ),
+              ],
+            ),
+            if (entry.qualifiedAt != null) ...[
+              const SizedBox(height: 6),
+              Text(
+                _qualifiedAtLabel(context, entry.qualifiedAt!),
+                key: ValueKey<String>(
+                  'listening-history-qualified-at-${session.id}',
+                ),
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+            if (session.sourceContext?.trim().isNotEmpty == true) ...[
+              const SizedBox(height: 6),
+              Text(
+                'Source: ${session.sourceContext}',
+                key: ValueKey<String>('listening-history-source-${session.id}'),
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _albumLabel(PlaybackSession session) {
+    final edition = session.albumEditionTitle.trim();
+
+    if (edition.isEmpty || edition == session.albumTitle.trim()) {
+      return session.albumTitle;
+    }
+
+    return '${session.albumTitle} • $edition';
+  }
+}
+
+class _QualificationBadge extends StatelessWidget {
+  const _QualificationBadge({required this.entry});
+
+  final ListeningHistoryEntry entry;
+
+  @override
+  Widget build(BuildContext context) {
+    final qualified = entry.isQualified;
+
+    return Chip(
+      key: ValueKey<String>('listening-history-qualified-${entry.session.id}'),
+      avatar: Icon(
+        qualified ? Icons.check_circle_rounded : Icons.remove_circle_outline,
+        size: 18,
+      ),
+      label: Text(qualified ? 'Qualified' : 'Not qualified'),
+      visualDensity: VisualDensity.compact,
+    );
+  }
+}
+
+class _LoadMoreSection extends StatelessWidget {
+  const _LoadMoreSection({required this.controller});
+
+  final ListeningHistoryController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    if (controller.isLoadingMore) {
+      return const Padding(
+        key: ValueKey<String>('listening-history-loading-more'),
+        padding: EdgeInsets.all(24),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Center(
+        child: OutlinedButton.icon(
+          key: const ValueKey<String>('listening-history-load-more'),
+          onPressed: () {
+            unawaited(controller.loadMore());
+          },
+          icon: const Icon(Icons.expand_more_rounded),
+          label: const Text('Load more'),
+        ),
+      ),
+    );
+  }
+}
+
+String _qualifiedAtLabel(BuildContext context, DateTime qualifiedAt) {
+  final local = qualifiedAt.toLocal();
+  final localizations = MaterialLocalizations.of(context);
+
+  return 'Qualified ${localizations.formatMediumDate(local)} at '
+      '${localizations.formatTimeOfDay(TimeOfDay.fromDateTime(local))}';
+}
+
+String _formatDuration(Duration duration) {
+  final totalSeconds = duration.inSeconds.clamp(0, 1 << 31);
+
+  final hours = totalSeconds ~/ 3600;
+  final minutes = (totalSeconds % 3600) ~/ 60;
+  final seconds = totalSeconds % 60;
+
+  if (hours > 0) {
+    return '${hours}h ${minutes}m ${seconds}s';
+  }
+
+  if (minutes > 0) {
+    return '${minutes}m ${seconds}s';
+  }
+
+  return '${seconds}s';
+}
+
+String _endReasonLabel(PlaybackSessionEndReason? reason) {
+  return switch (reason) {
+    PlaybackSessionEndReason.completed => 'Completed',
+    PlaybackSessionEndReason.skipped => 'Skipped',
+    PlaybackSessionEndReason.stopped => 'Stopped',
+    PlaybackSessionEndReason.replaced => 'Replaced',
+    PlaybackSessionEndReason.interrupted => 'Interrupted',
+    PlaybackSessionEndReason.failed => 'Failed',
+    null => 'In progress',
+  };
+}
+
+================================================================================
+FILE: .\lib\features\analytics\presentation\controllers\listening_history_controller.dart
+================================================================================
+import 'package:flutter/foundation.dart';
+
+import '../../application/models/listening_history_entry.dart';
+import '../../application/services/listening_history_service.dart';
+import '../../domain/models/listening_history_cursor.dart';
+
+class ListeningHistoryController extends ChangeNotifier {
+  ListeningHistoryController({required this._service, int pageSize = 50})
+    : _pageSize = _validatedPageSize(pageSize);
+
+  final ListeningHistoryService _service;
+  final int _pageSize;
+
+  List<ListeningHistoryEntry> _entries = const [];
+  ListeningHistoryCursor? _nextCursor;
+
+  DateTime? _startedAtOrAfter;
+  DateTime? _startedBefore;
+
+  bool _isLoading = false;
+  bool _isLoadingMore = false;
+  bool _hasMore = false;
+  Object? _error;
+
+  int _requestGeneration = 0;
+
+  List<ListeningHistoryEntry> get entries => _entries;
+
+  bool get isLoading => _isLoading;
+
+  bool get isLoadingMore => _isLoadingMore;
+
+  bool get hasMore => _hasMore;
+
+  Object? get error => _error;
+
+  bool get hasError => _error != null;
+
+  bool get isEmpty =>
+      !_isLoading && !_isLoadingMore && _error == null && _entries.isEmpty;
+
+  DateTime? get startedAtOrAfter => _startedAtOrAfter;
+
+  DateTime? get startedBefore => _startedBefore;
+
+  bool get hasDateFilter => _startedAtOrAfter != null || _startedBefore != null;
+
+  Future<void> load() {
+    if (_isLoading) {
+      return Future.value();
+    }
+
+    return _loadFirstPage();
+  }
+
+  Future<void> refresh() {
+    return _loadFirstPage();
+  }
+
+  Future<void> setDateRange({
+    DateTime? startedAtOrAfter,
+    DateTime? startedBefore,
+  }) async {
+    if (startedAtOrAfter != null &&
+        startedBefore != null &&
+        !startedAtOrAfter.isBefore(startedBefore)) {
+      throw ArgumentError(
+        'startedAtOrAfter must be earlier than startedBefore.',
+      );
+    }
+
+    _startedAtOrAfter = startedAtOrAfter;
+    _startedBefore = startedBefore;
+
+    await _loadFirstPage();
+  }
+
+  Future<void> clearDateRange() {
+    return setDateRange();
+  }
+
+  Future<void> loadMore() async {
+    if (_isLoading || _isLoadingMore || !_hasMore || _nextCursor == null) {
+      return;
+    }
+
+    final generation = _requestGeneration;
+    final cursor = _nextCursor;
+
+    _isLoadingMore = true;
+    _error = null;
+    notifyListeners();
+
+    try {
+      final page = await _service.getPage(
+        startedAtOrAfter: _startedAtOrAfter,
+        startedBefore: _startedBefore,
+        before: cursor,
+        limit: _pageSize,
+      );
+
+      if (generation != _requestGeneration) {
+        return;
+      }
+
+      _entries = List<ListeningHistoryEntry>.unmodifiable([
+        ..._entries,
+        ...page.entries,
+      ]);
+
+      _nextCursor = page.nextCursor;
+      _hasMore = page.hasMore;
+    } catch (error) {
+      if (generation != _requestGeneration) {
+        return;
+      }
+
+      _error = error;
+    } finally {
+      if (generation == _requestGeneration) {
+        _isLoadingMore = false;
+        notifyListeners();
+      }
+    }
+  }
+
+  Future<void> _loadFirstPage() async {
+    final generation = ++_requestGeneration;
+
+    _isLoading = true;
+    _isLoadingMore = false;
+    _error = null;
+
+    notifyListeners();
+
+    try {
+      final page = await _service.getPage(
+        startedAtOrAfter: _startedAtOrAfter,
+        startedBefore: _startedBefore,
+        limit: _pageSize,
+      );
+
+      if (generation != _requestGeneration) {
+        return;
+      }
+
+      _entries = List<ListeningHistoryEntry>.unmodifiable(page.entries);
+      _nextCursor = page.nextCursor;
+      _hasMore = page.hasMore;
+    } catch (error) {
+      if (generation != _requestGeneration) {
+        return;
+      }
+
+      _error = error;
+    } finally {
+      if (generation == _requestGeneration) {
+        _isLoading = false;
+        notifyListeners();
+      }
+    }
+  }
+
+  static int _validatedPageSize(int pageSize) {
+    if (pageSize <= 0) {
+      throw ArgumentError.value(
+        pageSize,
+        'pageSize',
+        'Must be greater than zero.',
+      );
+    }
+
+    return pageSize;
+  }
+}
+
+================================================================================
+FILE: .\lib\features\shell\presentation\pages\app_shell_page.dart
+================================================================================
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
+import '../../../charts/presentation/pages/charts_page.dart';
+import '../../../home/presentation/pages/home_page.dart';
+import '../../../import/presentation/pages/imports_page.dart';
+import '../../../library/presentation/pages/library_page.dart';
+import '../../../library/presentation/pages/tracks_page.dart';
+import '../../../playlists/presentation/pages/playlists_page.dart';
+import '../../../search/presentation/pages/search_page.dart';
+import '../../../settings/presentation/pages/settings_page.dart';
+import '../../application/controllers/app_shell_controller.dart';
+import '../../domain/models/app_destination.dart';
+import '../widgets/shell_playback_slot.dart';
+
+class AppShellPage extends StatefulWidget {
+  const AppShellPage({super.key});
+
+  @override
+  State<AppShellPage> createState() => _AppShellPageState();
+}
+
+class _AppShellPageState extends State<AppShellPage>
+    with SingleTickerProviderStateMixin {
+  late final AppShellController _shellController;
+  late final PageController _pageController;
+  late final TabController _tabController;
+
+  @override
+  void initState() {
+    super.initState();
+
+    _shellController = AppShellController();
+
+    _pageController = PageController(
+      initialPage: _shellController.currentIndex,
+    );
+
+    _tabController = TabController(
+      length: AppDestination.values.length,
+      vsync: this,
+      initialIndex: _shellController.currentIndex,
+    );
+  }
+
+  void _selectDestination(AppDestination destination) {
+    _shellController.selectDestination(destination);
+
+    if (_tabController.index != destination.index) {
+      _tabController.animateTo(destination.index);
+    }
+
+    if (!_pageController.hasClients) {
+      return;
+    }
+
+    _pageController.animateToPage(
+      destination.index,
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  void _handlePageChanged(int index) {
+    _shellController.selectIndex(index);
+
+    if (_tabController.index != index) {
+      _tabController.animateTo(index);
+    }
+  }
+
+  void _openSearch() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => const Scaffold(
+          body: SearchPage(),
+          bottomNavigationBar: ShellPlaybackSlot(),
+        ),
+      ),
+    );
+  }
+
+  void _openImports() {
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => const ImportsPage()));
+  }
+
+  void _openSettings() {
+    _selectDestination(AppDestination.settings);
+  }
+
+  Widget _buildDestinationPage(AppDestination destination) {
+    final Widget page = switch (destination) {
+      AppDestination.tracks => const TracksPage(),
+      AppDestination.library => const LibraryPage(),
+      AppDestination.home => const HomePage(),
+      AppDestination.playlists => const PlaylistsPage(),
+      AppDestination.settings => const SettingsPage(),
+      AppDestination.hot100 => const ChartsPage(),
+    };
+
+    return KeyedSubtree(
+      key: PageStorageKey<String>('app-page-${destination.name}'),
+      child: page,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ChangeNotifierProvider<AppShellController>.value(
+      value: _shellController,
+      child: Scaffold(
+        appBar: AppBar(
+          titleSpacing: 16,
+          title: const _SonusAppTitle(),
+          actions: [
+            IconButton(
+              key: const ValueKey<String>('shell-search-button'),
+              tooltip: 'Search',
+              onPressed: _openSearch,
+              icon: const Icon(Icons.search_rounded),
+            ),
+            IconButton(
+              key: const ValueKey<String>('shell-import-button'),
+              tooltip: 'Imports',
+              onPressed: _openImports,
+              icon: const Icon(Icons.add_rounded),
+            ),
+            IconButton(
+              key: const ValueKey<String>('shell-settings-button'),
+              tooltip: 'Settings',
+              onPressed: _openSettings,
+              icon: const Icon(Icons.settings_rounded),
+            ),
+          ],
+          bottom: TabBar(
+            controller: _tabController,
+            isScrollable: true,
+            tabs: [
+              for (final destination in AppDestination.values)
+                Tab(
+                  key: ValueKey<String>('app-tab-${destination.name}'),
+                  text: destination.label,
+                ),
+            ],
+            onTap: (index) {
+              _selectDestination(AppDestination.values[index]);
+            },
+          ),
+        ),
+        body: PageView(
+          controller: _pageController,
+          onPageChanged: _handlePageChanged,
+          children: [
+            for (final destination in AppDestination.values)
+              _buildDestinationPage(destination),
+          ],
+        ),
+        bottomNavigationBar: const ShellPlaybackSlot(),
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    _pageController.dispose();
+    _shellController.dispose();
+
+    super.dispose();
+  }
+}
+
+class _SonusAppTitle extends StatelessWidget {
+  const _SonusAppTitle();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(Icons.graphic_eq_rounded, key: ValueKey<String>('sonus-app-mark')),
+        SizedBox(width: 8),
+        Text('Sonus', key: ValueKey<String>('sonus-app-title')),
+      ],
+    );
+  }
+}
+
+================================================================================
+FILE: .\lib\app\sonus_app.dart
+================================================================================
+import 'package:flutter/material.dart';
+
+import '../core/database/app_database.dart';
+import '../features/account/domain/repositories/account_repository.dart';
+import '../features/account/presentation/scopes/account_scope.dart';
+import '../features/charts/presentation/scopes/charts_scope.dart';
+import '../features/home/presentation/scopes/home_scope.dart';
+import '../features/import/presentation/scopes/import_scope.dart';
+import '../features/library/presentation/scopes/library_query_scope.dart';
+import '../features/player/presentation/scopes/playback_scope.dart';
+import '../features/playlists/presentation/scopes/playlists_scope.dart';
+import '../features/shell/presentation/pages/app_shell_page.dart';
+import 'account_analytics_bridge.dart';
+import 'account_sync_ownership_bridge.dart';
+
+class SonusApp extends StatelessWidget {
+  const SonusApp({
+    super.key,
+    this.playbackEngineFactory,
+    this.libraryDatabase,
+    this.accountRepository,
+  });
+
+  final PlaybackEngineFactory? playbackEngineFactory;
+  final AppDatabase? libraryDatabase;
+  final AccountRepository? accountRepository;
+
+  @override
+  Widget build(BuildContext context) {
+    return LibraryQueryScope(
+      database: libraryDatabase,
+      child: PlaylistsScope(
+        child: PlaybackScope(
+          engineFactory: playbackEngineFactory,
+          child: AccountScope(
+            repository: accountRepository,
+            child: AccountSyncOwnershipBridge(
+              database: libraryDatabase,
+              child: AccountAnalyticsBridge(
+                child: HomeScope(
+                  child: ChartsScope(
+                    child: ImportScope(
+                      child: MaterialApp(
+                        debugShowCheckedModeBanner: false,
+                        title: 'Sonus',
+                        theme: ThemeData(
+                          colorScheme: ColorScheme.fromSeed(
+                            seedColor: Colors.deepPurple,
+                          ),
+                        ),
+                        home: const AppShellPage(),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+================================================================================
+MONTHLY / INSIGHTS / STATS / HISTORY NAVIGATION REFERENCES
+================================================================================
+lib\app\account_analytics_attachment_coordinator.dart:1: typedef AnalyticsUserAttachment = Future<void> Function(String userId);
+lib\app\account_analytics_attachment_coordinator.dart:3: class AccountAnalyticsAttachmentCoordinator {
+lib\app\account_analytics_attachment_coordinator.dart:4: AccountAnalyticsAttachmentCoordinator({
+lib\app\account_analytics_attachment_coordinator.dart:6: required this._attachHistoricalAnalytics,
+lib\app\account_analytics_attachment_coordinator.dart:9: final AnalyticsUserAttachment _attachActiveSession;
+lib\app\account_analytics_attachment_coordinator.dart:10: final AnalyticsUserAttachment _attachHistoricalAnalytics;
+lib\app\account_analytics_attachment_coordinator.dart:61: await _attachHistoricalAnalytics(requestedUserId);
+lib\app\account_analytics_bridge.dart:5: import '../features/analytics/application/controllers/playback_analytics_controller.dart';
+lib\app\account_analytics_bridge.dart:6: import '../features/analytics/application/services/analytics_account_attachment_service.dart';
+lib\app\account_analytics_bridge.dart:7: import '../features/analytics/domain/repositories/playback_session_repository.dart';
+lib\app\account_analytics_bridge.dart:8: import '../features/analytics/domain/repositories/qualified_play_repository.dart';
+lib\app\account_analytics_bridge.dart:9: import '../features/analytics/presentation/scopes/analytics_scope.dart';
+lib\app\account_analytics_bridge.dart:10: import 'account_analytics_attachment_coordinator.dart';
+lib\app\account_analytics_bridge.dart:12: class AccountAnalyticsBridge extends StatefulWidget {
+lib\app\account_analytics_bridge.dart:13: const AccountAnalyticsBridge({super.key, required this.child});
+lib\app\account_analytics_bridge.dart:18: State<AccountAnalyticsBridge> createState() => _AccountAnalyticsBridgeState();
+lib\app\account_analytics_bridge.dart:21: class _AccountAnalyticsBridgeState extends State<AccountAnalyticsBridge> {
+lib\app\account_analytics_bridge.dart:37: return AnalyticsScope(
+lib\app\account_analytics_bridge.dart:39: child: _AnalyticsAccountAttachmentBridge(child: widget.child),
+lib\app\account_analytics_bridge.dart:44: class _AnalyticsAccountAttachmentBridge extends StatefulWidget {
+lib\app\account_analytics_bridge.dart:45: const _AnalyticsAccountAttachmentBridge({required this.child});
+lib\app\account_analytics_bridge.dart:50: State<_AnalyticsAccountAttachmentBridge> createState() =>
+lib\app\account_analytics_bridge.dart:51: _AnalyticsAccountAttachmentBridgeState();
+lib\app\account_analytics_bridge.dart:54: class _AnalyticsAccountAttachmentBridgeState
+lib\app\account_analytics_bridge.dart:55: extends State<_AnalyticsAccountAttachmentBridge> {
+lib\app\account_analytics_bridge.dart:56: PlaybackAnalyticsController? _analyticsController;
+lib\app\account_analytics_bridge.dart:60: AccountAnalyticsAttachmentCoordinator? _coordinator;
+lib\app\account_analytics_bridge.dart:67: final analyticsController = context.watch<PlaybackAnalyticsController?>();
+lib\app\account_analytics_bridge.dart:71: final analyticsDependenciesChanged =
+lib\app\account_analytics_bridge.dart:72: !identical(analyticsController, _analyticsController) ||
+lib\app\account_analytics_bridge.dart:76: _analyticsController = analyticsController;
+lib\app\account_analytics_bridge.dart:80: if (analyticsController == null ||
+lib\app\account_analytics_bridge.dart:87: if (_coordinator == null || analyticsDependenciesChanged) {
+lib\app\account_analytics_bridge.dart:88: final attachmentService = AnalyticsAccountAttachmentService(
+lib\app\account_analytics_bridge.dart:93: _coordinator = AccountAnalyticsAttachmentCoordinator(
+lib\app\account_analytics_bridge.dart:94: attachActiveSession: analyticsController.attachActiveSessionToUser,
+lib\app\account_analytics_bridge.dart:95: attachHistoricalAnalytics: attachmentService.attachUnownedToUser,
+lib\app\sonus_app.dart:13: import 'account_analytics_bridge.dart';
+lib\app\sonus_app.dart:39: child: AccountAnalyticsBridge(
+lib\core\database\app_database.dart:5: import 'schema/analytics_schema.dart';
+lib\core\database\app_database.dart:79: await AnalyticsSchema.create(db);
+lib\core\database\database_migrations.dart:8: import 'schema/analytics_schema.dart';
+lib\core\database\database_migrations.dart:189: await AnalyticsSchema.create(db);
+lib\core\database\schema\analytics_schema.dart:5: abstract final class AnalyticsSchema {
+lib\features\analytics\application\controllers\playback_analytics_controller.dart:13: typedef PlaybackAnalyticsNow = DateTime Function();
+lib\features\analytics\application\controllers\playback_analytics_controller.dart:14: typedef PlaybackAnalyticsUserIdProvider = String? Function();
+lib\features\analytics\application\controllers\playback_analytics_controller.dart:15: typedef PlaybackAnalyticsErrorHandler =
+lib\features\analytics\application\controllers\playback_analytics_controller.dart:18: class PlaybackAnalyticsController {
+lib\features\analytics\application\controllers\playback_analytics_controller.dart:19: PlaybackAnalyticsController({
+lib\features\analytics\application\controllers\playback_analytics_controller.dart:23: PlaybackAnalyticsNow? now,
+lib\features\analytics\application\controllers\playback_analytics_controller.dart:24: PlaybackAnalyticsUserIdProvider? userIdProvider,
+lib\features\analytics\application\controllers\playback_analytics_controller.dart:25: PlaybackAnalyticsErrorHandler? onError,
+lib\features\analytics\application\controllers\playback_analytics_controller.dart:40: final PlaybackAnalyticsNow _now;
+lib\features\analytics\application\controllers\playback_analytics_controller.dart:41: final PlaybackAnalyticsUserIdProvider? _userIdProvider;
+lib\features\analytics\application\controllers\playback_analytics_controller.dart:42: final PlaybackAnalyticsErrorHandler? _onError;
+lib\features\analytics\application\controllers\playback_analytics_controller.dart:62: StateError('Playback analytics controller is disposed.'),
+lib\features\analytics\application\models\analytics_behavior_metrics.dart:1: import 'analytics_peak_day.dart';
+lib\features\analytics\application\models\analytics_behavior_metrics.dart:2: import 'analytics_period.dart';
+lib\features\analytics\application\models\analytics_behavior_metrics.dart:3: import 'analytics_time_window.dart';
+lib\features\analytics\application\models\analytics_behavior_metrics.dart:5: class AnalyticsBehaviorMetrics {
+lib\features\analytics\application\models\analytics_behavior_metrics.dart:6: const AnalyticsBehaviorMetrics({
+lib\features\analytics\application\models\analytics_behavior_metrics.dart:25: final AnalyticsPeriod period;
+lib\features\analytics\application\models\analytics_behavior_metrics.dart:26: final AnalyticsTimeWindow window;
+lib\features\analytics\application\models\analytics_behavior_metrics.dart:45: final AnalyticsPeakDay? peakDay;
+lib\features\analytics\application\models\analytics_entity_rankings.dart:1: import 'analytics_period.dart';
+lib\features\analytics\application\models\analytics_entity_rankings.dart:2: import 'analytics_ranked_entity.dart';
+lib\features\analytics\application\models\analytics_entity_rankings.dart:3: import 'analytics_time_window.dart';
+lib\features\analytics\application\models\analytics_entity_rankings.dart:5: class AnalyticsEntityRankings {
+lib\features\analytics\application\models\analytics_entity_rankings.dart:6: const AnalyticsEntityRankings({
+lib\features\analytics\application\models\analytics_entity_rankings.dart:15: final AnalyticsPeriod period;
+lib\features\analytics\application\models\analytics_entity_rankings.dart:16: final AnalyticsTimeWindow window;
+lib\features\analytics\application\models\analytics_entity_rankings.dart:18: final List<AnalyticsRankedEntity> songs;
+lib\features\analytics\application\models\analytics_entity_rankings.dart:19: final List<AnalyticsRankedEntity> artists;
+lib\features\analytics\application\models\analytics_entity_rankings.dart:20: final List<AnalyticsRankedEntity> albums;
+lib\features\analytics\application\models\analytics_entity_rankings.dart:21: final List<AnalyticsRankedEntity> albumEditions;
+lib\features\analytics\application\models\analytics_listening_duration.dart:1: import 'analytics_period.dart';
+lib\features\analytics\application\models\analytics_listening_duration.dart:2: import 'analytics_time_window.dart';
+lib\features\analytics\application\models\analytics_listening_duration.dart:4: class AnalyticsListeningDuration {
+lib\features\analytics\application\models\analytics_listening_duration.dart:5: const AnalyticsListeningDuration({
+lib\features\analytics\application\models\analytics_listening_duration.dart:11: final AnalyticsPeriod period;
+lib\features\analytics\application\models\analytics_listening_duration.dart:12: final AnalyticsTimeWindow window;
+lib\features\analytics\application\models\analytics_peak_day.dart:1: class AnalyticsPeakDay {
+lib\features\analytics\application\models\analytics_peak_day.dart:2: const AnalyticsPeakDay({
+lib\features\analytics\application\models\analytics_period.dart:1: enum AnalyticsPeriod { day, week, month, year, lifetime }
+lib\features\analytics\application\models\analytics_ranked_entity.dart:1: class AnalyticsRankedEntity {
+lib\features\analytics\application\models\analytics_ranked_entity.dart:2: const AnalyticsRankedEntity({
+lib\features\analytics\application\models\analytics_summary.dart:1: import 'analytics_period.dart';
+lib\features\analytics\application\models\analytics_summary.dart:2: import 'analytics_time_window.dart';
+lib\features\analytics\application\models\analytics_summary.dart:4: class AnalyticsSummary {
+lib\features\analytics\application\models\analytics_summary.dart:5: const AnalyticsSummary({
+lib\features\analytics\application\models\analytics_summary.dart:17: final AnalyticsPeriod period;
+lib\features\analytics\application\models\analytics_summary.dart:18: final AnalyticsTimeWindow window;
+lib\features\analytics\application\models\analytics_time_window.dart:1: class AnalyticsTimeWindow {
+lib\features\analytics\application\models\analytics_time_window.dart:2: const AnalyticsTimeWindow({required this.startUtc, required this.endUtc});
+lib\features\analytics\application\models\monthly_insights\monthly_album_insight_row.dart:2: import 'monthly_ranked_entity.dart';
+lib\features\analytics\application\models\monthly_insights\monthly_album_insight_row.dart:4: class MonthlyAlbumInsightRow {
+lib\features\analytics\application\models\monthly_insights\monthly_album_insight_row.dart:5: const MonthlyAlbumInsightRow({
+lib\features\analytics\application\models\monthly_insights\monthly_album_insight_row.dart:12: final MonthlyRankedEntity ranking;
+lib\features\analytics\application\models\monthly_insights\monthly_artist_insight_row.dart:2: import 'monthly_ranked_entity.dart';
+lib\features\analytics\application\models\monthly_insights\monthly_artist_insight_row.dart:4: class MonthlyArtistInsightRow {
+lib\features\analytics\application\models\monthly_insights\monthly_artist_insight_row.dart:5: const MonthlyArtistInsightRow({
+lib\features\analytics\application\models\monthly_insights\monthly_artist_insight_row.dart:12: final MonthlyRankedEntity ranking;
+lib\features\analytics\application\models\monthly_insights\monthly_daily_listening.dart:1: class MonthlyDailyListening {
+lib\features\analytics\application\models\monthly_insights\monthly_daily_listening.dart:2: const MonthlyDailyListening({
+lib\features\analytics\application\models\monthly_insights\monthly_duration_change.dart:1: class MonthlyDurationChange {
+lib\features\analytics\application\models\monthly_insights\monthly_duration_change.dart:2: const MonthlyDurationChange({required this.current, required this.previous});
+lib\features\analytics\application\models\monthly_insights\monthly_entity_listening_durations.dart:1: class MonthlyEntityListeningDurations {
+lib\features\analytics\application\models\monthly_insights\monthly_entity_listening_durations.dart:2: const MonthlyEntityListeningDurations({
+lib\features\analytics\application\models\monthly_insights\monthly_hourly_listening.dart:1: class MonthlyHourlyListening {
+lib\features\analytics\application\models\monthly_insights\monthly_hourly_listening.dart:2: const MonthlyHourlyListening({
+lib\features\analytics\application\models\monthly_insights\monthly_listening_distribution.dart:1: import 'monthly_daily_listening.dart';
+lib\features\analytics\application\models\monthly_insights\monthly_listening_distribution.dart:2: import 'monthly_hourly_listening.dart';
+lib\features\analytics\application\models\monthly_insights\monthly_listening_distribution.dart:4: class MonthlyListeningDistribution {
+lib\features\analytics\application\models\monthly_insights\monthly_listening_distribution.dart:5: const MonthlyListeningDistribution({required this.days, required this.hours});
+lib\features\analytics\application\models\monthly_insights\monthly_listening_distribution.dart:7: final List<MonthlyDailyListening> days;
+lib\features\analytics\application\models\monthly_insights\monthly_listening_distribution.dart:8: final List<MonthlyHourlyListening> hours;
+lib\features\analytics\application\models\monthly_insights\monthly_listening_distribution.dart:10: MonthlyDailyListening? get busiestDay {
+lib\features\analytics\application\models\monthly_insights\monthly_listening_distribution.dart:11: MonthlyDailyListening? result;
+lib\features\analytics\application\models\monthly_insights\monthly_listening_distribution.dart:27: MonthlyHourlyListening? get mostActiveHour {
+lib\features\analytics\application\models\monthly_insights\monthly_listening_distribution.dart:28: MonthlyHourlyListening? result;
+lib\features\analytics\application\models\monthly_insights\monthly_listening_insights.dart:1: import '../analytics_behavior_metrics.dart';
+lib\features\analytics\application\models\monthly_insights\monthly_listening_insights.dart:2: import '../analytics_summary.dart';
+lib\features\analytics\application\models\monthly_insights\monthly_listening_insights.dart:3: import 'monthly_duration_change.dart';
+lib\features\analytics\application\models\monthly_insights\monthly_listening_insights.dart:4: import 'monthly_entity_listening_durations.dart';
+lib\features\analytics\application\models\monthly_insights\monthly_listening_insights.dart:5: import 'monthly_listening_distribution.dart';
+lib\features\analytics\application\models\monthly_insights\monthly_listening_insights.dart:6: import 'monthly_ranked_entity.dart';
+lib\features\analytics\application\models\monthly_insights\monthly_listening_insights.dart:7: import 'monthly_ranking_change.dart';
+lib\features\analytics\application\models\monthly_insights\monthly_listening_insights.dart:9: class MonthlyListeningInsights {
+lib\features\analytics\application\models\monthly_insights\monthly_listening_insights.dart:10: const MonthlyListeningInsights({
+lib\features\analytics\application\models\monthly_insights\monthly_listening_insights.dart:28: final AnalyticsSummary currentSummary;
+lib\features\analytics\application\models\monthly_insights\monthly_listening_insights.dart:29: final AnalyticsSummary previousSummary;
+lib\features\analytics\application\models\monthly_insights\monthly_listening_insights.dart:34: final AnalyticsBehaviorMetrics behavior;
+lib\features\analytics\application\models\monthly_insights\monthly_listening_insights.dart:35: final MonthlyListeningDistribution distribution;
+lib\features\analytics\application\models\monthly_insights\monthly_listening_insights.dart:36: final MonthlyEntityListeningDurations entityListeningDurations;
+lib\features\analytics\application\models\monthly_insights\monthly_listening_insights.dart:38: final List<MonthlyRankedEntity> songs;
+lib\features\analytics\application\models\monthly_insights\monthly_listening_insights.dart:39: final List<MonthlyRankedEntity> artists;
+lib\features\analytics\application\models\monthly_insights\monthly_listening_insights.dart:40: final List<MonthlyRankedEntity> albums;
+lib\features\analytics\application\models\monthly_insights\monthly_listening_insights.dart:42: MonthlyRankingChange get streamChange => MonthlyRankingChange(
+lib\features\analytics\application\models\monthly_insights\monthly_listening_insights.dart:47: MonthlyDurationChange get listeningTimeChange => MonthlyDurationChange(
+lib\features\analytics\application\models\monthly_insights\monthly_listening_insights.dart:52: MonthlyRankingChange get trackCountChange => MonthlyRankingChange(
+lib\features\analytics\application\models\monthly_insights\monthly_listening_insights.dart:57: MonthlyRankingChange get artistCountChange => MonthlyRankingChange(
+lib\features\analytics\application\models\monthly_insights\monthly_listening_insights.dart:62: MonthlyRankingChange get albumCountChange => MonthlyRankingChange(
+lib\features\analytics\application\models\monthly_insights\monthly_listening_insights_presentation_data.dart:1: import '../monthly_insights/monthly_album_insight_row.dart';
+lib\features\analytics\application\models\monthly_insights\monthly_listening_insights_presentation_data.dart:2: import '../monthly_insights/monthly_artist_insight_row.dart';
+lib\features\analytics\application\models\monthly_insights\monthly_listening_insights_presentation_data.dart:3: import '../monthly_insights/monthly_listening_insights.dart';
+lib\features\analytics\application\models\monthly_insights\monthly_listening_insights_presentation_data.dart:4: import '../monthly_insights/monthly_track_insight_row.dart';
+lib\features\analytics\application\models\monthly_insights\monthly_listening_insights_presentation_data.dart:6: class MonthlyListeningInsightsPresentationData {
+lib\features\analytics\application\models\monthly_insights\monthly_listening_insights_presentation_data.dart:7: const MonthlyListeningInsightsPresentationData({
+lib\features\analytics\application\models\monthly_insights\monthly_listening_insights_presentation_data.dart:8: required this.insights,
+lib\features\analytics\application\models\monthly_insights\monthly_listening_insights_presentation_data.dart:14: final MonthlyListeningInsights insights;
+lib\features\analytics\application\models\monthly_insights\monthly_listening_insights_presentation_data.dart:16: final List<MonthlyTrackInsightRow> tracks;
+lib\features\analytics\application\models\monthly_insights\monthly_listening_insights_presentation_data.dart:17: final List<MonthlyArtistInsightRow> artists;
+lib\features\analytics\application\models\monthly_insights\monthly_listening_insights_presentation_data.dart:18: final List<MonthlyAlbumInsightRow> albums;
+lib\features\analytics\application\models\monthly_insights\monthly_ranked_entity.dart:1: import 'monthly_ranking_change.dart';
+lib\features\analytics\application\models\monthly_insights\monthly_ranked_entity.dart:3: class MonthlyRankedEntity {
+lib\features\analytics\application\models\monthly_insights\monthly_ranked_entity.dart:4: const MonthlyRankedEntity({
+lib\features\analytics\application\models\monthly_insights\monthly_ranked_entity.dart:22: MonthlyRankingChange get streamChange => MonthlyRankingChange(
+lib\features\analytics\application\models\monthly_insights\monthly_ranking_change.dart:1: class MonthlyRankingChange {
+lib\features\analytics\application\models\monthly_insights\monthly_ranking_change.dart:2: const MonthlyRankingChange({
+lib\features\analytics\application\models\monthly_insights\monthly_track_insight_row.dart:2: import 'monthly_ranked_entity.dart';
+lib\features\analytics\application\models\monthly_insights\monthly_track_insight_row.dart:4: class MonthlyTrackInsightRow {
+lib\features\analytics\application\models\monthly_insights\monthly_track_insight_row.dart:5: const MonthlyTrackInsightRow({
+lib\features\analytics\application\models\monthly_insights\monthly_track_insight_row.dart:12: final MonthlyRankedEntity ranking;
+lib\features\analytics\application\services\analytics_account_attachment_service.dart:5: class AnalyticsAccountAttachmentResult {
+lib\features\analytics\application\services\analytics_account_attachment_service.dart:6: const AnalyticsAccountAttachmentResult({
+lib\features\analytics\application\services\analytics_account_attachment_service.dart:15: class AnalyticsAccountAttachmentService {
+lib\features\analytics\application\services\analytics_account_attachment_service.dart:16: const AnalyticsAccountAttachmentService({
+lib\features\analytics\application\services\analytics_account_attachment_service.dart:24: Future<AnalyticsAccountAttachmentResult> attachUnownedToUser(
+lib\features\analytics\application\services\analytics_account_attachment_service.dart:40: return const AnalyticsAccountAttachmentResult(
+lib\features\analytics\application\services\analytics_account_attachment_service.dart:70: return AnalyticsAccountAttachmentResult(
+lib\features\analytics\application\services\analytics_artist_listening_duration_service.dart:7: import '../models/analytics_period.dart';
+lib\features\analytics\application\services\analytics_artist_listening_duration_service.dart:8: import '../models/analytics_time_window.dart';
+lib\features\analytics\application\services\analytics_artist_listening_duration_service.dart:9: import 'analytics_time_window_resolver.dart';
+lib\features\analytics\application\services\analytics_artist_listening_duration_service.dart:11: class AnalyticsArtistListeningDurationService {
+lib\features\analytics\application\services\analytics_artist_listening_duration_service.dart:12: const AnalyticsArtistListeningDurationService({
+lib\features\analytics\application\services\analytics_artist_listening_duration_service.dart:15: AnalyticsTimeWindowResolver timeWindowResolver =
+lib\features\analytics\application\services\analytics_artist_listening_duration_service.dart:16: const AnalyticsTimeWindowResolver(),
+lib\features\analytics\application\services\analytics_artist_listening_duration_service.dart:23: final AnalyticsTimeWindowResolver _timeWindowResolver;
+lib\features\analytics\application\services\analytics_artist_listening_duration_service.dart:26: required AnalyticsPeriod period,
+lib\features\analytics\application\services\analytics_artist_listening_duration_service.dart:77: required AnalyticsTimeWindow window,
+lib\features\analytics\application\services\analytics_behavior_metrics_service.dart:7: import '../models/analytics_behavior_metrics.dart';
+lib\features\analytics\application\services\analytics_behavior_metrics_service.dart:8: import '../models/analytics_peak_day.dart';
+lib\features\analytics\application\services\analytics_behavior_metrics_service.dart:9: import '../models/analytics_period.dart';
+lib\features\analytics\application\services\analytics_behavior_metrics_service.dart:10: import '../models/analytics_time_window.dart';
+lib\features\analytics\application\services\analytics_behavior_metrics_service.dart:11: import 'analytics_time_window_resolver.dart';
+lib\features\analytics\application\services\analytics_behavior_metrics_service.dart:13: class AnalyticsBehaviorMetricsService {
+lib\features\analytics\application\services\analytics_behavior_metrics_service.dart:14: const AnalyticsBehaviorMetricsService({
+lib\features\analytics\application\services\analytics_behavior_metrics_service.dart:17: AnalyticsTimeWindowResolver timeWindowResolver =
+lib\features\analytics\application\services\analytics_behavior_metrics_service.dart:18: const AnalyticsTimeWindowResolver(),
+lib\features\analytics\application\services\analytics_behavior_metrics_service.dart:25: final AnalyticsTimeWindowResolver _timeWindowResolver;
+lib\features\analytics\application\services\analytics_behavior_metrics_service.dart:27: Future<AnalyticsBehaviorMetrics> load({
+lib\features\analytics\application\services\analytics_behavior_metrics_service.dart:28: required AnalyticsPeriod period,
+lib\features\analytics\application\services\analytics_behavior_metrics_service.dart:58: AnalyticsBehaviorMetrics _build({
+lib\features\analytics\application\services\analytics_behavior_metrics_service.dart:59: required AnalyticsPeriod period,
+lib\features\analytics\application\services\analytics_behavior_metrics_service.dart:60: required AnalyticsTimeWindow window,
+lib\features\analytics\application\services\analytics_behavior_metrics_service.dart:139: AnalyticsPeakDay? peakDay;
+lib\features\analytics\application\services\analytics_behavior_metrics_service.dart:148: peakDay = AnalyticsPeakDay(
+lib\features\analytics\application\services\analytics_behavior_metrics_service.dart:172: return AnalyticsBehaviorMetrics(
+lib\features\analytics\application\services\analytics_behavior_metrics_service.dart:194: required AnalyticsPeriod period,
+lib\features\analytics\application\services\analytics_behavior_metrics_service.dart:199: case AnalyticsPeriod.day:
+lib\features\analytics\application\services\analytics_behavior_metrics_service.dart:202: case AnalyticsPeriod.week:
+lib\features\analytics\application\services\analytics_behavior_metrics_service.dart:205: case AnalyticsPeriod.month:
+lib\features\analytics\application\services\analytics_behavior_metrics_service.dart:212: case AnalyticsPeriod.year:
+lib\features\analytics\application\services\analytics_behavior_metrics_service.dart:218: case AnalyticsPeriod.lifetime:
+lib\features\analytics\application\services\analytics_entity_ranking_service.dart:5: import '../models/analytics_entity_rankings.dart';
+lib\features\analytics\application\services\analytics_entity_ranking_service.dart:6: import '../models/analytics_period.dart';
+lib\features\analytics\application\services\analytics_entity_ranking_service.dart:7: import '../models/analytics_ranked_entity.dart';
+lib\features\analytics\application\services\analytics_entity_ranking_service.dart:8: import 'analytics_time_window_resolver.dart';
+lib\features\analytics\application\services\analytics_entity_ranking_service.dart:10: class AnalyticsEntityRankingService {
+lib\features\analytics\application\services\analytics_entity_ranking_service.dart:11: const AnalyticsEntityRankingService({
+lib\features\analytics\application\services\analytics_entity_ranking_service.dart:13: AnalyticsTimeWindowResolver timeWindowResolver =
+lib\features\analytics\application\services\analytics_entity_ranking_service.dart:14: const AnalyticsTimeWindowResolver(),
+lib\features\analytics\application\services\analytics_entity_ranking_service.dart:19: final AnalyticsTimeWindowResolver _timeWindowResolver;
+lib\features\analytics\application\services\analytics_entity_ranking_service.dart:21: Future<AnalyticsEntityRankings> load({
+lib\features\analytics\application\services\analytics_entity_ranking_service.dart:22: required AnalyticsPeriod period,
+lib\features\analytics\application\services\analytics_entity_ranking_service.dart:44: return AnalyticsEntityRankings(
+lib\features\analytics\application\services\analytics_entity_ranking_service.dart:54: List<AnalyticsRankedEntity> _rank(
+lib\features\analytics\application\services\analytics_entity_ranking_service.dart:91: (entry) => AnalyticsRankedEntity(
+lib\features\analytics\application\services\analytics_entity_ranking_service.dart:119: return List<AnalyticsRankedEntity>.unmodifiable(rankings);
+lib\features\analytics\application\services\analytics_entity_ranking_service.dart:122: return List<AnalyticsRankedEntity>.unmodifiable(rankings.take(limit));
+lib\features\analytics\application\services\analytics_listening_duration_service.dart:5: import '../models/analytics_listening_duration.dart';
+lib\features\analytics\application\services\analytics_listening_duration_service.dart:6: import '../models/analytics_period.dart';
+lib\features\analytics\application\services\analytics_listening_duration_service.dart:7: import '../models/analytics_time_window.dart';
+lib\features\analytics\application\services\analytics_listening_duration_service.dart:8: import 'analytics_time_window_resolver.dart';
+lib\features\analytics\application\services\analytics_listening_duration_service.dart:10: class AnalyticsListeningDurationService {
+lib\features\analytics\application\services\analytics_listening_duration_service.dart:11: const AnalyticsListeningDurationService({
+lib\features\analytics\application\services\analytics_listening_duration_service.dart:13: AnalyticsTimeWindowResolver timeWindowResolver =
+lib\features\analytics\application\services\analytics_listening_duration_service.dart:14: const AnalyticsTimeWindowResolver(),
+lib\features\analytics\application\services\analytics_listening_duration_service.dart:19: final AnalyticsTimeWindowResolver _timeWindowResolver;
+lib\features\analytics\application\services\analytics_listening_duration_service.dart:21: Future<AnalyticsListeningDuration> load({
+lib\features\analytics\application\services\analytics_listening_duration_service.dart:22: required AnalyticsPeriod period,
+lib\features\analytics\application\services\analytics_listening_duration_service.dart:43: return AnalyticsListeningDuration(
+lib\features\analytics\application\services\analytics_listening_duration_service.dart:52: required AnalyticsTimeWindow window,
+lib\features\analytics\application\services\analytics_summary_service.dart:5: import '../models/analytics_period.dart';
+lib\features\analytics\application\services\analytics_summary_service.dart:6: import '../models/analytics_summary.dart';
+lib\features\analytics\application\services\analytics_summary_service.dart:7: import '../models/analytics_time_window.dart';
+lib\features\analytics\application\services\analytics_summary_service.dart:8: import 'analytics_time_window_resolver.dart';
+lib\features\analytics\application\services\analytics_summary_service.dart:10: class AnalyticsSummaryService {
+lib\features\analytics\application\services\analytics_summary_service.dart:11: const AnalyticsSummaryService({
+lib\features\analytics\application\services\analytics_summary_service.dart:13: AnalyticsTimeWindowResolver timeWindowResolver =
+lib\features\analytics\application\services\analytics_summary_service.dart:14: const AnalyticsTimeWindowResolver(),
+lib\features\analytics\application\services\analytics_summary_service.dart:19: final AnalyticsTimeWindowResolver _timeWindowResolver;
+lib\features\analytics\application\services\analytics_summary_service.dart:21: Future<AnalyticsSummary> load({
+lib\features\analytics\application\services\analytics_summary_service.dart:22: required AnalyticsPeriod period,
+lib\features\analytics\application\services\analytics_summary_service.dart:38: AnalyticsSummary _buildSummary({
+lib\features\analytics\application\services\analytics_summary_service.dart:39: required AnalyticsPeriod period,
+lib\features\analytics\application\services\analytics_summary_service.dart:40: required AnalyticsTimeWindow window,
+lib\features\analytics\application\services\analytics_summary_service.dart:70: return AnalyticsSummary(
+lib\features\analytics\application\services\analytics_time_window_resolver.dart:1: import '../models/analytics_period.dart';
+lib\features\analytics\application\services\analytics_time_window_resolver.dart:2: import '../models/analytics_time_window.dart';
+lib\features\analytics\application\services\analytics_time_window_resolver.dart:4: class AnalyticsTimeWindowResolver {
+lib\features\analytics\application\services\analytics_time_window_resolver.dart:5: const AnalyticsTimeWindowResolver();
+lib\features\analytics\application\services\analytics_time_window_resolver.dart:7: AnalyticsTimeWindow resolve({
+lib\features\analytics\application\services\analytics_time_window_resolver.dart:8: required AnalyticsPeriod period,
+lib\features\analytics\application\services\analytics_time_window_resolver.dart:12: case AnalyticsPeriod.day:
+lib\features\analytics\application\services\analytics_time_window_resolver.dart:15: case AnalyticsPeriod.week:
+lib\features\analytics\application\services\analytics_time_window_resolver.dart:18: case AnalyticsPeriod.month:
+lib\features\analytics\application\services\analytics_time_window_resolver.dart:21: case AnalyticsPeriod.year:
+lib\features\analytics\application\services\analytics_time_window_resolver.dart:24: case AnalyticsPeriod.lifetime:
+lib\features\analytics\application\services\analytics_time_window_resolver.dart:25: return const AnalyticsTimeWindow(startUtc: null, endUtc: null);
+lib\features\analytics\application\services\analytics_time_window_resolver.dart:29: AnalyticsTimeWindow _day(DateTime referenceLocal) {
+lib\features\analytics\application\services\analytics_time_window_resolver.dart:45: AnalyticsTimeWindow _week(DateTime referenceLocal) {
+lib\features\analytics\application\services\analytics_time_window_resolver.dart:69: AnalyticsTimeWindow _month(DateTime referenceLocal) {
+lib\features\analytics\application\services\analytics_time_window_resolver.dart:77: AnalyticsTimeWindow _year(DateTime referenceLocal) {
+lib\features\analytics\application\services\analytics_time_window_resolver.dart:85: AnalyticsTimeWindow _fromLocalBounds(DateTime startLocal, DateTime endLocal) {
+lib\features\analytics\application\services\analytics_time_window_resolver.dart:86: return AnalyticsTimeWindow(
+lib\features\analytics\application\services\listening_session_tracker.dart:14: typedef AnalyticsNow = DateTime Function();
+lib\features\analytics\application\services\listening_session_tracker.dart:15: typedef AnalyticsIdGenerator = String Function();
+lib\features\analytics\application\services\listening_session_tracker.dart:25: AnalyticsNow? now,
+lib\features\analytics\application\services\listening_session_tracker.dart:26: AnalyticsIdGenerator? playbackSessionIdGenerator,
+lib\features\analytics\application\services\listening_session_tracker.dart:27: AnalyticsIdGenerator? listeningSegmentIdGenerator,
+lib\features\analytics\application\services\listening_session_tracker.dart:28: AnalyticsIdGenerator? qualifiedPlayIdGenerator,
+lib\features\analytics\application\services\listening_session_tracker.dart:48: final AnalyticsNow _now;
+lib\features\analytics\application\services\listening_session_tracker.dart:49: final AnalyticsIdGenerator _playbackSessionIdGenerator;
+lib\features\analytics\application\services\listening_session_tracker.dart:50: final AnalyticsIdGenerator _listeningSegmentIdGenerator;
+lib\features\analytics\application\services\listening_session_tracker.dart:51: final AnalyticsIdGenerator _qualifiedPlayIdGenerator;
+lib\features\analytics\application\services\monthly_insights\monthly_entity_listening_duration_service.dart:7: import '../../models/analytics_period.dart';
+lib\features\analytics\application\services\monthly_insights\monthly_entity_listening_duration_service.dart:8: import '../../models/analytics_time_window.dart';
+lib\features\analytics\application\services\monthly_insights\monthly_entity_listening_duration_service.dart:9: import '../../models/monthly_insights/monthly_entity_listening_durations.dart';
+lib\features\analytics\application\services\monthly_insights\monthly_entity_listening_duration_service.dart:10: import '../analytics_time_window_resolver.dart';
+lib\features\analytics\application\services\monthly_insights\monthly_entity_listening_duration_service.dart:12: class MonthlyEntityListeningDurationService {
+lib\features\analytics\application\services\monthly_insights\monthly_entity_listening_duration_service.dart:13: const MonthlyEntityListeningDurationService({
+lib\features\analytics\application\services\monthly_insights\monthly_entity_listening_duration_service.dart:16: AnalyticsTimeWindowResolver timeWindowResolver =
+lib\features\analytics\application\services\monthly_insights\monthly_entity_listening_duration_service.dart:17: const AnalyticsTimeWindowResolver(),
+lib\features\analytics\application\services\monthly_insights\monthly_entity_listening_duration_service.dart:24: final AnalyticsTimeWindowResolver _timeWindowResolver;
+lib\features\analytics\application\services\monthly_insights\monthly_entity_listening_duration_service.dart:26: Future<MonthlyEntityListeningDurations> load({
+lib\features\analytics\application\services\monthly_insights\monthly_entity_listening_duration_service.dart:30: period: AnalyticsPeriod.month,
+lib\features\analytics\application\services\monthly_insights\monthly_entity_listening_duration_service.dart:82: return MonthlyEntityListeningDurations(
+lib\features\analytics\application\services\monthly_insights\monthly_entity_listening_duration_service.dart:112: required AnalyticsTimeWindow window,
+lib\features\analytics\application\services\monthly_insights\monthly_listening_distribution_service.dart:7: import '../../models/analytics_period.dart';
+lib\features\analytics\application\services\monthly_insights\monthly_listening_distribution_service.dart:8: import '../../models/analytics_time_window.dart';
+lib\features\analytics\application\services\monthly_insights\monthly_listening_distribution_service.dart:9: import '../../models/monthly_insights/monthly_daily_listening.dart';
+lib\features\analytics\application\services\monthly_insights\monthly_listening_distribution_service.dart:10: import '../../models/monthly_insights/monthly_hourly_listening.dart';
+lib\features\analytics\application\services\monthly_insights\monthly_listening_distribution_service.dart:11: import '../../models/monthly_insights/monthly_listening_distribution.dart';
+lib\features\analytics\application\services\monthly_insights\monthly_listening_distribution_service.dart:12: import '../analytics_time_window_resolver.dart';
+lib\features\analytics\application\services\monthly_insights\monthly_listening_distribution_service.dart:14: class MonthlyListeningDistributionService {
+lib\features\analytics\application\services\monthly_insights\monthly_listening_distribution_service.dart:15: const MonthlyListeningDistributionService({
+lib\features\analytics\application\services\monthly_insights\monthly_listening_distribution_service.dart:18: AnalyticsTimeWindowResolver timeWindowResolver =
+lib\features\analytics\application\services\monthly_insights\monthly_listening_distribution_service.dart:19: const AnalyticsTimeWindowResolver(),
+lib\features\analytics\application\services\monthly_insights\monthly_listening_distribution_service.dart:26: final AnalyticsTimeWindowResolver _timeWindowResolver;
+lib\features\analytics\application\services\monthly_insights\monthly_listening_distribution_service.dart:28: Future<MonthlyListeningDistribution> load({
+lib\features\analytics\application\services\monthly_insights\monthly_listening_distribution_service.dart:32: period: AnalyticsPeriod.month,
+lib\features\analytics\application\services\monthly_insights\monthly_listening_distribution_service.dart:75: final days = <MonthlyDailyListening>[];
+lib\features\analytics\application\services\monthly_insights\monthly_listening_distribution_service.dart:83: MonthlyDailyListening(
+lib\features\analytics\application\services\monthly_insights\monthly_listening_distribution_service.dart:93: final hours = List<MonthlyHourlyListening>.generate(
+lib\features\analytics\application\services\monthly_insights\monthly_listening_distribution_service.dart:95: (hour) => MonthlyHourlyListening(
+lib\features\analytics\application\services\monthly_insights\monthly_listening_distribution_service.dart:103: return MonthlyListeningDistribution(
+lib\features\analytics\application\services\monthly_insights\monthly_listening_distribution_service.dart:124: required AnalyticsTimeWindow window,
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_enrichment_service.dart:4: import '../../models/monthly_insights/monthly_album_insight_row.dart';
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_enrichment_service.dart:5: import '../../models/monthly_insights/monthly_artist_insight_row.dart';
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_enrichment_service.dart:6: import '../../models/monthly_insights/monthly_listening_insights.dart';
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_enrichment_service.dart:7: import '../../models/monthly_insights/monthly_listening_insights_presentation_data.dart';
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_enrichment_service.dart:8: import '../../models/monthly_insights/monthly_track_insight_row.dart';
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_enrichment_service.dart:10: class MonthlyListeningInsightsEnrichmentService {
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_enrichment_service.dart:11: const MonthlyListeningInsightsEnrichmentService({
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_enrichment_service.dart:17: Future<MonthlyListeningInsightsPresentationData> enrich(
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_enrichment_service.dart:18: MonthlyListeningInsights insights,
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_enrichment_service.dart:20: final tracksFuture = _buildTracks(insights);
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_enrichment_service.dart:21: final artistsFuture = _buildArtists(insights);
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_enrichment_service.dart:22: final albumsFuture = _buildAlbums(insights);
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_enrichment_service.dart:24: return MonthlyListeningInsightsPresentationData(
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_enrichment_service.dart:25: insights: insights,
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_enrichment_service.dart:32: Future<List<MonthlyTrackInsightRow>> _buildTracks(
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_enrichment_service.dart:33: MonthlyListeningInsights insights,
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_enrichment_service.dart:35: final rows = <MonthlyTrackInsightRow>[];
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_enrichment_service.dart:37: for (final ranking in insights.songs) {
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_enrichment_service.dart:45: MonthlyTrackInsightRow(
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_enrichment_service.dart:48: listeningDuration: insights.entityListeningDurations.song(
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_enrichment_service.dart:58: Future<List<MonthlyArtistInsightRow>> _buildArtists(
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_enrichment_service.dart:59: MonthlyListeningInsights insights,
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_enrichment_service.dart:61: final rows = <MonthlyArtistInsightRow>[];
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_enrichment_service.dart:63: for (final ranking in insights.artists) {
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_enrichment_service.dart:71: MonthlyArtistInsightRow(
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_enrichment_service.dart:74: listeningDuration: insights.entityListeningDurations.artist(
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_enrichment_service.dart:84: Future<List<MonthlyAlbumInsightRow>> _buildAlbums(
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_enrichment_service.dart:85: MonthlyListeningInsights insights,
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_enrichment_service.dart:87: final rows = <MonthlyAlbumInsightRow>[];
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_enrichment_service.dart:89: for (final ranking in insights.albums) {
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_enrichment_service.dart:97: MonthlyAlbumInsightRow(
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_enrichment_service.dart:100: listeningDuration: insights.entityListeningDurations.album(
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_service.dart:3: import '../../models/analytics_period.dart';
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_service.dart:4: import '../../models/monthly_insights/monthly_listening_insights.dart';
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_service.dart:5: import '../analytics_behavior_metrics_service.dart';
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_service.dart:6: import '../analytics_entity_ranking_service.dart';
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_service.dart:7: import '../analytics_listening_duration_service.dart';
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_service.dart:8: import '../analytics_summary_service.dart';
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_service.dart:9: import 'monthly_entity_listening_duration_service.dart';
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_service.dart:10: import 'monthly_listening_distribution_service.dart';
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_service.dart:11: import 'monthly_ranking_comparison_service.dart';
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_service.dart:13: abstract interface class MonthlyListeningInsightsLoader {
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_service.dart:14: Future<MonthlyListeningInsights> load({required DateTime referenceLocal});
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_service.dart:17: class MonthlyListeningInsightsService
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_service.dart:18: implements MonthlyListeningInsightsLoader {
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_service.dart:19: const MonthlyListeningInsightsService({
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_service.dart:20: required AnalyticsSummaryService summaries,
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_service.dart:21: required AnalyticsListeningDurationService listeningDurations,
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_service.dart:22: required AnalyticsBehaviorMetricsService behaviorMetrics,
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_service.dart:23: required AnalyticsEntityRankingService rankings,
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_service.dart:24: required MonthlyEntityListeningDurationService entityListeningDurations,
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_service.dart:25: required MonthlyListeningDistributionService distribution,
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_service.dart:26: MonthlyRankingComparisonService rankingComparison =
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_service.dart:27: const MonthlyRankingComparisonService(),
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_service.dart:36: final AnalyticsSummaryService _summaries;
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_service.dart:37: final AnalyticsListeningDurationService _listeningDurations;
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_service.dart:38: final AnalyticsBehaviorMetricsService _behaviorMetrics;
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_service.dart:39: final AnalyticsEntityRankingService _rankings;
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_service.dart:40: final MonthlyEntityListeningDurationService _entityListeningDurations;
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_service.dart:41: final MonthlyListeningDistributionService _distribution;
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_service.dart:42: final MonthlyRankingComparisonService _rankingComparison;
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_service.dart:45: Future<MonthlyListeningInsights> load({
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_service.dart:53: period: AnalyticsPeriod.month,
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_service.dart:58: period: AnalyticsPeriod.month,
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_service.dart:63: period: AnalyticsPeriod.month,
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_service.dart:68: period: AnalyticsPeriod.month,
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_service.dart:73: period: AnalyticsPeriod.month,
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_service.dart:86: period: AnalyticsPeriod.month,
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_service.dart:91: period: AnalyticsPeriod.month,
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_service.dart:96: period: AnalyticsPeriod.lifetime,
+lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_service.dart:114: return MonthlyListeningInsights(
+lib\features\analytics\application\services\monthly_insights\monthly_ranking_comparison_service.dart:1: import '../../models/analytics_ranked_entity.dart';
+lib\features\analytics\application\services\monthly_insights\monthly_ranking_comparison_service.dart:2: import '../../models/monthly_insights/monthly_ranked_entity.dart';
+lib\features\analytics\application\services\monthly_insights\monthly_ranking_comparison_service.dart:4: class MonthlyRankingComparisonService {
+lib\features\analytics\application\services\monthly_insights\monthly_ranking_comparison_service.dart:5: const MonthlyRankingComparisonService();
+lib\features\analytics\application\services\monthly_insights\monthly_ranking_comparison_service.dart:7: List<MonthlyRankedEntity> compare({
+lib\features\analytics\application\services\monthly_insights\monthly_ranking_comparison_service.dart:8: required List<AnalyticsRankedEntity> current,
+lib\features\analytics\application\services\monthly_insights\monthly_ranking_comparison_service.dart:9: required List<AnalyticsRankedEntity> previous,
+lib\features\analytics\application\services\monthly_insights\monthly_ranking_comparison_service.dart:10: required List<AnalyticsRankedEntity> lifetime,
+lib\features\analytics\application\services\monthly_insights\monthly_ranking_comparison_service.dart:25: return List<MonthlyRankedEntity>.unmodifiable(
+lib\features\analytics\application\services\monthly_insights\monthly_ranking_comparison_service.dart:26: List<MonthlyRankedEntity>.generate(current.length, (index) {
+lib\features\analytics\application\services\monthly_insights\monthly_ranking_comparison_service.dart:30: return MonthlyRankedEntity(
+lib\features\analytics\presentation\controllers\monthly_listening_insights_controller.dart:5: import '../../application/models/monthly_insights/monthly_listening_insights.dart';
+lib\features\analytics\presentation\controllers\monthly_listening_insights_controller.dart:6: import '../../application/services/monthly_insights/monthly_listening_insights_service.dart';
+lib\features\analytics\presentation\controllers\monthly_listening_insights_controller.dart:8: typedef MonthlyListeningInsightsNow = DateTime Function();
+lib\features\analytics\presentation\controllers\monthly_listening_insights_controller.dart:10: class MonthlyListeningInsightsController extends ChangeNotifier {
+lib\features\analytics\presentation\controllers\monthly_listening_insights_controller.dart:11: MonthlyListeningInsightsController({
+lib\features\analytics\presentation\controllers\monthly_listening_insights_controller.dart:12: required MonthlyListeningInsightsLoader service,
+lib\features\analytics\presentation\controllers\monthly_listening_insights_controller.dart:13: MonthlyListeningInsightsNow? now,
+lib\features\analytics\presentation\controllers\monthly_listening_insights_controller.dart:22: final MonthlyListeningInsightsLoader _service;
+lib\features\analytics\presentation\controllers\monthly_listening_insights_controller.dart:23: final MonthlyListeningInsightsNow _now;
+lib\features\analytics\presentation\controllers\monthly_listening_insights_controller.dart:28: MonthlyListeningInsights? _insights;
+lib\features\analytics\presentation\controllers\monthly_listening_insights_controller.dart:41: MonthlyListeningInsights? get insights => _insights;
+lib\features\analytics\presentation\controllers\monthly_listening_insights_controller.dart:51: bool get hasData => _insights != null;
+lib\features\analytics\presentation\controllers\monthly_listening_insights_controller.dart:53: bool get isEmpty => _insights?.hasListening == false;
+lib\features\analytics\presentation\controllers\monthly_listening_insights_controller.dart:94: if (safeMonth == _selectedMonth && _insights != null) {
+lib\features\analytics\presentation\controllers\monthly_listening_insights_controller.dart:108: if (refreshing && _insights != null) {
+lib\features\analytics\presentation\controllers\monthly_listening_insights_controller.dart:123: _insights = result;
+lib\features\analytics\presentation\pages\listening_history_page.dart:91: title: const Text('Listening history'),
+lib\features\analytics\presentation\pages\listening_history_page.dart:253: 'No listening history yet.',
+lib\features\analytics\presentation\pages\listening_history_page.dart:310: 'Could not load listening history.',
+lib\features\analytics\presentation\scopes\analytics_scope.dart:8: import '../../application/controllers/playback_analytics_controller.dart';
+lib\features\analytics\presentation\scopes\analytics_scope.dart:22: typedef AnalyticsScopeNow = DateTime Function();
+lib\features\analytics\presentation\scopes\analytics_scope.dart:24: class AnalyticsRuntime {
+lib\features\analytics\presentation\scopes\analytics_scope.dart:25: const AnalyticsRuntime({
+lib\features\analytics\presentation\scopes\analytics_scope.dart:35: final PlaybackAnalyticsController controller;
+lib\features\analytics\presentation\scopes\analytics_scope.dart:37: static Future<AnalyticsRuntime> create({
+lib\features\analytics\presentation\scopes\analytics_scope.dart:40: AnalyticsScopeNow? now,
+lib\features\analytics\presentation\scopes\analytics_scope.dart:41: PlaybackAnalyticsUserIdProvider? userIdProvider,
+lib\features\analytics\presentation\scopes\analytics_scope.dart:74: final controller = PlaybackAnalyticsController(
+lib\features\analytics\presentation\scopes\analytics_scope.dart:81: return AnalyticsRuntime(
+lib\features\analytics\presentation\scopes\analytics_scope.dart:92: class AnalyticsScope extends StatefulWidget {
+lib\features\analytics\presentation\scopes\analytics_scope.dart:93: const AnalyticsScope({
+lib\features\analytics\presentation\scopes\analytics_scope.dart:101: final AnalyticsScopeNow? now;
+lib\features\analytics\presentation\scopes\analytics_scope.dart:102: final PlaybackAnalyticsUserIdProvider? userIdProvider;
+lib\features\analytics\presentation\scopes\analytics_scope.dart:105: State<AnalyticsScope> createState() => _AnalyticsScopeState();
+lib\features\analytics\presentation\scopes\analytics_scope.dart:108: class _AnalyticsScopeState extends State<AnalyticsScope> {
+lib\features\analytics\presentation\scopes\analytics_scope.dart:111: AnalyticsRuntime? _runtime;
+lib\features\analytics\presentation\scopes\analytics_scope.dart:140: _initializeAnalytics(
+lib\features\analytics\presentation\scopes\analytics_scope.dart:148: Future<void> _initializeAnalytics({
+lib\features\analytics\presentation\scopes\analytics_scope.dart:153: final runtime = await AnalyticsRuntime.create(
+lib\features\analytics\presentation\scopes\analytics_scope.dart:185: Provider<PlaybackAnalyticsController?>.value(
+lib\features\charts\application\services\chart_finalization_service.dart:3: import '../../../analytics/domain/repositories/qualified_play_repository.dart';
+lib\features\charts\application\services\chart_snapshot_builder_service.dart:3: import '../../../analytics/domain/entities/playback_session.dart';
+lib\features\charts\application\services\chart_snapshot_builder_service.dart:4: import '../../../analytics/domain/entities/qualified_play.dart';
+lib\features\charts\application\services\chart_snapshot_builder_service.dart:5: import '../../../analytics/domain/repositories/playback_session_repository.dart';
+lib\features\charts\application\services\chart_snapshot_builder_service.dart:6: import '../../../analytics/domain/repositories/qualified_play_repository.dart';
+lib\features\charts\domain\moments\chart_moment_lifetime_stream_service.dart:1: import '../../../analytics/domain/entities/qualified_play.dart';
+lib\features\charts\domain\moments\chart_moment_lifetime_stream_service.dart:2: import '../../../analytics/domain/repositories/qualified_play_repository.dart';
+lib\features\charts\presentation\pages\charts_page.dart:23: class ChartsPage extends StatelessWidget {
+lib\features\charts\presentation\pages\charts_page.dart:24: const ChartsPage({super.key});
+lib\features\charts\presentation\scopes\charts_scope.dart:7: import '../../../analytics/domain/repositories/playback_session_repository.dart';
+lib\features\charts\presentation\scopes\charts_scope.dart:8: import '../../../analytics/domain/repositories/qualified_play_repository.dart';
+lib\features\home\application\services\home_data_service.dart:1: import '../../../analytics/application/models/analytics_period.dart';
+lib\features\home\application\services\home_data_service.dart:2: import '../../../analytics/application/models/analytics_ranked_entity.dart';
+lib\features\home\application\services\home_data_service.dart:3: import '../../../analytics/application/services/analytics_artist_listening_duration_service.dart';
+lib\features\home\application\services\home_data_service.dart:4: import '../../../analytics/application/services/analytics_entity_ranking_service.dart';
+lib\features\home\application\services\home_data_service.dart:16: required this._analyticsRankings,
+lib\features\home\application\services\home_data_service.dart:22: final AnalyticsEntityRankingService _analyticsRankings;
+lib\features\home\application\services\home_data_service.dart:23: final AnalyticsArtistListeningDurationService _artistListeningDurations;
+lib\features\home\application\services\home_data_service.dart:38: final rankingsFuture = _analyticsRankings.load(
+lib\features\home\application\services\home_data_service.dart:39: period: AnalyticsPeriod.week,
+lib\features\home\application\services\home_data_service.dart:44: period: AnalyticsPeriod.week,
+lib\features\home\application\services\home_data_service.dart:100: List<AnalyticsRankedEntity> rankings,
+lib\features\home\application\services\home_data_service.dart:128: List<AnalyticsRankedEntity> rankings,
+lib\features\home\presentation\pages\home_page.dart:18: class HomePage extends StatelessWidget {
+lib\features\home\presentation\pages\home_page.dart:19: const HomePage({super.key});
+lib\features\home\presentation\scopes\home_scope.dart:6: import '../../../analytics/application/services/analytics_artist_listening_duration_service.dart';
+lib\features\home\presentation\scopes\home_scope.dart:7: import '../../../analytics/application/services/analytics_entity_ranking_service.dart';
+lib\features\home\presentation\scopes\home_scope.dart:8: import '../../../analytics/domain/repositories/playback_listening_segment_repository.dart';
+lib\features\home\presentation\scopes\home_scope.dart:9: import '../../../analytics/domain/repositories/playback_session_repository.dart';
+lib\features\home\presentation\scopes\home_scope.dart:10: import '../../../analytics/domain/repositories/qualified_play_repository.dart';
+lib\features\home\presentation\scopes\home_scope.dart:87: analyticsRankings: AnalyticsEntityRankingService(
+lib\features\home\presentation\scopes\home_scope.dart:90: artistListeningDurations: AnalyticsArtistListeningDurationService(
+lib\features\playlists\presentation\pages\playlist_detail_page.dart:123: bottomNavigationBar: const ShellPlaybackSlot(),
+lib\features\settings\presentation\pages\settings_page.dart:5: import '../../../analytics/presentation/pages/listening_history_page.dart';
+lib\features\settings\presentation\pages\settings_page.dart:72: title: const Text('Listening history'),
+lib\features\shell\presentation\pages\app_shell_page.dart:77: bottomNavigationBar: ShellPlaybackSlot(),
+lib\features\shell\presentation\pages\app_shell_page.dart:97: AppDestination.home => const HomePage(),
+lib\features\shell\presentation\pages\app_shell_page.dart:100: AppDestination.hot100 => const ChartsPage(),
+lib\features\shell\presentation\pages\app_shell_page.dart:160: bottomNavigationBar: const ShellPlaybackSlot(),

@@ -1,6 +1,7 @@
 enum AppDestination {
   home('Home'),
   hot100('Hot 100'),
+  insights('Insights'),
   tracks('Tracks'),
   library('Library'),
   playlists('Playlists'),

@@ -1,0 +1,1713 @@
+SN-37 CLOSE AUDIT
+
+================================================================================
+FILE: .\lib\features\analytics\presentation\pages\monthly_listening_insights_page.dart
+================================================================================
+import 'dart:async';
+import 'dart:io';
+
+import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
+import '../../application/models/monthly_insights/monthly_album_insight_row.dart';
+import '../../application/models/monthly_insights/monthly_artist_insight_row.dart';
+import '../../application/models/monthly_insights/monthly_listening_insights.dart';
+import '../../application/models/monthly_insights/monthly_listening_insights_presentation_data.dart';
+import '../../application/models/monthly_insights/monthly_track_insight_row.dart';
+import '../../../library/application/models/library_track.dart';
+import '../../../library/presentation/pages/album_profile_page.dart';
+import '../../../library/presentation/pages/artist_profile_page.dart';
+import '../../../player/application/controllers/playback_coordinator.dart';
+import '../../../playlists/presentation/widgets/add_to_playlist_sheet.dart';
+import '../controllers/monthly_listening_insights_controller.dart';
+
+class MonthlyListeningInsightsPage extends StatelessWidget {
+  const MonthlyListeningInsightsPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = context.watch<MonthlyListeningInsightsController?>();
+
+    if (controller == null) {
+      return const _InsightsMessage(
+        key: ValueKey<String>('monthly-insights-initializing'),
+        icon: Icons.query_stats_rounded,
+        title: 'Insights are getting ready',
+        message: 'Your listening analytics are still initializing.',
+      );
+    }
+
+    final insights = controller.insights;
+
+    if (controller.isLoading && insights == null) {
+      return const Center(
+        key: ValueKey<String>('monthly-insights-loading'),
+        child: CircularProgressIndicator(),
+      );
+    }
+
+    if (controller.hasError && insights == null) {
+      return _InsightsMessage(
+        key: const ValueKey<String>('monthly-insights-error'),
+        icon: Icons.error_outline_rounded,
+        title: 'Monthly Insights could not be loaded',
+        message: 'Try loading your listening analytics again.',
+        action: FilledButton.icon(
+          onPressed: () {
+            unawaited(controller.load());
+          },
+          icon: const Icon(Icons.refresh_rounded),
+          label: const Text('Retry'),
+        ),
+      );
+    }
+
+    if (insights == null) {
+      return const _InsightsMessage(
+        icon: Icons.query_stats_rounded,
+        title: 'No insights available',
+        message: 'Start listening in Sonus to build your monthly statistics.',
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: controller.refresh,
+      child: ListView(
+        key: const PageStorageKey<String>('monthly-insights-scroll'),
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.fromLTRB(20, 22, 20, 40),
+        children: [
+          const _InsightsHeader(),
+          const SizedBox(height: 18),
+          _MonthNavigator(controller: controller),
+          const SizedBox(height: 22),
+
+          if (controller.hasError) ...[
+            _RefreshErrorBanner(onRetry: controller.refresh),
+            const SizedBox(height: 16),
+          ],
+
+          if (!insights.hasListening)
+            const _EmptyMonth()
+          else ...[
+            _HeadlineMetrics(insights: insights),
+            const SizedBox(height: 24),
+            _ActivitySection(insights: insights),
+            const SizedBox(height: 26),
+            _RankingTables(data: controller.presentationData),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _InsightsHeader extends StatelessWidget {
+  const _InsightsHeader();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Column(
+      key: const ValueKey<String>('monthly-insights-header'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'SONUS',
+          style: theme.textTheme.labelLarge?.copyWith(
+            letterSpacing: 2.4,
+            fontWeight: FontWeight.w800,
+            color: theme.colorScheme.primary,
+          ),
+        ),
+        const SizedBox(height: 3),
+        Text(
+          'Monthly Insights',
+          key: const ValueKey<String>('monthly-insights-title'),
+          style: theme.textTheme.displaySmall?.copyWith(
+            fontWeight: FontWeight.w900,
+            height: 1,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _MonthNavigator extends StatelessWidget {
+  const _MonthNavigator({required this.controller});
+
+  final MonthlyListeningInsightsController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      key: const ValueKey<String>('monthly-insights-month-navigation'),
+      children: [
+        IconButton(
+          key: const ValueKey<String>('monthly-insights-previous-month'),
+          tooltip: 'Previous month',
+          onPressed: () {
+            unawaited(controller.previousMonth());
+          },
+          icon: const Icon(Icons.chevron_left_rounded),
+        ),
+        Expanded(
+          child: Text(
+            _formatMonth(controller.selectedMonth),
+            key: const ValueKey<String>('monthly-insights-month-label'),
+            textAlign: TextAlign.center,
+            style: Theme.of(
+              context,
+            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+          ),
+        ),
+        IconButton(
+          key: const ValueKey<String>('monthly-insights-next-month'),
+          tooltip: 'Next month',
+          onPressed: controller.canGoNext
+              ? () {
+                  unawaited(controller.nextMonth());
+                }
+              : null,
+          icon: const Icon(Icons.chevron_right_rounded),
+        ),
+      ],
+    );
+  }
+}
+
+class _HeadlineMetrics extends StatelessWidget {
+  const _HeadlineMetrics({required this.insights});
+
+  final MonthlyListeningInsights insights;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      key: const ValueKey<String>('monthly-insights-headline-metrics'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: _PrimaryMetric(
+                label: 'STREAMS',
+                value: '${insights.currentSummary.qualifiedStreamCount}',
+                comparison: _formatPercentChange(
+                  insights.streamChange.percentChange,
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _PrimaryMetric(
+                label: 'LISTENING',
+                value: _formatDuration(
+                  insights.currentAudibleListeningDuration,
+                ),
+                comparison: _formatPercentChange(
+                  insights.listeningTimeChange.percentChange,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(
+              child: _CompactMetric(
+                label: 'TRACKS',
+                value: insights.currentSummary.distinctSongCount,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _CompactMetric(
+                label: 'ARTISTS',
+                value: insights.currentSummary.distinctArtistCount,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _CompactMetric(
+                label: 'ALBUMS',
+                value: insights.currentSummary.distinctAlbumCount,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _PrimaryMetric extends StatelessWidget {
+  const _PrimaryMetric({
+    required this.label,
+    required this.value,
+    required this.comparison,
+  });
+
+  final String label;
+  final String value;
+  final String comparison;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLow,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: theme.textTheme.labelSmall?.copyWith(
+              letterSpacing: 1,
+              fontWeight: FontWeight.w800,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+          const SizedBox(height: 7),
+          Text(
+            value,
+            style: theme.textTheme.headlineSmall?.copyWith(
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            '$comparison vs previous month',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CompactMetric extends StatelessWidget {
+  const _CompactMetric({required this.label, required this.value});
+
+  final String label;
+  final int value;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 13),
+      decoration: BoxDecoration(
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Column(
+        children: [
+          Text(
+            '$value',
+            style: theme.textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            label,
+            style: theme.textTheme.labelSmall?.copyWith(
+              letterSpacing: 0.7,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ActivitySection extends StatelessWidget {
+  const _ActivitySection({required this.insights});
+
+  final MonthlyListeningInsights insights;
+
+  @override
+  Widget build(BuildContext context) {
+    final distribution = insights.distribution;
+    final busiestDay = distribution.busiestDay;
+    final mostActiveHour = distribution.mostActiveHour;
+
+    return Column(
+      key: const ValueKey<String>('monthly-insights-activity'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Listening activity',
+          style: Theme.of(
+            context,
+          ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+        ),
+        const SizedBox(height: 12),
+        _ActivityRow(
+          label: 'Busiest day',
+          value: busiestDay == null
+              ? '—'
+              : '${_shortMonthName(busiestDay.localDate.month)} '
+                    '${busiestDay.localDate.day} · '
+                    '${busiestDay.streams} streams',
+        ),
+        const Divider(height: 1),
+        _ActivityRow(
+          label: 'Most active hour',
+          value: mostActiveHour == null
+              ? '—'
+              : '${_formatHour(mostActiveHour.hour)} · '
+                    '${_formatDuration(mostActiveHour.listeningDuration)}',
+        ),
+        const Divider(height: 1),
+        _ActivityRow(
+          label: 'Active days',
+          value:
+              '${insights.behavior.activeQualifiedDayCount} / '
+              '${insights.distribution.days.length}',
+        ),
+        const Divider(height: 1),
+        _ActivityRow(
+          label: 'Average streams / active day',
+          value: insights.behavior.activeQualifiedDayCount == 0
+              ? '0'
+              : insights.behavior.averageQualifiedStreamsPerActiveDay
+                    .toStringAsFixed(1),
+        ),
+      ],
+    );
+  }
+}
+
+class _ActivityRow extends StatelessWidget {
+  const _ActivityRow({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 13),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+          const SizedBox(width: 18),
+          Text(
+            value,
+            textAlign: TextAlign.end,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RankingTables extends StatelessWidget {
+  const _RankingTables({required this.data});
+
+  static const _trackLimit = 25;
+  static const _artistLimit = 15;
+  static const _albumLimit = 15;
+
+  final MonthlyListeningInsightsPresentationData? data;
+
+  @override
+  Widget build(BuildContext context) {
+    final data = this.data;
+
+    if (data == null) {
+      return const SizedBox.shrink();
+    }
+
+    final tracks = data.tracks.take(_trackLimit).toList(growable: false);
+    final artists = data.artists.take(_artistLimit).toList(growable: false);
+    final albums = data.albums.take(_albumLimit).toList(growable: false);
+
+    return Column(
+      key: const ValueKey<String>('monthly-insights-rankings'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (tracks.isNotEmpty) ...[
+          _SectionTitle(
+            title: 'Tracks',
+            detail: _rankingCountLabel(
+              visible: tracks.length,
+              total: data.tracks.length,
+            ),
+          ),
+          const SizedBox(height: 10),
+          _TrackTable(rows: tracks),
+        ],
+        if (tracks.isNotEmpty && artists.isNotEmpty) const SizedBox(height: 28),
+        if (artists.isNotEmpty) ...[
+          _SectionTitle(
+            title: 'Artists',
+            detail: _rankingCountLabel(
+              visible: artists.length,
+              total: data.artists.length,
+            ),
+          ),
+          const SizedBox(height: 10),
+          _ArtistTable(rows: artists),
+        ],
+        if (artists.isNotEmpty && albums.isNotEmpty) const SizedBox(height: 28),
+        if (albums.isNotEmpty) ...[
+          _SectionTitle(
+            title: 'Albums',
+            detail: _rankingCountLabel(
+              visible: albums.length,
+              total: data.albums.length,
+            ),
+          ),
+          const SizedBox(height: 10),
+          _AlbumTable(rows: albums),
+        ],
+      ],
+    );
+  }
+}
+
+class _SectionTitle extends StatelessWidget {
+  const _SectionTitle({required this.title, required this.detail});
+
+  final String title;
+  final String detail;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            title,
+            style: theme.textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+        Text(
+          detail,
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _TrackTable extends StatelessWidget {
+  const _TrackTable({required this.rows});
+
+  final List<MonthlyTrackInsightRow> rows;
+
+  @override
+  Widget build(BuildContext context) {
+    return _HorizontalInsightTable(
+      minWidth: 940,
+      header: const _TableHeader(entityLabel: 'TRACK'),
+      rows: [
+        for (final row in rows)
+          _TrackInsightTableRow(
+            key: ValueKey<String>('monthly-insights-track-${row.track.songId}'),
+            row: row,
+          ),
+      ],
+    );
+  }
+}
+
+class _ArtistTable extends StatelessWidget {
+  const _ArtistTable({required this.rows});
+
+  final List<MonthlyArtistInsightRow> rows;
+
+  @override
+  Widget build(BuildContext context) {
+    return _HorizontalInsightTable(
+      minWidth: 900,
+      header: const _TableHeader(entityLabel: 'ARTIST'),
+      rows: [
+        for (final row in rows)
+          _ArtistInsightTableRow(
+            key: ValueKey<String>(
+              'monthly-insights-artist-${row.artist.artistId}',
+            ),
+            row: row,
+          ),
+      ],
+    );
+  }
+}
+
+class _AlbumTable extends StatelessWidget {
+  const _AlbumTable({required this.rows});
+
+  final List<MonthlyAlbumInsightRow> rows;
+
+  @override
+  Widget build(BuildContext context) {
+    return _HorizontalInsightTable(
+      minWidth: 920,
+      header: const _TableHeader(entityLabel: 'ALBUM'),
+      rows: [
+        for (final row in rows)
+          _AlbumInsightTableRow(
+            key: ValueKey<String>(
+              'monthly-insights-album-${row.album.albumId}',
+            ),
+            row: row,
+          ),
+      ],
+    );
+  }
+}
+
+class _HorizontalInsightTable extends StatelessWidget {
+  const _HorizontalInsightTable({
+    required this.minWidth,
+    required this.header,
+    required this.rows,
+  });
+
+  final double minWidth;
+  final Widget header;
+  final List<Widget> rows;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(16),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          border: Border.all(color: colorScheme.outlineVariant),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: SizedBox(
+            width: minWidth,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                header,
+                for (final row in rows) ...[const Divider(height: 1), row],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TableHeader extends StatelessWidget {
+  const _TableHeader({required this.entityLabel});
+
+  final String entityLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    final style = theme.textTheme.labelSmall?.copyWith(
+      fontWeight: FontWeight.w800,
+      letterSpacing: 0.6,
+      color: theme.colorScheme.onSurfaceVariant,
+    );
+
+    return Container(
+      color: theme.colorScheme.surfaceContainerLow,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 11),
+      child: Row(
+        children: [
+          _HeaderCell(
+            width: 42,
+            text: '#',
+            style: style,
+            alignment: Alignment.center,
+          ),
+          _HeaderCell(width: 330, text: entityLabel, style: style),
+          _HeaderCell(
+            width: 84,
+            text: 'STREAMS',
+            style: style,
+            alignment: Alignment.centerRight,
+          ),
+          _HeaderCell(
+            width: 72,
+            text: 'CHANGE',
+            style: style,
+            alignment: Alignment.centerRight,
+          ),
+          _HeaderCell(
+            width: 72,
+            text: '%',
+            style: style,
+            alignment: Alignment.centerRight,
+          ),
+          _HeaderCell(
+            width: 120,
+            text: 'LISTENING',
+            style: style,
+            alignment: Alignment.centerRight,
+          ),
+          _HeaderCell(
+            width: 110,
+            text: 'LIFETIME',
+            style: style,
+            alignment: Alignment.centerRight,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HeaderCell extends StatelessWidget {
+  const _HeaderCell({
+    required this.width,
+    required this.text,
+    required this.style,
+    this.alignment = Alignment.centerLeft,
+  });
+
+  final double width;
+  final String text;
+  final TextStyle? style;
+  final Alignment alignment;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: width,
+      child: Align(
+        alignment: alignment,
+        child: Text(text, maxLines: 1, style: style),
+      ),
+    );
+  }
+}
+
+class _TrackInsightTableRow extends StatelessWidget {
+  const _TrackInsightTableRow({super.key, required this.row});
+
+  final MonthlyTrackInsightRow row;
+
+  @override
+  Widget build(BuildContext context) {
+    final track = row.track;
+
+    return InkWell(
+      onTap: () {
+        unawaited(_showInsightTrackContext(context, track));
+      },
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+        child: _DataRowLayout(
+          rank: row.rank,
+          entity: _EntityCell(
+            artworkPath: track.artworkPath,
+            fallbackIcon: Icons.music_note_rounded,
+            title: track.title,
+            subtitle: track.artistName,
+            badge: track.isBlocked
+                ? 'BLACKLISTED'
+                : !track.isAvailable
+                ? 'UNAVAILABLE'
+                : null,
+          ),
+          streams: row.streams,
+          change: row.streamChange,
+          percentChange: row.streamPercentChange,
+          isNew: row.isNew,
+          listeningDuration: row.listeningDuration,
+          lifetimeStreams: row.lifetimeStreams,
+          movement: row.rankMovement,
+        ),
+      ),
+    );
+  }
+}
+
+class _ArtistInsightTableRow extends StatelessWidget {
+  const _ArtistInsightTableRow({super.key, required this.row});
+
+  final MonthlyArtistInsightRow row;
+
+  @override
+  Widget build(BuildContext context) {
+    final artist = row.artist;
+
+    final artworkPath = artist.topArtistsArtworkPath?.trim().isNotEmpty == true
+        ? artist.topArtistsArtworkPath
+        : artist.headerArtworkPath;
+
+    return InkWell(
+      onTap: () {
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => ArtistProfilePage(
+              artistId: artist.artistId,
+              initialArtistName: artist.name,
+            ),
+          ),
+        );
+      },
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+        child: _DataRowLayout(
+          rank: row.rank,
+          entity: _EntityCell(
+            artworkPath: artworkPath,
+            fallbackIcon: Icons.person_rounded,
+            title: artist.name,
+            subtitle: '${artist.songCount} songs / ${artist.albumCount} albums',
+            circularArtwork: true,
+          ),
+          streams: row.streams,
+          change: row.streamChange,
+          percentChange: row.streamPercentChange,
+          isNew: row.isNew,
+          listeningDuration: row.listeningDuration,
+          lifetimeStreams: row.lifetimeStreams,
+          movement: row.rankMovement,
+        ),
+      ),
+    );
+  }
+}
+
+class _AlbumInsightTableRow extends StatelessWidget {
+  const _AlbumInsightTableRow({super.key, required this.row});
+
+  final MonthlyAlbumInsightRow row;
+
+  @override
+  Widget build(BuildContext context) {
+    final album = row.album;
+
+    return InkWell(
+      onTap: () {
+        Navigator.of(context).push(
+          MaterialPageRoute<void>(
+            builder: (_) => AlbumProfilePage(
+              albumId: album.albumId,
+              initialAlbumTitle: album.title,
+            ),
+          ),
+        );
+      },
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+        child: _DataRowLayout(
+          rank: row.rank,
+          entity: _EntityCell(
+            artworkPath: album.artworkPath,
+            fallbackIcon: Icons.album_rounded,
+            title: album.title,
+            subtitle: album.artistName,
+          ),
+          streams: row.streams,
+          change: row.streamChange,
+          percentChange: row.streamPercentChange,
+          isNew: row.isNew,
+          listeningDuration: row.listeningDuration,
+          lifetimeStreams: row.lifetimeStreams,
+          movement: row.rankMovement,
+        ),
+      ),
+    );
+  }
+}
+
+class _DataRowLayout extends StatelessWidget {
+  const _DataRowLayout({
+    required this.rank,
+    required this.entity,
+    required this.streams,
+    required this.change,
+    required this.percentChange,
+    required this.isNew,
+    required this.listeningDuration,
+    required this.lifetimeStreams,
+    required this.movement,
+  });
+
+  final int rank;
+  final Widget entity;
+  final int streams;
+  final int change;
+  final double? percentChange;
+  final bool isNew;
+  final Duration listeningDuration;
+  final int lifetimeStreams;
+  final int? movement;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Row(
+      children: [
+        SizedBox(
+          width: 42,
+          child: Column(
+            children: [
+              Text(
+                '$rank',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 2),
+              _RankMovementLabel(movement: movement, isNew: isNew),
+            ],
+          ),
+        ),
+        SizedBox(width: 330, child: entity),
+        _NumericCell(width: 84, value: '$streams'),
+        _NumericCell(
+          width: 72,
+          value: isNew ? 'NEW' : _signedInteger(change),
+          emphasized: isNew || change != 0,
+        ),
+        _NumericCell(
+          width: 72,
+          value: _tablePercent(percentChange, isNew: isNew),
+        ),
+        _NumericCell(width: 120, value: _formatDuration(listeningDuration)),
+        _NumericCell(width: 110, value: '$lifetimeStreams'),
+      ],
+    );
+  }
+}
+
+class _EntityCell extends StatelessWidget {
+  const _EntityCell({
+    required this.artworkPath,
+    required this.fallbackIcon,
+    required this.title,
+    required this.subtitle,
+    this.badge,
+    this.circularArtwork = false,
+  });
+
+  final String? artworkPath;
+  final IconData fallbackIcon;
+  final String title;
+  final String subtitle;
+  final String? badge;
+  final bool circularArtwork;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Row(
+      children: [
+        _SmallArtwork(
+          path: artworkPath,
+          fallbackIcon: fallbackIcon,
+          circular: circularArtwork,
+        ),
+        const SizedBox(width: 11),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                subtitle,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              if (badge != null) ...[
+                const SizedBox(height: 3),
+                Text(
+                  badge!,
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: theme.colorScheme.error,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _SmallArtwork extends StatelessWidget {
+  const _SmallArtwork({
+    required this.path,
+    required this.fallbackIcon,
+    this.circular = false,
+  });
+
+  final String? path;
+  final IconData fallbackIcon;
+  final bool circular;
+
+  @override
+  Widget build(BuildContext context) {
+    final normalizedPath = path?.trim();
+
+    final child = SizedBox.square(
+      dimension: 46,
+      child: normalizedPath == null || normalizedPath.isEmpty
+          ? _SmallArtworkFallback(icon: fallbackIcon)
+          : Image.file(
+              File(normalizedPath),
+              fit: BoxFit.cover,
+              errorBuilder: (_, _, _) =>
+                  _SmallArtworkFallback(icon: fallbackIcon),
+            ),
+    );
+
+    if (circular) {
+      return ClipOval(child: child);
+    }
+
+    return ClipRRect(borderRadius: BorderRadius.circular(9), child: child);
+  }
+}
+
+class _SmallArtworkFallback extends StatelessWidget {
+  const _SmallArtworkFallback({required this.icon});
+
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return ColoredBox(
+      color: Theme.of(context).colorScheme.surfaceContainerHighest,
+      child: Center(
+        child: Icon(
+          icon,
+          size: 22,
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+        ),
+      ),
+    );
+  }
+}
+
+class _NumericCell extends StatelessWidget {
+  const _NumericCell({
+    required this.width,
+    required this.value,
+    this.emphasized = false,
+  });
+
+  final double width;
+  final String value;
+  final bool emphasized;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return SizedBox(
+      width: width,
+      child: Text(
+        value,
+        textAlign: TextAlign.right,
+        maxLines: 1,
+        style: theme.textTheme.bodySmall?.copyWith(
+          fontWeight: emphasized ? FontWeight.w800 : FontWeight.w600,
+        ),
+      ),
+    );
+  }
+}
+
+class _RankMovementLabel extends StatelessWidget {
+  const _RankMovementLabel({required this.movement, required this.isNew});
+
+  final int? movement;
+  final bool isNew;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    final label = isNew
+        ? 'NEW'
+        : movement == null || movement == 0
+        ? '-'
+        : movement! > 0
+        ? '+${movement!}'
+        : '${movement!}';
+
+    return Text(
+      label,
+      style: theme.textTheme.labelSmall?.copyWith(
+        fontWeight: FontWeight.w800,
+        color: isNew
+            ? theme.colorScheme.primary
+            : theme.colorScheme.onSurfaceVariant,
+      ),
+    );
+  }
+}
+
+String _rankingCountLabel({required int visible, required int total}) {
+  if (visible == total) {
+    return '$total ranked';
+  }
+
+  return 'Top $visible of $total';
+}
+
+String _signedInteger(int value) {
+  if (value > 0) {
+    return '+$value';
+  }
+
+  return '$value';
+}
+
+String _tablePercent(double? value, {required bool isNew}) {
+  if (isNew || value == null) {
+    return '-';
+  }
+
+  final percent = value * 100;
+  final prefix = percent > 0 ? '+' : '';
+
+  return '$prefix${percent.toStringAsFixed(1)}%';
+}
+
+Future<void> _showInsightTrackContext(
+  BuildContext context,
+  LibraryTrack track,
+) async {
+  final canPlay =
+      !track.isBlocked &&
+      track.isAvailable &&
+      track.filePath != null &&
+      track.filePath!.trim().isNotEmpty;
+
+  final playback = context.read<PlaybackCoordinator?>();
+
+  await showModalBottomSheet<void>(
+    context: context,
+    showDragHandle: true,
+    builder: (sheetContext) {
+      return SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: ListView(
+            shrinkWrap: true,
+            children: [
+              ListTile(
+                title: Text(
+                  track.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                subtitle: Text(
+                  '${track.artistName} / ${track.albumTitle}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.play_arrow_rounded),
+                title: const Text('Play'),
+                enabled: canPlay && playback != null,
+                onTap: !canPlay || playback == null
+                    ? null
+                    : () {
+                        Navigator.of(sheetContext).pop();
+                        unawaited(playback.playTrack(track));
+                      },
+              ),
+              ListTile(
+                leading: const Icon(Icons.playlist_play_rounded),
+                title: const Text('Play next'),
+                enabled: canPlay && playback != null,
+                onTap: !canPlay || playback == null
+                    ? null
+                    : () {
+                        Navigator.of(sheetContext).pop();
+                        unawaited(playback.playNext(track));
+                      },
+              ),
+              ListTile(
+                leading: const Icon(Icons.queue_music_rounded),
+                title: const Text('Add to queue'),
+                enabled: canPlay && playback != null,
+                onTap: !canPlay || playback == null
+                    ? null
+                    : () {
+                        Navigator.of(sheetContext).pop();
+                        unawaited(playback.addToQueue(track));
+                      },
+              ),
+              ListTile(
+                leading: const Icon(Icons.playlist_add_rounded),
+                title: const Text('Add to playlist'),
+                enabled: canPlay,
+                onTap: !canPlay
+                    ? null
+                    : () {
+                        Navigator.of(sheetContext).pop();
+                        unawaited(showAddToPlaylistFlow(context, track));
+                      },
+              ),
+              ListTile(
+                leading: const Icon(Icons.album_outlined),
+                title: const Text('Go to album'),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => AlbumProfilePage(
+                        albumId: track.albumId,
+                        initialAlbumTitle: track.albumTitle,
+                      ),
+                    ),
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.person_outline_rounded),
+                title: const Text('Go to artist'),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => ArtistProfilePage(
+                        artistId: track.artistId,
+                        initialArtistName: track.artistName,
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
+}
+
+class _EmptyMonth extends StatelessWidget {
+  const _EmptyMonth();
+
+  @override
+  Widget build(BuildContext context) {
+    return const _InsightsMessage(
+      key: ValueKey<String>('monthly-insights-empty'),
+      icon: Icons.query_stats_rounded,
+      title: 'No listening this month',
+      message:
+          'Qualified streams and listening time will appear here as you listen.',
+    );
+  }
+}
+
+class _RefreshErrorBanner extends StatelessWidget {
+  const _RefreshErrorBanner({required this.onRetry});
+
+  final Future<void> Function() onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      key: const ValueKey<String>('monthly-insights-refresh-error'),
+      color: Theme.of(context).colorScheme.errorContainer,
+      borderRadius: BorderRadius.circular(14),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          children: [
+            const Icon(Icons.error_outline_rounded),
+            const SizedBox(width: 10),
+            const Expanded(
+              child: Text(
+                'Insights could not refresh. Showing the last available data.',
+              ),
+            ),
+            TextButton(onPressed: onRetry, child: const Text('Retry')),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _InsightsMessage extends StatelessWidget {
+  const _InsightsMessage({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.message,
+    this.action,
+  });
+
+  final IconData icon;
+  final String title;
+  final String message;
+  final Widget? action;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 48, color: theme.colorScheme.onSurfaceVariant),
+            const SizedBox(height: 14),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            if (action != null) ...[const SizedBox(height: 18), action!],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+String _formatMonth(DateTime month) {
+  return '${_monthName(month.month)} ${month.year}';
+}
+
+String _monthName(int month) {
+  return const [
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
+  ][month - 1];
+}
+
+String _shortMonthName(int month) {
+  return const [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ][month - 1];
+}
+
+String _formatDuration(Duration duration) {
+  final totalMinutes = duration.inMinutes;
+
+  if (totalMinutes < 60) {
+    return '${totalMinutes}m';
+  }
+
+  final hours = totalMinutes ~/ 60;
+  final minutes = totalMinutes % 60;
+
+  if (minutes == 0) {
+    return '${hours}h';
+  }
+
+  return '${hours}h ${minutes}m';
+}
+
+String _formatPercentChange(double? value) {
+  if (value == null) {
+    return 'NEW';
+  }
+
+  final percent = value * 100;
+
+  if (percent == 0) {
+    return '0%';
+  }
+
+  final prefix = percent > 0 ? '+' : '';
+
+  return '$prefix${percent.toStringAsFixed(1)}%';
+}
+
+String _formatHour(int hour) {
+  final normalized = hour % 24;
+
+  if (normalized == 0) {
+    return '12 AM';
+  }
+
+  if (normalized < 12) {
+    return '$normalized AM';
+  }
+
+  if (normalized == 12) {
+    return '12 PM';
+  }
+
+  return '${normalized - 12} PM';
+}
+
+================================================================================
+FILE: .\lib\features\analytics\application\services\monthly_insights\monthly_listening_insights_enrichment_service.dart
+================================================================================
+// ignore_for_file: prefer_initializing_formals
+
+import '../../../../library/application/repositories/library_query_repository.dart';
+import '../../models/monthly_insights/monthly_album_insight_row.dart';
+import '../../models/monthly_insights/monthly_artist_insight_row.dart';
+import '../../models/monthly_insights/monthly_listening_insights.dart';
+import '../../models/monthly_insights/monthly_listening_insights_presentation_data.dart';
+import '../../models/monthly_insights/monthly_track_insight_row.dart';
+
+abstract interface class MonthlyListeningInsightsEnricher {
+  Future<MonthlyListeningInsightsPresentationData> enrich(
+    MonthlyListeningInsights insights,
+  );
+}
+
+class MonthlyListeningInsightsEnrichmentService
+    implements MonthlyListeningInsightsEnricher {
+  const MonthlyListeningInsightsEnrichmentService({
+    required LibraryQueryRepository library,
+  }) : _library = library;
+
+  final LibraryQueryRepository _library;
+
+  @override
+  Future<MonthlyListeningInsightsPresentationData> enrich(
+    MonthlyListeningInsights insights,
+  ) async {
+    final tracksFuture = _buildTracks(insights);
+    final artistsFuture = _buildArtists(insights);
+    final albumsFuture = _buildAlbums(insights);
+
+    return MonthlyListeningInsightsPresentationData(
+      insights: insights,
+      tracks: await tracksFuture,
+      artists: await artistsFuture,
+      albums: await albumsFuture,
+    );
+  }
+
+  Future<List<MonthlyTrackInsightRow>> _buildTracks(
+    MonthlyListeningInsights insights,
+  ) async {
+    final rows = <MonthlyTrackInsightRow>[];
+
+    for (final ranking in insights.songs) {
+      final track = await _library.getTrackById(ranking.entityId);
+
+      if (track == null) {
+        continue;
+      }
+
+      rows.add(
+        MonthlyTrackInsightRow(
+          track: track,
+          ranking: ranking,
+          listeningDuration: insights.entityListeningDurations.song(
+            ranking.entityId,
+          ),
+        ),
+      );
+    }
+
+    return List.unmodifiable(rows);
+  }
+
+  Future<List<MonthlyArtistInsightRow>> _buildArtists(
+    MonthlyListeningInsights insights,
+  ) async {
+    final rows = <MonthlyArtistInsightRow>[];
+
+    for (final ranking in insights.artists) {
+      final artist = await _library.getArtistById(ranking.entityId);
+
+      if (artist == null) {
+        continue;
+      }
+
+      rows.add(
+        MonthlyArtistInsightRow(
+          artist: artist,
+          ranking: ranking,
+          listeningDuration: insights.entityListeningDurations.artist(
+            ranking.entityId,
+          ),
+        ),
+      );
+    }
+
+    return List.unmodifiable(rows);
+  }
+
+  Future<List<MonthlyAlbumInsightRow>> _buildAlbums(
+    MonthlyListeningInsights insights,
+  ) async {
+    final rows = <MonthlyAlbumInsightRow>[];
+
+    for (final ranking in insights.albums) {
+      final album = await _library.getAlbumById(ranking.entityId);
+
+      if (album == null) {
+        continue;
+      }
+
+      rows.add(
+        MonthlyAlbumInsightRow(
+          album: album,
+          ranking: ranking,
+          listeningDuration: insights.entityListeningDurations.album(
+            ranking.entityId,
+          ),
+        ),
+      );
+    }
+
+    return List.unmodifiable(rows);
+  }
+}
+
+================================================================================
+FILE: .\lib\features\analytics\application\models\monthly_insights\monthly_track_insight_row.dart
+================================================================================
+import '../../../../library/application/models/library_track.dart';
+import 'monthly_ranked_entity.dart';
+
+class MonthlyTrackInsightRow {
+  const MonthlyTrackInsightRow({
+    required this.track,
+    required this.ranking,
+    required this.listeningDuration,
+  });
+
+  final LibraryTrack track;
+  final MonthlyRankedEntity ranking;
+  final Duration listeningDuration;
+
+  int get rank => ranking.rank;
+  int? get previousRank => ranking.previousRank;
+  int? get rankMovement => ranking.rankMovement;
+
+  int get streams => ranking.streams;
+  int get previousStreams => ranking.previousStreams;
+  int get lifetimeStreams => ranking.lifetimeStreams;
+
+  int get streamChange => ranking.streamChange.absoluteChange;
+  double? get streamPercentChange => ranking.streamChange.percentChange;
+
+  bool get isNew => ranking.isNew;
+}
+
+================================================================================
+FILE: .\lib\features\analytics\application\models\monthly_insights\monthly_artist_insight_row.dart
+================================================================================
+import '../../../../library/application/models/library_artist.dart';
+import 'monthly_ranked_entity.dart';
+
+class MonthlyArtistInsightRow {
+  const MonthlyArtistInsightRow({
+    required this.artist,
+    required this.ranking,
+    required this.listeningDuration,
+  });
+
+  final LibraryArtist artist;
+  final MonthlyRankedEntity ranking;
+  final Duration listeningDuration;
+
+  int get rank => ranking.rank;
+  int? get previousRank => ranking.previousRank;
+  int? get rankMovement => ranking.rankMovement;
+
+  int get streams => ranking.streams;
+  int get previousStreams => ranking.previousStreams;
+  int get lifetimeStreams => ranking.lifetimeStreams;
+
+  int get streamChange => ranking.streamChange.absoluteChange;
+  double? get streamPercentChange => ranking.streamChange.percentChange;
+
+  bool get isNew => ranking.isNew;
+}
+
+================================================================================
+FILE: .\lib\features\analytics\application\models\monthly_insights\monthly_album_insight_row.dart
+================================================================================
+import '../../../../library/application/models/library_album.dart';
+import 'monthly_ranked_entity.dart';
+
+class MonthlyAlbumInsightRow {
+  const MonthlyAlbumInsightRow({
+    required this.album,
+    required this.ranking,
+    required this.listeningDuration,
+  });
+
+  final LibraryAlbum album;
+  final MonthlyRankedEntity ranking;
+  final Duration listeningDuration;
+
+  int get rank => ranking.rank;
+  int? get previousRank => ranking.previousRank;
+  int? get rankMovement => ranking.rankMovement;
+
+  int get streams => ranking.streams;
+  int get previousStreams => ranking.previousStreams;
+  int get lifetimeStreams => ranking.lifetimeStreams;
+
+  int get streamChange => ranking.streamChange.absoluteChange;
+  double? get streamPercentChange => ranking.streamChange.percentChange;
+
+  bool get isNew => ranking.isNew;
+}
+
+================================================================================
+FILE: .\lib\features\analytics\application\models\monthly_insights\monthly_listening_insights.dart
+================================================================================
+import '../analytics_behavior_metrics.dart';
+import '../analytics_summary.dart';
+import 'monthly_duration_change.dart';
+import 'monthly_entity_listening_durations.dart';
+import 'monthly_listening_distribution.dart';
+import 'monthly_ranked_entity.dart';
+import 'monthly_ranking_change.dart';
+
+class MonthlyListeningInsights {
+  const MonthlyListeningInsights({
+    required this.selectedMonth,
+    required this.previousMonth,
+    required this.currentSummary,
+    required this.previousSummary,
+    required this.currentAudibleListeningDuration,
+    required this.previousAudibleListeningDuration,
+    required this.behavior,
+    required this.distribution,
+    required this.entityListeningDurations,
+    required this.songs,
+    required this.artists,
+    required this.albums,
+  });
+
+  final DateTime selectedMonth;
+  final DateTime previousMonth;
+
+  final AnalyticsSummary currentSummary;
+  final AnalyticsSummary previousSummary;
+
+  final Duration currentAudibleListeningDuration;
+  final Duration previousAudibleListeningDuration;
+
+  final AnalyticsBehaviorMetrics behavior;
+  final MonthlyListeningDistribution distribution;
+  final MonthlyEntityListeningDurations entityListeningDurations;
+
+  final List<MonthlyRankedEntity> songs;
+  final List<MonthlyRankedEntity> artists;
+  final List<MonthlyRankedEntity> albums;
+
+  MonthlyRankingChange get streamChange => MonthlyRankingChange(
+    currentValue: currentSummary.qualifiedStreamCount,
+    previousValue: previousSummary.qualifiedStreamCount,
+  );
+
+  MonthlyDurationChange get listeningTimeChange => MonthlyDurationChange(
+    current: currentAudibleListeningDuration,
+    previous: previousAudibleListeningDuration,
+  );
+
+  MonthlyRankingChange get trackCountChange => MonthlyRankingChange(
+    currentValue: currentSummary.distinctSongCount,
+    previousValue: previousSummary.distinctSongCount,
+  );
+
+  MonthlyRankingChange get artistCountChange => MonthlyRankingChange(
+    currentValue: currentSummary.distinctArtistCount,
+    previousValue: previousSummary.distinctArtistCount,
+  );
+
+  MonthlyRankingChange get albumCountChange => MonthlyRankingChange(
+    currentValue: currentSummary.distinctAlbumCount,
+    previousValue: previousSummary.distinctAlbumCount,
+  );
+
+  bool get hasListening =>
+      currentSummary.hasListening ||
+      currentAudibleListeningDuration > Duration.zero;
+}
