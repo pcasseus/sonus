@@ -12,6 +12,7 @@ import '../features/library/presentation/scopes/library_query_scope.dart';
 import '../features/player/presentation/scopes/playback_scope.dart';
 import '../features/playlists/presentation/scopes/playlists_scope.dart';
 import '../features/shell/presentation/pages/app_shell_page.dart';
+import '../features/sync/presentation/scopes/sync_scope.dart';
 import 'account_analytics_bridge.dart';
 import 'account_sync_ownership_bridge.dart';
 
@@ -36,23 +37,26 @@ class SonusApp extends StatelessWidget {
           engineFactory: playbackEngineFactory,
           child: AccountScope(
             repository: accountRepository,
-            child: AccountSyncOwnershipBridge(
+            child: SyncScope(
               database: libraryDatabase,
-              child: AccountAnalyticsBridge(
-                child: MonthlyListeningInsightsScope(
-                  child: YearInSonusScope(
-                    child: HomeScope(
-                      child: ChartsScope(
-                        child: ImportScope(
-                          child: MaterialApp(
-                            debugShowCheckedModeBanner: false,
-                            title: 'Sonus',
-                            theme: ThemeData(
-                              colorScheme: ColorScheme.fromSeed(
-                                seedColor: Colors.deepPurple,
+              child: AccountSyncOwnershipBridge(
+                database: libraryDatabase,
+                child: AccountAnalyticsBridge(
+                  child: MonthlyListeningInsightsScope(
+                    child: YearInSonusScope(
+                      child: HomeScope(
+                        child: ChartsScope(
+                          child: ImportScope(
+                            child: MaterialApp(
+                              debugShowCheckedModeBanner: false,
+                              title: 'Sonus',
+                              theme: ThemeData(
+                                colorScheme: ColorScheme.fromSeed(
+                                  seedColor: Colors.deepPurple,
+                                ),
                               ),
+                              home: const AppShellPage(),
                             ),
-                            home: const AppShellPage(),
                           ),
                         ),
                       ),

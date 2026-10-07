@@ -1,0 +1,359 @@
+import 'dart:async';
+
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
+
+import 'package:sonus_next/features/account/application/controllers/account_controller.dart';
+import 'package:sonus_next/features/account/application/repositories/local_account_binding_repository.dart';
+import 'package:sonus_next/features/account/domain/entities/account_user.dart';
+import 'package:sonus_next/features/account/domain/repositories/account_repository.dart';
+import 'package:sonus_next/features/settings/presentation/pages/settings_page.dart';
+import 'package:sonus_next/features/sync/application/controllers/sync_controller.dart';
+import 'package:sonus_next/features/sync/application/services/automatic_sync_coordinator.dart';
+import 'package:sonus_next/features/sync/application/services/sync_network_policy_service.dart';
+import 'package:sonus_next/features/sync/application/services/sync_service.dart';
+
+void main() {
+  testWidgets('shows signed-out sync state', (tester) async {
+    final accountController = AccountController(
+      repository: _FakeAccountRepository(),
+    );
+
+    final syncController = SyncController.forTesting(
+      synchronize: (_) async => _successResult(),
+    );
+
+    final coordinator = AutomaticSyncCoordinator(
+      syncController: syncController,
+      networkPolicy: _wifiPolicy(),
+    );
+
+    await tester.pumpWidget(
+      _buildTestApp(
+        accountController: accountController,
+        syncController: syncController,
+        coordinator: coordinator,
+      ),
+    );
+
+    expect(
+      find.byKey(const ValueKey<String>('settings-sync-signed-out')),
+      findsOneWidget,
+    );
+    expect(find.text('Sign in to sync your Sonus library.'), findsOneWidget);
+  });
+
+  testWidgets('shows successful sync state and pending count', (tester) async {
+    final accountController = _signedInAccountController();
+
+    final syncController = SyncController.forTesting(
+      synchronize: (_) async => _successResult(pendingAfterSync: 3),
+    );
+
+    await syncController.synchronize('user-1');
+
+    final coordinator = AutomaticSyncCoordinator(
+      syncController: syncController,
+      networkPolicy: _wifiPolicy(),
+    );
+
+    coordinator.updateUserId('user-1');
+
+    await tester.pumpWidget(
+      _buildTestApp(
+        accountController: accountController,
+        syncController: syncController,
+        coordinator: coordinator,
+      ),
+    );
+
+    expect(
+      find.byKey(const ValueKey<String>('settings-sync-card')),
+      findsOneWidget,
+    );
+    expect(find.text('Up to date'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('settings-sync-last-synced')),
+      findsOneWidget,
+    );
+
+    final pending = tester.widget<Text>(
+      find.byKey(const ValueKey<String>('settings-sync-pending')),
+    );
+
+    expect(pending.data, '3');
+  });
+
+  testWidgets('sync now triggers synchronization', (tester) async {
+    var syncCalls = 0;
+
+    final accountController = _signedInAccountController();
+
+    final syncController = SyncController.forTesting(
+      synchronize: (userId) async {
+        syncCalls += 1;
+        expect(userId, 'user-1');
+        return _successResult();
+      },
+    );
+
+    await syncController.activateUser('user-1');
+
+    final coordinator = AutomaticSyncCoordinator(
+      syncController: syncController,
+      networkPolicy: _wifiPolicy(),
+    );
+
+    coordinator.updateUserId('user-1');
+
+    await tester.pumpWidget(
+      _buildTestApp(
+        accountController: accountController,
+        syncController: syncController,
+        coordinator: coordinator,
+      ),
+    );
+
+    final button = find.byKey(
+      const ValueKey<String>('settings-sync-now-button'),
+    );
+
+    await tester.ensureVisible(button);
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+
+    expect(syncCalls, 1);
+    expect(syncController.status, SyncStatus.success);
+    expect(find.text('Up to date'), findsOneWidget);
+  });
+
+  testWidgets('shows retry state after sync failure', (tester) async {
+    final accountController = _signedInAccountController();
+
+    final syncController = SyncController.forTesting(
+      synchronize: (_) async {
+        throw StateError('network failure');
+      },
+    );
+
+    await syncController.activateUser('user-1');
+
+    final coordinator = AutomaticSyncCoordinator(
+      syncController: syncController,
+      networkPolicy: _wifiPolicy(),
+    );
+
+    coordinator.updateUserId('user-1');
+
+    await tester.pumpWidget(
+      _buildTestApp(
+        accountController: accountController,
+        syncController: syncController,
+        coordinator: coordinator,
+      ),
+    );
+
+    final button = find.byKey(
+      const ValueKey<String>('settings-sync-now-button'),
+    );
+
+    await tester.ensureVisible(button);
+    await tester.tap(button);
+    await tester.pumpAndSettle();
+
+    expect(syncController.status, SyncStatus.error);
+    expect(find.text('Waiting to retry'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('settings-sync-error')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('shows account conflict and disables sync', (tester) async {
+    final accountController = _signedInAccountController();
+
+    final syncController = SyncController.forTesting(
+      synchronize: (_) async {
+        throw const LocalAccountBindingConflict(
+          boundUserId: 'user-old',
+          requestedUserId: 'user-1',
+        );
+      },
+    );
+
+    await syncController.synchronize('user-1');
+
+    final coordinator = AutomaticSyncCoordinator(
+      syncController: syncController,
+      networkPolicy: _wifiPolicy(),
+    );
+
+    coordinator.updateUserId('user-1');
+
+    await tester.pumpWidget(
+      _buildTestApp(
+        accountController: accountController,
+        syncController: syncController,
+        coordinator: coordinator,
+      ),
+    );
+
+    expect(find.text('Account conflict'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('settings-sync-account-conflict')),
+      findsOneWidget,
+    );
+
+    final button = tester.widget<FilledButton>(
+      find.byKey(const ValueKey<String>('settings-sync-now-button')),
+    );
+
+    expect(button.onPressed, isNull);
+  });
+
+  testWidgets('mobile-data consent can allow sync', (tester) async {
+    var mobileAllowed = false;
+    var syncCalls = 0;
+
+    final accountController = _signedInAccountController();
+
+    final syncController = SyncController.forTesting(
+      synchronize: (_) async {
+        syncCalls += 1;
+        return _successResult();
+      },
+    );
+
+    await syncController.activateUser('user-1');
+
+    final policy = SyncNetworkPolicyService.forTesting(
+      checkConnectivity: () async => [ConnectivityResult.mobile],
+      getBool: (_) async => mobileAllowed ? true : null,
+      setBool: (key, value) async {
+        expect(key, SyncNetworkPolicyService.mobileDataAllowedPreferenceKey);
+        mobileAllowed = value;
+      },
+      remove: (_) async {
+        mobileAllowed = false;
+      },
+    );
+
+    final coordinator = AutomaticSyncCoordinator(
+      syncController: syncController,
+      networkPolicy: policy,
+    );
+
+    coordinator.updateUserId('user-1');
+
+    await coordinator.trigger();
+
+    expect(coordinator.mobileConsentRequired, isTrue);
+    expect(syncCalls, 0);
+
+    await tester.pumpWidget(
+      _buildTestApp(
+        accountController: accountController,
+        syncController: syncController,
+        coordinator: coordinator,
+      ),
+    );
+
+    final consent = find.byKey(
+      const ValueKey<String>('settings-sync-mobile-consent'),
+    );
+
+    expect(consent, findsOneWidget);
+
+    final allowButton = find.byKey(
+      const ValueKey<String>('settings-sync-allow-mobile'),
+    );
+
+    await tester.ensureVisible(allowButton);
+    await tester.tap(allowButton);
+    await tester.pumpAndSettle();
+
+    expect(mobileAllowed, isTrue);
+    expect(syncCalls, 1);
+    expect(coordinator.mobileConsentRequired, isFalse);
+    expect(syncController.status, SyncStatus.success);
+  });
+}
+
+Widget _buildTestApp({
+  required AccountController accountController,
+  required SyncController syncController,
+  required AutomaticSyncCoordinator coordinator,
+}) {
+  return MultiProvider(
+    providers: [
+      ChangeNotifierProvider<AccountController>.value(value: accountController),
+      ChangeNotifierProvider<SyncController>.value(value: syncController),
+      ChangeNotifierProvider<AutomaticSyncCoordinator>.value(
+        value: coordinator,
+      ),
+    ],
+    child: const MaterialApp(home: Scaffold(body: SettingsPage())),
+  );
+}
+
+AccountController _signedInAccountController() {
+  return AccountController(
+    repository: _FakeAccountRepository(
+      currentUser: const AccountUser(
+        id: 'user-1',
+        email: 'person@example.com',
+        displayName: 'Person Example',
+        avatarUrl: null,
+      ),
+    ),
+  );
+}
+
+SyncNetworkPolicyService _wifiPolicy() {
+  return SyncNetworkPolicyService.forTesting(
+    checkConnectivity: () async => [ConnectivityResult.wifi],
+    getBool: (_) async => null,
+    setBool: (_, _) async {},
+    remove: (_) async {},
+  );
+}
+
+SyncRunResult _successResult({int pendingAfterSync = 0}) {
+  final startedAt = DateTime.utc(2026, 10, 6, 18);
+  final completedAt = DateTime.utc(2026, 10, 6, 18, 1);
+
+  return SyncRunResult(
+    userId: 'user-1',
+    startedAt: startedAt,
+    completedAt: completedAt,
+    claimedUnownedCount: 0,
+    pendingBeforePush: 0,
+    pulledRecordCount: 0,
+    pendingAfterSync: pendingAfterSync,
+  );
+}
+
+class _FakeAccountRepository implements AccountRepository {
+  _FakeAccountRepository({this._currentUser});
+
+  AccountUser? _currentUser;
+
+  final StreamController<AccountUser?> _controller =
+      StreamController<AccountUser?>.broadcast();
+
+  @override
+  AccountUser? get currentUser => _currentUser;
+
+  @override
+  Stream<AccountUser?> watchAuthState() => _controller.stream;
+
+  @override
+  Future<AccountUser?> signInWithGoogle() async => _currentUser;
+
+  @override
+  Future<void> signOut() async {
+    _currentUser = null;
+  }
+}

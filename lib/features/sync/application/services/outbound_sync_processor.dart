@@ -41,6 +41,12 @@ class OutboundSyncProcessor {
     final pending = await localSyncRepository.getPending(trimmedUserId);
     final ordered = [...pending]..sort(_compareEntries);
 
+    final ensuredArtworkIds = <String>{};
+    final ensuredArtistIds = <String>{};
+    final ensuredAlbumIds = <String>{};
+    final ensuredAlbumEditionIds = <String>{};
+    final ensuredSongIds = <String>{};
+
     for (final entry in ordered) {
       if (entry.userId != trimmedUserId) {
         throw StateError(
@@ -50,7 +56,15 @@ class OutboundSyncProcessor {
 
       switch (entry.operation) {
         case SyncOutboxOperation.upsert:
-          await _pushUpsert(entry, userId: trimmedUserId);
+          await _pushUpsert(
+            entry,
+            userId: trimmedUserId,
+            ensuredArtworkIds: ensuredArtworkIds,
+            ensuredArtistIds: ensuredArtistIds,
+            ensuredAlbumIds: ensuredAlbumIds,
+            ensuredAlbumEditionIds: ensuredAlbumEditionIds,
+            ensuredSongIds: ensuredSongIds,
+          );
 
         case SyncOutboxOperation.delete:
           await cloudSyncGateway.markDeleted(
@@ -71,82 +85,283 @@ class OutboundSyncProcessor {
   Future<void> _pushUpsert(
     SyncOutboxEntry entry, {
     required String userId,
+    required Set<String> ensuredArtworkIds,
+    required Set<String> ensuredArtistIds,
+    required Set<String> ensuredAlbumIds,
+    required Set<String> ensuredAlbumEditionIds,
+    required Set<String> ensuredSongIds,
   }) async {
     switch (entry.entityType) {
       case CloudDataEntity.artworkAsset:
-        final entity = await artworkAssetRepository.getById(entry.entityId);
-
-        if (entity == null) {
-          throw StateError(
-            'Artwork asset ${entry.entityId} is missing for pending sync upsert.',
-          );
-        }
-
-        final storageObjectKey = await cloudArtworkStorage.upload(
+        await _ensureArtwork(
+          entry.entityId,
           userId: userId,
-          artworkAsset: entity,
-        );
-
-        await cloudSyncGateway.upsert(
-          CloudRecordMapper.artworkAsset(
-            artworkAsset: entity,
-            userId: userId,
-            storageObjectKey: storageObjectKey,
-          ),
+          ensuredArtworkIds: ensuredArtworkIds,
         );
 
       case CloudDataEntity.artist:
-        final entity = await artistRepository.getById(entry.entityId);
-
-        if (entity == null) {
-          throw StateError(
-            'Artist ${entry.entityId} is missing for pending sync upsert.',
-          );
-        }
-
-        await cloudSyncGateway.upsert(
-          CloudRecordMapper.artist(artist: entity, userId: userId),
+        await _ensureArtist(
+          entry.entityId,
+          userId: userId,
+          ensuredArtworkIds: ensuredArtworkIds,
+          ensuredArtistIds: ensuredArtistIds,
         );
 
       case CloudDataEntity.album:
-        final entity = await albumRepository.getById(entry.entityId);
-
-        if (entity == null) {
-          throw StateError(
-            'Album ${entry.entityId} is missing for pending sync upsert.',
-          );
-        }
-
-        await cloudSyncGateway.upsert(
-          CloudRecordMapper.album(album: entity, userId: userId),
+        await _ensureAlbum(
+          entry.entityId,
+          userId: userId,
+          ensuredArtworkIds: ensuredArtworkIds,
+          ensuredArtistIds: ensuredArtistIds,
+          ensuredAlbumIds: ensuredAlbumIds,
         );
 
       case CloudDataEntity.albumEdition:
-        final entity = await albumEditionRepository.getById(entry.entityId);
-
-        if (entity == null) {
-          throw StateError(
-            'Album edition ${entry.entityId} is missing for pending sync upsert.',
-          );
-        }
-
-        await cloudSyncGateway.upsert(
-          CloudRecordMapper.albumEdition(albumEdition: entity, userId: userId),
+        await _ensureAlbumEdition(
+          entry.entityId,
+          userId: userId,
+          ensuredArtworkIds: ensuredArtworkIds,
+          ensuredArtistIds: ensuredArtistIds,
+          ensuredAlbumIds: ensuredAlbumIds,
+          ensuredAlbumEditionIds: ensuredAlbumEditionIds,
         );
 
       case CloudDataEntity.song:
-        final entity = await songRepository.getById(entry.entityId);
-
-        if (entity == null) {
-          throw StateError(
-            'Song ${entry.entityId} is missing for pending sync upsert.',
-          );
-        }
-
-        await cloudSyncGateway.upsert(
-          CloudRecordMapper.song(song: entity, userId: userId),
+        await _ensureSong(
+          entry.entityId,
+          userId: userId,
+          ensuredArtworkIds: ensuredArtworkIds,
+          ensuredArtistIds: ensuredArtistIds,
+          ensuredAlbumIds: ensuredAlbumIds,
+          ensuredAlbumEditionIds: ensuredAlbumEditionIds,
+          ensuredSongIds: ensuredSongIds,
         );
     }
+  }
+
+  Future<void> _ensureArtwork(
+    String artworkId, {
+    required String userId,
+    required Set<String> ensuredArtworkIds,
+  }) async {
+    final normalizedArtworkId = artworkId.trim();
+
+    if (normalizedArtworkId.isEmpty ||
+        ensuredArtworkIds.contains(normalizedArtworkId)) {
+      return;
+    }
+
+    final entity = await artworkAssetRepository.getById(normalizedArtworkId);
+
+    if (entity == null) {
+      throw StateError(
+        'Artwork asset $normalizedArtworkId is missing for sync.',
+      );
+    }
+
+    final storageObjectKey = await cloudArtworkStorage.upload(
+      userId: userId,
+      artworkAsset: entity,
+    );
+
+    await cloudSyncGateway.upsert(
+      CloudRecordMapper.artworkAsset(
+        artworkAsset: entity,
+        userId: userId,
+        storageObjectKey: storageObjectKey,
+      ),
+    );
+
+    ensuredArtworkIds.add(normalizedArtworkId);
+  }
+
+  Future<void> _ensureOptionalArtwork(
+    String? artworkId, {
+    required String userId,
+    required Set<String> ensuredArtworkIds,
+  }) async {
+    final normalizedArtworkId = artworkId?.trim();
+
+    if (normalizedArtworkId == null || normalizedArtworkId.isEmpty) {
+      return;
+    }
+
+    await _ensureArtwork(
+      normalizedArtworkId,
+      userId: userId,
+      ensuredArtworkIds: ensuredArtworkIds,
+    );
+  }
+
+  Future<void> _ensureArtist(
+    String artistId, {
+    required String userId,
+    required Set<String> ensuredArtworkIds,
+    required Set<String> ensuredArtistIds,
+  }) async {
+    final normalizedArtistId = artistId.trim();
+
+    if (ensuredArtistIds.contains(normalizedArtistId)) {
+      return;
+    }
+
+    final entity = await artistRepository.getById(normalizedArtistId);
+
+    if (entity == null) {
+      throw StateError('Artist $normalizedArtistId is missing for sync.');
+    }
+
+    await _ensureOptionalArtwork(
+      entity.headerArtworkId,
+      userId: userId,
+      ensuredArtworkIds: ensuredArtworkIds,
+    );
+
+    await _ensureOptionalArtwork(
+      entity.topArtistsArtworkId,
+      userId: userId,
+      ensuredArtworkIds: ensuredArtworkIds,
+    );
+
+    await cloudSyncGateway.upsert(
+      CloudRecordMapper.artist(artist: entity, userId: userId),
+    );
+
+    ensuredArtistIds.add(normalizedArtistId);
+  }
+
+  Future<void> _ensureAlbum(
+    String albumId, {
+    required String userId,
+    required Set<String> ensuredArtworkIds,
+    required Set<String> ensuredArtistIds,
+    required Set<String> ensuredAlbumIds,
+  }) async {
+    final normalizedAlbumId = albumId.trim();
+
+    if (ensuredAlbumIds.contains(normalizedAlbumId)) {
+      return;
+    }
+
+    final entity = await albumRepository.getById(normalizedAlbumId);
+
+    if (entity == null) {
+      throw StateError('Album $normalizedAlbumId is missing for sync.');
+    }
+
+    await _ensureArtist(
+      entity.artistId,
+      userId: userId,
+      ensuredArtworkIds: ensuredArtworkIds,
+      ensuredArtistIds: ensuredArtistIds,
+    );
+
+    await cloudSyncGateway.upsert(
+      CloudRecordMapper.album(album: entity, userId: userId),
+    );
+
+    ensuredAlbumIds.add(normalizedAlbumId);
+  }
+
+  Future<void> _ensureAlbumEdition(
+    String albumEditionId, {
+    required String userId,
+    required Set<String> ensuredArtworkIds,
+    required Set<String> ensuredArtistIds,
+    required Set<String> ensuredAlbumIds,
+    required Set<String> ensuredAlbumEditionIds,
+  }) async {
+    final normalizedEditionId = albumEditionId.trim();
+
+    if (ensuredAlbumEditionIds.contains(normalizedEditionId)) {
+      return;
+    }
+
+    final entity = await albumEditionRepository.getById(normalizedEditionId);
+
+    if (entity == null) {
+      throw StateError(
+        'Album edition $normalizedEditionId is missing for sync.',
+      );
+    }
+
+    await _ensureAlbum(
+      entity.albumId,
+      userId: userId,
+      ensuredArtworkIds: ensuredArtworkIds,
+      ensuredArtistIds: ensuredArtistIds,
+      ensuredAlbumIds: ensuredAlbumIds,
+    );
+
+    await _ensureOptionalArtwork(
+      entity.artworkId,
+      userId: userId,
+      ensuredArtworkIds: ensuredArtworkIds,
+    );
+
+    await cloudSyncGateway.upsert(
+      CloudRecordMapper.albumEdition(albumEdition: entity, userId: userId),
+    );
+
+    ensuredAlbumEditionIds.add(normalizedEditionId);
+  }
+
+  Future<void> _ensureSong(
+    String songId, {
+    required String userId,
+    required Set<String> ensuredArtworkIds,
+    required Set<String> ensuredArtistIds,
+    required Set<String> ensuredAlbumIds,
+    required Set<String> ensuredAlbumEditionIds,
+    required Set<String> ensuredSongIds,
+  }) async {
+    final normalizedSongId = songId.trim();
+
+    if (ensuredSongIds.contains(normalizedSongId)) {
+      return;
+    }
+
+    final entity = await songRepository.getById(normalizedSongId);
+
+    if (entity == null) {
+      throw StateError('Song $normalizedSongId is missing for sync.');
+    }
+
+    await _ensureArtist(
+      entity.artistId,
+      userId: userId,
+      ensuredArtworkIds: ensuredArtworkIds,
+      ensuredArtistIds: ensuredArtistIds,
+    );
+
+    await _ensureAlbum(
+      entity.albumId,
+      userId: userId,
+      ensuredArtworkIds: ensuredArtworkIds,
+      ensuredArtistIds: ensuredArtistIds,
+      ensuredAlbumIds: ensuredAlbumIds,
+    );
+
+    await _ensureAlbumEdition(
+      entity.albumEditionId,
+      userId: userId,
+      ensuredArtworkIds: ensuredArtworkIds,
+      ensuredArtistIds: ensuredArtistIds,
+      ensuredAlbumIds: ensuredAlbumIds,
+      ensuredAlbumEditionIds: ensuredAlbumEditionIds,
+    );
+
+    await _ensureOptionalArtwork(
+      entity.artworkId,
+      userId: userId,
+      ensuredArtworkIds: ensuredArtworkIds,
+    );
+
+    await cloudSyncGateway.upsert(
+      CloudRecordMapper.song(song: entity, userId: userId),
+    );
+
+    ensuredSongIds.add(normalizedSongId);
   }
 
   int _compareEntries(SyncOutboxEntry left, SyncOutboxEntry right) {
