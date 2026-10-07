@@ -21,6 +21,7 @@ abstract final class MetadataFields {
   static const String songTitle = 'title';
   static const String songTrackNumber = 'trackNumber';
   static const String songDiscNumber = 'discNumber';
+  static const String songDuration = 'durationSeconds';
   static const String songIsSingle = 'isSingle';
   static const String songArtwork = 'artworkId';
   static const String songVersionLabel = 'versionLabel';
