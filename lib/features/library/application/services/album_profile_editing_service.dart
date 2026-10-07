@@ -3,6 +3,9 @@ import '../../../sync/application/services/sync_mutation_runner.dart';
 import '../../../sync/domain/models/sync_data_contract.dart';
 import '../../domain/entities/album.dart';
 import '../../domain/entities/album_edition.dart';
+import '../../domain/metadata/metadata_field_state.dart';
+import '../../domain/metadata/metadata_fields.dart';
+import '../../domain/services/metadata_field_state_service.dart';
 
 class AlbumProfileEditResult {
   const AlbumProfileEditResult({
@@ -130,6 +133,19 @@ class AlbumProfileEditingService {
 
       final canonicalTitle = TextNormalizer.canonicalize(trimmedTitle);
 
+      final changedAlbumMetadataFields = <String>{
+        if (album.artistId != targetArtistId) MetadataFields.albumArtist,
+        if (album.title != trimmedTitle) MetadataFields.albumTitle,
+      };
+
+      final changedEditionMetadataFields = <String>{
+        if (edition.title != trimmedEditionTitle) MetadataFields.editionTitle,
+        if (edition.type != editionType) MetadataFields.editionType,
+        if (edition.releaseDate != releaseDate)
+          MetadataFields.editionReleaseDate,
+        if (edition.genre != normalizedGenre) MetadataFields.editionGenre,
+      };
+
       final albumChanged =
           album.artistId != targetArtistId ||
           album.title != trimmedTitle ||
@@ -163,6 +179,22 @@ class AlbumProfileEditingService {
       if (albumChanged) {
         await context.albumRepository.save(updatedAlbum);
 
+        final metadataRepository = context.metadataFieldStateRepository;
+
+        if (metadataRepository != null &&
+            changedAlbumMetadataFields.isNotEmpty) {
+          await MetadataFieldStateService(
+            repository: metadataRepository,
+          ).recordAll(
+            entityType: MetadataEntityType.album,
+            entityId: updatedAlbum.id,
+            fieldNames: changedAlbumMetadataFields,
+            authority: MetadataAuthority.manual,
+            source: MetadataProvenanceSource.user,
+            updatedAt: timestamp,
+          );
+        }
+
         await context.localSyncRepository.recordUpsert(
           userId: normalizedUserId,
           entityType: CloudDataEntity.album,
@@ -172,6 +204,22 @@ class AlbumProfileEditingService {
 
       if (editionChanged) {
         await context.albumEditionRepository.save(updatedEdition);
+
+        final metadataRepository = context.metadataFieldStateRepository;
+
+        if (metadataRepository != null &&
+            changedEditionMetadataFields.isNotEmpty) {
+          await MetadataFieldStateService(
+            repository: metadataRepository,
+          ).recordAll(
+            entityType: MetadataEntityType.albumEdition,
+            entityId: updatedEdition.id,
+            fieldNames: changedEditionMetadataFields,
+            authority: MetadataAuthority.manual,
+            source: MetadataProvenanceSource.user,
+            updatedAt: timestamp,
+          );
+        }
 
         await context.localSyncRepository.recordUpsert(
           userId: normalizedUserId,

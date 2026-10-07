@@ -66,6 +66,10 @@ void main() {
 
     expect(result.metadata.title, 'Song');
     expect(result.source, MetadataSource.embedded);
+    expect(result.origins, isNotNull);
+    expect(result.origins!.title, ImportMetadataFieldSource.embedded);
+    expect(result.origins!.artistName, ImportMetadataFieldSource.embedded);
+    expect(result.origins!.albumTitle, ImportMetadataFieldSource.embedded);
     expect(result.usedFallback, isFalse);
     expect(primary.callCount, 1);
     expect(fallback.callCount, 0);
@@ -78,6 +82,7 @@ void main() {
     );
 
     expect(result.usedFallback, isTrue);
+    expect(result.origins, isNull);
   });
 
   test(
@@ -119,6 +124,19 @@ void main() {
       final result = await resolver.resolve(candidate);
 
       expect(result.source, MetadataSource.mixed);
+      expect(result.origins, isNotNull);
+      final origins = result.origins!;
+
+      expect(origins.title, ImportMetadataFieldSource.fallback);
+      expect(origins.artistName, ImportMetadataFieldSource.fallback);
+      expect(origins.albumTitle, ImportMetadataFieldSource.fallback);
+      expect(origins.albumArtistName, ImportMetadataFieldSource.fallback);
+      expect(origins.trackNumber, ImportMetadataFieldSource.fallback);
+      expect(origins.discNumber, ImportMetadataFieldSource.embedded);
+      expect(origins.isSingle, ImportMetadataFieldSource.embedded);
+      expect(origins.featuredArtists, ImportMetadataFieldSource.embedded);
+      expect(origins.releaseDate, ImportMetadataFieldSource.fallback);
+      expect(origins.genre, ImportMetadataFieldSource.embedded);
       expect(result.usedFallback, isTrue);
       expect(result.metadata.title, 'Testing 5');
       expect(result.metadata.artistName, 'Test Artist');
@@ -155,6 +173,11 @@ void main() {
 
     expect(result.metadata.title, 'Fallback Song');
     expect(result.source, MetadataSource.fallback);
+    expect(result.origins, isNotNull);
+    final fallbackOrigins = result.origins!;
+    expect(fallbackOrigins.title, ImportMetadataFieldSource.fallback);
+    expect(fallbackOrigins.artistName, ImportMetadataFieldSource.fallback);
+    expect(fallbackOrigins.albumTitle, ImportMetadataFieldSource.fallback);
     expect(result.usedFallback, isTrue);
     expect(primary.callCount, 1);
     expect(fallback.callCount, 1);

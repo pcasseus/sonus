@@ -9,12 +9,14 @@ import '../../../library/data/daos/album_edition_track_dao.dart';
 import '../../../library/data/daos/artist_dao.dart';
 import '../../../library/data/daos/song_dao.dart';
 import '../../../library/data/daos/song_artist_credit_dao.dart';
+import '../../../library/data/daos/metadata_field_state_dao.dart';
 import '../../../library/data/repositories/sqlite_album_edition_repository.dart';
 import '../../../library/data/repositories/sqlite_album_repository.dart';
 import '../../../library/data/repositories/sqlite_artist_repository.dart';
 import '../../../library/data/repositories/sqlite_artist_identity_repair_repository.dart';
 import '../../../library/data/repositories/sqlite_song_repository.dart';
 import '../../../library/data/repositories/sqlite_song_artist_credit_repository.dart';
+import '../../../library/data/repositories/sqlite_metadata_field_state_repository.dart';
 import '../../../playlists/data/daos/playlist_dao.dart';
 import '../../../playlists/data/repositories/sqlite_playlist_repository.dart';
 import '../../application/services/sync_mutation_context.dart';
@@ -52,6 +54,9 @@ class SyncMutationTransactionRunner implements SyncMutationRunner {
         songRepository: SqliteSongRepository(SongDao(transaction)),
         songArtistCreditRepository: SqliteSongArtistCreditRepository(
           SongArtistCreditDao(transaction),
+        ),
+        metadataFieldStateRepository: SqliteMetadataFieldStateRepository(
+          MetadataFieldStateDao(transaction),
         ),
         artworkAssetRepository: SqliteArtworkAssetRepository(
           ArtworkAssetDao(transaction),

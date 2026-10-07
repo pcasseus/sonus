@@ -11,6 +11,7 @@ abstract final class LibrarySchema {
     await _createSongs(db);
     await createAlbumEditionTracks(db);
     await createSongArtistCredits(db);
+    await createMetadataFieldStates(db);
     await _createMediaFileBindings(db);
     await _createIndexes(db);
   }
@@ -236,6 +237,60 @@ abstract final class LibrarySchema {
     await db.execute('''
       CREATE INDEX idx_song_artist_credits_canonical_name
       ON ${DatabaseTables.songArtistCredits}(canonical_credited_name)
+    ''');
+  }
+
+  static Future<void> createMetadataFieldStates(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE ${DatabaseTables.metadataFieldStates} (
+        entity_type TEXT NOT NULL
+          CHECK (
+            entity_type IN (
+              'artist',
+              'album',
+              'albumEdition',
+              'song'
+            )
+          ),
+        entity_id TEXT NOT NULL
+          CHECK (length(trim(entity_id)) > 0),
+        field_name TEXT NOT NULL
+          CHECK (length(trim(field_name)) > 0),
+        authority TEXT NOT NULL
+          CHECK (
+            authority IN (
+              'inferred',
+              'imported',
+              'external',
+              'confirmed',
+              'manual'
+            )
+          ),
+        source TEXT NOT NULL
+          CHECK (
+            source IN (
+              'filename',
+              'embeddedTag',
+              'musicBrainz',
+              'coverArtArchive',
+              'review',
+              'user',
+              'legacy'
+            )
+          ),
+        source_reference TEXT,
+        updated_at TEXT NOT NULL,
+
+        PRIMARY KEY (entity_type, entity_id, field_name)
+      )
+    ''');
+
+    await db.execute('''
+      CREATE INDEX idx_metadata_field_states_entity
+      ON ${DatabaseTables.metadataFieldStates}(
+        entity_type,
+        entity_id
+      )
     ''');
   }
 

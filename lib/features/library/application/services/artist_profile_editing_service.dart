@@ -2,6 +2,9 @@ import '../../../../core/identity/text_normalizer.dart';
 import '../../../sync/application/services/sync_mutation_runner.dart';
 import '../../../sync/domain/models/sync_data_contract.dart';
 import '../../domain/entities/artist.dart';
+import '../../domain/metadata/metadata_field_state.dart';
+import '../../domain/metadata/metadata_fields.dart';
+import '../../domain/services/metadata_field_state_service.dart';
 
 class ArtistStillReferencedException implements Exception {
   const ArtistStillReferencedException();
@@ -45,6 +48,15 @@ class ArtistProfileEditingService {
         throw const ArtistStillReferencedException();
       }
 
+      final metadataRepository = context.metadataFieldStateRepository;
+
+      if (metadataRepository != null) {
+        await metadataRepository.deleteByEntity(
+          entityType: MetadataEntityType.artist,
+          entityId: normalizedArtistId,
+        );
+      }
+
       await context.artistRepository.delete(normalizedArtistId);
 
       await context.localSyncRepository.recordDelete(
@@ -86,6 +98,10 @@ class ArtistProfileEditingService {
         throw StateError('Artist not found: $normalizedArtistId');
       }
 
+      if (artist.name == trimmedName) {
+        return artist;
+      }
+
       final updated = artist.copyWith(
         name: trimmedName,
         canonicalName: TextNormalizer.canonicalize(trimmedName),
@@ -93,6 +109,21 @@ class ArtistProfileEditingService {
       );
 
       await context.artistRepository.save(updated);
+
+      final metadataRepository = context.metadataFieldStateRepository;
+
+      if (metadataRepository != null) {
+        await MetadataFieldStateService(
+          repository: metadataRepository,
+        ).recordAll(
+          entityType: MetadataEntityType.artist,
+          entityId: updated.id,
+          fieldNames: const {MetadataFields.artistName},
+          authority: MetadataAuthority.manual,
+          source: MetadataProvenanceSource.user,
+          updatedAt: timestamp,
+        );
+      }
 
       await context.localSyncRepository.recordUpsert(
         userId: normalizedUserId,

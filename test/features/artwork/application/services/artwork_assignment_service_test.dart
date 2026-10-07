@@ -268,6 +268,64 @@ void main() {
       expect(saved.updatedAt, now);
     });
 
+    test('assigning the same album artwork asset is a true no-op', () async {
+      final existingArtwork = ArtworkAsset(
+        id: 'artwork_album_existing',
+        filePath: r'C:\Artwork\Album Cover.jpg',
+        normalizedPath: 'c:/artwork/album cover.jpg',
+        createdAt: DateTime.utc(2026, 1, 1),
+        updatedAt: DateTime.utc(2026, 1, 1),
+      );
+
+      final original = _albumEdition(artworkId: existingArtwork.id);
+
+      final editionRepository = _FakeAlbumEditionRepository(
+        editions: [original],
+      );
+
+      final artworkRepository = _FakeArtworkAssetRepository(
+        assets: [existingArtwork],
+      );
+
+      final service = _service(
+        artworkRepository: artworkRepository,
+        albumEditionRepository: editionRepository,
+      );
+
+      final result = await service.assignAlbumEdition(
+        albumEditionId: original.id,
+        filePath: r'C:\Artwork\Album Cover.jpg',
+        now: DateTime.utc(2026, 9, 12, 10),
+      );
+
+      expect(result, same(existingArtwork));
+      expect(editionRepository.savedEditions, isEmpty);
+      expect(
+        editionRepository.editions[original.id]!.updatedAt,
+        original.updatedAt,
+      );
+    });
+
+    test('clearing an album edition without artwork is a true no-op', () async {
+      final original = _albumEdition();
+
+      final editionRepository = _FakeAlbumEditionRepository(
+        editions: [original],
+      );
+
+      final service = _service(albumEditionRepository: editionRepository);
+
+      await service.clearAlbumEdition(
+        original.id,
+        now: DateTime.utc(2026, 9, 12, 10, 30),
+      );
+
+      expect(editionRepository.savedEditions, isEmpty);
+      expect(
+        editionRepository.editions[original.id]!.updatedAt,
+        original.updatedAt,
+      );
+    });
     test('clearAlbumEdition clears artwork reference', () async {
       final original = _albumEdition(artworkId: 'artwork_album');
 
@@ -341,6 +399,54 @@ void main() {
       expect(saved.updatedAt, now);
     });
 
+    test('assigning the same song artwork asset is a true no-op', () async {
+      final existingArtwork = ArtworkAsset(
+        id: 'artwork_song_existing',
+        filePath: r'C:\Artwork\Song Cover.jpg',
+        normalizedPath: 'c:/artwork/song cover.jpg',
+        createdAt: DateTime.utc(2026, 1, 1),
+        updatedAt: DateTime.utc(2026, 1, 1),
+      );
+
+      final original = _song(artworkId: existingArtwork.id);
+
+      final songRepository = _FakeSongRepository(songs: [original]);
+
+      final artworkRepository = _FakeArtworkAssetRepository(
+        assets: [existingArtwork],
+      );
+
+      final service = _service(
+        artworkRepository: artworkRepository,
+        songRepository: songRepository,
+      );
+
+      final result = await service.assignSong(
+        songId: original.id,
+        filePath: r'C:\Artwork\Song Cover.jpg',
+        now: DateTime.utc(2026, 9, 12, 11),
+      );
+
+      expect(result, same(existingArtwork));
+      expect(songRepository.savedSongs, isEmpty);
+      expect(songRepository.songs[original.id]!.updatedAt, original.updatedAt);
+    });
+
+    test('clearing a song without artwork is a true no-op', () async {
+      final original = _song();
+
+      final songRepository = _FakeSongRepository(songs: [original]);
+
+      final service = _service(songRepository: songRepository);
+
+      await service.clearSong(
+        original.id,
+        now: DateTime.utc(2026, 9, 12, 11, 30),
+      );
+
+      expect(songRepository.savedSongs, isEmpty);
+      expect(songRepository.songs[original.id]!.updatedAt, original.updatedAt);
+    });
     test('clearSong clears artwork reference', () async {
       final original = _song(artworkId: 'artwork_song');
 

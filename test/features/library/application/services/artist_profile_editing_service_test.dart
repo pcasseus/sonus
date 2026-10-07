@@ -7,6 +7,9 @@ import 'package:sonus_next/features/library/data/daos/album_dao.dart';
 import 'package:sonus_next/features/library/data/daos/album_edition_dao.dart';
 import 'package:sonus_next/features/library/data/daos/artist_dao.dart';
 import 'package:sonus_next/features/library/data/daos/song_dao.dart';
+import 'package:sonus_next/features/library/data/daos/metadata_field_state_dao.dart';
+import 'package:sonus_next/features/library/domain/metadata/metadata_field_state.dart';
+import 'package:sonus_next/features/library/domain/metadata/metadata_fields.dart';
 import 'package:sonus_next/features/library/domain/entities/album.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/domain/entities/artist.dart';
@@ -485,5 +488,91 @@ void main() {
 
     expect(pending, hasLength(1));
     expect(pending.single.entityId, firstArtist.id);
+  });
+
+  test(
+    'artist rename records name provenance as manual user metadata',
+    () async {
+      final original = await createArtist();
+
+      await service.renameArtist(
+        userId: 'user_1',
+        artistId: original.id,
+        name: 'Renamed Artist',
+        now: mutationTime,
+      );
+
+      final db = await appDatabase.database;
+      final states = await MetadataFieldStateDao(db).findByEntity(
+        entityType: MetadataEntityType.artist,
+        entityId: original.id,
+      );
+
+      expect(states, hasLength(1));
+
+      final state = states.single;
+
+      expect(state.fieldName, MetadataFields.artistName);
+      expect(state.authority, MetadataAuthority.manual);
+      expect(state.source, MetadataProvenanceSource.user);
+      expect(state.updatedAt, mutationTime);
+    },
+  );
+
+  test('unchanged artist rename is a true no-op', () async {
+    final original = await createArtist();
+
+    final result = await service.renameArtist(
+      userId: 'user_1',
+      artistId: original.id,
+      name: '  Original Artist  ',
+      now: mutationTime,
+    );
+
+    expect(result.id, original.id);
+    expect(result.name, original.name);
+    expect(result.updatedAt, original.updatedAt);
+
+    final db = await appDatabase.database;
+    final stored = await ArtistDao(db).findById(original.id);
+
+    expect(stored, isNotNull);
+    expect(stored!.updatedAt, originalTime);
+    expect(await LocalSyncDao(db).findPending('user_1'), isEmpty);
+
+    expect(
+      await MetadataFieldStateDao(db).findByEntity(
+        entityType: MetadataEntityType.artist,
+        entityId: original.id,
+      ),
+      isEmpty,
+    );
+  });
+
+  test('removing artist deletes its metadata provenance', () async {
+    final original = await createArtist();
+
+    final db = await appDatabase.database;
+
+    await MetadataFieldStateDao(db).upsert(
+      MetadataFieldState(
+        entityType: MetadataEntityType.artist,
+        entityId: original.id,
+        fieldName: MetadataFields.artistName,
+        authority: MetadataAuthority.manual,
+        source: MetadataProvenanceSource.user,
+        updatedAt: originalTime,
+      ),
+    );
+
+    await service.removeArtist(userId: 'user_1', artistId: original.id);
+
+    expect(
+      await MetadataFieldStateDao(db).findByEntity(
+        entityType: MetadataEntityType.artist,
+        entityId: original.id,
+      ),
+      isEmpty,
+    );
   });
 }

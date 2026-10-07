@@ -22,6 +22,11 @@ import 'package:sonus_next/features/library/data/repositories/sqlite_album_editi
 import 'package:sonus_next/features/library/data/daos/album_edition_track_dao.dart';
 import 'package:sonus_next/features/library/data/daos/artist_dao.dart';
 import 'package:sonus_next/features/library/data/daos/song_dao.dart';
+import 'package:sonus_next/features/library/data/daos/metadata_field_state_dao.dart';
+import 'package:sonus_next/features/library/data/repositories/sqlite_metadata_field_state_repository.dart';
+import 'package:sonus_next/features/library/domain/metadata/metadata_field_state.dart';
+import 'package:sonus_next/features/library/domain/metadata/metadata_fields.dart';
+import 'package:sonus_next/features/library/domain/services/metadata_field_state_service.dart';
 import 'package:sonus_next/features/library/application/services/song_artist_credit_service.dart';
 import 'package:sonus_next/features/library/data/daos/song_artist_credit_dao.dart';
 import 'package:sonus_next/features/library/data/repositories/sqlite_song_artist_credit_repository.dart';
@@ -52,6 +57,7 @@ class AtomicLibraryImporter {
     required ImportCandidate candidate,
     required AudioMetadata metadata,
     MetadataSource metadataSource = MetadataSource.embedded,
+    ImportMetadataOrigins? metadataOrigins,
     DateTime? now,
   }) async {
     final timestamp = now ?? DateTime.now();
@@ -81,6 +87,13 @@ class AtomicLibraryImporter {
           dao: LocalSyncDao(transaction),
           generateId: EntityId.syncOutbox,
           now: () => timestamp,
+        );
+
+        final metadataFieldStateRepository = SqliteMetadataFieldStateRepository(
+          MetadataFieldStateDao(transaction),
+        );
+        final metadataFieldStateService = MetadataFieldStateService(
+          repository: metadataFieldStateRepository,
         );
 
         final normalizedPath = TextNormalizer.normalizePath(candidate.filePath);
@@ -146,6 +159,20 @@ class AtomicLibraryImporter {
             );
           }
         }
+        var effectiveOrigins = metadataOrigins;
+
+        if (effectiveOrigins != null) {
+          effectiveOrigins = effectiveOrigins.copyWith(
+            artistName: effectiveMetadata.artistName != metadata.artistName
+                ? ImportMetadataFieldSource.fallback
+                : effectiveOrigins.artistName,
+            albumArtistName:
+                effectiveMetadata.albumArtistName != metadata.albumArtistName
+                ? ImportMetadataFieldSource.fallback
+                : effectiveOrigins.albumArtistName,
+          );
+        }
+
         const titleInterpreter = TrackTitleVersionInterpreter();
 
         final interpretedTitle = titleInterpreter.interpret(
@@ -183,6 +210,18 @@ class AtomicLibraryImporter {
 
           await artistRepository.create(artist);
 
+          final artistOrigins = effectiveOrigins;
+          if (artistOrigins != null) {
+            await _recordImportField(
+              service: metadataFieldStateService,
+              entityType: MetadataEntityType.artist,
+              entityId: artist.id,
+              fieldName: MetadataFields.artistName,
+              source: artistOrigins.artistName,
+              updatedAt: timestamp,
+            );
+          }
+
           if (syncUserId != null && syncUserId.isNotEmpty) {
             await localSyncRepository.recordUpsert(
               userId: syncUserId,
@@ -212,6 +251,18 @@ class AtomicLibraryImporter {
 
             await artistRepository.create(albumArtist);
 
+            final albumArtistOrigins = effectiveOrigins;
+            if (albumArtistOrigins != null) {
+              await _recordImportField(
+                service: metadataFieldStateService,
+                entityType: MetadataEntityType.artist,
+                entityId: albumArtist.id,
+                fieldName: MetadataFields.artistName,
+                source: albumArtistOrigins.albumArtistName,
+                updatedAt: timestamp,
+              );
+            }
+
             if (syncUserId != null && syncUserId.isNotEmpty) {
               await localSyncRepository.recordUpsert(
                 userId: syncUserId,
@@ -232,6 +283,26 @@ class AtomicLibraryImporter {
           );
 
           await albumRepository.create(album);
+
+          final albumOrigins = effectiveOrigins;
+          if (albumOrigins != null) {
+            await _recordImportField(
+              service: metadataFieldStateService,
+              entityType: MetadataEntityType.album,
+              entityId: album.id,
+              fieldName: MetadataFields.albumArtist,
+              source: albumOrigins.albumArtistName,
+              updatedAt: timestamp,
+            );
+            await _recordImportField(
+              service: metadataFieldStateService,
+              entityType: MetadataEntityType.album,
+              entityId: album.id,
+              fieldName: MetadataFields.albumTitle,
+              source: albumOrigins.albumTitle,
+              updatedAt: timestamp,
+            );
+          }
 
           if (syncUserId != null && syncUserId.isNotEmpty) {
             await localSyncRepository.recordUpsert(
@@ -254,6 +325,40 @@ class AtomicLibraryImporter {
           );
 
           await editionRepository.create(edition);
+
+          final editionOrigins = effectiveOrigins;
+          if (editionOrigins != null) {
+            await _recordImportField(
+              service: metadataFieldStateService,
+              entityType: MetadataEntityType.albumEdition,
+              entityId: edition.id,
+              fieldName: MetadataFields.editionTitle,
+              source: editionOrigins.albumTitle,
+              updatedAt: timestamp,
+            );
+
+            if (edition.releaseDate != null) {
+              await _recordImportField(
+                service: metadataFieldStateService,
+                entityType: MetadataEntityType.albumEdition,
+                entityId: edition.id,
+                fieldName: MetadataFields.editionReleaseDate,
+                source: editionOrigins.releaseDate,
+                updatedAt: timestamp,
+              );
+            }
+
+            if (edition.genre != null && edition.genre!.trim().isNotEmpty) {
+              await _recordImportField(
+                service: metadataFieldStateService,
+                entityType: MetadataEntityType.albumEdition,
+                entityId: edition.id,
+                fieldName: MetadataFields.editionGenre,
+                source: editionOrigins.genre,
+                updatedAt: timestamp,
+              );
+            }
+          }
 
           if (syncUserId != null && syncUserId.isNotEmpty) {
             await localSyncRepository.recordUpsert(
@@ -283,6 +388,113 @@ class AtomicLibraryImporter {
           );
 
           await songRepository.create(song);
+          final songOrigins = effectiveOrigins;
+          if (songOrigins != null) {
+            await _recordImportField(
+              service: metadataFieldStateService,
+              entityType: MetadataEntityType.song,
+              entityId: song.id,
+              fieldName: MetadataFields.songArtist,
+              source: songOrigins.artistName,
+              updatedAt: timestamp,
+            );
+
+            final albumRelationshipSource = _combinedSource(
+              songOrigins.albumArtistName,
+              songOrigins.albumTitle,
+            );
+
+            if (albumRelationshipSource != null) {
+              await _recordImportField(
+                service: metadataFieldStateService,
+                entityType: MetadataEntityType.song,
+                entityId: song.id,
+                fieldName: MetadataFields.songAlbum,
+                source: albumRelationshipSource,
+                updatedAt: timestamp,
+              );
+              await _recordImportField(
+                service: metadataFieldStateService,
+                entityType: MetadataEntityType.song,
+                entityId: song.id,
+                fieldName: MetadataFields.songAlbumEdition,
+                source: albumRelationshipSource,
+                updatedAt: timestamp,
+              );
+            }
+
+            await _recordImportField(
+              service: metadataFieldStateService,
+              entityType: MetadataEntityType.song,
+              entityId: song.id,
+              fieldName: MetadataFields.songTitle,
+              source: songOrigins.title,
+              updatedAt: timestamp,
+            );
+            await _recordImportField(
+              service: metadataFieldStateService,
+              entityType: MetadataEntityType.song,
+              entityId: song.id,
+              fieldName: MetadataFields.songTrackNumber,
+              source: songOrigins.trackNumber,
+              updatedAt: timestamp,
+            );
+            await _recordImportField(
+              service: metadataFieldStateService,
+              entityType: MetadataEntityType.song,
+              entityId: song.id,
+              fieldName: MetadataFields.songDiscNumber,
+              source: songOrigins.discNumber,
+              updatedAt: timestamp,
+            );
+            await _recordImportField(
+              service: metadataFieldStateService,
+              entityType: MetadataEntityType.song,
+              entityId: song.id,
+              fieldName: MetadataFields.songIsSingle,
+              source: songOrigins.isSingle,
+              updatedAt: timestamp,
+            );
+
+            final creditSource = _combinedSource(
+              songOrigins.artistName,
+              songOrigins.featuredArtists,
+            );
+
+            if (creditSource != null) {
+              await _recordImportField(
+                service: metadataFieldStateService,
+                entityType: MetadataEntityType.song,
+                entityId: song.id,
+                fieldName: MetadataFields.songArtistCredits,
+                source: creditSource,
+                updatedAt: timestamp,
+              );
+            }
+
+            if (song.versionLabel != null &&
+                song.versionLabel!.trim().isNotEmpty) {
+              await _recordImportField(
+                service: metadataFieldStateService,
+                entityType: MetadataEntityType.song,
+                entityId: song.id,
+                fieldName: MetadataFields.songVersionLabel,
+                source: songOrigins.title,
+                updatedAt: timestamp,
+              );
+            }
+
+            if (song.versionCharacteristics.isNotEmpty) {
+              await _recordImportField(
+                service: metadataFieldStateService,
+                entityType: MetadataEntityType.song,
+                entityId: song.id,
+                fieldName: MetadataFields.songVersionCharacteristics,
+                source: songOrigins.title,
+                updatedAt: timestamp,
+              );
+            }
+          }
 
           final existingEditionMemberships = await albumEditionTrackRepository
               .getByEditionId(edition.id);
@@ -311,13 +523,32 @@ class AtomicLibraryImporter {
                 artistRepository: artistRepository,
                 songRepository: songRepository,
                 songArtistCreditRepository: songArtistCreditRepository,
-                onArtistCreated: syncUserId == null || syncUserId.isEmpty
+                onArtistCreated:
+                    effectiveOrigins == null &&
+                        (syncUserId == null || syncUserId.isEmpty)
                     ? null
-                    : (artistId) => localSyncRepository.recordUpsert(
-                        userId: syncUserId,
-                        entityType: CloudDataEntity.artist,
-                        entityId: artistId,
-                      ),
+                    : (artistId) async {
+                        final origins = effectiveOrigins;
+
+                        if (origins != null) {
+                          await _recordImportField(
+                            service: metadataFieldStateService,
+                            entityType: MetadataEntityType.artist,
+                            entityId: artistId,
+                            fieldName: MetadataFields.artistName,
+                            source: origins.featuredArtists,
+                            updatedAt: timestamp,
+                          );
+                        }
+
+                        if (syncUserId != null && syncUserId.isNotEmpty) {
+                          await localSyncRepository.recordUpsert(
+                            userId: syncUserId,
+                            entityType: CloudDataEntity.artist,
+                            entityId: artistId,
+                          );
+                        }
+                      },
                 songId: song.id,
                 primaryArtistId: artist.id,
                 additionalCredits: [
@@ -483,6 +714,46 @@ class AtomicLibraryImporter {
         ),
       );
     }
+  }
+
+  Future<void> _recordImportField({
+    required MetadataFieldStateService service,
+    required MetadataEntityType entityType,
+    required String entityId,
+    required String fieldName,
+    required ImportMetadataFieldSource source,
+    required DateTime updatedAt,
+  }) async {
+    final authority = switch (source) {
+      ImportMetadataFieldSource.embedded => MetadataAuthority.imported,
+      ImportMetadataFieldSource.fallback => MetadataAuthority.inferred,
+    };
+
+    final provenanceSource = switch (source) {
+      ImportMetadataFieldSource.embedded =>
+        MetadataProvenanceSource.embeddedTag,
+      ImportMetadataFieldSource.fallback => MetadataProvenanceSource.filename,
+    };
+
+    await service.record(
+      entityType: entityType,
+      entityId: entityId,
+      fieldName: fieldName,
+      authority: authority,
+      source: provenanceSource,
+      updatedAt: updatedAt,
+    );
+  }
+
+  ImportMetadataFieldSource? _combinedSource(
+    ImportMetadataFieldSource first,
+    ImportMetadataFieldSource second,
+  ) {
+    if (first == second) {
+      return first;
+    }
+
+    return null;
   }
 
   bool _listsEqual(List<String> first, List<String> second) {

@@ -18,6 +18,7 @@ import 'package:sonus_next/features/library/application/repositories/library_que
 import 'package:sonus_next/features/library/application/services/album_profile_editing_service.dart';
 import 'package:sonus_next/features/library/application/services/artist_creation_service.dart';
 import 'package:sonus_next/features/library/application/services/track_profile_editing_service.dart';
+import 'package:sonus_next/features/library/domain/metadata/metadata_field_state.dart';
 import 'package:sonus_next/features/library/domain/entities/album.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/domain/entities/song.dart';
@@ -954,6 +955,14 @@ class _FakeLibraryRepository implements LibraryQueryRepository {
 }
 
 class _FakeEditingService extends TrackProfileEditingService {
+  @override
+  TrackProfileEditingService withMetadataProvenance({
+    required MetadataAuthority authority,
+    required MetadataProvenanceSource source,
+  }) {
+    return this;
+  }
+
   _FakeEditingService({this.error, required this._libraryRepository})
     : super(mutationRunner: _UnusedMutationRunner());
 

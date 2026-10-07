@@ -5,6 +5,9 @@ import '../../domain/entities/album_edition_track.dart';
 import '../../domain/repositories/album_edition_track_repository.dart';
 import '../../domain/entities/song.dart';
 import '../../domain/entities/song_artist_credit.dart';
+import '../../domain/metadata/metadata_field_state.dart';
+import '../../domain/metadata/metadata_fields.dart';
+import '../../domain/services/metadata_field_state_service.dart';
 import 'song_artist_credit_service.dart';
 
 class TrackProfileEditResult {
@@ -15,9 +18,26 @@ class TrackProfileEditResult {
 }
 
 class TrackProfileEditingService {
-  const TrackProfileEditingService({required this.mutationRunner});
+  const TrackProfileEditingService({
+    required this.mutationRunner,
+    this.metadataAuthority = MetadataAuthority.manual,
+    this.metadataSource = MetadataProvenanceSource.user,
+  });
 
   final SyncMutationRunner mutationRunner;
+  final MetadataAuthority metadataAuthority;
+  final MetadataProvenanceSource metadataSource;
+
+  TrackProfileEditingService withMetadataProvenance({
+    required MetadataAuthority authority,
+    required MetadataProvenanceSource source,
+  }) {
+    return TrackProfileEditingService(
+      mutationRunner: mutationRunner,
+      metadataAuthority: authority,
+      metadataSource: source,
+    );
+  }
 
   Future<TrackProfileEditResult> updateTrack({
     required String? userId,
@@ -206,6 +226,28 @@ class TrackProfileEditingService {
         desiredAdditionalCredits: normalizedAdditionalCredits,
       );
 
+      final changedMetadataFields = <String>{
+        if (song.artistId != targetArtistId) MetadataFields.songArtist,
+        if (song.albumId != targetAlbumId) MetadataFields.songAlbum,
+        if (song.albumEditionId != targetEditionId)
+          MetadataFields.songAlbumEdition,
+        if (song.title != trimmedTitle) MetadataFields.songTitle,
+        if (song.trackNumber != trackNumber) MetadataFields.songTrackNumber,
+        if (song.discNumber != discNumber) MetadataFields.songDiscNumber,
+        if (song.isSingle != isSingle) MetadataFields.songIsSingle,
+        if (song.versionLabel != targetVersionLabel)
+          MetadataFields.songVersionLabel,
+        if (!(song.versionCharacteristics.length ==
+                targetVersionCharacteristics.length &&
+            song.versionCharacteristics.asMap().entries.every(
+              (entry) => entry.value == targetVersionCharacteristics[entry.key],
+            )))
+          MetadataFields.songVersionCharacteristics,
+        if (song.releaseStatus != targetReleaseStatus)
+          MetadataFields.songReleaseStatus,
+        if (song.isLeak != targetIsLeak) MetadataFields.songIsLeak,
+        if (structuredCreditsChanged) MetadataFields.songArtistCredits,
+      };
       final changed =
           song.artistId != targetArtistId ||
           song.albumId != targetAlbumId ||
@@ -277,6 +319,23 @@ class TrackProfileEditingService {
       );
 
       await context.songRepository.save(persisted);
+
+      final metadataRepository = context.metadataFieldStateRepository;
+
+      if (metadataRepository != null && changedMetadataFields.isNotEmpty) {
+        final metadataService = MetadataFieldStateService(
+          repository: metadataRepository,
+        );
+
+        await metadataService.recordAll(
+          entityType: MetadataEntityType.song,
+          entityId: persisted.id,
+          fieldNames: changedMetadataFields,
+          authority: metadataAuthority,
+          source: metadataSource,
+          updatedAt: timestamp,
+        );
+      }
 
       await context.localSyncRepository.recordUpsert(
         userId: normalizedUserId,

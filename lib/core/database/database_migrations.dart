@@ -401,6 +401,10 @@ abstract final class DatabaseMigrations {
         await AccountSchema.create(db);
         return;
 
+      case 27:
+        await LibrarySchema.createMetadataFieldStates(db);
+        return;
+
       default:
         throw UnsupportedError(
           'No Sonus database migration exists for version $targetVersion.',
