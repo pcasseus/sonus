@@ -9,12 +9,14 @@ import 'package:sonus_next/features/library/data/daos/album_edition_dao.dart';
 import 'package:sonus_next/features/library/data/daos/artist_dao.dart';
 import 'package:sonus_next/features/library/data/daos/song_artist_credit_dao.dart';
 import 'package:sonus_next/features/library/data/daos/song_dao.dart';
+import 'package:sonus_next/features/library/data/daos/metadata_field_state_dao.dart';
 import 'package:sonus_next/features/library/domain/entities/album.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/domain/entities/artist.dart';
 import 'package:sonus_next/features/library/domain/entities/entity_factory.dart';
 import 'package:sonus_next/features/library/domain/entities/song.dart';
 import 'package:sonus_next/features/library/domain/entities/song_artist_credit.dart';
+import 'package:sonus_next/features/library/domain/metadata/metadata_field_state.dart';
 import 'package:sonus_next/features/sync/data/daos/local_sync_dao.dart';
 import 'package:sonus_next/features/sync/data/repositories/sync_mutation_transaction_runner.dart';
 import 'package:sonus_next/features/sync/domain/models/local_sync_models.dart';
@@ -483,6 +485,18 @@ void main() {
 
       expect(credit, isNotNull);
       expect(credit!.artistId, target.id);
+
+      final pending = await LocalSyncDao(db).findPending('user-1');
+
+      expect(
+        pending.any(
+          (entry) =>
+              entry.entityType == CloudDataEntity.song &&
+              entry.entityId == song.id &&
+              entry.operation == SyncOutboxOperation.upsert,
+        ),
+        isTrue,
+      );
     },
   );
 
@@ -559,6 +573,68 @@ void main() {
     expect(await LocalSyncDao(db).findPending('user-1'), isEmpty);
   });
 
+  test(
+    'removes source artist provenance while preserving target provenance',
+    () async {
+      final source = await createArtist('Source Artist');
+      final target = await createArtist('Target Artist');
+
+      final db = await appDatabase.database;
+      final metadataDao = MetadataFieldStateDao(db);
+
+      final sourceState = MetadataFieldState(
+        entityType: MetadataEntityType.artist,
+        entityId: source.id,
+        fieldName: 'name',
+        authority: MetadataAuthority.imported,
+        source: MetadataProvenanceSource.embeddedTag,
+        sourceReference: 'source-tag-reference',
+        updatedAt: originalTime,
+      );
+
+      final targetState = MetadataFieldState(
+        entityType: MetadataEntityType.artist,
+        entityId: target.id,
+        fieldName: 'name',
+        authority: MetadataAuthority.manual,
+        source: MetadataProvenanceSource.user,
+        sourceReference: 'target-user-reference',
+        updatedAt: mutationTime,
+      );
+
+      await metadataDao.upsert(sourceState);
+      await metadataDao.upsert(targetState);
+
+      await service.mergeArtists(
+        userId: 'user-1',
+        sourceArtistId: source.id,
+        targetArtistId: target.id,
+        now: mutationTime,
+      );
+
+      final sourceStates = await metadataDao.findByEntity(
+        entityType: MetadataEntityType.artist,
+        entityId: source.id,
+      );
+
+      final targetStates = await metadataDao.findByEntity(
+        entityType: MetadataEntityType.artist,
+        entityId: target.id,
+      );
+
+      expect(sourceStates, isEmpty);
+
+      expect(targetStates, hasLength(1));
+
+      final preserved = targetStates.single;
+
+      expect(preserved.fieldName, targetState.fieldName);
+      expect(preserved.authority, MetadataAuthority.manual);
+      expect(preserved.source, MetadataProvenanceSource.user);
+      expect(preserved.sourceReference, 'target-user-reference');
+      expect(preserved.updatedAt, mutationTime);
+    },
+  );
   test('remaps historical playback artist identity to merge target', () async {
     final source = await createArtist('Old Artist');
     final target = await createArtist('New Artist');

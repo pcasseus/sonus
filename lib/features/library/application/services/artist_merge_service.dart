@@ -340,12 +340,23 @@ class ArtistMergeService {
         final unlinkedCredits = await context.songArtistCreditRepository
             .getUnlinkedByCanonicalName(targetArtist.canonicalName);
 
+        final affectedSongIds = <String>{};
+
         for (final credit in unlinkedCredits) {
           await context.songArtistCreditRepository.save(
             credit.copyWith(artistId: targetArtist.id, updatedAt: timestamp),
           );
 
+          affectedSongIds.add(credit.songId);
           linkedUnlinkedCreditCount++;
+        }
+
+        for (final songId in affectedSongIds) {
+          await context.localSyncRepository.recordUpsert(
+            userId: normalizedUserId,
+            entityType: CloudDataEntity.song,
+            entityId: songId,
+          );
         }
       }
 
