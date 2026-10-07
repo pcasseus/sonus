@@ -10,27 +10,32 @@ import '../../../artwork/data/daos/artwork_asset_dao.dart';
 import '../../../artwork/data/repositories/sqlite_artwork_asset_repository.dart';
 import '../../../artwork/data/services/file_system_artwork_managed_storage.dart';
 import '../../../artwork/presentation/services/file_picker_artwork_file_picker.dart';
-import '../../../sync/data/repositories/sync_mutation_transaction_runner.dart';
 import '../../../search/application/repositories/library_search_repository.dart';
+import '../../../sync/data/repositories/sync_mutation_transaction_runner.dart';
 import '../../application/repositories/library_query_repository.dart';
-import '../../application/services/album_profile_editing_service.dart';
 import '../../application/services/album_edition_track_ordering_service.dart';
+import '../../application/services/album_profile_editing_service.dart';
 import '../../application/services/artist_creation_service.dart';
 import '../../application/services/artist_merge_service.dart';
 import '../../application/services/artist_profile_editing_service.dart';
+import '../../application/services/external_metadata_application_service.dart';
+import '../../application/services/metadata_provider.dart';
 import '../../application/services/song_block_service.dart';
 import '../../application/services/track_profile_editing_service.dart';
-import '../../domain/repositories/song_artist_credit_repository.dart';
 import '../../data/daos/album_edition_dao.dart';
 import '../../data/daos/artist_dao.dart';
 import '../../data/daos/library_query_dao.dart';
-import '../../data/daos/song_dao.dart';
 import '../../data/daos/song_artist_credit_dao.dart';
+import '../../data/daos/song_dao.dart';
 import '../../data/repositories/sqlite_album_edition_repository.dart';
 import '../../data/repositories/sqlite_artist_repository.dart';
 import '../../data/repositories/sqlite_library_query_repository.dart';
-import '../../data/repositories/sqlite_song_repository.dart';
 import '../../data/repositories/sqlite_song_artist_credit_repository.dart';
+import '../../data/repositories/sqlite_song_repository.dart';
+import '../../data/services/musicbrainz/musicbrainz_api_client.dart';
+import '../../data/services/musicbrainz/musicbrainz_http_transport.dart';
+import '../../data/services/musicbrainz/musicbrainz_metadata_provider.dart';
+import '../../domain/repositories/song_artist_credit_repository.dart';
 
 class LibraryQueryScope extends StatefulWidget {
   const LibraryQueryScope({super.key, required this.child, this.database});
@@ -57,6 +62,10 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
   SongBlockService? _songBlockService;
   SongArtistCreditRepository? _songArtistCreditRepository;
   TrackProfileEditingService? _trackProfileEditingService;
+
+  MetadataProvider? _metadataProvider;
+  ExternalMetadataApplicationService? _externalMetadataApplicationService;
+  DartIoMusicBrainzHttpTransport? _musicBrainzTransport;
 
   @override
   void initState() {
@@ -94,6 +103,7 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
     final albumEditionTrackOrderingService = AlbumEditionTrackOrderingService(
       mutationRunner: SyncMutationTransactionRunner(appDatabase: _database),
     );
+
     final artistCreationService = ArtistCreationService(
       mutationRunner: SyncMutationTransactionRunner(appDatabase: _database),
     );
@@ -105,6 +115,7 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
     final artistMergeService = ArtistMergeService(
       mutationRunner: SyncMutationTransactionRunner(appDatabase: _database),
     );
+
     final songBlockService = SongBlockService(
       mutationRunner: SyncMutationTransactionRunner(appDatabase: _database),
     );
@@ -112,11 +123,27 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
     final songArtistCreditRepository = SqliteSongArtistCreditRepository(
       SongArtistCreditDao(database),
     );
+
     final trackProfileEditingService = TrackProfileEditingService(
       mutationRunner: SyncMutationTransactionRunner(appDatabase: _database),
     );
 
+    final musicBrainzTransport = DartIoMusicBrainzHttpTransport();
+
+    final metadataProvider = MusicBrainzMetadataProvider(
+      client: MusicBrainzApiClient(
+        transport: musicBrainzTransport,
+        userAgent: 'Sonus/1.0.0 (https://github.com/pcasseus/sonus-next)',
+      ),
+    );
+
+    final externalMetadataApplicationService =
+        ExternalMetadataApplicationService(
+          mutationRunner: SyncMutationTransactionRunner(appDatabase: _database),
+        );
+
     if (!mounted) {
+      musicBrainzTransport.close();
       return;
     }
 
@@ -132,6 +159,9 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
       _songBlockService = songBlockService;
       _songArtistCreditRepository = songArtistCreditRepository;
       _trackProfileEditingService = trackProfileEditingService;
+      _metadataProvider = metadataProvider;
+      _externalMetadataApplicationService = externalMetadataApplicationService;
+      _musicBrainzTransport = musicBrainzTransport;
     });
   }
 
@@ -163,6 +193,10 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
         Provider<TrackProfileEditingService?>.value(
           value: _trackProfileEditingService,
         ),
+        Provider<MetadataProvider?>.value(value: _metadataProvider),
+        Provider<ExternalMetadataApplicationService?>.value(
+          value: _externalMetadataApplicationService,
+        ),
         Provider<ArtworkFilePicker>.value(
           value: const FilePickerArtworkFilePicker(),
         ),
@@ -173,6 +207,8 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
 
   @override
   void dispose() {
+    _musicBrainzTransport?.close();
+
     if (_ownsDatabase) {
       unawaited(_database.close());
     }
