@@ -7,6 +7,7 @@ import 'package:sonus_next/features/library/data/daos/album_dao.dart';
 import 'package:sonus_next/features/library/data/daos/album_edition_dao.dart';
 import 'package:sonus_next/features/library/data/daos/artist_dao.dart';
 import 'package:sonus_next/features/library/data/daos/song_dao.dart';
+import 'package:sonus_next/features/library/data/daos/song_artist_credit_dao.dart';
 import 'package:sonus_next/features/library/data/daos/metadata_field_state_dao.dart';
 import 'package:sonus_next/features/library/domain/metadata/metadata_field_state.dart';
 import 'package:sonus_next/features/library/domain/metadata/metadata_fields.dart';
@@ -15,6 +16,7 @@ import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/domain/entities/artist.dart';
 import 'package:sonus_next/features/library/domain/entities/entity_factory.dart';
 import 'package:sonus_next/features/library/domain/entities/song.dart';
+import 'package:sonus_next/features/library/domain/entities/song_artist_credit.dart';
 import 'package:sonus_next/features/sync/data/daos/local_sync_dao.dart';
 import 'package:sonus_next/features/sync/data/repositories/sync_mutation_transaction_runner.dart';
 import 'package:sonus_next/features/sync/domain/models/local_sync_models.dart';
@@ -549,6 +551,106 @@ void main() {
     );
   });
 
+  test(
+    'rejects rename when another artist already owns canonical identity',
+    () async {
+      final original = await createArtist(name: 'Original Artist');
+      final existing = await createArtist(name: 'The Weeknd');
+
+      await expectLater(
+        () => service.renameArtist(
+          userId: 'user_1',
+          artistId: original.id,
+          name: '  THE   WEEKND  ',
+          now: mutationTime,
+        ),
+        throwsA(
+          isA<ArtistNameCollisionException>()
+              .having((error) => error.artistId, 'artistId', original.id)
+              .having(
+                (error) => error.conflictingArtistId,
+                'conflictingArtistId',
+                existing.id,
+              )
+              .having((error) => error.name, 'name', 'THE   WEEKND'),
+        ),
+      );
+
+      final db = await appDatabase.database;
+      final storedOriginal = await ArtistDao(db).findById(original.id);
+      final storedExisting = await ArtistDao(db).findById(existing.id);
+
+      expect(storedOriginal, isNotNull);
+      expect(storedOriginal!.name, original.name);
+      expect(storedOriginal.canonicalName, original.canonicalName);
+      expect(storedOriginal.updatedAt, original.updatedAt);
+
+      expect(storedExisting, isNotNull);
+      expect(storedExisting!.name, existing.name);
+      expect(storedExisting.canonicalName, existing.canonicalName);
+
+      expect(await LocalSyncDao(db).findPending('user_1'), isEmpty);
+
+      expect(
+        await MetadataFieldStateDao(db).findByEntity(
+          entityType: MetadataEntityType.artist,
+          entityId: original.id,
+        ),
+        isEmpty,
+      );
+    },
+  );
+
+  test(
+    'rejects removal when structured credit still references artist',
+    () async {
+      final primaryArtist = await createArtist(name: 'Primary Artist');
+      final creditedArtist = await createArtist(name: 'Featured Artist');
+
+      final album = await createAlbumForArtist(primaryArtist);
+      final edition = await createEditionForAlbum(album);
+
+      final song = Song(
+        id: 'structured-credit-song',
+        artistId: primaryArtist.id,
+        albumId: album.id,
+        albumEditionId: edition.id,
+        title: 'Collaboration',
+        canonicalTitle: 'collaboration',
+        trackNumber: 1,
+        discNumber: 1,
+        durationSeconds: 180,
+        isSingle: false,
+        createdAt: originalTime,
+        updatedAt: originalTime,
+      );
+
+      final db = await appDatabase.database;
+      await SongDao(db).insert(song);
+
+      await SongArtistCreditDao(db).insert(
+        SongArtistCredit(
+          id: 'structured-credit-1',
+          songId: song.id,
+          artistId: creditedArtist.id,
+          creditedName: creditedArtist.name,
+          canonicalCreditedName: creditedArtist.canonicalName,
+          role: SongArtistCreditRole.featured,
+          position: 1,
+          createdAt: originalTime,
+          updatedAt: originalTime,
+        ),
+      );
+
+      await expectLater(
+        service.removeArtist(userId: 'user_1', artistId: creditedArtist.id),
+        throwsA(isA<ArtistStillReferencedException>()),
+      );
+
+      expect(await ArtistDao(db).findById(creditedArtist.id), isNotNull);
+      expect(await LocalSyncDao(db).findPending('user_1'), isEmpty);
+    },
+  );
   test('removing artist deletes its metadata provenance', () async {
     final original = await createArtist();
 
