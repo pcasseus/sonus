@@ -16,6 +16,7 @@ import '../../application/repositories/library_query_repository.dart';
 import '../../application/services/album_profile_editing_service.dart';
 import '../../application/services/album_edition_track_ordering_service.dart';
 import '../../application/services/artist_creation_service.dart';
+import '../../application/services/artist_merge_service.dart';
 import '../../application/services/artist_profile_editing_service.dart';
 import '../../application/services/song_block_service.dart';
 import '../../application/services/track_profile_editing_service.dart';
@@ -51,6 +52,7 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
   AlbumProfileEditingService? _albumProfileEditingService;
   AlbumEditionTrackOrderingService? _albumEditionTrackOrderingService;
   ArtistCreationService? _artistCreationService;
+  ArtistMergeService? _artistMergeService;
   ArtistProfileEditingService? _artistProfileEditingService;
   SongBlockService? _songBlockService;
   SongArtistCreditRepository? _songArtistCreditRepository;
@@ -100,6 +102,9 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
       mutationRunner: SyncMutationTransactionRunner(appDatabase: _database),
     );
 
+    final artistMergeService = ArtistMergeService(
+      mutationRunner: SyncMutationTransactionRunner(appDatabase: _database),
+    );
     final songBlockService = SongBlockService(
       mutationRunner: SyncMutationTransactionRunner(appDatabase: _database),
     );
@@ -123,6 +128,7 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
       _albumEditionTrackOrderingService = albumEditionTrackOrderingService;
       _artistCreationService = artistCreationService;
       _artistProfileEditingService = artistProfileEditingService;
+      _artistMergeService = artistMergeService;
       _songBlockService = songBlockService;
       _songArtistCreditRepository = songArtistCreditRepository;
       _trackProfileEditingService = trackProfileEditingService;
@@ -149,6 +155,7 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
         Provider<ArtistProfileEditingService?>.value(
           value: _artistProfileEditingService,
         ),
+        Provider<ArtistMergeService?>.value(value: _artistMergeService),
         Provider<SongBlockService?>.value(value: _songBlockService),
         Provider<SongArtistCreditRepository?>.value(
           value: _songArtistCreditRepository,
