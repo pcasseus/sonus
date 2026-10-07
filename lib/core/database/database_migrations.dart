@@ -5,6 +5,7 @@ import 'package:sqflite/sqflite.dart';
 import '../identity/entity_id.dart';
 import '../identity/text_normalizer.dart';
 import 'database_tables.dart';
+import 'schema/account_schema.dart';
 import 'schema/analytics_schema.dart';
 import 'schema/chart_schema.dart';
 import 'schema/import_schema.dart';
@@ -353,20 +354,25 @@ abstract final class DatabaseMigrations {
         return;
 
       case 24:
-        await db.execute(
-          "ALTER TABLE ${DatabaseTables.albumEditionTracks} "
-          "ADD COLUMN numbering_authority TEXT NOT NULL DEFAULT 'inferred' "
-          "CHECK (numbering_authority IN ('inferred', 'manual'))",
+        await _addColumnIfMissing(
+          db,
+          table: DatabaseTables.albumEditionTracks,
+          columnName: 'numbering_authority',
+          definition:
+              "TEXT NOT NULL DEFAULT 'inferred' "
+              "CHECK (numbering_authority IN ('inferred', 'manual'))",
         );
 
-        await db.execute(
-          "ALTER TABLE ${DatabaseTables.albumEditionTracks} "
-          "ADD COLUMN ordering_authority TEXT NOT NULL DEFAULT 'inferred' "
-          "CHECK (ordering_authority IN ('inferred', 'manual'))",
+        await _addColumnIfMissing(
+          db,
+          table: DatabaseTables.albumEditionTracks,
+          columnName: 'ordering_authority',
+          definition:
+              "TEXT NOT NULL DEFAULT 'inferred' "
+              "CHECK (ordering_authority IN ('inferred', 'manual'))",
         );
 
         return;
-
       case 25:
         await db.execute(
           "ALTER TABLE ${DatabaseTables.songs} "
@@ -391,11 +397,32 @@ abstract final class DatabaseMigrations {
         );
 
         return;
+      case 26:
+        await AccountSchema.create(db);
+        return;
+
       default:
         throw UnsupportedError(
           'No Sonus database migration exists for version $targetVersion.',
         );
     }
+  }
+
+  static Future<void> _addColumnIfMissing(
+    Database db, {
+    required String table,
+    required String columnName,
+    required String definition,
+  }) async {
+    final columns = await db.rawQuery('PRAGMA table_info($table)');
+
+    final alreadyExists = columns.any((row) => row['name'] == columnName);
+
+    if (alreadyExists) {
+      return;
+    }
+
+    await db.execute('ALTER TABLE $table ADD COLUMN $columnName $definition');
   }
 
   static Future<void> _backfillAlbumEditionTracks(Database db) async {

@@ -49,3 +49,7 @@ sonus.local.json
 # Local Sonus development audit artifacts
 SN*_AUDIT.txt
 SN*_CONTRACTS.txt
+
+# Sonus local environment configuration
+config/sonus.dev.json
+config/sonus.prod.json
