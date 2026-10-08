@@ -127,27 +127,39 @@ class ExternalMetadataApplicationService {
         );
       }
 
-      await MetadataFieldStateService(repository: metadataRepository).record(
-        entityType: MetadataEntityType.artist,
-        entityId: artist.id,
-        fieldName: MetadataFields.artistName,
-        authority: MetadataAuthority.external,
-        source: MetadataProvenanceSource.musicBrainz,
-        sourceReference: candidate.sourceReference,
-        updatedAt: timestamp,
-      );
+      final provenanceChanged =
+          !changed &&
+          await _needsMusicBrainzProvenanceUpdate(
+            repository: metadataRepository,
+            entityType: MetadataEntityType.artist,
+            entityId: artist.id,
+            fieldName: MetadataFields.artistName,
+            sourceReference: candidate.sourceReference,
+          );
 
-      await context.localSyncRepository.recordUpsert(
-        userId: userId?.trim(),
-        entityType: CloudDataEntity.artist,
-        entityId: artist.id,
-      );
+      if (changed || provenanceChanged) {
+        await MetadataFieldStateService(repository: metadataRepository).record(
+          entityType: MetadataEntityType.artist,
+          entityId: artist.id,
+          fieldName: MetadataFields.artistName,
+          authority: MetadataAuthority.external,
+          source: MetadataProvenanceSource.musicBrainz,
+          sourceReference: candidate.sourceReference,
+          updatedAt: timestamp,
+        );
+
+        await context.localSyncRepository.recordUpsert(
+          userId: userId?.trim(),
+          entityType: CloudDataEntity.artist,
+          entityId: artist.id,
+        );
+      }
 
       return ExternalMetadataApplicationResult(
         changedFields: changed ? const {MetadataFields.artistName} : const {},
-        provenanceUpdatedFields: changed
-            ? const {}
-            : const {MetadataFields.artistName},
+        provenanceUpdatedFields: provenanceChanged
+            ? const {MetadataFields.artistName}
+            : const {},
       );
     });
   }
@@ -207,21 +219,29 @@ class ExternalMetadataApplicationService {
             );
 
             changedFields.add(MetadataFields.albumTitle);
-          } else {
-            provenanceFields.add(MetadataFields.albumTitle);
-          }
-
-          await MetadataFieldStateService(
+          } else if (await _needsMusicBrainzProvenanceUpdate(
             repository: metadataRepository,
-          ).record(
             entityType: MetadataEntityType.album,
             entityId: album.id,
             fieldName: MetadataFields.albumTitle,
-            authority: MetadataAuthority.external,
-            source: MetadataProvenanceSource.musicBrainz,
             sourceReference: candidate.sourceReference,
-            updatedAt: timestamp,
-          );
+          )) {
+            provenanceFields.add(MetadataFields.albumTitle);
+          }
+
+          if (changed || provenanceFields.contains(MetadataFields.albumTitle)) {
+            await MetadataFieldStateService(
+              repository: metadataRepository,
+            ).record(
+              entityType: MetadataEntityType.album,
+              entityId: album.id,
+              fieldName: MetadataFields.albumTitle,
+              authority: MetadataAuthority.external,
+              source: MetadataProvenanceSource.musicBrainz,
+              sourceReference: candidate.sourceReference,
+              updatedAt: timestamp,
+            );
+          }
         } else {
           _collectRejection(
             fieldName: MetadataFields.albumTitle,
@@ -310,21 +330,29 @@ class ExternalMetadataApplicationService {
             );
 
             changedFields.add(MetadataFields.songTitle);
-          } else {
-            provenanceFields.add(MetadataFields.songTitle);
-          }
-
-          await MetadataFieldStateService(
+          } else if (await _needsMusicBrainzProvenanceUpdate(
             repository: metadataRepository,
-          ).record(
             entityType: MetadataEntityType.song,
             entityId: song.id,
             fieldName: MetadataFields.songTitle,
-            authority: MetadataAuthority.external,
-            source: MetadataProvenanceSource.musicBrainz,
             sourceReference: candidate.sourceReference,
-            updatedAt: timestamp,
-          );
+          )) {
+            provenanceFields.add(MetadataFields.songTitle);
+          }
+
+          if (changed || provenanceFields.contains(MetadataFields.songTitle)) {
+            await MetadataFieldStateService(
+              repository: metadataRepository,
+            ).record(
+              entityType: MetadataEntityType.song,
+              entityId: song.id,
+              fieldName: MetadataFields.songTitle,
+              authority: MetadataAuthority.external,
+              source: MetadataProvenanceSource.musicBrainz,
+              sourceReference: candidate.sourceReference,
+              updatedAt: timestamp,
+            );
+          }
         } else {
           _collectRejection(
             fieldName: MetadataFields.songTitle,
@@ -356,21 +384,30 @@ class ExternalMetadataApplicationService {
             );
 
             changedFields.add(MetadataFields.songDuration);
-          } else {
-            provenanceFields.add(MetadataFields.songDuration);
-          }
-
-          await MetadataFieldStateService(
+          } else if (await _needsMusicBrainzProvenanceUpdate(
             repository: metadataRepository,
-          ).record(
             entityType: MetadataEntityType.song,
             entityId: song.id,
             fieldName: MetadataFields.songDuration,
-            authority: MetadataAuthority.external,
-            source: MetadataProvenanceSource.musicBrainz,
             sourceReference: candidate.sourceReference,
-            updatedAt: timestamp,
-          );
+          )) {
+            provenanceFields.add(MetadataFields.songDuration);
+          }
+
+          if (changed ||
+              provenanceFields.contains(MetadataFields.songDuration)) {
+            await MetadataFieldStateService(
+              repository: metadataRepository,
+            ).record(
+              entityType: MetadataEntityType.song,
+              entityId: song.id,
+              fieldName: MetadataFields.songDuration,
+              authority: MetadataAuthority.external,
+              source: MetadataProvenanceSource.musicBrainz,
+              sourceReference: candidate.sourceReference,
+              updatedAt: timestamp,
+            );
+          }
         } else {
           _collectRejection(
             fieldName: MetadataFields.songDuration,
@@ -400,6 +437,25 @@ class ExternalMetadataApplicationService {
         reviewRequiredFields: Set.unmodifiable(reviewFields),
       );
     });
+  }
+
+  static Future<bool> _needsMusicBrainzProvenanceUpdate({
+    required MetadataFieldStateRepository repository,
+    required MetadataEntityType entityType,
+    required String entityId,
+    required String fieldName,
+    required String sourceReference,
+  }) async {
+    final existing = await repository.get(
+      entityType: entityType,
+      entityId: entityId,
+      fieldName: fieldName,
+    );
+
+    return existing == null ||
+        existing.authority != MetadataAuthority.external ||
+        existing.source != MetadataProvenanceSource.musicBrainz ||
+        existing.sourceReference != sourceReference;
   }
 
   static Future<MetadataReplacementDecision> _evaluate({

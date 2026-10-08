@@ -377,6 +377,278 @@ void main() {
     },
   );
 
+  test('reapplying identical MusicBrainz artist is a no-op', () async {
+    final graph = await createGraph();
+
+    await seedState(
+      entityType: MetadataEntityType.artist,
+      entityId: graph.artist.id,
+      fieldName: MetadataFields.artistName,
+      authority: MetadataAuthority.imported,
+    );
+
+    const candidate = ExternalMetadataCandidate(
+      provider: ExternalMetadataProviderKind.musicBrainz,
+      entityKind: ExternalMetadataEntityKind.artist,
+      providerEntityId: 'artist-idempotency-mbid',
+      displayName: 'Beyonce',
+    );
+
+    final first = await service.applyArtistCandidate(
+      userId: 'user_1',
+      artistId: graph.artist.id,
+      candidate: candidate,
+      now: mutationTime,
+    );
+
+    expect(first.changedFields, isEmpty);
+    expect(first.provenanceUpdatedFields, {MetadataFields.artistName});
+
+    final second = await service.applyArtistCandidate(
+      userId: 'user_1',
+      artistId: graph.artist.id,
+      candidate: candidate,
+      now: mutationTime.add(const Duration(hours: 1)),
+    );
+
+    expect(second.changedFields, isEmpty);
+    expect(second.provenanceUpdatedFields, isEmpty);
+
+    final db = await appDatabase.database;
+    final state = await MetadataFieldStateDao(db).find(
+      entityType: MetadataEntityType.artist,
+      entityId: graph.artist.id,
+      fieldName: MetadataFields.artistName,
+    );
+
+    expect(state!.authority, MetadataAuthority.external);
+    expect(state.source, MetadataProvenanceSource.musicBrainz);
+    expect(state.sourceReference, candidate.sourceReference);
+    expect(state.updatedAt, mutationTime);
+    expect(
+      (await ArtistDao(db).findById(graph.artist.id))!.updatedAt,
+      originalTime,
+    );
+    expect(await LocalSyncDao(db).findPending('user_1'), hasLength(1));
+  });
+
+  test('reapplying identical MusicBrainz album is a no-op', () async {
+    final graph = await createGraph();
+
+    await seedState(
+      entityType: MetadataEntityType.album,
+      entityId: graph.album.id,
+      fieldName: MetadataFields.albumTitle,
+      authority: MetadataAuthority.imported,
+    );
+
+    const candidate = ExternalMetadataCandidate(
+      provider: ExternalMetadataProviderKind.musicBrainz,
+      entityKind: ExternalMetadataEntityKind.album,
+      providerEntityId: 'album-idempotency-mbid',
+      displayName: 'Old Album',
+    );
+
+    final first = await service.applyAlbumCandidate(
+      userId: 'user_1',
+      albumId: graph.album.id,
+      candidate: candidate,
+      now: mutationTime,
+    );
+
+    expect(first.changedFields, isEmpty);
+    expect(first.provenanceUpdatedFields, {MetadataFields.albumTitle});
+
+    final second = await service.applyAlbumCandidate(
+      userId: 'user_1',
+      albumId: graph.album.id,
+      candidate: candidate,
+      now: mutationTime.add(const Duration(hours: 1)),
+    );
+
+    expect(second.changedFields, isEmpty);
+    expect(second.provenanceUpdatedFields, isEmpty);
+
+    final db = await appDatabase.database;
+    final state = await MetadataFieldStateDao(db).find(
+      entityType: MetadataEntityType.album,
+      entityId: graph.album.id,
+      fieldName: MetadataFields.albumTitle,
+    );
+
+    expect(state!.authority, MetadataAuthority.external);
+    expect(state.source, MetadataProvenanceSource.musicBrainz);
+    expect(state.sourceReference, candidate.sourceReference);
+    expect(state.updatedAt, mutationTime);
+    expect(
+      (await AlbumDao(db).findById(graph.album.id))!.updatedAt,
+      originalTime,
+    );
+    expect(await LocalSyncDao(db).findPending('user_1'), hasLength(1));
+  });
+
+  test('reapplying identical MusicBrainz track is a no-op', () async {
+    final graph = await createGraph();
+
+    await seedState(
+      entityType: MetadataEntityType.song,
+      entityId: graph.song.id,
+      fieldName: MetadataFields.songTitle,
+      authority: MetadataAuthority.imported,
+    );
+
+    await seedState(
+      entityType: MetadataEntityType.song,
+      entityId: graph.song.id,
+      fieldName: MetadataFields.songDuration,
+      authority: MetadataAuthority.imported,
+    );
+
+    const candidate = ExternalMetadataCandidate(
+      provider: ExternalMetadataProviderKind.musicBrainz,
+      entityKind: ExternalMetadataEntityKind.track,
+      providerEntityId: 'track-idempotency-mbid',
+      displayName: 'Old Track',
+      durationSeconds: 200,
+    );
+
+    final first = await service.applyTrackCandidate(
+      userId: 'user_1',
+      songId: graph.song.id,
+      candidate: candidate,
+      now: mutationTime,
+    );
+
+    expect(first.changedFields, isEmpty);
+    expect(first.provenanceUpdatedFields, {
+      MetadataFields.songTitle,
+      MetadataFields.songDuration,
+    });
+
+    final second = await service.applyTrackCandidate(
+      userId: 'user_1',
+      songId: graph.song.id,
+      candidate: candidate,
+      now: mutationTime.add(const Duration(hours: 1)),
+    );
+
+    expect(second.changedFields, isEmpty);
+    expect(second.provenanceUpdatedFields, isEmpty);
+
+    final db = await appDatabase.database;
+
+    for (final field in [
+      MetadataFields.songTitle,
+      MetadataFields.songDuration,
+    ]) {
+      final state = await MetadataFieldStateDao(db).find(
+        entityType: MetadataEntityType.song,
+        entityId: graph.song.id,
+        fieldName: field,
+      );
+
+      expect(state!.authority, MetadataAuthority.external);
+      expect(state.source, MetadataProvenanceSource.musicBrainz);
+      expect(state.sourceReference, candidate.sourceReference);
+      expect(state.updatedAt, mutationTime);
+    }
+
+    expect(
+      (await SongDao(db).findById(graph.song.id))!.updatedAt,
+      originalTime,
+    );
+    expect(await LocalSyncDao(db).findPending('user_1'), hasLength(1));
+  });
+  test('changing MusicBrainz recording ID updates provenance', () async {
+    final graph = await createGraph();
+
+    await seedState(
+      entityType: MetadataEntityType.song,
+      entityId: graph.song.id,
+      fieldName: MetadataFields.songTitle,
+      authority: MetadataAuthority.imported,
+    );
+
+    await seedState(
+      entityType: MetadataEntityType.song,
+      entityId: graph.song.id,
+      fieldName: MetadataFields.songDuration,
+      authority: MetadataAuthority.imported,
+    );
+
+    const originalCandidate = ExternalMetadataCandidate(
+      provider: ExternalMetadataProviderKind.musicBrainz,
+      entityKind: ExternalMetadataEntityKind.track,
+      providerEntityId: 'recording-old',
+      displayName: 'Old Track',
+      durationSeconds: 200,
+    );
+
+    const correctedCandidate = ExternalMetadataCandidate(
+      provider: ExternalMetadataProviderKind.musicBrainz,
+      entityKind: ExternalMetadataEntityKind.track,
+      providerEntityId: 'recording-corrected',
+      displayName: 'Old Track',
+      durationSeconds: 200,
+    );
+
+    await service.applyTrackCandidate(
+      userId: 'user_1',
+      songId: graph.song.id,
+      candidate: originalCandidate,
+      now: mutationTime,
+    );
+
+    final correctionTime = mutationTime.add(const Duration(hours: 1));
+
+    final corrected = await service.applyTrackCandidate(
+      userId: 'user_1',
+      songId: graph.song.id,
+      candidate: correctedCandidate,
+      now: correctionTime,
+    );
+
+    expect(corrected.changedFields, isEmpty);
+    expect(corrected.provenanceUpdatedFields, {
+      MetadataFields.songTitle,
+      MetadataFields.songDuration,
+    });
+
+    final db = await appDatabase.database;
+
+    final storedSong = await SongDao(db).findById(graph.song.id);
+    expect(storedSong!.title, 'Old Track');
+    expect(storedSong.durationSeconds, 200);
+    expect(storedSong.updatedAt, originalTime);
+
+    for (final field in [
+      MetadataFields.songTitle,
+      MetadataFields.songDuration,
+    ]) {
+      final state = await MetadataFieldStateDao(db).find(
+        entityType: MetadataEntityType.song,
+        entityId: graph.song.id,
+        fieldName: field,
+      );
+
+      expect(state!.authority, MetadataAuthority.external);
+      expect(state.source, MetadataProvenanceSource.musicBrainz);
+      expect(state.sourceReference, correctedCandidate.sourceReference);
+      expect(state.updatedAt, correctionTime);
+    }
+
+    final repeated = await service.applyTrackCandidate(
+      userId: 'user_1',
+      songId: graph.song.id,
+      candidate: correctedCandidate,
+      now: correctionTime.add(const Duration(hours: 1)),
+    );
+
+    expect(repeated.changedFields, isEmpty);
+    expect(repeated.provenanceUpdatedFields, isEmpty);
+
+    expect(await LocalSyncDao(db).findPending('user_1'), hasLength(1));
+  });
   test('artist candidate rejects canonical identity collision', () async {
     final graph = await createGraph();
 
