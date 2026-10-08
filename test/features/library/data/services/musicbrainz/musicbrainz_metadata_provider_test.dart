@@ -307,7 +307,7 @@ void main() {
     });
 
     test(
-      'partial MusicBrainz date uses first day of available precision',
+      'partial MusicBrainz dates are not fabricated into exact dates',
       () async {
         transport.responseBody = '''
 {
@@ -334,8 +334,8 @@ void main() {
         );
 
         expect(results, hasLength(2));
-        expect(results[0].releaseDate, DateTime.utc(2020, 1, 1));
-        expect(results[1].releaseDate, DateTime.utc(2021, 5, 1));
+        expect(results[0].releaseDate, isNull);
+        expect(results[1].releaseDate, isNull);
       },
     );
 

@@ -137,13 +137,11 @@ class ExternalMetadataApplicationService {
         updatedAt: timestamp,
       );
 
-      if (changed) {
-        await context.localSyncRepository.recordUpsert(
-          userId: userId?.trim(),
-          entityType: CloudDataEntity.artist,
-          entityId: artist.id,
-        );
-      }
+      await context.localSyncRepository.recordUpsert(
+        userId: userId?.trim(),
+        entityType: CloudDataEntity.artist,
+        entityId: artist.id,
+      );
 
       return ExternalMetadataApplicationResult(
         changedFields: changed ? const {MetadataFields.artistName} : const {},
@@ -157,17 +155,12 @@ class ExternalMetadataApplicationService {
   Future<ExternalMetadataApplicationResult> applyAlbumCandidate({
     required String? userId,
     required String albumId,
-    required String primaryEditionId,
     required ExternalMetadataCandidate candidate,
     DateTime? now,
   }) {
     _requireKind(candidate, ExternalMetadataEntityKind.album);
 
     final normalizedAlbumId = _requiredId(albumId, 'albumId');
-    final normalizedEditionId = _requiredId(
-      primaryEditionId,
-      'primaryEditionId',
-    );
     final timestamp = now ?? DateTime.now();
 
     return mutationRunner.run((context) async {
@@ -175,27 +168,6 @@ class ExternalMetadataApplicationService {
 
       if (album == null) {
         throw StateError('Album not found: $normalizedAlbumId');
-      }
-
-      final edition = await context.albumEditionRepository.getById(
-        normalizedEditionId,
-      );
-
-      if (edition == null) {
-        throw StateError('Album edition not found: $normalizedEditionId');
-      }
-
-      if (edition.albumId != album.id) {
-        throw StateError(
-          'Album edition $normalizedEditionId does not belong to '
-          'album ${album.id}.',
-        );
-      }
-
-      if (!edition.isPrimary) {
-        throw StateError(
-          'Album edition $normalizedEditionId is not the primary edition.',
-        );
       }
 
       final metadataRepository = context.metadataFieldStateRepository;
@@ -212,7 +184,6 @@ class ExternalMetadataApplicationService {
       final reviewFields = <String>{};
 
       var updatedAlbum = album;
-      var updatedEdition = edition;
 
       final targetTitle = candidate.displayName.trim();
 
@@ -261,75 +232,17 @@ class ExternalMetadataApplicationService {
         }
       }
 
-      final targetReleaseDate = candidate.releaseDate;
-
-      if (targetReleaseDate != null) {
-        final releaseDateDecision = await _evaluate(
-          repository: metadataRepository,
-          entityType: MetadataEntityType.albumEdition,
-          entityId: edition.id,
-          fieldName: MetadataFields.editionReleaseDate,
-          existingValuePresent: edition.releaseDate != null,
-        );
-
-        if (releaseDateDecision == MetadataReplacementDecision.accept) {
-          final changed = edition.releaseDate != targetReleaseDate;
-
-          if (changed) {
-            updatedEdition = updatedEdition.copyWith(
-              releaseDate: targetReleaseDate,
-              updatedAt: timestamp,
-            );
-
-            changedFields.add(MetadataFields.editionReleaseDate);
-          } else {
-            provenanceFields.add(MetadataFields.editionReleaseDate);
-          }
-
-          await MetadataFieldStateService(
-            repository: metadataRepository,
-          ).record(
-            entityType: MetadataEntityType.albumEdition,
-            entityId: edition.id,
-            fieldName: MetadataFields.editionReleaseDate,
-            authority: MetadataAuthority.external,
-            source: MetadataProvenanceSource.musicBrainz,
-            sourceReference: candidate.sourceReference,
-            updatedAt: timestamp,
-          );
-        } else {
-          _collectRejection(
-            fieldName: MetadataFields.editionReleaseDate,
-            decision: releaseDateDecision,
-            protectedFields: protectedFields,
-            reviewFields: reviewFields,
-          );
-        }
-      }
-
       final albumChanged = changedFields.contains(MetadataFields.albumTitle);
-
-      final editionChanged = changedFields.contains(
-        MetadataFields.editionReleaseDate,
-      );
 
       if (albumChanged) {
         await context.albumRepository.save(updatedAlbum);
+      }
 
+      if (albumChanged || provenanceFields.isNotEmpty) {
         await context.localSyncRepository.recordUpsert(
           userId: userId?.trim(),
           entityType: CloudDataEntity.album,
           entityId: album.id,
-        );
-      }
-
-      if (editionChanged) {
-        await context.albumEditionRepository.save(updatedEdition);
-
-        await context.localSyncRepository.recordUpsert(
-          userId: userId?.trim(),
-          entityType: CloudDataEntity.albumEdition,
-          entityId: edition.id,
         );
       }
 
@@ -470,7 +383,9 @@ class ExternalMetadataApplicationService {
 
       if (changedFields.isNotEmpty) {
         await context.songRepository.save(updatedSong);
+      }
 
+      if (changedFields.isNotEmpty || provenanceFields.isNotEmpty) {
         await context.localSyncRepository.recordUpsert(
           userId: userId?.trim(),
           entityType: CloudDataEntity.song,

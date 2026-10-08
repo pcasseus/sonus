@@ -40,6 +40,131 @@ void main() {
       expect(record.deletedAt, isNull);
     });
 
+    test('maps embedded metadata field provenance', () {
+      final item = SupabaseCloudRecordMapper.fromRow(
+        entityType: CloudDataEntity.artist,
+        row: {
+          'id': 'artist-1',
+          'user_id': 'user-1',
+          'name': 'Artist Name',
+          'canonical_name': 'artist name',
+          'is_blacklisted': false,
+          'header_artwork_id': null,
+          'top_artists_artwork_id': null,
+          'metadata_field_states': [
+            {
+              'field_name': 'name',
+              'authority': 'external',
+              'source': 'musicBrainz',
+              'source_reference': 'musicbrainz:artist:artist-mbid',
+              'updated_at': '2026-10-07T14:30:00.000Z',
+            },
+          ],
+          'created_at': '2026-09-10T10:00:00.000Z',
+          'updated_at': '2026-09-11T11:00:00.000Z',
+          'server_updated_at': '2026-09-12T12:00:00.000Z',
+          'deleted_at': null,
+        },
+      );
+
+      final record = item.record as CloudArtistRecord;
+
+      expect(record.metadataFieldStates, hasLength(1));
+
+      final state = record.metadataFieldStates!.single;
+
+      expect(state.fieldName, 'name');
+      expect(state.authority, 'external');
+      expect(state.source, 'musicBrainz');
+      expect(state.sourceReference, 'musicbrainz:artist:artist-mbid');
+      expect(
+        state.updatedAt,
+        DateTime.parse('2026-10-07T14:30:00.000Z').toUtc(),
+      );
+    });
+
+    test(
+      'historical rows without metadata provenance preserve null sentinel',
+      () {
+        final item = SupabaseCloudRecordMapper.fromRow(
+          entityType: CloudDataEntity.artist,
+          row: {
+            'id': 'artist-legacy',
+            'user_id': 'user-1',
+            'name': 'Legacy Artist',
+            'canonical_name': 'legacy artist',
+            'is_blacklisted': false,
+            'header_artwork_id': null,
+            'top_artists_artwork_id': null,
+            'created_at': '2026-09-10T10:00:00.000Z',
+            'updated_at': '2026-09-11T11:00:00.000Z',
+            'server_updated_at': '2026-09-12T12:00:00.000Z',
+            'deleted_at': null,
+          },
+        );
+
+        final record = item.record as CloudArtistRecord;
+
+        expect(record.metadataFieldStates, isNull);
+      },
+    );
+
+    test('maps explicit empty metadata provenance as authoritative empty', () {
+      final item = SupabaseCloudRecordMapper.fromRow(
+        entityType: CloudDataEntity.artist,
+        row: {
+          'id': 'artist-empty',
+          'user_id': 'user-1',
+          'name': 'Artist',
+          'canonical_name': 'artist',
+          'is_blacklisted': false,
+          'header_artwork_id': null,
+          'top_artists_artwork_id': null,
+          'metadata_field_states': <dynamic>[],
+          'created_at': '2026-09-10T10:00:00.000Z',
+          'updated_at': '2026-09-11T11:00:00.000Z',
+          'server_updated_at': '2026-09-12T12:00:00.000Z',
+          'deleted_at': null,
+        },
+      );
+
+      final record = item.record as CloudArtistRecord;
+
+      expect(record.metadataFieldStates, isNotNull);
+      expect(record.metadataFieldStates, isEmpty);
+    });
+
+    test('rejects malformed metadata provenance', () {
+      expect(
+        () => SupabaseCloudRecordMapper.fromRow(
+          entityType: CloudDataEntity.artist,
+          row: {
+            'id': 'artist-1',
+            'user_id': 'user-1',
+            'name': 'Artist',
+            'canonical_name': 'artist',
+            'is_blacklisted': false,
+            'header_artwork_id': null,
+            'top_artists_artwork_id': null,
+            'metadata_field_states': [
+              {
+                'field_name': 'name',
+                'authority': 'definitely-not-valid',
+                'source': 'musicBrainz',
+                'source_reference': null,
+                'updated_at': '2026-10-07T14:30:00.000Z',
+              },
+            ],
+            'created_at': '2026-09-10T10:00:00.000Z',
+            'updated_at': '2026-09-11T11:00:00.000Z',
+            'server_updated_at': '2026-09-12T12:00:00.000Z',
+            'deleted_at': null,
+          },
+        ),
+        throwsStateError,
+      );
+    });
+
     test('maps album row', () {
       final item = SupabaseCloudRecordMapper.fromRow(
         entityType: CloudDataEntity.album,

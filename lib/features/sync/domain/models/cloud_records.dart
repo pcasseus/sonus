@@ -1,3 +1,19 @@
+class CloudMetadataFieldState {
+  const CloudMetadataFieldState({
+    required this.fieldName,
+    required this.authority,
+    required this.source,
+    required this.updatedAt,
+    this.sourceReference,
+  });
+
+  final String fieldName;
+  final String authority;
+  final String source;
+  final String? sourceReference;
+  final DateTime updatedAt;
+}
+
 abstract class CloudOwnedRecord {
   const CloudOwnedRecord({
     required this.id,
@@ -27,12 +43,14 @@ class CloudArtistRecord extends CloudOwnedRecord {
     super.deletedAt,
     this.headerArtworkId,
     this.topArtistsArtworkId,
+    this.metadataFieldStates,
   });
 
   final String name;
   final String canonicalName;
   final String? headerArtworkId;
   final String? topArtistsArtworkId;
+  final List<CloudMetadataFieldState>? metadataFieldStates;
 }
 
 class CloudAlbumRecord extends CloudOwnedRecord {
@@ -45,11 +63,13 @@ class CloudAlbumRecord extends CloudOwnedRecord {
     required super.createdAt,
     required super.updatedAt,
     super.deletedAt,
+    this.metadataFieldStates,
   });
 
   final String artistId;
   final String title;
   final String canonicalTitle;
+  final List<CloudMetadataFieldState>? metadataFieldStates;
 }
 
 class CloudAlbumEditionRecord extends CloudOwnedRecord {
@@ -66,6 +86,7 @@ class CloudAlbumEditionRecord extends CloudOwnedRecord {
     this.releaseDate,
     this.genre,
     this.artworkId,
+    this.metadataFieldStates,
   });
 
   final String albumId;
@@ -75,6 +96,7 @@ class CloudAlbumEditionRecord extends CloudOwnedRecord {
   final DateTime? releaseDate;
   final String? genre;
   final String? artworkId;
+  final List<CloudMetadataFieldState>? metadataFieldStates;
 }
 
 class CloudSongRecord extends CloudOwnedRecord {
@@ -100,6 +122,7 @@ class CloudSongRecord extends CloudOwnedRecord {
     required super.updatedAt,
     super.deletedAt,
     this.artworkId,
+    this.metadataFieldStates,
   });
 
   final String artistId;
@@ -118,6 +141,7 @@ class CloudSongRecord extends CloudOwnedRecord {
   final String releaseStatus;
   final bool isLeak;
   final String? artworkId;
+  final List<CloudMetadataFieldState>? metadataFieldStates;
 }
 
 class CloudArtworkAssetRecord extends CloudOwnedRecord {

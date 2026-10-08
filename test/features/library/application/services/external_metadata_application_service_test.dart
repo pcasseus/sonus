@@ -163,7 +163,7 @@ void main() {
     expect(state.source, MetadataProvenanceSource.musicBrainz);
     expect(
       state.sourceReference,
-      'musicBrainz:859d0860-d480-4efd-970c-c05d5f1776b8',
+      'musicbrainz:artist:859d0860-d480-4efd-970c-c05d5f1776b8',
     );
 
     final pending = await LocalSyncDao(db).findPending('user_1');
@@ -228,7 +228,10 @@ void main() {
       expect(titleState!.authority, MetadataAuthority.manual);
       expect(durationState!.authority, MetadataAuthority.external);
       expect(durationState.source, MetadataProvenanceSource.musicBrainz);
-      expect(durationState.sourceReference, 'musicBrainz:recording-mbid');
+      expect(
+        durationState.sourceReference,
+        'musicbrainz:recording:recording-mbid',
+      );
 
       final pending = await LocalSyncDao(db).findPending('user_1');
 
@@ -264,77 +267,71 @@ void main() {
     },
   );
 
-  test('album applies external title and release date independently', () async {
-    final graph = await createGraph();
+  test(
+    'album applies release-group title without mutating edition date',
+    () async {
+      final graph = await createGraph();
 
-    await seedState(
-      entityType: MetadataEntityType.album,
-      entityId: graph.album.id,
-      fieldName: MetadataFields.albumTitle,
-      authority: MetadataAuthority.imported,
-    );
+      await seedState(
+        entityType: MetadataEntityType.album,
+        entityId: graph.album.id,
+        fieldName: MetadataFields.albumTitle,
+        authority: MetadataAuthority.imported,
+      );
 
-    await seedState(
-      entityType: MetadataEntityType.albumEdition,
-      entityId: graph.edition.id,
-      fieldName: MetadataFields.editionReleaseDate,
-      authority: MetadataAuthority.imported,
-    );
+      final result = await service.applyAlbumCandidate(
+        userId: 'user_1',
+        albumId: graph.album.id,
+        candidate: ExternalMetadataCandidate(
+          provider: ExternalMetadataProviderKind.musicBrainz,
+          entityKind: ExternalMetadataEntityKind.album,
+          providerEntityId: 'release-group-mbid',
+          displayName: 'Renaissance',
+          releaseDate: DateTime.utc(2022, 7, 29),
+        ),
+        now: mutationTime,
+      );
 
-    final result = await service.applyAlbumCandidate(
-      userId: 'user_1',
-      albumId: graph.album.id,
-      primaryEditionId: graph.edition.id,
-      candidate: ExternalMetadataCandidate(
-        provider: ExternalMetadataProviderKind.musicBrainz,
-        entityKind: ExternalMetadataEntityKind.album,
-        providerEntityId: 'release-group-mbid',
-        displayName: 'Renaissance',
-        releaseDate: DateTime.utc(2022, 7, 29),
-      ),
-      now: mutationTime,
-    );
+      expect(result.changedFields, {MetadataFields.albumTitle});
 
-    expect(result.changedFields, {
-      MetadataFields.albumTitle,
-      MetadataFields.editionReleaseDate,
-    });
+      final db = await appDatabase.database;
 
-    final db = await appDatabase.database;
+      final album = await AlbumDao(db).findById(graph.album.id);
+      final edition = await AlbumEditionDao(db).findById(graph.edition.id);
 
-    final album = await AlbumDao(db).findById(graph.album.id);
-    final edition = await AlbumEditionDao(db).findById(graph.edition.id);
+      expect(album!.title, 'Renaissance');
+      expect(edition!.releaseDate, DateTime.utc(2020, 1, 1));
 
-    expect(album!.title, 'Renaissance');
-    expect(edition!.releaseDate, DateTime.utc(2022, 7, 29));
+      final albumState = await MetadataFieldStateDao(db).find(
+        entityType: MetadataEntityType.album,
+        entityId: graph.album.id,
+        fieldName: MetadataFields.albumTitle,
+      );
 
-    final albumState = await MetadataFieldStateDao(db).find(
-      entityType: MetadataEntityType.album,
-      entityId: graph.album.id,
-      fieldName: MetadataFields.albumTitle,
-    );
+      final editionState = await MetadataFieldStateDao(db).find(
+        entityType: MetadataEntityType.albumEdition,
+        entityId: graph.edition.id,
+        fieldName: MetadataFields.editionReleaseDate,
+      );
+      expect(albumState!.authority, MetadataAuthority.external);
+      expect(albumState.source, MetadataProvenanceSource.musicBrainz);
+      expect(
+        albumState.sourceReference,
+        'musicbrainz:release-group:release-group-mbid',
+      );
 
-    final editionState = await MetadataFieldStateDao(db).find(
-      entityType: MetadataEntityType.albumEdition,
-      entityId: graph.edition.id,
-      fieldName: MetadataFields.editionReleaseDate,
-    );
+      expect(editionState, isNull);
 
-    expect(albumState!.authority, MetadataAuthority.external);
-    expect(editionState!.authority, MetadataAuthority.external);
-    expect(albumState.source, MetadataProvenanceSource.musicBrainz);
-    expect(editionState.source, MetadataProvenanceSource.musicBrainz);
+      final pending = await LocalSyncDao(db).findPending('user_1');
 
-    final pending = await LocalSyncDao(db).findPending('user_1');
-
-    expect(pending.map((entry) => entry.entityType).toSet(), {
-      CloudDataEntity.album,
-      CloudDataEntity.albumEdition,
-    });
-  });
+      expect(pending.map((entry) => entry.entityType).toSet(), {
+        CloudDataEntity.album,
+      });
+    },
+  );
 
   test(
-    'same accepted value upgrades provenance without sync mutation',
+    'same accepted value upgrades provenance and queues parent sync',
     () async {
       final graph = await createGraph();
 
@@ -370,9 +367,13 @@ void main() {
 
       expect(state!.authority, MetadataAuthority.external);
       expect(state.source, MetadataProvenanceSource.musicBrainz);
-      expect(state.sourceReference, 'musicBrainz:recording-mbid');
+      expect(state.sourceReference, 'musicbrainz:recording:recording-mbid');
 
-      expect(await LocalSyncDao(db).findPending('user_1'), isEmpty);
+      final pending = await LocalSyncDao(db).findPending('user_1');
+
+      expect(pending, hasLength(1));
+      expect(pending.single.entityType, CloudDataEntity.song);
+      expect(pending.single.entityId, graph.song.id);
     },
   );
 

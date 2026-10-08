@@ -53,6 +53,8 @@ abstract final class SupabaseCloudRecordMapper {
           SupabaseSyncContract.headerArtworkIdColumn: record.headerArtworkId,
           SupabaseSyncContract.topArtistsArtworkIdColumn:
               record.topArtistsArtworkId,
+          SupabaseSyncContract.metadataFieldStatesColumn:
+              _metadataFieldStatesToJson(record.metadataFieldStates),
         });
 
       case CloudAlbumRecord():
@@ -60,6 +62,8 @@ abstract final class SupabaseCloudRecordMapper {
           SupabaseSyncContract.artistIdColumn: record.artistId,
           SupabaseSyncContract.titleColumn: record.title,
           SupabaseSyncContract.canonicalTitleColumn: record.canonicalTitle,
+          SupabaseSyncContract.metadataFieldStatesColumn:
+              _metadataFieldStatesToJson(record.metadataFieldStates),
         });
 
       case CloudAlbumEditionRecord():
@@ -73,6 +77,8 @@ abstract final class SupabaseCloudRecordMapper {
               .toIso8601String(),
           SupabaseSyncContract.genreColumn: record.genre,
           SupabaseSyncContract.artworkIdColumn: record.artworkId,
+          SupabaseSyncContract.metadataFieldStatesColumn:
+              _metadataFieldStatesToJson(record.metadataFieldStates),
         });
 
       case CloudSongRecord():
@@ -94,6 +100,8 @@ abstract final class SupabaseCloudRecordMapper {
           SupabaseSyncContract.releaseStatusColumn: record.releaseStatus,
           SupabaseSyncContract.isLeakColumn: record.isLeak,
           SupabaseSyncContract.artworkIdColumn: record.artworkId,
+          SupabaseSyncContract.metadataFieldStatesColumn:
+              _metadataFieldStatesToJson(record.metadataFieldStates),
         });
 
       case CloudArtworkAssetRecord():
@@ -149,6 +157,7 @@ abstract final class SupabaseCloudRecordMapper {
         row,
         SupabaseSyncContract.topArtistsArtworkIdColumn,
       ),
+      metadataFieldStates: _metadataFieldStatesFromJson(row),
       createdAt: _requiredDateTime(row, SupabaseSyncContract.createdAtColumn),
       updatedAt: _requiredDateTime(row, SupabaseSyncContract.updatedAtColumn),
       deletedAt: _optionalDateTime(row, SupabaseSyncContract.deletedAtColumn),
@@ -165,6 +174,7 @@ abstract final class SupabaseCloudRecordMapper {
         row,
         SupabaseSyncContract.canonicalTitleColumn,
       ),
+      metadataFieldStates: _metadataFieldStatesFromJson(row),
       createdAt: _requiredDateTime(row, SupabaseSyncContract.createdAtColumn),
       updatedAt: _requiredDateTime(row, SupabaseSyncContract.updatedAtColumn),
       deletedAt: _optionalDateTime(row, SupabaseSyncContract.deletedAtColumn),
@@ -187,6 +197,7 @@ abstract final class SupabaseCloudRecordMapper {
       ),
       genre: _optionalString(row, SupabaseSyncContract.genreColumn),
       artworkId: _optionalString(row, SupabaseSyncContract.artworkIdColumn),
+      metadataFieldStates: _metadataFieldStatesFromJson(row),
       createdAt: _requiredDateTime(row, SupabaseSyncContract.createdAtColumn),
       updatedAt: _requiredDateTime(row, SupabaseSyncContract.updatedAtColumn),
       deletedAt: _optionalDateTime(row, SupabaseSyncContract.deletedAtColumn),
@@ -240,6 +251,7 @@ abstract final class SupabaseCloudRecordMapper {
       ),
       isLeak: _boolOrDefault(row, SupabaseSyncContract.isLeakColumn, false),
       artworkId: _optionalString(row, SupabaseSyncContract.artworkIdColumn),
+      metadataFieldStates: _metadataFieldStatesFromJson(row),
       createdAt: _requiredDateTime(row, SupabaseSyncContract.createdAtColumn),
       updatedAt: _requiredDateTime(row, SupabaseSyncContract.updatedAtColumn),
       deletedAt: _optionalDateTime(row, SupabaseSyncContract.deletedAtColumn),
@@ -258,6 +270,117 @@ abstract final class SupabaseCloudRecordMapper {
       updatedAt: _requiredDateTime(row, SupabaseSyncContract.updatedAtColumn),
       deletedAt: _optionalDateTime(row, SupabaseSyncContract.deletedAtColumn),
     );
+  }
+
+  static const Set<String> _metadataAuthorities = {
+    'inferred',
+    'imported',
+    'external',
+    'confirmed',
+    'manual',
+  };
+
+  static const Set<String> _metadataSources = {
+    'filename',
+    'embeddedTag',
+    'musicBrainz',
+    'coverArtArchive',
+    'review',
+    'user',
+    'legacy',
+  };
+
+  static List<Map<String, dynamic>>? _metadataFieldStatesToJson(
+    List<CloudMetadataFieldState>? states,
+  ) {
+    if (states == null) {
+      return null;
+    }
+
+    return states
+        .map(
+          (state) => <String, dynamic>{
+            'field_name': state.fieldName,
+            'authority': state.authority,
+            'source': state.source,
+            'source_reference': state.sourceReference,
+            'updated_at': state.updatedAt.toUtc().toIso8601String(),
+          },
+        )
+        .toList(growable: false);
+  }
+
+  static List<CloudMetadataFieldState>? _metadataFieldStatesFromJson(
+    Map<String, dynamic> row,
+  ) {
+    final value = row[SupabaseSyncContract.metadataFieldStatesColumn];
+
+    // Historical cloud rows predate provenance sync.
+    // Null means provenance is unknown, not authoritatively empty.
+    if (value == null) {
+      return null;
+    }
+
+    if (value is! List) {
+      throw StateError(
+        'Invalid ${SupabaseSyncContract.metadataFieldStatesColumn}.',
+      );
+    }
+
+    return value
+        .map((item) {
+          if (item is! Map) {
+            throw StateError(
+              'Invalid ${SupabaseSyncContract.metadataFieldStatesColumn} item.',
+            );
+          }
+
+          final map = Map<String, dynamic>.from(item);
+
+          final fieldName = map['field_name'];
+          final authority = map['authority'];
+          final source = map['source'];
+          final sourceReference = map['source_reference'];
+          final updatedAtRaw = map['updated_at'];
+
+          if (fieldName is! String || fieldName.trim().isEmpty) {
+            throw StateError('Invalid metadata field_name.');
+          }
+
+          if (authority is! String ||
+              !_metadataAuthorities.contains(authority)) {
+            throw StateError('Invalid metadata authority.');
+          }
+
+          if (source is! String || !_metadataSources.contains(source)) {
+            throw StateError('Invalid metadata source.');
+          }
+
+          if (sourceReference != null && sourceReference is! String) {
+            throw StateError('Invalid metadata source_reference.');
+          }
+
+          if (updatedAtRaw is! String) {
+            throw StateError('Invalid metadata updated_at.');
+          }
+
+          final DateTime updatedAt;
+
+          try {
+            updatedAt = DateTime.parse(updatedAtRaw).toUtc();
+          } on FormatException {
+            throw StateError('Invalid metadata updated_at.');
+          }
+
+          return CloudMetadataFieldState(
+            fieldName: fieldName,
+            authority: authority,
+            source: source,
+            sourceReference: sourceReference as String?,
+            updatedAt: updatedAt,
+          );
+        })
+        .toList(growable: false);
   }
 
   static String _requiredString(Map<String, dynamic> row, String column) {

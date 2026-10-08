@@ -58,6 +58,16 @@ class ExternalMetadataCandidate {
   final Map<String, String> externalIds;
 
   String get sourceReference {
-    return '${provider.name}:$providerEntityId';
+    switch (provider) {
+      case ExternalMetadataProviderKind.musicBrainz:
+        switch (entityKind) {
+          case ExternalMetadataEntityKind.artist:
+            return 'musicbrainz:artist:$providerEntityId';
+          case ExternalMetadataEntityKind.album:
+            return 'musicbrainz:release-group:$providerEntityId';
+          case ExternalMetadataEntityKind.track:
+            return 'musicbrainz:recording:$providerEntityId';
+        }
+    }
   }
 }

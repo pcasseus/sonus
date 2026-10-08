@@ -170,6 +170,40 @@ void main() {
       );
     });
 
+    test('serializes metadata field provenance as JSON data', () {
+      final metadataUpdatedAt = DateTime.utc(2026, 10, 7, 14, 30);
+
+      final record = CloudArtistRecord(
+        id: 'artist_1',
+        userId: 'user_1',
+        name: 'Artist',
+        canonicalName: 'artist',
+        metadataFieldStates: [
+          CloudMetadataFieldState(
+            fieldName: 'name',
+            authority: 'external',
+            source: 'musicBrainz',
+            sourceReference: 'musicbrainz:artist:artist-mbid',
+            updatedAt: metadataUpdatedAt,
+          ),
+        ],
+        createdAt: createdAt,
+        updatedAt: updatedAt,
+      );
+
+      final row = SupabaseCloudRecordMapper.toRow(record);
+
+      expect(row[SupabaseSyncContract.metadataFieldStatesColumn], [
+        {
+          'field_name': 'name',
+          'authority': 'external',
+          'source': 'musicBrainz',
+          'source_reference': 'musicbrainz:artist:artist-mbid',
+          'updated_at': metadataUpdatedAt.toIso8601String(),
+        },
+      ]);
+    });
+
     test('serializes client timestamps as UTC ISO strings', () {
       final record = CloudArtistRecord(
         id: 'artist_1',

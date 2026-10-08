@@ -432,26 +432,16 @@ class MusicBrainzMetadataProvider implements MetadataProvider {
   static DateTime? _parsePartialDate(Object? value) {
     final raw = _string(value);
 
-    if (raw == null) {
+    if (raw == null || raw.length != 10 || raw[4] != '-' || raw[7] != '-') {
       return null;
     }
 
-    final parts = raw.split('-');
+    final year = int.tryParse(raw.substring(0, 4));
+    final month = int.tryParse(raw.substring(5, 7));
+    final day = int.tryParse(raw.substring(8, 10));
 
-    if (parts.isEmpty || parts.length > 3) {
-      return null;
-    }
-
-    final year = int.tryParse(parts[0]);
-
-    if (year == null || year < 1) {
-      return null;
-    }
-
-    final month = parts.length >= 2 ? int.tryParse(parts[1]) : 1;
-    final day = parts.length >= 3 ? int.tryParse(parts[2]) : 1;
-
-    if (month == null ||
+    if (year == null ||
+        month == null ||
         day == null ||
         month < 1 ||
         month > 12 ||

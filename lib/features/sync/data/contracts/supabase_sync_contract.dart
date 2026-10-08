@@ -18,6 +18,7 @@ abstract final class SupabaseSyncContract {
   static const String albumIdColumn = 'album_id';
   static const String albumEditionIdColumn = 'album_edition_id';
   static const String artworkIdColumn = 'artwork_id';
+  static const String metadataFieldStatesColumn = 'metadata_field_states';
 
   static const String nameColumn = 'name';
   static const String canonicalNameColumn = 'canonical_name';
