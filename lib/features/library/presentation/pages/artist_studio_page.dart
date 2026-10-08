@@ -2,11 +2,15 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../application/models/external_metadata_search_query.dart';
 import '../../application/models/library_artist.dart';
 import '../../application/repositories/library_query_repository.dart';
 import '../../application/services/artist_merge_service.dart';
 import '../../application/services/artist_profile_editing_service.dart';
+import '../../application/services/external_metadata_application_service.dart';
+import '../../application/services/metadata_provider.dart';
 import '../controllers/artist_profile_controller.dart';
+import '../widgets/musicbrainz_search_dialog.dart';
 
 class ArtistStudioMergeResult {
   const ArtistStudioMergeResult({
@@ -25,12 +29,16 @@ class ArtistStudioPage extends StatefulWidget {
     required this.repository,
     required this.userId,
     this.mergeService,
+    this.metadataProvider,
+    this.externalMetadataApplicationService,
   });
 
   final ArtistProfileController controller;
   final LibraryQueryRepository repository;
   final String? userId;
   final ArtistMergeService? mergeService;
+  final MetadataProvider? metadataProvider;
+  final ExternalMetadataApplicationService? externalMetadataApplicationService;
 
   @override
   State<ArtistStudioPage> createState() => _ArtistStudioPageState();
@@ -38,6 +46,7 @@ class ArtistStudioPage extends StatefulWidget {
 
 class _ArtistStudioPageState extends State<ArtistStudioPage> {
   bool _isMerging = false;
+  bool _isApplyingMusicBrainz = false;
 
   ArtistProfileController get controller => widget.controller;
 
@@ -144,6 +153,38 @@ class _ArtistStudioPageState extends State<ArtistStudioPage> {
                     ),
                     const SizedBox(height: 24),
                     Text(
+                      'Metadata',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    const SizedBox(height: 8),
+                    Card(
+                      child: ListTile(
+                        key: const ValueKey<String>(
+                          'artist-studio-search-musicbrainz',
+                        ),
+                        leading: const Icon(Icons.public_rounded),
+                        title: const Text('Search MusicBrainz'),
+                        subtitle: const Text(
+                          'Find a MusicBrainz artist match and apply '
+                          'allowed metadata.',
+                        ),
+                        enabled:
+                            widget.metadataProvider != null &&
+                            widget.externalMetadataApplicationService != null &&
+                            !_isApplyingMusicBrainz,
+                        onTap:
+                            widget.metadataProvider == null ||
+                                widget.externalMetadataApplicationService ==
+                                    null ||
+                                _isApplyingMusicBrainz
+                            ? null
+                            : () {
+                                unawaited(_searchMusicBrainz());
+                              },
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    Text(
                       'Artwork',
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
@@ -232,6 +273,80 @@ class _ArtistStudioPageState extends State<ArtistStudioPage> {
         );
       },
     );
+  }
+
+  Future<void> _searchMusicBrainz() async {
+    final artist = controller.artist;
+    final provider = widget.metadataProvider;
+    final applicationService = widget.externalMetadataApplicationService;
+
+    if (artist == null ||
+        provider == null ||
+        applicationService == null ||
+        _isApplyingMusicBrainz) {
+      return;
+    }
+
+    setState(() {
+      _isApplyingMusicBrainz = true;
+    });
+
+    try {
+      final selection = await showDialog<MusicBrainzSearchSelection>(
+        context: context,
+        builder: (dialogContext) {
+          return MusicBrainzSearchDialog(
+            provider: provider,
+            query: ExternalMetadataSearchQuery(
+              entityKind: ExternalMetadataEntityKind.artist,
+              artistName: artist.name,
+            ),
+            applier: (candidate) {
+              return applicationService.applyArtistCandidate(
+                userId: widget.userId,
+                artistId: artist.artistId,
+                candidate: candidate,
+              );
+            },
+          );
+        },
+      );
+
+      if (!mounted || selection == null) {
+        return;
+      }
+
+      await controller.refresh();
+
+      if (!mounted) {
+        return;
+      }
+
+      final result = selection.result;
+
+      final message = result.requiresReview
+          ? 'MusicBrainz match selected. Some fields still require review.'
+          : result.hasProtectedFields
+          ? 'MusicBrainz match selected. Protected fields were not changed.'
+          : result.entityChanged
+          ? 'MusicBrainz metadata applied.'
+          : 'MusicBrainz metadata already matched this artist.';
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          key: const ValueKey<String>(
+            'artist-studio-musicbrainz-result-message',
+          ),
+          content: Text(message),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isApplyingMusicBrainz = false;
+        });
+      }
+    }
   }
 
   Future<void> _editName() async {

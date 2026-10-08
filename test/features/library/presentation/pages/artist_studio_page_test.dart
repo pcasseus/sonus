@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:sonus_next/features/library/application/models/external_metadata_candidate.dart';
+import 'package:sonus_next/features/library/application/models/external_metadata_search_query.dart';
 import 'package:sonus_next/features/library/application/models/library_album.dart';
 import 'package:sonus_next/features/library/application/models/library_artist.dart';
 import 'package:sonus_next/features/library/application/models/library_track.dart';
 import 'package:sonus_next/features/library/application/models/library_track_order.dart';
 import 'package:sonus_next/features/library/application/repositories/library_query_repository.dart';
 import 'package:sonus_next/features/library/application/services/artist_merge_service.dart';
+import 'package:sonus_next/features/library/application/services/external_metadata_application_service.dart';
+import 'package:sonus_next/features/library/application/services/metadata_provider.dart';
 import 'package:sonus_next/features/library/application/services/artist_profile_editing_service.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/domain/entities/artist.dart';
@@ -202,6 +206,146 @@ void main() {
       controller.dispose();
     });
 
+    testWidgets(
+      'MusicBrainz action is disabled when metadata dependencies are unavailable',
+      (tester) async {
+        final repository = FakeLibraryQueryRepository(artist: createArtist());
+
+        final controller = ArtistProfileController(
+          repository: repository,
+          artistId: 'artist-1',
+        );
+
+        await controller.load();
+
+        await tester.pumpWidget(
+          buildSubject(controller: controller, repository: repository),
+        );
+
+        await tester.pumpAndSettle();
+
+        final musicBrainzTile = find.byKey(
+          const ValueKey<String>('artist-studio-search-musicbrainz'),
+        );
+
+        await tester.scrollUntilVisible(
+          musicBrainzTile,
+          300,
+          scrollable: find.byType(Scrollable).first,
+        );
+
+        final tile = tester.widget<ListTile>(musicBrainzTile);
+
+        expect(tile.enabled, isFalse);
+        expect(tile.onTap, isNull);
+
+        controller.dispose();
+      },
+    );
+
+    testWidgets(
+      'MusicBrainz artist match applies metadata and refreshes Studio',
+      (tester) async {
+        var currentName = 'Test Artist';
+
+        final repository = FakeLibraryQueryRepository(artist: createArtist());
+
+        final provider = FakeMetadataProvider(
+          results: const [
+            ExternalMetadataCandidate(
+              provider: ExternalMetadataProviderKind.musicBrainz,
+              entityKind: ExternalMetadataEntityKind.artist,
+              providerEntityId: 'mb-artist-1',
+              displayName: 'Matched Artist',
+            ),
+          ],
+        );
+
+        final applicationService = FakeExternalMetadataApplicationService(
+          onApply:
+              ({
+                required String? userId,
+                required String artistId,
+                required ExternalMetadataCandidate candidate,
+              }) async {
+                currentName = candidate.displayName;
+
+                repository.artist = createArtist(
+                  artistId: artistId,
+                  name: currentName,
+                );
+
+                return const ExternalMetadataApplicationResult(
+                  changedFields: {'name'},
+                );
+              },
+        );
+
+        final controller = ArtistProfileController(
+          repository: repository,
+          artistId: 'artist-1',
+        );
+
+        await controller.load();
+
+        await tester.pumpWidget(
+          buildSubject(
+            controller: controller,
+            repository: repository,
+            userId: 'user-1',
+            metadataProvider: provider,
+            externalMetadataApplicationService: applicationService,
+          ),
+        );
+
+        await tester.pumpAndSettle();
+
+        final musicBrainzTile = find.byKey(
+          const ValueKey<String>('artist-studio-search-musicbrainz'),
+        );
+
+        await tester.scrollUntilVisible(
+          musicBrainzTile,
+          300,
+          scrollable: find.byType(Scrollable).first,
+        );
+
+        await tester.tap(musicBrainzTile);
+        await tester.pumpAndSettle();
+
+        expect(provider.searchCallCount, 1);
+        expect(
+          provider.lastQuery?.entityKind,
+          ExternalMetadataEntityKind.artist,
+        );
+        expect(provider.lastQuery?.artistName, 'Test Artist');
+
+        expect(find.text('Matched Artist'), findsOneWidget);
+
+        await tester.tap(find.text('Matched Artist'));
+        await tester.pumpAndSettle();
+
+        await tester.tap(
+          find.byKey(const ValueKey<String>('musicbrainz-apply-confirm')),
+        );
+
+        await tester.pumpAndSettle();
+
+        expect(applicationService.applyCallCount, 1);
+        expect(applicationService.lastUserId, 'user-1');
+        expect(applicationService.lastArtistId, 'artist-1');
+        expect(
+          applicationService.lastCandidate?.providerEntityId,
+          'mb-artist-1',
+        );
+
+        expect(controller.artist?.name, 'Matched Artist');
+        expect(find.text('MusicBrainz metadata applied.'), findsOneWidget);
+
+        controller.dispose();
+      },
+    );
+
     testWidgets('merge action is disabled when merge service is unavailable', (
       tester,
     ) async {
@@ -327,6 +471,8 @@ Widget buildSubject({
   required LibraryQueryRepository repository,
   String? userId,
   ArtistMergeService? mergeService,
+  MetadataProvider? metadataProvider,
+  ExternalMetadataApplicationService? externalMetadataApplicationService,
 }) {
   return MaterialApp(
     home: ArtistStudioPage(
@@ -334,6 +480,8 @@ Widget buildSubject({
       repository: repository,
       userId: userId,
       mergeService: mergeService,
+      metadataProvider: metadataProvider,
+      externalMetadataApplicationService: externalMetadataApplicationService,
     ),
   );
 }
@@ -515,6 +663,71 @@ class FakeArtistProfileEditingService extends ArtistProfileEditingService {
       createdAt: timestamp,
       updatedAt: timestamp,
     );
+  }
+}
+
+class FakeMetadataProvider implements MetadataProvider {
+  FakeMetadataProvider({required this.results});
+
+  final List<ExternalMetadataCandidate> results;
+
+  int searchCallCount = 0;
+  ExternalMetadataSearchQuery? lastQuery;
+
+  @override
+  ExternalMetadataProviderKind get providerKind =>
+      ExternalMetadataProviderKind.musicBrainz;
+
+  @override
+  Future<List<ExternalMetadataCandidate>> search(
+    ExternalMetadataSearchQuery query,
+  ) async {
+    searchCallCount++;
+    lastQuery = query;
+    return results;
+  }
+
+  @override
+  Future<ExternalMetadataCandidate?> lookup({
+    required ExternalMetadataEntityKind entityKind,
+    required String providerEntityId,
+  }) async {
+    return null;
+  }
+}
+
+typedef FakeExternalMetadataApplyCallback =
+    Future<ExternalMetadataApplicationResult> Function({
+      required String? userId,
+      required String artistId,
+      required ExternalMetadataCandidate candidate,
+    });
+
+class FakeExternalMetadataApplicationService
+    extends ExternalMetadataApplicationService {
+  FakeExternalMetadataApplicationService({required this.onApply})
+    : super(mutationRunner: CountingUnusedSyncMutationRunner());
+
+  final FakeExternalMetadataApplyCallback onApply;
+
+  int applyCallCount = 0;
+  String? lastUserId;
+  String? lastArtistId;
+  ExternalMetadataCandidate? lastCandidate;
+
+  @override
+  Future<ExternalMetadataApplicationResult> applyArtistCandidate({
+    required String? userId,
+    required String artistId,
+    required ExternalMetadataCandidate candidate,
+    DateTime? now,
+  }) async {
+    applyCallCount++;
+    lastUserId = userId;
+    lastArtistId = artistId;
+    lastCandidate = candidate;
+
+    return onApply(userId: userId, artistId: artistId, candidate: candidate);
   }
 }
 

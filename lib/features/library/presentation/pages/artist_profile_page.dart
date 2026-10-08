@@ -13,6 +13,8 @@ import '../../application/models/library_track.dart';
 import '../../application/repositories/library_query_repository.dart';
 import '../../application/services/artist_profile_editing_service.dart';
 import '../../application/services/artist_merge_service.dart';
+import '../../application/services/external_metadata_application_service.dart';
+import '../../application/services/metadata_provider.dart';
 import '../../application/services/song_block_service.dart';
 import '../../application/services/song_artist_credit_service.dart';
 import 'package:sonus_next/features/library/application/services/track_profile_editing_service.dart';
@@ -377,6 +379,10 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
       return;
     }
 
+    final metadataProvider = context.read<MetadataProvider?>();
+    final externalMetadataApplicationService = context
+        .read<ExternalMetadataApplicationService?>();
+
     final result = await Navigator.of(context).push<ArtistStudioMergeResult>(
       MaterialPageRoute<ArtistStudioMergeResult>(
         builder: (_) => ArtistStudioPage(
@@ -384,6 +390,9 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
           repository: repository,
           userId: userId,
           mergeService: artistMergeService,
+          metadataProvider: metadataProvider,
+          externalMetadataApplicationService:
+              externalMetadataApplicationService,
         ),
       ),
     );
