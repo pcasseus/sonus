@@ -7,11 +7,15 @@ import 'package:provider/provider.dart';
 import 'package:sonus_next/features/account/application/controllers/account_controller.dart';
 import 'package:sonus_next/features/account/domain/entities/account_user.dart';
 import 'package:sonus_next/features/account/domain/repositories/account_repository.dart';
+import 'package:sonus_next/features/library/application/models/external_metadata_candidate.dart';
+import 'package:sonus_next/features/library/application/models/external_metadata_search_query.dart';
 import 'package:sonus_next/features/library/application/models/library_album.dart';
 import 'package:sonus_next/features/library/application/models/library_artist.dart';
 import 'package:sonus_next/features/library/application/models/library_track.dart';
 import 'package:sonus_next/features/library/application/models/library_track_order.dart';
 import 'package:sonus_next/features/library/application/repositories/library_query_repository.dart';
+import 'package:sonus_next/features/library/application/services/external_metadata_application_service.dart';
+import 'package:sonus_next/features/library/application/services/metadata_provider.dart';
 import 'package:sonus_next/features/library/application/services/song_block_service.dart';
 import 'package:sonus_next/features/library/application/services/track_profile_editing_service.dart';
 import 'package:sonus_next/features/library/application/services/song_artist_credit_service.dart';
@@ -19,6 +23,7 @@ import 'package:sonus_next/features/library/domain/entities/song_artist_credit.d
 import 'package:sonus_next/features/library/domain/repositories/song_artist_credit_repository.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/domain/entities/song.dart';
+import 'package:sonus_next/features/library/presentation/pages/track_studio_page.dart';
 import 'package:sonus_next/features/library/presentation/pages/tracks_page.dart';
 import 'package:sonus_next/features/player/application/controllers/playback_coordinator.dart';
 import 'package:sonus_next/features/player/domain/models/playback_state.dart';
@@ -515,6 +520,292 @@ void main() {
         expect(find.text('Removed from blacklist.'), findsOneWidget);
       },
     );
+    testWidgets('Track Studio disables MusicBrainz without dependencies', (
+      tester,
+    ) async {
+      final repository = FakeLibraryQueryRepository(
+        tracks: [createTrack(songId: 'song-disabled', title: 'Original')],
+      );
+
+      await tester.pumpWidget(
+        buildSubject(
+          repository: repository,
+          trackProfileEditingService: FakeTrackStudioEditingService(),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('track-menu-song-disabled')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Track Studio'));
+      await tester.pumpAndSettle();
+
+      final tile = tester.widget<ListTile>(
+        find.byKey(const ValueKey<String>('track-studio-search-musicbrainz')),
+      );
+
+      expect(tile.enabled, isFalse);
+      expect(tile.onTap, isNull);
+    });
+
+    testWidgets('canceling MusicBrainz preserves unsaved Track Studio edits', (
+      tester,
+    ) async {
+      final repository = FakeLibraryQueryRepository(
+        tracks: [createTrack(songId: 'song-cancel', title: 'Original')],
+      );
+      final editingService = FakeTrackStudioEditingService();
+      final provider = FakeTrackMusicBrainzProvider(results: const []);
+      final applicationService = FakeTrackMusicBrainzApplicationService();
+
+      await tester.pumpWidget(
+        buildSubject(
+          repository: repository,
+          trackProfileEditingService: editingService,
+          metadataProvider: provider,
+          externalMetadataApplicationService: applicationService,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('track-menu-song-cancel')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Track Studio'));
+      await tester.pumpAndSettle();
+
+      const titleKey = ValueKey<String>('track-title-field');
+      await tester.enterText(find.byKey(titleKey), 'Unsaved Manual Title');
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('track-studio-search-musicbrainz')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Search MusicBrainz?'), findsOneWidget);
+
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey<String>('track-studio-page')),
+        findsOneWidget,
+      );
+      expect(
+        tester.widget<TextFormField>(find.byKey(titleKey)).controller!.text,
+        'Unsaved Manual Title',
+      );
+      expect(provider.searchCount, 0);
+      expect(applicationService.applyCount, 0);
+      expect(editingService.structuredUpdateCallCount, 0);
+    });
+
+    testWidgets(
+      'MusicBrainz applies to original song and closes without manual save',
+      (tester) async {
+        var currentTrack = createTrack(
+          songId: 'song-musicbrainz',
+          title: 'Original Song',
+          artistName: 'Original Artist',
+          albumTitle: 'Original Album',
+          durationSeconds: 218,
+          featuredArtists: const ['Featured Artist'],
+        );
+
+        final repository = FakeLibraryQueryRepository(
+          tracksLoader: (_) async => [currentTrack],
+        );
+        final editingService = FakeTrackStudioEditingService();
+
+        final provider = FakeTrackMusicBrainzProvider(
+          results: const [
+            ExternalMetadataCandidate(
+              provider: ExternalMetadataProviderKind.musicBrainz,
+              entityKind: ExternalMetadataEntityKind.track,
+              providerEntityId: 'recording-mbid-123',
+              displayName: 'Matched Recording',
+              durationSeconds: 220,
+            ),
+          ],
+        );
+
+        final applicationService = FakeTrackMusicBrainzApplicationService()
+          ..onApply = (candidate) async {
+            currentTrack = createTrack(
+              songId: 'song-musicbrainz',
+              title: candidate.displayName,
+              artistName: 'Original Artist',
+              albumTitle: 'Original Album',
+              durationSeconds: 220,
+              featuredArtists: const ['Featured Artist'],
+            );
+          };
+
+        await tester.pumpWidget(
+          buildSubject(
+            repository: repository,
+            trackProfileEditingService: editingService,
+            metadataProvider: provider,
+            externalMetadataApplicationService: applicationService,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        final originalLoadCount = repository.requestedOrders.length;
+
+        await tester.tap(
+          find.byKey(const ValueKey<String>('track-menu-song-musicbrainz')),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Track Studio'));
+        await tester.pumpAndSettle();
+
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('track-title-field')),
+          'Do Not Save This Title',
+        );
+
+        await tester.tap(
+          find.byKey(const ValueKey<String>('track-studio-search-musicbrainz')),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(
+          find.byKey(
+            const ValueKey<String>('track-studio-musicbrainz-continue'),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(provider.searchCount, 1);
+        expect(
+          provider.lastQuery?.entityKind,
+          ExternalMetadataEntityKind.track,
+        );
+        expect(provider.lastQuery?.title, 'Original Song');
+        expect(provider.lastQuery?.artistName, 'Original Artist');
+        expect(provider.lastQuery?.albumTitle, 'Original Album');
+        expect(provider.lastQuery?.durationSeconds, 218);
+
+        await tester.tap(
+          find.byKey(
+            const ValueKey<String>('musicbrainz-result-recording-mbid-123'),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(
+          find.byKey(const ValueKey<String>('musicbrainz-apply-confirm')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(applicationService.applyCount, 1);
+        expect(applicationService.lastSongId, 'song-musicbrainz');
+        expect(applicationService.lastUserId, isNull);
+        expect(
+          applicationService.lastCandidate?.providerEntityId,
+          'recording-mbid-123',
+        );
+        expect(
+          repository.requestedOrders.length,
+          greaterThan(originalLoadCount),
+        );
+
+        expect(
+          find.byKey(const ValueKey<String>('track-studio-page')),
+          findsNothing,
+        );
+        expect(find.text('Matched Recording'), findsOneWidget);
+        expect(currentTrack.featuredArtists, ['Featured Artist']);
+        expect(currentTrack.albumId, 'album-1');
+        expect(currentTrack.albumEditionId, 'edition-1');
+        expect(currentTrack.trackNumber, 1);
+
+        expect(editingService.structuredUpdateCallCount, 0);
+        expect(editingService.updateCallCount, 0);
+      },
+    );
+    testWidgets(
+      'MusicBrainz application remains successful when library refresh fails',
+      (tester) async {
+        var loadCount = 0;
+
+        final repository = FakeLibraryQueryRepository(
+          tracksLoader: (_) async {
+            loadCount++;
+            if (loadCount > 1) {
+              throw StateError('Refresh failed');
+            }
+            return [
+              createTrack(songId: 'song-refresh-fail', title: 'Original'),
+            ];
+          },
+        );
+
+        final editingService = FakeTrackStudioEditingService();
+        final provider = FakeTrackMusicBrainzProvider(
+          results: const [
+            ExternalMetadataCandidate(
+              provider: ExternalMetadataProviderKind.musicBrainz,
+              entityKind: ExternalMetadataEntityKind.track,
+              providerEntityId: 'recording-refresh-fail',
+              displayName: 'Matched Recording',
+            ),
+          ],
+        );
+        final applicationService = FakeTrackMusicBrainzApplicationService();
+
+        await tester.pumpWidget(
+          buildSubject(
+            repository: repository,
+            trackProfileEditingService: editingService,
+            metadataProvider: provider,
+            externalMetadataApplicationService: applicationService,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(
+          find.byKey(const ValueKey<String>('track-menu-song-refresh-fail')),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Track Studio'));
+        await tester.pumpAndSettle();
+
+        await tester.tap(
+          find.byKey(const ValueKey<String>('track-studio-search-musicbrainz')),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(
+            const ValueKey<String>('track-studio-musicbrainz-continue'),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(
+          find.byKey(
+            const ValueKey<String>('musicbrainz-result-recording-refresh-fail'),
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const ValueKey<String>('musicbrainz-apply-confirm')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(applicationService.applyCount, 1);
+        expect(loadCount, greaterThan(1));
+        expect(
+          find.byKey(const ValueKey<String>('track-studio-page')),
+          findsNothing,
+        );
+        expect(editingService.structuredUpdateCallCount, 0);
+      },
+    );
     testWidgets('Track Studio edits and saves a track from the Tracks menu', (
       tester,
     ) async {
@@ -749,6 +1040,130 @@ void main() {
       expect(submitted[2].role, SongArtistCreditRole.featured);
       expect(submitted[2].artistId, isNull);
     });
+    testWidgets(
+      'Track Studio closes and warns when refresh callback throws after apply',
+      (tester) async {
+        final candidate = ExternalMetadataCandidate(
+          provider: ExternalMetadataProviderKind.musicBrainz,
+          entityKind: ExternalMetadataEntityKind.track,
+          providerEntityId: 'recording-callback-failure',
+          displayName: 'Matched Recording',
+        );
+
+        final provider = FakeTrackMusicBrainzProvider(results: [candidate]);
+        final applicationService = FakeTrackMusicBrainzApplicationService();
+
+        var refreshCalls = 0;
+        var routeFinished = false;
+        Object? routeResult;
+
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: Builder(
+                builder: (context) {
+                  return Center(
+                    child: FilledButton(
+                      key: const ValueKey<String>('open-test-track-studio'),
+                      onPressed: () async {
+                        routeResult = await Navigator.of(context).push<Object?>(
+                          MaterialPageRoute<Object?>(
+                            builder: (_) => TrackStudioPage(
+                              track: createTrack(
+                                songId: 'song-callback-failure',
+                                title: 'Original Recording',
+                              ),
+                              userId: 'user-1',
+                              metadataProvider: provider,
+                              externalMetadataApplicationService:
+                                  applicationService,
+                              onMetadataApplied: () async {
+                                refreshCalls++;
+                                throw StateError('Library refresh failed');
+                              },
+                            ),
+                          ),
+                        );
+                        routeFinished = true;
+                      },
+                      child: const Text('Open Studio'),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(
+          find.byKey(const ValueKey<String>('open-test-track-studio')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const ValueKey<String>('track-studio-page')),
+          findsOneWidget,
+        );
+
+        await tester.tap(
+          find.byKey(const ValueKey<String>('track-studio-search-musicbrainz')),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(
+          find.byKey(
+            const ValueKey<String>('track-studio-musicbrainz-continue'),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(provider.searchCount, 1);
+
+        await tester.tap(
+          find.byKey(
+            const ValueKey<String>(
+              'musicbrainz-result-recording-callback-failure',
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(
+          find.byKey(const ValueKey<String>('musicbrainz-apply-confirm')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(applicationService.applyCount, 1);
+        expect(applicationService.lastSongId, 'song-callback-failure');
+        expect(applicationService.lastUserId, 'user-1');
+        expect(
+          applicationService.lastCandidate?.providerEntityId,
+          'recording-callback-failure',
+        );
+
+        expect(refreshCalls, 1);
+        expect(routeFinished, isTrue);
+        expect(routeResult, isNull);
+
+        expect(
+          find.byKey(const ValueKey<String>('track-studio-page')),
+          findsNothing,
+        );
+
+        expect(
+          find.text(
+            'MusicBrainz metadata was applied, but the library could not refresh.',
+          ),
+          findsOneWidget,
+        );
+
+        expect(
+          find.text('Could not complete the MusicBrainz operation.'),
+          findsNothing,
+        );
+      },
+    );
   });
 }
 
@@ -759,6 +1174,8 @@ Widget buildSubject({
   SongBlockService? songBlockService,
   SongArtistCreditRepository? songArtistCreditRepository,
   PlaybackEngine? engine,
+  MetadataProvider? metadataProvider,
+  ExternalMetadataApplicationService? externalMetadataApplicationService,
 }) {
   final playbackEngine = engine ?? NoOpPlaybackEngine();
 
@@ -778,6 +1195,10 @@ Widget buildSubject({
         value: songArtistCreditRepository,
       ),
       Provider<PlaybackCoordinator>.value(value: coordinator),
+      Provider<MetadataProvider?>.value(value: metadataProvider),
+      Provider<ExternalMetadataApplicationService?>.value(
+        value: externalMetadataApplicationService,
+      ),
     ],
     child: const MaterialApp(home: Scaffold(body: TracksPage())),
   );
@@ -1018,6 +1439,69 @@ class FakeAccountRepository implements AccountRepository {
   @override
   dynamic noSuchMethod(Invocation invocation) {
     return super.noSuchMethod(invocation);
+  }
+}
+
+class FakeTrackMusicBrainzProvider implements MetadataProvider {
+  FakeTrackMusicBrainzProvider({required this.results});
+
+  final List<ExternalMetadataCandidate> results;
+  ExternalMetadataSearchQuery? lastQuery;
+  int searchCount = 0;
+
+  @override
+  ExternalMetadataProviderKind get providerKind =>
+      ExternalMetadataProviderKind.musicBrainz;
+
+  @override
+  Future<List<ExternalMetadataCandidate>> search(
+    ExternalMetadataSearchQuery query,
+  ) async {
+    searchCount++;
+    lastQuery = query;
+    return results;
+  }
+
+  @override
+  Future<ExternalMetadataCandidate?> lookup({
+    required ExternalMetadataEntityKind entityKind,
+    required String providerEntityId,
+  }) async {
+    return null;
+  }
+}
+
+class FakeTrackMusicBrainzApplicationService
+    extends ExternalMetadataApplicationService {
+  FakeTrackMusicBrainzApplicationService()
+    : super(mutationRunner: UnusedSyncMutationRunner());
+
+  int applyCount = 0;
+  String? lastSongId;
+  String? lastUserId;
+  ExternalMetadataCandidate? lastCandidate;
+  Future<void> Function(ExternalMetadataCandidate)? onApply;
+
+  @override
+  Future<ExternalMetadataApplicationResult> applyTrackCandidate({
+    required String? userId,
+    required String songId,
+    required ExternalMetadataCandidate candidate,
+    DateTime? now,
+  }) async {
+    applyCount++;
+    lastSongId = songId;
+    lastUserId = userId;
+    lastCandidate = candidate;
+
+    final callback = onApply;
+    if (callback != null) {
+      await callback(candidate);
+    }
+
+    return const ExternalMetadataApplicationResult(
+      changedFields: {'song.title'},
+    );
   }
 }
 

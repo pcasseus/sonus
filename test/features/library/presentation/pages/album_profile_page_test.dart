@@ -1551,12 +1551,25 @@ void main() {
       );
 
       final editingService = EnabledTrackStudioEditingService();
+      final provider = FakeAlbumMetadataProvider(results: const []);
+      final applicationService = FakeAlbumExternalMetadataApplicationService(
+        onApply:
+            ({
+              required String? userId,
+              required String albumId,
+              required ExternalMetadataCandidate candidate,
+            }) async {
+              throw StateError('Metadata application should not be invoked.');
+            },
+      );
 
       await tester.pumpWidget(
         buildSubject(
           repository: repository,
           accountRepository: accountRepository,
           trackProfileEditingService: editingService,
+          metadataProvider: provider,
+          externalMetadataApplicationService: applicationService,
         ),
       );
       await tester.pumpAndSettle();
@@ -1582,6 +1595,23 @@ void main() {
         find.byKey(const ValueKey<String>('track-studio-page')),
         findsOneWidget,
       );
+
+      final musicBrainzTile = find.byKey(
+        const ValueKey<String>('track-studio-search-musicbrainz'),
+      );
+      expect(tester.widget<ListTile>(musicBrainzTile).enabled, isTrue);
+
+      await tester.tap(musicBrainzTile);
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('track-studio-musicbrainz-continue')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(provider.searchCallCount, 1);
+      expect(provider.lastQuery?.entityKind, ExternalMetadataEntityKind.track);
+      expect(provider.lastQuery?.title, 'Studio Song');
     });
   });
 }

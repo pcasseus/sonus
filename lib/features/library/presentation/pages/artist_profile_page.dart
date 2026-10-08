@@ -644,11 +644,20 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
             ),
           )
           .toList(growable: false);
+      final metadataProvider = context.read<MetadataProvider?>();
+      final externalMetadataApplicationService = context
+          .read<ExternalMetadataApplicationService?>();
+
       final draft = await Navigator.of(context).push<TrackProfileEditDraft>(
         MaterialPageRoute<TrackProfileEditDraft>(
           builder: (routeContext) {
             return TrackStudioPage(
               track: track,
+              userId: userId,
+              metadataProvider: metadataProvider,
+              externalMetadataApplicationService:
+                  externalMetadataApplicationService,
+              onMetadataApplied: controller.refresh,
               artists: artists,
               albums: albums,
               initialAdditionalCredits: initialAdditionalCredits,
