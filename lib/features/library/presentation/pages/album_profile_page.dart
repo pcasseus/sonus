@@ -15,6 +15,8 @@ import '../../application/models/library_album_edition.dart';
 import '../../application/models/library_track.dart';
 import '../../application/repositories/library_query_repository.dart';
 import '../../application/services/album_profile_editing_service.dart';
+import '../../application/services/external_metadata_application_service.dart';
+import '../../application/services/metadata_provider.dart';
 import '../../application/services/album_edition_track_ordering_service.dart';
 import '../../application/services/song_block_service.dart';
 import '../../application/services/song_artist_credit_service.dart';
@@ -235,12 +237,19 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
       return;
     }
 
+    final metadataProvider = context.read<MetadataProvider?>();
+    final externalMetadataApplicationService = context
+        .read<ExternalMetadataApplicationService?>();
+
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
         builder: (routeContext) {
           return AlbumStudioPage(
             controller: controller,
             userId: userId,
+            metadataProvider: metadataProvider,
+            externalMetadataApplicationService:
+                externalMetadataApplicationService,
             onEditDetails: controller.canEditAlbumProfile(userId)
                 ? () => _editAlbumProfile(controller, userId)
                 : null,

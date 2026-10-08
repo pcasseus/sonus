@@ -7,7 +7,11 @@ import 'package:sonus_next/features/account/presentation/scopes/account_scope.da
 import 'package:sonus_next/features/account/domain/repositories/account_repository.dart';
 import 'package:provider/provider.dart';
 
+import 'package:sonus_next/features/library/application/models/external_metadata_candidate.dart';
+import 'package:sonus_next/features/library/application/models/external_metadata_search_query.dart';
 import 'package:sonus_next/features/library/application/services/album_profile_editing_service.dart';
+import 'package:sonus_next/features/library/application/services/external_metadata_application_service.dart';
+import 'package:sonus_next/features/library/application/services/metadata_provider.dart';
 import 'package:sonus_next/features/library/application/services/album_edition_track_ordering_service.dart';
 import 'package:sonus_next/features/library/application/services/song_block_service.dart';
 import 'package:sonus_next/features/library/application/services/track_profile_editing_service.dart';
@@ -1218,6 +1222,165 @@ void main() {
         expect(clearArtworkCallCount, 1);
       },
     );
+    testWidgets('Album Studio disables MusicBrainz without dependencies', (
+      tester,
+    ) async {
+      final controller = AlbumProfileController(
+        repository: FakeLibraryQueryRepository(album: createAlbum()),
+        albumId: 'album-1',
+      );
+      addTearDown(controller.dispose);
+      await controller.load();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AlbumStudioPage(controller: controller, userId: null),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final tile = tester.widget<ListTile>(
+        find.byKey(const ValueKey<String>('album-studio-search-musicbrainz')),
+      );
+
+      expect(tile.enabled, isFalse);
+      expect(tile.onTap, isNull);
+    });
+
+    testWidgets(
+      'Album Studio MusicBrainz match refreshes album and preserves edition',
+      (tester) async {
+        var currentAlbum = createAlbum(
+          title: 'Original Album',
+          primaryEditionId: 'edition-standard',
+          primaryEditionTitle: 'Standard',
+          releaseDate: DateTime(2024, 5, 17),
+          genre: 'Pop',
+        );
+        var loadCount = 0;
+
+        final edition = createLibraryEdition(
+          editionId: 'edition-standard',
+          title: 'Standard',
+          type: AlbumEditionType.standard,
+          isPrimary: true,
+          releaseDate: DateTime(2024, 5, 17),
+          genre: 'Pop',
+        );
+
+        final repository = FakeEditionAwareLibraryQueryRepository(
+          albumLoader: (_) async {
+            loadCount++;
+            return currentAlbum;
+          },
+          editions: [edition],
+          editionTracks: const {'edition-standard': []},
+        );
+
+        final provider = FakeAlbumMetadataProvider(
+          results: const [
+            ExternalMetadataCandidate(
+              provider: ExternalMetadataProviderKind.musicBrainz,
+              entityKind: ExternalMetadataEntityKind.album,
+              providerEntityId: 'release-group-123',
+              displayName: 'Matched Album',
+            ),
+          ],
+        );
+
+        final applicationService = FakeAlbumExternalMetadataApplicationService(
+          onApply:
+              ({
+                required String? userId,
+                required String albumId,
+                required ExternalMetadataCandidate candidate,
+              }) async {
+                currentAlbum = createAlbum(
+                  albumId: albumId,
+                  title: candidate.displayName,
+                  primaryEditionId: 'edition-standard',
+                  primaryEditionTitle: 'Standard',
+                  releaseDate: DateTime(2024, 5, 17),
+                  genre: 'Pop',
+                );
+
+                return const ExternalMetadataApplicationResult(
+                  changedFields: {'title'},
+                );
+              },
+        );
+
+        await tester.pumpWidget(
+          buildSubject(
+            repository: repository,
+            albumProfileEditingService: FakeAlbumProfileEditingService(),
+            metadataProvider: provider,
+            externalMetadataApplicationService: applicationService,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(
+          find.byKey(const ValueKey<String>('album-profile-artwork-menu')),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text('Album Studio'));
+        await tester.pumpAndSettle();
+
+        final musicBrainzTile = find.byKey(
+          const ValueKey<String>('album-studio-search-musicbrainz'),
+        );
+
+        expect(tester.widget<ListTile>(musicBrainzTile).enabled, isTrue);
+
+        await tester.tap(musicBrainzTile);
+        await tester.pumpAndSettle();
+
+        expect(provider.searchCallCount, 1);
+        expect(
+          provider.lastQuery?.entityKind,
+          ExternalMetadataEntityKind.album,
+        );
+        expect(provider.lastQuery?.title, 'Original Album');
+        expect(provider.lastQuery?.artistName, 'Test Artist');
+
+        await tester.tap(find.text('Matched Album'));
+        await tester.pumpAndSettle();
+
+        await tester.tap(
+          find.byKey(const ValueKey<String>('musicbrainz-apply-confirm')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(applicationService.applyCallCount, 1);
+        expect(applicationService.lastUserId, isNull);
+        expect(applicationService.lastAlbumId, 'album-1');
+        expect(
+          applicationService.lastCandidate?.providerEntityId,
+          'release-group-123',
+        );
+
+        expect(loadCount, greaterThanOrEqualTo(2));
+        expect(find.text('MusicBrainz metadata applied.'), findsOneWidget);
+
+        // The external match updates only the album's allowed field.
+        expect(currentAlbum.title, 'Matched Album');
+        expect(currentAlbum.primaryEditionId, 'edition-standard');
+        expect(currentAlbum.releaseDate, DateTime(2024, 5, 17));
+        expect(currentAlbum.genre, 'Pop');
+
+        expect(edition.title, 'Standard');
+        expect(edition.type, AlbumEditionType.standard);
+        expect(edition.releaseDate, DateTime(2024, 5, 17));
+        expect(edition.genre, 'Pop');
+
+        await tester.pageBack();
+        await tester.pumpAndSettle();
+
+        expect(find.text('Matched Album'), findsWidgets);
+      },
+    );
     testWidgets('Album Studio edition selector swaps the editable track list', (
       tester,
     ) async {
@@ -1431,10 +1594,16 @@ Widget buildSubject({
   AlbumEditionTrackOrderingService? albumEditionTrackOrderingService,
   TrackProfileEditingService? trackProfileEditingService,
   SongBlockService? songBlockService,
+  MetadataProvider? metadataProvider,
+  ExternalMetadataApplicationService? externalMetadataApplicationService,
 }) {
   return MultiProvider(
     providers: [
       Provider<SongBlockService?>.value(value: songBlockService),
+      Provider<MetadataProvider?>.value(value: metadataProvider),
+      Provider<ExternalMetadataApplicationService?>.value(
+        value: externalMetadataApplicationService,
+      ),
       Provider<LibraryQueryRepository?>.value(value: repository),
       Provider<PlaybackCoordinator?>.value(value: playbackCoordinator),
       Provider<AlbumProfileEditingService?>.value(
@@ -1911,6 +2080,70 @@ class FakeAlbumProfileEditingService extends AlbumProfileEditingService {
 class EnabledTrackStudioEditingService extends TrackProfileEditingService {
   EnabledTrackStudioEditingService()
     : super(mutationRunner: UnusedSyncMutationRunner());
+}
+
+class FakeAlbumMetadataProvider implements MetadataProvider {
+  FakeAlbumMetadataProvider({required this.results});
+
+  final List<ExternalMetadataCandidate> results;
+  int searchCallCount = 0;
+  ExternalMetadataSearchQuery? lastQuery;
+
+  @override
+  ExternalMetadataProviderKind get providerKind =>
+      ExternalMetadataProviderKind.musicBrainz;
+
+  @override
+  Future<List<ExternalMetadataCandidate>> search(
+    ExternalMetadataSearchQuery query,
+  ) async {
+    searchCallCount++;
+    lastQuery = query;
+    return results;
+  }
+
+  @override
+  Future<ExternalMetadataCandidate?> lookup({
+    required ExternalMetadataEntityKind entityKind,
+    required String providerEntityId,
+  }) async {
+    return null;
+  }
+}
+
+typedef FakeAlbumExternalApplyCallback =
+    Future<ExternalMetadataApplicationResult> Function({
+      required String? userId,
+      required String albumId,
+      required ExternalMetadataCandidate candidate,
+    });
+
+class FakeAlbumExternalMetadataApplicationService
+    extends ExternalMetadataApplicationService {
+  FakeAlbumExternalMetadataApplicationService({required this.onApply})
+    : super(mutationRunner: UnusedSyncMutationRunner());
+
+  final FakeAlbumExternalApplyCallback onApply;
+
+  int applyCallCount = 0;
+  String? lastUserId;
+  String? lastAlbumId;
+  ExternalMetadataCandidate? lastCandidate;
+
+  @override
+  Future<ExternalMetadataApplicationResult> applyAlbumCandidate({
+    required String? userId,
+    required String albumId,
+    required ExternalMetadataCandidate candidate,
+    DateTime? now,
+  }) async {
+    applyCallCount++;
+    lastUserId = userId;
+    lastAlbumId = albumId;
+    lastCandidate = candidate;
+
+    return onApply(userId: userId, albumId: albumId, candidate: candidate);
+  }
 }
 
 class UnusedSyncMutationRunner implements SyncMutationRunner {

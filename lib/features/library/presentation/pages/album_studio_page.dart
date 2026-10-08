@@ -2,7 +2,11 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../application/models/external_metadata_search_query.dart';
 import '../../application/models/library_album_edition.dart';
+import '../../application/services/external_metadata_application_service.dart';
+import '../../application/services/metadata_provider.dart';
+import '../widgets/musicbrainz_search_dialog.dart';
 import '../../application/models/library_track.dart';
 import '../controllers/album_profile_controller.dart';
 
@@ -14,6 +18,8 @@ class AlbumStudioPage extends StatefulWidget {
     this.onEditDetails,
     this.onChangeArtwork,
     this.onClearArtwork,
+    this.metadataProvider,
+    this.externalMetadataApplicationService,
   });
 
   final AlbumProfileController controller;
@@ -21,6 +27,8 @@ class AlbumStudioPage extends StatefulWidget {
   final Future<void> Function()? onEditDetails;
   final Future<void> Function()? onChangeArtwork;
   final Future<void> Function()? onClearArtwork;
+  final MetadataProvider? metadataProvider;
+  final ExternalMetadataApplicationService? externalMetadataApplicationService;
 
   @override
   State<AlbumStudioPage> createState() => _AlbumStudioPageState();
@@ -29,6 +37,7 @@ class AlbumStudioPage extends StatefulWidget {
 class _AlbumStudioPageState extends State<AlbumStudioPage> {
   bool _autoRenumber = false;
   bool _isSavingOrder = false;
+  bool _isApplyingMusicBrainz = false;
 
   AlbumProfileController get controller => widget.controller;
 
@@ -49,6 +58,12 @@ class _AlbumStudioPageState extends State<AlbumStudioPage> {
                 onEditDetails: widget.onEditDetails,
                 onChangeArtwork: widget.onChangeArtwork,
                 onClearArtwork: widget.onClearArtwork,
+                onSearchMusicBrainz:
+                    widget.metadataProvider != null &&
+                        widget.externalMetadataApplicationService != null &&
+                        !_isApplyingMusicBrainz
+                    ? _searchMusicBrainz
+                    : null,
               ),
               if (edition == null)
                 const Expanded(
@@ -113,6 +128,81 @@ class _AlbumStudioPageState extends State<AlbumStudioPage> {
     );
   }
 
+  Future<void> _searchMusicBrainz() async {
+    final album = controller.album;
+    final provider = widget.metadataProvider;
+    final applicationService = widget.externalMetadataApplicationService;
+
+    if (album == null ||
+        provider == null ||
+        applicationService == null ||
+        _isApplyingMusicBrainz) {
+      return;
+    }
+
+    setState(() {
+      _isApplyingMusicBrainz = true;
+    });
+
+    try {
+      final selection = await showDialog<MusicBrainzSearchSelection>(
+        context: context,
+        builder: (dialogContext) {
+          return MusicBrainzSearchDialog(
+            provider: provider,
+            query: ExternalMetadataSearchQuery(
+              entityKind: ExternalMetadataEntityKind.album,
+              title: album.title,
+              artistName: album.artistName,
+            ),
+            applier: (candidate) {
+              return applicationService.applyAlbumCandidate(
+                userId: widget.userId,
+                albumId: album.albumId,
+                candidate: candidate,
+              );
+            },
+          );
+        },
+      );
+
+      if (!mounted || selection == null) {
+        return;
+      }
+
+      await controller.refresh();
+
+      if (!mounted) {
+        return;
+      }
+
+      final result = selection.result;
+
+      final message = result.requiresReview
+          ? 'MusicBrainz match selected. Some fields still require review.'
+          : result.hasProtectedFields
+          ? 'MusicBrainz match selected. Protected fields were not changed.'
+          : result.entityChanged
+          ? 'MusicBrainz metadata applied.'
+          : 'MusicBrainz metadata already matched this album.';
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          key: const ValueKey<String>(
+            'album-studio-musicbrainz-result-message',
+          ),
+          content: Text(message),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isApplyingMusicBrainz = false;
+        });
+      }
+    }
+  }
+
   Future<void> _editPlacement(LibraryTrack track) async {
     final multiDisc = _usesMultipleDiscs(controller.tracks);
 
@@ -162,11 +252,13 @@ class _AlbumStudioManagement extends StatelessWidget {
     required this.onEditDetails,
     required this.onChangeArtwork,
     required this.onClearArtwork,
+    required this.onSearchMusicBrainz,
   });
 
   final Future<void> Function()? onEditDetails;
   final Future<void> Function()? onChangeArtwork;
   final Future<void> Function()? onClearArtwork;
+  final Future<void> Function()? onSearchMusicBrainz;
 
   @override
   Widget build(BuildContext context) {
@@ -187,6 +279,21 @@ class _AlbumStudioManagement extends StatelessWidget {
                   ? null
                   : () {
                       unawaited(onEditDetails!());
+                    },
+            ),
+            const Divider(height: 1),
+            ListTile(
+              key: const ValueKey<String>('album-studio-search-musicbrainz'),
+              leading: const Icon(Icons.travel_explore_rounded),
+              title: const Text('Search MusicBrainz'),
+              subtitle: const Text(
+                'Find a MusicBrainz album match and apply allowed metadata.',
+              ),
+              enabled: onSearchMusicBrainz != null,
+              onTap: onSearchMusicBrainz == null
+                  ? null
+                  : () {
+                      unawaited(onSearchMusicBrainz!());
                     },
             ),
             const Divider(height: 1),
