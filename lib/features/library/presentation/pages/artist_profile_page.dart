@@ -14,6 +14,7 @@ import '../../application/repositories/library_query_repository.dart';
 import '../../application/services/artist_profile_editing_service.dart';
 import '../../application/services/artist_merge_service.dart';
 import '../../application/services/external_metadata_application_service.dart';
+import '../../application/services/external_metadata_proposal_service.dart';
 import '../../application/services/metadata_provider.dart';
 import '../../application/services/song_block_service.dart';
 import '../../application/services/song_artist_credit_service.dart';
@@ -382,6 +383,8 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
     final metadataProvider = context.read<MetadataProvider?>();
     final externalMetadataApplicationService = context
         .read<ExternalMetadataApplicationService?>();
+    final externalMetadataProposalService = context
+        .read<ExternalMetadataProposalService?>();
 
     final result = await Navigator.of(context).push<ArtistStudioMergeResult>(
       MaterialPageRoute<ArtistStudioMergeResult>(
@@ -393,6 +396,7 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
           metadataProvider: metadataProvider,
           externalMetadataApplicationService:
               externalMetadataApplicationService,
+          externalMetadataProposalService: externalMetadataProposalService,
         ),
       ),
     );
@@ -647,6 +651,8 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
       final metadataProvider = context.read<MetadataProvider?>();
       final externalMetadataApplicationService = context
           .read<ExternalMetadataApplicationService?>();
+      final externalMetadataProposalService = context
+          .read<ExternalMetadataProposalService?>();
 
       final draft = await Navigator.of(context).push<TrackProfileEditDraft>(
         MaterialPageRoute<TrackProfileEditDraft>(
@@ -657,6 +663,7 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
               metadataProvider: metadataProvider,
               externalMetadataApplicationService:
                   externalMetadataApplicationService,
+              externalMetadataProposalService: externalMetadataProposalService,
               onMetadataApplied: controller.refresh,
               artists: artists,
               albums: albums,

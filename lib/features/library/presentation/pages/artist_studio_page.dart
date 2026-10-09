@@ -8,6 +8,7 @@ import '../../application/repositories/library_query_repository.dart';
 import '../../application/services/artist_merge_service.dart';
 import '../../application/services/artist_profile_editing_service.dart';
 import '../../application/services/external_metadata_application_service.dart';
+import '../../application/services/external_metadata_proposal_service.dart';
 import '../../application/services/metadata_provider.dart';
 import '../controllers/artist_profile_controller.dart';
 import '../widgets/musicbrainz_search_dialog.dart';
@@ -31,6 +32,7 @@ class ArtistStudioPage extends StatefulWidget {
     this.mergeService,
     this.metadataProvider,
     this.externalMetadataApplicationService,
+    this.externalMetadataProposalService,
   });
 
   final ArtistProfileController controller;
@@ -39,6 +41,7 @@ class ArtistStudioPage extends StatefulWidget {
   final ArtistMergeService? mergeService;
   final MetadataProvider? metadataProvider;
   final ExternalMetadataApplicationService? externalMetadataApplicationService;
+  final ExternalMetadataProposalService? externalMetadataProposalService;
 
   @override
   State<ArtistStudioPage> createState() => _ArtistStudioPageState();
@@ -171,10 +174,13 @@ class _ArtistStudioPageState extends State<ArtistStudioPage> {
                         enabled:
                             widget.metadataProvider != null &&
                             widget.externalMetadataApplicationService != null &&
+                            widget.externalMetadataProposalService != null &&
                             !_isApplyingMusicBrainz,
                         onTap:
                             widget.metadataProvider == null ||
                                 widget.externalMetadataApplicationService ==
+                                    null ||
+                                widget.externalMetadataProposalService ==
                                     null ||
                                 _isApplyingMusicBrainz
                             ? null
@@ -279,10 +285,12 @@ class _ArtistStudioPageState extends State<ArtistStudioPage> {
     final artist = controller.artist;
     final provider = widget.metadataProvider;
     final applicationService = widget.externalMetadataApplicationService;
+    final proposalService = widget.externalMetadataProposalService;
 
     if (artist == null ||
         provider == null ||
         applicationService == null ||
+        proposalService == null ||
         _isApplyingMusicBrainz) {
       return;
     }
@@ -301,6 +309,12 @@ class _ArtistStudioPageState extends State<ArtistStudioPage> {
               entityKind: ExternalMetadataEntityKind.artist,
               artistName: artist.name,
             ),
+            previewer: (candidate) {
+              return proposalService.previewArtist(
+                artistId: artist.artistId,
+                candidate: candidate,
+              );
+            },
             applier: (candidate) {
               return applicationService.applyArtistCandidate(
                 userId: widget.userId,

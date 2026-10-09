@@ -16,6 +16,7 @@ import '../../application/models/library_track.dart';
 import '../../application/repositories/library_query_repository.dart';
 import '../../application/services/album_profile_editing_service.dart';
 import '../../application/services/external_metadata_application_service.dart';
+import '../../application/services/external_metadata_proposal_service.dart';
 import '../../application/services/metadata_provider.dart';
 import '../../application/services/album_edition_track_ordering_service.dart';
 import '../../application/services/song_block_service.dart';
@@ -240,6 +241,8 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
     final metadataProvider = context.read<MetadataProvider?>();
     final externalMetadataApplicationService = context
         .read<ExternalMetadataApplicationService?>();
+    final externalMetadataProposalService = context
+        .read<ExternalMetadataProposalService?>();
 
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
@@ -250,6 +253,7 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
             metadataProvider: metadataProvider,
             externalMetadataApplicationService:
                 externalMetadataApplicationService,
+            externalMetadataProposalService: externalMetadataProposalService,
             onEditDetails: controller.canEditAlbumProfile(userId)
                 ? () => _editAlbumProfile(controller, userId)
                 : null,
@@ -401,6 +405,8 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
       final metadataProvider = context.read<MetadataProvider?>();
       final externalMetadataApplicationService = context
           .read<ExternalMetadataApplicationService?>();
+      final externalMetadataProposalService = context
+          .read<ExternalMetadataProposalService?>();
 
       final draft = await Navigator.of(context).push<TrackProfileEditDraft>(
         MaterialPageRoute<TrackProfileEditDraft>(
@@ -411,6 +417,7 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
               metadataProvider: metadataProvider,
               externalMetadataApplicationService:
                   externalMetadataApplicationService,
+              externalMetadataProposalService: externalMetadataProposalService,
               onMetadataApplied: controller.refresh,
               artists: artists,
               albums: albums,

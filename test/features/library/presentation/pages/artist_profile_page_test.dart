@@ -7,6 +7,7 @@ import 'package:sonus_next/features/account/domain/entities/account_user.dart';
 import 'package:sonus_next/features/account/domain/repositories/account_repository.dart';
 import 'package:sonus_next/features/account/presentation/scopes/account_scope.dart';
 import 'package:sonus_next/features/library/application/services/external_metadata_application_service.dart';
+import 'package:sonus_next/features/library/application/services/external_metadata_proposal_service.dart';
 import 'package:sonus_next/features/library/application/services/metadata_provider.dart';
 import 'package:sonus_next/features/library/application/services/artist_profile_editing_service.dart';
 import 'package:sonus_next/features/library/application/services/song_block_service.dart';
@@ -906,6 +907,7 @@ void main() {
     (tester) async {
       final provider = FakeArtistTrackMetadataProvider();
       final applicationService = FakeArtistTrackMetadataApplicationService();
+      final proposalService = FakeArtistTrackMetadataProposalService();
 
       final repository = FakeLibraryQueryRepository(
         artist: createArtist(),
@@ -926,6 +928,7 @@ void main() {
           trackProfileEditingService: EnabledTrackStudioEditingService(),
           metadataProvider: provider,
           externalMetadataApplicationService: applicationService,
+          externalMetadataProposalService: proposalService,
         ),
       );
       await tester.pumpAndSettle();
@@ -1012,6 +1015,9 @@ void main() {
   });
 }
 
+class FakeArtistTrackMetadataProposalService extends Fake
+    implements ExternalMetadataProposalService {}
+
 Widget buildSubject({
   required LibraryQueryRepository? repository,
   PlaybackCoordinator? playbackCoordinator,
@@ -1021,6 +1027,7 @@ Widget buildSubject({
   SongBlockService? songBlockService,
   MetadataProvider? metadataProvider,
   ExternalMetadataApplicationService? externalMetadataApplicationService,
+  ExternalMetadataProposalService? externalMetadataProposalService,
   bool wrapArtistInRoute = false,
 }) {
   final app = wrapArtistInRoute
@@ -1069,7 +1076,13 @@ Widget buildSubject({
               value: trackProfileEditingService,
               child: Provider<SongBlockService?>.value(
                 value: songBlockService,
-                child: AccountScope(repository: accountRepository, child: app),
+                child: AccountScope(
+                  repository: accountRepository,
+                  child: Provider<ExternalMetadataProposalService?>.value(
+                    value: externalMetadataProposalService,
+                    child: app,
+                  ),
+                ),
               ),
             ),
           ),

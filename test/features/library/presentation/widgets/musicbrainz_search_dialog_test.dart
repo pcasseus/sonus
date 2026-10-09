@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:sonus_next/features/library/application/models/external_metadata_candidate.dart';
+import 'package:sonus_next/features/library/application/models/external_metadata_proposal.dart';
+import 'package:sonus_next/features/library/domain/metadata/metadata_field_state.dart';
+import 'package:sonus_next/features/library/domain/metadata/metadata_fields.dart';
 import 'package:sonus_next/features/library/application/models/external_metadata_search_query.dart';
 import 'package:sonus_next/features/library/application/services/external_metadata_application_service.dart';
 import 'package:sonus_next/features/library/application/services/metadata_provider.dart';
@@ -218,6 +221,235 @@ void main() {
 
     expect(find.textContaining('review carefully'), findsOneWidget);
   });
+  testWidgets('cancelling proposal never invokes applier', (tester) async {
+    var previewCount = 0;
+    var applyCount = 0;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MusicBrainzSearchDialog(
+          provider: const _FakeMetadataProvider(
+            results: [
+              ExternalMetadataCandidate(
+                provider: ExternalMetadataProviderKind.musicBrainz,
+                entityKind: ExternalMetadataEntityKind.artist,
+                providerEntityId: 'proposal-cancel',
+                displayName: 'Beyonce',
+              ),
+            ],
+          ),
+          query: const ExternalMetadataSearchQuery(
+            entityKind: ExternalMetadataEntityKind.artist,
+            artistName: 'Beyonce',
+          ),
+          previewer: (candidate) async {
+            previewCount++;
+            return _artistProposal(candidate);
+          },
+          applier: (_) async {
+            applyCount++;
+            return const ExternalMetadataApplicationResult();
+          },
+        ),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('musicbrainz-result-proposal-cancel')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(previewCount, 1);
+    expect(
+      find.byKey(const ValueKey<String>('musicbrainz-proposal-review-dialog')),
+      findsOneWidget,
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('musicbrainz-proposal-cancel')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(applyCount, 0);
+    expect(
+      find.byKey(const ValueKey<String>('musicbrainz-search-dialog')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('confirming proposal invokes applier exactly once', (
+    tester,
+  ) async {
+    var applyCount = 0;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MusicBrainzSearchDialog(
+          provider: const _FakeMetadataProvider(
+            results: [
+              ExternalMetadataCandidate(
+                provider: ExternalMetadataProviderKind.musicBrainz,
+                entityKind: ExternalMetadataEntityKind.artist,
+                providerEntityId: 'proposal-apply',
+                displayName: 'Beyonce',
+              ),
+            ],
+          ),
+          query: const ExternalMetadataSearchQuery(
+            entityKind: ExternalMetadataEntityKind.artist,
+            artistName: 'Beyonce',
+          ),
+          previewer: (candidate) async => _artistProposal(candidate),
+          applier: (_) async {
+            applyCount++;
+            return const ExternalMetadataApplicationResult(
+              changedFields: {'name'},
+            );
+          },
+        ),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('musicbrainz-result-proposal-apply')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(applyCount, 0);
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('musicbrainz-proposal-apply')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(applyCount, 1);
+  });
+
+  testWidgets('preview failure never invokes applier', (tester) async {
+    var applyCount = 0;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: MusicBrainzSearchDialog(
+            provider: const _FakeMetadataProvider(
+              results: [
+                ExternalMetadataCandidate(
+                  provider: ExternalMetadataProviderKind.musicBrainz,
+                  entityKind: ExternalMetadataEntityKind.artist,
+                  providerEntityId: 'proposal-error',
+                  displayName: 'Beyonce',
+                ),
+              ],
+            ),
+            query: const ExternalMetadataSearchQuery(
+              entityKind: ExternalMetadataEntityKind.artist,
+              artistName: 'Beyonce',
+            ),
+            previewer: (_) async {
+              throw StateError('Preview unavailable');
+            },
+            applier: (_) async {
+              applyCount++;
+              return const ExternalMetadataApplicationResult();
+            },
+          ),
+        ),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('musicbrainz-result-proposal-error')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(applyCount, 0);
+    expect(
+      find.byKey(
+        const ValueKey<String>('musicbrainz-apply-confirmation-dialog'),
+      ),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('musicbrainz-proposal-review-dialog')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('musicbrainz-apply-error')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('ineligible proposal cannot invoke applier', (tester) async {
+    var applyCount = 0;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MusicBrainzSearchDialog(
+          provider: const _FakeMetadataProvider(
+            results: [
+              ExternalMetadataCandidate(
+                provider: ExternalMetadataProviderKind.musicBrainz,
+                entityKind: ExternalMetadataEntityKind.artist,
+                providerEntityId: 'proposal-protected',
+                displayName: 'Beyonce',
+              ),
+            ],
+          ),
+          query: const ExternalMetadataSearchQuery(
+            entityKind: ExternalMetadataEntityKind.artist,
+            artistName: 'Beyonce',
+          ),
+          previewer: (candidate) async => ExternalMetadataProposal(
+            entityType: MetadataEntityType.artist,
+            entityId: 'artist_1',
+            candidate: candidate,
+            fields: const [
+              ExternalMetadataProposalField(
+                fieldName: MetadataFields.artistName,
+                currentValue: 'Manual Artist',
+                proposedValue: 'Beyonce',
+                status: ExternalMetadataProposalFieldStatus.protected,
+              ),
+            ],
+          ),
+          applier: (_) async {
+            applyCount++;
+            return const ExternalMetadataApplicationResult();
+          },
+        ),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(
+        const ValueKey<String>('musicbrainz-result-proposal-protected'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final applyButton = tester.widget<FilledButton>(
+      find.byKey(const ValueKey<String>('musicbrainz-proposal-apply')),
+    );
+
+    expect(applyButton.onPressed, isNull);
+    expect(applyCount, 0);
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('musicbrainz-proposal-cancel')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(applyCount, 0);
+  });
   testWidgets('shows no-results state', (tester) async {
     final provider = _FakeMetadataProvider(results: const []);
 
@@ -297,6 +529,22 @@ void main() {
 
     expect(applyCount, 1);
   });
+}
+
+ExternalMetadataProposal _artistProposal(ExternalMetadataCandidate candidate) {
+  return ExternalMetadataProposal(
+    entityType: MetadataEntityType.artist,
+    entityId: 'artist_1',
+    candidate: candidate,
+    fields: const [
+      ExternalMetadataProposalField(
+        fieldName: MetadataFields.artistName,
+        currentValue: 'Old Artist',
+        proposedValue: 'Beyonce',
+        status: ExternalMetadataProposalFieldStatus.valueChange,
+      ),
+    ],
+  );
 }
 
 class _FakeMetadataProvider implements MetadataProvider {

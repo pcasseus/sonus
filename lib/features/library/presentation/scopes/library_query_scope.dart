@@ -19,6 +19,11 @@ import '../../application/services/artist_creation_service.dart';
 import '../../application/services/artist_merge_service.dart';
 import '../../application/services/artist_profile_editing_service.dart';
 import '../../application/services/external_metadata_application_service.dart';
+import '../../application/services/external_metadata_proposal_service.dart';
+import '../../data/daos/album_dao.dart';
+import '../../data/daos/metadata_field_state_dao.dart';
+import '../../data/repositories/sqlite_album_repository.dart';
+import '../../data/repositories/sqlite_metadata_field_state_repository.dart';
 import '../../application/services/metadata_provider.dart';
 import '../../application/services/song_block_service.dart';
 import '../../application/services/track_profile_editing_service.dart';
@@ -65,6 +70,7 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
 
   MetadataProvider? _metadataProvider;
   ExternalMetadataApplicationService? _externalMetadataApplicationService;
+  ExternalMetadataProposalService? _externalMetadataProposalService;
   DartIoMusicBrainzHttpTransport? _musicBrainzTransport;
 
   @override
@@ -142,6 +148,15 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
           mutationRunner: SyncMutationTransactionRunner(appDatabase: _database),
         );
 
+    final externalMetadataProposalService = ExternalMetadataProposalService(
+      artistRepository: SqliteArtistRepository(ArtistDao(database)),
+      albumRepository: SqliteAlbumRepository(AlbumDao(database)),
+      songRepository: SqliteSongRepository(SongDao(database)),
+      metadataFieldStateRepository: SqliteMetadataFieldStateRepository(
+        MetadataFieldStateDao(database),
+      ),
+    );
+
     if (!mounted) {
       musicBrainzTransport.close();
       return;
@@ -161,6 +176,7 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
       _trackProfileEditingService = trackProfileEditingService;
       _metadataProvider = metadataProvider;
       _externalMetadataApplicationService = externalMetadataApplicationService;
+      _externalMetadataProposalService = externalMetadataProposalService;
       _musicBrainzTransport = musicBrainzTransport;
     });
   }
@@ -196,6 +212,9 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
         Provider<MetadataProvider?>.value(value: _metadataProvider),
         Provider<ExternalMetadataApplicationService?>.value(
           value: _externalMetadataApplicationService,
+        ),
+        Provider<ExternalMetadataProposalService?>.value(
+          value: _externalMetadataProposalService,
         ),
         Provider<ArtworkFilePicker>.value(
           value: const FilePickerArtworkFilePicker(),

@@ -2,6 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:sonus_next/features/library/application/models/external_metadata_candidate.dart';
+import 'package:sonus_next/features/library/application/models/external_metadata_proposal.dart';
+import 'package:sonus_next/features/library/application/services/external_metadata_proposal_service.dart';
+import 'package:sonus_next/features/library/domain/metadata/metadata_field_state.dart';
+import 'package:sonus_next/features/library/domain/metadata/metadata_fields.dart';
 import 'package:sonus_next/features/library/application/models/external_metadata_search_query.dart';
 import 'package:sonus_next/features/library/application/models/library_album.dart';
 import 'package:sonus_next/features/library/application/models/library_artist.dart';
@@ -281,6 +285,8 @@ void main() {
               },
         );
 
+        final proposalService = FakeExternalMetadataProposalService();
+
         final controller = ArtistProfileController(
           repository: repository,
           artistId: 'artist-1',
@@ -295,6 +301,7 @@ void main() {
             userId: 'user-1',
             metadataProvider: provider,
             externalMetadataApplicationService: applicationService,
+            externalMetadataProposalService: proposalService,
           ),
         );
 
@@ -325,8 +332,18 @@ void main() {
         await tester.tap(find.text('Matched Artist'));
         await tester.pumpAndSettle();
 
+        expect(proposalService.previewCallCount, 1);
+        expect(proposalService.lastArtistId, 'artist-1');
+        expect(
+          find.byKey(
+            const ValueKey<String>('musicbrainz-proposal-review-dialog'),
+          ),
+          findsOneWidget,
+        );
+        expect(applicationService.applyCallCount, 0);
+
         await tester.tap(
-          find.byKey(const ValueKey<String>('musicbrainz-apply-confirm')),
+          find.byKey(const ValueKey<String>('musicbrainz-proposal-apply')),
         );
 
         await tester.pumpAndSettle();
@@ -346,6 +363,55 @@ void main() {
       },
     );
 
+    testWidgets('MusicBrainz requires proposal service', (tester) async {
+      final repository = FakeLibraryQueryRepository(artist: createArtist());
+
+      final controller = ArtistProfileController(
+        repository: repository,
+        artistId: 'artist-1',
+      );
+      await controller.load();
+
+      final provider = FakeMetadataProvider(results: const []);
+
+      final applicationService = FakeExternalMetadataApplicationService(
+        onApply:
+            ({
+              required String? userId,
+              required String artistId,
+              required ExternalMetadataCandidate candidate,
+            }) async => const ExternalMetadataApplicationResult(),
+      );
+
+      await tester.pumpWidget(
+        buildSubject(
+          controller: controller,
+          repository: repository,
+          metadataProvider: provider,
+          externalMetadataApplicationService: applicationService,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final finder = find.byKey(
+        const ValueKey<String>('artist-studio-search-musicbrainz'),
+      );
+
+      await tester.scrollUntilVisible(
+        finder,
+        300,
+        scrollable: find.byType(Scrollable).first,
+      );
+
+      final tile = tester.widget<ListTile>(finder);
+
+      expect(tile.enabled, isFalse);
+      expect(tile.onTap, isNull);
+      expect(provider.searchCallCount, 0);
+      expect(applicationService.applyCallCount, 0);
+
+      controller.dispose();
+    });
     testWidgets('merge action is disabled when merge service is unavailable', (
       tester,
     ) async {
@@ -473,6 +539,7 @@ Widget buildSubject({
   ArtistMergeService? mergeService,
   MetadataProvider? metadataProvider,
   ExternalMetadataApplicationService? externalMetadataApplicationService,
+  ExternalMetadataProposalService? externalMetadataProposalService,
 }) {
   return MaterialApp(
     home: ArtistStudioPage(
@@ -482,6 +549,7 @@ Widget buildSubject({
       mergeService: mergeService,
       metadataProvider: metadataProvider,
       externalMetadataApplicationService: externalMetadataApplicationService,
+      externalMetadataProposalService: externalMetadataProposalService,
     ),
   );
 }
@@ -662,6 +730,35 @@ class FakeArtistProfileEditingService extends ArtistProfileEditingService {
       canonicalName: trimmedName.toLowerCase(),
       createdAt: timestamp,
       updatedAt: timestamp,
+    );
+  }
+}
+
+class FakeExternalMetadataProposalService extends Fake
+    implements ExternalMetadataProposalService {
+  int previewCallCount = 0;
+  String? lastArtistId;
+
+  @override
+  Future<ExternalMetadataProposal> previewArtist({
+    required String artistId,
+    required ExternalMetadataCandidate candidate,
+  }) async {
+    previewCallCount++;
+    lastArtistId = artistId;
+
+    return ExternalMetadataProposal(
+      entityType: MetadataEntityType.artist,
+      entityId: artistId,
+      candidate: candidate,
+      fields: [
+        ExternalMetadataProposalField(
+          fieldName: MetadataFields.artistName,
+          currentValue: 'Test Artist',
+          proposedValue: candidate.displayName,
+          status: ExternalMetadataProposalFieldStatus.valueChange,
+        ),
+      ],
     );
   }
 }

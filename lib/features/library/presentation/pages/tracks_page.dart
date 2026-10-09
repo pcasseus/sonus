@@ -11,6 +11,7 @@ import '../../../player/application/controllers/playback_coordinator.dart';
 import '../../../playlists/presentation/widgets/add_to_playlist_sheet.dart';
 import '../../application/models/library_artist.dart';
 import '../../application/services/external_metadata_application_service.dart';
+import '../../application/services/external_metadata_proposal_service.dart';
 import '../../application/services/metadata_provider.dart';
 import '../../application/models/library_track.dart';
 import '../../application/models/library_track_order.dart';
@@ -201,6 +202,8 @@ class _TracksPageState extends State<TracksPage> {
       final metadataProvider = context.read<MetadataProvider?>();
       final externalMetadataApplicationService = context
           .read<ExternalMetadataApplicationService?>();
+      final externalMetadataProposalService = context
+          .read<ExternalMetadataProposalService?>();
 
       final draft = await Navigator.of(context).push<TrackProfileEditDraft>(
         MaterialPageRoute<TrackProfileEditDraft>(
@@ -211,6 +214,7 @@ class _TracksPageState extends State<TracksPage> {
               metadataProvider: metadataProvider,
               externalMetadataApplicationService:
                   externalMetadataApplicationService,
+              externalMetadataProposalService: externalMetadataProposalService,
               onMetadataApplied: controller.refresh,
               artists: artists,
               albums: albums,

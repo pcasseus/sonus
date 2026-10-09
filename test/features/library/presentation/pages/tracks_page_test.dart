@@ -8,6 +8,10 @@ import 'package:sonus_next/features/account/application/controllers/account_cont
 import 'package:sonus_next/features/account/domain/entities/account_user.dart';
 import 'package:sonus_next/features/account/domain/repositories/account_repository.dart';
 import 'package:sonus_next/features/library/application/models/external_metadata_candidate.dart';
+import 'package:sonus_next/features/library/application/models/external_metadata_proposal.dart';
+import 'package:sonus_next/features/library/application/services/external_metadata_proposal_service.dart';
+import 'package:sonus_next/features/library/domain/metadata/metadata_field_state.dart';
+import 'package:sonus_next/features/library/domain/metadata/metadata_fields.dart';
 import 'package:sonus_next/features/library/application/models/external_metadata_search_query.dart';
 import 'package:sonus_next/features/library/application/models/library_album.dart';
 import 'package:sonus_next/features/library/application/models/library_artist.dart';
@@ -550,6 +554,43 @@ void main() {
       expect(tile.onTap, isNull);
     });
 
+    testWidgets('Track Studio requires proposal service for MusicBrainz', (
+      tester,
+    ) async {
+      final repository = FakeLibraryQueryRepository(
+        tracks: [createTrack(songId: 'song-no-proposal', title: 'Original')],
+      );
+
+      final provider = FakeTrackMusicBrainzProvider(results: const []);
+      final applicationService = FakeTrackMusicBrainzApplicationService();
+
+      await tester.pumpWidget(
+        buildSubject(
+          repository: repository,
+          trackProfileEditingService: FakeTrackStudioEditingService(),
+          metadataProvider: provider,
+          externalMetadataApplicationService: applicationService,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('track-menu-song-no-proposal')),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Track Studio'));
+      await tester.pumpAndSettle();
+
+      final tile = tester.widget<ListTile>(
+        find.byKey(const ValueKey<String>('track-studio-search-musicbrainz')),
+      );
+
+      expect(tile.enabled, isFalse);
+      expect(tile.onTap, isNull);
+      expect(provider.searchCount, 0);
+      expect(applicationService.applyCount, 0);
+    });
     testWidgets('canceling MusicBrainz preserves unsaved Track Studio edits', (
       tester,
     ) async {
@@ -559,6 +600,7 @@ void main() {
       final editingService = FakeTrackStudioEditingService();
       final provider = FakeTrackMusicBrainzProvider(results: const []);
       final applicationService = FakeTrackMusicBrainzApplicationService();
+      final proposalService = FakeTrackMetadataProposalService();
 
       await tester.pumpWidget(
         buildSubject(
@@ -566,6 +608,7 @@ void main() {
           trackProfileEditingService: editingService,
           metadataProvider: provider,
           externalMetadataApplicationService: applicationService,
+          externalMetadataProposalService: proposalService,
         ),
       );
       await tester.pumpAndSettle();
@@ -599,6 +642,7 @@ void main() {
         'Unsaved Manual Title',
       );
       expect(provider.searchCount, 0);
+      expect(proposalService.previewCallCount, 0);
       expect(applicationService.applyCount, 0);
       expect(editingService.structuredUpdateCallCount, 0);
     });
@@ -644,12 +688,15 @@ void main() {
             );
           };
 
+        final proposalService = FakeTrackMetadataProposalService();
+
         await tester.pumpWidget(
           buildSubject(
             repository: repository,
             trackProfileEditingService: editingService,
             metadataProvider: provider,
             externalMetadataApplicationService: applicationService,
+            externalMetadataProposalService: proposalService,
           ),
         );
         await tester.pumpAndSettle();
@@ -697,8 +744,22 @@ void main() {
         );
         await tester.pumpAndSettle();
 
+        expect(proposalService.previewCallCount, 1);
+        expect(proposalService.lastSongId, 'song-musicbrainz');
+        expect(
+          proposalService.lastCandidate?.providerEntityId,
+          'recording-mbid-123',
+        );
+        expect(
+          find.byKey(
+            const ValueKey<String>('musicbrainz-proposal-review-dialog'),
+          ),
+          findsOneWidget,
+        );
+        expect(applicationService.applyCount, 0);
+
         await tester.tap(
-          find.byKey(const ValueKey<String>('musicbrainz-apply-confirm')),
+          find.byKey(const ValueKey<String>('musicbrainz-proposal-apply')),
         );
         await tester.pumpAndSettle();
 
@@ -757,6 +818,7 @@ void main() {
           ],
         );
         final applicationService = FakeTrackMusicBrainzApplicationService();
+        final proposalService = FakeTrackMetadataProposalService();
 
         await tester.pumpWidget(
           buildSubject(
@@ -764,6 +826,7 @@ void main() {
             trackProfileEditingService: editingService,
             metadataProvider: provider,
             externalMetadataApplicationService: applicationService,
+            externalMetadataProposalService: proposalService,
           ),
         );
         await tester.pumpAndSettle();
@@ -792,12 +855,22 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
+        expect(proposalService.previewCallCount, 1);
+        expect(
+          find.byKey(
+            const ValueKey<String>('musicbrainz-proposal-review-dialog'),
+          ),
+          findsOneWidget,
+        );
+        expect(applicationService.applyCount, 0);
+
         await tester.tap(
-          find.byKey(const ValueKey<String>('musicbrainz-apply-confirm')),
+          find.byKey(const ValueKey<String>('musicbrainz-proposal-apply')),
         );
         await tester.pumpAndSettle();
 
         expect(applicationService.applyCount, 1);
+        expect(proposalService.lastSongId, 'song-refresh-fail');
         expect(loadCount, greaterThan(1));
         expect(
           find.byKey(const ValueKey<String>('track-studio-page')),
@@ -1052,6 +1125,7 @@ void main() {
 
         final provider = FakeTrackMusicBrainzProvider(results: [candidate]);
         final applicationService = FakeTrackMusicBrainzApplicationService();
+        final proposalService = FakeTrackMetadataProposalService();
 
         var refreshCalls = 0;
         var routeFinished = false;
@@ -1077,6 +1151,7 @@ void main() {
                               metadataProvider: provider,
                               externalMetadataApplicationService:
                                   applicationService,
+                              externalMetadataProposalService: proposalService,
                               onMetadataApplied: () async {
                                 refreshCalls++;
                                 throw StateError('Library refresh failed');
@@ -1129,12 +1204,22 @@ void main() {
         );
         await tester.pumpAndSettle();
 
+        expect(proposalService.previewCallCount, 1);
+        expect(
+          find.byKey(
+            const ValueKey<String>('musicbrainz-proposal-review-dialog'),
+          ),
+          findsOneWidget,
+        );
+        expect(applicationService.applyCount, 0);
+
         await tester.tap(
-          find.byKey(const ValueKey<String>('musicbrainz-apply-confirm')),
+          find.byKey(const ValueKey<String>('musicbrainz-proposal-apply')),
         );
         await tester.pumpAndSettle();
 
         expect(applicationService.applyCount, 1);
+        expect(proposalService.lastSongId, 'song-callback-failure');
         expect(applicationService.lastSongId, 'song-callback-failure');
         expect(applicationService.lastUserId, 'user-1');
         expect(
@@ -1176,6 +1261,7 @@ Widget buildSubject({
   PlaybackEngine? engine,
   MetadataProvider? metadataProvider,
   ExternalMetadataApplicationService? externalMetadataApplicationService,
+  ExternalMetadataProposalService? externalMetadataProposalService,
 }) {
   final playbackEngine = engine ?? NoOpPlaybackEngine();
 
@@ -1198,6 +1284,9 @@ Widget buildSubject({
       Provider<MetadataProvider?>.value(value: metadataProvider),
       Provider<ExternalMetadataApplicationService?>.value(
         value: externalMetadataApplicationService,
+      ),
+      Provider<ExternalMetadataProposalService?>.value(
+        value: externalMetadataProposalService,
       ),
     ],
     child: const MaterialApp(home: Scaffold(body: TracksPage())),
@@ -1439,6 +1528,45 @@ class FakeAccountRepository implements AccountRepository {
   @override
   dynamic noSuchMethod(Invocation invocation) {
     return super.noSuchMethod(invocation);
+  }
+}
+
+class FakeTrackMetadataProposalService extends Fake
+    implements ExternalMetadataProposalService {
+  int previewCallCount = 0;
+  String? lastSongId;
+  ExternalMetadataCandidate? lastCandidate;
+
+  @override
+  Future<ExternalMetadataProposal> previewTrack({
+    required String songId,
+    required ExternalMetadataCandidate candidate,
+  }) async {
+    previewCallCount++;
+    lastSongId = songId;
+    lastCandidate = candidate;
+
+    return ExternalMetadataProposal(
+      entityType: MetadataEntityType.song,
+      entityId: songId,
+      candidate: candidate,
+      fields: [
+        ExternalMetadataProposalField(
+          fieldName: MetadataFields.songTitle,
+          currentValue: 'Original Song',
+          proposedValue: candidate.displayName,
+          status: ExternalMetadataProposalFieldStatus.valueChange,
+        ),
+        ExternalMetadataProposalField(
+          fieldName: MetadataFields.songDuration,
+          currentValue: 218,
+          proposedValue: candidate.durationSeconds,
+          status: candidate.durationSeconds == null
+              ? ExternalMetadataProposalFieldStatus.notProposed
+              : ExternalMetadataProposalFieldStatus.valueChange,
+        ),
+      ],
+    );
   }
 }
 

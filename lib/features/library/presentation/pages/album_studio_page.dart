@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../application/models/external_metadata_search_query.dart';
 import '../../application/models/library_album_edition.dart';
 import '../../application/services/external_metadata_application_service.dart';
+import '../../application/services/external_metadata_proposal_service.dart';
 import '../../application/services/metadata_provider.dart';
 import '../widgets/musicbrainz_search_dialog.dart';
 import '../../application/models/library_track.dart';
@@ -20,6 +21,7 @@ class AlbumStudioPage extends StatefulWidget {
     this.onClearArtwork,
     this.metadataProvider,
     this.externalMetadataApplicationService,
+    this.externalMetadataProposalService,
   });
 
   final AlbumProfileController controller;
@@ -29,6 +31,7 @@ class AlbumStudioPage extends StatefulWidget {
   final Future<void> Function()? onClearArtwork;
   final MetadataProvider? metadataProvider;
   final ExternalMetadataApplicationService? externalMetadataApplicationService;
+  final ExternalMetadataProposalService? externalMetadataProposalService;
 
   @override
   State<AlbumStudioPage> createState() => _AlbumStudioPageState();
@@ -61,6 +64,7 @@ class _AlbumStudioPageState extends State<AlbumStudioPage> {
                 onSearchMusicBrainz:
                     widget.metadataProvider != null &&
                         widget.externalMetadataApplicationService != null &&
+                        widget.externalMetadataProposalService != null &&
                         !_isApplyingMusicBrainz
                     ? _searchMusicBrainz
                     : null,
@@ -132,10 +136,12 @@ class _AlbumStudioPageState extends State<AlbumStudioPage> {
     final album = controller.album;
     final provider = widget.metadataProvider;
     final applicationService = widget.externalMetadataApplicationService;
+    final proposalService = widget.externalMetadataProposalService;
 
     if (album == null ||
         provider == null ||
         applicationService == null ||
+        proposalService == null ||
         _isApplyingMusicBrainz) {
       return;
     }
@@ -155,6 +161,12 @@ class _AlbumStudioPageState extends State<AlbumStudioPage> {
               title: album.title,
               artistName: album.artistName,
             ),
+            previewer: (candidate) {
+              return proposalService.previewAlbum(
+                albumId: album.albumId,
+                candidate: candidate,
+              );
+            },
             applier: (candidate) {
               return applicationService.applyAlbumCandidate(
                 userId: widget.userId,

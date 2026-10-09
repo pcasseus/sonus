@@ -8,6 +8,10 @@ import 'package:sonus_next/features/account/domain/repositories/account_reposito
 import 'package:provider/provider.dart';
 
 import 'package:sonus_next/features/library/application/models/external_metadata_candidate.dart';
+import 'package:sonus_next/features/library/application/models/external_metadata_proposal.dart';
+import 'package:sonus_next/features/library/application/services/external_metadata_proposal_service.dart';
+import 'package:sonus_next/features/library/domain/metadata/metadata_field_state.dart';
+import 'package:sonus_next/features/library/domain/metadata/metadata_fields.dart';
 import 'package:sonus_next/features/library/application/models/external_metadata_search_query.dart';
 import 'package:sonus_next/features/library/application/services/album_profile_editing_service.dart';
 import 'package:sonus_next/features/library/application/services/external_metadata_application_service.dart';
@@ -1247,6 +1251,51 @@ void main() {
       expect(tile.onTap, isNull);
     });
 
+    testWidgets('Album Studio requires proposal service for MusicBrainz', (
+      tester,
+    ) async {
+      final controller = AlbumProfileController(
+        repository: FakeLibraryQueryRepository(album: createAlbum()),
+        albumId: 'album-1',
+      );
+      addTearDown(controller.dispose);
+      await controller.load();
+
+      final provider = FakeAlbumMetadataProvider(results: const []);
+
+      final applicationService = FakeAlbumExternalMetadataApplicationService(
+        onApply:
+            ({
+              required String? userId,
+              required String albumId,
+              required ExternalMetadataCandidate candidate,
+            }) async => const ExternalMetadataApplicationResult(),
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: AlbumStudioPage(
+            controller: controller,
+            userId: null,
+            metadataProvider: provider,
+            externalMetadataApplicationService: applicationService,
+          ),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      final finder = find.byKey(
+        const ValueKey<String>('album-studio-search-musicbrainz'),
+      );
+
+      final tile = tester.widget<ListTile>(finder);
+
+      expect(tile.enabled, isFalse);
+      expect(tile.onTap, isNull);
+      expect(provider.searchCallCount, 0);
+      expect(applicationService.applyCallCount, 0);
+    });
     testWidgets(
       'Album Studio MusicBrainz match refreshes album and preserves edition',
       (tester) async {
@@ -1310,12 +1359,15 @@ void main() {
               },
         );
 
+        final proposalService = FakeAlbumMetadataProposalService();
+
         await tester.pumpWidget(
           buildSubject(
             repository: repository,
             albumProfileEditingService: FakeAlbumProfileEditingService(),
             metadataProvider: provider,
             externalMetadataApplicationService: applicationService,
+            externalMetadataProposalService: proposalService,
           ),
         );
         await tester.pumpAndSettle();
@@ -1348,8 +1400,22 @@ void main() {
         await tester.tap(find.text('Matched Album'));
         await tester.pumpAndSettle();
 
+        expect(proposalService.previewCallCount, 1);
+        expect(proposalService.lastAlbumId, 'album-1');
+        expect(
+          proposalService.lastCandidate?.providerEntityId,
+          'release-group-123',
+        );
+        expect(
+          find.byKey(
+            const ValueKey<String>('musicbrainz-proposal-review-dialog'),
+          ),
+          findsOneWidget,
+        );
+        expect(applicationService.applyCallCount, 0);
+
         await tester.tap(
-          find.byKey(const ValueKey<String>('musicbrainz-apply-confirm')),
+          find.byKey(const ValueKey<String>('musicbrainz-proposal-apply')),
         );
         await tester.pumpAndSettle();
 
@@ -1552,6 +1618,7 @@ void main() {
 
       final editingService = EnabledTrackStudioEditingService();
       final provider = FakeAlbumMetadataProvider(results: const []);
+      final proposalService = FakeAlbumMetadataProposalService();
       final applicationService = FakeAlbumExternalMetadataApplicationService(
         onApply:
             ({
@@ -1570,6 +1637,7 @@ void main() {
           trackProfileEditingService: editingService,
           metadataProvider: provider,
           externalMetadataApplicationService: applicationService,
+          externalMetadataProposalService: proposalService,
         ),
       );
       await tester.pumpAndSettle();
@@ -1626,6 +1694,7 @@ Widget buildSubject({
   SongBlockService? songBlockService,
   MetadataProvider? metadataProvider,
   ExternalMetadataApplicationService? externalMetadataApplicationService,
+  ExternalMetadataProposalService? externalMetadataProposalService,
 }) {
   return MultiProvider(
     providers: [
@@ -1633,6 +1702,9 @@ Widget buildSubject({
       Provider<MetadataProvider?>.value(value: metadataProvider),
       Provider<ExternalMetadataApplicationService?>.value(
         value: externalMetadataApplicationService,
+      ),
+      Provider<ExternalMetadataProposalService?>.value(
+        value: externalMetadataProposalService,
       ),
       Provider<LibraryQueryRepository?>.value(value: repository),
       Provider<PlaybackCoordinator?>.value(value: playbackCoordinator),
@@ -2110,6 +2182,37 @@ class FakeAlbumProfileEditingService extends AlbumProfileEditingService {
 class EnabledTrackStudioEditingService extends TrackProfileEditingService {
   EnabledTrackStudioEditingService()
     : super(mutationRunner: UnusedSyncMutationRunner());
+}
+
+class FakeAlbumMetadataProposalService extends Fake
+    implements ExternalMetadataProposalService {
+  int previewCallCount = 0;
+  String? lastAlbumId;
+  ExternalMetadataCandidate? lastCandidate;
+
+  @override
+  Future<ExternalMetadataProposal> previewAlbum({
+    required String albumId,
+    required ExternalMetadataCandidate candidate,
+  }) async {
+    previewCallCount++;
+    lastAlbumId = albumId;
+    lastCandidate = candidate;
+
+    return ExternalMetadataProposal(
+      entityType: MetadataEntityType.album,
+      entityId: albumId,
+      candidate: candidate,
+      fields: [
+        ExternalMetadataProposalField(
+          fieldName: MetadataFields.albumTitle,
+          currentValue: 'Original Album',
+          proposedValue: candidate.displayName,
+          status: ExternalMetadataProposalFieldStatus.valueChange,
+        ),
+      ],
+    );
+  }
 }
 
 class FakeAlbumMetadataProvider implements MetadataProvider {

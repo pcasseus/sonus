@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 
 import '../../application/models/external_metadata_candidate.dart';
 import '../../application/models/external_metadata_candidate_ranking.dart';
+import '../../application/models/external_metadata_proposal.dart';
+import 'musicbrainz_proposal_review_dialog.dart';
 import '../../application/services/external_metadata_candidate_ranking_service.dart';
 import '../../application/models/external_metadata_search_query.dart';
 import '../../application/services/external_metadata_application_service.dart';
@@ -11,6 +13,11 @@ import '../../application/services/metadata_provider.dart';
 
 typedef MusicBrainzCandidateApplier =
     Future<ExternalMetadataApplicationResult> Function(
+      ExternalMetadataCandidate candidate,
+    );
+
+typedef MusicBrainzCandidatePreviewer =
+    Future<ExternalMetadataProposal> Function(
       ExternalMetadataCandidate candidate,
     );
 
@@ -30,12 +37,14 @@ class MusicBrainzSearchDialog extends StatefulWidget {
     required this.provider,
     required this.query,
     required this.applier,
+    this.previewer,
     this.title = 'Search MusicBrainz',
   });
 
   final MetadataProvider provider;
   final ExternalMetadataSearchQuery query;
   final MusicBrainzCandidateApplier applier;
+  final MusicBrainzCandidatePreviewer? previewer;
   final String title;
 
   @override
@@ -105,7 +114,63 @@ class _MusicBrainzSearchDialogState extends State<MusicBrainzSearchDialog> {
       return;
     }
 
-    final confirmed = await showDialog<bool>(
+    setState(() {
+      _isApplying = true;
+    });
+
+    try {
+      final confirmed = widget.previewer == null
+          ? await _confirmLegacy(candidate)
+          : await _confirmProposal(candidate);
+
+      if (!mounted || confirmed != true) {
+        return;
+      }
+
+      final result = await widget.applier(candidate);
+
+      if (!mounted) {
+        return;
+      }
+
+      Navigator.of(
+        context,
+      ).pop(MusicBrainzSearchSelection(candidate: candidate, result: result));
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          key: ValueKey<String>('musicbrainz-apply-error'),
+          content: Text('Could not review or apply MusicBrainz metadata.'),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isApplying = false;
+        });
+      }
+    }
+  }
+
+  Future<bool?> _confirmProposal(ExternalMetadataCandidate candidate) async {
+    final proposal = await widget.previewer!(candidate);
+
+    if (!mounted) {
+      return false;
+    }
+
+    return showDialog<bool>(
+      context: context,
+      builder: (_) => MusicBrainzProposalReviewDialog(proposal: proposal),
+    );
+  }
+
+  Future<bool?> _confirmLegacy(ExternalMetadataCandidate candidate) {
+    return showDialog<bool>(
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
@@ -129,43 +194,6 @@ class _MusicBrainzSearchDialogState extends State<MusicBrainzSearchDialog> {
         );
       },
     );
-
-    if (!mounted || confirmed != true) {
-      return;
-    }
-
-    setState(() {
-      _isApplying = true;
-    });
-
-    try {
-      final result = await widget.applier(candidate);
-
-      if (!mounted) {
-        return;
-      }
-
-      Navigator.of(
-        context,
-      ).pop(MusicBrainzSearchSelection(candidate: candidate, result: result));
-    } catch (_) {
-      if (!mounted) {
-        return;
-      }
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          key: ValueKey<String>('musicbrainz-apply-error'),
-          content: Text('Could not apply MusicBrainz metadata.'),
-        ),
-      );
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isApplying = false;
-        });
-      }
-    }
   }
 
   @override

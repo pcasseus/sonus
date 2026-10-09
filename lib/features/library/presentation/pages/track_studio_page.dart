@@ -8,6 +8,7 @@ import '../../application/models/library_album.dart';
 import '../../application/models/library_artist.dart';
 import '../../application/models/library_track.dart';
 import '../../application/services/external_metadata_application_service.dart';
+import '../../application/services/external_metadata_proposal_service.dart';
 import '../../application/services/metadata_provider.dart';
 import '../../domain/entities/song.dart';
 import '../../domain/entities/song_artist_credit.dart';
@@ -28,6 +29,7 @@ class TrackStudioPage extends StatefulWidget {
     this.userId,
     this.metadataProvider,
     this.externalMetadataApplicationService,
+    this.externalMetadataProposalService,
     this.onMetadataApplied,
   });
 
@@ -42,6 +44,7 @@ class TrackStudioPage extends StatefulWidget {
   final String? userId;
   final MetadataProvider? metadataProvider;
   final ExternalMetadataApplicationService? externalMetadataApplicationService;
+  final ExternalMetadataProposalService? externalMetadataProposalService;
   final Future<void> Function()? onMetadataApplied;
 
   @override
@@ -159,12 +162,14 @@ class _TrackStudioPageState extends State<TrackStudioPage> {
                       widget.canEditDetails &&
                       widget.metadataProvider != null &&
                       widget.externalMetadataApplicationService != null &&
+                      widget.externalMetadataProposalService != null &&
                       widget.onMetadataApplied != null &&
                       !_isApplyingMusicBrainz,
                   onTap:
                       widget.canEditDetails &&
                           widget.metadataProvider != null &&
                           widget.externalMetadataApplicationService != null &&
+                          widget.externalMetadataProposalService != null &&
                           widget.onMetadataApplied != null &&
                           !_isApplyingMusicBrainz
                       ? () => unawaited(_searchMusicBrainz())
@@ -514,11 +519,13 @@ class _TrackStudioPageState extends State<TrackStudioPage> {
   Future<void> _searchMusicBrainz() async {
     final provider = widget.metadataProvider;
     final applicationService = widget.externalMetadataApplicationService;
+    final proposalService = widget.externalMetadataProposalService;
     final onApplied = widget.onMetadataApplied;
 
     if (!widget.canEditDetails ||
         provider == null ||
         applicationService == null ||
+        proposalService == null ||
         onApplied == null ||
         _isApplyingMusicBrainz) {
       return;
@@ -569,6 +576,12 @@ class _TrackStudioPageState extends State<TrackStudioPage> {
               albumTitle: widget.track.albumTitle,
               durationSeconds: widget.track.durationSeconds,
             ),
+            previewer: (candidate) {
+              return proposalService.previewTrack(
+                songId: widget.track.songId,
+                candidate: candidate,
+              );
+            },
             applier: (candidate) {
               return applicationService.applyTrackCandidate(
                 userId: widget.userId,
