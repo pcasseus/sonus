@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../application/models/external_metadata_candidate.dart';
+import '../../application/models/external_metadata_candidate_ranking.dart';
+import '../../application/services/external_metadata_candidate_ranking_service.dart';
 import '../../application/models/external_metadata_search_query.dart';
 import '../../application/services/external_metadata_application_service.dart';
 import '../../application/services/metadata_provider.dart';
@@ -43,6 +45,7 @@ class MusicBrainzSearchDialog extends StatefulWidget {
 
 class _MusicBrainzSearchDialogState extends State<MusicBrainzSearchDialog> {
   List<ExternalMetadataCandidate> _results = const [];
+  ExternalMetadataCandidateRanking? _ranking;
   Object? _error;
 
   bool _isLoading = true;
@@ -59,6 +62,7 @@ class _MusicBrainzSearchDialogState extends State<MusicBrainzSearchDialog> {
       _isLoading = true;
       _error = null;
       _results = const [];
+      _ranking = null;
     });
 
     try {
@@ -68,8 +72,16 @@ class _MusicBrainzSearchDialogState extends State<MusicBrainzSearchDialog> {
         return;
       }
 
+      final ranking = const ExternalMetadataCandidateRankingService().rank(
+        query: widget.query,
+        candidates: results,
+      );
+
       setState(() {
-        _results = results;
+        _ranking = ranking;
+        _results = ranking.candidates
+            .map((item) => item.candidate)
+            .toList(growable: false);
       });
     } catch (error) {
       if (!mounted) {
@@ -229,32 +241,93 @@ class _MusicBrainzSearchDialogState extends State<MusicBrainzSearchDialog> {
       );
     }
 
-    return ListView.separated(
-      key: const ValueKey<String>('musicbrainz-search-results'),
-      shrinkWrap: true,
-      itemCount: _results.length,
-      separatorBuilder: (_, _) => const Divider(height: 1),
-      itemBuilder: (context, index) {
-        final candidate = _results[index];
-
-        return ListTile(
-          key: ValueKey<String>(
-            'musicbrainz-result-${candidate.providerEntityId}',
+    return Column(
+      children: [
+        if (_ranking?.isAmbiguous == true)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(8, 0, 8, 12),
+            child: Card(
+              key: const ValueKey<String>('musicbrainz-ambiguity-warning'),
+              color: Theme.of(context).colorScheme.errorContainer,
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.warning_amber_rounded,
+                      color: Theme.of(context).colorScheme.onErrorContainer,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Multiple MusicBrainz candidates have similar '
+                        'match quality. Review carefully before applying.',
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onErrorContainer,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ),
-          enabled: !_isApplying,
-          leading: const Icon(Icons.library_music_outlined),
-          title: Text(candidate.displayName),
-          subtitle: Text(_subtitle(candidate)),
-          trailing: _isApplying
-              ? null
-              : const Icon(Icons.chevron_right_rounded),
-          onTap: _isApplying
-              ? null
-              : () {
-                  unawaited(_apply(candidate));
-                },
-        );
-      },
+        Expanded(
+          child: ListView.separated(
+            key: const ValueKey<String>('musicbrainz-search-results'),
+            shrinkWrap: true,
+            itemCount: _results.length,
+            separatorBuilder: (_, _) => const Divider(height: 1),
+            itemBuilder: (context, index) {
+              final candidate = _results[index];
+              final evaluation = _ranking!.candidates[index].evaluation;
+
+              return ListTile(
+                key: ValueKey<String>(
+                  'musicbrainz-result-${candidate.providerEntityId}',
+                ),
+                enabled: !_isApplying,
+                leading: const Icon(Icons.library_music_outlined),
+                title: Text(candidate.displayName),
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(_subtitle(candidate)),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Match quality: ${evaluation.score.round()}% '
+                      '· Evidence coverage: ${evaluation.evidenceCoverage.round()}%',
+                      key: ValueKey<String>(
+                        'musicbrainz-evidence-${candidate.providerEntityId}',
+                      ),
+                    ),
+                    if (evaluation.requiresCarefulReview)
+                      Text(
+                        !evaluation.comparable
+                            ? 'Incompatible metadata type — review carefully'
+                            : !evaluation.hasSufficientEvidence
+                            ? 'Limited evidence — review carefully'
+                            : 'Weak metadata match — review carefully',
+                        key: ValueKey<String>(
+                          'musicbrainz-evidence-warning-${candidate.providerEntityId}',
+                        ),
+                      ),
+                  ],
+                ),
+                trailing: _isApplying
+                    ? null
+                    : const Icon(Icons.chevron_right_rounded),
+                onTap: _isApplying
+                    ? null
+                    : () {
+                        unawaited(_apply(candidate));
+                      },
+              );
+            },
+          ),
+        ),
+      ],
     );
   }
 

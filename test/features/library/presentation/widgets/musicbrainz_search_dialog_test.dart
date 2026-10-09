@@ -48,6 +48,176 @@ void main() {
     expect(find.textContaining('3:44'), findsOneWidget);
   });
 
+  testWidgets('ranks stronger MusicBrainz matches first', (tester) async {
+    final provider = _FakeMetadataProvider(
+      results: const [
+        ExternalMetadataCandidate(
+          provider: ExternalMetadataProviderKind.musicBrainz,
+          entityKind: ExternalMetadataEntityKind.artist,
+          providerEntityId: 'weak-artist',
+          displayName: 'Unrelated Artist',
+        ),
+        ExternalMetadataCandidate(
+          provider: ExternalMetadataProviderKind.musicBrainz,
+          entityKind: ExternalMetadataEntityKind.artist,
+          providerEntityId: 'strong-artist',
+          displayName: 'Beyonce',
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MusicBrainzSearchDialog(
+          provider: provider,
+          query: const ExternalMetadataSearchQuery(
+            entityKind: ExternalMetadataEntityKind.artist,
+            artistName: 'Beyonce',
+          ),
+          applier: (_) async => const ExternalMetadataApplicationResult(),
+        ),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    final strong = find.byKey(
+      const ValueKey<String>('musicbrainz-result-strong-artist'),
+    );
+    final weak = find.byKey(
+      const ValueKey<String>('musicbrainz-result-weak-artist'),
+    );
+
+    expect(strong, findsOneWidget);
+    expect(weak, findsOneWidget);
+
+    expect(tester.getTopLeft(strong).dy, lessThan(tester.getTopLeft(weak).dy));
+  });
+
+  testWidgets('warns when distinct candidates are ambiguous', (tester) async {
+    final provider = _FakeMetadataProvider(
+      results: const [
+        ExternalMetadataCandidate(
+          provider: ExternalMetadataProviderKind.musicBrainz,
+          entityKind: ExternalMetadataEntityKind.artist,
+          providerEntityId: 'artist-a',
+          displayName: 'Beyonce',
+        ),
+        ExternalMetadataCandidate(
+          provider: ExternalMetadataProviderKind.musicBrainz,
+          entityKind: ExternalMetadataEntityKind.artist,
+          providerEntityId: 'artist-b',
+          displayName: 'Beyonce',
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MusicBrainzSearchDialog(
+          provider: provider,
+          query: const ExternalMetadataSearchQuery(
+            entityKind: ExternalMetadataEntityKind.artist,
+            artistName: 'Beyonce',
+          ),
+          applier: (_) async => const ExternalMetadataApplicationResult(),
+        ),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey<String>('musicbrainz-ambiguity-warning')),
+      findsOneWidget,
+    );
+
+    expect(find.textContaining('similar match quality'), findsOneWidget);
+  });
+  testWidgets('shows match quality and evidence coverage', (tester) async {
+    final provider = _FakeMetadataProvider(
+      results: const [
+        ExternalMetadataCandidate(
+          provider: ExternalMetadataProviderKind.musicBrainz,
+          entityKind: ExternalMetadataEntityKind.artist,
+          providerEntityId: 'artist-evidence',
+          displayName: 'Beyonce',
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MusicBrainzSearchDialog(
+          provider: provider,
+          query: const ExternalMetadataSearchQuery(
+            entityKind: ExternalMetadataEntityKind.artist,
+            artistName: 'Beyonce',
+          ),
+          applier: (_) async => const ExternalMetadataApplicationResult(),
+        ),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    final evidence = find.byKey(
+      const ValueKey<String>('musicbrainz-evidence-artist-evidence'),
+    );
+
+    expect(evidence, findsOneWidget);
+    expect(find.textContaining('Match quality:'), findsOneWidget);
+    expect(find.textContaining('Evidence coverage:'), findsOneWidget);
+  });
+
+  testWidgets('warns when a track match has limited evidence', (tester) async {
+    final provider = _FakeMetadataProvider(
+      results: const [
+        ExternalMetadataCandidate(
+          provider: ExternalMetadataProviderKind.musicBrainz,
+          entityKind: ExternalMetadataEntityKind.track,
+          providerEntityId: 'track-limited-evidence',
+          displayName: 'Halo',
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: MusicBrainzSearchDialog(
+          provider: provider,
+          query: const ExternalMetadataSearchQuery(
+            entityKind: ExternalMetadataEntityKind.track,
+            title: 'Halo',
+            artistName: 'Beyonce',
+            albumTitle: 'I Am... Sasha Fierce',
+            durationSeconds: 224,
+          ),
+          applier: (_) async => const ExternalMetadataApplicationResult(),
+        ),
+      ),
+    );
+
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(
+        const ValueKey<String>('musicbrainz-evidence-track-limited-evidence'),
+      ),
+      findsOneWidget,
+    );
+
+    expect(
+      find.byKey(
+        const ValueKey<String>(
+          'musicbrainz-evidence-warning-track-limited-evidence',
+        ),
+      ),
+      findsOneWidget,
+    );
+
+    expect(find.textContaining('review carefully'), findsOneWidget);
+  });
   testWidgets('shows no-results state', (tester) async {
     final provider = _FakeMetadataProvider(results: const []);
 
