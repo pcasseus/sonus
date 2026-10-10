@@ -439,6 +439,329 @@ class ExternalMetadataApplicationService {
     });
   }
 
+  Future<ExternalMetadataApplicationResult> confirmReviewedArtistCandidate({
+    required String? userId,
+    required String artistId,
+    required ExternalMetadataCandidate candidate,
+    required Set<String> confirmedFields,
+    DateTime? now,
+  }) {
+    _requireKind(candidate, ExternalMetadataEntityKind.artist);
+
+    final normalizedArtistId = _requiredId(artistId, 'artistId');
+    final timestamp = now ?? DateTime.now();
+
+    return mutationRunner.run((context) async {
+      final artist = await context.artistRepository.getById(normalizedArtistId);
+
+      if (artist == null) {
+        throw StateError('Artist not found: $normalizedArtistId');
+      }
+
+      final metadataRepository = context.metadataFieldStateRepository;
+
+      if (metadataRepository == null) {
+        throw StateError(
+          'Metadata field state repository is required for external metadata.',
+        );
+      }
+
+      if (!confirmedFields.contains(MetadataFields.artistName)) {
+        return const ExternalMetadataApplicationResult();
+      }
+
+      final existingState = await metadataRepository.get(
+        entityType: MetadataEntityType.artist,
+        entityId: artist.id,
+        fieldName: MetadataFields.artistName,
+      );
+
+      if (existingState != null) {
+        throw StateError(
+          'Artist name no longer has unknown metadata authority.',
+        );
+      }
+
+      final targetName = candidate.displayName.trim();
+
+      if (targetName.isEmpty) {
+        return const ExternalMetadataApplicationResult();
+      }
+
+      final changed = artist.name != targetName;
+
+      if (changed) {
+        final canonicalName = TextNormalizer.canonicalize(targetName);
+
+        final collisions = (await context.artistRepository.getAll())
+            .where(
+              (other) =>
+                  other.id != artist.id && other.canonicalName == canonicalName,
+            )
+            .toList(growable: false);
+
+        if (collisions.isNotEmpty) {
+          throw ExternalMetadataIdentityCollisionException(
+            entityId: artist.id,
+            conflictingEntityId: collisions.first.id,
+            value: targetName,
+          );
+        }
+
+        await context.artistRepository.save(
+          artist.copyWith(
+            name: targetName,
+            canonicalName: canonicalName,
+            updatedAt: timestamp,
+          ),
+        );
+      }
+
+      await MetadataFieldStateService(repository: metadataRepository).record(
+        entityType: MetadataEntityType.artist,
+        entityId: artist.id,
+        fieldName: MetadataFields.artistName,
+        authority: MetadataAuthority.confirmed,
+        source: MetadataProvenanceSource.review,
+        sourceReference: candidate.sourceReference,
+        updatedAt: timestamp,
+      );
+
+      await context.localSyncRepository.recordUpsert(
+        userId: userId?.trim(),
+        entityType: CloudDataEntity.artist,
+        entityId: artist.id,
+      );
+
+      return ExternalMetadataApplicationResult(
+        changedFields: changed ? const {MetadataFields.artistName} : const {},
+        provenanceUpdatedFields: changed
+            ? const {}
+            : const {MetadataFields.artistName},
+      );
+    });
+  }
+
+  Future<ExternalMetadataApplicationResult> confirmReviewedAlbumCandidate({
+    required String? userId,
+    required String albumId,
+    required ExternalMetadataCandidate candidate,
+    required Set<String> confirmedFields,
+    DateTime? now,
+  }) {
+    _requireKind(candidate, ExternalMetadataEntityKind.album);
+
+    final normalizedAlbumId = _requiredId(albumId, 'albumId');
+    final timestamp = now ?? DateTime.now();
+
+    return mutationRunner.run((context) async {
+      final album = await context.albumRepository.getById(normalizedAlbumId);
+
+      if (album == null) {
+        throw StateError('Album not found: $normalizedAlbumId');
+      }
+
+      final metadataRepository = context.metadataFieldStateRepository;
+
+      if (metadataRepository == null) {
+        throw StateError(
+          'Metadata field state repository is required for external metadata.',
+        );
+      }
+
+      if (!confirmedFields.contains(MetadataFields.albumTitle)) {
+        return const ExternalMetadataApplicationResult();
+      }
+
+      final existingState = await metadataRepository.get(
+        entityType: MetadataEntityType.album,
+        entityId: album.id,
+        fieldName: MetadataFields.albumTitle,
+      );
+
+      if (existingState != null) {
+        throw StateError(
+          'Album title no longer has unknown metadata authority.',
+        );
+      }
+
+      final targetTitle = candidate.displayName.trim();
+
+      if (targetTitle.isEmpty) {
+        return const ExternalMetadataApplicationResult();
+      }
+
+      final changed = album.title != targetTitle;
+
+      if (changed) {
+        await context.albumRepository.save(
+          album.copyWith(
+            title: targetTitle,
+            canonicalTitle: TextNormalizer.canonicalize(targetTitle),
+            updatedAt: timestamp,
+          ),
+        );
+      }
+
+      await MetadataFieldStateService(repository: metadataRepository).record(
+        entityType: MetadataEntityType.album,
+        entityId: album.id,
+        fieldName: MetadataFields.albumTitle,
+        authority: MetadataAuthority.confirmed,
+        source: MetadataProvenanceSource.review,
+        sourceReference: candidate.sourceReference,
+        updatedAt: timestamp,
+      );
+
+      await context.localSyncRepository.recordUpsert(
+        userId: userId?.trim(),
+        entityType: CloudDataEntity.album,
+        entityId: album.id,
+      );
+
+      return ExternalMetadataApplicationResult(
+        changedFields: changed ? const {MetadataFields.albumTitle} : const {},
+        provenanceUpdatedFields: changed
+            ? const {}
+            : const {MetadataFields.albumTitle},
+      );
+    });
+  }
+
+  Future<ExternalMetadataApplicationResult> confirmReviewedTrackCandidate({
+    required String? userId,
+    required String songId,
+    required ExternalMetadataCandidate candidate,
+    required Set<String> confirmedFields,
+    DateTime? now,
+  }) {
+    _requireKind(candidate, ExternalMetadataEntityKind.track);
+
+    final normalizedSongId = _requiredId(songId, 'songId');
+    final timestamp = now ?? DateTime.now();
+
+    return mutationRunner.run((context) async {
+      final song = await context.songRepository.getById(normalizedSongId);
+
+      if (song == null) {
+        throw StateError('Song not found: $normalizedSongId');
+      }
+
+      final metadataRepository = context.metadataFieldStateRepository;
+
+      if (metadataRepository == null) {
+        throw StateError(
+          'Metadata field state repository is required for external metadata.',
+        );
+      }
+
+      final changedFields = <String>{};
+      final provenanceFields = <String>{};
+
+      var updatedSong = song;
+
+      if (confirmedFields.contains(MetadataFields.songTitle)) {
+        final existingState = await metadataRepository.get(
+          entityType: MetadataEntityType.song,
+          entityId: song.id,
+          fieldName: MetadataFields.songTitle,
+        );
+
+        if (existingState != null) {
+          throw StateError(
+            'Song title no longer has unknown metadata authority.',
+          );
+        }
+
+        final targetTitle = candidate.displayName.trim();
+
+        if (targetTitle.isNotEmpty) {
+          if (song.title != targetTitle) {
+            updatedSong = updatedSong.copyWith(
+              title: targetTitle,
+              canonicalTitle: TextNormalizer.canonicalize(targetTitle),
+              updatedAt: timestamp,
+            );
+
+            changedFields.add(MetadataFields.songTitle);
+          } else {
+            provenanceFields.add(MetadataFields.songTitle);
+          }
+
+          await MetadataFieldStateService(
+            repository: metadataRepository,
+          ).record(
+            entityType: MetadataEntityType.song,
+            entityId: song.id,
+            fieldName: MetadataFields.songTitle,
+            authority: MetadataAuthority.confirmed,
+            source: MetadataProvenanceSource.review,
+            sourceReference: candidate.sourceReference,
+            updatedAt: timestamp,
+          );
+        }
+      }
+
+      if (confirmedFields.contains(MetadataFields.songDuration)) {
+        final existingState = await metadataRepository.get(
+          entityType: MetadataEntityType.song,
+          entityId: song.id,
+          fieldName: MetadataFields.songDuration,
+        );
+
+        if (existingState != null) {
+          throw StateError(
+            'Song duration no longer has unknown metadata authority.',
+          );
+        }
+
+        final targetDuration = candidate.durationSeconds;
+
+        if (targetDuration != null && targetDuration > 0) {
+          if (song.durationSeconds != targetDuration) {
+            updatedSong = updatedSong.copyWith(
+              durationSeconds: targetDuration,
+              updatedAt: timestamp,
+            );
+
+            changedFields.add(MetadataFields.songDuration);
+          } else {
+            provenanceFields.add(MetadataFields.songDuration);
+          }
+
+          await MetadataFieldStateService(
+            repository: metadataRepository,
+          ).record(
+            entityType: MetadataEntityType.song,
+            entityId: song.id,
+            fieldName: MetadataFields.songDuration,
+            authority: MetadataAuthority.confirmed,
+            source: MetadataProvenanceSource.review,
+            sourceReference: candidate.sourceReference,
+            updatedAt: timestamp,
+          );
+        }
+      }
+
+      if (changedFields.isNotEmpty) {
+        await context.songRepository.save(updatedSong);
+      }
+
+      if (changedFields.isNotEmpty || provenanceFields.isNotEmpty) {
+        await context.localSyncRepository.recordUpsert(
+          userId: userId?.trim(),
+          entityType: CloudDataEntity.song,
+          entityId: song.id,
+        );
+      }
+
+      return ExternalMetadataApplicationResult(
+        changedFields: Set.unmodifiable(changedFields),
+        provenanceUpdatedFields: Set.unmodifiable(provenanceFields),
+      );
+    });
+  }
+
   static Future<bool> _needsMusicBrainzProvenanceUpdate({
     required MetadataFieldStateRepository repository,
     required MetadataEntityType entityType,

@@ -21,6 +21,12 @@ typedef MusicBrainzCandidatePreviewer =
       ExternalMetadataCandidate candidate,
     );
 
+typedef MusicBrainzReviewedCandidateApplier =
+    Future<ExternalMetadataApplicationResult> Function(
+      ExternalMetadataCandidate candidate,
+      Set<String> confirmedFields,
+    );
+
 class MusicBrainzSearchSelection {
   const MusicBrainzSearchSelection({
     required this.candidate,
@@ -38,6 +44,7 @@ class MusicBrainzSearchDialog extends StatefulWidget {
     required this.query,
     required this.applier,
     this.previewer,
+    this.reviewedApplier,
     this.title = 'Search MusicBrainz',
   });
 
@@ -45,6 +52,7 @@ class MusicBrainzSearchDialog extends StatefulWidget {
   final ExternalMetadataSearchQuery query;
   final MusicBrainzCandidateApplier applier;
   final MusicBrainzCandidatePreviewer? previewer;
+  final MusicBrainzReviewedCandidateApplier? reviewedApplier;
   final String title;
 
   @override
@@ -119,15 +127,52 @@ class _MusicBrainzSearchDialogState extends State<MusicBrainzSearchDialog> {
     });
 
     try {
-      final confirmed = widget.previewer == null
-          ? await _confirmLegacy(candidate)
-          : await _confirmProposal(candidate);
+      ExternalMetadataApplicationResult result;
 
-      if (!mounted || confirmed != true) {
-        return;
+      if (widget.previewer == null) {
+        final confirmed = await _confirmLegacy(candidate);
+
+        if (!mounted || confirmed != true) {
+          return;
+        }
+
+        result = await widget.applier(candidate);
+      } else {
+        final decision = await _confirmProposal(candidate);
+
+        if (!mounted || decision == null) {
+          return;
+        }
+
+        var automaticResult = const ExternalMetadataApplicationResult();
+
+        if (decision.applyEligibleChanges) {
+          automaticResult = await widget.applier(candidate);
+        }
+
+        var reviewedResult = const ExternalMetadataApplicationResult();
+
+        if (decision.confirmedReviewFields.isNotEmpty) {
+          final reviewedApplier = widget.reviewedApplier;
+
+          if (reviewedApplier == null) {
+            throw StateError(
+              'Reviewed metadata applier is required to confirm fields.',
+            );
+          }
+
+          reviewedResult = await reviewedApplier(
+            candidate,
+            decision.confirmedReviewFields,
+          );
+        }
+
+        result = _mergeResults(
+          automaticResult,
+          reviewedResult,
+          resolvedReviewFields: decision.confirmedReviewFields,
+        );
       }
-
-      final result = await widget.applier(candidate);
 
       if (!mounted) {
         return;
@@ -156,16 +201,43 @@ class _MusicBrainzSearchDialogState extends State<MusicBrainzSearchDialog> {
     }
   }
 
-  Future<bool?> _confirmProposal(ExternalMetadataCandidate candidate) async {
+  Future<MusicBrainzProposalReviewDecision?> _confirmProposal(
+    ExternalMetadataCandidate candidate,
+  ) async {
     final proposal = await widget.previewer!(candidate);
 
     if (!mounted) {
-      return false;
+      return null;
     }
 
-    return showDialog<bool>(
+    return showDialog<MusicBrainzProposalReviewDecision>(
       context: context,
-      builder: (_) => MusicBrainzProposalReviewDialog(proposal: proposal),
+      builder: (_) => MusicBrainzProposalReviewDialog(
+        proposal: proposal,
+        canConfirmReview: widget.reviewedApplier != null,
+      ),
+    );
+  }
+
+  ExternalMetadataApplicationResult _mergeResults(
+    ExternalMetadataApplicationResult automatic,
+    ExternalMetadataApplicationResult reviewed, {
+    required Set<String> resolvedReviewFields,
+  }) {
+    return ExternalMetadataApplicationResult(
+      changedFields: {...automatic.changedFields, ...reviewed.changedFields},
+      provenanceUpdatedFields: {
+        ...automatic.provenanceUpdatedFields,
+        ...reviewed.provenanceUpdatedFields,
+      },
+      protectedFields: {
+        ...automatic.protectedFields,
+        ...reviewed.protectedFields,
+      },
+      reviewRequiredFields: {
+        ...automatic.reviewRequiredFields,
+        ...reviewed.reviewRequiredFields,
+      }..removeAll(resolvedReviewFields),
     );
   }
 

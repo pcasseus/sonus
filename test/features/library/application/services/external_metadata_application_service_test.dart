@@ -268,6 +268,139 @@ void main() {
   );
 
   test(
+    'explicit review confirmation applies legacy track title as confirmed review',
+    () async {
+      final graph = await createGraph();
+
+      const candidate = ExternalMetadataCandidate(
+        provider: ExternalMetadataProviderKind.musicBrainz,
+        entityKind: ExternalMetadataEntityKind.track,
+        providerEntityId: 'reviewed-recording-mbid',
+        displayName: 'Reviewed Track',
+      );
+
+      final result = await service.confirmReviewedTrackCandidate(
+        userId: 'user_1',
+        songId: graph.song.id,
+        candidate: candidate,
+        confirmedFields: const {MetadataFields.songTitle},
+        now: mutationTime,
+      );
+
+      expect(result.changedFields, {MetadataFields.songTitle});
+      expect(result.reviewRequiredFields, isEmpty);
+
+      final db = await appDatabase.database;
+
+      final stored = await SongDao(db).findById(graph.song.id);
+
+      expect(stored, isNotNull);
+      expect(stored!.title, 'Reviewed Track');
+
+      final state = await MetadataFieldStateDao(db).find(
+        entityType: MetadataEntityType.song,
+        entityId: graph.song.id,
+        fieldName: MetadataFields.songTitle,
+      );
+
+      expect(state, isNotNull);
+      expect(state!.authority, MetadataAuthority.confirmed);
+      expect(state.source, MetadataProvenanceSource.review);
+      expect(state.sourceReference, candidate.sourceReference);
+      expect(state.updatedAt, mutationTime);
+
+      final pending = await LocalSyncDao(db).findPending('user_1');
+
+      expect(pending, hasLength(1));
+      expect(pending.single.entityType, CloudDataEntity.song);
+      expect(pending.single.entityId, graph.song.id);
+    },
+  );
+
+  test(
+    'review confirmation refuses field whose authority changed after preview',
+    () async {
+      final graph = await createGraph();
+
+      await seedState(
+        entityType: MetadataEntityType.song,
+        entityId: graph.song.id,
+        fieldName: MetadataFields.songTitle,
+        authority: MetadataAuthority.manual,
+      );
+
+      await expectLater(
+        service.confirmReviewedTrackCandidate(
+          userId: 'user_1',
+          songId: graph.song.id,
+          candidate: const ExternalMetadataCandidate(
+            provider: ExternalMetadataProviderKind.musicBrainz,
+            entityKind: ExternalMetadataEntityKind.track,
+            providerEntityId: 'stale-review-recording',
+            displayName: 'Should Not Apply',
+          ),
+          confirmedFields: const {MetadataFields.songTitle},
+          now: mutationTime,
+        ),
+        throwsA(isA<StateError>()),
+      );
+
+      final db = await appDatabase.database;
+      final stored = await SongDao(db).findById(graph.song.id);
+
+      expect(stored!.title, 'Old Track');
+
+      final state = await MetadataFieldStateDao(db).find(
+        entityType: MetadataEntityType.song,
+        entityId: graph.song.id,
+        fieldName: MetadataFields.songTitle,
+      );
+
+      expect(state!.authority, MetadataAuthority.manual);
+      expect(await LocalSyncDao(db).findPending('user_1'), isEmpty);
+    },
+  );
+
+  test(
+    'explicit review confirmation can confirm legacy track duration',
+    () async {
+      final graph = await createGraph();
+
+      const candidate = ExternalMetadataCandidate(
+        provider: ExternalMetadataProviderKind.musicBrainz,
+        entityKind: ExternalMetadataEntityKind.track,
+        providerEntityId: 'reviewed-duration-recording',
+        displayName: 'Old Track',
+        durationSeconds: 224,
+      );
+
+      final result = await service.confirmReviewedTrackCandidate(
+        userId: 'user_1',
+        songId: graph.song.id,
+        candidate: candidate,
+        confirmedFields: const {MetadataFields.songDuration},
+        now: mutationTime,
+      );
+
+      expect(result.changedFields, {MetadataFields.songDuration});
+
+      final db = await appDatabase.database;
+      final stored = await SongDao(db).findById(graph.song.id);
+
+      expect(stored!.durationSeconds, 224);
+
+      final state = await MetadataFieldStateDao(db).find(
+        entityType: MetadataEntityType.song,
+        entityId: graph.song.id,
+        fieldName: MetadataFields.songDuration,
+      );
+
+      expect(state!.authority, MetadataAuthority.confirmed);
+      expect(state.source, MetadataProvenanceSource.review);
+      expect(state.sourceReference, candidate.sourceReference);
+    },
+  );
+  test(
     'album applies release-group title without mutating edition date',
     () async {
       final graph = await createGraph();

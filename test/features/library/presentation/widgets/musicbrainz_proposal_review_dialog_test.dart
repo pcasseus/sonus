@@ -44,7 +44,7 @@ void main() {
   Future<void> showReview(
     WidgetTester tester,
     ExternalMetadataProposal review,
-    ValueChanged<bool?> onResult,
+    ValueChanged<MusicBrainzProposalReviewDecision?> onResult,
   ) async {
     await tester.pumpWidget(
       MaterialApp(
@@ -54,11 +54,12 @@ void main() {
               return Center(
                 child: FilledButton(
                   onPressed: () async {
-                    final result = await showDialog<bool>(
-                      context: context,
-                      builder: (_) =>
-                          MusicBrainzProposalReviewDialog(proposal: review),
-                    );
+                    final result =
+                        await showDialog<MusicBrainzProposalReviewDecision>(
+                          context: context,
+                          builder: (_) =>
+                              MusicBrainzProposalReviewDialog(proposal: review),
+                        );
                     onResult(result);
                   },
                   child: const Text('Open review'),
@@ -143,8 +144,9 @@ void main() {
     expect(apply.onPressed, isNull);
   });
 
-  testWidgets('cancellation returns false', (tester) async {
-    bool? result;
+  testWidgets('cancellation returns null', (tester) async {
+    MusicBrainzProposalReviewDecision? result =
+        const MusicBrainzProposalReviewDecision(applyEligibleChanges: true);
 
     await showReview(
       tester,
@@ -164,7 +166,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(result, isFalse);
+    expect(result, isNull);
   });
 
   testWidgets('Apply is disabled when nothing is applicable', (tester) async {
@@ -188,8 +190,9 @@ void main() {
     expect(apply.onPressed, isNull);
   });
 
-  testWidgets('Apply returns true for eligible changes', (tester) async {
-    bool? result;
+  testWidgets('Apply returns decision for eligible changes', (tester) async {
+    MusicBrainzProposalReviewDecision? result =
+        const MusicBrainzProposalReviewDecision(applyEligibleChanges: true);
 
     await showReview(
       tester,
@@ -209,7 +212,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(result, isTrue);
+    expect(result, isNotNull);
+    expect(result!.applyEligibleChanges, isTrue);
+    expect(result!.confirmedReviewFields, isEmpty);
   });
 
   testWidgets('provenance-only update permits confirmation', (tester) async {

@@ -3,6 +3,8 @@ import '../../../sync/application/services/sync_mutation_runner.dart';
 import '../../../sync/domain/models/sync_data_contract.dart';
 import '../../domain/entities/song_artist_credit.dart';
 import '../../domain/metadata/metadata_field_state.dart';
+import '../../domain/metadata/metadata_fields.dart';
+import '../../domain/services/metadata_field_state_service.dart';
 import 'song_artist_credit_service.dart';
 
 class ArtistMergeSameIdentityException implements Exception {
@@ -89,6 +91,10 @@ class ArtistMergeService {
     final timestamp = now ?? DateTime.now();
 
     return mutationRunner.run((context) async {
+      final metadataRepository = context.metadataFieldStateRepository;
+      final metadataService = metadataRepository == null
+          ? null
+          : MetadataFieldStateService(repository: metadataRepository);
       final sourceArtist = await context.artistRepository.getById(
         normalizedSourceArtistId,
       );
@@ -166,6 +172,17 @@ class ArtistMergeService {
         );
 
         await context.albumRepository.save(updatedAlbum);
+
+        if (metadataService != null) {
+          await metadataService.record(
+            entityType: MetadataEntityType.album,
+            entityId: updatedAlbum.id,
+            fieldName: MetadataFields.albumArtist,
+            authority: MetadataAuthority.manual,
+            source: MetadataProvenanceSource.user,
+            updatedAt: timestamp,
+          );
+        }
 
         await context.localSyncRepository.recordUpsert(
           userId: normalizedUserId,
@@ -254,6 +271,20 @@ class ArtistMergeService {
 
         await context.songRepository.save(updatedSong);
 
+        if (metadataService != null) {
+          await metadataService.recordAll(
+            entityType: MetadataEntityType.song,
+            entityId: updatedSong.id,
+            fieldNames: const [
+              MetadataFields.songArtist,
+              MetadataFields.songArtistCredits,
+            ],
+            authority: MetadataAuthority.manual,
+            source: MetadataProvenanceSource.user,
+            updatedAt: timestamp,
+          );
+        }
+
         await context.localSyncRepository.recordUpsert(
           userId: normalizedUserId,
           entityType: CloudDataEntity.song,
@@ -272,6 +303,17 @@ class ArtistMergeService {
       }
 
       for (final songId in externalSongIds) {
+        if (metadataService != null) {
+          await metadataService.record(
+            entityType: MetadataEntityType.song,
+            entityId: songId,
+            fieldName: MetadataFields.songArtistCredits,
+            authority: MetadataAuthority.manual,
+            source: MetadataProvenanceSource.user,
+            updatedAt: timestamp,
+          );
+        }
+
         await context.localSyncRepository.recordUpsert(
           userId: normalizedUserId,
           entityType: CloudDataEntity.song,
@@ -308,8 +350,6 @@ class ArtistMergeService {
           '${sourceArtist.id}',
         );
       }
-
-      final metadataRepository = context.metadataFieldStateRepository;
 
       if (metadataRepository != null) {
         await metadataRepository.deleteByEntity(
@@ -352,6 +392,17 @@ class ArtistMergeService {
         }
 
         for (final songId in affectedSongIds) {
+          if (metadataService != null) {
+            await metadataService.record(
+              entityType: MetadataEntityType.song,
+              entityId: songId,
+              fieldName: MetadataFields.songArtistCredits,
+              authority: MetadataAuthority.manual,
+              source: MetadataProvenanceSource.user,
+              updatedAt: timestamp,
+            );
+          }
+
           await context.localSyncRepository.recordUpsert(
             userId: normalizedUserId,
             entityType: CloudDataEntity.song,

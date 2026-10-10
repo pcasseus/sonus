@@ -589,6 +589,14 @@ class _TrackStudioPageState extends State<TrackStudioPage> {
                 candidate: candidate,
               );
             },
+            reviewedApplier: (candidate, confirmedFields) {
+              return applicationService.confirmReviewedTrackCandidate(
+                userId: widget.userId,
+                songId: widget.track.songId,
+                candidate: candidate,
+                confirmedFields: confirmedFields,
+              );
+            },
           );
         },
       );

@@ -3,13 +3,48 @@ import 'package:flutter/material.dart';
 import '../../application/models/external_metadata_proposal.dart';
 import '../../domain/metadata/metadata_fields.dart';
 
+class MusicBrainzProposalReviewDecision {
+  const MusicBrainzProposalReviewDecision({
+    required this.applyEligibleChanges,
+    this.confirmedReviewFields = const {},
+  });
+
+  final bool applyEligibleChanges;
+  final Set<String> confirmedReviewFields;
+
+  bool get confirmsReviewedFields => confirmedReviewFields.isNotEmpty;
+}
+
 class MusicBrainzProposalReviewDialog extends StatelessWidget {
-  const MusicBrainzProposalReviewDialog({super.key, required this.proposal});
+  const MusicBrainzProposalReviewDialog({
+    super.key,
+    required this.proposal,
+    this.canConfirmReview = false,
+  });
 
   final ExternalMetadataProposal proposal;
+  final bool canConfirmReview;
 
   @override
   Widget build(BuildContext context) {
+    final reviewFields = proposal.fields
+        .where((field) => field.requiresReview)
+        .map((field) => field.fieldName)
+        .toSet();
+
+    final canApply =
+        proposal.hasApplicableChanges ||
+        (canConfirmReview && reviewFields.isNotEmpty);
+
+    final buttonLabel = switch ((
+      proposal.hasApplicableChanges,
+      canConfirmReview && reviewFields.isNotEmpty,
+    )) {
+      (true, true) => 'Apply and confirm reviewed fields',
+      (false, true) => 'Confirm reviewed fields',
+      _ => 'Apply eligible changes',
+    };
+
     return AlertDialog(
       key: const ValueKey<String>('musicbrainz-proposal-review-dialog'),
       title: const Text('Review MusicBrainz metadata'),
@@ -34,7 +69,13 @@ class MusicBrainzProposalReviewDialog extends StatelessWidget {
                   'Protected fields will not be replaced.',
                   key: ValueKey<String>('musicbrainz-proposal-protected-note'),
                 ),
-              if (proposal.requiresReview)
+              if (proposal.requiresReview && canConfirmReview)
+                const Text(
+                  'Fields with unknown authority can be explicitly confirmed. '
+                  'Confirmed fields will be saved as reviewed metadata.',
+                  key: ValueKey<String>('musicbrainz-proposal-review-note'),
+                )
+              else if (proposal.requiresReview)
                 const Text(
                   'Fields with unknown authority will remain unchanged.',
                   key: ValueKey<String>('musicbrainz-proposal-review-note'),
@@ -52,15 +93,24 @@ class MusicBrainzProposalReviewDialog extends StatelessWidget {
       actions: [
         TextButton(
           key: const ValueKey<String>('musicbrainz-proposal-cancel'),
-          onPressed: () => Navigator.of(context).pop(false),
+          onPressed: () => Navigator.of(context).pop(),
           child: const Text('Cancel'),
         ),
         FilledButton(
           key: const ValueKey<String>('musicbrainz-proposal-apply'),
-          onPressed: proposal.hasApplicableChanges
-              ? () => Navigator.of(context).pop(true)
+          onPressed: canApply
+              ? () {
+                  Navigator.of(context).pop(
+                    MusicBrainzProposalReviewDecision(
+                      applyEligibleChanges: proposal.hasApplicableChanges,
+                      confirmedReviewFields: canConfirmReview
+                          ? Set.unmodifiable(reviewFields)
+                          : const {},
+                    ),
+                  );
+                }
               : null,
-          child: const Text('Apply eligible changes'),
+          child: Text(buttonLabel),
         ),
       ],
     );
@@ -118,17 +168,21 @@ class _ProposalFieldRow extends StatelessWidget {
     if (value == null) {
       return 'Not available';
     }
+
     if (field.fieldName == MetadataFields.songDuration && value is int) {
       if (value <= 0) {
         return 'Unknown';
       }
+
       final minutes = value ~/ 60;
       final seconds = value % 60;
       return '$minutes:${seconds.toString().padLeft(2, '0')}';
     }
+
     if (value is String && value.trim().isEmpty) {
       return 'Not available';
     }
+
     return value.toString();
   }
 

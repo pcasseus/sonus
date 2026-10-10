@@ -318,6 +318,14 @@ class _AlbumStudioPageState extends State<AlbumStudioPage> {
                 candidate: candidate,
               );
             },
+            reviewedApplier: (candidate, confirmedFields) {
+              return applicationService.confirmReviewedAlbumCandidate(
+                userId: widget.userId,
+                albumId: album.albumId,
+                candidate: candidate,
+                confirmedFields: confirmedFields,
+              );
+            },
           );
         },
       );

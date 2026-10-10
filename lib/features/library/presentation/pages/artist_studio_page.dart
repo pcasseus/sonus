@@ -322,6 +322,14 @@ class _ArtistStudioPageState extends State<ArtistStudioPage> {
                 candidate: candidate,
               );
             },
+            reviewedApplier: (candidate, confirmedFields) {
+              return applicationService.confirmReviewedArtistCandidate(
+                userId: widget.userId,
+                artistId: artist.artistId,
+                candidate: candidate,
+                confirmedFields: confirmedFields,
+              );
+            },
           );
         },
       );

@@ -35,15 +35,15 @@ abstract final class MetadataAuthorityPolicy {
     MetadataFieldState? existing,
     required MetadataAuthority incomingAuthority,
   }) {
+    if (existing != null) {
+      return evaluate(existing: existing, incomingAuthority: incomingAuthority);
+    }
+
     if (!existingValuePresent) {
       return MetadataReplacementDecision.accept;
     }
 
-    if (existing == null) {
-      return MetadataReplacementDecision.requireReviewUnknownAuthority;
-    }
-
-    return evaluate(existing: existing, incomingAuthority: incomingAuthority);
+    return MetadataReplacementDecision.requireReviewUnknownAuthority;
   }
 
   static bool canAutomaticallyReplace({

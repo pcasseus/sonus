@@ -6,13 +6,6 @@ abstract final class AlbumEditionArtworkAuthority {
     required String? currentArtworkId,
     required MetadataFieldState? currentState,
   }) {
-    // An empty artwork ID with manual authority represents a user choice
-    // to leave the edition without artwork. Do not refill it automatically.
-    if ((currentArtworkId == null || currentArtworkId.trim().isEmpty) &&
-        currentState?.authority == MetadataAuthority.manual) {
-      return MetadataReplacementDecision.rejectLowerAuthority;
-    }
-
     return MetadataAuthorityPolicy.evaluateAutomaticReplacement(
       existingValuePresent:
           currentArtworkId != null && currentArtworkId.trim().isNotEmpty,

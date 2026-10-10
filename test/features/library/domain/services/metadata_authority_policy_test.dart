@@ -155,6 +155,50 @@ void main() {
         );
       });
 
+      test('empty field with manual authority rejects external refill', () {
+        expect(
+          MetadataAuthorityPolicy.evaluateAutomaticReplacement(
+            existingValuePresent: false,
+            existing: state(MetadataAuthority.manual),
+            incomingAuthority: MetadataAuthority.external,
+          ),
+          MetadataReplacementDecision.rejectLowerAuthority,
+        );
+
+        expect(
+          MetadataAuthorityPolicy.canAutomaticallyReplace(
+            existingValuePresent: false,
+            existing: state(MetadataAuthority.manual),
+            incomingAuthority: MetadataAuthority.external,
+          ),
+          isFalse,
+        );
+      });
+
+      test('empty field with confirmed authority rejects external refill', () {
+        expect(
+          MetadataAuthorityPolicy.evaluateAutomaticReplacement(
+            existingValuePresent: false,
+            existing: state(MetadataAuthority.confirmed),
+            incomingAuthority: MetadataAuthority.external,
+          ),
+          MetadataReplacementDecision.rejectLowerAuthority,
+        );
+      });
+
+      test(
+        'empty field with imported authority accepts stronger external metadata',
+        () {
+          expect(
+            MetadataAuthorityPolicy.evaluateAutomaticReplacement(
+              existingValuePresent: false,
+              existing: state(MetadataAuthority.imported),
+              incomingAuthority: MetadataAuthority.external,
+            ),
+            MetadataReplacementDecision.accept,
+          );
+        },
+      );
       test('legacy existing value without field state requires review', () {
         expect(
           MetadataAuthorityPolicy.evaluateAutomaticReplacement(

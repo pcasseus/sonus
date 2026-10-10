@@ -17,6 +17,7 @@ import 'package:sonus_next/features/library/domain/entities/entity_factory.dart'
 import 'package:sonus_next/features/library/domain/entities/song.dart';
 import 'package:sonus_next/features/library/domain/entities/song_artist_credit.dart';
 import 'package:sonus_next/features/library/domain/metadata/metadata_field_state.dart';
+import 'package:sonus_next/features/library/domain/metadata/metadata_fields.dart';
 import 'package:sonus_next/features/sync/data/daos/local_sync_dao.dart';
 import 'package:sonus_next/features/sync/data/repositories/sync_mutation_transaction_runner.dart';
 import 'package:sonus_next/features/sync/domain/models/local_sync_models.dart';
@@ -196,6 +197,37 @@ void main() {
       expect(credits.single.artistId, target.id);
       expect(credits.single.creditedName, target.name);
 
+      final metadataDao = MetadataFieldStateDao(db);
+
+      final albumArtistState = await metadataDao.find(
+        entityType: MetadataEntityType.album,
+        entityId: album.id,
+        fieldName: MetadataFields.albumArtist,
+      );
+
+      final songArtistState = await metadataDao.find(
+        entityType: MetadataEntityType.song,
+        entityId: song.id,
+        fieldName: MetadataFields.songArtist,
+      );
+
+      final songCreditsState = await metadataDao.find(
+        entityType: MetadataEntityType.song,
+        entityId: song.id,
+        fieldName: MetadataFields.songArtistCredits,
+      );
+
+      for (final state in [
+        albumArtistState,
+        songArtistState,
+        songCreditsState,
+      ]) {
+        expect(state, isNotNull);
+        expect(state!.authority, MetadataAuthority.manual);
+        expect(state.source, MetadataProvenanceSource.user);
+        expect(state.updatedAt, mutationTime);
+      }
+
       final pending = await LocalSyncDao(db).findPending('user-1');
 
       expect(
@@ -300,6 +332,17 @@ void main() {
       expect(feature.artistId, target.id);
       expect(feature.creditedName, 'Guest Alias');
       expect(feature.canonicalCreditedName, 'guest alias');
+
+      final creditState = await MetadataFieldStateDao(db).find(
+        entityType: MetadataEntityType.song,
+        entityId: song.id,
+        fieldName: MetadataFields.songArtistCredits,
+      );
+
+      expect(creditState, isNotNull);
+      expect(creditState!.authority, MetadataAuthority.manual);
+      expect(creditState.source, MetadataProvenanceSource.user);
+      expect(creditState.updatedAt, mutationTime);
     },
   );
 
@@ -485,6 +528,17 @@ void main() {
 
       expect(credit, isNotNull);
       expect(credit!.artistId, target.id);
+
+      final creditState = await MetadataFieldStateDao(db).find(
+        entityType: MetadataEntityType.song,
+        entityId: song.id,
+        fieldName: MetadataFields.songArtistCredits,
+      );
+
+      expect(creditState, isNotNull);
+      expect(creditState!.authority, MetadataAuthority.manual);
+      expect(creditState.source, MetadataProvenanceSource.user);
+      expect(creditState.updatedAt, mutationTime);
 
       final pending = await LocalSyncDao(db).findPending('user-1');
 
