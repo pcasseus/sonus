@@ -12,6 +12,10 @@ import '../../../playlists/presentation/widgets/add_to_playlist_sheet.dart';
 import '../../application/models/library_track.dart';
 import '../../application/repositories/library_query_repository.dart';
 import '../../application/services/artist_profile_editing_service.dart';
+import '../../application/services/artist_merge_service.dart';
+import '../../application/services/external_metadata_application_service.dart';
+import '../../application/services/external_metadata_proposal_service.dart';
+import '../../application/services/metadata_provider.dart';
 import '../../application/services/song_block_service.dart';
 import '../../application/services/song_artist_credit_service.dart';
 import 'package:sonus_next/features/library/application/services/track_profile_editing_service.dart';
@@ -23,6 +27,7 @@ import '../widgets/artist_profile/artist_profile_tracks_list.dart';
 import '../widgets/artist_profile/artist_profile_playback_controls.dart';
 import '../widgets/artist_profile/artist_profile_section_heading.dart';
 import 'album_profile_page.dart';
+import 'artist_studio_page.dart';
 import 'track_studio_page.dart';
 
 class ArtistProfilePage extends StatefulWidget {
@@ -76,6 +81,7 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
     final controller = _controller;
     final accountController = context.watch<AccountController?>();
     final userId = accountController?.user?.id;
+    final artistMergeService = context.watch<ArtistMergeService?>();
 
     return Scaffold(
       key: const ValueKey<String>('artist-profile-page'),
@@ -102,12 +108,32 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
                   enabled:
                       controller.canEditArtwork ||
                       controller.canEditArtist(userId) ||
-                      controller.canRemoveArtist(userId),
+                      controller.canRemoveArtist(userId) ||
+                      artistMergeService != null,
                   tooltip: 'Artist actions',
                   onSelected: (action) {
-                    unawaited(_handleArtistAction(controller, action, userId));
+                    unawaited(
+                      _handleArtistAction(
+                        controller,
+                        action,
+                        userId,
+                        artistMergeService,
+                      ),
+                    );
                   },
                   itemBuilder: (context) => [
+                    PopupMenuItem(
+                      key: const ValueKey<String>(
+                        'artist-profile-open-studio-menu-item',
+                      ),
+                      value: _ArtistMenuAction.studio,
+                      child: const ListTile(
+                        leading: Icon(Icons.tune_rounded),
+                        title: Text('Artist Studio'),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                    ),
+                    const PopupMenuDivider(),
                     PopupMenuItem(
                       value: _ArtistMenuAction.editName,
                       enabled: controller.canEditArtist(userId),
@@ -324,7 +350,12 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
     ArtistProfileController controller,
     _ArtistMenuAction action,
     String? userId,
+    ArtistMergeService? artistMergeService,
   ) async {
+    if (action == _ArtistMenuAction.studio) {
+      await _openArtistStudio(controller, userId, artistMergeService);
+      return;
+    }
     if (action == _ArtistMenuAction.editName) {
       await _editArtistName(controller, userId);
       return;
@@ -336,6 +367,52 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
     }
 
     await _handleArtworkAction(controller, action);
+  }
+
+  Future<void> _openArtistStudio(
+    ArtistProfileController controller,
+    String? userId,
+    ArtistMergeService? artistMergeService,
+  ) async {
+    final repository = _repository;
+
+    if (repository == null || controller.artist == null) {
+      return;
+    }
+
+    final metadataProvider = context.read<MetadataProvider?>();
+    final externalMetadataApplicationService = context
+        .read<ExternalMetadataApplicationService?>();
+    final externalMetadataProposalService = context
+        .read<ExternalMetadataProposalService?>();
+
+    final result = await Navigator.of(context).push<ArtistStudioMergeResult>(
+      MaterialPageRoute<ArtistStudioMergeResult>(
+        builder: (_) => ArtistStudioPage(
+          controller: controller,
+          repository: repository,
+          userId: userId,
+          mergeService: artistMergeService,
+          metadataProvider: metadataProvider,
+          externalMetadataApplicationService:
+              externalMetadataApplicationService,
+          externalMetadataProposalService: externalMetadataProposalService,
+        ),
+      ),
+    );
+
+    if (!mounted || result == null) {
+      return;
+    }
+
+    await Navigator.of(context).pushReplacement(
+      MaterialPageRoute<void>(
+        builder: (_) => ArtistProfilePage(
+          artistId: result.targetArtistId,
+          initialArtistName: result.targetArtistName,
+        ),
+      ),
+    );
   }
 
   Future<void> _removeArtist(
@@ -461,6 +538,7 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
   ) async {
     try {
       final changed = switch (action) {
+        _ArtistMenuAction.studio => false,
         _ArtistMenuAction.editName => false,
         _ArtistMenuAction.removeArtist => false,
         _ArtistMenuAction.changeHeader =>
@@ -477,6 +555,7 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
       }
 
       final message = switch (action) {
+        _ArtistMenuAction.studio => '',
         _ArtistMenuAction.editName => '',
         _ArtistMenuAction.removeArtist => '',
         _ArtistMenuAction.changeHeader => 'Header artwork updated.',
@@ -569,11 +648,23 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
             ),
           )
           .toList(growable: false);
+      final metadataProvider = context.read<MetadataProvider?>();
+      final externalMetadataApplicationService = context
+          .read<ExternalMetadataApplicationService?>();
+      final externalMetadataProposalService = context
+          .read<ExternalMetadataProposalService?>();
+
       final draft = await Navigator.of(context).push<TrackProfileEditDraft>(
         MaterialPageRoute<TrackProfileEditDraft>(
           builder: (routeContext) {
             return TrackStudioPage(
               track: track,
+              userId: userId,
+              metadataProvider: metadataProvider,
+              externalMetadataApplicationService:
+                  externalMetadataApplicationService,
+              externalMetadataProposalService: externalMetadataProposalService,
+              onMetadataApplied: controller.refresh,
               artists: artists,
               albums: albums,
               initialAdditionalCredits: initialAdditionalCredits,
@@ -758,6 +849,7 @@ class _ArtistNameEditDialogState extends State<_ArtistNameEditDialog> {
 }
 
 enum _ArtistMenuAction {
+  studio,
   editName,
   changeHeader,
   clearHeader,

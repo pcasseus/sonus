@@ -3,6 +3,7 @@ import '../../../library/application/models/library_artist.dart';
 import '../../../library/application/repositories/library_query_repository.dart';
 import '../../../library/application/services/artist_creation_service.dart';
 import '../../../library/application/services/track_profile_editing_service.dart';
+import '../../../library/domain/metadata/metadata_field_state.dart';
 import '../../domain/repositories/song_import_review_repository.dart';
 import '../models/import_review_queue_item.dart';
 
@@ -117,7 +118,13 @@ class ImportReviewService {
 
     final timestamp = now ?? _now();
 
-    final editResult = await _trackProfileEditingService.updateTrack(
+    final reviewEditingService = _trackProfileEditingService
+        .withMetadataProvenance(
+          authority: MetadataAuthority.confirmed,
+          source: MetadataProvenanceSource.review,
+        );
+
+    final editResult = await reviewEditingService.updateTrack(
       userId: normalizedUserId,
       songId: item.track.songId,
       title: title,

@@ -2,9 +2,13 @@ import '../../../../core/identity/text_normalizer.dart';
 import '../../../library/domain/entities/album_edition.dart';
 import '../../../library/domain/entities/artist.dart';
 import '../../../library/domain/entities/song.dart';
+import '../../../library/domain/metadata/metadata_field_state.dart';
+import '../../../library/domain/metadata/metadata_fields.dart';
 import '../../../library/domain/repositories/album_edition_repository.dart';
 import '../../../library/domain/repositories/artist_repository.dart';
 import '../../../library/domain/repositories/song_repository.dart';
+import '../../../library/domain/services/metadata_field_state_service.dart';
+import '../../../sync/application/services/sync_mutation_runner.dart';
 import '../../domain/entities/artwork_asset.dart';
 import '../../domain/entities/artwork_asset_factory.dart';
 import '../../domain/repositories/artwork_asset_repository.dart';
@@ -17,6 +21,7 @@ class ArtworkAssignmentService {
     required this.albumEditionRepository,
     required this.songRepository,
     this.artworkManagedStorage,
+    this.mutationRunner,
   });
 
   final ArtworkAssetRepository artworkAssetRepository;
@@ -24,44 +29,20 @@ class ArtworkAssignmentService {
   final AlbumEditionRepository albumEditionRepository;
   final SongRepository songRepository;
   final ArtworkManagedStorage? artworkManagedStorage;
+  final SyncMutationRunner? mutationRunner;
 
   Future<ArtworkAsset> resolveArtworkAsset({
     required String filePath,
     DateTime? now,
   }) async {
-    final trimmedPath = filePath.trim();
+    final timestamp = now ?? DateTime.now();
+    final resolvedPath = await _resolveArtworkPath(filePath);
 
-    if (trimmedPath.isEmpty) {
-      throw ArgumentError.value(
-        filePath,
-        'filePath',
-        'Artwork file path cannot be empty.',
-      );
-    }
-
-    final storage = artworkManagedStorage;
-    final resolvedPath = storage == null
-        ? trimmedPath
-        : await storage.importArtwork(trimmedPath);
-
-    final normalizedPath = TextNormalizer.normalizePath(resolvedPath);
-
-    final existing = await artworkAssetRepository.getByNormalizedPath(
-      normalizedPath,
+    return _resolveArtworkAssetForPath(
+      repository: artworkAssetRepository,
+      resolvedPath: resolvedPath,
+      now: timestamp,
     );
-
-    if (existing != null) {
-      return existing;
-    }
-
-    final artworkAsset = ArtworkAssetFactory.create(
-      filePath: resolvedPath,
-      now: now,
-    );
-
-    await artworkAssetRepository.create(artworkAsset);
-
-    return artworkAsset;
   }
 
   Future<ArtworkAsset> assignArtistHeader({
@@ -76,6 +57,10 @@ class ArtworkAssignmentService {
       filePath: filePath,
       now: timestamp,
     );
+
+    if (artist.headerArtworkId == artwork.id) {
+      return artwork;
+    }
 
     await artistRepository.save(
       artist.copyWith(headerArtworkId: artwork.id, updatedAt: timestamp),
@@ -97,6 +82,10 @@ class ArtworkAssignmentService {
       now: timestamp,
     );
 
+    if (artist.topArtistsArtworkId == artwork.id) {
+      return artwork;
+    }
+
     await artistRepository.save(
       artist.copyWith(topArtistsArtworkId: artwork.id, updatedAt: timestamp),
     );
@@ -109,19 +98,72 @@ class ArtworkAssignmentService {
     required String filePath,
     DateTime? now,
   }) async {
-    final edition = await _requireAlbumEdition(albumEditionId);
+    // Preserve the existing contract: missing entities fail before artwork
+    // storage or artwork-asset creation occurs.
+    await _requireAlbumEdition(albumEditionId);
+
     final timestamp = now ?? DateTime.now();
+    final resolvedPath = await _resolveArtworkPath(filePath);
+    final runner = mutationRunner;
 
-    final artwork = await resolveArtworkAsset(
-      filePath: filePath,
-      now: timestamp,
-    );
+    if (runner == null) {
+      final edition = await _requireAlbumEdition(albumEditionId);
 
-    await albumEditionRepository.save(
-      edition.copyWith(artworkId: artwork.id, updatedAt: timestamp),
-    );
+      final artwork = await _resolveArtworkAssetForPath(
+        repository: artworkAssetRepository,
+        resolvedPath: resolvedPath,
+        now: timestamp,
+      );
 
-    return artwork;
+      if (edition.artworkId == artwork.id) {
+        return artwork;
+      }
+
+      await albumEditionRepository.save(
+        edition.copyWith(artworkId: artwork.id, updatedAt: timestamp),
+      );
+
+      return artwork;
+    }
+
+    return runner.run((context) async {
+      final edition = await context.albumEditionRepository.getById(
+        albumEditionId,
+      );
+
+      if (edition == null) {
+        throw StateError('Album edition not found: $albumEditionId');
+      }
+
+      final artwork = await _resolveArtworkAssetForPath(
+        repository: context.artworkAssetRepository,
+        resolvedPath: resolvedPath,
+        now: timestamp,
+      );
+
+      if (edition.artworkId == artwork.id) {
+        return artwork;
+      }
+
+      await context.albumEditionRepository.save(
+        edition.copyWith(artworkId: artwork.id, updatedAt: timestamp),
+      );
+
+      final metadataRepository = context.metadataFieldStateRepository;
+
+      if (metadataRepository != null) {
+        await MetadataFieldStateService(repository: metadataRepository).record(
+          entityType: MetadataEntityType.albumEdition,
+          entityId: edition.id,
+          fieldName: MetadataFields.editionArtwork,
+          authority: MetadataAuthority.manual,
+          source: MetadataProvenanceSource.user,
+          updatedAt: timestamp,
+        );
+      }
+
+      return artwork;
+    });
   }
 
   Future<ArtworkAsset> assignSong({
@@ -129,23 +171,79 @@ class ArtworkAssignmentService {
     required String filePath,
     DateTime? now,
   }) async {
-    final song = await _requireSong(songId);
+    // Preserve the existing contract: missing entities fail before artwork
+    // storage or artwork-asset creation occurs.
+    await _requireSong(songId);
+
     final timestamp = now ?? DateTime.now();
+    final resolvedPath = await _resolveArtworkPath(filePath);
+    final runner = mutationRunner;
 
-    final artwork = await resolveArtworkAsset(
-      filePath: filePath,
-      now: timestamp,
-    );
+    if (runner == null) {
+      final song = await _requireSong(songId);
 
-    await songRepository.save(
-      song.copyWith(artworkId: artwork.id, updatedAt: timestamp),
-    );
+      final artwork = await _resolveArtworkAssetForPath(
+        repository: artworkAssetRepository,
+        resolvedPath: resolvedPath,
+        now: timestamp,
+      );
 
-    return artwork;
+      if (song.artworkId == artwork.id) {
+        return artwork;
+      }
+
+      await songRepository.save(
+        song.copyWith(artworkId: artwork.id, updatedAt: timestamp),
+      );
+
+      return artwork;
+    }
+
+    return runner.run((context) async {
+      final song = await context.songRepository.getById(songId);
+
+      if (song == null) {
+        throw StateError('Song not found: $songId');
+      }
+
+      final artwork = await _resolveArtworkAssetForPath(
+        repository: context.artworkAssetRepository,
+        resolvedPath: resolvedPath,
+        now: timestamp,
+      );
+
+      if (song.artworkId == artwork.id) {
+        return artwork;
+      }
+
+      await context.songRepository.save(
+        song.copyWith(artworkId: artwork.id, updatedAt: timestamp),
+      );
+
+      final metadataRepository = context.metadataFieldStateRepository;
+
+      if (metadataRepository != null) {
+        await MetadataFieldStateService(repository: metadataRepository).record(
+          entityType: MetadataEntityType.song,
+          entityId: song.id,
+          fieldName: MetadataFields.songArtwork,
+          authority: MetadataAuthority.manual,
+          source: MetadataProvenanceSource.user,
+          updatedAt: timestamp,
+        );
+      }
+
+      return artwork;
+    });
   }
 
   Future<void> clearArtistHeader(String artistId, {DateTime? now}) async {
     final artist = await _requireArtist(artistId);
+
+    if (artist.headerArtworkId == null) {
+      return;
+    }
+
     final timestamp = now ?? DateTime.now();
 
     await artistRepository.save(
@@ -155,6 +253,11 @@ class ArtworkAssignmentService {
 
   Future<void> clearArtistTopArtists(String artistId, {DateTime? now}) async {
     final artist = await _requireArtist(artistId);
+
+    if (artist.topArtistsArtworkId == null) {
+      return;
+    }
+
     final timestamp = now ?? DateTime.now();
 
     await artistRepository.save(
@@ -163,21 +266,150 @@ class ArtworkAssignmentService {
   }
 
   Future<void> clearAlbumEdition(String albumEditionId, {DateTime? now}) async {
-    final edition = await _requireAlbumEdition(albumEditionId);
+    final runner = mutationRunner;
+
+    if (runner == null) {
+      final edition = await _requireAlbumEdition(albumEditionId);
+
+      if (edition.artworkId == null) {
+        return;
+      }
+
+      final timestamp = now ?? DateTime.now();
+
+      await albumEditionRepository.save(
+        edition.copyWith(artworkId: null, updatedAt: timestamp),
+      );
+
+      return;
+    }
+
     final timestamp = now ?? DateTime.now();
 
-    await albumEditionRepository.save(
-      edition.copyWith(artworkId: null, updatedAt: timestamp),
-    );
+    await runner.run((context) async {
+      final edition = await context.albumEditionRepository.getById(
+        albumEditionId,
+      );
+
+      if (edition == null) {
+        throw StateError('Album edition not found: $albumEditionId');
+      }
+
+      if (edition.artworkId == null) {
+        return;
+      }
+
+      await context.albumEditionRepository.save(
+        edition.copyWith(artworkId: null, updatedAt: timestamp),
+      );
+
+      final metadataRepository = context.metadataFieldStateRepository;
+
+      if (metadataRepository != null) {
+        await MetadataFieldStateService(repository: metadataRepository).record(
+          entityType: MetadataEntityType.albumEdition,
+          entityId: edition.id,
+          fieldName: MetadataFields.editionArtwork,
+          authority: MetadataAuthority.manual,
+          source: MetadataProvenanceSource.user,
+          updatedAt: timestamp,
+        );
+      }
+    });
   }
 
   Future<void> clearSong(String songId, {DateTime? now}) async {
-    final song = await _requireSong(songId);
+    final runner = mutationRunner;
+
+    if (runner == null) {
+      final song = await _requireSong(songId);
+
+      if (song.artworkId == null) {
+        return;
+      }
+
+      final timestamp = now ?? DateTime.now();
+
+      await songRepository.save(
+        song.copyWith(artworkId: null, updatedAt: timestamp),
+      );
+
+      return;
+    }
+
     final timestamp = now ?? DateTime.now();
 
-    await songRepository.save(
-      song.copyWith(artworkId: null, updatedAt: timestamp),
+    await runner.run((context) async {
+      final song = await context.songRepository.getById(songId);
+
+      if (song == null) {
+        throw StateError('Song not found: $songId');
+      }
+
+      if (song.artworkId == null) {
+        return;
+      }
+
+      await context.songRepository.save(
+        song.copyWith(artworkId: null, updatedAt: timestamp),
+      );
+
+      final metadataRepository = context.metadataFieldStateRepository;
+
+      if (metadataRepository != null) {
+        await MetadataFieldStateService(repository: metadataRepository).record(
+          entityType: MetadataEntityType.song,
+          entityId: song.id,
+          fieldName: MetadataFields.songArtwork,
+          authority: MetadataAuthority.manual,
+          source: MetadataProvenanceSource.user,
+          updatedAt: timestamp,
+        );
+      }
+    });
+  }
+
+  Future<String> _resolveArtworkPath(String filePath) async {
+    final trimmedPath = filePath.trim();
+
+    if (trimmedPath.isEmpty) {
+      throw ArgumentError.value(
+        filePath,
+        'filePath',
+        'Artwork file path cannot be empty.',
+      );
+    }
+
+    final storage = artworkManagedStorage;
+
+    if (storage == null) {
+      return trimmedPath;
+    }
+
+    return storage.importArtwork(trimmedPath);
+  }
+
+  Future<ArtworkAsset> _resolveArtworkAssetForPath({
+    required ArtworkAssetRepository repository,
+    required String resolvedPath,
+    required DateTime now,
+  }) async {
+    final normalizedPath = TextNormalizer.normalizePath(resolvedPath);
+
+    final existing = await repository.getByNormalizedPath(normalizedPath);
+
+    if (existing != null) {
+      return existing;
+    }
+
+    final artworkAsset = ArtworkAssetFactory.create(
+      filePath: resolvedPath,
+      now: now,
     );
+
+    await repository.create(artworkAsset);
+
+    return artworkAsset;
   }
 
   Future<Artist> _requireArtist(String artistId) async {

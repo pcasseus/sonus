@@ -9,6 +9,9 @@ import 'package:sonus_next/features/library/domain/entities/album_edition_track.
 import 'package:sonus_next/features/library/data/daos/album_edition_track_dao.dart';
 import 'package:sonus_next/features/library/data/daos/artist_dao.dart';
 import 'package:sonus_next/features/library/data/daos/song_dao.dart';
+import 'package:sonus_next/features/library/data/daos/metadata_field_state_dao.dart';
+import 'package:sonus_next/features/library/domain/metadata/metadata_field_state.dart';
+import 'package:sonus_next/features/library/domain/metadata/metadata_fields.dart';
 import 'package:sonus_next/features/library/domain/entities/entity_factory.dart';
 import 'package:sonus_next/features/library/domain/entities/song.dart';
 import 'package:sonus_next/features/sync/data/daos/local_sync_dao.dart';
@@ -942,5 +945,131 @@ void main() {
     expect(stored.albumEditionId, original.albumEditionId);
 
     expect(await LocalSyncDao(db).findPending('user_1'), isEmpty);
+  });
+
+  test('title-only edit records only title as manual user metadata', () async {
+    final original = await createSong();
+
+    await service.updateTrack(
+      userId: 'user_1',
+      songId: original.id,
+      title: 'Renamed Song',
+      trackNumber: original.trackNumber,
+      discNumber: original.discNumber,
+      featuredArtists: original.featuredArtists,
+      isSingle: original.isSingle,
+      now: mutationTime,
+    );
+
+    final db = await appDatabase.database;
+    final states = await MetadataFieldStateDao(
+      db,
+    ).findByEntity(entityType: MetadataEntityType.song, entityId: original.id);
+
+    expect(states, hasLength(1));
+
+    final titleState = states.single;
+
+    expect(titleState.fieldName, MetadataFields.songTitle);
+    expect(titleState.authority, MetadataAuthority.manual);
+    expect(titleState.source, MetadataProvenanceSource.user);
+    expect(titleState.updatedAt, mutationTime);
+  });
+
+  test('track edit records exactly the metadata fields that changed', () async {
+    final original = await createSong();
+
+    await service.updateTrack(
+      userId: 'user_1',
+      songId: original.id,
+      title: 'Renamed Song',
+      trackNumber: 8,
+      discNumber: 2,
+      featuredArtists: original.featuredArtists,
+      isSingle: true,
+      now: mutationTime,
+    );
+
+    final db = await appDatabase.database;
+    final states = await MetadataFieldStateDao(
+      db,
+    ).findByEntity(entityType: MetadataEntityType.song, entityId: original.id);
+
+    expect(states.map((state) => state.fieldName).toSet(), {
+      MetadataFields.songTitle,
+      MetadataFields.songTrackNumber,
+      MetadataFields.songDiscNumber,
+      MetadataFields.songIsSingle,
+    });
+
+    expect(
+      states.every((state) => state.authority == MetadataAuthority.manual),
+      isTrue,
+    );
+
+    expect(
+      states.every((state) => state.source == MetadataProvenanceSource.user),
+      isTrue,
+    );
+
+    expect(states.every((state) => state.updatedAt == mutationTime), isTrue);
+  });
+
+  test('no-op track edit records no metadata provenance', () async {
+    final original = await createSong();
+
+    final result = await service.updateTrack(
+      userId: 'user_1',
+      songId: original.id,
+      title: original.title,
+      trackNumber: original.trackNumber,
+      discNumber: original.discNumber,
+      featuredArtists: original.featuredArtists,
+      isSingle: original.isSingle,
+      now: mutationTime,
+    );
+
+    expect(result.changed, isFalse);
+
+    final db = await appDatabase.database;
+    final states = await MetadataFieldStateDao(
+      db,
+    ).findByEntity(entityType: MetadataEntityType.song, entityId: original.id);
+
+    expect(states, isEmpty);
+  });
+
+  test('configured provenance writes confirmed review metadata', () async {
+    final original = await createSong();
+
+    final reviewEditingService = service.withMetadataProvenance(
+      authority: MetadataAuthority.confirmed,
+      source: MetadataProvenanceSource.review,
+    );
+
+    await reviewEditingService.updateTrack(
+      userId: 'user_1',
+      songId: original.id,
+      title: 'Reviewed Song',
+      trackNumber: original.trackNumber,
+      discNumber: original.discNumber,
+      featuredArtists: original.featuredArtists,
+      isSingle: original.isSingle,
+      now: mutationTime,
+    );
+
+    final db = await appDatabase.database;
+    final states = await MetadataFieldStateDao(
+      db,
+    ).findByEntity(entityType: MetadataEntityType.song, entityId: original.id);
+
+    expect(states, hasLength(1));
+
+    final titleState = states.single;
+
+    expect(titleState.fieldName, MetadataFields.songTitle);
+    expect(titleState.authority, MetadataAuthority.confirmed);
+    expect(titleState.source, MetadataProvenanceSource.review);
+    expect(titleState.updatedAt, mutationTime);
   });
 }

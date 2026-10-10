@@ -117,6 +117,94 @@ void main() {
     );
   });
 
+  test('owned import preserves the original source', () async {
+    final source = File(path.join(tempDirectory.path, 'owned.png'));
+    await source.writeAsBytes([1, 2, 3, 4]);
+
+    final storage = createStorage();
+    final owned = await storage.importOwnedArtwork(source.path);
+
+    expect(owned.filePath, isNot(source.path));
+    expect(await File(owned.filePath).exists(), isTrue);
+    expect(await File(owned.filePath).readAsBytes(), [1, 2, 3, 4]);
+    expect(await source.exists(), isTrue);
+
+    await owned.discard();
+
+    expect(await File(owned.filePath).exists(), isFalse);
+    expect(await source.exists(), isTrue);
+    expect(await source.readAsBytes(), [1, 2, 3, 4]);
+  });
+
+  test('discarding one owned import preserves another', () async {
+    final source = File(path.join(tempDirectory.path, 'shared.jpg'));
+    await source.writeAsBytes([5, 6, 7]);
+
+    final storage = createStorage();
+    final first = await storage.importOwnedArtwork(source.path);
+    final second = await storage.importOwnedArtwork(source.path);
+
+    expect(first.filePath, isNot(second.filePath));
+
+    await first.discard();
+
+    expect(await File(first.filePath).exists(), isFalse);
+    expect(await File(second.filePath).exists(), isTrue);
+    expect(await source.exists(), isTrue);
+    expect(await File(second.filePath).readAsBytes(), [5, 6, 7]);
+  });
+
+  test('owned import discard is idempotent', () async {
+    final source = File(path.join(tempDirectory.path, 'repeat.webp'));
+    await source.writeAsBytes([8, 9, 10]);
+
+    final owned = await createStorage().importOwnedArtwork(source.path);
+
+    await owned.discard();
+    await owned.discard();
+
+    expect(await File(owned.filePath).exists(), isFalse);
+    expect(await source.exists(), isTrue);
+  });
+
+  test('filename collision preserves existing artwork', () async {
+    final firstSource = File(path.join(tempDirectory.path, 'first.png'));
+    final secondSource = File(path.join(tempDirectory.path, 'second.png'));
+
+    await firstSource.writeAsBytes([1, 2, 3]);
+    await secondSource.writeAsBytes([9, 8, 7]);
+
+    final storage = FileSystemArtworkManagedStorage(
+      applicationSupportDirectoryProvider: () async => supportDirectory,
+      fileIdGenerator: () => 'fixed',
+    );
+
+    final first = await storage.importOwnedArtwork(firstSource.path);
+
+    expect(await File(first.filePath).readAsBytes(), [1, 2, 3]);
+
+    await expectLater(
+      storage.importOwnedArtwork(secondSource.path),
+      throwsA(isA<FileSystemException>()),
+    );
+
+    expect(await File(first.filePath).exists(), isTrue);
+    expect(await File(first.filePath).readAsBytes(), [1, 2, 3]);
+
+    expect(await firstSource.readAsBytes(), [1, 2, 3]);
+    expect(await secondSource.readAsBytes(), [9, 8, 7]);
+
+    final managedDirectory = Directory(
+      path.join(supportDirectory.path, 'sonus', 'artwork'),
+    );
+
+    expect(await managedDirectory.list().toList(), hasLength(1));
+
+    await first.discard();
+
+    expect(await File(first.filePath).exists(), isFalse);
+  });
+
   test('creates a distinct managed file for repeated imports', () async {
     final sourceFile = File(path.join(tempDirectory.path, 'shared.jpeg'));
 

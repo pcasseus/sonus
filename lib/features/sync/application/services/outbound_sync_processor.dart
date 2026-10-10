@@ -1,4 +1,6 @@
 import '../../../artwork/domain/repositories/artwork_asset_repository.dart';
+import '../../../library/domain/metadata/metadata_field_state.dart';
+import '../../../library/domain/repositories/metadata_field_state_repository.dart';
 import '../../../library/domain/repositories/album_edition_repository.dart';
 import '../../../library/domain/repositories/album_repository.dart';
 import '../../../library/domain/repositories/artist_repository.dart';
@@ -17,6 +19,7 @@ class OutboundSyncProcessor {
     required this.albumRepository,
     required this.albumEditionRepository,
     required this.songRepository,
+    required this.metadataFieldStateRepository,
     required this.artworkAssetRepository,
     required this.cloudArtworkStorage,
     required this.cloudSyncGateway,
@@ -27,6 +30,7 @@ class OutboundSyncProcessor {
   final AlbumRepository albumRepository;
   final AlbumEditionRepository albumEditionRepository;
   final SongRepository songRepository;
+  final MetadataFieldStateRepository metadataFieldStateRepository;
   final ArtworkAssetRepository artworkAssetRepository;
   final CloudArtworkStorage cloudArtworkStorage;
   final CloudSyncGateway cloudSyncGateway;
@@ -223,8 +227,17 @@ class OutboundSyncProcessor {
       ensuredArtworkIds: ensuredArtworkIds,
     );
 
+    final metadataFieldStates = await metadataFieldStateRepository.getByEntity(
+      entityType: MetadataEntityType.artist,
+      entityId: normalizedArtistId,
+    );
+
     await cloudSyncGateway.upsert(
-      CloudRecordMapper.artist(artist: entity, userId: userId),
+      CloudRecordMapper.artist(
+        artist: entity,
+        userId: userId,
+        metadataFieldStates: metadataFieldStates,
+      ),
     );
 
     ensuredArtistIds.add(normalizedArtistId);
@@ -256,8 +269,17 @@ class OutboundSyncProcessor {
       ensuredArtistIds: ensuredArtistIds,
     );
 
+    final metadataFieldStates = await metadataFieldStateRepository.getByEntity(
+      entityType: MetadataEntityType.album,
+      entityId: normalizedAlbumId,
+    );
+
     await cloudSyncGateway.upsert(
-      CloudRecordMapper.album(album: entity, userId: userId),
+      CloudRecordMapper.album(
+        album: entity,
+        userId: userId,
+        metadataFieldStates: metadataFieldStates,
+      ),
     );
 
     ensuredAlbumIds.add(normalizedAlbumId);
@@ -299,8 +321,17 @@ class OutboundSyncProcessor {
       ensuredArtworkIds: ensuredArtworkIds,
     );
 
+    final metadataFieldStates = await metadataFieldStateRepository.getByEntity(
+      entityType: MetadataEntityType.albumEdition,
+      entityId: normalizedEditionId,
+    );
+
     await cloudSyncGateway.upsert(
-      CloudRecordMapper.albumEdition(albumEdition: entity, userId: userId),
+      CloudRecordMapper.albumEdition(
+        albumEdition: entity,
+        userId: userId,
+        metadataFieldStates: metadataFieldStates,
+      ),
     );
 
     ensuredAlbumEditionIds.add(normalizedEditionId);
@@ -357,8 +388,17 @@ class OutboundSyncProcessor {
       ensuredArtworkIds: ensuredArtworkIds,
     );
 
+    final metadataFieldStates = await metadataFieldStateRepository.getByEntity(
+      entityType: MetadataEntityType.song,
+      entityId: normalizedSongId,
+    );
+
     await cloudSyncGateway.upsert(
-      CloudRecordMapper.song(song: entity, userId: userId),
+      CloudRecordMapper.song(
+        song: entity,
+        userId: userId,
+        metadataFieldStates: metadataFieldStates,
+      ),
     );
 
     ensuredSongIds.add(normalizedSongId);

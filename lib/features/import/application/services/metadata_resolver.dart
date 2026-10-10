@@ -23,6 +23,9 @@ class MetadataResolver {
       return ResolvedMetadata(
         metadata: metadata,
         source: MetadataSource.fallback,
+        origins: const ImportMetadataOrigins.all(
+          ImportMetadataFieldSource.fallback,
+        ),
       );
     }
 
@@ -30,6 +33,9 @@ class MetadataResolver {
       return ResolvedMetadata(
         metadata: primary,
         source: MetadataSource.embedded,
+        origins: const ImportMetadataOrigins.all(
+          ImportMetadataFieldSource.embedded,
+        ),
       );
     }
 
@@ -38,6 +44,24 @@ class MetadataResolver {
     return ResolvedMetadata(
       metadata: _merge(primary, fallback),
       source: MetadataSource.mixed,
+      origins: ImportMetadataOrigins(
+        title: _textSource(primary.title),
+        artistName: _textSource(primary.artistName),
+        albumTitle: _textSource(primary.albumTitle),
+        albumArtistName: _optionalTextSource(primary.albumArtistName),
+        trackNumber: primary.trackNumber > 0
+            ? ImportMetadataFieldSource.embedded
+            : ImportMetadataFieldSource.fallback,
+        discNumber: primary.discNumber >= 0
+            ? ImportMetadataFieldSource.embedded
+            : ImportMetadataFieldSource.fallback,
+        isSingle: ImportMetadataFieldSource.embedded,
+        featuredArtists: ImportMetadataFieldSource.embedded,
+        releaseDate: primary.releaseDate != null
+            ? ImportMetadataFieldSource.embedded
+            : ImportMetadataFieldSource.fallback,
+        genre: _optionalTextSource(primary.genre),
+      ),
     );
   }
 
@@ -70,6 +94,20 @@ class MetadataResolver {
       releaseDate: primary.releaseDate ?? fallback.releaseDate,
       genre: _preferOptionalText(primary.genre, fallback.genre),
     );
+  }
+
+  ImportMetadataFieldSource _textSource(String primary) {
+    return primary.trim().isEmpty
+        ? ImportMetadataFieldSource.fallback
+        : ImportMetadataFieldSource.embedded;
+  }
+
+  ImportMetadataFieldSource _optionalTextSource(String? primary) {
+    final cleaned = primary?.trim();
+
+    return cleaned == null || cleaned.isEmpty
+        ? ImportMetadataFieldSource.fallback
+        : ImportMetadataFieldSource.embedded;
   }
 
   String _preferText(String primary, String fallback) {

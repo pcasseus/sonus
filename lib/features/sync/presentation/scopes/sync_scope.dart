@@ -13,10 +13,12 @@ import '../../../artwork/data/repositories/sqlite_artwork_asset_repository.dart'
 import '../../../library/data/daos/album_dao.dart';
 import '../../../library/data/daos/album_edition_dao.dart';
 import '../../../library/data/daos/artist_dao.dart';
+import '../../../library/data/daos/metadata_field_state_dao.dart';
 import '../../../library/data/daos/song_dao.dart';
 import '../../../library/data/repositories/sqlite_album_edition_repository.dart';
 import '../../../library/data/repositories/sqlite_album_repository.dart';
 import '../../../library/data/repositories/sqlite_artist_repository.dart';
+import '../../../library/data/repositories/sqlite_metadata_field_state_repository.dart';
 import '../../../library/data/repositories/sqlite_song_repository.dart';
 import '../../application/controllers/sync_controller.dart';
 import '../../application/services/automatic_sync_coordinator.dart';
@@ -87,6 +89,9 @@ class _SyncScopeState extends State<SyncScope> {
         AlbumEditionDao(executor),
       ),
       songRepository: SqliteSongRepository(SongDao(executor)),
+      metadataFieldStateRepository: SqliteMetadataFieldStateRepository(
+        MetadataFieldStateDao(executor),
+      ),
       artworkAssetRepository: SqliteArtworkAssetRepository(
         ArtworkAssetDao(executor),
       ),

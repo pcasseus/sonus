@@ -12,6 +12,7 @@ import 'package:sonus_next/features/library/application/models/library_track_ord
 import 'package:sonus_next/features/library/application/repositories/library_query_repository.dart';
 import 'package:sonus_next/features/library/application/services/artist_creation_service.dart';
 import 'package:sonus_next/features/library/application/services/track_profile_editing_service.dart';
+import 'package:sonus_next/features/library/domain/metadata/metadata_field_state.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/domain/entities/artist.dart';
 import 'package:sonus_next/features/library/domain/entities/song.dart';
@@ -241,6 +242,9 @@ void main() {
     expect(editingService.lastAlbumEditionId, 'edition-corrected');
 
     expect(reviewRepository.saveCallCount, 1);
+
+    expect(editingService.lastMetadataAuthority, MetadataAuthority.confirmed);
+    expect(editingService.lastMetadataSource, MetadataProvenanceSource.review);
 
     final savedReview = reviewRepository.lastSaved;
 
@@ -547,6 +551,19 @@ class _FakeTrackProfileEditingService extends TrackProfileEditingService {
     : super(mutationRunner: _UnusedSyncMutationRunner());
 
   final Object? updateError;
+
+  MetadataAuthority? lastMetadataAuthority;
+  MetadataProvenanceSource? lastMetadataSource;
+
+  @override
+  TrackProfileEditingService withMetadataProvenance({
+    required MetadataAuthority authority,
+    required MetadataProvenanceSource source,
+  }) {
+    lastMetadataAuthority = authority;
+    lastMetadataSource = source;
+    return this;
+  }
 
   int updateCallCount = 0;
 

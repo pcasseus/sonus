@@ -78,6 +78,7 @@ class LibraryImportService {
         candidate: candidate,
         metadata: resolvedMetadata.metadata,
         metadataSource: resolvedMetadata.source,
+        metadataOrigins: resolvedMetadata.origins,
         now: timestamp,
       );
 

@@ -11,6 +11,7 @@ abstract final class DatabaseTables {
   static const String songImportReviews = 'song_import_reviews';
   static const String trackLyrics = 'track_lyrics';
   static const String artworkAssets = 'artwork_assets';
+  static const String metadataFieldStates = 'metadata_field_states';
 
   static const String playbackSessions = 'playback_sessions';
   static const String playbackListeningSegments = 'playback_listening_segments';

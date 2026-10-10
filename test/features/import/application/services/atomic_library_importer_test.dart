@@ -19,6 +19,9 @@ import 'package:sonus_next/features/library/data/daos/album_dao.dart';
 import 'package:sonus_next/features/library/data/daos/album_edition_dao.dart';
 import 'package:sonus_next/features/library/data/daos/album_edition_track_dao.dart';
 import 'package:sonus_next/features/library/data/daos/artist_dao.dart';
+import 'package:sonus_next/features/library/data/daos/metadata_field_state_dao.dart';
+import 'package:sonus_next/features/library/domain/metadata/metadata_field_state.dart';
+import 'package:sonus_next/features/library/domain/metadata/metadata_fields.dart';
 import 'package:sonus_next/features/library/data/daos/song_dao.dart';
 import 'package:sonus_next/features/library/domain/entities/album.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
@@ -1297,5 +1300,343 @@ void main() {
     final db = await appDatabase.database;
 
     expect(await LocalSyncDao(db).findPending('user_1'), isEmpty);
+  });
+
+  test('embedded import records imported embedded-tag provenance', () async {
+    final result = await importer.import(
+      candidate: candidate(),
+      metadata: metadata(),
+      metadataOrigins: const ImportMetadataOrigins.all(
+        ImportMetadataFieldSource.embedded,
+      ),
+      now: now,
+    );
+
+    expect(result.status, ImportResultStatus.imported);
+
+    final db = await appDatabase.database;
+
+    final artists = await ArtistDao(db).findAll();
+    final albums = await AlbumDao(db).findAll();
+    final editions = await AlbumEditionDao(db).findAll();
+    final songs = await SongDao(db).findAll();
+
+    expect(artists, hasLength(1));
+    expect(albums, hasLength(1));
+    expect(editions, hasLength(1));
+    expect(songs, hasLength(1));
+
+    final artistStates = await MetadataFieldStateDao(db).findByEntity(
+      entityType: MetadataEntityType.artist,
+      entityId: artists.single.id,
+    );
+
+    expect(artistStates, hasLength(1));
+    expect(artistStates.single.fieldName, MetadataFields.artistName);
+    expect(artistStates.single.authority, MetadataAuthority.imported);
+    expect(artistStates.single.source, MetadataProvenanceSource.embeddedTag);
+
+    final albumStates = await MetadataFieldStateDao(db).findByEntity(
+      entityType: MetadataEntityType.album,
+      entityId: albums.single.id,
+    );
+
+    expect(albumStates.map((state) => state.fieldName).toSet(), {
+      MetadataFields.albumArtist,
+      MetadataFields.albumTitle,
+    });
+
+    final editionStates = await MetadataFieldStateDao(db).findByEntity(
+      entityType: MetadataEntityType.albumEdition,
+      entityId: editions.single.id,
+    );
+
+    expect(editionStates.map((state) => state.fieldName).toSet(), {
+      MetadataFields.editionTitle,
+    });
+
+    final songStates = await MetadataFieldStateDao(db).findByEntity(
+      entityType: MetadataEntityType.song,
+      entityId: songs.single.id,
+    );
+
+    expect(songStates.map((state) => state.fieldName).toSet(), {
+      MetadataFields.songArtist,
+      MetadataFields.songArtistCredits,
+      MetadataFields.songAlbum,
+      MetadataFields.songAlbumEdition,
+      MetadataFields.songTitle,
+      MetadataFields.songTrackNumber,
+      MetadataFields.songDiscNumber,
+      MetadataFields.songIsSingle,
+    });
+
+    expect(
+      [...albumStates, ...editionStates, ...songStates].every(
+        (state) =>
+            state.authority == MetadataAuthority.imported &&
+            state.source == MetadataProvenanceSource.embeddedTag &&
+            state.updatedAt == now,
+      ),
+      isTrue,
+    );
+  });
+
+  test('fallback import records inferred filename provenance', () async {
+    final result = await importer.import(
+      candidate: candidate(),
+      metadata: metadata(),
+      metadataSource: MetadataSource.fallback,
+      metadataOrigins: const ImportMetadataOrigins.all(
+        ImportMetadataFieldSource.fallback,
+      ),
+      now: now,
+    );
+
+    expect(result.status, ImportResultStatus.imported);
+
+    final db = await appDatabase.database;
+
+    final artists = await ArtistDao(db).findAll();
+    final albums = await AlbumDao(db).findAll();
+    final editions = await AlbumEditionDao(db).findAll();
+    final songs = await SongDao(db).findAll();
+
+    final states = <MetadataFieldState>[
+      ...await MetadataFieldStateDao(db).findByEntity(
+        entityType: MetadataEntityType.artist,
+        entityId: artists.single.id,
+      ),
+      ...await MetadataFieldStateDao(db).findByEntity(
+        entityType: MetadataEntityType.album,
+        entityId: albums.single.id,
+      ),
+      ...await MetadataFieldStateDao(db).findByEntity(
+        entityType: MetadataEntityType.albumEdition,
+        entityId: editions.single.id,
+      ),
+      ...await MetadataFieldStateDao(db).findByEntity(
+        entityType: MetadataEntityType.song,
+        entityId: songs.single.id,
+      ),
+    ];
+
+    expect(states, isNotEmpty);
+
+    expect(
+      states.every(
+        (state) =>
+            state.authority == MetadataAuthority.inferred &&
+            state.source == MetadataProvenanceSource.filename &&
+            state.updatedAt == now,
+      ),
+      isTrue,
+    );
+  });
+
+  test('mixed import preserves per-field provenance', () async {
+    final result = await importer.import(
+      candidate: candidate(),
+      metadata: metadata(),
+      metadataSource: MetadataSource.mixed,
+      metadataOrigins: const ImportMetadataOrigins(
+        title: ImportMetadataFieldSource.fallback,
+        artistName: ImportMetadataFieldSource.embedded,
+        albumTitle: ImportMetadataFieldSource.embedded,
+        albumArtistName: ImportMetadataFieldSource.embedded,
+        trackNumber: ImportMetadataFieldSource.fallback,
+        discNumber: ImportMetadataFieldSource.embedded,
+        isSingle: ImportMetadataFieldSource.embedded,
+        featuredArtists: ImportMetadataFieldSource.embedded,
+        releaseDate: ImportMetadataFieldSource.fallback,
+        genre: ImportMetadataFieldSource.embedded,
+      ),
+      now: now,
+    );
+
+    expect(result.status, ImportResultStatus.imported);
+
+    final db = await appDatabase.database;
+    final song = (await SongDao(db).findAll()).single;
+
+    final states = await MetadataFieldStateDao(
+      db,
+    ).findByEntity(entityType: MetadataEntityType.song, entityId: song.id);
+
+    final byField = {for (final state in states) state.fieldName: state};
+
+    expect(
+      byField[MetadataFields.songTitle]!.authority,
+      MetadataAuthority.inferred,
+    );
+    expect(
+      byField[MetadataFields.songTitle]!.source,
+      MetadataProvenanceSource.filename,
+    );
+
+    expect(
+      byField[MetadataFields.songTrackNumber]!.authority,
+      MetadataAuthority.inferred,
+    );
+    expect(
+      byField[MetadataFields.songTrackNumber]!.source,
+      MetadataProvenanceSource.filename,
+    );
+
+    for (final fieldName in [
+      MetadataFields.songArtist,
+      MetadataFields.songArtistCredits,
+      MetadataFields.songAlbum,
+      MetadataFields.songAlbumEdition,
+      MetadataFields.songDiscNumber,
+      MetadataFields.songIsSingle,
+    ]) {
+      expect(
+        byField[fieldName]!.authority,
+        MetadataAuthority.imported,
+        reason: fieldName,
+      );
+      expect(
+        byField[fieldName]!.source,
+        MetadataProvenanceSource.embeddedTag,
+        reason: fieldName,
+      );
+    }
+  });
+
+  test(
+    'folder-normalized artist identity records filename provenance',
+    () async {
+      final result = await importer.import(
+        candidate: candidate(
+          filePath:
+              r'C:\Music\Megan Thee Stallion\Megan\01 Explicit Feature.mp3',
+          metadataFallbackPath:
+              r'Megan Thee Stallion\Megan\01 Explicit Feature.mp3',
+          structure: ImportCandidateStructure.artistAlbum,
+        ),
+        metadata: metadata(
+          artistName: 'Megan Thee Stallion feat. Cardi B',
+          albumTitle: 'Megan',
+          title: 'Explicit Feature',
+        ),
+        metadataOrigins: const ImportMetadataOrigins.all(
+          ImportMetadataFieldSource.embedded,
+        ),
+        now: now,
+      );
+
+      expect(result.status, ImportResultStatus.imported);
+
+      final db = await appDatabase.database;
+      final songs = await SongDao(db).findAll();
+
+      expect(songs, hasLength(1));
+
+      final song = songs.single;
+      final primaryArtist = await ArtistDao(db).findById(song.artistId);
+
+      expect(primaryArtist, isNotNull);
+      expect(primaryArtist!.name, 'Megan Thee Stallion');
+
+      final artistStates = await MetadataFieldStateDao(db).findByEntity(
+        entityType: MetadataEntityType.artist,
+        entityId: primaryArtist.id,
+      );
+
+      expect(artistStates, hasLength(1));
+      expect(artistStates.single.fieldName, MetadataFields.artistName);
+      expect(artistStates.single.authority, MetadataAuthority.inferred);
+      expect(artistStates.single.source, MetadataProvenanceSource.filename);
+
+      final songStates = await MetadataFieldStateDao(
+        db,
+      ).findByEntity(entityType: MetadataEntityType.song, entityId: song.id);
+
+      final byField = {for (final state in songStates) state.fieldName: state};
+
+      expect(
+        byField[MetadataFields.songArtist]!.authority,
+        MetadataAuthority.inferred,
+      );
+      expect(
+        byField[MetadataFields.songArtist]!.source,
+        MetadataProvenanceSource.filename,
+      );
+
+      expect(byField.containsKey(MetadataFields.songArtistCredits), isFalse);
+    },
+  );
+
+  test('reused artist does not receive import provenance', () async {
+    final db = await appDatabase.database;
+
+    final existingArtist = Artist(
+      id: 'artist_existing_provenance',
+      name: 'Artist Name',
+      canonicalName: 'artist name',
+      createdAt: now,
+      updatedAt: now,
+    );
+
+    await ArtistDao(db).insert(existingArtist);
+
+    final result = await importer.import(
+      candidate: candidate(),
+      metadata: metadata(),
+      metadataOrigins: const ImportMetadataOrigins.all(
+        ImportMetadataFieldSource.embedded,
+      ),
+      now: now,
+    );
+
+    expect(result.status, ImportResultStatus.imported);
+
+    expect(
+      await MetadataFieldStateDao(db).findByEntity(
+        entityType: MetadataEntityType.artist,
+        entityId: existingArtist.id,
+      ),
+      isEmpty,
+    );
+  });
+
+  test('relink does not create metadata provenance', () async {
+    final first = await importer.import(
+      candidate: candidate(),
+      metadata: metadata(),
+      now: now,
+    );
+
+    expect(first.status, ImportResultStatus.imported);
+
+    final db = await appDatabase.database;
+    final songId = first.songId!;
+
+    expect(await db.query(DatabaseTables.metadataFieldStates), isEmpty);
+
+    final bindings = await MediaFileBindingDao(db).findBySongId(songId);
+    expect(bindings, hasLength(1));
+
+    await MediaFileBindingDao(db).update(
+      bindings.single.copyWith(
+        isAvailable: false,
+        updatedAt: now.add(const Duration(minutes: 1)),
+      ),
+    );
+
+    final relinked = await importer.import(
+      candidate: candidate(),
+      metadata: metadata(),
+      metadataOrigins: const ImportMetadataOrigins.all(
+        ImportMetadataFieldSource.embedded,
+      ),
+      now: now.add(const Duration(minutes: 2)),
+    );
+
+    expect(relinked.status, ImportResultStatus.relinked);
+    expect(relinked.songId, songId);
+
+    expect(await db.query(DatabaseTables.metadataFieldStates), isEmpty);
   });
 }

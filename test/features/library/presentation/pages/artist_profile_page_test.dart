@@ -6,6 +6,9 @@ import 'package:provider/provider.dart';
 import 'package:sonus_next/features/account/domain/entities/account_user.dart';
 import 'package:sonus_next/features/account/domain/repositories/account_repository.dart';
 import 'package:sonus_next/features/account/presentation/scopes/account_scope.dart';
+import 'package:sonus_next/features/library/application/services/external_metadata_application_service.dart';
+import 'package:sonus_next/features/library/application/services/external_metadata_proposal_service.dart';
+import 'package:sonus_next/features/library/application/services/metadata_provider.dart';
 import 'package:sonus_next/features/library/application/services/artist_profile_editing_service.dart';
 import 'package:sonus_next/features/library/application/services/song_block_service.dart';
 import 'package:sonus_next/features/library/application/services/track_profile_editing_service.dart';
@@ -13,6 +16,8 @@ import 'package:sonus_next/features/library/domain/entities/artist.dart';
 import 'package:sonus_next/features/library/domain/entities/song.dart';
 import 'package:sonus_next/features/sync/application/services/sync_mutation_runner.dart';
 
+import 'package:sonus_next/features/library/application/models/external_metadata_candidate.dart';
+import 'package:sonus_next/features/library/application/models/external_metadata_search_query.dart';
 import 'package:sonus_next/features/library/application/models/library_album.dart';
 import 'package:sonus_next/features/library/application/models/library_artist.dart';
 import 'package:sonus_next/features/library/application/models/library_track.dart';
@@ -897,6 +902,74 @@ void main() {
     expect(service.lastIsBlocked, isFalse);
   });
 
+  testWidgets(
+    'Artist Track Studio forwards MusicBrainz dependencies and track query',
+    (tester) async {
+      final provider = FakeArtistTrackMetadataProvider();
+      final applicationService = FakeArtistTrackMetadataApplicationService();
+      final proposalService = FakeArtistTrackMetadataProposalService();
+
+      final repository = FakeLibraryQueryRepository(
+        artist: createArtist(),
+        tracks: [
+          createTrack(
+            songId: 'musicbrainz-artist-track',
+            title: 'Artist Studio Song',
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        buildSubject(
+          repository: repository,
+          accountRepository: FakeAccountRepository(
+            currentUser: const AccountUser(id: 'user-1'),
+          ),
+          trackProfileEditingService: EnabledTrackStudioEditingService(),
+          metadataProvider: provider,
+          externalMetadataApplicationService: applicationService,
+          externalMetadataProposalService: proposalService,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(
+          const ValueKey<String>('artist-track-menu-musicbrainz-artist-track'),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Track Studio'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey<String>('track-studio-page')),
+        findsOneWidget,
+      );
+
+      final musicBrainzTile = find.byKey(
+        const ValueKey<String>('track-studio-search-musicbrainz'),
+      );
+
+      expect(tester.widget<ListTile>(musicBrainzTile).enabled, isTrue);
+
+      await tester.tap(musicBrainzTile);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Search MusicBrainz?'), findsOneWidget);
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('track-studio-musicbrainz-continue')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(provider.searchCount, 1);
+      expect(provider.lastQuery?.entityKind, ExternalMetadataEntityKind.track);
+      expect(provider.lastQuery?.title, 'Artist Studio Song');
+    },
+  );
+
   testWidgets('Artist Track Studio opens from the track menu', (tester) async {
     final repository = FakeLibraryQueryRepository(
       artist: createArtist(),
@@ -942,6 +1015,9 @@ void main() {
   });
 }
 
+class FakeArtistTrackMetadataProposalService extends Fake
+    implements ExternalMetadataProposalService {}
+
 Widget buildSubject({
   required LibraryQueryRepository? repository,
   PlaybackCoordinator? playbackCoordinator,
@@ -949,6 +1025,9 @@ Widget buildSubject({
   ArtistProfileEditingService? artistProfileEditingService,
   TrackProfileEditingService? trackProfileEditingService,
   SongBlockService? songBlockService,
+  MetadataProvider? metadataProvider,
+  ExternalMetadataApplicationService? externalMetadataApplicationService,
+  ExternalMetadataProposalService? externalMetadataProposalService,
   bool wrapArtistInRoute = false,
 }) {
   final app = wrapArtistInRoute
@@ -983,17 +1062,29 @@ Widget buildSubject({
           ),
         );
 
-  return Provider<LibraryQueryRepository?>.value(
-    value: repository,
-    child: Provider<PlaybackCoordinator?>.value(
-      value: playbackCoordinator,
-      child: Provider<ArtistProfileEditingService?>.value(
-        value: artistProfileEditingService,
-        child: Provider<TrackProfileEditingService?>.value(
-          value: trackProfileEditingService,
-          child: Provider<SongBlockService?>.value(
-            value: songBlockService,
-            child: AccountScope(repository: accountRepository, child: app),
+  return Provider<MetadataProvider?>.value(
+    value: metadataProvider,
+    child: Provider<ExternalMetadataApplicationService?>.value(
+      value: externalMetadataApplicationService,
+      child: Provider<LibraryQueryRepository?>.value(
+        value: repository,
+        child: Provider<PlaybackCoordinator?>.value(
+          value: playbackCoordinator,
+          child: Provider<ArtistProfileEditingService?>.value(
+            value: artistProfileEditingService,
+            child: Provider<TrackProfileEditingService?>.value(
+              value: trackProfileEditingService,
+              child: Provider<SongBlockService?>.value(
+                value: songBlockService,
+                child: AccountScope(
+                  repository: accountRepository,
+                  child: Provider<ExternalMetadataProposalService?>.value(
+                    value: externalMetadataProposalService,
+                    child: app,
+                  ),
+                ),
+              ),
+            ),
           ),
         ),
       ),
@@ -1284,6 +1375,38 @@ class FakeArtistProfileEditingService extends ArtistProfileEditingService {
 
 class EnabledTrackStudioEditingService extends TrackProfileEditingService {
   EnabledTrackStudioEditingService()
+    : super(mutationRunner: UnusedSyncMutationRunner());
+}
+
+class FakeArtistTrackMetadataProvider implements MetadataProvider {
+  ExternalMetadataSearchQuery? lastQuery;
+  int searchCount = 0;
+
+  @override
+  ExternalMetadataProviderKind get providerKind =>
+      ExternalMetadataProviderKind.musicBrainz;
+
+  @override
+  Future<List<ExternalMetadataCandidate>> search(
+    ExternalMetadataSearchQuery query,
+  ) async {
+    searchCount++;
+    lastQuery = query;
+    return const [];
+  }
+
+  @override
+  Future<ExternalMetadataCandidate?> lookup({
+    required ExternalMetadataEntityKind entityKind,
+    required String providerEntityId,
+  }) async {
+    return null;
+  }
+}
+
+class FakeArtistTrackMetadataApplicationService
+    extends ExternalMetadataApplicationService {
+  FakeArtistTrackMetadataApplicationService()
     : super(mutationRunner: UnusedSyncMutationRunner());
 }
 

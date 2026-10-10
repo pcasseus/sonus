@@ -4,6 +4,7 @@ import '../../../library/domain/repositories/album_edition_track_repository.dart
 import '../../../library/domain/entities/album_edition_track.dart';
 import '../../../library/domain/entities/artist.dart';
 import '../../../library/domain/entities/song.dart';
+import '../../../library/domain/metadata/metadata_field_state.dart';
 import '../../domain/models/cloud_records.dart';
 import 'sync_mutation_context.dart';
 
@@ -65,10 +66,16 @@ class InboundCloudRecordApplier {
 
     if (existing == null) {
       await context.artistRepository.create(entity);
-      return;
+    } else {
+      await context.artistRepository.save(entity);
     }
 
-    await context.artistRepository.save(entity);
+    await _restoreMetadataFieldStates(
+      entityType: MetadataEntityType.artist,
+      entityId: record.id,
+      cloudStates: record.metadataFieldStates,
+      context: context,
+    );
   }
 
   Future<void> _applyAlbum(
@@ -88,10 +95,16 @@ class InboundCloudRecordApplier {
 
     if (existing == null) {
       await context.albumRepository.create(entity);
-      return;
+    } else {
+      await context.albumRepository.save(entity);
     }
 
-    await context.albumRepository.save(entity);
+    await _restoreMetadataFieldStates(
+      entityType: MetadataEntityType.album,
+      entityId: record.id,
+      cloudStates: record.metadataFieldStates,
+      context: context,
+    );
   }
 
   Future<void> _applyAlbumEdition(
@@ -115,10 +128,16 @@ class InboundCloudRecordApplier {
 
     if (existing == null) {
       await context.albumEditionRepository.create(entity);
-      return;
+    } else {
+      await context.albumEditionRepository.save(entity);
     }
 
-    await context.albumEditionRepository.save(entity);
+    await _restoreMetadataFieldStates(
+      entityType: MetadataEntityType.albumEdition,
+      entityId: record.id,
+      cloudStates: record.metadataFieldStates,
+      context: context,
+    );
   }
 
   Future<void> _applySong(
@@ -186,6 +205,13 @@ class InboundCloudRecordApplier {
       incomingSong: effectiveEntity,
       targetMemberships: targetMemberships,
       targetMembership: targetMembership,
+    );
+
+    await _restoreMetadataFieldStates(
+      entityType: MetadataEntityType.song,
+      entityId: record.id,
+      cloudStates: record.metadataFieldStates,
+      context: context,
     );
   }
 
@@ -256,6 +282,44 @@ class InboundCloudRecordApplier {
       await membershipRepository.delete(
         editionId: previousSong.albumEditionId,
         songId: incomingSong.id,
+      );
+    }
+  }
+
+  Future<void> _restoreMetadataFieldStates({
+    required MetadataEntityType entityType,
+    required String entityId,
+    required List<CloudMetadataFieldState>? cloudStates,
+    required SyncMutationContext context,
+  }) async {
+    // Null means this cloud row predates provenance sync.
+    // Preserve any local provenance already present.
+    if (cloudStates == null) {
+      return;
+    }
+
+    final repository = context.metadataFieldStateRepository;
+
+    if (repository == null) {
+      throw StateError(
+        'Metadata field state repository is required for inbound provenance.',
+      );
+    }
+
+    // Any non-null cloud snapshot is authoritative, including [].
+    await repository.deleteByEntity(entityType: entityType, entityId: entityId);
+
+    for (final cloudState in cloudStates) {
+      await repository.save(
+        MetadataFieldState(
+          entityType: entityType,
+          entityId: entityId,
+          fieldName: cloudState.fieldName,
+          authority: MetadataAuthority.values.byName(cloudState.authority),
+          source: MetadataProvenanceSource.values.byName(cloudState.source),
+          sourceReference: cloudState.sourceReference,
+          updatedAt: cloudState.updatedAt,
+        ),
       );
     }
   }

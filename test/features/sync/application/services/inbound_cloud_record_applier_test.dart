@@ -7,6 +7,8 @@ import 'package:sonus_next/features/library/domain/repositories/album_edition_tr
 import 'package:sonus_next/features/library/domain/entities/album_edition_track.dart';
 import 'package:sonus_next/features/library/domain/entities/artist.dart';
 import 'package:sonus_next/features/library/domain/entities/song.dart';
+import 'package:sonus_next/features/library/domain/metadata/metadata_field_state.dart';
+import 'package:sonus_next/features/library/domain/repositories/metadata_field_state_repository.dart';
 import 'package:sonus_next/features/library/domain/repositories/album_edition_repository.dart';
 import 'package:sonus_next/features/library/domain/repositories/album_repository.dart';
 import 'package:sonus_next/features/library/domain/repositories/artist_repository.dart';
@@ -48,6 +50,124 @@ void main() {
       expect(bundle.artist.created?.id, 'artist-1');
       expect(bundle.artist.created?.name, 'Artist Name');
       expect(bundle.artist.created?.canonicalName, 'artist name');
+    });
+
+    test('restores embedded artist metadata provenance', () async {
+      final bundle = _TestContextBundle();
+
+      final record = _recordFromRow(CloudDataEntity.artist, {
+        'id': 'artist-1',
+        'user_id': 'user-1',
+        'name': 'Artist Name',
+        'canonical_name': 'artist name',
+        'is_blacklisted': false,
+        'header_artwork_id': null,
+        'top_artists_artwork_id': null,
+        'metadata_field_states': [
+          {
+            'field_name': 'name',
+            'authority': 'external',
+            'source': 'musicBrainz',
+            'source_reference': 'musicbrainz:artist:artist-mbid',
+            'updated_at': '2026-10-07T14:30:00.000Z',
+          },
+        ],
+        'created_at': '2026-09-10T10:00:00.000Z',
+        'updated_at': '2026-09-11T11:00:00.000Z',
+        'server_updated_at': '2026-09-12T12:00:00.000Z',
+        'deleted_at': null,
+      });
+
+      await applier.apply(record: record, context: bundle.context);
+
+      expect(bundle.metadata.values, hasLength(1));
+
+      final state = bundle.metadata.values.single;
+
+      expect(state.entityType, MetadataEntityType.artist);
+      expect(state.entityId, 'artist-1');
+      expect(state.fieldName, 'name');
+      expect(state.authority, MetadataAuthority.external);
+      expect(state.source, MetadataProvenanceSource.musicBrainz);
+      expect(state.sourceReference, 'musicbrainz:artist:artist-mbid');
+    });
+
+    test(
+      'legacy cloud row without provenance preserves existing local provenance',
+      () async {
+        final bundle = _TestContextBundle();
+
+        bundle.metadata.values.add(
+          MetadataFieldState(
+            entityType: MetadataEntityType.artist,
+            entityId: 'artist-1',
+            fieldName: 'name',
+            authority: MetadataAuthority.manual,
+            source: MetadataProvenanceSource.user,
+            updatedAt: DateTime.utc(2026, 10, 7),
+          ),
+        );
+
+        final record = _recordFromRow(CloudDataEntity.artist, {
+          'id': 'artist-1',
+          'user_id': 'user-1',
+          'name': 'Artist Name',
+          'canonical_name': 'artist name',
+          'is_blacklisted': false,
+          'header_artwork_id': null,
+          'top_artists_artwork_id': null,
+          'created_at': '2026-09-10T10:00:00.000Z',
+          'updated_at': '2026-09-11T11:00:00.000Z',
+          'server_updated_at': '2026-09-12T12:00:00.000Z',
+          'deleted_at': null,
+        });
+
+        await applier.apply(record: record, context: bundle.context);
+
+        expect(bundle.metadata.values, hasLength(1));
+        expect(
+          bundle.metadata.values.single.authority,
+          MetadataAuthority.manual,
+        );
+        expect(
+          bundle.metadata.values.single.source,
+          MetadataProvenanceSource.user,
+        );
+      },
+    );
+
+    test('explicit empty cloud provenance clears local provenance', () async {
+      final bundle = _TestContextBundle();
+
+      bundle.metadata.values.add(
+        MetadataFieldState(
+          entityType: MetadataEntityType.artist,
+          entityId: 'artist-1',
+          fieldName: 'name',
+          authority: MetadataAuthority.manual,
+          source: MetadataProvenanceSource.user,
+          updatedAt: DateTime.utc(2026, 10, 7),
+        ),
+      );
+
+      final record = _recordFromRow(CloudDataEntity.artist, {
+        'id': 'artist-1',
+        'user_id': 'user-1',
+        'name': 'Artist Name',
+        'canonical_name': 'artist name',
+        'is_blacklisted': false,
+        'header_artwork_id': null,
+        'top_artists_artwork_id': null,
+        'metadata_field_states': <dynamic>[],
+        'created_at': '2026-09-10T10:00:00.000Z',
+        'updated_at': '2026-09-11T11:00:00.000Z',
+        'server_updated_at': '2026-09-12T12:00:00.000Z',
+        'deleted_at': null,
+      });
+
+      await applier.apply(record: record, context: bundle.context);
+
+      expect(bundle.metadata.values, isEmpty);
     });
 
     test('saves artist when it already exists locally', () async {
@@ -599,7 +719,8 @@ class _TestContextBundle {
       song = _FakeSongRepository(),
       credit = _FakeSongArtistCreditRepository(),
       artwork = _FakeArtworkRepository(),
-      localSync = _FakeLocalSyncRepository() {
+      localSync = _FakeLocalSyncRepository(),
+      metadata = _FakeMetadataFieldStateRepository() {
     context = SyncMutationContext(
       artistRepository: artist,
       albumRepository: album,
@@ -609,6 +730,7 @@ class _TestContextBundle {
       songArtistCreditRepository: credit,
       artworkAssetRepository: artwork,
       localSyncRepository: localSync,
+      metadataFieldStateRepository: metadata,
     );
   }
 
@@ -620,6 +742,7 @@ class _TestContextBundle {
   final _FakeSongArtistCreditRepository credit;
   final _FakeArtworkRepository artwork;
   final _FakeLocalSyncRepository localSync;
+  final _FakeMetadataFieldStateRepository metadata;
 
   late final SyncMutationContext context;
 }
@@ -781,6 +904,75 @@ class _FakeArtworkRepository implements ArtworkAssetRepository {
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _FakeMetadataFieldStateRepository
+    implements MetadataFieldStateRepository {
+  final List<MetadataFieldState> values = [];
+
+  @override
+  Future<MetadataFieldState?> get({
+    required MetadataEntityType entityType,
+    required String entityId,
+    required String fieldName,
+  }) async {
+    for (final value in values) {
+      if (value.entityType == entityType &&
+          value.entityId == entityId &&
+          value.fieldName == fieldName) {
+        return value;
+      }
+    }
+    return null;
+  }
+
+  @override
+  Future<List<MetadataFieldState>> getByEntity({
+    required MetadataEntityType entityType,
+    required String entityId,
+  }) async {
+    return values
+        .where(
+          (value) =>
+              value.entityType == entityType && value.entityId == entityId,
+        )
+        .toList(growable: false);
+  }
+
+  @override
+  Future<void> save(MetadataFieldState state) async {
+    values.removeWhere(
+      (value) =>
+          value.entityType == state.entityType &&
+          value.entityId == state.entityId &&
+          value.fieldName == state.fieldName,
+    );
+    values.add(state);
+  }
+
+  @override
+  Future<void> delete({
+    required MetadataEntityType entityType,
+    required String entityId,
+    required String fieldName,
+  }) async {
+    values.removeWhere(
+      (value) =>
+          value.entityType == entityType &&
+          value.entityId == entityId &&
+          value.fieldName == fieldName,
+    );
+  }
+
+  @override
+  Future<void> deleteByEntity({
+    required MetadataEntityType entityType,
+    required String entityId,
+  }) async {
+    values.removeWhere(
+      (value) => value.entityType == entityType && value.entityId == entityId,
+    );
+  }
 }
 
 class _FakeLocalSyncRepository implements LocalSyncRepository {

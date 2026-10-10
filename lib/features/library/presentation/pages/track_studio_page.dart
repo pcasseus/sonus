@@ -1,12 +1,19 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../application/models/external_metadata_search_query.dart';
 import '../../application/models/library_album.dart';
 import '../../application/models/library_artist.dart';
 import '../../application/models/library_track.dart';
+import '../../application/services/external_metadata_application_service.dart';
+import '../../application/services/external_metadata_proposal_service.dart';
+import '../../application/services/metadata_provider.dart';
 import '../../domain/entities/song.dart';
 import '../../domain/entities/song_artist_credit.dart';
 import '../models/track_profile_edit_draft.dart';
+import '../widgets/musicbrainz_search_dialog.dart';
 
 class TrackStudioPage extends StatefulWidget {
   const TrackStudioPage({
@@ -19,6 +26,11 @@ class TrackStudioPage extends StatefulWidget {
     this.onChangeArtwork,
     this.onClearArtwork,
     this.canEditDetails = true,
+    this.userId,
+    this.metadataProvider,
+    this.externalMetadataApplicationService,
+    this.externalMetadataProposalService,
+    this.onMetadataApplied,
   });
 
   final LibraryTrack track;
@@ -29,6 +41,11 @@ class TrackStudioPage extends StatefulWidget {
   final Future<void> Function()? onChangeArtwork;
   final Future<void> Function()? onClearArtwork;
   final bool canEditDetails;
+  final String? userId;
+  final MetadataProvider? metadataProvider;
+  final ExternalMetadataApplicationService? externalMetadataApplicationService;
+  final ExternalMetadataProposalService? externalMetadataProposalService;
+  final Future<void> Function()? onMetadataApplied;
 
   @override
   State<TrackStudioPage> createState() => _TrackStudioPageState();
@@ -36,6 +53,7 @@ class TrackStudioPage extends StatefulWidget {
 
 class _TrackStudioPageState extends State<TrackStudioPage> {
   final _formKey = GlobalKey<FormState>();
+  bool _isApplyingMusicBrainz = false;
 
   late final TextEditingController _titleController;
   late final TextEditingController _trackNumberController;
@@ -127,6 +145,36 @@ class _TrackStudioPageState extends State<TrackStudioPage> {
                 widget.track.title,
                 key: const ValueKey<String>('track-studio-heading'),
                 style: Theme.of(context).textTheme.headlineSmall,
+              ),
+              const SizedBox(height: 20),
+
+              Card(
+                child: ListTile(
+                  key: const ValueKey<String>(
+                    'track-studio-search-musicbrainz',
+                  ),
+                  leading: const Icon(Icons.travel_explore_rounded),
+                  title: const Text('Search MusicBrainz'),
+                  subtitle: const Text(
+                    'Match this recording and apply allowed metadata.',
+                  ),
+                  enabled:
+                      widget.canEditDetails &&
+                      widget.metadataProvider != null &&
+                      widget.externalMetadataApplicationService != null &&
+                      widget.externalMetadataProposalService != null &&
+                      widget.onMetadataApplied != null &&
+                      !_isApplyingMusicBrainz,
+                  onTap:
+                      widget.canEditDetails &&
+                          widget.metadataProvider != null &&
+                          widget.externalMetadataApplicationService != null &&
+                          widget.externalMetadataProposalService != null &&
+                          widget.onMetadataApplied != null &&
+                          !_isApplyingMusicBrainz
+                      ? () => unawaited(_searchMusicBrainz())
+                      : null,
+                ),
               ),
               const SizedBox(height: 20),
 
@@ -466,6 +514,145 @@ class _TrackStudioPageState extends State<TrackStudioPage> {
         ),
       ),
     );
+  }
+
+  Future<void> _searchMusicBrainz() async {
+    final provider = widget.metadataProvider;
+    final applicationService = widget.externalMetadataApplicationService;
+    final proposalService = widget.externalMetadataProposalService;
+    final onApplied = widget.onMetadataApplied;
+
+    if (!widget.canEditDetails ||
+        provider == null ||
+        applicationService == null ||
+        proposalService == null ||
+        onApplied == null ||
+        _isApplyingMusicBrainz) {
+      return;
+    }
+
+    final shouldProceed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Search MusicBrainz?'),
+          content: const Text(
+            'If metadata is applied, Track Studio will close and '
+            'any unsaved form edits will be discarded.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              key: const ValueKey<String>('track-studio-musicbrainz-continue'),
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Continue'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (!mounted || shouldProceed != true) {
+      return;
+    }
+
+    setState(() {
+      _isApplyingMusicBrainz = true;
+    });
+
+    try {
+      final selection = await showDialog<MusicBrainzSearchSelection>(
+        context: context,
+        builder: (dialogContext) {
+          return MusicBrainzSearchDialog(
+            provider: provider,
+            query: ExternalMetadataSearchQuery(
+              entityKind: ExternalMetadataEntityKind.track,
+              title: widget.track.title,
+              artistName: widget.track.artistName,
+              albumTitle: widget.track.albumTitle,
+              durationSeconds: widget.track.durationSeconds,
+            ),
+            previewer: (candidate) {
+              return proposalService.previewTrack(
+                songId: widget.track.songId,
+                candidate: candidate,
+              );
+            },
+            applier: (candidate) {
+              return applicationService.applyTrackCandidate(
+                userId: widget.userId,
+                songId: widget.track.songId,
+                candidate: candidate,
+              );
+            },
+            reviewedApplier: (candidate, confirmedFields) {
+              return applicationService.confirmReviewedTrackCandidate(
+                userId: widget.userId,
+                songId: widget.track.songId,
+                candidate: candidate,
+                confirmedFields: confirmedFields,
+              );
+            },
+          );
+        },
+      );
+
+      if (!mounted || selection == null) {
+        return;
+      }
+
+      var refreshFailed = false;
+
+      try {
+        await onApplied();
+      } catch (_) {
+        refreshFailed = true;
+      }
+
+      if (!mounted) {
+        return;
+      }
+
+      final result = selection.result;
+
+      final message = refreshFailed
+          ? 'MusicBrainz metadata was applied, but the library could not refresh.'
+          : result.requiresReview
+          ? 'MusicBrainz match selected. Some fields require review.'
+          : result.hasProtectedFields
+          ? 'MusicBrainz match selected. Protected fields were preserved.'
+          : result.entityChanged
+          ? 'MusicBrainz track metadata applied.'
+          : 'MusicBrainz metadata already matched this track.';
+
+      final messenger = ScaffoldMessenger.of(context);
+
+      // Close without returning an edit draft or saving stale form values.
+      Navigator.of(context).pop();
+
+      // The messenger belongs to the app, not the closing Studio route.
+      messenger.showSnackBar(SnackBar(content: Text(message)));
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not complete the MusicBrainz operation.'),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isApplyingMusicBrainz = false;
+        });
+      }
+    }
   }
 
   Future<void> _createArtist() async {

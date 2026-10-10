@@ -5,6 +5,8 @@ import 'package:sonus_next/features/library/domain/entities/album.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/domain/entities/artist.dart';
 import 'package:sonus_next/features/library/domain/entities/song.dart';
+import 'package:sonus_next/features/library/domain/metadata/metadata_field_state.dart';
+import 'package:sonus_next/features/library/domain/repositories/metadata_field_state_repository.dart';
 import 'package:sonus_next/features/library/domain/repositories/album_edition_repository.dart';
 import 'package:sonus_next/features/library/domain/repositories/album_repository.dart';
 import 'package:sonus_next/features/library/domain/repositories/artist_repository.dart';
@@ -24,6 +26,7 @@ void main() {
     late FakeAlbumRepository albumRepository;
     late FakeAlbumEditionRepository albumEditionRepository;
     late FakeSongRepository songRepository;
+    late FakeMetadataFieldStateRepository metadataFieldStateRepository;
     late FakeArtworkAssetRepository artworkAssetRepository;
     late FakeCloudArtworkStorage cloudArtworkStorage;
     late FakeCloudSyncGateway cloudSyncGateway;
@@ -37,6 +40,7 @@ void main() {
       albumRepository = FakeAlbumRepository();
       albumEditionRepository = FakeAlbumEditionRepository();
       songRepository = FakeSongRepository();
+      metadataFieldStateRepository = FakeMetadataFieldStateRepository();
       artworkAssetRepository = FakeArtworkAssetRepository();
       cloudArtworkStorage = FakeCloudArtworkStorage();
       cloudSyncGateway = FakeCloudSyncGateway();
@@ -47,6 +51,7 @@ void main() {
         albumRepository: albumRepository,
         albumEditionRepository: albumEditionRepository,
         songRepository: songRepository,
+        metadataFieldStateRepository: metadataFieldStateRepository,
         artworkAssetRepository: artworkAssetRepository,
         cloudArtworkStorage: cloudArtworkStorage,
         cloudSyncGateway: cloudSyncGateway,
@@ -121,6 +126,50 @@ void main() {
         'a_song',
       ]);
     });
+
+    test(
+      'embeds metadata field provenance in outbound artist record',
+      () async {
+        artistRepository.values['artist_1'] = artist(timestamp);
+
+        metadataFieldStateRepository.values.add(
+          MetadataFieldState(
+            entityType: MetadataEntityType.artist,
+            entityId: 'artist_1',
+            fieldName: 'name',
+            authority: MetadataAuthority.external,
+            source: MetadataProvenanceSource.musicBrainz,
+            sourceReference: 'musicbrainz:artist:artist-mbid',
+            updatedAt: timestamp,
+          ),
+        );
+
+        localSyncRepository.pending.add(
+          outbox(
+            id: 'outbox_artist_metadata',
+            type: CloudDataEntity.artist,
+            entityId: 'artist_1',
+            timestamp: timestamp,
+          ),
+        );
+
+        await processor.pushPending('user_1');
+
+        final artistRecord = cloudSyncGateway.upsertedRecords
+            .whereType<CloudArtistRecord>()
+            .single;
+
+        expect(artistRecord.metadataFieldStates, hasLength(1));
+
+        final state = artistRecord.metadataFieldStates!.single;
+
+        expect(state.fieldName, 'name');
+        expect(state.authority, 'external');
+        expect(state.source, 'musicBrainz');
+        expect(state.sourceReference, 'musicbrainz:artist:artist-mbid');
+        expect(state.updatedAt, timestamp);
+      },
+    );
 
     test('successful artwork upload writes returned storage key', () async {
       artworkAssetRepository.values['artwork_1'] = artwork(timestamp);
@@ -667,6 +716,76 @@ class FakeSongRepository implements SongRepository {
   @override
   Future<List<Song>> getRecentlyAdded(int limit) async {
     return values.values.take(limit).toList();
+  }
+}
+
+class FakeMetadataFieldStateRepository implements MetadataFieldStateRepository {
+  final List<MetadataFieldState> values = [];
+
+  @override
+  Future<MetadataFieldState?> get({
+    required MetadataEntityType entityType,
+    required String entityId,
+    required String fieldName,
+  }) async {
+    for (final value in values) {
+      if (value.entityType == entityType &&
+          value.entityId == entityId &&
+          value.fieldName == fieldName) {
+        return value;
+      }
+    }
+
+    return null;
+  }
+
+  @override
+  Future<List<MetadataFieldState>> getByEntity({
+    required MetadataEntityType entityType,
+    required String entityId,
+  }) async {
+    return values
+        .where(
+          (value) =>
+              value.entityType == entityType && value.entityId == entityId,
+        )
+        .toList(growable: false);
+  }
+
+  @override
+  Future<void> save(MetadataFieldState state) async {
+    values.removeWhere(
+      (value) =>
+          value.entityType == state.entityType &&
+          value.entityId == state.entityId &&
+          value.fieldName == state.fieldName,
+    );
+
+    values.add(state);
+  }
+
+  @override
+  Future<void> delete({
+    required MetadataEntityType entityType,
+    required String entityId,
+    required String fieldName,
+  }) async {
+    values.removeWhere(
+      (value) =>
+          value.entityType == entityType &&
+          value.entityId == entityId &&
+          value.fieldName == fieldName,
+    );
+  }
+
+  @override
+  Future<void> deleteByEntity({
+    required MetadataEntityType entityType,
+    required String entityId,
+  }) async {
+    values.removeWhere(
+      (value) => value.entityType == entityType && value.entityId == entityId,
+    );
   }
 }
 

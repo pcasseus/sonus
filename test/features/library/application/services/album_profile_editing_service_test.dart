@@ -6,6 +6,9 @@ import 'package:sonus_next/features/library/application/services/album_profile_e
 import 'package:sonus_next/features/library/data/daos/album_dao.dart';
 import 'package:sonus_next/features/library/data/daos/album_edition_dao.dart';
 import 'package:sonus_next/features/library/data/daos/artist_dao.dart';
+import 'package:sonus_next/features/library/data/daos/metadata_field_state_dao.dart';
+import 'package:sonus_next/features/library/domain/metadata/metadata_field_state.dart';
+import 'package:sonus_next/features/library/domain/metadata/metadata_fields.dart';
 import 'package:sonus_next/features/library/domain/entities/album.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/domain/entities/entity_factory.dart';
@@ -688,4 +691,176 @@ void main() {
       expect(await LocalSyncDao(db).findPending('user_1'), isEmpty);
     },
   );
+
+  test('album-only edit records only album provenance', () async {
+    final original = await createProfile();
+
+    await service.updateProfile(
+      userId: 'user_1',
+      albumId: original.album.id,
+      primaryEditionId: original.edition.id,
+      title: 'Renamed Album',
+      editionTitle: original.edition.title,
+      editionType: original.edition.type,
+      releaseDate: original.edition.releaseDate,
+      genre: original.edition.genre,
+      now: mutationTime,
+    );
+
+    final db = await appDatabase.database;
+
+    final albumStates = await MetadataFieldStateDao(db).findByEntity(
+      entityType: MetadataEntityType.album,
+      entityId: original.album.id,
+    );
+
+    final editionStates = await MetadataFieldStateDao(db).findByEntity(
+      entityType: MetadataEntityType.albumEdition,
+      entityId: original.edition.id,
+    );
+
+    expect(albumStates, hasLength(1));
+    expect(albumStates.single.fieldName, MetadataFields.albumTitle);
+    expect(albumStates.single.authority, MetadataAuthority.manual);
+    expect(albumStates.single.source, MetadataProvenanceSource.user);
+    expect(albumStates.single.updatedAt, mutationTime);
+
+    expect(editionStates, isEmpty);
+  });
+
+  test('edition-only edit records only edition provenance', () async {
+    final original = await createProfile(
+      releaseDate: DateTime.utc(2024, 1, 5),
+      genre: 'Pop',
+    );
+
+    final newReleaseDate = DateTime.utc(2025, 6, 20);
+
+    await service.updateProfile(
+      userId: 'user_1',
+      albumId: original.album.id,
+      primaryEditionId: original.edition.id,
+      title: original.album.title,
+      editionTitle: 'Deluxe Edition',
+      editionType: AlbumEditionType.deluxe,
+      releaseDate: newReleaseDate,
+      genre: 'Alternative',
+      now: mutationTime,
+    );
+
+    final db = await appDatabase.database;
+
+    final albumStates = await MetadataFieldStateDao(db).findByEntity(
+      entityType: MetadataEntityType.album,
+      entityId: original.album.id,
+    );
+
+    final editionStates = await MetadataFieldStateDao(db).findByEntity(
+      entityType: MetadataEntityType.albumEdition,
+      entityId: original.edition.id,
+    );
+
+    expect(albumStates, isEmpty);
+
+    expect(editionStates.map((state) => state.fieldName).toSet(), {
+      MetadataFields.editionTitle,
+      MetadataFields.editionType,
+      MetadataFields.editionReleaseDate,
+      MetadataFields.editionGenre,
+    });
+
+    expect(
+      editionStates.every(
+        (state) => state.authority == MetadataAuthority.manual,
+      ),
+      isTrue,
+    );
+
+    expect(
+      editionStates.every(
+        (state) => state.source == MetadataProvenanceSource.user,
+      ),
+      isTrue,
+    );
+  });
+
+  test('clearing nullable edition metadata records those fields', () async {
+    final original = await createProfile(
+      releaseDate: DateTime.utc(2024, 1, 5),
+      genre: 'Pop',
+    );
+
+    await service.updateProfile(
+      userId: 'user_1',
+      albumId: original.album.id,
+      primaryEditionId: original.edition.id,
+      title: original.album.title,
+      editionTitle: original.edition.title,
+      editionType: original.edition.type,
+      releaseDate: null,
+      genre: null,
+      now: mutationTime,
+    );
+
+    final db = await appDatabase.database;
+
+    final states = await MetadataFieldStateDao(db).findByEntity(
+      entityType: MetadataEntityType.albumEdition,
+      entityId: original.edition.id,
+    );
+
+    expect(states.map((state) => state.fieldName).toSet(), {
+      MetadataFields.editionReleaseDate,
+      MetadataFields.editionGenre,
+    });
+
+    expect(
+      states.every((state) => state.authority == MetadataAuthority.manual),
+      isTrue,
+    );
+
+    expect(
+      states.every((state) => state.source == MetadataProvenanceSource.user),
+      isTrue,
+    );
+  });
+
+  test('no-op album update records no metadata provenance', () async {
+    final original = await createProfile(
+      releaseDate: DateTime.utc(2024, 1, 5),
+      genre: 'Pop',
+    );
+
+    final result = await service.updateProfile(
+      userId: 'user_1',
+      albumId: original.album.id,
+      primaryEditionId: original.edition.id,
+      title: original.album.title,
+      editionTitle: original.edition.title,
+      editionType: original.edition.type,
+      releaseDate: original.edition.releaseDate,
+      genre: original.edition.genre,
+      now: mutationTime,
+    );
+
+    expect(result.changed, isFalse);
+
+    final db = await appDatabase.database;
+
+    expect(
+      await MetadataFieldStateDao(db).findByEntity(
+        entityType: MetadataEntityType.album,
+        entityId: original.album.id,
+      ),
+      isEmpty,
+    );
+
+    expect(
+      await MetadataFieldStateDao(db).findByEntity(
+        entityType: MetadataEntityType.albumEdition,
+        entityId: original.edition.id,
+      ),
+      isEmpty,
+    );
+  });
 }

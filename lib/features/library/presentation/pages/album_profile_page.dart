@@ -8,6 +8,8 @@ import '../../domain/repositories/song_artist_credit_repository.dart';
 import '../../../account/application/controllers/account_controller.dart';
 import '../../../artwork/application/services/artwork_assignment_service.dart';
 import '../../../artwork/application/services/artwork_file_picker.dart';
+import '../../../artwork/application/services/cover_art_candidate_discovery_service.dart';
+import '../../../artwork/application/services/cover_art_album_edition_import_service.dart';
 import '../../../player/application/controllers/playback_coordinator.dart';
 import '../../../playlists/presentation/widgets/add_to_playlist_sheet.dart';
 import '../../application/models/library_album.dart';
@@ -15,6 +17,9 @@ import '../../application/models/library_album_edition.dart';
 import '../../application/models/library_track.dart';
 import '../../application/repositories/library_query_repository.dart';
 import '../../application/services/album_profile_editing_service.dart';
+import '../../application/services/external_metadata_application_service.dart';
+import '../../application/services/external_metadata_proposal_service.dart';
+import '../../application/services/metadata_provider.dart';
 import '../../application/services/album_edition_track_ordering_service.dart';
 import '../../application/services/song_block_service.dart';
 import '../../application/services/song_artist_credit_service.dart';
@@ -235,12 +240,30 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
       return;
     }
 
+    final coverArtCandidateDiscoveryService = context
+        .read<CoverArtCandidateDiscoveryService?>();
+    final coverArtAlbumEditionImportService = context
+        .read<CoverArtAlbumEditionImportService?>();
+    final metadataProvider = context.read<MetadataProvider?>();
+    final externalMetadataApplicationService = context
+        .read<ExternalMetadataApplicationService?>();
+    final externalMetadataProposalService = context
+        .read<ExternalMetadataProposalService?>();
+
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
         builder: (routeContext) {
           return AlbumStudioPage(
             controller: controller,
             userId: userId,
+            metadataProvider: metadataProvider,
+            coverArtAlbumEditionImportService:
+                coverArtAlbumEditionImportService,
+            coverArtCandidateDiscoveryService:
+                coverArtCandidateDiscoveryService,
+            externalMetadataApplicationService:
+                externalMetadataApplicationService,
+            externalMetadataProposalService: externalMetadataProposalService,
             onEditDetails: controller.canEditAlbumProfile(userId)
                 ? () => _editAlbumProfile(controller, userId)
                 : null,
@@ -389,11 +412,23 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
             ),
           )
           .toList(growable: false);
+      final metadataProvider = context.read<MetadataProvider?>();
+      final externalMetadataApplicationService = context
+          .read<ExternalMetadataApplicationService?>();
+      final externalMetadataProposalService = context
+          .read<ExternalMetadataProposalService?>();
+
       final draft = await Navigator.of(context).push<TrackProfileEditDraft>(
         MaterialPageRoute<TrackProfileEditDraft>(
           builder: (routeContext) {
             return TrackStudioPage(
               track: track,
+              userId: userId,
+              metadataProvider: metadataProvider,
+              externalMetadataApplicationService:
+                  externalMetadataApplicationService,
+              externalMetadataProposalService: externalMetadataProposalService,
+              onMetadataApplied: controller.refresh,
               artists: artists,
               albums: albums,
               initialAdditionalCredits: initialAdditionalCredits,
