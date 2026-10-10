@@ -100,6 +100,7 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
       ),
       songRepository: SqliteSongRepository(SongDao(database)),
       artworkManagedStorage: FileSystemArtworkManagedStorage(),
+      mutationRunner: SyncMutationTransactionRunner(appDatabase: _database),
     );
 
     final albumProfileEditingService = AlbumProfileEditingService(
