@@ -6,6 +6,14 @@ import 'package:provider/provider.dart';
 import '../../../../core/database/app_database.dart';
 import '../../../artwork/application/services/artwork_assignment_service.dart';
 import '../../../artwork/application/services/artwork_file_picker.dart';
+import '../../../artwork/application/services/cover_art_candidate_discovery_service.dart';
+import '../../../artwork/application/services/cover_art_album_edition_import_service.dart';
+import '../../../artwork/application/services/cover_art_album_edition_assignment_service.dart';
+import '../../../artwork/data/services/cover_art_archive/cover_art_archive_binary_transport.dart';
+import '../../../artwork/data/services/cover_art_archive/cover_art_archive_downloader.dart';
+import '../../../artwork/data/services/cover_art_archive/cover_art_image_validator.dart';
+import '../../../artwork/data/services/cover_art_archive/cover_art_validated_download_service.dart';
+import '../../../artwork/data/services/cover_art_archive/cover_art_archive_client.dart';
 import '../../../artwork/data/daos/artwork_asset_dao.dart';
 import '../../../artwork/data/repositories/sqlite_artwork_asset_repository.dart';
 import '../../../artwork/data/services/file_system_artwork_managed_storage.dart';
@@ -68,6 +76,9 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
   SongArtistCreditRepository? _songArtistCreditRepository;
   TrackProfileEditingService? _trackProfileEditingService;
 
+  CoverArtCandidateDiscoveryService? _coverArtCandidateDiscoveryService;
+  CoverArtAlbumEditionImportService? _coverArtAlbumEditionImportService;
+  DartIoCoverArtBinaryTransport? _coverArtBinaryTransport;
   MetadataProvider? _metadataProvider;
   ExternalMetadataApplicationService? _externalMetadataApplicationService;
   ExternalMetadataProposalService? _externalMetadataProposalService;
@@ -137,6 +148,29 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
 
     final musicBrainzTransport = DartIoMusicBrainzHttpTransport();
 
+    final coverArtCandidateDiscoveryService = CoverArtCandidateDiscoveryService(
+      client: CoverArtArchiveClient(
+        transport: musicBrainzTransport,
+        userAgent: 'Sonus/1.0.0 (https://github.com/pcasseus/sonus-next)',
+      ),
+    );
+
+    final coverArtBinaryTransport = DartIoCoverArtBinaryTransport();
+
+    final coverArtAlbumEditionImportService = CoverArtAlbumEditionImportService(
+      downloadService: CoverArtValidatedDownloadService(
+        downloader: CoverArtArchiveDownloader(
+          transport: coverArtBinaryTransport,
+          userAgent: 'Sonus/1.0.0 (https://github.com/pcasseus/sonus-next)',
+        ),
+        validator: const CoverArtImageValidator(),
+      ),
+      managedStorage: FileSystemArtworkManagedStorage(),
+      assignmentService: CoverArtAlbumEditionAssignmentService(
+        mutationRunner: SyncMutationTransactionRunner(appDatabase: _database),
+      ),
+    );
+
     final metadataProvider = MusicBrainzMetadataProvider(
       client: MusicBrainzApiClient(
         transport: musicBrainzTransport,
@@ -159,6 +193,7 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
     );
 
     if (!mounted) {
+      coverArtBinaryTransport.close();
       musicBrainzTransport.close();
       return;
     }
@@ -175,6 +210,9 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
       _songBlockService = songBlockService;
       _songArtistCreditRepository = songArtistCreditRepository;
       _trackProfileEditingService = trackProfileEditingService;
+      _coverArtCandidateDiscoveryService = coverArtCandidateDiscoveryService;
+      _coverArtAlbumEditionImportService = coverArtAlbumEditionImportService;
+      _coverArtBinaryTransport = coverArtBinaryTransport;
       _metadataProvider = metadataProvider;
       _externalMetadataApplicationService = externalMetadataApplicationService;
       _externalMetadataProposalService = externalMetadataProposalService;
@@ -210,6 +248,12 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
         Provider<TrackProfileEditingService?>.value(
           value: _trackProfileEditingService,
         ),
+        Provider<CoverArtCandidateDiscoveryService?>.value(
+          value: _coverArtCandidateDiscoveryService,
+        ),
+        Provider<CoverArtAlbumEditionImportService?>.value(
+          value: _coverArtAlbumEditionImportService,
+        ),
         Provider<MetadataProvider?>.value(value: _metadataProvider),
         Provider<ExternalMetadataApplicationService?>.value(
           value: _externalMetadataApplicationService,
@@ -227,6 +271,7 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
 
   @override
   void dispose() {
+    _coverArtBinaryTransport?.close();
     _musicBrainzTransport?.close();
 
     if (_ownsDatabase) {

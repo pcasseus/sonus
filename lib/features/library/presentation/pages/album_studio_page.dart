@@ -2,12 +2,18 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../../artwork/application/models/cover_art_archive_image.dart';
+import '../../../artwork/application/services/cover_art_candidate_discovery_service.dart';
+import '../../../artwork/application/services/cover_art_album_edition_import_service.dart';
+import '../../application/models/external_metadata_candidate.dart';
 import '../../application/models/external_metadata_search_query.dart';
 import '../../application/models/library_album_edition.dart';
 import '../../application/services/external_metadata_application_service.dart';
 import '../../application/services/external_metadata_proposal_service.dart';
 import '../../application/services/metadata_provider.dart';
 import '../widgets/musicbrainz_search_dialog.dart';
+import '../widgets/cover_art_album_search_dialog.dart';
+import '../widgets/cover_art_image_selection_dialog.dart';
 import '../../application/models/library_track.dart';
 import '../controllers/album_profile_controller.dart';
 
@@ -20,6 +26,8 @@ class AlbumStudioPage extends StatefulWidget {
     this.onChangeArtwork,
     this.onClearArtwork,
     this.metadataProvider,
+    this.coverArtCandidateDiscoveryService,
+    this.coverArtAlbumEditionImportService,
     this.externalMetadataApplicationService,
     this.externalMetadataProposalService,
   });
@@ -30,6 +38,8 @@ class AlbumStudioPage extends StatefulWidget {
   final Future<void> Function()? onChangeArtwork;
   final Future<void> Function()? onClearArtwork;
   final MetadataProvider? metadataProvider;
+  final CoverArtCandidateDiscoveryService? coverArtCandidateDiscoveryService;
+  final CoverArtAlbumEditionImportService? coverArtAlbumEditionImportService;
   final ExternalMetadataApplicationService? externalMetadataApplicationService;
   final ExternalMetadataProposalService? externalMetadataProposalService;
 
@@ -41,6 +51,7 @@ class _AlbumStudioPageState extends State<AlbumStudioPage> {
   bool _autoRenumber = false;
   bool _isSavingOrder = false;
   bool _isApplyingMusicBrainz = false;
+  bool _isSearchingCoverArt = false;
 
   AlbumProfileController get controller => widget.controller;
 
@@ -61,6 +72,15 @@ class _AlbumStudioPageState extends State<AlbumStudioPage> {
                 onEditDetails: widget.onEditDetails,
                 onChangeArtwork: widget.onChangeArtwork,
                 onClearArtwork: widget.onClearArtwork,
+                onSearchCoverArt:
+                    !_isSearchingCoverArt &&
+                        widget.metadataProvider != null &&
+                        widget.coverArtCandidateDiscoveryService != null &&
+                        widget.coverArtAlbumEditionImportService != null &&
+                        controller.album != null &&
+                        edition != null
+                    ? _searchCoverArt
+                    : null,
                 onSearchMusicBrainz:
                     widget.metadataProvider != null &&
                         widget.externalMetadataApplicationService != null &&
@@ -130,6 +150,130 @@ class _AlbumStudioPageState extends State<AlbumStudioPage> {
         );
       },
     );
+  }
+
+  Future<void> _searchCoverArt() async {
+    if (_isSearchingCoverArt) return;
+
+    final album = controller.album;
+    final selectedEditionId = controller.selectedEdition?.editionId;
+    final provider = widget.metadataProvider;
+    final discovery = widget.coverArtCandidateDiscoveryService;
+    final importService = widget.coverArtAlbumEditionImportService;
+
+    if (album == null ||
+        selectedEditionId == null ||
+        provider == null ||
+        discovery == null ||
+        importService == null) {
+      return;
+    }
+
+    setState(() {
+      _isSearchingCoverArt = true;
+    });
+
+    try {
+      final candidate = await showDialog<ExternalMetadataCandidate>(
+        context: context,
+        builder: (_) => CoverArtAlbumSearchDialog(
+          provider: provider,
+          query: ExternalMetadataSearchQuery(
+            entityKind: ExternalMetadataEntityKind.album,
+            title: album.title,
+            artistName: album.artistName,
+          ),
+        ),
+      );
+
+      if (!mounted || candidate == null) {
+        return;
+      }
+
+      try {
+        final images = await discovery.discover(candidate);
+
+        if (!mounted) return;
+
+        final image = await showDialog<CoverArtArchiveImage>(
+          context: context,
+          builder: (_) => CoverArtImageSelectionDialog(
+            images: images,
+            albumTitle: candidate.displayName,
+          ),
+        );
+
+        if (!mounted || image == null) return;
+
+        try {
+          final result = await importService.importImage(
+            albumEditionId: selectedEditionId,
+            image: image,
+            userId: widget.userId,
+          );
+
+          if (!mounted) return;
+
+          if (!result.applied) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                key: ValueKey<String>(
+                  'album-studio-cover-art-import-protected',
+                ),
+                content: Text(
+                  'Existing album artwork is protected and was not replaced.',
+                ),
+              ),
+            );
+            return;
+          }
+
+          if (result.changed) {
+            await controller.refresh();
+            if (!mounted) return;
+          }
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              key: ValueKey<String>(
+                result.changed
+                    ? 'album-studio-cover-art-import-success'
+                    : 'album-studio-cover-art-import-unchanged',
+              ),
+              content: Text(
+                result.changed
+                    ? 'Album artwork updated.'
+                    : 'Album artwork is already up to date.',
+              ),
+            ),
+          );
+        } catch (_) {
+          if (!mounted) return;
+
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              key: ValueKey<String>('album-studio-cover-art-import-error'),
+              content: Text('Could not import album artwork.'),
+            ),
+          );
+        }
+      } catch (_) {
+        if (!mounted) return;
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            key: ValueKey<String>('album-studio-cover-art-search-error'),
+            content: Text('Could not retrieve Cover Art Archive artwork.'),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSearchingCoverArt = false;
+        });
+      }
+    }
   }
 
   Future<void> _searchMusicBrainz() async {
@@ -264,12 +408,14 @@ class _AlbumStudioManagement extends StatelessWidget {
     required this.onEditDetails,
     required this.onChangeArtwork,
     required this.onClearArtwork,
+    required this.onSearchCoverArt,
     required this.onSearchMusicBrainz,
   });
 
   final Future<void> Function()? onEditDetails;
   final Future<void> Function()? onChangeArtwork;
   final Future<void> Function()? onClearArtwork;
+  final Future<void> Function()? onSearchCoverArt;
   final Future<void> Function()? onSearchMusicBrainz;
 
   @override
@@ -306,6 +452,21 @@ class _AlbumStudioManagement extends StatelessWidget {
                   ? null
                   : () {
                       unawaited(onSearchMusicBrainz!());
+                    },
+            ),
+            const Divider(height: 1),
+            ListTile(
+              key: const ValueKey<String>('album-studio-search-cover-art'),
+              leading: const Icon(Icons.image_search_rounded),
+              title: const Text('Search Cover Art Archive'),
+              subtitle: const Text(
+                'Find album artwork without changing MusicBrainz metadata.',
+              ),
+              enabled: onSearchCoverArt != null,
+              onTap: onSearchCoverArt == null
+                  ? null
+                  : () {
+                      unawaited(onSearchCoverArt!());
                     },
             ),
             const Divider(height: 1),
