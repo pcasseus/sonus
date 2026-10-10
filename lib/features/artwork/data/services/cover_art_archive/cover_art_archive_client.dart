@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import '../../../../library/data/services/musicbrainz/musicbrainz_http_transport.dart';
 import '../../../application/models/cover_art_archive_image.dart';
+import '../../../application/services/cover_art_archive_uri_policy.dart';
 
 class CoverArtArchiveException implements Exception {
   const CoverArtArchiveException({
@@ -96,7 +97,7 @@ class CoverArtArchiveClient {
         }
 
         final url = entry['image'];
-        if (url is! String || !_isHttpsUrl(url)) {
+        if (url is! String || !CoverArtArchiveUriPolicy.isTrustedString(url)) {
           continue;
         }
 
@@ -106,7 +107,8 @@ class CoverArtArchiveClient {
         if (thumbnails is Map) {
           for (final key in ['250', 'small', '500', 'large']) {
             final candidate = thumbnails[key];
-            if (candidate is String && _isHttpsUrl(candidate)) {
+            if (candidate is String &&
+                CoverArtArchiveUriPolicy.isTrustedString(candidate)) {
               thumbnail = candidate;
               break;
             }
@@ -143,13 +145,5 @@ class CoverArtArchiveClient {
         statusCode: response.statusCode,
       );
     }
-  }
-
-  static bool _isHttpsUrl(String value) {
-    final uri = Uri.tryParse(value);
-    return uri != null &&
-        uri.scheme == 'https' &&
-        uri.host.isNotEmpty &&
-        uri.userInfo.isEmpty;
   }
 }

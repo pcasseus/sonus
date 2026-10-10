@@ -166,7 +166,7 @@ void main() {
       "image": "https://coverartarchive.org/image/valid.jpg",
       "front": true,
       "thumbnails": {
-        "250": "http://example.com/insecure.jpg",
+        "250": "https://evil.example/untrusted.jpg",
         "small": "not-a-url"
       }
     }

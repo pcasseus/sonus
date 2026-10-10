@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -21,12 +22,28 @@ abstract interface class MusicBrainzHttpTransport {
 }
 
 class DartIoMusicBrainzHttpTransport implements MusicBrainzHttpTransport {
-  DartIoMusicBrainzHttpTransport({HttpClient? httpClient})
-    : _httpClient = httpClient ?? HttpClient(),
-      _ownsClient = httpClient == null;
+  DartIoMusicBrainzHttpTransport({
+    HttpClient? httpClient,
+    this.connectionTimeout = const Duration(seconds: 15),
+    this.responseHeaderTimeout = const Duration(seconds: 20),
+    this.responseBodyTimeout = const Duration(seconds: 20),
+  }) : _httpClient = httpClient ?? HttpClient(),
+       _ownsClient = httpClient == null {
+    if (connectionTimeout <= Duration.zero ||
+        responseHeaderTimeout <= Duration.zero ||
+        responseBodyTimeout <= Duration.zero) {
+      throw ArgumentError('Timeouts must be positive.');
+    }
+
+    _httpClient.connectionTimeout = connectionTimeout;
+  }
 
   final HttpClient _httpClient;
   final bool _ownsClient;
+
+  final Duration connectionTimeout;
+  final Duration responseHeaderTimeout;
+  final Duration responseBodyTimeout;
 
   @override
   Future<MusicBrainzHttpResponse> get(
@@ -39,8 +56,23 @@ class DartIoMusicBrainzHttpTransport implements MusicBrainzHttpTransport {
       request.headers.set(entry.key, entry.value);
     }
 
-    final response = await request.close();
-    final body = await response.transform(utf8.decoder).join();
+    final response = await request.close().timeout(
+      responseHeaderTimeout,
+      onTimeout: () {
+        request.abort();
+        throw TimeoutException('Metadata response headers timed out.');
+      },
+    );
+
+    final body = await response
+        .transform(utf8.decoder)
+        .join()
+        .timeout(
+          responseBodyTimeout,
+          onTimeout: () {
+            throw TimeoutException('Metadata response body timed out.');
+          },
+        );
 
     final responseHeaders = <String, String>{};
 

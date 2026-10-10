@@ -100,6 +100,24 @@ void main() {
 
     expect((preview.image as NetworkImage).url, _backImage.imageUrl);
   });
+
+  testWidgets('does not load preview from an untrusted HTTPS host', (
+    tester,
+  ) async {
+    const unsafeImage = CoverArtArchiveImage(
+      entity: CoverArtArchiveEntity.releaseGroup,
+      entityId: _releaseGroupId,
+      imageUrl: 'https://evil.example/full.jpg',
+      thumbnailUrl: 'https://evil.example/thumb.jpg',
+      front: true,
+      back: false,
+    );
+
+    await _showDialog(tester, [unsafeImage]);
+
+    expect(find.byType(Image), findsNothing);
+    expect(find.byIcon(Icons.broken_image_outlined), findsOneWidget);
+  });
 }
 
 Future<void> _showDialog(

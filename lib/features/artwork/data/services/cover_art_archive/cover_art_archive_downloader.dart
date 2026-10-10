@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
+import '../../../application/services/cover_art_archive_uri_policy.dart';
 import 'cover_art_archive_binary_transport.dart';
 import 'cover_art_cancellation.dart';
 
@@ -337,18 +338,7 @@ class CoverArtArchiveDownloader {
       status == 308;
 
   static Uri _validateUri(Uri uri) {
-    final host = uri.host.toLowerCase();
-
-    final trusted =
-        host == 'coverartarchive.org' ||
-        host.endsWith('.coverartarchive.org') ||
-        host == 'archive.org' ||
-        host.endsWith('.archive.org');
-
-    if (uri.scheme != 'https' ||
-        !trusted ||
-        uri.userInfo.isNotEmpty ||
-        uri.hasPort && uri.port != 443) {
+    if (!CoverArtArchiveUriPolicy.isTrusted(uri)) {
       throw const CoverArtDownloadException(
         'Artwork URL is not a trusted HTTPS destination.',
       );

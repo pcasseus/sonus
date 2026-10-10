@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../artwork/application/models/cover_art_archive_image.dart';
+import '../../../artwork/application/services/cover_art_archive_uri_policy.dart';
 
 class CoverArtImageSelectionDialog extends StatelessWidget {
   const CoverArtImageSelectionDialog({
@@ -44,7 +45,14 @@ class CoverArtImageSelectionDialog extends StatelessWidget {
                       separatorBuilder: (_, _) => const Divider(height: 1),
                       itemBuilder: (context, index) {
                         final image = images[index];
-                        final previewUrl = image.thumbnailUrl ?? image.imageUrl;
+                        final rawPreviewUrl =
+                            image.thumbnailUrl ?? image.imageUrl;
+                        final previewUrl =
+                            CoverArtArchiveUriPolicy.isTrustedString(
+                              rawPreviewUrl,
+                            )
+                            ? rawPreviewUrl
+                            : null;
 
                         final labels = <String>[
                           if (image.front) 'Front cover',
@@ -68,12 +76,14 @@ class CoverArtImageSelectionDialog extends StatelessWidget {
                           leading: SizedBox(
                             width: 72,
                             height: 72,
-                            child: Image.network(
-                              previewUrl,
-                              fit: BoxFit.cover,
-                              errorBuilder: (_, _, _) =>
-                                  const Icon(Icons.broken_image_outlined),
-                            ),
+                            child: previewUrl == null
+                                ? const Icon(Icons.broken_image_outlined)
+                                : Image.network(
+                                    previewUrl,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (_, _, _) =>
+                                        const Icon(Icons.broken_image_outlined),
+                                  ),
                           ),
                           title: Text('Artwork ${index + 1}'),
                           subtitle: Text(
