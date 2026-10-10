@@ -62,7 +62,10 @@ void main() {
       'https://coverartarchive.org/image/front-250.jpg',
     );
     expect(images.last.back, isTrue);
-    expect(images.first.sourceReference, 'coverartarchive:release-group:$mbid');
+    expect(
+      images.first.sourceReference,
+      'coverartarchive:release-group:$mbid:image:42',
+    );
     expect(transport.requestedUri!.path, '/release-group/$mbid');
     expect(transport.requestHeaders['Accept'], 'application/json');
     expect(transport.requestHeaders['User-Agent'], 'Sonus/1.0 (test)');

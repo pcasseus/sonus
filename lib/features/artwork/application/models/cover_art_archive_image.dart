@@ -30,5 +30,13 @@ class CoverArtArchiveImage {
   final List<String> types;
   final bool approved;
 
-  String get sourceReference => 'coverartarchive:${entity.path}:$entityId';
+  String get sourceReference {
+    final normalizedImageId = imageId?.trim();
+
+    if (normalizedImageId == null || normalizedImageId.isEmpty) {
+      return 'coverartarchive:${entity.path}:$entityId';
+    }
+
+    return 'coverartarchive:${entity.path}:$entityId:image:$normalizedImageId';
+  }
 }
