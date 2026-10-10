@@ -7,6 +7,7 @@ import '../../../sync/application/controllers/sync_controller.dart';
 import '../../../sync/application/services/automatic_sync_coordinator.dart';
 import '../../../sync/application/services/sync_network_policy_service.dart';
 import 'blacklisted_songs_page.dart';
+import 'metadata_intelligence_settings_page.dart';
 
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key});
@@ -39,6 +40,13 @@ class SettingsPage extends StatelessWidget {
           Text('Listening', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 8),
           const _ListeningCard(),
+          const SizedBox(height: 24),
+          Text(
+            'Metadata Intelligence',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 8),
+          const _MetadataIntelligenceCard(),
           const SizedBox(height: 24),
           Text('Library', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 8),
@@ -310,6 +318,32 @@ class _SyncDetailRow extends StatelessWidget {
           ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
         ),
       ],
+    );
+  }
+}
+
+class _MetadataIntelligenceCard extends StatelessWidget {
+  const _MetadataIntelligenceCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: ListTile(
+        key: const ValueKey<String>('settings-metadata-intelligence'),
+        leading: const Icon(Icons.auto_awesome_rounded),
+        title: const Text('Metadata Intelligence'),
+        subtitle: const Text(
+          'Control MusicBrainz lookup and Cover Art Archive suggestions.',
+        ),
+        trailing: const Icon(Icons.chevron_right_rounded),
+        onTap: () {
+          Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (context) => const MetadataIntelligenceSettingsPage(),
+            ),
+          );
+        },
+      ),
     );
   }
 }

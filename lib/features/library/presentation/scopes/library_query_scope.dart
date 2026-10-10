@@ -20,6 +20,7 @@ import '../../../artwork/data/services/file_system_artwork_managed_storage.dart'
 import '../../../artwork/presentation/services/file_picker_artwork_file_picker.dart';
 import '../../../search/application/repositories/library_search_repository.dart';
 import '../../../sync/data/repositories/sync_mutation_transaction_runner.dart';
+import '../../../settings/application/controllers/metadata_intelligence_settings_controller.dart';
 import '../../application/repositories/library_query_repository.dart';
 import '../../application/services/album_edition_track_ordering_service.dart';
 import '../../application/services/album_profile_editing_service.dart';
@@ -83,6 +84,8 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
   ExternalMetadataApplicationService? _externalMetadataApplicationService;
   ExternalMetadataProposalService? _externalMetadataProposalService;
   DartIoMusicBrainzHttpTransport? _musicBrainzTransport;
+  late final MetadataIntelligenceSettingsController
+  _metadataIntelligenceSettingsController;
 
   @override
   void initState() {
@@ -91,6 +94,14 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
     _ownsDatabase = widget.database == null;
     _database = widget.database ?? AppDatabase();
 
+    _metadataIntelligenceSettingsController =
+        MetadataIntelligenceSettingsController();
+
+    _metadataIntelligenceSettingsController.addListener(
+      _handleMetadataIntelligenceSettingsChanged,
+    );
+
+    unawaited(_metadataIntelligenceSettingsController.load());
     unawaited(_initialize());
   }
 
@@ -220,10 +231,19 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
     });
   }
 
+  void _handleMetadataIntelligenceSettingsChanged() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
+        ChangeNotifierProvider<MetadataIntelligenceSettingsController>.value(
+          value: _metadataIntelligenceSettingsController,
+        ),
         Provider<AppDatabase>.value(value: _database),
         Provider<LibraryQueryRepository?>.value(value: _repository),
         Provider<LibrarySearchRepository?>.value(value: _searchRepository),
@@ -249,12 +269,26 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
           value: _trackProfileEditingService,
         ),
         Provider<CoverArtCandidateDiscoveryService?>.value(
-          value: _coverArtCandidateDiscoveryService,
+          value:
+              _metadataIntelligenceSettingsController
+                  .effectiveCoverArtSuggestionsEnabled
+              ? _coverArtCandidateDiscoveryService
+              : null,
         ),
         Provider<CoverArtAlbumEditionImportService?>.value(
-          value: _coverArtAlbumEditionImportService,
+          value:
+              _metadataIntelligenceSettingsController
+                  .effectiveCoverArtSuggestionsEnabled
+              ? _coverArtAlbumEditionImportService
+              : null,
         ),
-        Provider<MetadataProvider?>.value(value: _metadataProvider),
+        Provider<MetadataProvider?>.value(
+          value:
+              _metadataIntelligenceSettingsController
+                  .onlineMetadataLookupEnabled
+              ? _metadataProvider
+              : null,
+        ),
         Provider<ExternalMetadataApplicationService?>.value(
           value: _externalMetadataApplicationService,
         ),
@@ -271,6 +305,10 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
 
   @override
   void dispose() {
+    _metadataIntelligenceSettingsController.removeListener(
+      _handleMetadataIntelligenceSettingsChanged,
+    );
+    _metadataIntelligenceSettingsController.dispose();
     _coverArtBinaryTransport?.close();
     _musicBrainzTransport?.close();
 

@@ -121,15 +121,41 @@ void main() {
   testWidgets('opens blacklisted songs from settings', (tester) async {
     await tester.pumpWidget(const MaterialApp(home: SettingsPage()));
 
-    await tester.tap(
-      find.byKey(const ValueKey<String>('settings-blacklisted-songs')),
+    final blacklistedSongsTile = find.byKey(
+      const ValueKey<String>('settings-blacklisted-songs'),
     );
+
+    await tester.scrollUntilVisible(
+      blacklistedSongsTile,
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(blacklistedSongsTile);
 
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
 
     expect(
       find.byKey(const ValueKey<String>('blacklisted-songs-page')),
+      findsOneWidget,
+    );
+  });
+  testWidgets('opens Metadata Intelligence settings', (tester) async {
+    await tester.pumpWidget(const MaterialApp(home: SettingsPage()));
+
+    await tester.ensureVisible(
+      find.byKey(const ValueKey<String>('settings-metadata-intelligence')),
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('settings-metadata-intelligence')),
+    );
+
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(
+      find.byKey(const ValueKey<String>('metadata-intelligence-settings-page')),
       findsOneWidget,
     );
   });
