@@ -23,6 +23,8 @@ abstract interface class LocalSyncRepository {
   Future<void> markProcessed({
     required String userId,
     required String outboxEntryId,
+    required int expectedRevision,
+    required SyncOutboxOperation expectedOperation,
   });
 }
 

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sonus_next/features/artwork/domain/entities/artwork_asset.dart';
 import 'package:sonus_next/features/artwork/domain/repositories/artwork_asset_repository.dart';
@@ -56,6 +58,73 @@ void main() {
         cloudArtworkStorage: cloudArtworkStorage,
         cloudSyncGateway: cloudSyncGateway,
       );
+    });
+
+    test('new edit during cloud upload remains pending', () async {
+      artistRepository.values['artist_1'] = artist(timestamp);
+
+      final originalEntry = outbox(
+        id: 'outbox_in_flight',
+        type: CloudDataEntity.artist,
+        entityId: 'artist_1',
+        timestamp: timestamp,
+      );
+
+      localSyncRepository.pending.add(originalEntry);
+
+      final uploadStarted = Completer<void>();
+      final releaseUpload = Completer<void>();
+
+      cloudSyncGateway.beforeUpsertCompletes = (record) async {
+        if (record is CloudArtistRecord) {
+          uploadStarted.complete();
+          await releaseUpload.future;
+        }
+      };
+
+      final push = processor.pushPending('user_1');
+
+      await uploadStarted.future;
+
+      try {
+        expect(cloudSyncGateway.calls, ['upsert:artist:artist_1']);
+        expect(localSyncRepository.processedIds, isEmpty);
+
+        localSyncRepository.pending[0] = SyncOutboxEntry(
+          id: originalEntry.id,
+          userId: originalEntry.userId,
+          entityType: originalEntry.entityType,
+          entityId: originalEntry.entityId,
+          operation: SyncOutboxOperation.upsert,
+          createdAt: originalEntry.createdAt,
+          updatedAt: timestamp.add(const Duration(minutes: 1)),
+          mutationRevision: 2,
+        );
+      } finally {
+        releaseUpload.complete();
+      }
+
+      await push;
+
+      expect(localSyncRepository.processedIds, isEmpty);
+      expect(localSyncRepository.pending, hasLength(1));
+      expect(localSyncRepository.pending.single.id, originalEntry.id);
+      expect(localSyncRepository.pending.single.mutationRevision, 2);
+      expect(
+        localSyncRepository.pending.single.operation,
+        SyncOutboxOperation.upsert,
+      );
+
+      cloudSyncGateway.beforeUpsertCompletes = null;
+
+      await processor.pushPending('user_1');
+
+      expect(localSyncRepository.pending, isEmpty);
+      expect(localSyncRepository.processedIds, [originalEntry.id]);
+      expect(cloudSyncGateway.calls, [
+        'upsert:artist:artist_1',
+        'upsert:artist:artist_1',
+      ]);
     });
 
     test('does nothing when outbox is empty', () async {
@@ -501,10 +570,30 @@ class FakeLocalSyncRepository implements LocalSyncRepository {
   Future<void> markProcessed({
     required String userId,
     required String outboxEntryId,
+    required int expectedRevision,
+    required SyncOutboxOperation expectedOperation,
   }) async {
+    final matchingEntries = pending
+        .where(
+          (entry) =>
+              entry.userId == userId &&
+              entry.id == outboxEntryId &&
+              entry.mutationRevision == expectedRevision &&
+              entry.operation == expectedOperation,
+        )
+        .toList();
+
+    if (matchingEntries.isEmpty) {
+      return;
+    }
+
     processedIds.add(outboxEntryId);
     pending.removeWhere(
-      (entry) => entry.userId == userId && entry.id == outboxEntryId,
+      (entry) =>
+          entry.userId == userId &&
+          entry.id == outboxEntryId &&
+          entry.mutationRevision == expectedRevision &&
+          entry.operation == expectedOperation,
     );
   }
 
@@ -559,6 +648,7 @@ class FakeCloudSyncGateway implements CloudSyncGateway {
   final List<String> calls = [];
   final List<CloudOwnedRecord> upsertedRecords = [];
   String? failOn;
+  Future<void> Function(CloudOwnedRecord)? beforeUpsertCompletes;
 
   @override
   Future<void> upsert(CloudOwnedRecord record) async {
@@ -577,6 +667,11 @@ class FakeCloudSyncGateway implements CloudSyncGateway {
 
     if (call == failOn) {
       throw StateError('Simulated cloud failure.');
+    }
+
+    final callback = beforeUpsertCompletes;
+    if (callback != null) {
+      await callback(record);
     }
   }
 

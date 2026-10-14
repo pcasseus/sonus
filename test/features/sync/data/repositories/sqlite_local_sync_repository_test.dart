@@ -127,6 +127,8 @@ void main() {
     await repository.markProcessed(
       userId: 'user_1',
       outboxEntryId: pending.single.id,
+      expectedRevision: pending.single.mutationRevision,
+      expectedOperation: pending.single.operation,
     );
 
     expect(await repository.getPending('user_1'), isEmpty);

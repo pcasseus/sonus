@@ -70,8 +70,15 @@ class SqliteLocalSyncRepository
   Future<void> markProcessed({
     required String userId,
     required String outboxEntryId,
+    required int expectedRevision,
+    required SyncOutboxOperation expectedOperation,
   }) {
-    return dao.removeOutboxEntry(userId: userId, id: outboxEntryId);
+    return dao.removeOutboxEntry(
+      userId: userId,
+      id: outboxEntryId,
+      expectedRevision: expectedRevision,
+      expectedOperation: expectedOperation,
+    );
   }
 
   Future<void> _recordMutation({

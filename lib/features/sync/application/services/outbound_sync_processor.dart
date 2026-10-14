@@ -82,6 +82,8 @@ class OutboundSyncProcessor {
       await localSyncRepository.markProcessed(
         userId: trimmedUserId,
         outboxEntryId: entry.id,
+        expectedRevision: entry.mutationRevision,
+        expectedOperation: entry.operation,
       );
     }
   }

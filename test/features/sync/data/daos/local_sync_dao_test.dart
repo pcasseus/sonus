@@ -304,6 +304,96 @@ void main() {
       expect(result, hasLength(2));
     });
 
+    test('coalesced mutations increment their revision', () async {
+      final start = DateTime.utc(2026, 9, 13, 10);
+
+      for (var index = 0; index < 4; index++) {
+        await dao.enqueue(
+          entry(
+            id: 'outbox_$index',
+            userId: 'user_1',
+            entityType: CloudDataEntity.song,
+            entityId: 'song_1',
+            operation: index == 3
+                ? SyncOutboxOperation.delete
+                : SyncOutboxOperation.upsert,
+            createdAt: start.add(Duration(minutes: index)),
+          ),
+        );
+
+        final pending = await dao.findPending('user_1');
+
+        expect(pending, hasLength(1));
+        expect(pending.single.id, 'outbox_0');
+        expect(pending.single.mutationRevision, index + 1);
+        expect(
+          pending.single.operation,
+          index == 3 ? SyncOutboxOperation.delete : SyncOutboxOperation.upsert,
+        );
+      }
+    });
+
+    test('stale acknowledgements preserve a newer mutation', () async {
+      final start = DateTime.utc(2026, 9, 13, 10);
+
+      await dao.enqueue(
+        entry(
+          id: 'race_1',
+          userId: 'user_1',
+          entityType: CloudDataEntity.song,
+          entityId: 'song_1',
+          operation: SyncOutboxOperation.upsert,
+          createdAt: start,
+        ),
+      );
+
+      final uploaded = (await dao.findPending('user_1')).single;
+
+      await dao.enqueue(
+        entry(
+          id: 'race_2',
+          userId: 'user_1',
+          entityType: CloudDataEntity.song,
+          entityId: 'song_1',
+          operation: SyncOutboxOperation.delete,
+          createdAt: start.add(const Duration(minutes: 1)),
+        ),
+      );
+
+      await dao.removeOutboxEntry(
+        userId: 'user_1',
+        id: uploaded.id,
+        expectedRevision: uploaded.mutationRevision,
+        expectedOperation: uploaded.operation,
+      );
+
+      var pending = await dao.findPending('user_1');
+      expect(pending, hasLength(1));
+      expect(pending.single.id, uploaded.id);
+      expect(pending.single.mutationRevision, 2);
+      expect(pending.single.operation, SyncOutboxOperation.delete);
+
+      await dao.removeOutboxEntry(
+        userId: 'user_1',
+        id: uploaded.id,
+        expectedRevision: 2,
+        expectedOperation: SyncOutboxOperation.upsert,
+      );
+
+      pending = await dao.findPending('user_1');
+      expect(pending, hasLength(1));
+      expect(pending.single.mutationRevision, 2);
+
+      await dao.removeOutboxEntry(
+        userId: 'user_1',
+        id: uploaded.id,
+        expectedRevision: 2,
+        expectedOperation: SyncOutboxOperation.delete,
+      );
+
+      expect(await dao.findPending('user_1'), isEmpty);
+    });
+
     test('removes a processed outbox entry', () async {
       await dao.enqueue(
         entry(
@@ -316,7 +406,12 @@ void main() {
         ),
       );
 
-      await dao.removeOutboxEntry(userId: 'user_1', id: 'outbox_1');
+      await dao.removeOutboxEntry(
+        userId: 'user_1',
+        id: 'outbox_1',
+        expectedRevision: 1,
+        expectedOperation: SyncOutboxOperation.upsert,
+      );
 
       expect(await dao.findPending('user_1'), isEmpty);
     });
@@ -333,7 +428,12 @@ void main() {
         ),
       );
 
-      await dao.removeOutboxEntry(userId: 'user_2', id: 'outbox_other_user');
+      await dao.removeOutboxEntry(
+        userId: 'user_2',
+        id: 'outbox_other_user',
+        expectedRevision: 1,
+        expectedOperation: SyncOutboxOperation.upsert,
+      );
 
       final pending = await dao.findPending('user_1');
 

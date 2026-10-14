@@ -38,7 +38,9 @@ abstract final class SyncSchema {
         operation TEXT NOT NULL
           CHECK (operation IN ('upsert', 'delete')),
         created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
+        updated_at TEXT NOT NULL,
+        mutation_revision INTEGER NOT NULL DEFAULT 1
+          CHECK (mutation_revision >= 1)
       )
     ''');
 

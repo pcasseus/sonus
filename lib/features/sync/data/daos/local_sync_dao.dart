@@ -47,14 +47,19 @@ class LocalSyncDao {
         ? <Object?>[entry.entityType.name, entry.entityId]
         : <Object?>[ownerId, entry.entityType.name, entry.entityId];
 
-    final updated = await db.update(
-      DatabaseTables.syncOutbox,
-      {
-        'operation': entry.operation.name,
-        'updated_at': entry.updatedAt.toUtc().toIso8601String(),
-      },
-      where: where,
-      whereArgs: whereArgs,
+    final updated = await db.rawUpdate(
+      '''
+      UPDATE ${DatabaseTables.syncOutbox}
+      SET operation = ?,
+          updated_at = ?,
+          mutation_revision = mutation_revision + 1
+      WHERE $where
+      ''',
+      [
+        entry.operation.name,
+        entry.updatedAt.toUtc().toIso8601String(),
+        ...whereArgs,
+      ],
     );
 
     if (updated != 0) {
@@ -143,15 +148,21 @@ class LocalSyncDao {
           ? anonymousEntry.updatedAt
           : ownedEntry.updatedAt;
 
-      await db.update(
-        DatabaseTables.syncOutbox,
-        {
-          'operation': winningOperation.name,
-          'created_at': earliestCreatedAt.toUtc().toIso8601String(),
-          'updated_at': latestUpdatedAt.toUtc().toIso8601String(),
-        },
-        where: 'id = ?',
-        whereArgs: [ownedEntry.id],
+      await db.rawUpdate(
+        '''
+        UPDATE ${DatabaseTables.syncOutbox}
+        SET operation = ?,
+            created_at = ?,
+            updated_at = ?,
+            mutation_revision = mutation_revision + 1
+        WHERE id = ?
+        ''',
+        [
+          winningOperation.name,
+          earliestCreatedAt.toUtc().toIso8601String(),
+          latestUpdatedAt.toUtc().toIso8601String(),
+          ownedEntry.id,
+        ],
       );
 
       await db.delete(
@@ -169,11 +180,15 @@ class LocalSyncDao {
   Future<void> removeOutboxEntry({
     required String userId,
     required String id,
+    required int expectedRevision,
+    required SyncOutboxOperation expectedOperation,
   }) async {
     await db.delete(
       DatabaseTables.syncOutbox,
-      where: 'user_id = ? AND id = ?',
-      whereArgs: [userId, id],
+      where:
+          'user_id = ? AND id = ? AND mutation_revision = ? '
+          'AND operation = ?',
+      whereArgs: [userId, id, expectedRevision, expectedOperation.name],
     );
   }
 }
