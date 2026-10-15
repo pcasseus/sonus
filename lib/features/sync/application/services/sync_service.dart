@@ -40,6 +40,7 @@ class SyncService {
     required OutboundSyncProcessor outboundSyncProcessor,
     required InboundSyncProcessor inboundSyncProcessor,
     SyncClock? now,
+    this._attachAccount,
   }) : _bindToUser = accountBindingRepository.bindToUser,
        _claimUnowned = localSyncOwnershipRepository.claimUnowned,
        _getPending = localSyncRepository.getPending,
@@ -55,8 +56,10 @@ class SyncService {
     required this._pushPending,
     required this._pullAll,
     SyncClock? now,
+    this._attachAccount,
   }) : _now = now ?? DateTime.now;
 
+  final Future<int> Function(String userId)? _attachAccount;
   final Future<void> Function(String userId) _bindToUser;
   final Future<int> Function(String userId) _claimUnowned;
   final Future<List<SyncOutboxEntry>> Function(String userId) _getPending;
@@ -73,9 +76,15 @@ class SyncService {
 
     final startedAt = _now().toUtc();
 
-    await _bindToUser(normalizedUserId);
+    final attachAccount = _attachAccount;
+    final int claimedUnownedCount;
 
-    final claimedUnownedCount = await _claimUnowned(normalizedUserId);
+    if (attachAccount != null) {
+      claimedUnownedCount = await attachAccount(normalizedUserId);
+    } else {
+      await _bindToUser(normalizedUserId);
+      claimedUnownedCount = await _claimUnowned(normalizedUserId);
+    }
 
     final pendingBeforePush = (await _getPending(normalizedUserId)).length;
 

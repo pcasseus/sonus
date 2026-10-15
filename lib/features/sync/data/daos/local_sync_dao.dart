@@ -47,29 +47,53 @@ class LocalSyncDao {
         ? <Object?>[entry.entityType.name, entry.entityId]
         : <Object?>[ownerId, entry.entityType.name, entry.entityId];
 
-    final updated = await db.rawUpdate(
-      '''
-      UPDATE ${DatabaseTables.syncOutbox}
-      SET operation = ?,
-          updated_at = ?,
-          mutation_revision = mutation_revision + 1
-      WHERE $where
-      ''',
-      [
-        entry.operation.name,
-        entry.updatedAt.toUtc().toIso8601String(),
-        ...whereArgs,
-      ],
-    );
+    Future<int> updateExisting() {
+      return db.rawUpdate(
+        '''
+        UPDATE ${DatabaseTables.syncOutbox}
+        SET operation = ?,
+            updated_at = ?,
+            mutation_revision = mutation_revision + 1
+        WHERE $where
+        ''',
+        [
+          entry.operation.name,
+          entry.updatedAt.toUtc().toIso8601String(),
+          ...whereArgs,
+        ],
+      );
+    }
 
-    if (updated != 0) {
+    final updated = await updateExisting();
+
+    if (updated == 1) {
       return;
     }
 
-    await db.insert(
-      DatabaseTables.syncOutbox,
-      LocalSyncRowMapper.outboxToRow(entry),
-    );
+    if (updated != 0) {
+      throw StateError('Unexpected number of updated outbox rows: $updated.');
+    }
+
+    try {
+      await db.insert(
+        DatabaseTables.syncOutbox,
+        LocalSyncRowMapper.outboxToRow(entry),
+      );
+    } on DatabaseException catch (error) {
+      if (!error.isUniqueConstraintError()) {
+        rethrow;
+      }
+
+      // Another writer may have inserted the same entity after our
+      // initial UPDATE. Retry against the row that won the race.
+      final retried = await updateExisting();
+
+      if (retried != 1) {
+        // The conflict was not resolved by updating the same entity.
+        // Preserve the original SQLite error for transaction callers.
+        rethrow;
+      }
+    }
   }
 
   Future<List<SyncOutboxEntry>> findPending(String userId) async {

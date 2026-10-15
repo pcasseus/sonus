@@ -1,3 +1,5 @@
+import 'package:sqflite/sqflite.dart';
+
 import '../../../../core/database/app_database.dart';
 import '../../../../core/database/database_tables.dart';
 import '../../application/repositories/local_account_binding_repository.dart';
@@ -39,35 +41,48 @@ class SqliteLocalAccountBindingRepository
       throw ArgumentError.value(userId, 'userId', 'User id must not be blank.');
     }
 
-    await appDatabase.transaction((transaction) async {
-      final rows = await transaction.query(
-        DatabaseTables.localAccountBinding,
-        where: 'id = ?',
-        whereArgs: const [1],
-        limit: 1,
-      );
+    await appDatabase.transaction(
+      (transaction) => bindToUserInTransaction(transaction, normalizedUserId),
+    );
+  }
 
-      if (rows.isNotEmpty) {
-        final existing = _fromRow(rows.single);
+  Future<void> bindToUserInTransaction(
+    Transaction transaction,
+    String userId,
+  ) async {
+    final normalizedUserId = userId.trim();
 
-        if (existing.userId != normalizedUserId) {
-          throw LocalAccountBindingConflict(
-            boundUserId: existing.userId,
-            requestedUserId: normalizedUserId,
-          );
-        }
+    if (normalizedUserId.isEmpty) {
+      throw ArgumentError.value(userId, 'userId', 'User id must not be blank.');
+    }
 
-        return;
+    final rows = await transaction.query(
+      DatabaseTables.localAccountBinding,
+      where: 'id = ?',
+      whereArgs: const [1],
+      limit: 1,
+    );
+
+    if (rows.isNotEmpty) {
+      final existing = _fromRow(rows.single);
+
+      if (existing.userId != normalizedUserId) {
+        throw LocalAccountBindingConflict(
+          boundUserId: existing.userId,
+          requestedUserId: normalizedUserId,
+        );
       }
 
-      final timestamp = _now().toUtc();
+      return;
+    }
 
-      await transaction.insert(DatabaseTables.localAccountBinding, {
-        'id': 1,
-        'user_id': normalizedUserId,
-        'bound_at': timestamp.toIso8601String(),
-        'updated_at': timestamp.toIso8601String(),
-      });
+    final timestamp = _now().toUtc();
+
+    await transaction.insert(DatabaseTables.localAccountBinding, {
+      'id': 1,
+      'user_id': normalizedUserId,
+      'bound_at': timestamp.toIso8601String(),
+      'updated_at': timestamp.toIso8601String(),
     });
   }
 

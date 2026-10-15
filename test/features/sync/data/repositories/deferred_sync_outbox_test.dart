@@ -5,6 +5,7 @@ import 'package:sonus_next/core/database/database_tables.dart';
 import 'package:sonus_next/core/database/schema/sync_schema.dart';
 import 'package:sonus_next/features/sync/data/daos/local_sync_dao.dart';
 import 'package:sonus_next/features/sync/data/repositories/sqlite_local_sync_repository.dart';
+import 'package:sonus_next/features/sync/domain/models/local_sync_models.dart';
 import 'package:sonus_next/features/sync/domain/models/sync_data_contract.dart';
 
 void main() {
@@ -147,6 +148,7 @@ void main() {
       expect(pending, hasLength(1));
       expect(pending.single.id, 'outbox_1');
       expect(pending.single.operation.name, 'delete');
+      expect(pending.single.mutationRevision, 2);
       expect(pending.single.createdAt, DateTime.utc(2026, 9, 30, 12));
       expect(pending.single.updatedAt, DateTime.utc(2026, 9, 30, 13));
     },
@@ -177,10 +179,156 @@ void main() {
 
       expect(pending, hasLength(1));
       expect(pending.single.operation.name, 'upsert');
+      expect(pending.single.mutationRevision, 2);
       expect(pending.single.createdAt, DateTime.utc(2026, 9, 30, 12));
       expect(pending.single.updatedAt, DateTime.utc(2026, 9, 30, 13));
     },
   );
+
+  test('concurrent enqueues retain every mutation revision', () async {
+    const mutationCount = 25;
+
+    await Future.wait(
+      List.generate(
+        mutationCount,
+        (_) => repository.recordUpsert(
+          userId: 'user_1',
+          entityType: CloudDataEntity.song,
+          entityId: 'song_concurrent',
+        ),
+      ),
+    );
+
+    final pending = await repository.getPending('user_1');
+
+    expect(pending, hasLength(1));
+    expect(pending.single.entityType, CloudDataEntity.song);
+    expect(pending.single.entityId, 'song_concurrent');
+    expect(pending.single.operation, SyncOutboxOperation.upsert);
+    expect(pending.single.mutationRevision, mutationCount);
+
+    final rows = await database.query(
+      DatabaseTables.syncOutbox,
+      where: 'user_id = ? AND entity_type = ? AND entity_id = ?',
+      whereArgs: ['user_1', CloudDataEntity.song.name, 'song_concurrent'],
+    );
+
+    expect(rows, hasLength(1));
+    expect(rows.single['mutation_revision'], mutationCount);
+  });
+
+  test('ownership claim rollback preserves original outbox rows', () async {
+    await repository.recordUpsert(
+      userId: 'user_1',
+      entityType: CloudDataEntity.album,
+      entityId: 'album_1',
+    );
+
+    now = DateTime.utc(2026, 9, 30, 13);
+
+    await repository.recordDelete(
+      userId: null,
+      entityType: CloudDataEntity.album,
+      entityId: 'album_1',
+    );
+
+    await repository.recordUpsert(
+      userId: null,
+      entityType: CloudDataEntity.artist,
+      entityId: 'artist_1',
+    );
+
+    final before = await database.query(
+      DatabaseTables.syncOutbox,
+      orderBy: 'id ASC',
+    );
+
+    expect(before, hasLength(3));
+
+    await expectLater(
+      database.transaction((transaction) async {
+        final transactionRepository = SqliteLocalSyncRepository(
+          dao: LocalSyncDao(transaction),
+          generateId: () => 'unused_transaction_id',
+          now: () => now,
+        );
+
+        final claimed = await transactionRepository.claimUnowned('user_1');
+        expect(claimed, 2);
+
+        throw StateError('Simulated failure before commit');
+      }),
+      throwsA(isA<StateError>()),
+    );
+
+    final afterRollback = await database.query(
+      DatabaseTables.syncOutbox,
+      orderBy: 'id ASC',
+    );
+
+    expect(afterRollback, equals(before));
+
+    final claimedOnRetry = await database.transaction((transaction) {
+      final transactionRepository = SqliteLocalSyncRepository(
+        dao: LocalSyncDao(transaction),
+        generateId: () => 'unused_transaction_id',
+        now: () => now,
+      );
+
+      return transactionRepository.claimUnowned('user_1');
+    });
+
+    expect(claimedOnRetry, 2);
+
+    final pending = await repository.getPending('user_1');
+    expect(pending, hasLength(2));
+
+    final album = pending.singleWhere((entry) => entry.entityId == 'album_1');
+    expect(album.operation, SyncOutboxOperation.delete);
+    expect(album.mutationRevision, 2);
+
+    final artist = pending.singleWhere((entry) => entry.entityId == 'artist_1');
+    expect(artist.operation, SyncOutboxOperation.upsert);
+
+    final remainingAnonymous = await database.query(
+      DatabaseTables.syncOutbox,
+      where: 'user_id IS NULL',
+    );
+
+    expect(remainingAnonymous, isEmpty);
+  });
+
+  test('unrelated outbox id collision preserves database error', () async {
+    await repository.recordUpsert(
+      userId: 'user_1',
+      entityType: CloudDataEntity.artist,
+      entityId: 'artist_original',
+    );
+
+    final collidingRepository = SqliteLocalSyncRepository(
+      dao: LocalSyncDao(database),
+      generateId: () => 'outbox_1',
+      now: () => now,
+    );
+
+    await expectLater(
+      collidingRepository.recordUpsert(
+        userId: 'user_1',
+        entityType: CloudDataEntity.song,
+        entityId: 'song_different',
+      ),
+      throwsA(isA<DatabaseException>()),
+    );
+
+    final pending = await repository.getPending('user_1');
+
+    expect(pending, hasLength(1));
+    expect(pending.single.id, 'outbox_1');
+    expect(pending.single.entityType, CloudDataEntity.artist);
+    expect(pending.single.entityId, 'artist_original');
+    expect(pending.single.operation, SyncOutboxOperation.upsert);
+    expect(pending.single.mutationRevision, 1);
+  });
 
   test('claim rejects blank account id', () async {
     await repository.recordUpsert(

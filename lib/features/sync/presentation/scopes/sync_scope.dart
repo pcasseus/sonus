@@ -4,6 +4,7 @@ import 'package:flutter/widgets.dart';
 import 'package:provider/provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../../app/account_sync_ownership_attachment_service.dart';
 import '../../../../core/database/app_database.dart';
 import '../../../../core/identity/entity_id.dart';
 import '../../../account/application/controllers/account_controller.dart';
@@ -111,6 +112,9 @@ class _SyncScopeState extends State<SyncScope> {
     );
 
     final service = SyncService(
+      attachAccount: AccountSyncOwnershipAttachmentService(
+        appDatabase: database,
+      ).attachUnownedToUser,
       accountBindingRepository: SqliteLocalAccountBindingRepository(
         appDatabase: database,
       ),

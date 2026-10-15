@@ -156,6 +156,71 @@ void main() {
     expect(binding!.userId, 'user-1');
   });
 
+  test('failed ownership claim rolls back new account binding', () async {
+    final db = await appDatabase.database;
+
+    final repository = SqliteLocalSyncRepository(
+      dao: LocalSyncDao(db),
+      generateId: () => 'rollback_outbox_1',
+      now: () => DateTime.utc(2026, 10, 15, 12),
+    );
+
+    await repository.recordUpsert(
+      userId: null,
+      entityType: CloudDataEntity.song,
+      entityId: 'rollback_song',
+    );
+
+    // Reject the ownership transfer after the transaction has
+    // already inserted the new account-binding row.
+    await db.execute('''
+      CREATE TRIGGER reject_outbox_claim
+      BEFORE UPDATE OF user_id ON sync_outbox
+      WHEN OLD.user_id IS NULL AND NEW.user_id IS NOT NULL
+      BEGIN
+        SELECT RAISE(ABORT, 'Simulated ownership claim failure');
+      END
+    ''');
+
+    final service = AccountSyncOwnershipAttachmentService(
+      appDatabase: appDatabase,
+    );
+
+    await expectLater(
+      service.attachUnownedToUser('user-1'),
+      throwsA(isA<Exception>()),
+    );
+
+    final bindingRepository = SqliteLocalAccountBindingRepository(
+      appDatabase: appDatabase,
+    );
+
+    // Neither half of the operation should have committed.
+    expect(await bindingRepository.getBinding(), isNull);
+
+    final unownedAfterFailure = await LocalSyncDao(db).findUnownedPending();
+    final ownedAfterFailure = await LocalSyncDao(db).findPending('user-1');
+
+    expect(unownedAfterFailure, hasLength(1));
+    expect(unownedAfterFailure.single.entityId, 'rollback_song');
+    expect(ownedAfterFailure, isEmpty);
+
+    // Remove the injected database failure and retry normally.
+    await db.execute('DROP TRIGGER reject_outbox_claim');
+
+    final claimed = await service.attachUnownedToUser('user-1');
+
+    expect(claimed, 1);
+    expect((await bindingRepository.getBinding())?.userId, 'user-1');
+    expect(await LocalSyncDao(db).findUnownedPending(), isEmpty);
+
+    final ownedAfterRetry = await LocalSyncDao(db).findPending('user-1');
+
+    expect(ownedAfterRetry, hasLength(1));
+    expect(ownedAfterRetry.single.entityId, 'rollback_song');
+    expect(ownedAfterRetry.single.mutationRevision, 1);
+  });
+
   test('rejects blank account id before opening claim', () async {
     final service = AccountSyncOwnershipAttachmentService(
       appDatabase: appDatabase,
