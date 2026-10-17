@@ -3,9 +3,12 @@ import 'package:sqflite/sqflite.dart';
 import '../database_tables.dart';
 
 abstract final class SyncSchema {
+  static const String cloudRevisionBaselinesTable =
+      'sync_cloud_revision_baselines';
   static Future<void> create(DatabaseExecutor db) async {
     await createSyncState(db);
     await createSyncOutbox(db);
+    await createCloudRevisionBaselines(db);
   }
 
   static Future<void> createSyncState(DatabaseExecutor db) async {
@@ -24,6 +27,31 @@ abstract final class SyncSchema {
           OR
           (last_server_updated_at IS NOT NULL AND last_server_id IS NOT NULL)
         )
+      )
+    ''');
+  }
+
+  static Future<void> createCloudRevisionBaselines(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE $cloudRevisionBaselinesTable (
+        user_id TEXT NOT NULL
+          CHECK (length(trim(user_id)) > 0),
+        entity_type TEXT NOT NULL
+          CHECK (
+            entity_type IN (
+              'artworkAsset',
+              'artist',
+              'album',
+              'albumEdition',
+              'song'
+            )
+          ),
+        entity_id TEXT NOT NULL
+          CHECK (length(trim(entity_id)) > 0),
+        server_revision INTEGER NOT NULL
+          CHECK (server_revision >= 1),
+
+        PRIMARY KEY (user_id, entity_type, entity_id)
       )
     ''');
   }

@@ -154,6 +154,21 @@ class InboundSyncReconciler implements InboundSyncPageReconciler {
       );
 
       await mutationRunner.run((context) async {
+        final baselineRepository = context.cloudRevisionBaselineRepository;
+
+        if (baselineRepository == null) {
+          throw StateError(
+            'Inbound reconciliation requires a cloud revision baseline repository.',
+          );
+        }
+
+        final revision = item.serverRevision;
+        if (revision == null || revision < 1) {
+          throw StateError(
+            'Inbound record ${item.record.id} has no valid server revision.',
+          );
+        }
+
         final pending = await context.localSyncRepository.getPending(
           normalizedUserId,
         );
@@ -170,7 +185,24 @@ class InboundSyncReconciler implements InboundSyncPageReconciler {
           );
         }
 
-        await applier.apply(record: item.record, context: context);
+        {
+          final baseline = await baselineRepository.getRevision(
+            userId: normalizedUserId,
+            entityType: entityType,
+            entityId: item.record.id,
+          );
+
+          if (baseline == null || revision > baseline) {
+            await applier.apply(record: item.record, context: context);
+
+            await baselineRepository.saveObservedRevision(
+              userId: normalizedUserId,
+              entityType: entityType,
+              entityId: item.record.id,
+              serverRevision: revision,
+            );
+          }
+        }
 
         if (_isAfter(itemPosition, highWaterPosition)) {
           await context.localSyncRepository.saveCursor(
@@ -182,10 +214,12 @@ class InboundSyncReconciler implements InboundSyncPageReconciler {
               updatedAt: _now().toUtc(),
             ),
           );
-
-          highWaterPosition = itemPosition;
         }
       });
+
+      if (_isAfter(itemPosition, highWaterPosition)) {
+        highWaterPosition = itemPosition;
+      }
 
       processedCount += 1;
     }

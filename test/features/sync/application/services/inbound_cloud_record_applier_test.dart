@@ -706,7 +706,7 @@ CloudOwnedRecord _recordFromRow(
 ) {
   return SupabaseCloudRecordMapper.fromRow(
     entityType: entityType,
-    row: row,
+    row: {...row, 'server_revision': 1},
   ).record;
 }
 

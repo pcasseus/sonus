@@ -19,6 +19,7 @@ void main() {
           'created_at': '2026-09-10T10:00:00.000Z',
           'updated_at': '2026-09-11T11:00:00.000Z',
           'server_updated_at': '2026-09-12T12:00:00.000Z',
+          'server_revision': 1,
           'deleted_at': null,
         },
       );
@@ -63,6 +64,7 @@ void main() {
           'created_at': '2026-09-10T10:00:00.000Z',
           'updated_at': '2026-09-11T11:00:00.000Z',
           'server_updated_at': '2026-09-12T12:00:00.000Z',
+          'server_revision': 1,
           'deleted_at': null,
         },
       );
@@ -99,6 +101,7 @@ void main() {
             'created_at': '2026-09-10T10:00:00.000Z',
             'updated_at': '2026-09-11T11:00:00.000Z',
             'server_updated_at': '2026-09-12T12:00:00.000Z',
+            'server_revision': 1,
             'deleted_at': null,
           },
         );
@@ -124,6 +127,7 @@ void main() {
           'created_at': '2026-09-10T10:00:00.000Z',
           'updated_at': '2026-09-11T11:00:00.000Z',
           'server_updated_at': '2026-09-12T12:00:00.000Z',
+          'server_revision': 1,
           'deleted_at': null,
         },
       );
@@ -158,6 +162,7 @@ void main() {
             'created_at': '2026-09-10T10:00:00.000Z',
             'updated_at': '2026-09-11T11:00:00.000Z',
             'server_updated_at': '2026-09-12T12:00:00.000Z',
+            'server_revision': 1,
             'deleted_at': null,
           },
         ),
@@ -177,6 +182,7 @@ void main() {
           'created_at': '2026-09-10T10:00:00.000Z',
           'updated_at': '2026-09-11T11:00:00.000Z',
           'server_updated_at': '2026-09-12T12:00:00.000Z',
+          'server_revision': 1,
           'deleted_at': null,
         },
       );
@@ -205,6 +211,7 @@ void main() {
           'created_at': '2026-09-10T10:00:00.000Z',
           'updated_at': '2026-09-11T11:00:00.000Z',
           'server_updated_at': '2026-09-12T12:00:00.000Z',
+          'server_revision': 1,
           'deleted_at': null,
         },
       );
@@ -249,6 +256,7 @@ void main() {
           'created_at': '2026-09-10T10:00:00.000Z',
           'updated_at': '2026-09-11T11:00:00.000Z',
           'server_updated_at': '2026-09-12T12:00:00.000Z',
+          'server_revision': 1,
           'deleted_at': null,
         },
       );
@@ -290,6 +298,7 @@ void main() {
           'created_at': '2026-09-10T10:00:00.000Z',
           'updated_at': '2026-09-11T11:00:00.000Z',
           'server_updated_at': '2026-09-12T12:00:00.000Z',
+          'server_revision': 1,
           'deleted_at': null,
         },
       );
@@ -313,6 +322,7 @@ void main() {
           'created_at': '2026-09-10T10:00:00.000Z',
           'updated_at': '2026-09-11T11:00:00.000Z',
           'server_updated_at': '2026-09-12T12:00:00.000Z',
+          'server_revision': 1,
           'deleted_at': null,
         },
       );
@@ -337,6 +347,7 @@ void main() {
           'created_at': '2026-09-10T10:00:00.000Z',
           'updated_at': '2026-09-13T08:00:00.000Z',
           'server_updated_at': '2026-09-13T08:00:01.000Z',
+          'server_revision': 1,
           'deleted_at': '2026-09-13T08:00:00.000Z',
         },
       );
@@ -374,6 +385,7 @@ void main() {
             'created_at': '2026-09-10T10:00:00.000Z',
             'updated_at': '2026-09-11T11:00:00.000Z',
             'server_updated_at': '2026-09-12T12:00:00.000Z',
+            'server_revision': 1,
             'deleted_at': null,
           },
         ),
@@ -400,6 +412,7 @@ void main() {
             'created_at': '2026-09-10T10:00:00.000Z',
             'updated_at': '2026-09-11T11:00:00.000Z',
             'server_updated_at': '2026-09-12T12:00:00.000Z',
+            'server_revision': 1,
             'deleted_at': null,
           },
         ),

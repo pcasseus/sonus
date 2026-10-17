@@ -24,7 +24,7 @@ void main() {
       final result = await db.rawQuery('PRAGMA user_version');
 
       expect(result.single['user_version'], AppDatabase.databaseVersion);
-      expect(AppDatabase.databaseVersion, 28);
+      expect(AppDatabase.databaseVersion, 29);
     } finally {
       await appDatabase.close();
     }
@@ -1564,7 +1564,7 @@ void main() {
 
     try {
       await expectLater(
-        DatabaseMigrations.migrate(db, oldVersion: 28, newVersion: 29),
+        DatabaseMigrations.migrate(db, oldVersion: 29, newVersion: 30),
         throwsA(isA<UnsupportedError>()),
       );
     } finally {

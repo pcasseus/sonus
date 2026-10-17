@@ -22,7 +22,9 @@ import '../../../playlists/data/repositories/sqlite_playlist_repository.dart';
 import '../../application/services/sync_mutation_context.dart';
 import '../../application/services/sync_mutation_runner.dart';
 import '../daos/local_sync_dao.dart';
+import '../daos/cloud_revision_baseline_dao.dart';
 import 'sqlite_local_sync_repository.dart';
+import 'sqlite_cloud_revision_baseline_repository.dart';
 
 class SyncMutationTransactionRunner implements SyncMutationRunner {
   SyncMutationTransactionRunner({
@@ -65,6 +67,9 @@ class SyncMutationTransactionRunner implements SyncMutationRunner {
           dao: LocalSyncDao(transaction),
           generateId: _generateId,
           now: _now,
+        ),
+        cloudRevisionBaselineRepository: SqliteCloudRevisionBaselineRepository(
+          dao: CloudRevisionBaselineDao(transaction),
         ),
         playlistRepository: SqlitePlaylistRepository(PlaylistDao(transaction)),
       );

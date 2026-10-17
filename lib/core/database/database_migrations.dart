@@ -416,6 +416,11 @@ abstract final class DatabaseMigrations {
         );
         return;
 
+      case 29:
+        await SyncSchema.createCloudRevisionBaselines(db);
+
+        return;
+
       default:
         throw UnsupportedError(
           'No Sonus database migration exists for version $targetVersion.',

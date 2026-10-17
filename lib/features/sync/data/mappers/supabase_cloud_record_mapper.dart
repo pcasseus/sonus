@@ -137,7 +137,20 @@ abstract final class SupabaseCloudRecordMapper {
       CloudDataEntity.artworkAsset => _artworkFromRow(row),
     };
 
-    return CloudSyncItem(record: record, serverUpdatedAt: serverUpdatedAt);
+    final serverRevision = _requiredInt(
+      row,
+      SupabaseSyncContract.serverRevisionColumn,
+    );
+
+    if (serverRevision < 1) {
+      throw StateError('Invalid cloud server revision.');
+    }
+
+    return CloudSyncItem(
+      record: record,
+      serverUpdatedAt: serverUpdatedAt,
+      serverRevision: serverRevision,
+    );
   }
 
   static CloudArtistRecord _artistFromRow(Map<String, dynamic> row) {
