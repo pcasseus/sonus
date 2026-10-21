@@ -5,6 +5,7 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as path;
 import 'package:sonus_next/core/database/app_database.dart';
+import 'package:sonus_next/core/database/database_tables.dart';
 import 'package:sonus_next/features/recovery/application/models/backup_data_payload.dart';
 import 'package:sonus_next/features/recovery/application/models/backup_manifest.dart';
 import 'package:sonus_next/features/recovery/application/models/backup_table_coverage.dart';
@@ -122,6 +123,33 @@ void main() {
   });
 
   test('verifies actual artwork bytes', () async {
+    payload = BackupDataPayload(
+      tables: {
+        for (final entry in BackupCoverageContract.portableTables)
+          entry.table: entry.table == DatabaseTables.artworkAssets
+              ? <Map<String, Object?>>[
+                  {
+                    'id': 'test-cover',
+                    'file_path': '/previous-device/cover.jpg',
+                    'normalized_path': '/previous-device/cover.jpg',
+                    'created_at': '2026-10-21T00:00:00.000Z',
+                    'updated_at': '2026-10-21T00:00:00.000Z',
+                  },
+                ]
+              : <Map<String, Object?>>[],
+      },
+    );
+
+    manifest = BackupManifest(
+      backupId: 'archive-verification-test',
+      createdAtUtc: DateTime.utc(2026, 10, 21),
+      databaseVersion: AppDatabase.databaseVersion,
+      rowCounts: {
+        for (final entry in BackupCoverageContract.portableTables)
+          entry.table: entry.table == DatabaseTables.artworkAssets ? 1 : 0,
+      },
+    );
+
     await prepare();
 
     const bytes = <int>[10, 20, 30, 40];
@@ -151,6 +179,66 @@ void main() {
     expect(result.manifest.backupId, manifest.backupId);
   });
 
+  test('rejects artwork without a database record', () async {
+    const bytes = <int>[1, 2, 3];
+    final name = 'artwork/${'d' * 64}.jpg';
+
+    final artworkDirectory = Directory(path.join(staging.path, 'artwork'));
+    await artworkDirectory.create();
+
+    await File(
+      path.join(artworkDirectory.path, '${'d' * 64}.jpg'),
+    ).writeAsBytes(bytes);
+
+    await prepare(
+      artwork: [
+        {
+          'artworkId': 'orphan-cover',
+          'archivePath': name,
+          'byteLength': bytes.length,
+          'sha256': sha256.convert(bytes).toString(),
+        },
+      ],
+    );
+
+    await package();
+
+    await expectLater(verifier.verify(destination), throwsFormatException);
+  });
+
+  test('rejects database artwork without an archive entry', () async {
+    payload = BackupDataPayload(
+      tables: {
+        for (final entry in BackupCoverageContract.portableTables)
+          entry.table: entry.table == DatabaseTables.artworkAssets
+              ? <Map<String, Object?>>[
+                  {
+                    'id': 'unpackaged-cover',
+                    'file_path': '/old-device/cover.jpg',
+                    'normalized_path': '/old-device/cover.jpg',
+                    'created_at': '2026-10-21T00:00:00.000Z',
+                    'updated_at': '2026-10-21T00:00:00.000Z',
+                  },
+                ]
+              : <Map<String, Object?>>[],
+      },
+    );
+
+    manifest = BackupManifest(
+      backupId: 'archive-verification-test',
+      createdAtUtc: DateTime.utc(2026, 10, 21),
+      databaseVersion: AppDatabase.databaseVersion,
+      rowCounts: {
+        for (final entry in BackupCoverageContract.portableTables)
+          entry.table: entry.table == DatabaseTables.artworkAssets ? 1 : 0,
+      },
+    );
+
+    await prepare();
+    await package();
+
+    await expectLater(verifier.verify(destination), throwsFormatException);
+  });
   test('rejects altered artwork bytes', () async {
     const original = <int>[1, 2, 3];
     const modified = <int>[4, 5, 6];

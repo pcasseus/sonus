@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:archive/archive_io.dart';
 import 'package:crypto/crypto.dart';
 
+import '../../../../core/database/database_tables.dart';
 import '../models/backup_manifest.dart';
 import 'backup_integrity_codec.dart';
 import 'backup_json_codec.dart';
@@ -186,6 +187,31 @@ class BackupArchiveVerifier {
         throw const FormatException('Unlisted artwork in backup.');
       }
 
+      final databaseArtworkRows =
+          backup.payload.tables[DatabaseTables.artworkAssets];
+
+      if (databaseArtworkRows == null) {
+        throw const FormatException('Backup artwork table is missing.');
+      }
+
+      final databaseArtworkIds = <String>{};
+
+      for (final row in databaseArtworkRows) {
+        final id = row['id'];
+
+        if (id is! String || id.trim().isEmpty || !databaseArtworkIds.add(id)) {
+          throw const FormatException(
+            'Invalid or duplicate database artwork identity.',
+          );
+        }
+      }
+
+      if (databaseArtworkIds.length != expectedArtworkIds.length ||
+          !databaseArtworkIds.containsAll(expectedArtworkIds)) {
+        throw const FormatException(
+          'Artwork inventory does not match database records.',
+        );
+      }
       return backup;
     } finally {
       await input.close();
