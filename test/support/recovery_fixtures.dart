@@ -257,6 +257,35 @@ Future<void> seedImportReview(DatabaseExecutor db, {required String key}) =>
       'updated_at': fixtureTimestamp,
     });
 
+/// Every row of every table, for exact before/after comparisons.
+Future<Map<String, List<Map<String, Object?>>>> snapshotDatabase(
+  DatabaseExecutor db,
+) async {
+  final tables = await db.rawQuery(
+    "SELECT name FROM sqlite_master WHERE type = 'table' "
+    "AND name NOT LIKE 'sqlite_%' ORDER BY name",
+  );
+
+  return {
+    for (final row in tables)
+      row['name'] as String: await db.rawQuery(
+        'SELECT * FROM "${row['name']}" ORDER BY rowid',
+      ),
+  };
+}
+
+/// Paths and bytes of every file below [directory].
+Future<Map<String, List<int>>> snapshotFiles(Directory directory) async {
+  final files = <String, List<int>>{};
+  if (!await directory.exists()) return files;
+
+  await for (final entity in directory.list(recursive: true)) {
+    if (entity is File) files[entity.path] = await entity.readAsBytes();
+  }
+
+  return files;
+}
+
 /// Writes a real verified backup of [source] into [directory].
 Future<File> createFixtureBackup({
   required AppDatabase source,

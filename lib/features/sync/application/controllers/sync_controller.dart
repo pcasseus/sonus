@@ -4,9 +4,19 @@ import 'package:flutter/foundation.dart';
 
 import '../../../account/application/repositories/local_account_binding_repository.dart';
 import '../../data/services/sync_status_store.dart';
+import '../services/sync_run_guard.dart';
 import '../services/sync_service.dart';
 
-enum SyncStatus { idle, syncing, success, error, accountConflict }
+enum SyncStatus {
+  idle,
+  syncing,
+  success,
+  error,
+  accountConflict,
+
+  /// Paused by backup recovery; no sync work was attempted.
+  recoveryHold,
+}
 
 class SyncController extends ChangeNotifier {
   SyncController({required SyncService service, SyncStatusStore? statusStore})
@@ -66,6 +76,13 @@ class SyncController extends ChangeNotifier {
       _status == SyncStatus.error || _status == SyncStatus.accountConflict;
 
   bool get hasAccountConflict => _status == SyncStatus.accountConflict;
+
+  bool get isRecoveryHeld => _status == SyncStatus.recoveryHold;
+
+  SyncHoldReason? get recoveryHoldReason => switch (_lastError) {
+    SyncHeldForRecovery(:final reason) => reason,
+    _ => null,
+  };
 
   Future<void> activateUser(String userId) async {
     final normalizedUserId = userId.trim();
@@ -155,6 +172,13 @@ class SyncController extends ChangeNotifier {
       }
 
       return true;
+    } on SyncHeldForRecovery catch (error) {
+      // Not a failure: retrying would only be rejected again.
+      _lastError = error;
+      _retryPending = false;
+      _status = SyncStatus.recoveryHold;
+
+      return false;
     } on LocalAccountBindingConflict catch (error) {
       _lastError = error;
       _retryPending = false;

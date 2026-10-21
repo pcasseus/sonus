@@ -16,6 +16,12 @@ enum RestoreBlocker {
 
   /// Local changes are still waiting to be synchronized to the cloud.
   pendingSyncWork,
+
+  /// The device does not have enough free space for a safe restore.
+  insufficientStorage,
+
+  /// Free space could not be determined on a platform that supports it.
+  storageCheckFailed,
 }
 
 class RestorePreflight {
@@ -29,6 +35,7 @@ class RestorePreflight {
     required this.pendingSyncItemCount,
     required this.hasCloudSyncState,
     required this.estimatedRequiredBytes,
+    this.availableBytes,
   }) : blockers = List.unmodifiable(blockers),
        backupAccountIds = Set.unmodifiable(backupAccountIds);
 
@@ -52,10 +59,15 @@ class RestorePreflight {
   /// consistency assessment before normal sync may resume.
   final bool hasCloudSyncState;
 
-  /// Approximate local storage a restore needs (artwork plus database
-  /// growth). The platform exposes no free-space query, so this is an
-  /// estimate for display, not an enforced check.
+  /// Approximate storage a restore needs: extracted and installed artwork,
+  /// database growth, and the safety backup of the current library.
   final int estimatedRequiredBytes;
+
+  /// Free space reported by the platform, or null where the platform
+  /// cannot report it (free space is then unverified).
+  final int? availableBytes;
+
+  bool get isStorageVerified => availableBytes != null;
 
   bool get canRestore => blockers.isEmpty;
 

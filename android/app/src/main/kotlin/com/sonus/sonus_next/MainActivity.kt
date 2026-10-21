@@ -1,5 +1,6 @@
 package com.sonus.sonus_next
 
+import android.os.StatFs
 import android.system.ErrnoException
 import android.system.Os
 import android.system.OsConstants
@@ -10,6 +11,8 @@ import io.flutter.plugin.common.MethodChannel
 class MainActivity : FlutterActivity() {
     private val publicationChannel =
         "com.sonus.sonus_next/backup_publication"
+
+    private val storageChannel = "com.sonus.sonus_next/storage"
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -57,6 +60,34 @@ class MainActivity : FlutterActivity() {
                 result.error(
                     "PUBLICATION_FAILED",
                     "Atomic backup publication failed.",
+                    null
+                )
+            }
+        }
+
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            storageChannel
+        ).setMethodCallHandler { call, result ->
+            if (call.method != "availableBytes") {
+                result.notImplemented()
+                return@setMethodCallHandler
+            }
+
+            val path = call.argument<String>("path")
+
+            if (path.isNullOrBlank()) {
+                result.error("INVALID_PATH", "A storage path is required.", null)
+                return@setMethodCallHandler
+            }
+
+            try {
+                // Space available to this app on the volume holding the path.
+                result.success(StatFs(path).availableBytes)
+            } catch (error: Exception) {
+                result.error(
+                    "STORAGE_QUERY_FAILED",
+                    "Free storage could not be determined.",
                     null
                 )
             }

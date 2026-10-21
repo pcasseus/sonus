@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../core/database/app_database.dart';
 import '../features/account/domain/repositories/account_repository.dart';
@@ -11,7 +12,9 @@ import '../features/import/presentation/scopes/import_scope.dart';
 import '../features/library/presentation/scopes/library_query_scope.dart';
 import '../features/player/presentation/scopes/playback_scope.dart';
 import '../features/playlists/presentation/scopes/playlists_scope.dart';
+import '../features/recovery/application/services/recovery_sync_gate.dart';
 import '../features/shell/presentation/pages/app_shell_page.dart';
+import '../features/sync/application/services/sync_run_guard.dart';
 import '../features/sync/presentation/scopes/sync_scope.dart';
 import 'account_analytics_bridge.dart';
 import 'account_sync_ownership_bridge.dart';
@@ -22,40 +25,52 @@ class SonusApp extends StatelessWidget {
     this.playbackEngineFactory,
     this.libraryDatabase,
     this.accountRepository,
+    this.recoverySyncGate,
   });
 
   final PlaybackEngineFactory? playbackEngineFactory;
   final AppDatabase? libraryDatabase;
   final AccountRepository? accountRepository;
 
+  /// Shared by sync and backup recovery; defaults to the app-wide gate.
+  final RecoverySyncGate? recoverySyncGate;
+
   @override
   Widget build(BuildContext context) {
-    return LibraryQueryScope(
-      database: libraryDatabase,
-      child: PlaylistsScope(
-        child: PlaybackScope(
-          engineFactory: playbackEngineFactory,
-          child: AccountScope(
-            repository: accountRepository,
-            child: SyncScope(
-              database: libraryDatabase,
-              child: AccountSyncOwnershipBridge(
+    final gate = recoverySyncGate ?? RecoverySyncGate.application;
+
+    return MultiProvider(
+      providers: [
+        Provider<RecoverySyncGate?>.value(value: gate),
+        Provider<SyncRunGuard?>.value(value: gate),
+      ],
+      child: LibraryQueryScope(
+        database: libraryDatabase,
+        child: PlaylistsScope(
+          child: PlaybackScope(
+            engineFactory: playbackEngineFactory,
+            child: AccountScope(
+              repository: accountRepository,
+              child: SyncScope(
                 database: libraryDatabase,
-                child: AccountAnalyticsBridge(
-                  child: MonthlyListeningInsightsScope(
-                    child: YearInSonusScope(
-                      child: HomeScope(
-                        child: ChartsScope(
-                          child: ImportScope(
-                            child: MaterialApp(
-                              debugShowCheckedModeBanner: false,
-                              title: 'Sonus',
-                              theme: ThemeData(
-                                colorScheme: ColorScheme.fromSeed(
-                                  seedColor: Colors.deepPurple,
+                child: AccountSyncOwnershipBridge(
+                  database: libraryDatabase,
+                  child: AccountAnalyticsBridge(
+                    child: MonthlyListeningInsightsScope(
+                      child: YearInSonusScope(
+                        child: HomeScope(
+                          child: ChartsScope(
+                            child: ImportScope(
+                              child: MaterialApp(
+                                debugShowCheckedModeBanner: false,
+                                title: 'Sonus',
+                                theme: ThemeData(
+                                  colorScheme: ColorScheme.fromSeed(
+                                    seedColor: Colors.deepPurple,
+                                  ),
                                 ),
+                                home: const AppShellPage(),
                               ),
-                              home: const AppShellPage(),
                             ),
                           ),
                         ),

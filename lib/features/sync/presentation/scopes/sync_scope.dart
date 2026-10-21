@@ -36,6 +36,7 @@ import '../../application/services/outbound_artist_write_committer.dart';
 import '../../application/services/outbound_artist_write_coordinator.dart';
 import '../../application/services/outbound_artist_dependency_ensurer.dart';
 import '../../application/services/sync_network_policy_service.dart';
+import '../../application/services/sync_run_guard.dart';
 import '../../application/services/sync_service.dart';
 import '../../data/daos/local_sync_dao.dart';
 import '../../data/daos/cloud_revision_baseline_dao.dart';
@@ -78,10 +79,10 @@ class _SyncScopeState extends State<SyncScope> {
     }
 
     _initializationStarted = true;
-    unawaited(_initialize());
+    unawaited(_initialize(context.read<SyncRunGuard?>()));
   }
 
-  Future<void> _initialize() async {
+  Future<void> _initialize(SyncRunGuard? runGuard) async {
     final database = widget.database ?? AppDatabase();
     final ownsDatabase = widget.database == null;
 
@@ -207,6 +208,8 @@ class _SyncScopeState extends State<SyncScope> {
       localSyncOwnershipRepository: localSyncRepository,
       outboundSyncProcessor: outboundProcessor,
       inboundSyncProcessor: inboundProcessor,
+      // Recovery pauses every run, automatic or manual, while restoring.
+      runGuard: runGuard,
     );
 
     final syncController = SyncController(service: service);

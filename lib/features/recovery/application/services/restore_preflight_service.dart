@@ -1,12 +1,16 @@
+import 'dart:io';
+
 import 'package:sqflite/sqflite.dart';
 
 import '../../../../core/database/app_database.dart';
 import '../../../../core/database/database_tables.dart';
 import '../../../../core/database/schema/sync_schema.dart';
 import '../models/backup_manifest.dart';
+import '../models/backup_table_coverage.dart';
 import '../models/restore_preflight.dart';
 import 'backup_archive_verifier.dart';
 import 'backup_payload_schema_validator.dart';
+import 'storage_space_probe.dart';
 
 /// Decides whether a verified backup may be restored onto this device.
 ///
@@ -15,10 +19,21 @@ class RestorePreflightService {
   const RestorePreflightService({
     required this.appDatabase,
     this.schemaValidator = const BackupPayloadSchemaValidator(),
+    this.storageProbe,
+    this.storagePath,
   });
 
   final AppDatabase appDatabase;
   final BackupPayloadSchemaValidator schemaValidator;
+
+  /// Free-space source; when null, free space is reported as unverified.
+  final StorageSpaceProbe? storageProbe;
+
+  /// A path on the volume that will hold restored data.
+  final String? storagePath;
+
+  /// Headroom beyond the estimate, for SQLite journaling and rounding.
+  static const storageMarginBytes = 32 * 1024 * 1024;
 
   // Portable tables whose rows record the owning account.
   static const ownershipTables = [
@@ -44,7 +59,7 @@ class RestorePreflightService {
     final manifest = backup.manifest;
     final database = await appDatabase.database;
 
-    return database.transaction((transaction) async {
+    final preflight = await database.transaction((transaction) async {
       final blockers = <RestoreBlocker>[];
 
       if (manifest.formatVersion != BackupManifest.currentFormatVersion ||
@@ -120,9 +135,79 @@ class RestorePreflightService {
         localAccountId: localAccountId,
         pendingSyncItemCount: pending,
         hasCloudSyncState: cloudStateRows > 0,
-        estimatedRequiredBytes: _estimateBytes(contents),
+        estimatedRequiredBytes:
+            _estimateBytes(contents) +
+            await _estimateSafetyBackupBytes(transaction),
       );
     });
+
+    return _withStorageCheck(preflight);
+  }
+
+  Future<RestorePreflight> _withStorageCheck(RestorePreflight preflight) async {
+    final probe = storageProbe;
+    final target = storagePath;
+
+    if (probe == null || target == null) {
+      return preflight;
+    }
+
+    final blockers = [...preflight.blockers];
+    int? available;
+
+    try {
+      available = await probe.availableBytes(target);
+
+      if (available != null &&
+          available < preflight.estimatedRequiredBytes + storageMarginBytes) {
+        blockers.add(RestoreBlocker.insufficientStorage);
+      }
+    } on StorageSpaceUnavailable {
+      // The platform supports the query but it failed: fail closed.
+      blockers.add(RestoreBlocker.storageCheckFailed);
+    }
+
+    return RestorePreflight(
+      blockers: blockers,
+      backupId: preflight.backupId,
+      backupCreatedAtUtc: preflight.backupCreatedAtUtc,
+      backupDatabaseVersion: preflight.backupDatabaseVersion,
+      backupAccountIds: preflight.backupAccountIds,
+      localAccountId: preflight.localAccountId,
+      pendingSyncItemCount: preflight.pendingSyncItemCount,
+      hasCloudSyncState: preflight.hasCloudSyncState,
+      estimatedRequiredBytes: preflight.estimatedRequiredBytes,
+      availableBytes: available,
+    );
+  }
+
+  /// Space for the verified safety backup of the current library.
+  Future<int> _estimateSafetyBackupBytes(DatabaseExecutor executor) async {
+    var bytes = 0;
+
+    final artwork = await executor.query(
+      DatabaseTables.artworkAssets,
+      columns: ['file_path'],
+    );
+
+    for (final row in artwork) {
+      final file = File(row['file_path'] as String);
+
+      if (await file.exists()) {
+        bytes += await file.length();
+      }
+    }
+
+    for (final coverage in BackupCoverageContract.portableTables) {
+      for (final row in await executor.query(coverage.table)) {
+        for (final value in row.values) {
+          bytes += value is String ? value.length * 2 : 8;
+        }
+      }
+    }
+
+    // The archive is written once as a candidate and once while staging.
+    return bytes * 2;
   }
 
   Future<int> _count(DatabaseExecutor executor, String table) async {
