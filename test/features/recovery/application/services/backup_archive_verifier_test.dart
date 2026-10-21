@@ -153,6 +153,66 @@ void main() {
     await prepare();
 
     const bytes = <int>[10, 20, 30, 40];
+    final name = 'artwork/${sha256.convert(utf8.encode('test-cover'))}.jpg';
+
+    final artworkDirectory = Directory(path.join(staging.path, 'artwork'));
+    await artworkDirectory.create();
+
+    await File(
+      path.join(
+        artworkDirectory.path,
+        '${sha256.convert(utf8.encode('test-cover'))}.jpg',
+      ),
+    ).writeAsBytes(bytes);
+
+    await prepare(
+      artwork: [
+        {
+          'artworkId': 'test-cover',
+          'archivePath': name,
+          'byteLength': bytes.length,
+          'sha256': sha256.convert(bytes).toString(),
+        },
+      ],
+    );
+
+    await package();
+
+    final result = await verifier.verify(destination);
+    expect(result.manifest.backupId, manifest.backupId);
+  });
+
+  test('rejects artwork filename unrelated to artwork ID', () async {
+    payload = BackupDataPayload(
+      tables: {
+        for (final entry in BackupCoverageContract.portableTables)
+          entry.table: entry.table == DatabaseTables.artworkAssets
+              ? <Map<String, Object?>>[
+                  {
+                    'id': 'test-cover',
+                    'file_path': '/previous-device/cover.jpg',
+                    'normalized_path': '/previous-device/cover.jpg',
+                    'created_at': '2026-10-21T00:00:00.000Z',
+                    'updated_at': '2026-10-21T00:00:00.000Z',
+                  },
+                ]
+              : <Map<String, Object?>>[],
+      },
+    );
+
+    manifest = BackupManifest(
+      backupId: 'archive-verification-test',
+      createdAtUtc: DateTime.utc(2026, 10, 21),
+      databaseVersion: AppDatabase.databaseVersion,
+      rowCounts: {
+        for (final entry in BackupCoverageContract.portableTables)
+          entry.table: entry.table == DatabaseTables.artworkAssets ? 1 : 0,
+      },
+    );
+
+    await prepare();
+
+    const bytes = <int>[10, 20, 30, 40];
     final name = 'artwork/${'a' * 64}.jpg';
 
     final artworkDirectory = Directory(path.join(staging.path, 'artwork'));
@@ -175,8 +235,7 @@ void main() {
 
     await package();
 
-    final result = await verifier.verify(destination);
-    expect(result.manifest.backupId, manifest.backupId);
+    await expectLater(verifier.verify(destination), throwsFormatException);
   });
 
   test('rejects artwork without a database record', () async {

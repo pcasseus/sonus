@@ -158,6 +158,7 @@ class BackupArchiveVerifier {
         if (id.isEmpty ||
             !expectedArtworkIds.add(id) ||
             !allowedPath.hasMatch(name) ||
+            !name.startsWith('artwork/${sha256.convert(utf8.encode(id))}') ||
             !expectedArtworkPaths.add(name) ||
             length <= 0 ||
             length > maxArtworkBytes ||
