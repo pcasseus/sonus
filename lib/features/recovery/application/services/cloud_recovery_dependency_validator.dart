@@ -13,6 +13,7 @@ class CloudRecoveryDependencyValidator {
     final albums = <String, CloudAlbumRecord>{};
     final editions = <String, CloudAlbumEditionRecord>{};
     final artwork = <String, CloudArtworkAssetRecord>{};
+    final songs = <String, CloudSongRecord>{};
 
     final issues = <CloudRecoveryDependencyIssue>[];
 
@@ -27,7 +28,7 @@ class CloudRecoveryDependencyValidator {
         case CloudArtworkAssetRecord():
           _insert(artwork, record);
         case CloudSongRecord():
-          break;
+          _insert(songs, record);
         default:
           throw StateError('Unsupported cloud record type.');
       }
@@ -135,6 +136,10 @@ class CloudRecoveryDependencyValidator {
   }
 
   void _insert<T extends CloudOwnedRecord>(Map<String, T> target, T record) {
+    if (record.id.trim().isEmpty) {
+      throw StateError('Cloud record ID must not be blank.');
+    }
+
     if (target.containsKey(record.id)) {
       throw StateError('Duplicate cloud record ID: ${record.id}');
     }

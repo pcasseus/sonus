@@ -116,6 +116,26 @@ void main() {
     );
   });
 
+  test('rejects duplicate song identities', () {
+    expect(
+      () => validator.validate([
+        song('song-1', 'album-1', 'edition-1'),
+        song('song-1', 'album-1', 'edition-1'),
+      ]),
+      throwsStateError,
+    );
+  });
+
+  test('rejects blank artist identifiers', () {
+    expect(() => validator.validate([artist('   ')]), throwsStateError);
+  });
+
+  test('rejects blank song identifiers', () {
+    expect(
+      () => validator.validate([song('   ', 'album-1', 'edition-1')]),
+      throwsStateError,
+    );
+  });
   test('returns immutable findings', () {
     final issues = validator.validate([album('album-1', 'missing-artist')]);
 
