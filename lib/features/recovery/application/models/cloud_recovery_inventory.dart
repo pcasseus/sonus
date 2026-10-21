@@ -1,14 +1,20 @@
 import '../../../sync/domain/models/sync_data_contract.dart';
+import 'cloud_recovery_dependency_issue.dart';
 
 class CloudRecoveryInventory {
   CloudRecoveryInventory({
     required Map<CloudDataEntity, int> activeCounts,
     required Map<CloudDataEntity, int> tombstoneCounts,
+    List<CloudRecoveryDependencyIssue> dependencyIssues = const [],
   }) : activeCounts = Map.unmodifiable(activeCounts),
-       tombstoneCounts = Map.unmodifiable(tombstoneCounts);
+       tombstoneCounts = Map.unmodifiable(tombstoneCounts),
+       dependencyIssues = List.unmodifiable(dependencyIssues);
 
   final Map<CloudDataEntity, int> activeCounts;
   final Map<CloudDataEntity, int> tombstoneCounts;
+  final List<CloudRecoveryDependencyIssue> dependencyIssues;
+
+  bool get hasDependencyIssues => dependencyIssues.isNotEmpty;
 
   int activeCount(CloudDataEntity entity) => activeCounts[entity] ?? 0;
 

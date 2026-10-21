@@ -2,6 +2,7 @@ import '../../../sync/application/services/cloud_sync_reader.dart';
 import '../../../sync/domain/models/cloud_records.dart';
 import '../../../sync/domain/models/sync_data_contract.dart';
 import '../models/cloud_recovery_inventory.dart';
+import 'cloud_recovery_dependency_validator.dart';
 
 class CloudRecoveryInventoryService {
   const CloudRecoveryInventoryService({required this.reader});
@@ -24,6 +25,7 @@ class CloudRecoveryInventoryService {
 
     final activeCounts = <CloudDataEntity, int>{};
     final tombstoneCounts = <CloudDataEntity, int>{};
+    final collectedRecords = <CloudOwnedRecord>[];
 
     for (final entityType in CloudDataEntity.values) {
       var active = 0;
@@ -82,6 +84,7 @@ class CloudRecoveryInventoryService {
           }
 
           lastPosition = position;
+          collectedRecords.add(record);
 
           if (record.isDeleted) {
             tombstones++;
@@ -104,6 +107,9 @@ class CloudRecoveryInventoryService {
     return CloudRecoveryInventory(
       activeCounts: activeCounts,
       tombstoneCounts: tombstoneCounts,
+      dependencyIssues: const CloudRecoveryDependencyValidator().validate(
+        collectedRecords,
+      ),
     );
   }
 
