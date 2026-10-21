@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:sonus_next/core/database/app_database.dart';
+import 'package:sonus_next/core/database/database_tables.dart';
 import 'package:sonus_next/features/artwork/application/services/artwork_assignment_service.dart';
 import 'package:sonus_next/features/artwork/data/daos/artwork_asset_dao.dart';
 import 'package:sonus_next/features/artwork/data/repositories/sqlite_artwork_asset_repository.dart';
@@ -239,6 +240,180 @@ void main() {
         ),
         isNull,
       );
+    },
+  );
+  test(
+    'artist artwork mutations preserve owned outbox revisions and no-ops',
+    () async {
+      const userId = 'user_artwork';
+      final db = await appDatabase.database;
+
+      Future<Map<String, Object?>> pendingArtistMutation() async {
+        final rows = await db.query(
+          DatabaseTables.syncOutbox,
+          where: 'user_id = ? AND entity_type = ? AND entity_id = ?',
+          whereArgs: [userId, 'artist', 'artist_artwork'],
+        );
+
+        expect(rows, hasLength(1));
+        return rows.single;
+      }
+
+      final header = await service.assignArtistHeader(
+        userId: userId,
+        artistId: 'artist_artwork',
+        filePath: r'C:\Artwork\Artist Header.jpg',
+        now: assignTime,
+      );
+
+      var artist = await ArtistDao(db).findById('artist_artwork');
+      expect(artist!.headerArtworkId, header.id);
+      expect((await pendingArtistMutation())['mutation_revision'], 1);
+      expect((await pendingArtistMutation())['operation'], 'upsert');
+
+      var headerState = await MetadataFieldStateDao(db).find(
+        entityType: MetadataEntityType.artist,
+        entityId: 'artist_artwork',
+        fieldName: MetadataFields.artistHeaderArtwork,
+      );
+
+      expect(headerState, isNotNull);
+      expect(headerState!.authority, MetadataAuthority.manual);
+      expect(headerState.source, MetadataProvenanceSource.user);
+      expect(headerState.updatedAt, assignTime);
+
+      await service.assignArtistHeader(
+        userId: userId,
+        artistId: 'artist_artwork',
+        filePath: r'C:\Artwork\Artist Header.jpg',
+        now: clearTime,
+      );
+
+      expect((await pendingArtistMutation())['mutation_revision'], 1);
+      expect(
+        (await ArtistDao(db).findById('artist_artwork'))!.updatedAt,
+        assignTime,
+      );
+
+      final top = await service.assignArtistTopArtists(
+        userId: userId,
+        artistId: 'artist_artwork',
+        filePath: r'C:\Artwork\Artist Top.jpg',
+        now: clearTime,
+      );
+
+      artist = await ArtistDao(db).findById('artist_artwork');
+      expect(artist!.headerArtworkId, header.id);
+      expect(artist.topArtistsArtworkId, top.id);
+      expect((await pendingArtistMutation())['mutation_revision'], 2);
+
+      final topState = await MetadataFieldStateDao(db).find(
+        entityType: MetadataEntityType.artist,
+        entityId: 'artist_artwork',
+        fieldName: MetadataFields.artistTopArtistsArtwork,
+      );
+
+      expect(topState, isNotNull);
+      expect(topState!.authority, MetadataAuthority.manual);
+      expect(topState.source, MetadataProvenanceSource.user);
+      expect(topState.updatedAt, clearTime);
+
+      await service.clearArtistHeader(
+        'artist_artwork',
+        userId: userId,
+        now: clearTime.add(const Duration(minutes: 1)),
+      );
+
+      artist = await ArtistDao(db).findById('artist_artwork');
+      expect(artist!.headerArtworkId, isNull);
+      expect(artist.topArtistsArtworkId, top.id);
+      expect((await pendingArtistMutation())['mutation_revision'], 3);
+
+      headerState = await MetadataFieldStateDao(db).find(
+        entityType: MetadataEntityType.artist,
+        entityId: 'artist_artwork',
+        fieldName: MetadataFields.artistHeaderArtwork,
+      );
+
+      expect(headerState!.updatedAt, clearTime.add(const Duration(minutes: 1)));
+
+      await service.clearArtistTopArtists(
+        'artist_artwork',
+        userId: userId,
+        now: clearTime.add(const Duration(minutes: 2)),
+      );
+
+      artist = await ArtistDao(db).findById('artist_artwork');
+      expect(artist!.headerArtworkId, isNull);
+      expect(artist.topArtistsArtworkId, isNull);
+      expect((await pendingArtistMutation())['mutation_revision'], 4);
+
+      await service.clearArtistHeader('artist_artwork', userId: userId);
+      await service.clearArtistTopArtists('artist_artwork', userId: userId);
+
+      expect((await pendingArtistMutation())['mutation_revision'], 4);
+    },
+  );
+
+  test(
+    'artist artwork and provenance roll back when outbox update fails',
+    () async {
+      const userId = 'user_artwork';
+      final db = await appDatabase.database;
+
+      final first = await service.assignArtistHeader(
+        userId: userId,
+        artistId: 'artist_artwork',
+        filePath: r'C:\Artwork\Artist Initial.jpg',
+        now: assignTime,
+      );
+
+      await db.execute('''
+        CREATE TRIGGER fail_artist_outbox_update
+        BEFORE UPDATE ON ${DatabaseTables.syncOutbox}
+        BEGIN
+          SELECT RAISE(ABORT, 'forced artist outbox failure');
+        END
+      ''');
+
+      await expectLater(
+        service.assignArtistHeader(
+          userId: userId,
+          artistId: 'artist_artwork',
+          filePath: r'C:\Artwork\Artist Rollback.jpg',
+          now: clearTime,
+        ),
+        throwsA(isA<Exception>()),
+      );
+
+      final artist = await ArtistDao(db).findById('artist_artwork');
+      expect(artist, isNotNull);
+      expect(artist!.headerArtworkId, first.id);
+      expect(artist.updatedAt, assignTime);
+
+      final provenance = await MetadataFieldStateDao(db).find(
+        entityType: MetadataEntityType.artist,
+        entityId: 'artist_artwork',
+        fieldName: MetadataFields.artistHeaderArtwork,
+      );
+
+      expect(provenance, isNotNull);
+      expect(provenance!.updatedAt, assignTime);
+
+      final outbox = await db.query(
+        DatabaseTables.syncOutbox,
+        where: 'user_id = ? AND entity_type = ? AND entity_id = ?',
+        whereArgs: [userId, 'artist', 'artist_artwork'],
+      );
+
+      expect(outbox, hasLength(1));
+      expect(outbox.single['mutation_revision'], 1);
+
+      final rolledBackArtwork = await ArtworkAssetDao(
+        db,
+      ).findByNormalizedPath('c:/artwork/artist rollback.jpg');
+
+      expect(rolledBackArtwork, isNull);
     },
   );
 }

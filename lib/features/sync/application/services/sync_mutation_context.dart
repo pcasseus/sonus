@@ -9,6 +9,9 @@ import '../../../library/domain/repositories/song_artist_credit_repository.dart'
 import '../../../library/domain/repositories/metadata_field_state_repository.dart';
 import '../../../playlists/domain/repositories/playlist_repository.dart';
 import '../repositories/local_sync_repository.dart';
+import '../repositories/cloud_revision_baseline_repository.dart';
+import '../repositories/artist_write_journal_repository.dart';
+import '../repositories/artist_dependency_journal_repository.dart';
 
 class SyncMutationContext {
   const SyncMutationContext({
@@ -22,6 +25,9 @@ class SyncMutationContext {
     this.metadataFieldStateRepository,
     required this.artworkAssetRepository,
     required this.localSyncRepository,
+    this.cloudRevisionBaselineRepository,
+    this.artistWriteJournalRepository,
+    this.artistDependencyJournalRepository,
     this.playlistRepository,
   });
 
@@ -35,5 +41,8 @@ class SyncMutationContext {
   final MetadataFieldStateRepository? metadataFieldStateRepository;
   final ArtworkAssetRepository artworkAssetRepository;
   final LocalSyncRepository localSyncRepository;
+  final CloudRevisionBaselineRepository? cloudRevisionBaselineRepository;
+  final ArtistWriteJournalRepository? artistWriteJournalRepository;
+  final ArtistDependencyJournalRepository? artistDependencyJournalRepository;
   final PlaylistRepository? playlistRepository;
 }

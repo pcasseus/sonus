@@ -20,9 +20,12 @@ class AccountSyncOwnershipAttachmentService {
       appDatabase: appDatabase,
     );
 
-    await bindingRepository.bindToUser(normalizedUserId);
+    return appDatabase.transaction((transaction) async {
+      await bindingRepository.bindToUserInTransaction(
+        transaction,
+        normalizedUserId,
+      );
 
-    return appDatabase.transaction((transaction) {
       final repository = SqliteLocalSyncRepository(
         dao: LocalSyncDao(transaction),
         generateId: EntityId.syncOutbox,

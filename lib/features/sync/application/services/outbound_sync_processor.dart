@@ -7,13 +7,41 @@ import '../../../library/domain/repositories/artist_repository.dart';
 import '../../../library/domain/repositories/song_repository.dart';
 import '../../application/mappers/cloud_record_mapper.dart';
 import '../../application/repositories/local_sync_repository.dart';
+import '../../application/repositories/cloud_revision_baseline_repository.dart';
+import '../../domain/models/cloud_records.dart';
 import '../../domain/models/local_sync_models.dart';
 import '../../domain/models/sync_data_contract.dart';
 import 'cloud_artwork_storage.dart';
 import 'cloud_sync_gateway.dart';
 
+/// Handles an explicit artist mutation and owns its acknowledgement.
+typedef PushArtistMutation =
+    Future<void> Function({
+      required String userId,
+      required SyncOutboxEntry entry,
+      required CloudArtistRecord artist,
+    });
+
+/// Ensures a referenced cloud artist exists without acknowledging
+/// an explicit artist outbox mutation.
+typedef EnsureArtistDependency =
+    Future<void> Function({
+      required String userId,
+      required CloudArtistRecord artist,
+    });
+
+/// Handles a guarded artist deletion and its local acknowledgement.
+typedef PushArtistDeletion =
+    Future<void> Function({
+      required String userId,
+      required SyncOutboxEntry entry,
+    });
+
+/// Reconciles durable artist receipts before reading the regular outbox.
+typedef RecoverArtistWrites = Future<void> Function(String userId);
+
 class OutboundSyncProcessor {
-  const OutboundSyncProcessor({
+  OutboundSyncProcessor({
     required this.localSyncRepository,
     required this.artistRepository,
     required this.albumRepository,
@@ -23,6 +51,11 @@ class OutboundSyncProcessor {
     required this.artworkAssetRepository,
     required this.cloudArtworkStorage,
     required this.cloudSyncGateway,
+    this.cloudRevisionBaselineRepository,
+    this.pushArtistMutation,
+    this.pushArtistDeletion,
+    this.ensureArtistDependency,
+    this.recoverArtistWrites,
   });
 
   final LocalSyncRepository localSyncRepository;
@@ -34,12 +67,71 @@ class OutboundSyncProcessor {
   final ArtworkAssetRepository artworkAssetRepository;
   final CloudArtworkStorage cloudArtworkStorage;
   final CloudSyncGateway cloudSyncGateway;
+  final CloudRevisionBaselineRepository? cloudRevisionBaselineRepository;
+  final PushArtistMutation? pushArtistMutation;
+  final PushArtistDeletion? pushArtistDeletion;
+  final EnsureArtistDependency? ensureArtistDependency;
+  final RecoverArtistWrites? recoverArtistWrites;
 
-  Future<void> pushPending(String userId) async {
+  // Serialize full outbound runs on this processor instance.
+  // Recover from failure so subsequent retries can execute.
+  Future<void> _pendingPushRun = Future<void>.value();
+
+  Future<void> pushPending(String userId) {
+    final current = _pendingPushRun.then((_) => _pushPendingOnce(userId));
+
+    _pendingPushRun = current.then<void>(
+      (_) {},
+      onError: (Object error, StackTrace stackTrace) {},
+    );
+
+    return current;
+  }
+
+  Future<void> _pushPendingOnce(String userId) async {
     final trimmedUserId = userId.trim();
 
     if (trimmedUserId.isEmpty) {
       throw ArgumentError.value(userId, 'userId', 'Must not be blank.');
+    }
+
+    if ((pushArtistMutation == null) !=
+        (cloudRevisionBaselineRepository == null)) {
+      throw StateError(
+        'Guarded artist sync requires coordinator and revision baselines.',
+      );
+    }
+
+    if (pushArtistDeletion != null &&
+        (pushArtistMutation == null ||
+            cloudRevisionBaselineRepository == null)) {
+      throw StateError(
+        'Guarded artist deletion requires guarded artist mutations '
+        'and revision baselines.',
+      );
+    }
+
+    if (ensureArtistDependency != null && pushArtistMutation == null) {
+      throw StateError(
+        'Artist dependency creation requires guarded artist mutations.',
+      );
+    }
+
+    final recover = recoverArtistWrites;
+
+    if (recover != null) {
+      if (pushArtistMutation == null ||
+          pushArtistDeletion == null ||
+          cloudRevisionBaselineRepository == null) {
+        throw StateError(
+          'Artist recovery requires guarded mutation, deletion, '
+          'and revision baseline handlers.',
+        );
+      }
+
+      // The journal is authoritative until its receipt is reconciled.
+      // A recovery failure must stop all ordinary outbound writes.
+      await recover(trimmedUserId);
     }
 
     final pending = await localSyncRepository.getPending(trimmedUserId);
@@ -71,18 +163,39 @@ class OutboundSyncProcessor {
           );
 
         case SyncOutboxOperation.delete:
-          await cloudSyncGateway.markDeleted(
-            userId: trimmedUserId,
-            entityType: entry.entityType,
-            entityId: entry.entityId,
-            deletedAt: entry.updatedAt,
-          );
+          final guardedDeletion = pushArtistDeletion;
+
+          if (entry.entityType == CloudDataEntity.artist &&
+              guardedDeletion != null) {
+            await guardedDeletion(userId: trimmedUserId, entry: entry);
+          } else {
+            await cloudSyncGateway.markDeleted(
+              userId: trimmedUserId,
+              entityType: entry.entityType,
+              entityId: entry.entityId,
+              deletedAt: entry.updatedAt,
+            );
+          }
       }
 
-      await localSyncRepository.markProcessed(
-        userId: trimmedUserId,
-        outboxEntryId: entry.id,
-      );
+      final guardedArtistMutation =
+          pushArtistMutation != null &&
+          entry.entityType == CloudDataEntity.artist &&
+          entry.operation == SyncOutboxOperation.upsert;
+
+      final guardedArtistDeletion =
+          pushArtistDeletion != null &&
+          entry.entityType == CloudDataEntity.artist &&
+          entry.operation == SyncOutboxOperation.delete;
+
+      if (!guardedArtistMutation && !guardedArtistDeletion) {
+        await localSyncRepository.markProcessed(
+          userId: trimmedUserId,
+          outboxEntryId: entry.id,
+          expectedRevision: entry.mutationRevision,
+          expectedOperation: entry.operation,
+        );
+      }
     }
   }
 
@@ -109,6 +222,7 @@ class OutboundSyncProcessor {
           userId: userId,
           ensuredArtworkIds: ensuredArtworkIds,
           ensuredArtistIds: ensuredArtistIds,
+          explicitEntry: entry,
         );
 
       case CloudDataEntity.album:
@@ -202,10 +316,12 @@ class OutboundSyncProcessor {
     required String userId,
     required Set<String> ensuredArtworkIds,
     required Set<String> ensuredArtistIds,
+    SyncOutboxEntry? explicitEntry,
   }) async {
     final normalizedArtistId = artistId.trim();
 
-    if (ensuredArtistIds.contains(normalizedArtistId)) {
+    if (explicitEntry == null &&
+        ensuredArtistIds.contains(normalizedArtistId)) {
       return;
     }
 
@@ -232,13 +348,52 @@ class OutboundSyncProcessor {
       entityId: normalizedArtistId,
     );
 
-    await cloudSyncGateway.upsert(
-      CloudRecordMapper.artist(
-        artist: entity,
-        userId: userId,
-        metadataFieldStates: metadataFieldStates,
-      ),
+    final cloudArtist = CloudRecordMapper.artist(
+      artist: entity,
+      userId: userId,
+      metadataFieldStates: metadataFieldStates,
     );
+
+    final guardedPusher = pushArtistMutation;
+
+    if (guardedPusher == null) {
+      // Legacy behavior remains in effect until production wiring changes.
+      await cloudSyncGateway.upsert(cloudArtist);
+    } else if (explicitEntry != null) {
+      // The coordinator commits both the cloud revision and acknowledgement.
+      await guardedPusher(
+        userId: userId,
+        entry: explicitEntry,
+        artist: cloudArtist,
+      );
+    } else {
+      // A dependency cannot unconditionally overwrite an artist.
+      final dependencyEnsurer = ensureArtistDependency;
+
+      if (dependencyEnsurer != null) {
+        await dependencyEnsurer(userId: userId, artist: cloudArtist);
+      } else {
+        // Compatibility path for existing guarded processor tests.
+        final baselines = cloudRevisionBaselineRepository;
+
+        if (baselines == null) {
+          throw StateError('Missing cloud revision baseline repository.');
+        }
+
+        final revision = await baselines.getRevision(
+          userId: userId,
+          entityType: CloudDataEntity.artist,
+          entityId: normalizedArtistId,
+        );
+
+        if (revision == null || revision < 1) {
+          throw StateError(
+            'Artist $normalizedArtistId has no reconciled cloud baseline. '
+            'Dependency upload deferred.',
+          );
+        }
+      }
+    }
 
     ensuredArtistIds.add(normalizedArtistId);
   }

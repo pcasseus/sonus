@@ -11,13 +11,13 @@ void main() {
 
     setUpAll(() {
       migration = File(
-        'supabase/migrations/20260913_000001_cloud_library_foundation.sql',
+        'supabase/migrations/20260913000001_cloud_library_foundation.sql',
       ).readAsStringSync();
       discNumberMigration = File(
-        'supabase/migrations/20260917_000002_song_disc_number.sql',
+        'supabase/migrations/20260917000002_song_disc_number.sql',
       ).readAsStringSync();
       songVersionMetadataMigration = File(
-        'supabase/migrations/20261003_000003_song_version_metadata.sql',
+        'supabase/migrations/20261003000003_song_version_metadata.sql',
       ).readAsStringSync();
     });
 

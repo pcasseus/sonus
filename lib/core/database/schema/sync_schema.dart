@@ -3,9 +3,79 @@ import 'package:sqflite/sqflite.dart';
 import '../database_tables.dart';
 
 abstract final class SyncSchema {
+  static const String cloudRevisionBaselinesTable =
+      'sync_cloud_revision_baselines';
   static Future<void> create(DatabaseExecutor db) async {
     await createSyncState(db);
     await createSyncOutbox(db);
+    await createCloudRevisionBaselines(db);
+    await createArtistWriteJournal(db);
+    await createArtistDependencyJournal(db);
+  }
+
+  /// Durable snapshots of artist RPC requests awaiting verification.
+  ///
+  /// A newer outbox mutation cannot replace an unresolved request.
+  static const String artistWriteJournalTable = 'sync_artist_write_journal';
+
+  static Future<void> createArtistWriteJournal(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE $artistWriteJournalTable (
+        user_id TEXT NOT NULL
+          CHECK (length(trim(user_id)) > 0),
+        artist_id TEXT NOT NULL
+          CHECK (length(trim(artist_id)) > 0),
+        outbox_id TEXT NOT NULL
+          CHECK (length(trim(outbox_id)) > 0),
+        mutation_revision INTEGER NOT NULL
+          CHECK (mutation_revision >= 1),
+        operation TEXT NOT NULL
+          CHECK (operation IN ('create', 'update', 'delete')),
+        expected_server_revision INTEGER
+          CHECK (
+            (operation = 'create' AND expected_server_revision IS NULL)
+            OR
+            (operation IN ('update', 'delete')
+              AND expected_server_revision IS NOT NULL
+              AND expected_server_revision >= 1)
+          ),
+        request_json TEXT NOT NULL
+          CHECK (length(trim(request_json)) > 0),
+        created_at TEXT NOT NULL,
+
+        PRIMARY KEY (user_id, outbox_id, mutation_revision),
+        UNIQUE (user_id, artist_id)
+      )
+    ''');
+  }
+
+  /// Immutable dependency-only artist creation requests.
+  ///
+  /// These requests are not sync outbox mutations and must never
+  /// acknowledge an explicit artist edit.
+  static const String artistDependencyJournalTable =
+      'sync_artist_dependency_journal';
+
+  static Future<void> createArtistDependencyJournal(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE $artistDependencyJournalTable (
+        user_id TEXT NOT NULL
+          CHECK (length(trim(user_id)) > 0),
+        artist_id TEXT NOT NULL
+          CHECK (length(trim(artist_id)) > 0),
+        request_id TEXT NOT NULL
+          CHECK (length(trim(request_id)) > 0),
+        mutation_revision INTEGER NOT NULL DEFAULT 1
+          CHECK (mutation_revision = 1),
+        request_json TEXT NOT NULL
+          CHECK (length(trim(request_json)) > 0),
+        created_at TEXT NOT NULL
+          CHECK (length(trim(created_at)) > 0),
+
+        PRIMARY KEY (user_id, artist_id),
+        UNIQUE (user_id, request_id)
+      )
+    ''');
   }
 
   static Future<void> createSyncState(DatabaseExecutor db) async {
@@ -28,6 +98,31 @@ abstract final class SyncSchema {
     ''');
   }
 
+  static Future<void> createCloudRevisionBaselines(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE $cloudRevisionBaselinesTable (
+        user_id TEXT NOT NULL
+          CHECK (length(trim(user_id)) > 0),
+        entity_type TEXT NOT NULL
+          CHECK (
+            entity_type IN (
+              'artworkAsset',
+              'artist',
+              'album',
+              'albumEdition',
+              'song'
+            )
+          ),
+        entity_id TEXT NOT NULL
+          CHECK (length(trim(entity_id)) > 0),
+        server_revision INTEGER NOT NULL
+          CHECK (server_revision >= 1),
+
+        PRIMARY KEY (user_id, entity_type, entity_id)
+      )
+    ''');
+  }
+
   static Future<void> createSyncOutbox(DatabaseExecutor db) async {
     await db.execute('''
       CREATE TABLE ${DatabaseTables.syncOutbox} (
@@ -38,7 +133,9 @@ abstract final class SyncSchema {
         operation TEXT NOT NULL
           CHECK (operation IN ('upsert', 'delete')),
         created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
+        updated_at TEXT NOT NULL,
+        mutation_revision INTEGER NOT NULL DEFAULT 1
+          CHECK (mutation_revision >= 1)
       )
     ''');
 

@@ -9,10 +9,17 @@ class CloudSyncPosition {
 }
 
 class CloudSyncItem {
-  const CloudSyncItem({required this.record, required this.serverUpdatedAt});
+  const CloudSyncItem({
+    required this.record,
+    required this.serverUpdatedAt,
+    this.serverRevision,
+  });
 
   final CloudOwnedRecord record;
   final DateTime serverUpdatedAt;
+
+  /// Null means that a verified server revision is not available.
+  final int? serverRevision;
 }
 
 class CloudSyncPage {

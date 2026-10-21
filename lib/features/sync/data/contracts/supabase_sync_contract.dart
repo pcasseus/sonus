@@ -12,6 +12,7 @@ abstract final class SupabaseSyncContract {
   static const String createdAtColumn = 'created_at';
   static const String updatedAtColumn = 'updated_at';
   static const String serverUpdatedAtColumn = 'server_updated_at';
+  static const String serverRevisionColumn = 'server_revision';
   static const String deletedAtColumn = 'deleted_at';
 
   static const String artistIdColumn = 'artist_id';

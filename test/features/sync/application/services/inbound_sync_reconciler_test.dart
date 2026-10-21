@@ -9,6 +9,7 @@ import 'package:sonus_next/features/library/domain/repositories/artist_repositor
 import 'package:sonus_next/features/library/domain/repositories/song_repository.dart';
 import 'package:sonus_next/features/library/domain/repositories/song_artist_credit_repository.dart';
 import 'package:sonus_next/features/sync/application/repositories/local_sync_repository.dart';
+import 'package:sonus_next/features/sync/application/repositories/cloud_revision_baseline_repository.dart';
 import 'package:sonus_next/features/sync/application/services/cloud_sync_reader.dart';
 import 'package:sonus_next/features/sync/application/services/inbound_sync_reconciler.dart';
 import 'package:sonus_next/features/sync/application/services/sync_mutation_context.dart';
@@ -21,6 +22,200 @@ void main() {
   final now = DateTime.utc(2026, 9, 13, 15);
 
   group('InboundSyncReconciler', () {
+    test('new cloud revision is applied and recorded', () async {
+      final bundle = _Bundle(now);
+
+      bundle.reader.page = CloudSyncPage(
+        items: [
+          _artistItem(
+            id: 'artist-a',
+            serverUpdatedAt: DateTime.utc(2026, 9, 13, 10),
+            serverRevision: 8,
+          ),
+        ],
+        hasMore: false,
+      );
+
+      await bundle.reconciler.reconcilePage(
+        userId: 'user-1',
+        entityType: CloudDataEntity.artist,
+        limit: 10,
+      );
+
+      expect(bundle.artist.values['artist-a']?.name, 'Artist artist-a');
+      expect(bundle.baselines.values['user-1|artist|artist-a'], 8);
+      expect(bundle.transactionSync.savedCursors, hasLength(1));
+    });
+
+    test('higher cloud revision advances an existing baseline', () async {
+      final bundle = _Bundle(now);
+      bundle.baselines.values['user-1|artist|artist-a'] = 7;
+
+      bundle.reader.page = CloudSyncPage(
+        items: [
+          _artistItem(
+            id: 'artist-a',
+            serverUpdatedAt: DateTime.utc(2026, 9, 13, 10),
+            serverRevision: 8,
+          ),
+        ],
+        hasMore: false,
+      );
+
+      await bundle.reconciler.reconcilePage(
+        userId: 'user-1',
+        entityType: CloudDataEntity.artist,
+        limit: 10,
+      );
+
+      expect(bundle.baselines.values['user-1|artist|artist-a'], 8);
+      expect(bundle.artist.values['artist-a']?.name, 'Artist artist-a');
+    });
+
+    for (final revision in [7, 8]) {
+      test('revision $revision does not overwrite baseline 8', () async {
+        final bundle = _Bundle(now);
+
+        bundle.baselines.values['user-1|artist|artist-a'] = 8;
+
+        bundle.artist.values['artist-a'] = Artist(
+          id: 'artist-a',
+          name: 'Protected Local Name',
+          canonicalName: 'protected local name',
+          createdAt: DateTime.utc(2026, 9, 10),
+          updatedAt: DateTime.utc(2026, 9, 12),
+        );
+
+        bundle.reader.page = CloudSyncPage(
+          items: [
+            _artistItem(
+              id: 'artist-a',
+              serverUpdatedAt: DateTime.utc(2026, 9, 13, 10),
+              serverRevision: revision,
+            ),
+          ],
+          hasMore: false,
+        );
+
+        await bundle.reconciler.reconcilePage(
+          userId: 'user-1',
+          entityType: CloudDataEntity.artist,
+          limit: 10,
+        );
+
+        expect(bundle.artist.values['artist-a']?.name, 'Protected Local Name');
+        expect(bundle.baselines.values['user-1|artist|artist-a'], 8);
+        expect(bundle.transactionSync.savedCursors, hasLength(1));
+      });
+    }
+
+    test('missing cloud revision cannot advance cursor', () async {
+      final bundle = _Bundle(now);
+
+      bundle.reader.page = CloudSyncPage(
+        items: [
+          _artistItem(
+            id: 'artist-a',
+            serverUpdatedAt: DateTime.utc(2026, 9, 13, 10),
+            serverRevision: null,
+          ),
+        ],
+        hasMore: false,
+      );
+
+      await expectLater(
+        bundle.reconciler.reconcilePage(
+          userId: 'user-1',
+          entityType: CloudDataEntity.artist,
+          limit: 10,
+        ),
+        throwsStateError,
+      );
+
+      expect(bundle.artist.values, isEmpty);
+      expect(bundle.baselines.values, isEmpty);
+      expect(bundle.transactionSync.savedCursors, isEmpty);
+    });
+
+    test('failed cursor save does not advance reconciliation', () async {
+      final bundle = _Bundle(now);
+
+      bundle.transactionSync.failCursorSave = true;
+
+      bundle.reader.page = CloudSyncPage(
+        items: [
+          _artistItem(
+            id: 'artist-a',
+            serverUpdatedAt: DateTime.utc(2026, 9, 13, 10),
+            serverRevision: 8,
+          ),
+        ],
+        hasMore: false,
+      );
+
+      await expectLater(
+        bundle.reconciler.reconcilePage(
+          userId: 'user-1',
+          entityType: CloudDataEntity.artist,
+          limit: 10,
+        ),
+        throwsA(
+          isA<StateError>().having(
+            (error) => error.message,
+            'message',
+            contains('Simulated cursor persistence failure'),
+          ),
+        ),
+      );
+
+      expect(bundle.transactionSync.savedCursors, isEmpty);
+      expect(bundle.transactionSync.cursor, isNull);
+    });
+    test('missing baseline repository blocks inbound application', () async {
+      final bundle = _Bundle(now);
+
+      final contextWithoutBaselines = SyncMutationContext(
+        artistRepository: bundle.artist,
+        albumRepository: bundle.album,
+        albumEditionRepository: bundle.edition,
+        albumEditionTrackRepository: bundle.membership,
+        songRepository: bundle.song,
+        songArtistCreditRepository: bundle.credit,
+        artworkAssetRepository: bundle.artwork,
+        localSyncRepository: bundle.transactionSync,
+      );
+
+      final reconciler = InboundSyncReconciler(
+        reader: bundle.reader,
+        localSyncRepository: bundle.outerSync,
+        mutationRunner: _FakeSyncMutationRunner(contextWithoutBaselines),
+        now: () => now,
+      );
+
+      bundle.reader.page = CloudSyncPage(
+        items: [
+          _artistItem(
+            id: 'artist-a',
+            serverUpdatedAt: DateTime.utc(2026, 9, 13, 10),
+            serverRevision: 8,
+          ),
+        ],
+        hasMore: false,
+      );
+
+      await expectLater(
+        reconciler.reconcilePage(
+          userId: 'user-1',
+          entityType: CloudDataEntity.artist,
+          limit: 10,
+        ),
+        throwsStateError,
+      );
+
+      expect(bundle.artist.values, isEmpty);
+      expect(bundle.transactionSync.savedCursors, isEmpty);
+      expect(bundle.baselines.values, isEmpty);
+    });
     test('replay start is null when no stored cursor exists', () async {
       final bundle = _Bundle(now);
 
@@ -611,6 +806,7 @@ CloudSyncItem _artistItem({
   required String id,
   required DateTime serverUpdatedAt,
   String userId = 'user-1',
+  int? serverRevision = 1,
   DateTime? deletedAt,
 }) {
   return CloudSyncItem(
@@ -624,6 +820,7 @@ CloudSyncItem _artistItem({
       deletedAt: deletedAt,
     ),
     serverUpdatedAt: serverUpdatedAt,
+    serverRevision: serverRevision,
   );
 }
 
@@ -632,6 +829,7 @@ class _Bundle {
     : reader = _FakeCloudSyncReader(),
       outerSync = _FakeLocalSyncRepository(),
       transactionSync = _FakeLocalSyncRepository(),
+      baselines = _FakeCloudRevisionBaselineRepository(),
       artist = _FakeArtistRepository(),
       album = _FakeAlbumRepository(),
       edition = _FakeAlbumEditionRepository(),
@@ -648,6 +846,7 @@ class _Bundle {
       songArtistCreditRepository: credit,
       artworkAssetRepository: artwork,
       localSyncRepository: transactionSync,
+      cloudRevisionBaselineRepository: baselines,
     );
 
     runner = _FakeSyncMutationRunner(context);
@@ -663,6 +862,7 @@ class _Bundle {
   final _FakeCloudSyncReader reader;
   final _FakeLocalSyncRepository outerSync;
   final _FakeLocalSyncRepository transactionSync;
+  final _FakeCloudRevisionBaselineRepository baselines;
   final _FakeArtistRepository artist;
   final _FakeAlbumRepository album;
   final _FakeAlbumEditionRepository edition;
@@ -673,6 +873,38 @@ class _Bundle {
 
   late final _FakeSyncMutationRunner runner;
   late final InboundSyncReconciler reconciler;
+}
+
+class _FakeCloudRevisionBaselineRepository
+    implements CloudRevisionBaselineRepository {
+  final Map<String, int> values = {};
+
+  String _key(String userId, CloudDataEntity entityType, String entityId) =>
+      '$userId|${entityType.name}|$entityId';
+
+  @override
+  Future<int?> getRevision({
+    required String userId,
+    required CloudDataEntity entityType,
+    required String entityId,
+  }) async {
+    return values[_key(userId, entityType, entityId)];
+  }
+
+  @override
+  Future<void> saveObservedRevision({
+    required String userId,
+    required CloudDataEntity entityType,
+    required String entityId,
+    required int serverRevision,
+  }) async {
+    final key = _key(userId, entityType, entityId);
+    final previous = values[key];
+
+    if (previous == null || serverRevision > previous) {
+      values[key] = serverRevision;
+    }
+  }
 }
 
 class _FakeCloudSyncReader implements CloudSyncReader {
@@ -719,6 +951,7 @@ class _FakeSyncMutationRunner implements SyncMutationRunner {
 class _FakeLocalSyncRepository implements LocalSyncRepository {
   SyncCursor? cursor;
   final List<SyncCursor> savedCursors = [];
+  bool failCursorSave = false;
   final List<SyncOutboxEntry> pending = [];
 
   int cursorReadCount = 0;
@@ -743,6 +976,9 @@ class _FakeLocalSyncRepository implements LocalSyncRepository {
 
   @override
   Future<void> saveCursor(SyncCursor cursor) async {
+    if (failCursorSave) {
+      throw StateError('Simulated cursor persistence failure.');
+    }
     savedCursors.add(cursor);
     this.cursor = cursor;
   }

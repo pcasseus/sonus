@@ -405,6 +405,30 @@ abstract final class DatabaseMigrations {
         await LibrarySchema.createMetadataFieldStates(db);
         return;
 
+      case 28:
+        await _addColumnIfMissing(
+          db,
+          table: DatabaseTables.syncOutbox,
+          columnName: 'mutation_revision',
+          definition:
+              'INTEGER NOT NULL DEFAULT 1 '
+              'CHECK (mutation_revision >= 1)',
+        );
+        return;
+
+      case 29:
+        await SyncSchema.createCloudRevisionBaselines(db);
+
+        return;
+
+      case 30:
+        await SyncSchema.createArtistWriteJournal(db);
+        return;
+
+      case 31:
+        await SyncSchema.createArtistDependencyJournal(db);
+        return;
+
       default:
         throw UnsupportedError(
           'No Sonus database migration exists for version $targetVersion.',

@@ -39,6 +39,7 @@ abstract final class LocalSyncRowMapper {
       'operation': entry.operation.name,
       'created_at': entry.createdAt.toUtc().toIso8601String(),
       'updated_at': entry.updatedAt.toUtc().toIso8601String(),
+      'mutation_revision': entry.mutationRevision,
     };
   }
 
@@ -55,6 +56,7 @@ abstract final class LocalSyncRowMapper {
       ),
       createdAt: DateTime.parse(row['created_at'] as String),
       updatedAt: DateTime.parse(row['updated_at'] as String),
+      mutationRevision: row['mutation_revision'] as int,
     );
   }
 }

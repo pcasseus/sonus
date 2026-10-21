@@ -387,7 +387,7 @@ class ArtistProfileController extends ChangeNotifier {
     return true;
   }
 
-  Future<bool> changeHeaderArtwork() async {
+  Future<bool> changeHeaderArtwork({String? userId}) async {
     final service = _artworkAssignmentService;
     final picker = _artworkFilePicker;
 
@@ -401,28 +401,32 @@ class ArtistProfileController extends ChangeNotifier {
       return false;
     }
 
-    await service.assignArtistHeader(artistId: _artistId, filePath: filePath);
+    await service.assignArtistHeader(
+      artistId: _artistId,
+      filePath: filePath,
+      userId: userId,
+    );
 
     await refresh();
 
     return true;
   }
 
-  Future<bool> clearHeaderArtwork() async {
+  Future<bool> clearHeaderArtwork({String? userId}) async {
     final service = _artworkAssignmentService;
 
     if (service == null) {
       return false;
     }
 
-    await service.clearArtistHeader(_artistId);
+    await service.clearArtistHeader(_artistId, userId: userId);
 
     await refresh();
 
     return true;
   }
 
-  Future<bool> changeTopArtistsArtwork() async {
+  Future<bool> changeTopArtistsArtwork({String? userId}) async {
     final service = _artworkAssignmentService;
     final picker = _artworkFilePicker;
 
@@ -439,6 +443,7 @@ class ArtistProfileController extends ChangeNotifier {
     await service.assignArtistTopArtists(
       artistId: _artistId,
       filePath: filePath,
+      userId: userId,
     );
 
     await refresh();
@@ -446,14 +451,14 @@ class ArtistProfileController extends ChangeNotifier {
     return true;
   }
 
-  Future<bool> clearTopArtistsArtwork() async {
+  Future<bool> clearTopArtistsArtwork({String? userId}) async {
     final service = _artworkAssignmentService;
 
     if (service == null) {
       return false;
     }
 
-    await service.clearArtistTopArtists(_artistId);
+    await service.clearArtistTopArtists(_artistId, userId: userId);
 
     await refresh();
 

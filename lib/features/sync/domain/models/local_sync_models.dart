@@ -27,6 +27,7 @@ class SyncOutboxEntry {
     required this.operation,
     required this.createdAt,
     required this.updatedAt,
+    this.mutationRevision = 1,
   });
 
   final String id;
@@ -34,6 +35,7 @@ class SyncOutboxEntry {
   final CloudDataEntity entityType;
   final String entityId;
   final SyncOutboxOperation operation;
+  final int mutationRevision;
   final DateTime createdAt;
   final DateTime updatedAt;
 }

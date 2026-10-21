@@ -72,6 +72,77 @@ void main() {
     expect(result.completedAt, clockValues[1]);
   });
 
+  test('atomic attachment replaces separate bind and claim calls', () async {
+    final calls = <String>[];
+
+    final service = SyncService.forTesting(
+      bindToUser: (_) async {
+        calls.add('legacy-bind');
+      },
+      claimUnowned: (_) async {
+        calls.add('legacy-claim');
+        return 99;
+      },
+      attachAccount: (userId) async {
+        calls.add('atomic:$userId');
+        return 3;
+      },
+      getPending: (_) async {
+        calls.add('pending');
+        return const [];
+      },
+      pushPending: (_) async {
+        calls.add('push');
+      },
+      pullAll: (_) async {
+        calls.add('pull');
+        return 0;
+      },
+      now: () => DateTime.utc(2026, 10, 15, 12),
+    );
+
+    final result = await service.synchronize(' user-1 ');
+
+    expect(result.claimedUnownedCount, 3);
+    expect(calls, ['atomic:user-1', 'pending', 'push', 'pull', 'pending']);
+  });
+
+  test('atomic attachment failure stops sync before cloud access', () async {
+    final calls = <String>[];
+
+    final service = SyncService.forTesting(
+      bindToUser: (_) async {
+        calls.add('legacy-bind');
+      },
+      claimUnowned: (_) async {
+        calls.add('legacy-claim');
+        return 0;
+      },
+      attachAccount: (userId) async {
+        calls.add('atomic:$userId');
+        throw StateError('Simulated atomic attachment failure');
+      },
+      getPending: (_) async {
+        calls.add('pending');
+        return const [];
+      },
+      pushPending: (_) async {
+        calls.add('push');
+      },
+      pullAll: (_) async {
+        calls.add('pull');
+        return 0;
+      },
+    );
+
+    await expectLater(
+      service.synchronize('user-1'),
+      throwsA(isA<StateError>()),
+    );
+
+    expect(calls, ['atomic:user-1']);
+  });
+
   test('reports pending mutations that remain after sync', () async {
     var pendingReads = 0;
 

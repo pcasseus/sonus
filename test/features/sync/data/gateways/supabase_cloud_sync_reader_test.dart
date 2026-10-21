@@ -377,6 +377,7 @@ Map<String, dynamic> _artistRow({
     'created_at': '2026-09-10T10:00:00.000Z',
     'updated_at': '2026-09-11T11:00:00.000Z',
     'server_updated_at': serverUpdatedAt,
+    'server_revision': 1,
     'deleted_at': null,
   };
 }
