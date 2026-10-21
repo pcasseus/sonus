@@ -57,3 +57,25 @@ config/sonus.prod.json
 /supabase/config.toml
 /SONUS_SEC*_*.txt
 /SONUS_SEC*_*.csv
+
+# Private credentials and local release artifacts
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.p12
+*.pfx
+*.keystore
+*.jks
+*.mobileprovision
+*.db
+*.sqlite
+*.sqlite3
+*.bak
+*.dump
+*.key
+**/key.properties
+**/secrets.properties
+/audit_exports/
+/SONUS_SEC*
