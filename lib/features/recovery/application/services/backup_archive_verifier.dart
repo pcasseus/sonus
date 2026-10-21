@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:archive/archive_io.dart';
 import 'package:crypto/crypto.dart';
+import 'package:path/path.dart' as path;
 
 import '../../../../core/database/database_tables.dart';
 import '../models/backup_manifest.dart';
@@ -23,7 +24,73 @@ class BackupArchiveVerifier {
   static const maxTotalBytes = 1024 * 1024 * 1024;
   static const maxEntries = 10000;
 
-  Future<DecodedBackup> verify(File backupFile) async {
+  Future<DecodedBackup> verify(File backupFile) => _verify(backupFile);
+
+  /// Fully verifies [backupFile] and writes every integrity-checked artwork
+  /// file into [targetDirectory], which must not exist yet.
+  ///
+  /// The directory is removed again if verification or extraction fails,
+  /// so callers only ever see a completely verified extraction.
+  Future<VerifiedBackupContents> verifyAndExtract({
+    required File backupFile,
+    required Directory targetDirectory,
+  }) async {
+    if (await FileSystemEntity.type(
+          targetDirectory.path,
+          followLinks: false,
+        ) !=
+        FileSystemEntityType.notFound) {
+      throw StateError('Backup extraction directory must not exist.');
+    }
+
+    await targetDirectory.create(recursive: true);
+
+    try {
+      final extracted = <ExtractedBackupArtwork>[];
+
+      final backup = await _verify(
+        backupFile,
+        onArtwork: (artwork, bytes) async {
+          final file = File(
+            path.join(targetDirectory.path, path.basename(artwork.archivePath)),
+          );
+
+          await file.create(exclusive: true);
+          await file.writeAsBytes(bytes, flush: true);
+
+          extracted.add(
+            ExtractedBackupArtwork(
+              artworkId: artwork.artworkId,
+              archivePath: artwork.archivePath,
+              byteLength: artwork.byteLength,
+              sha256Digest: artwork.sha256Digest,
+              file: file,
+            ),
+          );
+        },
+      );
+
+      extracted.sort((a, b) => a.artworkId.compareTo(b.artworkId));
+
+      return VerifiedBackupContents(
+        backup: backup,
+        artwork: List.unmodifiable(extracted),
+        directory: targetDirectory,
+      );
+    } catch (_) {
+      if (await targetDirectory.exists()) {
+        await targetDirectory.delete(recursive: true);
+      }
+
+      rethrow;
+    }
+  }
+
+  Future<DecodedBackup> _verify(
+    File backupFile, {
+    Future<void> Function(_VerifiedArtwork artwork, List<int> bytes)?
+    onArtwork,
+  }) async {
     if (!await backupFile.exists()) {
       throw const FormatException('Backup archive does not exist.');
     }
@@ -187,6 +254,18 @@ class BackupArchiveVerifier {
             sha256.convert(bytes).toString() != digest) {
           throw const FormatException('Artwork integrity check failed.');
         }
+
+        if (onArtwork != null) {
+          await onArtwork(
+            _VerifiedArtwork(
+              artworkId: id,
+              archivePath: name,
+              byteLength: length,
+              sha256Digest: digest,
+            ),
+            bytes,
+          );
+        }
       }
 
       final actualArtworkPaths = entries.keys
@@ -228,4 +307,50 @@ class BackupArchiveVerifier {
       await input.close();
     }
   }
+}
+
+class _VerifiedArtwork {
+  const _VerifiedArtwork({
+    required this.artworkId,
+    required this.archivePath,
+    required this.byteLength,
+    required this.sha256Digest,
+  });
+
+  final String artworkId;
+  final String archivePath;
+  final int byteLength;
+  final String sha256Digest;
+}
+
+/// Artwork bytes that passed archive verification, written to local disk.
+class ExtractedBackupArtwork {
+  const ExtractedBackupArtwork({
+    required this.artworkId,
+    required this.archivePath,
+    required this.byteLength,
+    required this.sha256Digest,
+    required this.file,
+  });
+
+  final String artworkId;
+  final String archivePath;
+  final int byteLength;
+  final String sha256Digest;
+  final File file;
+}
+
+/// A fully verified backup and its extracted artwork.
+class VerifiedBackupContents {
+  const VerifiedBackupContents({
+    required this.backup,
+    required this.artwork,
+    required this.directory,
+  });
+
+  final DecodedBackup backup;
+  final List<ExtractedBackupArtwork> artwork;
+
+  // Owned by the caller; delete it once restoration has finished.
+  final Directory directory;
 }
