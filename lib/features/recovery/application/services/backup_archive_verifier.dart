@@ -7,6 +7,7 @@ import 'package:crypto/crypto.dart';
 import '../../../../core/database/database_tables.dart';
 import '../models/backup_manifest.dart';
 import 'backup_integrity_codec.dart';
+import 'bounded_backup_output_stream.dart';
 import 'backup_json_codec.dart';
 
 class BackupArchiveVerifier {
@@ -171,9 +172,12 @@ class BackupArchiveVerifier {
           throw const FormatException('Missing or incorrect artwork file.');
         }
 
-        final bytes = entry.readBytes();
-        if (bytes == null ||
-            bytes.length != length ||
+        final output = BoundedBackupOutputStream(maxBytes: length);
+        entry.writeContent(output);
+
+        final bytes = output.getBytes();
+
+        if (bytes.length != length ||
             sha256.convert(bytes).toString() != digest) {
           throw const FormatException('Artwork integrity check failed.');
         }
