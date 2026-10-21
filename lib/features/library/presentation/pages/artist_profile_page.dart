@@ -366,7 +366,7 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
       return;
     }
 
-    await _handleArtworkAction(controller, action);
+    await _handleArtworkAction(controller, action, userId);
   }
 
   Future<void> _openArtistStudio(
@@ -535,19 +535,23 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
   Future<void> _handleArtworkAction(
     ArtistProfileController controller,
     _ArtistMenuAction action,
+    String? userId,
   ) async {
     try {
       final changed = switch (action) {
         _ArtistMenuAction.studio => false,
         _ArtistMenuAction.editName => false,
         _ArtistMenuAction.removeArtist => false,
-        _ArtistMenuAction.changeHeader =>
-          await controller.changeHeaderArtwork(),
-        _ArtistMenuAction.clearHeader => await controller.clearHeaderArtwork(),
+        _ArtistMenuAction.changeHeader => await controller.changeHeaderArtwork(
+          userId: userId,
+        ),
+        _ArtistMenuAction.clearHeader => await controller.clearHeaderArtwork(
+          userId: userId,
+        ),
         _ArtistMenuAction.changeTopArtists =>
-          await controller.changeTopArtistsArtwork(),
+          await controller.changeTopArtistsArtwork(userId: userId),
         _ArtistMenuAction.clearTopArtists =>
-          await controller.clearTopArtistsArtwork(),
+          await controller.clearTopArtistsArtwork(userId: userId),
       };
 
       if (!mounted || !changed) {

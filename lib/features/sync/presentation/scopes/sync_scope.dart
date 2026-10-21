@@ -26,12 +26,25 @@ import '../../application/services/automatic_sync_coordinator.dart';
 import '../../application/services/inbound_sync_processor.dart';
 import '../../application/services/inbound_sync_reconciler.dart';
 import '../../application/services/outbound_sync_processor.dart';
+import '../../application/services/artist_receipt_cutover_policy.dart';
+import '../../application/services/artist_dependency_recovery_service.dart';
+import '../../application/services/artist_write_recovery_service.dart';
+import '../../application/services/outbound_artist_receipt_pipeline.dart';
+import '../../data/gateways/artist_dependency_receipt_replay_gateway.dart';
+import '../../data/gateways/artist_journal_replay_gateway.dart';
+import '../../application/services/outbound_artist_write_committer.dart';
+import '../../application/services/outbound_artist_write_coordinator.dart';
+import '../../application/services/outbound_artist_dependency_ensurer.dart';
 import '../../application/services/sync_network_policy_service.dart';
 import '../../application/services/sync_service.dart';
 import '../../data/daos/local_sync_dao.dart';
+import '../../data/daos/cloud_revision_baseline_dao.dart';
 import '../../data/gateways/supabase_cloud_sync_gateway.dart';
+import '../../data/gateways/supabase_artist_create_gateway.dart';
+import '../../data/gateways/supabase_artist_record_conditional_write_gateway.dart';
 import '../../data/gateways/supabase_cloud_sync_reader.dart';
 import '../../data/repositories/sqlite_local_sync_repository.dart';
+import '../../data/repositories/sqlite_cloud_revision_baseline_repository.dart';
 import '../../data/repositories/sync_mutation_transaction_runner.dart';
 import '../../data/services/supabase_cloud_artwork_storage.dart';
 import '../widgets/automatic_sync_lifecycle_bridge.dart';
@@ -82,6 +95,71 @@ class _SyncScopeState extends State<SyncScope> {
 
     final client = Supabase.instance.client;
 
+    // All local completion operations use the same database and
+    // transactional repository contracts.
+    final mutationRunner = SyncMutationTransactionRunner(appDatabase: database);
+
+    final revisionBaselines = SqliteCloudRevisionBaselineRepository(
+      dao: CloudRevisionBaselineDao(executor),
+    );
+
+    final artistCreateGateway = SupabaseArtistCreateGateway(client: client);
+
+    final artistUpdateGateway = SupabaseArtistRecordConditionalWriteGateway(
+      client: client,
+    );
+
+    final artistWriteCoordinator = OutboundArtistWriteCoordinator(
+      baselineRepository: revisionBaselines,
+      createArtist: artistCreateGateway.createArtist,
+      updateArtist: artistUpdateGateway.updateArtist,
+      committer: OutboundArtistWriteCommitter(mutationRunner: mutationRunner),
+    );
+
+    final artistDependencyEnsurer = OutboundArtistDependencyEnsurer(
+      baselineRepository: revisionBaselines,
+      createArtist: artistCreateGateway.createArtist,
+      mutationRunner: mutationRunner,
+    );
+
+    // SN-41 receipt path is intentionally disabled pending:
+    // - local mutation/dependency race resolution;
+    // - live Supabase SQL verification;
+    // - explicit production cutover approval.
+    //
+    // The existing artist coordinator remains the active route.
+    // Constructed only for the approved receipt-aware branch.
+    // The active legacy sync route remains unchanged while disabled.
+    final dependencyRecovery = ArtistReceiptCutoverPolicy.enabled
+        ? ArtistDependencyRecoveryService(
+            mutationRunner: mutationRunner,
+            generateRequestId: EntityId.syncOutbox,
+            now: DateTime.now,
+            replayReceipt: ArtistDependencyReceiptReplayGateway(
+              artistGateway: ArtistJournalReplayGateway(
+                invokeRpc: (name, parameters) async =>
+                    client.rpc(name, params: parameters),
+              ),
+            ).replay,
+          )
+        : null;
+
+    final receiptPipeline = ArtistReceiptCutoverPolicy.enabled
+        ? OutboundArtistReceiptPipeline(
+            recovery: ArtistWriteRecoveryService(
+              mutationRunner: mutationRunner,
+              now: DateTime.now,
+              replayGateway: ArtistJournalReplayGateway(
+                invokeRpc: (name, parameters) async =>
+                    client.rpc(name, params: parameters),
+              ),
+            ),
+            mutationRunner: mutationRunner,
+            dependencyRecovery: dependencyRecovery,
+            ensureDependency: dependencyRecovery!.ensure,
+          )
+        : null;
+
     final outboundProcessor = OutboundSyncProcessor(
       localSyncRepository: localSyncRepository,
       artistRepository: SqliteArtistRepository(ArtistDao(executor)),
@@ -98,12 +176,19 @@ class _SyncScopeState extends State<SyncScope> {
       ),
       cloudArtworkStorage: SupabaseCloudArtworkStorage(client: client),
       cloudSyncGateway: SupabaseCloudSyncGateway(client: client),
+      cloudRevisionBaselineRepository: revisionBaselines,
+      pushArtistMutation:
+          receiptPipeline?.pushUpsert ?? artistWriteCoordinator.push,
+      pushArtistDeletion: receiptPipeline?.pushDelete,
+      ensureArtistDependency:
+          receiptPipeline?.guardedDependency ?? artistDependencyEnsurer.ensure,
+      recoverArtistWrites: receiptPipeline?.recover,
     );
 
     final inboundReconciler = InboundSyncReconciler(
       reader: SupabaseCloudSyncReader(client: client),
       localSyncRepository: localSyncRepository,
-      mutationRunner: SyncMutationTransactionRunner(appDatabase: database),
+      mutationRunner: mutationRunner,
     );
 
     final inboundProcessor = InboundSyncProcessor(

@@ -9,6 +9,73 @@ abstract final class SyncSchema {
     await createSyncState(db);
     await createSyncOutbox(db);
     await createCloudRevisionBaselines(db);
+    await createArtistWriteJournal(db);
+    await createArtistDependencyJournal(db);
+  }
+
+  /// Durable snapshots of artist RPC requests awaiting verification.
+  ///
+  /// A newer outbox mutation cannot replace an unresolved request.
+  static const String artistWriteJournalTable = 'sync_artist_write_journal';
+
+  static Future<void> createArtistWriteJournal(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE $artistWriteJournalTable (
+        user_id TEXT NOT NULL
+          CHECK (length(trim(user_id)) > 0),
+        artist_id TEXT NOT NULL
+          CHECK (length(trim(artist_id)) > 0),
+        outbox_id TEXT NOT NULL
+          CHECK (length(trim(outbox_id)) > 0),
+        mutation_revision INTEGER NOT NULL
+          CHECK (mutation_revision >= 1),
+        operation TEXT NOT NULL
+          CHECK (operation IN ('create', 'update', 'delete')),
+        expected_server_revision INTEGER
+          CHECK (
+            (operation = 'create' AND expected_server_revision IS NULL)
+            OR
+            (operation IN ('update', 'delete')
+              AND expected_server_revision IS NOT NULL
+              AND expected_server_revision >= 1)
+          ),
+        request_json TEXT NOT NULL
+          CHECK (length(trim(request_json)) > 0),
+        created_at TEXT NOT NULL,
+
+        PRIMARY KEY (user_id, outbox_id, mutation_revision),
+        UNIQUE (user_id, artist_id)
+      )
+    ''');
+  }
+
+  /// Immutable dependency-only artist creation requests.
+  ///
+  /// These requests are not sync outbox mutations and must never
+  /// acknowledge an explicit artist edit.
+  static const String artistDependencyJournalTable =
+      'sync_artist_dependency_journal';
+
+  static Future<void> createArtistDependencyJournal(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE $artistDependencyJournalTable (
+        user_id TEXT NOT NULL
+          CHECK (length(trim(user_id)) > 0),
+        artist_id TEXT NOT NULL
+          CHECK (length(trim(artist_id)) > 0),
+        request_id TEXT NOT NULL
+          CHECK (length(trim(request_id)) > 0),
+        mutation_revision INTEGER NOT NULL DEFAULT 1
+          CHECK (mutation_revision = 1),
+        request_json TEXT NOT NULL
+          CHECK (length(trim(request_json)) > 0),
+        created_at TEXT NOT NULL
+          CHECK (length(trim(created_at)) > 0),
+
+        PRIMARY KEY (user_id, artist_id),
+        UNIQUE (user_id, request_id)
+      )
+    ''');
   }
 
   static Future<void> createSyncState(DatabaseExecutor db) async {

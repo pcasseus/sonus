@@ -14,6 +14,7 @@ import 'package:sonus_next/features/library/domain/repositories/album_repository
 import 'package:sonus_next/features/library/domain/repositories/artist_repository.dart';
 import 'package:sonus_next/features/library/domain/repositories/song_repository.dart';
 import 'package:sonus_next/features/sync/application/repositories/local_sync_repository.dart';
+import 'package:sonus_next/features/sync/application/repositories/cloud_revision_baseline_repository.dart';
 import 'package:sonus_next/features/sync/application/services/cloud_artwork_storage.dart';
 import 'package:sonus_next/features/sync/application/services/cloud_sync_gateway.dart';
 import 'package:sonus_next/features/sync/application/services/outbound_sync_processor.dart';
@@ -127,6 +128,885 @@ void main() {
       ]);
     });
 
+    test('safe dependency callback runs before album upload', () async {
+      artistRepository.values['artist_1'] = artist(timestamp);
+      albumRepository.values['album_1'] = album(timestamp);
+
+      localSyncRepository.pending.add(
+        outbox(
+          id: 'dependent_album',
+          type: CloudDataEntity.album,
+          entityId: 'album_1',
+          timestamp: timestamp,
+        ),
+      );
+
+      final ensured = <String>[];
+
+      processor = OutboundSyncProcessor(
+        localSyncRepository: localSyncRepository,
+        artistRepository: artistRepository,
+        albumRepository: albumRepository,
+        albumEditionRepository: albumEditionRepository,
+        songRepository: songRepository,
+        metadataFieldStateRepository: metadataFieldStateRepository,
+        artworkAssetRepository: artworkAssetRepository,
+        cloudArtworkStorage: cloudArtworkStorage,
+        cloudSyncGateway: cloudSyncGateway,
+        cloudRevisionBaselineRepository: FakeCloudRevisionBaselineRepository(),
+        pushArtistMutation:
+            ({required userId, required entry, required artist}) async {
+              throw StateError('No explicit artist mutation expected.');
+            },
+        ensureArtistDependency: ({required userId, required artist}) async {
+          expect(userId, 'user_1');
+          expect(artist.id, 'artist_1');
+          expect(cloudSyncGateway.calls, isEmpty);
+          ensured.add(artist.id);
+        },
+      );
+
+      await processor.pushPending('user_1');
+
+      expect(ensured, ['artist_1']);
+      expect(cloudSyncGateway.calls, ['upsert:album:album_1']);
+      expect(localSyncRepository.processedIds, ['dependent_album']);
+      expect(localSyncRepository.pending, isEmpty);
+    });
+
+    test(
+      'dependency conflict stops album and preserves its outbox entry',
+      () async {
+        artistRepository.values['artist_1'] = artist(timestamp);
+        albumRepository.values['album_1'] = album(timestamp);
+
+        localSyncRepository.pending.add(
+          outbox(
+            id: 'conflicting_album',
+            type: CloudDataEntity.album,
+            entityId: 'album_1',
+            timestamp: timestamp,
+          ),
+        );
+
+        var attempts = 0;
+
+        processor = OutboundSyncProcessor(
+          localSyncRepository: localSyncRepository,
+          artistRepository: artistRepository,
+          albumRepository: albumRepository,
+          albumEditionRepository: albumEditionRepository,
+          songRepository: songRepository,
+          metadataFieldStateRepository: metadataFieldStateRepository,
+          artworkAssetRepository: artworkAssetRepository,
+          cloudArtworkStorage: cloudArtworkStorage,
+          cloudSyncGateway: cloudSyncGateway,
+          cloudRevisionBaselineRepository:
+              FakeCloudRevisionBaselineRepository(),
+          pushArtistMutation:
+              ({required userId, required entry, required artist}) async {
+                throw StateError('No explicit artist mutation expected.');
+              },
+          ensureArtistDependency: ({required userId, required artist}) async {
+            attempts++;
+            throw StateError('Cloud artist already exists; reconcile first.');
+          },
+        );
+
+        await expectLater(processor.pushPending('user_1'), throwsStateError);
+
+        expect(attempts, 1);
+        expect(cloudSyncGateway.calls, isEmpty);
+        expect(localSyncRepository.processedIds, isEmpty);
+        expect(localSyncRepository.pending, hasLength(1));
+        expect(localSyncRepository.pending.single.id, 'conflicting_album');
+      },
+    );
+
+    test(
+      'explicit artist mutation and dependent album remain separate',
+      () async {
+        artistRepository.values['artist_1'] = artist(timestamp);
+        albumRepository.values['album_1'] = album(timestamp);
+
+        localSyncRepository.pending.addAll([
+          outbox(
+            id: 'explicit_artist',
+            type: CloudDataEntity.artist,
+            entityId: 'artist_1',
+            timestamp: timestamp,
+          ),
+          outbox(
+            id: 'dependent_album_after_artist',
+            type: CloudDataEntity.album,
+            entityId: 'album_1',
+            timestamp: timestamp,
+          ),
+        ]);
+
+        var artistWrites = 0;
+        var dependencyChecks = 0;
+
+        processor = OutboundSyncProcessor(
+          localSyncRepository: localSyncRepository,
+          artistRepository: artistRepository,
+          albumRepository: albumRepository,
+          albumEditionRepository: albumEditionRepository,
+          songRepository: songRepository,
+          metadataFieldStateRepository: metadataFieldStateRepository,
+          artworkAssetRepository: artworkAssetRepository,
+          cloudArtworkStorage: cloudArtworkStorage,
+          cloudSyncGateway: cloudSyncGateway,
+          cloudRevisionBaselineRepository:
+              FakeCloudRevisionBaselineRepository(),
+          pushArtistMutation:
+              ({required userId, required entry, required artist}) async {
+                artistWrites++;
+
+                expect(entry.id, 'explicit_artist');
+                expect(cloudSyncGateway.calls, isEmpty);
+
+                await localSyncRepository.markProcessed(
+                  userId: userId,
+                  outboxEntryId: entry.id,
+                  expectedRevision: entry.mutationRevision,
+                  expectedOperation: entry.operation,
+                );
+              },
+          ensureArtistDependency: ({required userId, required artist}) async {
+            dependencyChecks++;
+          },
+        );
+
+        await processor.pushPending('user_1');
+
+        expect(artistWrites, 1);
+        expect(dependencyChecks, 0);
+        expect(cloudSyncGateway.calls, ['upsert:album:album_1']);
+        expect(localSyncRepository.processedIds, [
+          'explicit_artist',
+          'dependent_album_after_artist',
+        ]);
+        expect(localSyncRepository.pending, isEmpty);
+      },
+    );
+    test('guarded artist delegates and acknowledges exactly once', () async {
+      artistRepository.values['artist_1'] = artist(timestamp);
+
+      localSyncRepository.pending.add(
+        outbox(
+          id: 'guarded_artist',
+          type: CloudDataEntity.artist,
+          entityId: 'artist_1',
+          timestamp: timestamp,
+        ),
+      );
+
+      final baselines = FakeCloudRevisionBaselineRepository();
+      var coordinatorCalls = 0;
+
+      processor = OutboundSyncProcessor(
+        localSyncRepository: localSyncRepository,
+        artistRepository: artistRepository,
+        albumRepository: albumRepository,
+        albumEditionRepository: albumEditionRepository,
+        songRepository: songRepository,
+        metadataFieldStateRepository: metadataFieldStateRepository,
+        artworkAssetRepository: artworkAssetRepository,
+        cloudArtworkStorage: cloudArtworkStorage,
+        cloudSyncGateway: cloudSyncGateway,
+        cloudRevisionBaselineRepository: baselines,
+        pushArtistMutation:
+            ({required userId, required entry, required artist}) async {
+              coordinatorCalls++;
+
+              expect(userId, 'user_1');
+              expect(entry.id, 'guarded_artist');
+              expect(artist.id, 'artist_1');
+
+              await localSyncRepository.markProcessed(
+                userId: userId,
+                outboxEntryId: entry.id,
+                expectedRevision: entry.mutationRevision,
+                expectedOperation: entry.operation,
+              );
+            },
+      );
+
+      await processor.pushPending('user_1');
+
+      expect(coordinatorCalls, 1);
+      expect(localSyncRepository.processedIds, ['guarded_artist']);
+      expect(localSyncRepository.pending, isEmpty);
+      expect(cloudSyncGateway.calls, isEmpty);
+    });
+
+    test('guarded artist failure preserves its pending mutation', () async {
+      artistRepository.values['artist_1'] = artist(timestamp);
+
+      localSyncRepository.pending.add(
+        outbox(
+          id: 'guarded_conflict',
+          type: CloudDataEntity.artist,
+          entityId: 'artist_1',
+          timestamp: timestamp,
+        ),
+      );
+
+      processor = OutboundSyncProcessor(
+        localSyncRepository: localSyncRepository,
+        artistRepository: artistRepository,
+        albumRepository: albumRepository,
+        albumEditionRepository: albumEditionRepository,
+        songRepository: songRepository,
+        metadataFieldStateRepository: metadataFieldStateRepository,
+        artworkAssetRepository: artworkAssetRepository,
+        cloudArtworkStorage: cloudArtworkStorage,
+        cloudSyncGateway: cloudSyncGateway,
+        cloudRevisionBaselineRepository: FakeCloudRevisionBaselineRepository(),
+        pushArtistMutation:
+            ({required userId, required entry, required artist}) async {
+              throw StateError('Simulated conditional write conflict.');
+            },
+      );
+
+      await expectLater(processor.pushPending('user_1'), throwsStateError);
+
+      expect(localSyncRepository.pending, hasLength(1));
+      expect(localSyncRepository.processedIds, isEmpty);
+      expect(cloudSyncGateway.calls, isEmpty);
+    });
+
+    test('guarded album dependency does not overwrite artist', () async {
+      artistRepository.values['artist_1'] = artist(timestamp);
+      albumRepository.values['album_1'] = album(timestamp);
+
+      localSyncRepository.pending.add(
+        outbox(
+          id: 'guarded_album',
+          type: CloudDataEntity.album,
+          entityId: 'album_1',
+          timestamp: timestamp,
+        ),
+      );
+
+      final baselines = FakeCloudRevisionBaselineRepository();
+      baselines.revisions['user_1:artist:artist_1'] = 4;
+
+      processor = OutboundSyncProcessor(
+        localSyncRepository: localSyncRepository,
+        artistRepository: artistRepository,
+        albumRepository: albumRepository,
+        albumEditionRepository: albumEditionRepository,
+        songRepository: songRepository,
+        metadataFieldStateRepository: metadataFieldStateRepository,
+        artworkAssetRepository: artworkAssetRepository,
+        cloudArtworkStorage: cloudArtworkStorage,
+        cloudSyncGateway: cloudSyncGateway,
+        cloudRevisionBaselineRepository: baselines,
+        pushArtistMutation:
+            ({required userId, required entry, required artist}) async {
+              throw StateError('Unexpected explicit artist upload.');
+            },
+      );
+
+      await processor.pushPending('user_1');
+
+      expect(cloudSyncGateway.calls, ['upsert:album:album_1']);
+      expect(localSyncRepository.processedIds, ['guarded_album']);
+    });
+
+    test('missing artist baseline defers dependent album', () async {
+      artistRepository.values['artist_1'] = artist(timestamp);
+      albumRepository.values['album_1'] = album(timestamp);
+
+      localSyncRepository.pending.add(
+        outbox(
+          id: 'unknown_dependency',
+          type: CloudDataEntity.album,
+          entityId: 'album_1',
+          timestamp: timestamp,
+        ),
+      );
+
+      processor = OutboundSyncProcessor(
+        localSyncRepository: localSyncRepository,
+        artistRepository: artistRepository,
+        albumRepository: albumRepository,
+        albumEditionRepository: albumEditionRepository,
+        songRepository: songRepository,
+        metadataFieldStateRepository: metadataFieldStateRepository,
+        artworkAssetRepository: artworkAssetRepository,
+        cloudArtworkStorage: cloudArtworkStorage,
+        cloudSyncGateway: cloudSyncGateway,
+        cloudRevisionBaselineRepository: FakeCloudRevisionBaselineRepository(),
+        pushArtistMutation:
+            ({required userId, required entry, required artist}) async {
+              throw StateError('Unexpected explicit artist upload.');
+            },
+      );
+
+      await expectLater(processor.pushPending('user_1'), throwsStateError);
+
+      expect(cloudSyncGateway.calls, isEmpty);
+      expect(localSyncRepository.processedIds, isEmpty);
+      expect(localSyncRepository.pending, hasLength(1));
+    });
+    OutboundSyncProcessor deletionProcessor({
+      PushArtistDeletion? deletion,
+      bool guardedUpsert = true,
+    }) {
+      return OutboundSyncProcessor(
+        localSyncRepository: localSyncRepository,
+        artistRepository: artistRepository,
+        albumRepository: albumRepository,
+        albumEditionRepository: albumEditionRepository,
+        songRepository: songRepository,
+        metadataFieldStateRepository: metadataFieldStateRepository,
+        artworkAssetRepository: artworkAssetRepository,
+        cloudArtworkStorage: cloudArtworkStorage,
+        cloudSyncGateway: cloudSyncGateway,
+        cloudRevisionBaselineRepository: guardedUpsert
+            ? FakeCloudRevisionBaselineRepository()
+            : null,
+        pushArtistMutation: guardedUpsert
+            ? ({required userId, required entry, required artist}) async {
+                throw StateError('Unexpected artist upsert.');
+              }
+            : null,
+        pushArtistDeletion: deletion,
+      );
+    }
+
+    test('guarded artist deletion owns acknowledgement', () async {
+      final entry = outbox(
+        id: 'guarded_delete',
+        type: CloudDataEntity.artist,
+        entityId: 'artist_1',
+        timestamp: timestamp,
+        operation: SyncOutboxOperation.delete,
+      );
+
+      localSyncRepository.pending.add(entry);
+      var calls = 0;
+
+      processor = deletionProcessor(
+        deletion: ({required userId, required entry}) async {
+          calls++;
+          expect(userId, 'user_1');
+          expect(entry.id, 'guarded_delete');
+          expect(entry.operation, SyncOutboxOperation.delete);
+
+          await localSyncRepository.markProcessed(
+            userId: userId,
+            outboxEntryId: entry.id,
+            expectedRevision: entry.mutationRevision,
+            expectedOperation: entry.operation,
+          );
+        },
+      );
+
+      await processor.pushPending('user_1');
+
+      expect(calls, 1);
+      expect(cloudSyncGateway.calls, isEmpty);
+      expect(localSyncRepository.processedIds, ['guarded_delete']);
+      expect(localSyncRepository.pending, isEmpty);
+    });
+
+    test('guarded artist deletion failure leaves work pending', () async {
+      final entry = outbox(
+        id: 'failed_delete',
+        type: CloudDataEntity.artist,
+        entityId: 'artist_1',
+        timestamp: timestamp,
+        operation: SyncOutboxOperation.delete,
+      );
+
+      localSyncRepository.pending.add(entry);
+      var calls = 0;
+
+      processor = deletionProcessor(
+        deletion: ({required userId, required entry}) async {
+          calls++;
+          throw StateError('Simulated guarded deletion conflict.');
+        },
+      );
+
+      await expectLater(processor.pushPending('user_1'), throwsStateError);
+
+      expect(calls, 1);
+      expect(cloudSyncGateway.calls, isEmpty);
+      expect(localSyncRepository.processedIds, isEmpty);
+      expect(localSyncRepository.pending.single.id, entry.id);
+    });
+
+    test('newer upsert survives guarded deletion acknowledgement', () async {
+      final entry = outbox(
+        id: 'delete_then_upsert',
+        type: CloudDataEntity.artist,
+        entityId: 'artist_1',
+        timestamp: timestamp,
+        operation: SyncOutboxOperation.delete,
+      );
+
+      localSyncRepository.pending.add(entry);
+
+      processor = deletionProcessor(
+        deletion: ({required userId, required entry}) async {
+          localSyncRepository.pending[0] = SyncOutboxEntry(
+            id: entry.id,
+            userId: entry.userId,
+            entityType: entry.entityType,
+            entityId: entry.entityId,
+            operation: SyncOutboxOperation.upsert,
+            createdAt: entry.createdAt,
+            updatedAt: entry.updatedAt.add(const Duration(minutes: 1)),
+            mutationRevision: entry.mutationRevision + 1,
+          );
+
+          await localSyncRepository.markProcessed(
+            userId: userId,
+            outboxEntryId: entry.id,
+            expectedRevision: entry.mutationRevision,
+            expectedOperation: entry.operation,
+          );
+        },
+      );
+
+      await processor.pushPending('user_1');
+
+      expect(cloudSyncGateway.calls, isEmpty);
+      expect(localSyncRepository.processedIds, isEmpty);
+      expect(localSyncRepository.pending, hasLength(1));
+      expect(localSyncRepository.pending.single.id, entry.id);
+      expect(localSyncRepository.pending.single.mutationRevision, 2);
+      expect(
+        localSyncRepository.pending.single.operation,
+        SyncOutboxOperation.upsert,
+      );
+    });
+
+    test('song deletion stays on generic route', () async {
+      final entry = outbox(
+        id: 'ordinary_song_delete',
+        type: CloudDataEntity.song,
+        entityId: 'song_1',
+        timestamp: timestamp,
+        operation: SyncOutboxOperation.delete,
+      );
+
+      localSyncRepository.pending.add(entry);
+      var guardedCalls = 0;
+
+      processor = deletionProcessor(
+        deletion: ({required userId, required entry}) async {
+          guardedCalls++;
+          throw StateError('Song must not use artist deletion.');
+        },
+      );
+
+      await processor.pushPending('user_1');
+
+      expect(guardedCalls, 0);
+      expect(cloudSyncGateway.calls, [
+        'delete:song:song_1:${timestamp.toIso8601String()}',
+      ]);
+      expect(localSyncRepository.processedIds, ['ordinary_song_delete']);
+      expect(localSyncRepository.pending, isEmpty);
+    });
+
+    test('guarded deletion rejects missing upsert configuration', () async {
+      processor = deletionProcessor(
+        guardedUpsert: false,
+        deletion: ({required userId, required entry}) async {
+          throw StateError('Deletion callback must not run.');
+        },
+      );
+
+      await expectLater(processor.pushPending('user_1'), throwsStateError);
+
+      expect(cloudSyncGateway.calls, isEmpty);
+      expect(localSyncRepository.processedIds, isEmpty);
+    });
+    test('recovery runs even when ordinary outbox is empty', () async {
+      final events = <String>[];
+
+      processor = OutboundSyncProcessor(
+        localSyncRepository: localSyncRepository,
+        artistRepository: artistRepository,
+        albumRepository: albumRepository,
+        albumEditionRepository: albumEditionRepository,
+        songRepository: songRepository,
+        metadataFieldStateRepository: metadataFieldStateRepository,
+        artworkAssetRepository: artworkAssetRepository,
+        cloudArtworkStorage: cloudArtworkStorage,
+        cloudSyncGateway: cloudSyncGateway,
+        cloudRevisionBaselineRepository: FakeCloudRevisionBaselineRepository(),
+        pushArtistMutation:
+            ({required userId, required entry, required artist}) async {
+              throw StateError('Unexpected artist mutation.');
+            },
+        pushArtistDeletion: ({required userId, required entry}) async {
+          throw StateError('Unexpected artist deletion.');
+        },
+        recoverArtistWrites: (userId) async {
+          events.add('recover:$userId');
+        },
+      );
+
+      await processor.pushPending('user_1');
+
+      expect(events, ['recover:user_1']);
+      expect(cloudSyncGateway.calls, isEmpty);
+      expect(localSyncRepository.processedIds, isEmpty);
+    });
+
+    test('failed recovery blocks later ordinary outbound writes', () async {
+      localSyncRepository.pending.add(
+        outbox(
+          id: 'pending_song_delete',
+          type: CloudDataEntity.song,
+          entityId: 'song_1',
+          timestamp: timestamp,
+          operation: SyncOutboxOperation.delete,
+        ),
+      );
+
+      var recoveryCalls = 0;
+
+      processor = OutboundSyncProcessor(
+        localSyncRepository: localSyncRepository,
+        artistRepository: artistRepository,
+        albumRepository: albumRepository,
+        albumEditionRepository: albumEditionRepository,
+        songRepository: songRepository,
+        metadataFieldStateRepository: metadataFieldStateRepository,
+        artworkAssetRepository: artworkAssetRepository,
+        cloudArtworkStorage: cloudArtworkStorage,
+        cloudSyncGateway: cloudSyncGateway,
+        cloudRevisionBaselineRepository: FakeCloudRevisionBaselineRepository(),
+        pushArtistMutation:
+            ({required userId, required entry, required artist}) async {
+              throw StateError('Unexpected artist mutation.');
+            },
+        pushArtistDeletion: ({required userId, required entry}) async {
+          throw StateError('Unexpected artist deletion.');
+        },
+        recoverArtistWrites: (userId) async {
+          recoveryCalls++;
+          throw StateError('Unresolved cloud receipt.');
+        },
+      );
+
+      await expectLater(processor.pushPending('user_1'), throwsStateError);
+
+      expect(recoveryCalls, 1);
+      expect(cloudSyncGateway.calls, isEmpty);
+      expect(localSyncRepository.processedIds, isEmpty);
+      expect(localSyncRepository.pending, hasLength(1));
+    });
+
+    test('recovery completes before fetching refreshed outbox', () async {
+      final events = <String>[];
+
+      processor = OutboundSyncProcessor(
+        localSyncRepository: localSyncRepository,
+        artistRepository: artistRepository,
+        albumRepository: albumRepository,
+        albumEditionRepository: albumEditionRepository,
+        songRepository: songRepository,
+        metadataFieldStateRepository: metadataFieldStateRepository,
+        artworkAssetRepository: artworkAssetRepository,
+        cloudArtworkStorage: cloudArtworkStorage,
+        cloudSyncGateway: cloudSyncGateway,
+        cloudRevisionBaselineRepository: FakeCloudRevisionBaselineRepository(),
+        pushArtistMutation:
+            ({required userId, required entry, required artist}) async {
+              throw StateError('Unexpected artist mutation.');
+            },
+        pushArtistDeletion: ({required userId, required entry}) async {
+          throw StateError('Unexpected artist deletion.');
+        },
+        recoverArtistWrites: (userId) async {
+          events.add('recovered');
+
+          localSyncRepository.pending.add(
+            outbox(
+              id: 'new_song_delete',
+              type: CloudDataEntity.song,
+              entityId: 'song_1',
+              timestamp: timestamp,
+              operation: SyncOutboxOperation.delete,
+            ),
+          );
+        },
+      );
+
+      await processor.pushPending('user_1');
+
+      expect(events, ['recovered']);
+      expect(cloudSyncGateway.calls, [
+        'delete:song:song_1:${timestamp.toIso8601String()}',
+      ]);
+      expect(localSyncRepository.processedIds, ['new_song_delete']);
+      expect(localSyncRepository.pending, isEmpty);
+    });
+
+    test('recovery configuration requires guarded deletion', () async {
+      var calls = 0;
+
+      processor = OutboundSyncProcessor(
+        localSyncRepository: localSyncRepository,
+        artistRepository: artistRepository,
+        albumRepository: albumRepository,
+        albumEditionRepository: albumEditionRepository,
+        songRepository: songRepository,
+        metadataFieldStateRepository: metadataFieldStateRepository,
+        artworkAssetRepository: artworkAssetRepository,
+        cloudArtworkStorage: cloudArtworkStorage,
+        cloudSyncGateway: cloudSyncGateway,
+        cloudRevisionBaselineRepository: FakeCloudRevisionBaselineRepository(),
+        pushArtistMutation:
+            ({required userId, required entry, required artist}) async {
+              throw StateError('Unexpected artist mutation.');
+            },
+        recoverArtistWrites: (userId) async {
+          calls++;
+        },
+      );
+
+      await expectLater(processor.pushPending('user_1'), throwsStateError);
+
+      expect(calls, 0);
+      expect(cloudSyncGateway.calls, isEmpty);
+    });
+
+    test('recovery must finish before ordinary deletion begins', () async {
+      final recoveryStarted = Completer<void>();
+      final releaseRecovery = Completer<void>();
+      final events = <String>[];
+
+      localSyncRepository.pending.add(
+        outbox(
+          id: 'ordinary_after_recovery',
+          type: CloudDataEntity.song,
+          entityId: 'song_1',
+          timestamp: timestamp,
+          operation: SyncOutboxOperation.delete,
+        ),
+      );
+
+      processor = OutboundSyncProcessor(
+        localSyncRepository: localSyncRepository,
+        artistRepository: artistRepository,
+        albumRepository: albumRepository,
+        albumEditionRepository: albumEditionRepository,
+        songRepository: songRepository,
+        metadataFieldStateRepository: metadataFieldStateRepository,
+        artworkAssetRepository: artworkAssetRepository,
+        cloudArtworkStorage: cloudArtworkStorage,
+        cloudSyncGateway: cloudSyncGateway,
+        cloudRevisionBaselineRepository: FakeCloudRevisionBaselineRepository(),
+        pushArtistMutation:
+            ({required userId, required entry, required artist}) async {
+              throw StateError('Unexpected artist mutation.');
+            },
+        pushArtistDeletion: ({required userId, required entry}) async {
+          throw StateError('Unexpected artist deletion.');
+        },
+        recoverArtistWrites: (userId) async {
+          events.add('recovery-start');
+          recoveryStarted.complete();
+          await releaseRecovery.future;
+          events.add('recovery-end');
+        },
+      );
+
+      final push = processor.pushPending('user_1');
+
+      await recoveryStarted.future;
+
+      try {
+        expect(events, ['recovery-start']);
+        expect(cloudSyncGateway.calls, isEmpty);
+        expect(localSyncRepository.processedIds, isEmpty);
+        expect(localSyncRepository.pending, hasLength(1));
+      } finally {
+        releaseRecovery.complete();
+      }
+
+      await push;
+
+      expect(events, ['recovery-start', 'recovery-end']);
+      expect(cloudSyncGateway.calls, [
+        'delete:song:song_1:${timestamp.toIso8601String()}',
+      ]);
+      expect(localSyncRepository.processedIds, ['ordinary_after_recovery']);
+      expect(localSyncRepository.pending, isEmpty);
+    });
+
+    test('lost recovery response leaves later deletion pending', () async {
+      final recoveryStarted = Completer<void>();
+      final releaseRecovery = Completer<void>();
+
+      localSyncRepository.pending.add(
+        outbox(
+          id: 'pending_after_lost_response',
+          type: CloudDataEntity.song,
+          entityId: 'song_1',
+          timestamp: timestamp,
+          operation: SyncOutboxOperation.delete,
+        ),
+      );
+
+      var recoveryCalls = 0;
+
+      processor = OutboundSyncProcessor(
+        localSyncRepository: localSyncRepository,
+        artistRepository: artistRepository,
+        albumRepository: albumRepository,
+        albumEditionRepository: albumEditionRepository,
+        songRepository: songRepository,
+        metadataFieldStateRepository: metadataFieldStateRepository,
+        artworkAssetRepository: artworkAssetRepository,
+        cloudArtworkStorage: cloudArtworkStorage,
+        cloudSyncGateway: cloudSyncGateway,
+        cloudRevisionBaselineRepository: FakeCloudRevisionBaselineRepository(),
+        pushArtistMutation:
+            ({required userId, required entry, required artist}) async {
+              throw StateError('Unexpected artist mutation.');
+            },
+        pushArtistDeletion: ({required userId, required entry}) async {
+          throw StateError('Unexpected artist deletion.');
+        },
+        recoverArtistWrites: (userId) async {
+          recoveryCalls++;
+          recoveryStarted.complete();
+          await releaseRecovery.future;
+          throw StateError('Receipt response still unavailable.');
+        },
+      );
+
+      final push = processor.pushPending('user_1');
+
+      // Attach the error expectation before releasing the failure.
+      final expectation = expectLater(push, throwsStateError);
+
+      await recoveryStarted.future;
+
+      try {
+        expect(cloudSyncGateway.calls, isEmpty);
+        expect(localSyncRepository.pending, hasLength(1));
+        expect(localSyncRepository.processedIds, isEmpty);
+      } finally {
+        releaseRecovery.complete();
+      }
+
+      await expectation;
+
+      expect(recoveryCalls, 1);
+      expect(cloudSyncGateway.calls, isEmpty);
+      expect(localSyncRepository.processedIds, isEmpty);
+      expect(
+        localSyncRepository.pending.single.id,
+        'pending_after_lost_response',
+      );
+    });
+    test('concurrent outbound runs do not duplicate album upload', () async {
+      artistRepository.values['artist_1'] = artist(timestamp);
+      albumRepository.values['album_1'] = album(timestamp);
+
+      localSyncRepository.pending.add(
+        outbox(
+          id: 'concurrent_album',
+          type: CloudDataEntity.album,
+          entityId: 'album_1',
+          timestamp: timestamp,
+        ),
+      );
+
+      final uploadStarted = Completer<void>();
+      final releaseUpload = Completer<void>();
+      var albumCalls = 0;
+
+      cloudSyncGateway.beforeUpsertCompletes = (record) async {
+        if (record is CloudAlbumRecord) {
+          albumCalls++;
+          if (!uploadStarted.isCompleted) {
+            uploadStarted.complete();
+          }
+          await releaseUpload.future;
+        }
+      };
+
+      final first = processor.pushPending('user_1');
+
+      try {
+        await uploadStarted.future;
+
+        final second = processor.pushPending('user_1');
+
+        // Give the overlapping run a chance to reach the gateway.
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+
+        // A serialized processor must not start a second upload.
+        expect(albumCalls, 1);
+
+        releaseUpload.complete();
+
+        await Future.wait([first, second]);
+
+        expect(albumCalls, 1);
+        expect(localSyncRepository.processedIds, ['concurrent_album']);
+        expect(localSyncRepository.pending, isEmpty);
+      } finally {
+        if (!releaseUpload.isCompleted) {
+          releaseUpload.complete();
+        }
+      }
+    });
+    test(
+      'failed outbound run allows subsequent retry on same processor',
+      () async {
+        artistRepository.values['artist_1'] = artist(timestamp);
+        albumRepository.values['album_1'] = album(timestamp);
+
+        localSyncRepository.pending.add(
+          outbox(
+            id: 'retry_album',
+            type: CloudDataEntity.album,
+            entityId: 'album_1',
+            timestamp: timestamp,
+          ),
+        );
+
+        cloudSyncGateway.failOn = 'upsert:album:album_1';
+
+        // The first run fails without acknowledging the album.
+        await expectLater(processor.pushPending('user_1'), throwsStateError);
+
+        expect(localSyncRepository.pending, hasLength(1));
+        expect(localSyncRepository.pending.single.id, 'retry_album');
+        expect(localSyncRepository.processedIds, isEmpty);
+
+        // The same processor must remain usable after the failure.
+        cloudSyncGateway.failOn = null;
+
+        await processor.pushPending('user_1');
+
+        expect(localSyncRepository.pending, isEmpty);
+        expect(localSyncRepository.processedIds, ['retry_album']);
+
+        // The first upload failed; the second succeeded.
+        expect(
+          cloudSyncGateway.calls
+              .where((call) => call == 'upsert:album:album_1')
+              .length,
+          2,
+        );
+      },
+    );
     test('does nothing when outbox is empty', () async {
       await processor.pushPending('user_1');
 
@@ -555,6 +1435,39 @@ Song song(DateTime timestamp) {
     createdAt: timestamp,
     updatedAt: timestamp,
   );
+}
+
+class FakeCloudRevisionBaselineRepository
+    implements CloudRevisionBaselineRepository {
+  final Map<String, int> revisions = {};
+
+  String _key(String userId, CloudDataEntity entityType, String entityId) {
+    return '$userId:${entityType.name}:$entityId';
+  }
+
+  @override
+  Future<int?> getRevision({
+    required String userId,
+    required CloudDataEntity entityType,
+    required String entityId,
+  }) async {
+    return revisions[_key(userId, entityType, entityId)];
+  }
+
+  @override
+  Future<void> saveObservedRevision({
+    required String userId,
+    required CloudDataEntity entityType,
+    required String entityId,
+    required int serverRevision,
+  }) async {
+    final key = _key(userId, entityType, entityId);
+    final current = revisions[key];
+
+    if (current == null || serverRevision > current) {
+      revisions[key] = serverRevision;
+    }
+  }
 }
 
 class FakeLocalSyncRepository implements LocalSyncRepository {

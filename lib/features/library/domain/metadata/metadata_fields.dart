@@ -1,6 +1,8 @@
 abstract final class MetadataFields {
   // Artist
   static const String artistName = 'name';
+  static const String artistHeaderArtwork = 'headerArtworkId';
+  static const String artistTopArtistsArtwork = 'topArtistsArtworkId';
 
   // Album
   static const String albumArtist = 'artistId';

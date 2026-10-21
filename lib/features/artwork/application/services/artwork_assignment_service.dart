@@ -9,6 +9,7 @@ import '../../../library/domain/repositories/artist_repository.dart';
 import '../../../library/domain/repositories/song_repository.dart';
 import '../../../library/domain/services/metadata_field_state_service.dart';
 import '../../../sync/application/services/sync_mutation_runner.dart';
+import '../../../sync/domain/models/sync_data_contract.dart';
 import '../../domain/entities/artwork_asset.dart';
 import '../../domain/entities/artwork_asset_factory.dart';
 import '../../domain/repositories/artwork_asset_repository.dart';
@@ -46,51 +47,156 @@ class ArtworkAssignmentService {
   }
 
   Future<ArtworkAsset> assignArtistHeader({
+    String? userId,
     required String artistId,
     required String filePath,
     DateTime? now,
   }) async {
-    final artist = await _requireArtist(artistId);
+    await _requireArtist(artistId);
     final timestamp = now ?? DateTime.now();
+    final resolvedPath = await _resolveArtworkPath(filePath);
+    final runner = mutationRunner;
 
-    final artwork = await resolveArtworkAsset(
-      filePath: filePath,
-      now: timestamp,
-    );
+    if (runner == null) {
+      final artwork = await _resolveArtworkAssetForPath(
+        repository: artworkAssetRepository,
+        resolvedPath: resolvedPath,
+        now: timestamp,
+      );
 
-    if (artist.headerArtworkId == artwork.id) {
+      final artist = await _requireArtist(artistId);
+
+      if (artist.headerArtworkId != artwork.id) {
+        await artistRepository.save(
+          artist.copyWith(headerArtworkId: artwork.id, updatedAt: timestamp),
+        );
+      }
+
       return artwork;
     }
 
-    await artistRepository.save(
-      artist.copyWith(headerArtworkId: artwork.id, updatedAt: timestamp),
-    );
+    return runner.run((context) async {
+      final artist = await context.artistRepository.getById(artistId);
 
-    return artwork;
+      if (artist == null) {
+        throw StateError('Artist not found: $artistId');
+      }
+
+      final artwork = await _resolveArtworkAssetForPath(
+        repository: context.artworkAssetRepository,
+        resolvedPath: resolvedPath,
+        now: timestamp,
+      );
+
+      if (artist.headerArtworkId == artwork.id) {
+        return artwork;
+      }
+
+      await context.artistRepository.save(
+        artist.copyWith(headerArtworkId: artwork.id, updatedAt: timestamp),
+      );
+
+      final metadataRepository = context.metadataFieldStateRepository;
+
+      if (metadataRepository == null) {
+        throw StateError('Artist metadata repository is unavailable.');
+      }
+
+      await MetadataFieldStateService(repository: metadataRepository).record(
+        entityType: MetadataEntityType.artist,
+        entityId: artistId,
+        fieldName: MetadataFields.artistHeaderArtwork,
+        authority: MetadataAuthority.manual,
+        source: MetadataProvenanceSource.user,
+        updatedAt: timestamp,
+      );
+
+      await context.localSyncRepository.recordUpsert(
+        userId: userId,
+        entityType: CloudDataEntity.artist,
+        entityId: artistId,
+      );
+
+      return artwork;
+    });
   }
 
   Future<ArtworkAsset> assignArtistTopArtists({
+    String? userId,
     required String artistId,
     required String filePath,
     DateTime? now,
   }) async {
-    final artist = await _requireArtist(artistId);
+    await _requireArtist(artistId);
     final timestamp = now ?? DateTime.now();
+    final resolvedPath = await _resolveArtworkPath(filePath);
+    final runner = mutationRunner;
 
-    final artwork = await resolveArtworkAsset(
-      filePath: filePath,
-      now: timestamp,
-    );
+    if (runner == null) {
+      final artwork = await _resolveArtworkAssetForPath(
+        repository: artworkAssetRepository,
+        resolvedPath: resolvedPath,
+        now: timestamp,
+      );
 
-    if (artist.topArtistsArtworkId == artwork.id) {
+      final artist = await _requireArtist(artistId);
+
+      if (artist.topArtistsArtworkId != artwork.id) {
+        await artistRepository.save(
+          artist.copyWith(
+            topArtistsArtworkId: artwork.id,
+            updatedAt: timestamp,
+          ),
+        );
+      }
+
       return artwork;
     }
 
-    await artistRepository.save(
-      artist.copyWith(topArtistsArtworkId: artwork.id, updatedAt: timestamp),
-    );
+    return runner.run((context) async {
+      final artist = await context.artistRepository.getById(artistId);
 
-    return artwork;
+      if (artist == null) {
+        throw StateError('Artist not found: $artistId');
+      }
+
+      final artwork = await _resolveArtworkAssetForPath(
+        repository: context.artworkAssetRepository,
+        resolvedPath: resolvedPath,
+        now: timestamp,
+      );
+
+      if (artist.topArtistsArtworkId == artwork.id) {
+        return artwork;
+      }
+
+      await context.artistRepository.save(
+        artist.copyWith(topArtistsArtworkId: artwork.id, updatedAt: timestamp),
+      );
+
+      final metadataRepository = context.metadataFieldStateRepository;
+
+      if (metadataRepository == null) {
+        throw StateError('Artist metadata repository is unavailable.');
+      }
+
+      await MetadataFieldStateService(repository: metadataRepository).record(
+        entityType: MetadataEntityType.artist,
+        entityId: artistId,
+        fieldName: MetadataFields.artistTopArtistsArtwork,
+        authority: MetadataAuthority.manual,
+        source: MetadataProvenanceSource.user,
+        updatedAt: timestamp,
+      );
+
+      await context.localSyncRepository.recordUpsert(
+        userId: userId,
+        entityType: CloudDataEntity.artist,
+        entityId: artistId,
+      );
+
+      return artwork;
+    });
   }
 
   Future<ArtworkAsset> assignAlbumEdition({
@@ -237,32 +343,124 @@ class ArtworkAssignmentService {
     });
   }
 
-  Future<void> clearArtistHeader(String artistId, {DateTime? now}) async {
-    final artist = await _requireArtist(artistId);
+  Future<void> clearArtistHeader(
+    String artistId, {
+    String? userId,
+    DateTime? now,
+  }) async {
+    final timestamp = now ?? DateTime.now();
+    final runner = mutationRunner;
 
-    if (artist.headerArtworkId == null) {
+    if (runner == null) {
+      final artist = await _requireArtist(artistId);
+
+      if (artist.headerArtworkId == null) {
+        return;
+      }
+
+      await artistRepository.save(
+        artist.copyWith(headerArtworkId: null, updatedAt: timestamp),
+      );
+
       return;
     }
 
-    final timestamp = now ?? DateTime.now();
+    await runner.run((context) async {
+      final artist = await context.artistRepository.getById(artistId);
 
-    await artistRepository.save(
-      artist.copyWith(headerArtworkId: null, updatedAt: timestamp),
-    );
+      if (artist == null) {
+        throw StateError('Artist not found: $artistId');
+      }
+
+      if (artist.headerArtworkId == null) {
+        return;
+      }
+
+      await context.artistRepository.save(
+        artist.copyWith(headerArtworkId: null, updatedAt: timestamp),
+      );
+
+      final metadataRepository = context.metadataFieldStateRepository;
+
+      if (metadataRepository == null) {
+        throw StateError('Artist metadata repository is unavailable.');
+      }
+
+      await MetadataFieldStateService(repository: metadataRepository).record(
+        entityType: MetadataEntityType.artist,
+        entityId: artistId,
+        fieldName: MetadataFields.artistHeaderArtwork,
+        authority: MetadataAuthority.manual,
+        source: MetadataProvenanceSource.user,
+        updatedAt: timestamp,
+      );
+
+      await context.localSyncRepository.recordUpsert(
+        userId: userId,
+        entityType: CloudDataEntity.artist,
+        entityId: artistId,
+      );
+    });
   }
 
-  Future<void> clearArtistTopArtists(String artistId, {DateTime? now}) async {
-    final artist = await _requireArtist(artistId);
+  Future<void> clearArtistTopArtists(
+    String artistId, {
+    String? userId,
+    DateTime? now,
+  }) async {
+    final timestamp = now ?? DateTime.now();
+    final runner = mutationRunner;
 
-    if (artist.topArtistsArtworkId == null) {
+    if (runner == null) {
+      final artist = await _requireArtist(artistId);
+
+      if (artist.topArtistsArtworkId == null) {
+        return;
+      }
+
+      await artistRepository.save(
+        artist.copyWith(topArtistsArtworkId: null, updatedAt: timestamp),
+      );
+
       return;
     }
 
-    final timestamp = now ?? DateTime.now();
+    await runner.run((context) async {
+      final artist = await context.artistRepository.getById(artistId);
 
-    await artistRepository.save(
-      artist.copyWith(topArtistsArtworkId: null, updatedAt: timestamp),
-    );
+      if (artist == null) {
+        throw StateError('Artist not found: $artistId');
+      }
+
+      if (artist.topArtistsArtworkId == null) {
+        return;
+      }
+
+      await context.artistRepository.save(
+        artist.copyWith(topArtistsArtworkId: null, updatedAt: timestamp),
+      );
+
+      final metadataRepository = context.metadataFieldStateRepository;
+
+      if (metadataRepository == null) {
+        throw StateError('Artist metadata repository is unavailable.');
+      }
+
+      await MetadataFieldStateService(repository: metadataRepository).record(
+        entityType: MetadataEntityType.artist,
+        entityId: artistId,
+        fieldName: MetadataFields.artistTopArtistsArtwork,
+        authority: MetadataAuthority.manual,
+        source: MetadataProvenanceSource.user,
+        updatedAt: timestamp,
+      );
+
+      await context.localSyncRepository.recordUpsert(
+        userId: userId,
+        entityType: CloudDataEntity.artist,
+        entityId: artistId,
+      );
+    });
   }
 
   Future<void> clearAlbumEdition(String albumEditionId, {DateTime? now}) async {
