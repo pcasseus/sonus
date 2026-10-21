@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:archive/archive_io.dart';
+
 import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as path;
@@ -337,6 +339,68 @@ void main() {
         },
       ],
     );
+
+    await package();
+
+    await expectLater(verifier.verify(destination), throwsFormatException);
+  });
+  test('rejects ZIP containing duplicate filenames', () async {
+    await prepare();
+
+    final source = File(path.join(staging.path, 'manifest.json'));
+    final encoder = ZipFileEncoder();
+
+    encoder.create(destination.path);
+
+    try {
+      await encoder.addFile(source, 'manifest.json');
+      await encoder.addFile(source, 'manifest.json');
+    } finally {
+      await encoder.close();
+    }
+
+    await expectLater(verifier.verify(destination), throwsFormatException);
+  });
+
+  test('rejects ZIP containing traversal paths', () async {
+    await prepare();
+
+    final source = File(path.join(staging.path, 'manifest.json'));
+    final encoder = ZipFileEncoder();
+
+    encoder.create(destination.path);
+
+    try {
+      await encoder.addFile(source, '../manifest.json');
+    } finally {
+      await encoder.close();
+    }
+
+    await expectLater(verifier.verify(destination), throwsFormatException);
+  });
+
+  test('rejects a truncated backup archive', () async {
+    await prepare();
+    await package();
+
+    final bytes = await destination.readAsBytes();
+
+    expect(bytes.length, greaterThan(32));
+
+    await destination.writeAsBytes(
+      bytes.sublist(0, bytes.length - 20),
+      flush: true,
+    );
+
+    await expectLater(verifier.verify(destination), throwsA(isA<Exception>()));
+  });
+
+  test('rejects a manifest larger than its byte limit', () async {
+    await prepare();
+
+    await File(
+      path.join(staging.path, 'manifest.json'),
+    ).writeAsString('x' * (BackupArchiveVerifier.maxManifestBytes + 1));
 
     await package();
 

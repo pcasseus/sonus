@@ -95,13 +95,19 @@ class BackupArchiveVerifier {
         throw const FormatException('Required backup entries are missing.');
       }
 
-      final manifestBytes = manifestFile.readBytes();
-      final libraryBytes = libraryFile.readBytes();
+      final manifestOutput = BoundedBackupOutputStream(
+        maxBytes: maxManifestBytes,
+      );
+      manifestFile.writeContent(manifestOutput);
+      final manifestBytes = manifestOutput.getBytes();
 
-      if (manifestBytes == null ||
-          libraryBytes == null ||
-          manifestBytes.length > maxManifestBytes ||
-          libraryBytes.length > maxLibraryBytes) {
+      final libraryOutput = BoundedBackupOutputStream(
+        maxBytes: maxLibraryBytes,
+      );
+      libraryFile.writeContent(libraryOutput);
+      final libraryBytes = libraryOutput.getBytes();
+
+      if (manifestBytes.isEmpty || libraryBytes.isEmpty) {
         throw const FormatException('Invalid backup document bytes.');
       }
 
