@@ -9,6 +9,15 @@ import 'backup_integrity_codec.dart';
 import 'sqlite_backup_exporter.dart';
 import 'verified_backup_publisher.dart';
 
+enum BackupStage {
+  exportingDatabase,
+  collectingArtwork,
+  stagingArtwork,
+  writingDocuments,
+  packagingAndVerifying,
+  published,
+}
+
 class SonusBackupOrchestrator {
   const SonusBackupOrchestrator({
     required this.exporter,
@@ -24,7 +33,10 @@ class SonusBackupOrchestrator {
   final BackupIntegrityCodec integrityCodec;
   final VerifiedBackupPublisher publisher;
 
-  Future<File> createBackup({required File destination}) async {
+  Future<File> createBackup({
+    required File destination,
+    void Function(BackupStage stage)? onProgress,
+  }) async {
     if (!await destination.parent.exists()) {
       throw StateError('Backup destination parent does not exist.');
     }
@@ -35,9 +47,11 @@ class SonusBackupOrchestrator {
 
     try {
       // Export a validated SQLite snapshot.
+      onProgress?.call(BackupStage.exportingDatabase);
       final exported = await exporter.export();
 
       // Collect all artwork associated with the exported database.
+      onProgress?.call(BackupStage.collectingArtwork);
       final inventory = await artworkInventory.build(exported.payload);
 
       // The artwork staging service requires a nonexistent directory.
@@ -45,12 +59,14 @@ class SonusBackupOrchestrator {
         path.join(temporaryRoot.path, 'staging'),
       );
 
+      onProgress?.call(BackupStage.stagingArtwork);
       await artworkStaging.stage(
         inventory: inventory,
         stagingDirectory: stagingDirectory,
       );
 
       // Serialize only portable artwork metadata.
+      onProgress?.call(BackupStage.writingDocuments);
       final manifestDocument = jsonEncode({
         'manifest': exported.manifest.toJson(),
         'artwork': [for (final item in inventory) item.toPortableJson()],
@@ -70,10 +86,14 @@ class SonusBackupOrchestrator {
       ).writeAsString(libraryDocument, flush: true);
 
       // Package, independently verify, and publish.
-      return await publisher.publish(
+      onProgress?.call(BackupStage.packagingAndVerifying);
+      final published = await publisher.publish(
         stagingDirectory: stagingDirectory,
         destination: destination,
       );
+
+      onProgress?.call(BackupStage.published);
+      return published;
     } finally {
       if (await temporaryRoot.exists()) {
         await temporaryRoot.delete(recursive: true);

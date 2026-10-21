@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as path;
 
+import '../models/backup_failure.dart';
 import 'backup_artwork_inventory_service.dart';
 
 class BackupArtworkStagingService {
@@ -66,8 +67,10 @@ class BackupArtworkStagingService {
 
         if (copiedLength != item.byteLength ||
             copiedDigest.toString() != item.sha256Digest) {
-          throw FormatException(
+          throw BackupException(
+            BackupFailureCode.artworkChanged,
             'Artwork changed during backup: ${item.artworkId}',
+            artworkIds: [item.artworkId],
           );
         }
       }

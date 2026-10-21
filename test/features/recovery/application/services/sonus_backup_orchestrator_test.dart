@@ -12,6 +12,9 @@ import 'package:sonus_next/core/database/database_tables.dart';
 import 'package:sonus_next/features/recovery/application/services/backup_archive_verifier.dart';
 import 'package:sonus_next/features/recovery/application/services/sonus_backup_orchestrator.dart';
 import 'package:sonus_next/features/recovery/application/services/sqlite_backup_exporter.dart';
+import 'package:sonus_next/features/recovery/application/services/verified_backup_publisher.dart';
+
+import '../../../../support/test_only_backup_publication.dart';
 
 void main() {
   sqfliteFfiInit();
@@ -33,6 +36,10 @@ void main() {
         appDatabase: appDatabase,
         generateId: () => 'integration-backup',
         now: () => DateTime.utc(2026, 10, 21),
+      ),
+      // Host tests cannot use the Android hard-link publication.
+      publisher: const VerifiedBackupPublisher(
+        publication: TestOnlyBackupPublication(),
       ),
     );
   });

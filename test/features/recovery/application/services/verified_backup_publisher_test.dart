@@ -12,11 +12,16 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as path;
 import 'package:sonus_next/features/recovery/application/services/verified_backup_publisher.dart';
 
+import '../../../../support/test_only_backup_publication.dart';
+
 void main() {
   late Directory root;
   late Directory staging;
 
-  const publisher = VerifiedBackupPublisher();
+  // Host tests cannot use the Android hard-link publication.
+  const publisher = VerifiedBackupPublisher(
+    publication: TestOnlyBackupPublication(),
+  );
 
   setUp(() async {
     root = await Directory.systemTemp.createTemp('sonus_publish_');

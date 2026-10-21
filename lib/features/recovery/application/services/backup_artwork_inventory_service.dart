@@ -6,6 +6,7 @@ import 'package:path/path.dart' as path;
 
 import '../../../../core/database/database_tables.dart';
 import '../models/backup_data_payload.dart';
+import '../models/backup_failure.dart';
 
 class BackupArtworkItem {
   const BackupArtworkItem({
@@ -46,6 +47,8 @@ class BackupArtworkInventoryService {
     final results = <BackupArtworkItem>[];
     final seenIds = <String>{};
     final seenEntries = <String>{};
+    final sources = <String, String>{};
+    final missingIds = <String>[];
 
     for (final row in rows) {
       final id = row['id'];
@@ -55,28 +58,53 @@ class BackupArtworkInventoryService {
           id.trim().isEmpty ||
           sourcePath is! String ||
           sourcePath.trim().isEmpty) {
-        throw const FormatException(
+        throw BackupException(
+          BackupFailureCode.invalidArtwork,
           'Artwork record has an invalid identity or file path.',
         );
       }
 
       if (!seenIds.add(id)) {
-        throw FormatException('Duplicate artwork ID: $id');
+        throw BackupException(
+          BackupFailureCode.invalidArtwork,
+          'Duplicate artwork ID: $id',
+          artworkIds: [id],
+        );
       }
 
-      final sourceFile = File(sourcePath);
-
-      if (await sourceFile.stat().then(
+      if (await File(sourcePath).stat().then(
         (stat) => stat.type != FileSystemEntityType.file,
       )) {
-        throw FormatException('Artwork file is missing: $id');
+        missingIds.add(id);
       }
 
+      sources[id] = sourcePath;
+    }
+
+    // Report every missing file at once so the user can repair them together.
+    if (missingIds.isNotEmpty) {
+      missingIds.sort();
+
+      throw BackupException(
+        BackupFailureCode.missingArtwork,
+        missingIds.length == 1
+            ? 'Artwork file is missing: ${missingIds.single}'
+            : '${missingIds.length} artwork files are missing.',
+        artworkIds: missingIds,
+      );
+    }
+
+    for (final MapEntry(key: id, value: sourcePath) in sources.entries) {
+      final sourceFile = File(sourcePath);
       final extension = path.extension(sourcePath).toLowerCase();
 
       if (extension.isNotEmpty &&
           !RegExp(r'^\.[a-z0-9]{1,10}$').hasMatch(extension)) {
-        throw FormatException('Invalid artwork extension: $id');
+        throw BackupException(
+          BackupFailureCode.invalidArtwork,
+          'Invalid artwork extension: $id',
+          artworkIds: [id],
+        );
       }
 
       // Hashing the ID gives the archive a portable, path-safe name.
@@ -84,20 +112,32 @@ class BackupArtworkInventoryService {
       final archivePath = 'artwork/$archiveId$extension';
 
       if (!seenEntries.add(archivePath)) {
-        throw FormatException('Duplicate artwork archive entry: $id');
+        throw BackupException(
+          BackupFailureCode.invalidArtwork,
+          'Duplicate artwork archive entry: $id',
+          artworkIds: [id],
+        );
       }
 
       final before = await sourceFile.length();
 
       if (before <= 0) {
-        throw FormatException('Artwork file is empty: $id');
+        throw BackupException(
+          BackupFailureCode.invalidArtwork,
+          'Artwork file is empty: $id',
+          artworkIds: [id],
+        );
       }
 
       final digest = await sha256.bind(sourceFile.openRead()).first;
       final after = await sourceFile.length();
 
       if (before != after) {
-        throw FormatException('Artwork changed during inventory: $id');
+        throw BackupException(
+          BackupFailureCode.artworkChanged,
+          'Artwork changed during inventory: $id',
+          artworkIds: [id],
+        );
       }
 
       results.add(
