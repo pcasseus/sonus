@@ -53,3 +53,7 @@ SN*_CONTRACTS.txt
 # Sonus local environment configuration
 config/sonus.dev.json
 config/sonus.prod.json
+# Local Supabase and security audit files
+/supabase/config.toml
+/SONUS_SEC*_*.txt
+/SONUS_SEC*_*.csv
