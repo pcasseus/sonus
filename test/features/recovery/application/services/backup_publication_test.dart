@@ -20,7 +20,7 @@ bool _notAndroid() => false;
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  const channel = MethodChannel(PlatformBackupPublication.channelName);
+  const channel = MethodChannel(HardLinkChannelPublication.channelName);
   final messenger =
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
 
@@ -107,7 +107,7 @@ void main() {
     await source.writeAsBytes([1, 2, 3]);
     final destination = File(path.join(root.path, 'final.sonusbackup'));
 
-    await const PlatformBackupPublication(
+    await const HardLinkChannelPublication(
       isAndroid: _android,
     ).publishNoReplace(source: source, destination: destination);
 
@@ -128,7 +128,7 @@ void main() {
     await destination.writeAsBytes([9]);
 
     await expectLater(
-      const PlatformBackupPublication(
+      const HardLinkChannelPublication(
         isAndroid: _android,
       ).publishNoReplace(source: source, destination: destination),
       throwsA(isA<BackupDestinationExistsError>()),
@@ -143,7 +143,7 @@ void main() {
     });
 
     await expectLater(
-      const PlatformBackupPublication(isAndroid: _android).publishNoReplace(
+      const HardLinkChannelPublication(isAndroid: _android).publishNoReplace(
         source: File(path.join(root.path, 'a.sonusbackup')),
         destination: File(path.join(root.path, 'b.sonusbackup')),
       ),
@@ -159,7 +159,7 @@ void main() {
 
   test('fails closed when the native channel is missing', () async {
     await expectLater(
-      const PlatformBackupPublication(isAndroid: _android).publishNoReplace(
+      const HardLinkChannelPublication(isAndroid: _android).publishNoReplace(
         source: File(path.join(root.path, 'a.sonusbackup')),
         destination: File(path.join(root.path, 'b.sonusbackup')),
       ),
@@ -171,7 +171,7 @@ void main() {
     messenger.setMockMethodCallHandler(channel, linkLikeHandler);
 
     await expectLater(
-      const PlatformBackupPublication(isAndroid: _notAndroid).publishNoReplace(
+      const HardLinkChannelPublication(isAndroid: _notAndroid).publishNoReplace(
         source: File(path.join(root.path, 'a.sonusbackup')),
         destination: File(path.join(root.path, 'b.sonusbackup')),
       ),
@@ -187,7 +187,7 @@ void main() {
     final destination = File(path.join(root.path, 'channel.sonusbackup'));
 
     await const VerifiedBackupPublisher(
-      publication: PlatformBackupPublication(isAndroid: _android),
+      publication: HardLinkChannelPublication(isAndroid: _android),
     ).publish(stagingDirectory: await validStaging(), destination: destination);
 
     final decoded = await const BackupArchiveVerifier().verify(destination);
@@ -206,7 +206,7 @@ void main() {
 
     await expectLater(
       const VerifiedBackupPublisher(
-        publication: PlatformBackupPublication(isAndroid: _android),
+        publication: HardLinkChannelPublication(isAndroid: _android),
       ).publish(
         stagingDirectory: await validStaging(),
         destination: destination,
