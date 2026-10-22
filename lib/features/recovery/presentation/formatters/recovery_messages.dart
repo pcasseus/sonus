@@ -89,12 +89,15 @@ abstract final class RecoveryMessages {
     }
 
     if (error is RestoreFailedException) {
-      final base = switch (error.stage) {
-        RestoreStage.creatingSafetyBackup =>
-          'The safety backup of your current library could not be created, '
-              'so nothing was restored.',
-        _ => 'The restore could not be completed.',
-      };
+      final cause = error.cause;
+      final base = cause is RestoreConditionsChangedException
+          ? conditionsChanged(cause)
+          : switch (error.stage) {
+              RestoreStage.creatingSafetyBackup =>
+                'The safety backup of your current library could not be '
+                    'created, so nothing was restored.',
+              _ => 'The restore could not be completed.',
+            };
 
       final outcome = error.rollbackVerified
           ? ' Your library was left exactly as it was.'
@@ -102,7 +105,6 @@ abstract final class RecoveryMessages {
                 'confirm every file was cleaned up, so cloud sync stays '
                 'paused.';
 
-      final cause = error.cause;
       final detail = cause is BackupException &&
               cause.code == BackupFailureCode.missingArtwork
           ? ' ${missingArtwork(cause.artworkIds.length)}'
@@ -140,6 +142,14 @@ abstract final class RecoveryMessages {
     }
 
     return 'Something went wrong. Nothing was changed.';
+  }
+
+  static String conditionsChanged(RestoreConditionsChangedException change) {
+    final reasons = change.blockers.map(blocker).join(' ');
+
+    return 'Your library or sync status changed while the restore was being '
+        'prepared, so nothing was restored.'
+        '${reasons.isEmpty ? '' : ' $reasons'} Please try again.';
   }
 
   static String missingArtwork(int count) => count == 1

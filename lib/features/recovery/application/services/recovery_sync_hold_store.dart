@@ -4,20 +4,26 @@ import 'dart:io';
 import 'package:path/path.dart' as path;
 
 import '../models/recovery_sync_hold.dart';
+import 'atomic_state_file.dart';
 
 typedef RecoveryDirectoryProvider = Future<Directory> Function();
 
 /// Persists the recovery sync hold as a small JSON file.
 ///
-/// Writes go to a temporary file that is flushed and then renamed over the
-/// hold file, so a crash leaves either the old or the new hold, never a
-/// partial one. An unreadable file is reported as a hold, never as absent.
+/// Writes go through [AtomicStateFile]: a flushed temporary unique to the
+/// write is renamed over the hold file, so a crash leaves either the old or
+/// the new hold, never a partial one. An unreadable file is reported as a
+/// hold, never as absent.
 class RecoverySyncHoldStore {
-  const RecoverySyncHoldStore({required this.directory});
+  const RecoverySyncHoldStore({
+    required this.directory,
+    this.stateFile = const AtomicStateFile(),
+  });
 
   static const fileName = 'sync_hold.json';
 
   final RecoveryDirectoryProvider directory;
+  final AtomicStateFile stateFile;
 
   Future<File> _file() async =>
       File(path.join((await directory()).path, fileName));
@@ -43,12 +49,7 @@ class RecoverySyncHoldStore {
   }
 
   Future<void> write(RecoverySyncHold hold) async {
-    final file = await _file();
-    await file.parent.create(recursive: true);
-
-    final temporary = File('${file.path}.tmp');
-    await temporary.writeAsString(jsonEncode(hold.toJson()), flush: true);
-    await temporary.rename(file.path);
+    await stateFile.writeString(await _file(), jsonEncode(hold.toJson()));
   }
 
   /// Restores exactly the given prior state.
@@ -59,19 +60,11 @@ class RecoverySyncHoldStore {
       case ActiveRecoverySyncHold(:final hold):
         await write(hold);
       case UnreadableRecoverySyncHold(:final rawContent):
-        final file = await _file();
-        await file.parent.create(recursive: true);
-        final temporary = File('${file.path}.tmp');
-        await temporary.writeAsString(rawContent ?? '', flush: true);
-        await temporary.rename(file.path);
+        await stateFile.writeString(await _file(), rawContent ?? '');
     }
   }
 
   Future<void> clear() async {
-    final file = await _file();
-
-    if (await file.exists()) {
-      await file.delete();
-    }
+    await stateFile.delete(await _file());
   }
 }

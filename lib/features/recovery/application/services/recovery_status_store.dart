@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:path/path.dart' as path;
 
+import 'atomic_state_file.dart';
 import 'recovery_sync_hold_store.dart';
 
 class RecoveryBackupRecord {
@@ -89,11 +90,15 @@ class RecoveryStatus {
 /// Never used for safety decisions (the sync hold and journal are), so an
 /// unreadable file is treated as empty history.
 class RecoveryStatusStore {
-  const RecoveryStatusStore({required this.directory});
+  const RecoveryStatusStore({
+    required this.directory,
+    this.stateFile = const AtomicStateFile(),
+  });
 
   static const fileName = 'status.json';
 
   final RecoveryDirectoryProvider directory;
+  final AtomicStateFile stateFile;
 
   Future<File> _file() async =>
       File(path.join((await directory()).path, fileName));
@@ -132,17 +137,12 @@ class RecoveryStatusStore {
   }
 
   Future<void> _write(RecoveryStatus status) async {
-    final file = await _file();
-    await file.parent.create(recursive: true);
-
-    final temporary = File('${file.path}.tmp');
-    await temporary.writeAsString(
+    await stateFile.writeString(
+      await _file(),
       jsonEncode({
         'lastBackup': status.lastBackup?.toJson(),
         'lastRestore': status.lastRestore?.toJson(),
       }),
-      flush: true,
     );
-    await temporary.rename(file.path);
   }
 }

@@ -58,6 +58,32 @@ class RestoreBlockedException implements Exception {
       'RestoreBlockedException(${preflight.blockers.map((b) => b.name)})';
 }
 
+/// What the restore relied on changed after it was checked, so the restore
+/// transaction was abandoned before anything was replaced.
+///
+/// Raised from inside the restore transaction, where no other write can
+/// interleave: preflight blockers are evaluated again there, and the
+/// library is compared with the state captured once sync had quiesced
+/// (the state the safety backup preserved).
+class RestoreConditionsChangedException implements Exception {
+  RestoreConditionsChangedException({
+    required List<RestoreBlocker> blockers,
+    required List<String> changedTables,
+  }) : blockers = List.unmodifiable(blockers),
+       changedTables = List.unmodifiable(changedTables);
+
+  /// Preflight blockers that now apply.
+  final List<RestoreBlocker> blockers;
+
+  /// Library or sync tables that changed while the restore was preparing.
+  final List<String> changedTables;
+
+  @override
+  String toString() =>
+      'RestoreConditionsChangedException(blockers: '
+      '${blockers.map((b) => b.name).toList()}, changed: $changedTables)';
+}
+
 /// The restore failed; the database transaction was rolled back.
 class RestoreFailedException implements Exception {
   const RestoreFailedException({

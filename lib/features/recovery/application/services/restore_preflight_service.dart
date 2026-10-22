@@ -55,93 +55,106 @@ class RestorePreflightService {
   ];
 
   Future<RestorePreflight> assess(VerifiedBackupContents contents) async {
-    final backup = contents.backup;
-    final manifest = backup.manifest;
     final database = await appDatabase.database;
 
-    final preflight = await database.transaction((transaction) async {
-      final blockers = <RestoreBlocker>[];
-
-      if (manifest.formatVersion != BackupManifest.currentFormatVersion ||
-          manifest.databaseVersion != AppDatabase.databaseVersion) {
-        blockers.add(RestoreBlocker.incompatibleBackupVersion);
-      }
-
-      final versionRows = await transaction.rawQuery('PRAGMA user_version');
-      final localVersion = versionRows.isEmpty
-          ? null
-          : versionRows.single['user_version'];
-
-      if (localVersion != AppDatabase.databaseVersion) {
-        blockers.add(RestoreBlocker.incompatibleLocalDatabase);
-      } else if (!blockers.contains(
-        RestoreBlocker.incompatibleBackupVersion,
-      )) {
-        try {
-          await schemaValidator.validate(
-            database: transaction,
-            payload: backup.payload,
-          );
-        } on FormatException {
-          blockers.add(RestoreBlocker.schemaMismatch);
-        }
-      }
-
-      final backupAccounts = <String>{
-        for (final table in ownershipTables)
-          for (final row in backup.payload.tables[table] ?? const [])
-            if (row['user_id'] case final String userId
-                when userId.trim().isNotEmpty)
-              userId,
-      };
-
-      final bindingRows = await transaction.query(
-        DatabaseTables.localAccountBinding,
-        columns: ['user_id'],
-      );
-      final localAccountId = bindingRows.isEmpty
-          ? null
-          : bindingRows.single['user_id'] as String?;
-
-      if (backupAccounts.length > 1) {
-        blockers.add(RestoreBlocker.multipleBackupAccounts);
-      } else if (localAccountId != null &&
-          backupAccounts.isNotEmpty &&
-          !backupAccounts.contains(localAccountId)) {
-        blockers.add(RestoreBlocker.accountConflict);
-      }
-
-      var pending = 0;
-      for (final table in _pendingSyncTables) {
-        pending += await _count(transaction, table);
-      }
-
-      // Pending cloud work is never discarded; it must sync first.
-      if (pending > 0) {
-        blockers.add(RestoreBlocker.pendingSyncWork);
-      }
-
-      var cloudStateRows = 0;
-      for (final table in _cloudStateTables) {
-        cloudStateRows += await _count(transaction, table);
-      }
-
-      return RestorePreflight(
-        blockers: blockers,
-        backupId: manifest.backupId,
-        backupCreatedAtUtc: manifest.createdAtUtc,
-        backupDatabaseVersion: manifest.databaseVersion,
-        backupAccountIds: backupAccounts,
-        localAccountId: localAccountId,
-        pendingSyncItemCount: pending,
-        hasCloudSyncState: cloudStateRows > 0,
-        estimatedRequiredBytes:
-            _estimateBytes(contents) +
-            await _estimateSafetyBackupBytes(transaction),
-      );
-    });
+    final preflight = await database.transaction(
+      (transaction) => assessWithin(transaction, contents),
+    );
 
     return _withStorageCheck(preflight);
+  }
+
+  /// Evaluates every database-dependent blocker against [transaction].
+  ///
+  /// Read-only. Free space is not checked here; see [assess]. The restore
+  /// orchestrator calls this again inside its restore transaction, where no
+  /// other write can interleave, so the decision it acts on is never stale.
+  Future<RestorePreflight> assessWithin(
+    DatabaseExecutor transaction,
+    VerifiedBackupContents contents,
+  ) async {
+    final backup = contents.backup;
+    final manifest = backup.manifest;
+
+    final blockers = <RestoreBlocker>[];
+
+    if (manifest.formatVersion != BackupManifest.currentFormatVersion ||
+        manifest.databaseVersion != AppDatabase.databaseVersion) {
+      blockers.add(RestoreBlocker.incompatibleBackupVersion);
+    }
+
+    final versionRows = await transaction.rawQuery('PRAGMA user_version');
+    final localVersion = versionRows.isEmpty
+        ? null
+        : versionRows.single['user_version'];
+
+    if (localVersion != AppDatabase.databaseVersion) {
+      blockers.add(RestoreBlocker.incompatibleLocalDatabase);
+    } else if (!blockers.contains(
+      RestoreBlocker.incompatibleBackupVersion,
+    )) {
+      try {
+        await schemaValidator.validate(
+          database: transaction,
+          payload: backup.payload,
+        );
+      } on FormatException {
+        blockers.add(RestoreBlocker.schemaMismatch);
+      }
+    }
+
+    final backupAccounts = <String>{
+      for (final table in ownershipTables)
+        for (final row in backup.payload.tables[table] ?? const [])
+          if (row['user_id'] case final String userId
+              when userId.trim().isNotEmpty)
+            userId,
+    };
+
+    final bindingRows = await transaction.query(
+      DatabaseTables.localAccountBinding,
+      columns: ['user_id'],
+    );
+    final localAccountId = bindingRows.isEmpty
+        ? null
+        : bindingRows.single['user_id'] as String?;
+
+    if (backupAccounts.length > 1) {
+      blockers.add(RestoreBlocker.multipleBackupAccounts);
+    } else if (localAccountId != null &&
+        backupAccounts.isNotEmpty &&
+        !backupAccounts.contains(localAccountId)) {
+      blockers.add(RestoreBlocker.accountConflict);
+    }
+
+    var pending = 0;
+    for (final table in _pendingSyncTables) {
+      pending += await _count(transaction, table);
+    }
+
+    // Pending cloud work is never discarded; it must sync first.
+    if (pending > 0) {
+      blockers.add(RestoreBlocker.pendingSyncWork);
+    }
+
+    var cloudStateRows = 0;
+    for (final table in _cloudStateTables) {
+      cloudStateRows += await _count(transaction, table);
+    }
+
+    return RestorePreflight(
+      blockers: blockers,
+      backupId: manifest.backupId,
+      backupCreatedAtUtc: manifest.createdAtUtc,
+      backupDatabaseVersion: manifest.databaseVersion,
+      backupAccountIds: backupAccounts,
+      localAccountId: localAccountId,
+      pendingSyncItemCount: pending,
+      hasCloudSyncState: cloudStateRows > 0,
+      estimatedRequiredBytes:
+          _estimateBytes(contents) +
+          await _estimateSafetyBackupBytes(transaction),
+    );
   }
 
   Future<RestorePreflight> _withStorageCheck(RestorePreflight preflight) async {

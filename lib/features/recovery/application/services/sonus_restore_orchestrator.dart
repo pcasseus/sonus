@@ -6,6 +6,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../../../core/database/app_database.dart';
 import '../../../../core/database/database_tables.dart';
+import '../models/backup_table_coverage.dart';
 import '../models/recovery_sync_hold.dart';
 import '../models/restore_plan.dart';
 import '../models/restore_preflight.dart';
@@ -113,17 +114,33 @@ class SonusRestoreOrchestrator {
       );
     }
 
+    // Progress is observational: an observer that throws never changes
+    // what the restore does or how its outcome is reported.
+    final progressFailures = <String>[];
+
+    void report(RestoreStage stage) {
+      if (onProgress == null) return;
+
+      try {
+        onProgress(stage);
+      } catch (error) {
+        progressFailures.add(
+          'A progress update (${stage.name}) failed: $error',
+        );
+      }
+    }
+
     final root = await recoveryDirectory();
     await root.create(recursive: true);
     final database = await appDatabase.database;
     final sessionId = _generateSessionId();
 
     // Housekeeping from earlier interrupted operations.
-    onProgress?.call(RestoreStage.preparing);
+    report(RestoreStage.preparing);
     await cleaner.clean(root);
     await journalRecovery.recover(database);
 
-    onProgress?.call(RestoreStage.verifyingBackup);
+    report(RestoreStage.verifyingBackup);
     final contents = await verifier.verifyAndExtract(
       backupFile: backupFile,
       targetDirectory: Directory(
@@ -132,18 +149,19 @@ class SonusRestoreOrchestrator {
     );
 
     try {
-      onProgress?.call(RestoreStage.checkingCompatibility);
-      final preflight = await RestorePreflightService(
+      report(RestoreStage.checkingCompatibility);
+      final preflightService = RestorePreflightService(
         appDatabase: appDatabase,
         storageProbe: storageProbe,
         storagePath: root.path,
-      ).assess(contents);
+      );
+      final preflight = await preflightService.assess(contents);
 
       if (!preflight.canRestore) {
         throw RestoreBlockedException(preflight);
       }
 
-      onProgress?.call(RestoreStage.pausingSync);
+      report(RestoreStage.pausingSync);
 
       // Only a device with no prior hold has a trustworthy baseline to
       // capture; an existing hold keeps the baseline from before its
@@ -167,23 +185,49 @@ class SonusRestoreOrchestrator {
       });
 
       try {
+        // Sync runs that were active during the first check have drained
+        // and new runs are rejected. Pending work, the account binding, or
+        // free space may have changed meanwhile, so decide again before
+        // anything is written. Nothing has changed yet, so a blocked
+        // restore reinstates the previous hold unchanged.
+        final current = await preflightService.assess(contents);
+
+        if (!current.canRestore) {
+          await _reinstateHold(previousHold);
+          throw RestoreBlockedException(current);
+        }
+
         return await _restoreWhileHeld(
           contents: contents,
           sessionId: sessionId,
           previousHold: previousHold,
           captureBaseline: captureBaseline,
-          onProgress: onProgress,
+          preflightService: preflightService,
+          report: report,
+          progressFailures: progressFailures,
         );
       } finally {
         gate.endRestore();
       }
     } finally {
       // Covers blocked and failed restores; a committed restore has
-      // already removed it.
-      if (await contents.directory.exists()) {
-        await contents.directory.delete(recursive: true);
-      }
+      // already removed it. A folder that cannot be removed now is left
+      // for BackupTemporaryCleaner and must never replace the outcome.
+      try {
+        if (await contents.directory.exists()) {
+          await contents.directory.delete(recursive: true);
+        }
+      } catch (_) {}
     }
+  }
+
+  /// Puts back the hold state from before [RecoverySyncGate.beginRestore]
+  /// when the restore stopped before changing anything. If that fails the
+  /// restoring hold remains and sync stays paused until reassessed.
+  Future<void> _reinstateHold(RecoverySyncHoldState previous) async {
+    try {
+      await _holdStore.restore(previous);
+    } catch (_) {}
   }
 
   RecoverySyncHold _newHold(
@@ -206,34 +250,41 @@ class SonusRestoreOrchestrator {
     required String sessionId,
     required RecoverySyncHoldState previousHold,
     required bool captureBaseline,
-    void Function(RestoreStage stage)? onProgress,
+    required RestorePreflightService preflightService,
+    required void Function(RestoreStage stage) report,
+    required List<String> progressFailures,
   }) async {
     final database = await appDatabase.database;
     var stage = RestoreStage.planning;
     File? safetyBackup;
     RecoveryFingerprint? baseline;
+    late final RestorePlan plan;
+    late final RestoredArtworkInstallation installation;
     var hold = switch (await _holdStore.read()) {
       ActiveRecoverySyncHold(:final hold) => hold,
       _ => throw StateError('Recovery sync hold was not persisted.'),
     };
 
+    // Everything up to and including the transaction is pre-commit: any
+    // failure rolls back and is verified. Nothing after it may undo or
+    // misreport the committed restore.
     try {
-      // No sync run is active; capture the state before any change.
-      baseline = await fingerprints.capture(database);
+      // No sync run is active; capture the state before any change. The
+      // safety backup below preserves exactly this state.
+      final quiesced = await fingerprints.capture(database);
+      baseline = quiesced;
 
       if (captureBaseline) {
-        hold = hold.copyWith(preRestore: baseline);
+        hold = hold.copyWith(preRestore: quiesced);
         await _holdStore.write(hold);
       }
 
-      onProgress?.call(stage);
-      final RestorePlan plan = await RestorePlanner(
-        appDatabase: appDatabase,
-      ).plan(contents);
+      report(stage);
+      plan = await RestorePlanner(appDatabase: appDatabase).plan(contents);
 
       if (plan.requiresSafetyBackup) {
         stage = RestoreStage.creatingSafetyBackup;
-        onProgress?.call(stage);
+        report(stage);
         safetyBackup = await _createSafetyBackup(sessionId);
 
         // Independently verify before anything is replaced.
@@ -241,7 +292,7 @@ class SonusRestoreOrchestrator {
       }
 
       stage = RestoreStage.installingArtwork;
-      onProgress?.call(stage);
+      report(stage);
 
       final journal = RestoreJournal(
         sessionId: sessionId,
@@ -259,7 +310,7 @@ class SonusRestoreOrchestrator {
           row['id'] as String: row['file_path'] as String,
       };
 
-      final installation = await installer.install(
+      installation = await installer.install(
         artwork: contents.artwork,
         localPathsById: localArtwork,
         journal: journal,
@@ -267,7 +318,7 @@ class SonusRestoreOrchestrator {
       );
 
       stage = RestoreStage.restoringDatabase;
-      onProgress?.call(stage);
+      report(stage);
 
       await database.transaction((transaction) async {
         // The exact state this transaction replaces; used to verify a
@@ -280,66 +331,29 @@ class SonusRestoreOrchestrator {
           await _holdStore.write(hold);
         }
 
+        // No other write can interleave from here until commit. Anything
+        // that changed the library or sync state since sync quiesced (an
+        // edit, an import, a new play, a sign-in) would be lost or left
+        // out of the safety backup, so the restore is abandoned instead.
+        final changed = _changedRestoreTables(quiesced, before);
+        final recheck = await preflightService.assessWithin(
+          transaction,
+          contents,
+        );
+
+        if (changed.isNotEmpty || !recheck.canRestore) {
+          throw RestoreConditionsChangedException(
+            blockers: recheck.blockers,
+            changedTables: changed,
+          );
+        }
+
         await executor.apply(
           transaction: transaction,
           backup: contents.backup,
           artworkPaths: installation.pathsByArtworkId,
         );
       });
-
-      // Committed. Remaining steps must not undo or misreport it.
-      final warnings = <String>[];
-
-      try {
-        if (await contents.directory.exists()) {
-          await contents.directory.delete(recursive: true);
-        }
-        await journalStore.clear();
-      } catch (error) {
-        warnings.add('Temporary restore data could not be removed: $error');
-      }
-
-      stage = RestoreStage.assessingSync;
-      onProgress?.call(stage);
-
-      final syncAssessment = await _assessAfterRestore(hold);
-
-      final status = statusStore;
-
-      if (status != null) {
-        try {
-          final audio = await RecoveryAudioStatusService(
-            appDatabase: appDatabase,
-          ).status(sampleLimit: 0);
-
-          await status.recordRestore(
-            RecoveryRestoreRecord(
-              backupId: contents.backup.manifest.backupId,
-              restoredAtUtc: _now().toUtc(),
-              restoredRows: contents.backup.payload.totalRows,
-              songsWithoutAudio: audio.songsWithoutAudio,
-              artworkInstalled: installation.installed,
-              artworkReused: installation.reused,
-              syncHeld: !syncAssessment.isConclusivelyConsistent,
-              safetyBackupPath: safetyBackup?.path,
-            ),
-          );
-        } catch (error) {
-          warnings.add('Restore history could not be saved: $error');
-        }
-      }
-
-      onProgress?.call(RestoreStage.completed);
-
-      return RestoreResult(
-        backupId: contents.backup.manifest.backupId,
-        plan: plan,
-        safetyBackup: safetyBackup,
-        artworkInstalled: installation.installed,
-        artworkReused: installation.reused,
-        syncAssessment: syncAssessment,
-        cleanupWarnings: warnings,
-      );
     } catch (error) {
       if (error is RestoreFailedException) rethrow;
 
@@ -368,7 +382,119 @@ class SonusRestoreOrchestrator {
         safetyBackup: safetyBackup,
       );
     }
+
+    return _completeCommittedRestore(
+      contents: contents,
+      hold: hold,
+      plan: plan,
+      installation: installation,
+      safetyBackup: safetyBackup,
+      report: report,
+      progressFailures: progressFailures,
+    );
   }
+
+  /// Finishes a restore whose transaction has committed. It never throws:
+  /// the database cannot be rolled back any more, so every later problem
+  /// is reported as a warning on a successful result. The sync hold stays
+  /// in force unless the assessment conclusively releases it.
+  Future<RestoreResult> _completeCommittedRestore({
+    required VerifiedBackupContents contents,
+    required RecoverySyncHold hold,
+    required RestorePlan plan,
+    required RestoredArtworkInstallation installation,
+    required File? safetyBackup,
+    required void Function(RestoreStage stage) report,
+    required List<String> progressFailures,
+  }) async {
+    final warnings = <String>[];
+    final backupId = contents.backup.manifest.backupId;
+
+    try {
+      if (await contents.directory.exists()) {
+        await contents.directory.delete(recursive: true);
+      }
+      await journalStore.clear();
+    } catch (error) {
+      warnings.add('Temporary restore data could not be removed: $error');
+    }
+
+    report(RestoreStage.assessingSync);
+
+    RecoverySyncAssessment syncAssessment;
+
+    try {
+      syncAssessment = await _assessAfterRestore(hold);
+    } catch (_) {
+      // Unreachable in practice (_assessAfterRestore handles its own
+      // failures); kept so a committed restore is never misreported.
+      syncAssessment = RecoverySyncAssessment(
+        findings: const [RecoverySyncFinding.preRestoreStateMissing],
+        divergedTables: const [],
+      );
+    }
+
+    final status = statusStore;
+
+    if (status != null) {
+      try {
+        final audio = await RecoveryAudioStatusService(
+          appDatabase: appDatabase,
+        ).status(sampleLimit: 0);
+
+        await status.recordRestore(
+          RecoveryRestoreRecord(
+            backupId: backupId,
+            restoredAtUtc: _now().toUtc(),
+            restoredRows: contents.backup.payload.totalRows,
+            songsWithoutAudio: audio.songsWithoutAudio,
+            artworkInstalled: installation.installed,
+            artworkReused: installation.reused,
+            syncHeld: !syncAssessment.isConclusivelyConsistent,
+            safetyBackupPath: safetyBackup?.path,
+          ),
+        );
+      } catch (error) {
+        warnings.add('Restore history could not be saved: $error');
+      }
+    }
+
+    report(RestoreStage.completed);
+
+    return RestoreResult(
+      backupId: backupId,
+      plan: plan,
+      safetyBackup: safetyBackup,
+      artworkInstalled: installation.installed,
+      artworkReused: installation.reused,
+      syncAssessment: syncAssessment,
+      cleanupWarnings: [...warnings, ...progressFailures],
+    );
+  }
+
+  /// Portable library and sync-state tables, and referenced artwork
+  /// content, that differ between [from] and [to].
+  List<String> _changedRestoreTables(
+    RecoveryFingerprint from,
+    RecoveryFingerprint to,
+  ) {
+    final tables = {
+      for (final coverage in BackupCoverageContract.portableTables)
+        coverage.table,
+      ...RecoveryFingerprintService.syncStateTables,
+    };
+
+    return [
+      for (final table in tables.toList()..sort())
+        if (from.tableDigests[table] != to.tableDigests[table]) table,
+      if (from.artworkContentDigest != to.artworkContentDigest)
+        artworkContentKey,
+    ];
+  }
+
+  /// Reported in [RestoreConditionsChangedException.changedTables] when the
+  /// content of referenced artwork files changed.
+  static const artworkContentKey = 'artwork files';
 
   /// Removes this session's files and confirms that the database and
   /// artwork match [baseline] exactly. Returns false if anything cannot be
