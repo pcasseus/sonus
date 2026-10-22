@@ -1,5 +1,6 @@
 package com.sonus.sonus_next
 
+import android.content.Intent
 import android.os.StatFs
 import android.system.ErrnoException
 import android.system.Os
@@ -14,8 +15,23 @@ class MainActivity : FlutterActivity() {
 
     private val storageChannel = "com.sonus.sonus_next/storage"
 
+    private var backupDocuments: BackupDocumentChannel? = null
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (backupDocuments?.onActivityResult(requestCode, resultCode, data) == true) {
+            return
+        }
+
+        super.onActivityResult(requestCode, resultCode, data)
+    }
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+
+        backupDocuments = BackupDocumentChannel(
+            this,
+            flutterEngine.dartExecutor.binaryMessenger
+        )
 
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,

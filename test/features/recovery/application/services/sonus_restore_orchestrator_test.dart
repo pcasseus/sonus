@@ -476,12 +476,20 @@ void main() {
     });
     await started.future;
 
-    final restore = orchestrator().restore(backup);
+    // The gate is claimed synchronously right after this stage is reported,
+    // so waiting on it is deterministic regardless of machine load.
+    final pausing = Completer<void>();
+    final restore = orchestrator().restore(
+      backup,
+      onProgress: (stage) {
+        if (stage == RestoreStage.pausingSync && !pausing.isCompleted) {
+          pausing.complete();
+        }
+      },
+    );
 
-    final deadline = DateTime.now().add(const Duration(seconds: 10));
-    while (!gate.isRestoreActive && DateTime.now().isBefore(deadline)) {
-      await Future<void>.delayed(const Duration(milliseconds: 5));
-    }
+    await pausing.future;
+    await Future<void>.delayed(Duration.zero);
     expect(gate.isRestoreActive, isTrue);
     await Future<void>.delayed(const Duration(milliseconds: 50));
 
@@ -688,6 +696,32 @@ void main() {
     final state = await holdState() as ActiveRecoverySyncHold;
     expect(state.hold.phase, RecoverySyncHoldPhase.assessmentRequired);
     expect(await syncAllowed(), isFalse);
+  });
+
+  test('no restore before the startup recovery check has passed', () async {
+    final checkedGate = RecoverySyncGate(
+      holdStore: RecoverySyncHoldStore(directory: () async => recoveryDir),
+      requiresStartupCheck: true,
+    );
+    final db = await target.database;
+    await seedConnectedLibrary(db, key: 'local');
+    final before = await snapshotDatabase(db);
+
+    final backup = await backupOf('too-early', (db) async {
+      await seedConnectedLibrary(db, key: 'a');
+    });
+
+    await expectLater(
+      orchestrator(withGate: checkedGate).restore(backup),
+      throwsA(isA<RecoveryGateUnavailable>()),
+    );
+    expect(await snapshotDatabase(db), before);
+
+    await checkedGate.runStartupCheck(
+      () => orchestrator(withGate: checkedGate).reassessSyncHold(),
+    );
+    final result = await orchestrator(withGate: checkedGate).restore(backup);
+    expect(result.backupId, 'too-early');
   });
 
   test('a second restore cannot start while one owns the gate', () async {

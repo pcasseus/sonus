@@ -30,29 +30,69 @@ class RecoverySyncGate implements SyncRunGuard {
   RecoverySyncGate({
     required this.holdStore,
     this.drainTimeout = const Duration(minutes: 2),
+    this.requiresStartupCheck = false,
   });
 
-  /// The gate shared by sync and recovery in the running app.
+  /// The gate shared by sync and recovery in the running app. Sync stays
+  /// blocked until the startup recovery check has completed successfully.
   static final RecoverySyncGate application = RecoverySyncGate(
     holdStore: RecoverySyncHoldStore(directory: applicationRecoveryDirectory),
+    requiresStartupCheck: true,
   );
 
   final RecoverySyncHoldStore holdStore;
   final Duration drainTimeout;
 
+  /// When true, every run is rejected until [runStartupCheck] succeeds.
+  final bool requiresStartupCheck;
+
   int _activeRuns = 0;
   bool _restoreActive = false;
   Completer<void>? _drained;
 
+  _StartupCheck _startup = _StartupCheck.pending;
+  Future<void>? _startupRun;
+
   bool get isRestoreActive => _restoreActive;
 
   int get activeSyncRuns => _activeRuns;
+
+  bool get isStartupCheckComplete =>
+      !requiresStartupCheck || _startup == _StartupCheck.passed;
+
+  bool get hasStartupCheckFailed => _startup == _StartupCheck.failed;
+
+  /// Runs the interrupted-restore check that must precede any sync. A
+  /// failure keeps sync blocked; calling again retries. Concurrent calls
+  /// share one run.
+  Future<void> runStartupCheck(Future<void> Function() check) {
+    return _startupRun ??= () async {
+      try {
+        await check();
+        _startup = _StartupCheck.passed;
+      } catch (_) {
+        _startup = _StartupCheck.failed;
+        rethrow;
+      } finally {
+        _startupRun = null;
+      }
+    }();
+  }
 
   @override
   Future<T> guard<T>(Future<T> Function() run) async {
     // Checked and counted synchronously; see class documentation.
     if (_restoreActive) {
       throw const SyncHeldForRecovery(SyncHoldReason.restoreInProgress);
+    }
+
+    if (requiresStartupCheck && _startup != _StartupCheck.passed) {
+      // Rejected rather than delayed, so a sync never waits indefinitely.
+      throw SyncHeldForRecovery(
+        _startup == _StartupCheck.failed
+            ? SyncHoldReason.recoveryCheckFailed
+            : SyncHoldReason.recoveryCheckPending,
+      );
     }
 
     _activeRuns++;
@@ -140,6 +180,8 @@ class RecoverySyncGate implements SyncRunGuard {
     _restoreActive = false;
   }
 }
+
+enum _StartupCheck { pending, passed, failed }
 
 /// `<application support>/sonus/recovery`, next to managed artwork.
 Future<Directory> applicationRecoveryDirectory() async {

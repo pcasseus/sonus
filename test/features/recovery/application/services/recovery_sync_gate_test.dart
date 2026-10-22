@@ -222,6 +222,67 @@ void main() {
     expect(await gate.guard(() async => 'ok'), 'ok');
   });
 
+  group('startup check', () {
+    test('sync is rejected until the startup check passes', () async {
+      final gate = RecoverySyncGate(
+        holdStore: store,
+        requiresStartupCheck: true,
+      );
+      var ran = false;
+
+      await expectLater(
+        gate.guard(() async => ran = true),
+        heldFor(SyncHoldReason.recoveryCheckPending),
+      );
+
+      await gate.runStartupCheck(() async {});
+
+      expect(gate.isStartupCheckComplete, isTrue);
+      await gate.guard(() async => ran = true);
+      expect(ran, isTrue);
+    });
+
+    test('a failed startup check keeps sync blocked until retried', () async {
+      final gate = RecoverySyncGate(
+        holdStore: store,
+        requiresStartupCheck: true,
+      );
+
+      await expectLater(
+        gate.runStartupCheck(() async => throw StateError('io')),
+        throwsStateError,
+      );
+
+      expect(gate.hasStartupCheckFailed, isTrue);
+      await expectLater(
+        gate.guard(() async {}),
+        heldFor(SyncHoldReason.recoveryCheckFailed),
+      );
+
+      await gate.runStartupCheck(() async {});
+      expect(await gate.guard(() async => 'ok'), 'ok');
+    });
+
+    test('a passed check does not lift a persisted hold', () async {
+      await store.write(hold(phase: RecoverySyncHoldPhase.assessmentRequired));
+      final gate = RecoverySyncGate(
+        holdStore: store,
+        requiresStartupCheck: true,
+      );
+
+      await gate.runStartupCheck(() async {});
+
+      await expectLater(
+        gate.guard(() async {}),
+        heldFor(SyncHoldReason.assessmentRequired),
+      );
+    });
+
+    test('the application gate requires the startup check', () {
+      expect(RecoverySyncGate.application.requiresStartupCheck, isTrue);
+    });
+  });
+
   test('hold round-trips through JSON', () async {
     await store.write(hold());
     final state = await store.read() as ActiveRecoverySyncHold;

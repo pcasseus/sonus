@@ -16,6 +16,12 @@ enum SyncHoldReason {
 
   /// The persisted hold state could not be read, so sync stays paused.
   holdStateUnreadable,
+
+  /// The startup check for interrupted restores has not finished yet.
+  recoveryCheckPending,
+
+  /// The startup check for interrupted restores failed; sync stays paused.
+  recoveryCheckFailed,
 }
 
 /// Synchronization was not started because recovery holds it paused.

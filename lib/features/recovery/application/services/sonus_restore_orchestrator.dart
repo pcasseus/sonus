@@ -107,6 +107,12 @@ class SonusRestoreOrchestrator {
       throw const RecoveryGateUnavailable('A restore is already running.');
     }
 
+    if (!gate.isStartupCheckComplete) {
+      throw const RecoveryGateUnavailable(
+        'The startup recovery check has not completed.',
+      );
+    }
+
     final root = await recoveryDirectory();
     await root.create(recursive: true);
     final database = await appDatabase.database;
