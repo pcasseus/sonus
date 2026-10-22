@@ -12,7 +12,9 @@ import '../models/restore_preflight.dart';
 import '../models/restore_result.dart';
 import 'backup_archive_verifier.dart';
 import 'backup_temporary_cleaner.dart';
+import 'recovery_audio_service.dart';
 import 'recovery_fingerprint_service.dart';
+import 'recovery_status_store.dart';
 import 'recovery_sync_assessment_service.dart';
 import 'recovery_sync_gate.dart';
 import 'recovery_sync_hold_store.dart';
@@ -52,6 +54,7 @@ class SonusRestoreOrchestrator {
     this.assessment = const RecoverySyncAssessmentService(),
     this.cleaner = const BackupTemporaryCleaner(),
     this._journalRecovery,
+    this.statusStore,
     DateTime Function()? now,
     String Function()? generateSessionId,
   }) : artworkDirectory = artworkDirectory ?? _applicationArtworkDirectory,
@@ -70,6 +73,9 @@ class SonusRestoreOrchestrator {
   final RecoveryFingerprintService fingerprints;
   final RecoverySyncAssessmentService assessment;
   final BackupTemporaryCleaner cleaner;
+
+  /// Optional display history of completed restores.
+  final RecoveryStatusStore? statusStore;
 
   final SafetyBackupWriter? _safetyBackupWriter;
   final RestoreJournalRecovery? _journalRecovery;
@@ -291,6 +297,31 @@ class SonusRestoreOrchestrator {
       onProgress?.call(stage);
 
       final syncAssessment = await _assessAfterRestore(hold);
+
+      final status = statusStore;
+
+      if (status != null) {
+        try {
+          final audio = await RecoveryAudioStatusService(
+            appDatabase: appDatabase,
+          ).status(sampleLimit: 0);
+
+          await status.recordRestore(
+            RecoveryRestoreRecord(
+              backupId: contents.backup.manifest.backupId,
+              restoredAtUtc: _now().toUtc(),
+              restoredRows: contents.backup.payload.totalRows,
+              songsWithoutAudio: audio.songsWithoutAudio,
+              artworkInstalled: installation.installed,
+              artworkReused: installation.reused,
+              syncHeld: !syncAssessment.isConclusivelyConsistent,
+              safetyBackupPath: safetyBackup?.path,
+            ),
+          );
+        } catch (error) {
+          warnings.add('Restore history could not be saved: $error');
+        }
+      }
 
       onProgress?.call(RestoreStage.completed);
 

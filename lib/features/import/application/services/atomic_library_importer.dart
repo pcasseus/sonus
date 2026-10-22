@@ -47,11 +47,17 @@ class AtomicLibraryImporter {
     required this.appDatabase,
     this.userId,
     this.beforeBindingWrite,
+    this.relinkOnly = false,
   });
 
   final AppDatabase appDatabase;
   final String? userId;
   final BeforeBindingWrite? beforeBindingWrite;
+
+  /// Only attach files to songs that already exist (e.g. after restoring a
+  /// backup on a new device). Files without an existing song are skipped
+  /// and nothing is created or modified for them.
+  final bool relinkOnly;
 
   Future<ImportResult> import({
     required ImportCandidate candidate,
@@ -197,6 +203,13 @@ class AtomicLibraryImporter {
               message:
                   'Import metadata matches multiple existing library entities.',
             ),
+          );
+        }
+
+        if (relinkOnly && match.song == null) {
+          return ImportResult(
+            status: ImportResultStatus.skipped,
+            filePath: candidate.filePath,
           );
         }
 
