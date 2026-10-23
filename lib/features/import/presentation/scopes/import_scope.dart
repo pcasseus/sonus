@@ -130,6 +130,7 @@ class _ImportScopeState extends State<ImportScope> {
 
     final batchRepository = SqliteImportBatchRepository(
       ImportBatchDao(sqliteDatabase),
+      appDatabase: database,
     );
 
     final importSourceRepository = SqliteImportSourceRepository(
