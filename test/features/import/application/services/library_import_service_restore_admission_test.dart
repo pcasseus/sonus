@@ -6,11 +6,16 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:sonus_next/core/database/app_database.dart';
 import 'package:sonus_next/core/database/database_tables.dart';
 import 'package:sonus_next/core/database/library_mutation_coordinator.dart';
+import 'package:sonus_next/features/import/application/models/import_batch.dart';
+import 'package:sonus_next/features/import/application/models/import_batch_item.dart';
 import 'package:sonus_next/features/import/application/services/atomic_library_importer.dart';
+import 'package:sonus_next/features/import/application/services/import_batch_executor.dart';
 import 'package:sonus_next/features/import/application/services/library_import_service.dart';
 import 'package:sonus_next/features/import/application/services/lyrics_ingestion_service.dart';
 import 'package:sonus_next/features/import/application/services/metadata_resolver.dart';
+import 'package:sonus_next/features/import/data/daos/import_batch_dao.dart';
 import 'package:sonus_next/features/import/data/daos/media_file_binding_dao.dart';
+import 'package:sonus_next/features/import/data/repositories/sqlite_import_batch_repository.dart';
 import 'package:sonus_next/features/import/data/repositories/sqlite_media_file_binding_repository.dart';
 import 'package:sonus_next/features/import/domain/models/audio_metadata.dart';
 import 'package:sonus_next/features/import/domain/models/import_candidate.dart';
@@ -37,6 +42,39 @@ class _FixedTags implements AudioMetadataReader {
       discNumber: 1,
       isSingle: false,
       featuredArtists: [],
+    );
+  }
+}
+
+class _UnreadableTags implements AudioMetadataReader {
+  const _UnreadableTags();
+
+  @override
+  Future<AudioMetadata> read(ImportCandidate candidate) async {
+    throw const FormatException('Unreadable tags');
+  }
+}
+
+/// Tags titled after the file name, counting each read.
+class _TitleFromPath implements AudioMetadataReader {
+  const _TitleFromPath(this.onRead);
+
+  final void Function() onRead;
+
+  @override
+  Future<AudioMetadata> read(ImportCandidate candidate) async {
+    onRead();
+    final title = candidate.filePath.split('/').last.replaceAll('.mp3', '');
+
+    return AudioMetadata(
+      title: title,
+      artistName: 'Fresh Artist',
+      albumTitle: 'Fresh Album',
+      durationSeconds: 180,
+      trackNumber: title == 'First' ? 1 : 2,
+      discNumber: 1,
+      isSingle: false,
+      featuredArtists: const [],
     );
   }
 }
@@ -125,15 +163,15 @@ void main() {
       await entered.future;
 
       try {
-        final result = await service.importCandidate(
-          candidate(knownPath, knownNormalized),
-          now: importedAt,
+        // A restore interrupts the import instead of failing the item;
+        // nothing was written.
+        await expectLater(
+          service.importCandidate(
+            candidate(knownPath, knownNormalized),
+            now: importedAt,
+          ),
+          throwsA(isA<LibraryMutationUnavailable>()),
         );
-
-        // The rejected write surfaces as a failed item; nothing was written.
-        expect(result.status, ImportResultStatus.failed);
-        expect(result.failure?.type, ImportFailureType.persistenceFailure);
-        expect(result.failure?.message, contains('LibraryMutationUnavailable'));
         expect(await bindings(), before);
       } finally {
         release.complete();
@@ -151,6 +189,165 @@ void main() {
       expect((await bindings()).single['is_available'], 1);
     },
   );
+
+  group('restore rejection is an interruption, not an item failure', () {
+    Future<T> whileRestoring<T>(Future<T> Function() body) async {
+      final entered = Completer<void>();
+      final release = Completer<void>();
+      final restore = database.mutationCoordinator.runExclusiveRestore(
+        () async {
+          entered.complete();
+          await release.future;
+        },
+      );
+      await entered.future;
+
+      try {
+        return await body();
+      } finally {
+        release.complete();
+        await restore;
+      }
+    }
+
+    LibraryImportService importing({
+      AudioMetadataReader reader = const _FixedTags(),
+      AtomicLibraryImporter? importer,
+    }) {
+      return LibraryImportService(
+        metadataResolver: MetadataResolver(
+          primaryReader: reader,
+          fallbackReader: reader,
+        ),
+        atomicImporter:
+            importer ?? AtomicLibraryImporter(appDatabase: database),
+      );
+    }
+
+    test('a refused atomic import propagates and writes nothing', () async {
+      final db = await database.database;
+      final before = await snapshotDatabase(db);
+
+      await whileRestoring(() async {
+        await expectLater(
+          importing().importCandidate(
+            candidate('C:/Music/New/New.mp3', 'c:/music/new/new.mp3'),
+            now: importedAt,
+          ),
+          throwsA(isA<LibraryMutationUnavailable>()),
+        );
+      });
+
+      expect(await snapshotDatabase(db), before);
+      expect(database.mutationCoordinator.activeMutations, 0);
+    });
+
+    test('unreadable metadata keeps its classification', () async {
+      final result = await importing(reader: const _UnreadableTags())
+          .importCandidate(
+            candidate('C:/Music/New/New.mp3', 'c:/music/new/new.mp3'),
+            now: importedAt,
+          );
+
+      expect(result.status, ImportResultStatus.failed);
+      expect(result.failure?.type, ImportFailureType.metadataUnreadable);
+    });
+
+    test('a genuine persistence failure keeps its classification', () async {
+      final result =
+          await importing(
+            importer: AtomicLibraryImporter(
+              appDatabase: database,
+              beforeBindingWrite: () async => throw StateError('disk full'),
+            ),
+          ).importCandidate(
+            candidate('C:/Music/New/New.mp3', 'c:/music/new/new.mp3'),
+            now: importedAt,
+          );
+
+      expect(result.status, ImportResultStatus.failed);
+      expect(result.failure?.type, ImportFailureType.persistenceFailure);
+    });
+
+    test('an interrupted batch keeps earlier imports and reported progress '
+        'and retries nothing', () async {
+      final db = await database.database;
+      final release = Completer<void>();
+      Future<void>? restore;
+      final progress = <int>[];
+      var imports = 0;
+
+      final executor = ImportBatchExecutor(
+        libraryImportService: importing(
+          reader: _TitleFromPath(() => imports++),
+        ),
+        batchRepository: SqliteImportBatchRepository(
+          ImportBatchDao(db),
+          appDatabase: database,
+        ),
+      );
+
+      final batch = ImportBatch(
+        id: 'batch-interrupted',
+        createdAt: importedAt,
+        items: [
+          ImportBatchItem(
+            candidate: candidate(
+              'C:/Music/New/First.mp3',
+              'c:/music/new/first.mp3',
+            ),
+          ),
+          ImportBatchItem(
+            candidate: candidate(
+              'C:/Music/New/Second.mp3',
+              'c:/music/new/second.mp3',
+            ),
+          ),
+        ],
+      );
+
+      try {
+        await expectLater(
+          executor.execute(
+            batch,
+            startedAt: importedAt,
+            onProgress: (current) {
+              progress.add(current.completedCount);
+              // The restore begins once the first item is recorded.
+              if (current.completedCount == 1) {
+                restore ??= database.mutationCoordinator.runExclusiveRestore(
+                  () => release.future,
+                );
+              }
+            },
+          ),
+          throwsA(isA<LibraryMutationUnavailable>()),
+        );
+      } finally {
+        release.complete();
+        await restore;
+      }
+      await pumpEventQueue();
+
+      final titles = (await db.query(
+        DatabaseTables.songs,
+      )).map((row) => row['title']);
+      expect(titles, containsAll(['Song', 'First']));
+      expect(titles, isNot(contains('Second')));
+      expect(progress, [0, 1]);
+      expect(imports, 2);
+
+      // Pre-existing bookkeeping: the interrupted batch stays recorded as
+      // running with the progress it had reached.
+      final record = (await db.query(
+        DatabaseTables.importBatches,
+        where: 'id = ?',
+        whereArgs: ['batch-interrupted'],
+      )).single;
+      expect(record['status'], 'running');
+      expect(record['imported_count'], 1);
+    });
+  });
 
   group('ordinary imports are unchanged', () {
     test('an unavailable binding is relinked and stamped', () async {

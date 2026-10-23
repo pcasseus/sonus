@@ -62,16 +62,45 @@ Future<void> runStartupDurationMaintenance({
   required Future<void> Function() cleanupReviews,
   ImportMaintenanceLogger log = _logImportMaintenance,
 }) async {
-  if (await _runMaintenanceStage('duration repair', repairDurations, log)) {
-    await _runMaintenanceStage('review cleanup', cleanupReviews, log);
+  if (await runStartupMaintenanceStage(
+    'duration repair',
+    repairDurations,
+    log: log,
+  )) {
+    await runStartupMaintenanceStage(
+      'review cleanup',
+      cleanupReviews,
+      log: log,
+    );
   }
 }
 
-Future<bool> _runMaintenanceStage(
+/// Runs duration repair, then reports how many songs could not be repaired.
+/// A refused write propagates, so the stage reports it as stopped instead.
+Future<void> repairDurationsReportingFailures(
+  Future<ImportDurationRepairSummary> Function() repair, {
+  ImportMaintenanceLogger log = _logImportMaintenance,
+}) async {
+  final summary = await repair();
+
+  if (summary.failed > 0) {
+    log(
+      'Startup duration repair could not repair ${summary.failed} of '
+      '${summary.examined} songs.',
+      level: 900,
+    );
+  }
+}
+
+/// Runs one startup maintenance stage, reporting its outcome by stage name
+/// and error type only. Nothing escapes, so the stage can run unawaited, and
+/// nothing is retried: a restore stops the stage until the next start.
+/// Returns whether the stage completed.
+Future<bool> runStartupMaintenanceStage(
   String stage,
-  Future<void> Function() action,
-  ImportMaintenanceLogger log,
-) async {
+  Future<void> Function() action, {
+  ImportMaintenanceLogger log = _logImportMaintenance,
+}) async {
   try {
     await action();
     return true;
@@ -308,7 +337,9 @@ class _ImportScopeState extends State<ImportScope> {
 
       unawaited(
         runStartupDurationMaintenance(
-          repairDurations: () => durationRepairService.repair(userId: userId),
+          repairDurations: () => repairDurationsReportingFailures(
+            () => durationRepairService.repair(userId: userId),
+          ),
           cleanupReviews: reviewCleanupService.cleanupStaleDurationReasons,
         ),
       );
@@ -317,7 +348,14 @@ class _ImportScopeState extends State<ImportScope> {
     if (!_artistIdentityRepairStarted) {
       _artistIdentityRepairStarted = true;
 
-      unawaited(artistIdentityRepairScanService.repairAll(userId: userId));
+      // Independent of the duration chain, as before; failures are reported
+      // instead of escaping the unawaited future.
+      unawaited(
+        runStartupMaintenanceStage(
+          'artist identity repair',
+          () => artistIdentityRepairScanService.repairAll(userId: userId),
+        ),
+      );
     }
   }
 

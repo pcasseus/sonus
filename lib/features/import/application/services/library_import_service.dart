@@ -30,9 +30,9 @@ class LibraryImportService {
 
     final bindingRepository = mediaFileBindingRepository;
 
-    // Lyrics are ingested after, not inside, the error handling below, so a
-    // restore rejection of the lyrics write is never reported as a binding
-    // or metadata failure.
+    // A restore rejection is an interruption, never an item failure: it
+    // propagates unchanged from every write below. Lyrics are ingested
+    // after, not inside, the error handling, for the same reason.
     if (bindingRepository != null) {
       ImportResult? refreshed;
 
@@ -63,6 +63,8 @@ class LibraryImportService {
             songId: existingBinding.songId,
           );
         }
+      } on LibraryMutationUnavailable {
+        rethrow;
       } catch (error) {
         return ImportResult(
           status: ImportResultStatus.failed,
@@ -91,6 +93,8 @@ class LibraryImportService {
         metadataOrigins: resolvedMetadata.origins,
         now: timestamp,
       );
+    } on LibraryMutationUnavailable {
+      rethrow;
     } catch (error) {
       return ImportResult(
         status: ImportResultStatus.failed,

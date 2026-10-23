@@ -1,4 +1,5 @@
 import 'package:sonus_next/core/database/app_database.dart';
+import 'package:sonus_next/core/database/library_mutation_coordinator.dart';
 import 'package:sonus_next/core/identity/entity_id.dart';
 import 'package:sonus_next/core/identity/text_normalizer.dart';
 import 'package:sonus_next/features/import/application/identity/import_identity_metadata_normalizer.dart';
@@ -717,6 +718,9 @@ class AtomicLibraryImporter {
           songId: song.id,
         );
       });
+    } on LibraryMutationUnavailable {
+      // A restore refused the import: an interruption, not a failed file.
+      rethrow;
     } catch (error) {
       return ImportResult(
         status: ImportResultStatus.failed,
