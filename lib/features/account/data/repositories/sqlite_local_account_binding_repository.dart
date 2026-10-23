@@ -88,13 +88,13 @@ class SqliteLocalAccountBindingRepository
 
   @override
   Future<void> clearBinding() async {
-    final db = await appDatabase.database;
-
-    await db.delete(
-      DatabaseTables.localAccountBinding,
-      where: 'id = ?',
-      whereArgs: const [1],
-    );
+    await appDatabase.transaction((transaction) async {
+      await transaction.delete(
+        DatabaseTables.localAccountBinding,
+        where: 'id = ?',
+        whereArgs: const [1],
+      );
+    });
   }
 
   LocalAccountBinding _fromRow(Map<String, Object?> row) {

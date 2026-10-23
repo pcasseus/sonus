@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sonus_next/core/database/library_mutation_coordinator.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:sonus_next/core/database/app_database.dart';
@@ -90,6 +93,38 @@ void main() {
     expect(() => repository.bindToUser('   '), throwsArgumentError);
   });
 
+  test('clearBinding is rejected while restore owns admission', () async {
+    await repository.bindToUser('user_1');
+
+    final coordinator = appDatabase.mutationCoordinator;
+    final entered = Completer<void>();
+    final release = Completer<void>();
+
+    final exclusive = coordinator.runExclusiveRestore(() async {
+      entered.complete();
+      await release.future;
+    });
+
+    await entered.future;
+
+    try {
+      await expectLater(
+        repository.clearBinding(),
+        throwsA(isA<LibraryMutationUnavailable>()),
+      );
+
+      expect((await repository.getBinding())?.userId, 'user_1');
+    } finally {
+      release.complete();
+      await exclusive;
+    }
+
+    expect(coordinator.isRestoreRequested, isFalse);
+
+    await repository.clearBinding();
+
+    expect(await repository.getBinding(), isNull);
+  });
   test('clearBinding removes the local account binding', () async {
     await repository.bindToUser('user_1');
 
