@@ -25,10 +25,12 @@ import '../daos/local_sync_dao.dart';
 import '../daos/cloud_revision_baseline_dao.dart';
 import '../daos/artist_write_journal_dao.dart';
 import '../daos/artist_dependency_journal_dao.dart';
+import '../daos/inbound_deferred_record_dao.dart';
 import 'sqlite_local_sync_repository.dart';
 import 'sqlite_cloud_revision_baseline_repository.dart';
 import 'sqlite_artist_write_journal_repository.dart';
 import 'sqlite_artist_dependency_journal_repository.dart';
+import 'sqlite_inbound_deferred_record_repository.dart';
 
 class SyncMutationTransactionRunner implements SyncMutationRunner {
   SyncMutationTransactionRunner({
@@ -82,6 +84,9 @@ class SyncMutationTransactionRunner implements SyncMutationRunner {
             SqliteArtistDependencyJournalRepository(
               ArtistDependencyJournalDao(transaction),
             ),
+        inboundDeferredRecordRepository: SqliteInboundDeferredRecordRepository(
+          dao: InboundDeferredRecordDao(transaction),
+        ),
         playlistRepository: SqlitePlaylistRepository(PlaylistDao(transaction)),
       );
 

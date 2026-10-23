@@ -429,6 +429,10 @@ abstract final class DatabaseMigrations {
         await SyncSchema.createArtistDependencyJournal(db);
         return;
 
+      case 32:
+        await SyncSchema.createInboundDeferredRecords(db);
+        return;
+
       default:
         throw UnsupportedError(
           'No Sonus database migration exists for version $targetVersion.',

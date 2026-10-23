@@ -1,5 +1,6 @@
 import '../repositories/local_sync_repository.dart';
 import '../../domain/models/cloud_records.dart';
+import '../../domain/models/inbound_deferred_record.dart';
 import '../../domain/models/local_sync_models.dart';
 import '../../domain/models/sync_data_contract.dart';
 import 'cloud_sync_reader.dart';
@@ -13,9 +14,13 @@ class InboundSyncBatchResult {
     required this.processedCount,
     required this.hasMore,
     required this.lastReadPosition,
+    this.deferredCount = 0,
   });
 
   final int processedCount;
+
+  /// Records passed by the cursor but durably deferred for replay.
+  final int deferredCount;
   final bool hasMore;
   final CloudSyncPosition? lastReadPosition;
 }
@@ -133,6 +138,7 @@ class InboundSyncReconciler implements InboundSyncPageReconciler {
     );
 
     var processedCount = 0;
+    var deferredCount = 0;
     var highWaterPosition = storedPosition;
 
     for (final item in page.items) {
@@ -193,14 +199,53 @@ class InboundSyncReconciler implements InboundSyncPageReconciler {
           );
 
           if (baseline == null || revision > baseline) {
-            await applier.apply(record: item.record, context: context);
-
-            await baselineRepository.saveObservedRevision(
-              userId: normalizedUserId,
-              entityType: entityType,
-              entityId: item.record.id,
-              serverRevision: revision,
+            final result = await applier.apply(
+              record: item.record,
+              context: context,
             );
+
+            final deferredRepository = context.inboundDeferredRecordRepository;
+            final deferralReason = result.deferralReason;
+
+            if (deferralReason != null) {
+              // The cursor may pass this revision only if its replay
+              // obligation commits in the same transaction. No baseline
+              // is recorded, so a replay still counts as newer.
+              if (deferredRepository == null) {
+                throw StateError(
+                  'Inbound record ${item.record.id} cannot be applied yet '
+                  'and no deferred record repository is available.',
+                );
+              }
+
+              await deferredRepository.saveDeferred(
+                InboundDeferredRecord(
+                  userId: normalizedUserId,
+                  entityType: entityType,
+                  entityId: item.record.id,
+                  serverRevision: revision,
+                  serverUpdatedAt: itemPosition.serverUpdatedAt,
+                  reason: deferralReason,
+                  deferredAt: _now().toUtc(),
+                ),
+              );
+
+              deferredCount += 1;
+            } else {
+              await baselineRepository.saveObservedRevision(
+                userId: normalizedUserId,
+                entityType: entityType,
+                entityId: item.record.id,
+                serverRevision: revision,
+              );
+
+              await deferredRepository?.clearThroughRevision(
+                userId: normalizedUserId,
+                entityType: entityType,
+                entityId: item.record.id,
+                serverRevision: revision,
+              );
+            }
           }
         }
 
@@ -228,6 +273,7 @@ class InboundSyncReconciler implements InboundSyncPageReconciler {
       processedCount: processedCount,
       hasMore: page.hasMore,
       lastReadPosition: page.lastPosition,
+      deferredCount: deferredCount,
     );
   }
 

@@ -12,6 +12,7 @@ import '../../domain/models/cloud_records.dart';
 import '../../domain/models/local_sync_models.dart';
 import '../../domain/models/sync_data_contract.dart';
 import 'cloud_artwork_storage.dart';
+import 'cloud_conditional_write_result.dart';
 import 'cloud_sync_gateway.dart';
 
 /// Handles an explicit artist mutation and owns its acknowledgement.
@@ -39,6 +40,36 @@ typedef PushArtistDeletion =
 
 /// Reconciles durable artist receipts before reading the regular outbox.
 typedef RecoverArtistWrites = Future<void> Function(String userId);
+
+/// A revision-guarded cloud write that did not apply.
+///
+/// The pending mutation stays queued. The observed revision is
+/// diagnostic only and must not be adopted as a local baseline.
+class OutboundRecordWriteConflict implements Exception {
+  const OutboundRecordWriteConflict({
+    required this.entityType,
+    required this.entityId,
+    required this.outcome,
+    required this.expectedServerRevision,
+    required this.observedServerRevision,
+  });
+
+  final CloudDataEntity entityType;
+  final String entityId;
+  final CloudConditionalWriteOutcome outcome;
+  final int? expectedServerRevision;
+  final int? observedServerRevision;
+
+  @override
+  String toString() {
+    return 'OutboundRecordWriteConflict('
+        'entityType: ${entityType.name}, '
+        'entityId: $entityId, '
+        'outcome: $outcome, '
+        'expectedServerRevision: $expectedServerRevision, '
+        'observedServerRevision: $observedServerRevision)';
+  }
+}
 
 class OutboundSyncProcessor {
   OutboundSyncProcessor({
@@ -143,59 +174,96 @@ class OutboundSyncProcessor {
     final ensuredAlbumEditionIds = <String>{};
     final ensuredSongIds = <String>{};
 
+    // Ownership is checked for the whole batch before any cloud write.
     for (final entry in ordered) {
       if (entry.userId != trimmedUserId) {
         throw StateError(
           'Outbox entry ${entry.id} does not belong to user $trimmedUserId.',
         );
       }
+    }
 
-      switch (entry.operation) {
-        case SyncOutboxOperation.upsert:
-          await _pushUpsert(
-            entry,
-            userId: trimmedUserId,
-            ensuredArtworkIds: ensuredArtworkIds,
-            ensuredArtistIds: ensuredArtistIds,
-            ensuredAlbumIds: ensuredAlbumIds,
-            ensuredAlbumEditionIds: ensuredAlbumEditionIds,
-            ensuredSongIds: ensuredSongIds,
-          );
+    Object? firstError;
+    StackTrace? firstStackTrace;
 
-        case SyncOutboxOperation.delete:
-          final guardedDeletion = pushArtistDeletion;
-
-          if (entry.entityType == CloudDataEntity.artist &&
-              guardedDeletion != null) {
-            await guardedDeletion(userId: trimmedUserId, entry: entry);
-          } else {
-            await cloudSyncGateway.markDeleted(
-              userId: trimmedUserId,
-              entityType: entry.entityType,
-              entityId: entry.entityId,
-              deletedAt: entry.updatedAt,
-            );
-          }
-      }
-
-      final guardedArtistMutation =
-          pushArtistMutation != null &&
-          entry.entityType == CloudDataEntity.artist &&
-          entry.operation == SyncOutboxOperation.upsert;
-
-      final guardedArtistDeletion =
-          pushArtistDeletion != null &&
-          entry.entityType == CloudDataEntity.artist &&
-          entry.operation == SyncOutboxOperation.delete;
-
-      if (!guardedArtistMutation && !guardedArtistDeletion) {
-        await localSyncRepository.markProcessed(
+    for (final entry in ordered) {
+      try {
+        await _pushEntry(
+          entry,
           userId: trimmedUserId,
-          outboxEntryId: entry.id,
-          expectedRevision: entry.mutationRevision,
-          expectedOperation: entry.operation,
+          ensuredArtworkIds: ensuredArtworkIds,
+          ensuredArtistIds: ensuredArtistIds,
+          ensuredAlbumIds: ensuredAlbumIds,
+          ensuredAlbumEditionIds: ensuredAlbumEditionIds,
+          ensuredSongIds: ensuredSongIds,
         );
+      } catch (error, stackTrace) {
+        // A failed entry stays pending. Later entries still run; any that
+        // depend on it re-attempt the dependency and fail the same way.
+        firstError ??= error;
+        firstStackTrace ??= stackTrace;
       }
+    }
+
+    if (firstError != null) {
+      Error.throwWithStackTrace(firstError, firstStackTrace!);
+    }
+  }
+
+  Future<void> _pushEntry(
+    SyncOutboxEntry entry, {
+    required String userId,
+    required Set<String> ensuredArtworkIds,
+    required Set<String> ensuredArtistIds,
+    required Set<String> ensuredAlbumIds,
+    required Set<String> ensuredAlbumEditionIds,
+    required Set<String> ensuredSongIds,
+  }) async {
+    switch (entry.operation) {
+      case SyncOutboxOperation.upsert:
+        await _pushUpsert(
+          entry,
+          userId: userId,
+          ensuredArtworkIds: ensuredArtworkIds,
+          ensuredArtistIds: ensuredArtistIds,
+          ensuredAlbumIds: ensuredAlbumIds,
+          ensuredAlbumEditionIds: ensuredAlbumEditionIds,
+          ensuredSongIds: ensuredSongIds,
+        );
+
+      case SyncOutboxOperation.delete:
+        final guardedDeletion = pushArtistDeletion;
+
+        if (entry.entityType == CloudDataEntity.artist &&
+            guardedDeletion != null) {
+          await guardedDeletion(userId: userId, entry: entry);
+        } else {
+          await cloudSyncGateway.markDeleted(
+            userId: userId,
+            entityType: entry.entityType,
+            entityId: entry.entityId,
+            deletedAt: entry.updatedAt,
+          );
+        }
+    }
+
+    final guardedArtistMutation =
+        pushArtistMutation != null &&
+        entry.entityType == CloudDataEntity.artist &&
+        entry.operation == SyncOutboxOperation.upsert;
+
+    final guardedArtistDeletion =
+        pushArtistDeletion != null &&
+        entry.entityType == CloudDataEntity.artist &&
+        entry.operation == SyncOutboxOperation.delete;
+
+    if (!guardedArtistMutation && !guardedArtistDeletion) {
+      await localSyncRepository.markProcessed(
+        userId: userId,
+        outboxEntryId: entry.id,
+        expectedRevision: entry.mutationRevision,
+        expectedOperation: entry.operation,
+      );
     }
   }
 
@@ -214,6 +282,7 @@ class OutboundSyncProcessor {
           entry.entityId,
           userId: userId,
           ensuredArtworkIds: ensuredArtworkIds,
+          explicitEntry: entry,
         );
 
       case CloudDataEntity.artist:
@@ -232,6 +301,7 @@ class OutboundSyncProcessor {
           ensuredArtworkIds: ensuredArtworkIds,
           ensuredArtistIds: ensuredArtistIds,
           ensuredAlbumIds: ensuredAlbumIds,
+          explicitEntry: entry,
         );
 
       case CloudDataEntity.albumEdition:
@@ -242,6 +312,7 @@ class OutboundSyncProcessor {
           ensuredArtistIds: ensuredArtistIds,
           ensuredAlbumIds: ensuredAlbumIds,
           ensuredAlbumEditionIds: ensuredAlbumEditionIds,
+          explicitEntry: entry,
         );
 
       case CloudDataEntity.song:
@@ -253,6 +324,90 @@ class OutboundSyncProcessor {
           ensuredAlbumIds: ensuredAlbumIds,
           ensuredAlbumEditionIds: ensuredAlbumEditionIds,
           ensuredSongIds: ensuredSongIds,
+          explicitEntry: entry,
+        );
+    }
+  }
+
+  /// Writes a non-artist record without overwriting newer cloud state.
+  ///
+  /// Without revision baselines this keeps the legacy unconditional
+  /// upsert. With baselines, a known revision is compare-and-set and an
+  /// unknown one is insert-if-absent. A dependency that already has a
+  /// baseline is not rewritten.
+  Future<void> _writeRecord(
+    CloudOwnedRecord record, {
+    required CloudDataEntity entityType,
+    required SyncOutboxEntry? explicitEntry,
+  }) async {
+    final baselines = cloudRevisionBaselineRepository;
+
+    if (baselines == null) {
+      await cloudSyncGateway.upsert(record);
+      return;
+    }
+
+    final baseline = await baselines.getRevision(
+      userId: record.userId,
+      entityType: entityType,
+      entityId: record.id,
+    );
+
+    if (baseline != null && baseline < 1) {
+      throw StateError('Invalid stored server revision for ${record.id}.');
+    }
+
+    if (explicitEntry == null && baseline != null) {
+      return;
+    }
+
+    final result = baseline == null
+        ? await cloudSyncGateway.insertIfAbsent(record)
+        : await cloudSyncGateway.updateIfRevision(
+            record,
+            expectedServerRevision: baseline,
+          );
+
+    switch (result.outcome) {
+      case CloudConditionalWriteOutcome.applied:
+      case CloudConditionalWriteOutcome.replayed:
+        final expectedRevision = baseline == null ? 1 : baseline + 1;
+
+        if (result.serverRevision != expectedRevision) {
+          throw StateError(
+            'Unexpected applied ${entityType.name} revision: '
+            '${result.serverRevision}; expected $expectedRevision.',
+          );
+        }
+
+        await baselines.saveObservedRevision(
+          userId: record.userId,
+          entityType: entityType,
+          entityId: record.id,
+          serverRevision: expectedRevision,
+        );
+
+      case CloudConditionalWriteOutcome.conflict:
+        // A dependency only needs to exist. Its content is not adopted.
+        if (explicitEntry == null && baseline == null) {
+          return;
+        }
+
+        throw OutboundRecordWriteConflict(
+          entityType: entityType,
+          entityId: record.id,
+          outcome: result.outcome,
+          expectedServerRevision: baseline,
+          observedServerRevision: result.serverRevision,
+        );
+
+      case CloudConditionalWriteOutcome.notFound:
+        throw OutboundRecordWriteConflict(
+          entityType: entityType,
+          entityId: record.id,
+          outcome: result.outcome,
+          expectedServerRevision: baseline,
+          observedServerRevision: result.serverRevision,
         );
     }
   }
@@ -261,6 +416,7 @@ class OutboundSyncProcessor {
     String artworkId, {
     required String userId,
     required Set<String> ensuredArtworkIds,
+    SyncOutboxEntry? explicitEntry,
   }) async {
     final normalizedArtworkId = artworkId.trim();
 
@@ -277,17 +433,34 @@ class OutboundSyncProcessor {
       );
     }
 
+    final baselines = cloudRevisionBaselineRepository;
+
+    // A reconciled artwork dependency is neither re-uploaded nor rewritten.
+    if (explicitEntry == null &&
+        baselines != null &&
+        await baselines.getRevision(
+              userId: userId,
+              entityType: CloudDataEntity.artworkAsset,
+              entityId: normalizedArtworkId,
+            ) !=
+            null) {
+      ensuredArtworkIds.add(normalizedArtworkId);
+      return;
+    }
+
     final storageObjectKey = await cloudArtworkStorage.upload(
       userId: userId,
       artworkAsset: entity,
     );
 
-    await cloudSyncGateway.upsert(
+    await _writeRecord(
       CloudRecordMapper.artworkAsset(
         artworkAsset: entity,
         userId: userId,
         storageObjectKey: storageObjectKey,
       ),
+      entityType: CloudDataEntity.artworkAsset,
+      explicitEntry: explicitEntry,
     );
 
     ensuredArtworkIds.add(normalizedArtworkId);
@@ -404,6 +577,7 @@ class OutboundSyncProcessor {
     required Set<String> ensuredArtworkIds,
     required Set<String> ensuredArtistIds,
     required Set<String> ensuredAlbumIds,
+    SyncOutboxEntry? explicitEntry,
   }) async {
     final normalizedAlbumId = albumId.trim();
 
@@ -429,12 +603,14 @@ class OutboundSyncProcessor {
       entityId: normalizedAlbumId,
     );
 
-    await cloudSyncGateway.upsert(
+    await _writeRecord(
       CloudRecordMapper.album(
         album: entity,
         userId: userId,
         metadataFieldStates: metadataFieldStates,
       ),
+      entityType: CloudDataEntity.album,
+      explicitEntry: explicitEntry,
     );
 
     ensuredAlbumIds.add(normalizedAlbumId);
@@ -447,6 +623,7 @@ class OutboundSyncProcessor {
     required Set<String> ensuredArtistIds,
     required Set<String> ensuredAlbumIds,
     required Set<String> ensuredAlbumEditionIds,
+    SyncOutboxEntry? explicitEntry,
   }) async {
     final normalizedEditionId = albumEditionId.trim();
 
@@ -481,12 +658,14 @@ class OutboundSyncProcessor {
       entityId: normalizedEditionId,
     );
 
-    await cloudSyncGateway.upsert(
+    await _writeRecord(
       CloudRecordMapper.albumEdition(
         albumEdition: entity,
         userId: userId,
         metadataFieldStates: metadataFieldStates,
       ),
+      entityType: CloudDataEntity.albumEdition,
+      explicitEntry: explicitEntry,
     );
 
     ensuredAlbumEditionIds.add(normalizedEditionId);
@@ -500,6 +679,7 @@ class OutboundSyncProcessor {
     required Set<String> ensuredAlbumIds,
     required Set<String> ensuredAlbumEditionIds,
     required Set<String> ensuredSongIds,
+    SyncOutboxEntry? explicitEntry,
   }) async {
     final normalizedSongId = songId.trim();
 
@@ -548,12 +728,14 @@ class OutboundSyncProcessor {
       entityId: normalizedSongId,
     );
 
-    await cloudSyncGateway.upsert(
+    await _writeRecord(
       CloudRecordMapper.song(
         song: entity,
         userId: userId,
         metadataFieldStates: metadataFieldStates,
       ),
+      entityType: CloudDataEntity.song,
+      explicitEntry: explicitEntry,
     );
 
     ensuredSongIds.add(normalizedSongId);

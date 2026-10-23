@@ -78,15 +78,22 @@ void main() {
           expect(cursor?.lastServerId, 'artist-1');
         });
 
-        // Tombstone application is currently unsupported. Its failure
+        // A pending local mutation rejects the record. That failure
         // must not acknowledge the later cloud record.
+        await runner.run<void>((context) async {
+          await context.localSyncRepository.recordUpsert(
+            userId: 'user-1',
+            entityType: CloudDataEntity.artist,
+            entityId: 'artist-2',
+          );
+        });
+
         reader.page = CloudSyncPage(
           items: [
             _artistItem(
               'artist-2',
               serverRevision: 9,
               serverUpdatedAt: secondTimestamp,
-              deletedAt: secondTimestamp,
             ),
           ],
           hasMore: false,

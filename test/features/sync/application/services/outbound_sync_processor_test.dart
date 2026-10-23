@@ -16,6 +16,7 @@ import 'package:sonus_next/features/library/domain/repositories/song_repository.
 import 'package:sonus_next/features/sync/application/repositories/local_sync_repository.dart';
 import 'package:sonus_next/features/sync/application/repositories/cloud_revision_baseline_repository.dart';
 import 'package:sonus_next/features/sync/application/services/cloud_artwork_storage.dart';
+import 'package:sonus_next/features/sync/application/services/cloud_conditional_write_result.dart';
 import 'package:sonus_next/features/sync/application/services/cloud_sync_gateway.dart';
 import 'package:sonus_next/features/sync/application/services/outbound_sync_processor.dart';
 import 'package:sonus_next/features/sync/domain/models/cloud_records.dart';
@@ -169,7 +170,7 @@ void main() {
       await processor.pushPending('user_1');
 
       expect(ensured, ['artist_1']);
-      expect(cloudSyncGateway.calls, ['upsert:album:album_1']);
+      expect(cloudSyncGateway.calls, ['insert:album:album_1']);
       expect(localSyncRepository.processedIds, ['dependent_album']);
       expect(localSyncRepository.pending, isEmpty);
     });
@@ -282,7 +283,7 @@ void main() {
 
         expect(artistWrites, 1);
         expect(dependencyChecks, 0);
-        expect(cloudSyncGateway.calls, ['upsert:album:album_1']);
+        expect(cloudSyncGateway.calls, ['insert:album:album_1']);
         expect(localSyncRepository.processedIds, [
           'explicit_artist',
           'dependent_album_after_artist',
@@ -412,7 +413,7 @@ void main() {
 
       await processor.pushPending('user_1');
 
-      expect(cloudSyncGateway.calls, ['upsert:album:album_1']);
+      expect(cloudSyncGateway.calls, ['insert:album:album_1']);
       expect(localSyncRepository.processedIds, ['guarded_album']);
     });
 
@@ -1239,7 +1240,7 @@ void main() {
       expect(localSyncRepository.processedIds, ['outbox_artist']);
     });
 
-    test('cloud failure leaves failed and later entries pending', () async {
+    test('cloud failure leaves failed and dependent entries pending', () async {
       artistRepository.values['artist_1'] = artist(timestamp);
       albumRepository.values['album_1'] = album(timestamp);
       songRepository.values['song_1'] = song(timestamp);
@@ -1272,8 +1273,10 @@ void main() {
         throwsA(isA<StateError>()),
       );
 
+      // The song re-attempts its album dependency and never uploads.
       expect(cloudSyncGateway.calls, [
         'upsert:artist:artist_1',
+        'upsert:album:album_1',
         'upsert:album:album_1',
       ]);
 
@@ -1565,7 +1568,39 @@ class FakeCloudSyncGateway implements CloudSyncGateway {
 
   @override
   Future<void> upsert(CloudOwnedRecord record) async {
-    final type = switch (record) {
+    await _write('upsert:${_type(record)}:${record.id}', record);
+  }
+
+  @override
+  Future<CloudConditionalWriteResult> insertIfAbsent(
+    CloudOwnedRecord record,
+  ) async {
+    await _write('insert:${_type(record)}:${record.id}', record);
+
+    return const CloudConditionalWriteResult(
+      outcome: CloudConditionalWriteOutcome.applied,
+      serverRevision: 1,
+    );
+  }
+
+  @override
+  Future<CloudConditionalWriteResult> updateIfRevision(
+    CloudOwnedRecord record, {
+    required int expectedServerRevision,
+  }) async {
+    await _write(
+      'update:${_type(record)}:${record.id}@$expectedServerRevision',
+      record,
+    );
+
+    return CloudConditionalWriteResult(
+      outcome: CloudConditionalWriteOutcome.applied,
+      serverRevision: expectedServerRevision + 1,
+    );
+  }
+
+  String _type(CloudOwnedRecord record) {
+    return switch (record) {
       CloudArtistRecord() => 'artist',
       CloudAlbumRecord() => 'album',
       CloudAlbumEditionRecord() => 'albumEdition',
@@ -1573,8 +1608,9 @@ class FakeCloudSyncGateway implements CloudSyncGateway {
       CloudArtworkAssetRecord() => 'artworkAsset',
       _ => 'unknown',
     };
+  }
 
-    final call = 'upsert:$type:${record.id}';
+  Future<void> _write(String call, CloudOwnedRecord record) async {
     calls.add(call);
     upsertedRecords.add(record);
 

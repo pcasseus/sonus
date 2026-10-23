@@ -45,7 +45,7 @@ void main() {
       final db = await app.database;
       final version = await db.rawQuery('PRAGMA user_version');
 
-      expect(version.single['user_version'], 31);
+      expect(version.single['user_version'], 32);
 
       final tables = await db.rawQuery(
         "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
@@ -121,7 +121,7 @@ void main() {
 
       expect(
         (await db.rawQuery('PRAGMA user_version')).single['user_version'],
-        31,
+        32,
       );
 
       final pending = await db.query(DatabaseTables.syncOutbox);

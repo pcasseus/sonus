@@ -11,6 +11,49 @@ abstract final class SyncSchema {
     await createCloudRevisionBaselines(db);
     await createArtistWriteJournal(db);
     await createArtistDependencyJournal(db);
+    await createInboundDeferredRecords(db);
+  }
+
+  /// Verified cloud revisions the inbound cursor has passed without
+  /// applying locally. Each row is a durable replay obligation.
+  static const String inboundDeferredRecordsTable =
+      'sync_inbound_deferred_records';
+
+  static Future<void> createInboundDeferredRecords(DatabaseExecutor db) async {
+    await db.execute('''
+      CREATE TABLE $inboundDeferredRecordsTable (
+        user_id TEXT NOT NULL
+          CHECK (length(trim(user_id)) > 0),
+        entity_type TEXT NOT NULL
+          CHECK (
+            entity_type IN (
+              'artworkAsset',
+              'artist',
+              'album',
+              'albumEdition',
+              'song'
+            )
+          ),
+        entity_id TEXT NOT NULL
+          CHECK (length(trim(entity_id)) > 0),
+        server_revision INTEGER NOT NULL
+          CHECK (server_revision >= 1),
+        server_updated_at TEXT NOT NULL
+          CHECK (length(trim(server_updated_at)) > 0),
+        reason TEXT NOT NULL
+          CHECK (
+            reason IN (
+              'artworkDownloadRequired',
+              'tombstoneRequiresLocalDeletion',
+              'missingLocalArtwork'
+            )
+          ),
+        deferred_at TEXT NOT NULL
+          CHECK (length(trim(deferred_at)) > 0),
+
+        PRIMARY KEY (user_id, entity_type, entity_id)
+      )
+    ''');
   }
 
   /// Durable snapshots of artist RPC requests awaiting verification.
