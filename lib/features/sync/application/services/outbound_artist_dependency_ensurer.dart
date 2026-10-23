@@ -1,6 +1,7 @@
 import '../repositories/cloud_revision_baseline_repository.dart';
 import '../../domain/models/cloud_records.dart';
 import '../../domain/models/sync_data_contract.dart';
+import 'cloud_artist_create_verifier.dart';
 import 'cloud_conditional_write_result.dart';
 import 'outbound_artist_write_coordinator.dart';
 import 'sync_mutation_runner.dart';
@@ -12,11 +13,13 @@ class OutboundArtistDependencyEnsurer {
     required this.baselineRepository,
     required this.createArtist,
     required this.mutationRunner,
+    required this.fetchCurrentArtist,
   });
 
   final CloudRevisionBaselineRepository baselineRepository;
   final CreateCloudArtist createArtist;
   final SyncMutationRunner mutationRunner;
+  final FetchCurrentCloudArtist fetchCurrentArtist;
 
   Future<void> ensure({
     required String userId,
@@ -49,6 +52,19 @@ class OutboundArtistDependencyEnsurer {
     // the existing cloud record matches local data.
     final result = await createArtist(artist: artist);
 
+    if (result.outcome == CloudConditionalWriteOutcome.conflict) {
+      // Only a fetched, verified copy of this exact artist is adopted,
+      // for example our own creation whose response was lost.
+      final adoptedRevision = await CloudArtistCreateVerifier(
+        fetchCurrentArtist: fetchCurrentArtist,
+      ).adoptableRevision(userId: owner, artist: artist);
+
+      if (adoptedRevision != null) {
+        await _saveBaseline(owner, artist.id, adoptedRevision);
+        return;
+      }
+    }
+
     if (result.outcome != CloudConditionalWriteOutcome.applied) {
       throw OutboundArtistWriteConflict(
         artistId: artist.id,
@@ -62,7 +78,11 @@ class OutboundArtistDependencyEnsurer {
       throw StateError('New cloud artist must start at revision 1.');
     }
 
-    await mutationRunner.run<void>((context) async {
+    await _saveBaseline(owner, artist.id, 1);
+  }
+
+  Future<void> _saveBaseline(String owner, String artistId, int revision) {
+    return mutationRunner.run<void>((context) async {
       final repository = context.cloudRevisionBaselineRepository;
 
       if (repository == null) {
@@ -74,8 +94,8 @@ class OutboundArtistDependencyEnsurer {
       await repository.saveObservedRevision(
         userId: owner,
         entityType: CloudDataEntity.artist,
-        entityId: artist.id,
-        serverRevision: 1,
+        entityId: artistId,
+        serverRevision: revision,
       );
     });
   }

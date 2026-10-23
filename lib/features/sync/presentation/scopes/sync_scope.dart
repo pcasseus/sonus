@@ -32,17 +32,12 @@ import '../../application/services/artist_write_recovery_service.dart';
 import '../../application/services/outbound_artist_receipt_pipeline.dart';
 import '../../data/gateways/artist_dependency_receipt_replay_gateway.dart';
 import '../../data/gateways/artist_journal_replay_gateway.dart';
-import '../../application/services/outbound_artist_write_committer.dart';
-import '../../application/services/outbound_artist_write_coordinator.dart';
-import '../../application/services/outbound_artist_dependency_ensurer.dart';
 import '../../application/services/sync_network_policy_service.dart';
 import '../../application/services/sync_service.dart';
 import '../../data/daos/local_sync_dao.dart';
 import '../../data/daos/cloud_revision_baseline_dao.dart';
 import '../../data/daos/outbound_conflict_dao.dart';
 import '../../data/gateways/supabase_cloud_sync_gateway.dart';
-import '../../data/gateways/supabase_artist_create_gateway.dart';
-import '../../data/gateways/supabase_artist_record_conditional_write_gateway.dart';
 import '../../data/gateways/supabase_cloud_sync_reader.dart';
 import '../../data/repositories/sqlite_local_sync_repository.dart';
 import '../../data/repositories/sqlite_cloud_revision_baseline_repository.dart';
@@ -50,6 +45,7 @@ import '../../data/repositories/sqlite_outbound_conflict_repository.dart';
 import '../../data/repositories/sync_mutation_transaction_runner.dart';
 import '../../data/services/supabase_cloud_artwork_storage.dart';
 import '../widgets/automatic_sync_lifecycle_bridge.dart';
+import 'legacy_artist_sync_composition.dart';
 
 class SyncScope extends StatefulWidget {
   const SyncScope({super.key, required this.child, this.database});
@@ -105,24 +101,16 @@ class _SyncScopeState extends State<SyncScope> {
       dao: CloudRevisionBaselineDao(executor),
     );
 
-    final artistCreateGateway = SupabaseArtistCreateGateway(client: client);
-
-    final artistUpdateGateway = SupabaseArtistRecordConditionalWriteGateway(
+    // The active artist route. Both services verify a rejected creation
+    // against the fetched cloud artist before adopting it.
+    final legacyArtistSync = LegacyArtistSyncComposition(
       client: client,
-    );
-
-    final artistWriteCoordinator = OutboundArtistWriteCoordinator(
       baselineRepository: revisionBaselines,
-      createArtist: artistCreateGateway.createArtist,
-      updateArtist: artistUpdateGateway.updateArtist,
-      committer: OutboundArtistWriteCommitter(mutationRunner: mutationRunner),
-    );
-
-    final artistDependencyEnsurer = OutboundArtistDependencyEnsurer(
-      baselineRepository: revisionBaselines,
-      createArtist: artistCreateGateway.createArtist,
       mutationRunner: mutationRunner,
     );
+
+    final artistWriteCoordinator = legacyArtistSync.writeCoordinator;
+    final artistDependencyEnsurer = legacyArtistSync.dependencyEnsurer;
 
     // SN-41 receipt path is intentionally disabled pending:
     // - local mutation/dependency race resolution;
