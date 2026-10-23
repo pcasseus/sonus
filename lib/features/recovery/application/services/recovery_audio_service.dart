@@ -2,6 +2,7 @@ import '../../../../core/database/app_database.dart';
 import '../../../import/application/services/atomic_library_importer.dart';
 import '../../../import/application/services/import_batch_executor.dart';
 import '../../../import/application/services/import_batch_runner.dart';
+import '../../../import/application/services/import_source_reconciliation_service.dart';
 import '../../../import/application/services/import_workflow_service.dart';
 import '../../../import/application/services/library_import_service.dart';
 import '../../../import/application/services/metadata_resolver.dart';
@@ -142,8 +143,12 @@ class RecoveryAudioRelinkService {
     final before = await statusService.status(sampleLimit: 0);
     final db = await appDatabase.database;
 
+    // Every standalone write below runs through appDatabase.transaction(), so
+    // a restore can reject it. Discovery and the import batch stay outside;
+    // only the individual database writes are admitted.
     final bindingRepository = SqliteMediaFileBindingRepository(
       MediaFileBindingDao(db),
+      appDatabase: appDatabase,
     );
 
     final workflow = ImportWorkflowService(
@@ -159,13 +164,21 @@ class RecoveryAudioRelinkService {
           // Restored lyrics are authoritative; sidecars must not replace them.
           lyricsIngestionService: null,
         ),
-        batchRepository: SqliteImportBatchRepository(ImportBatchDao(db)),
+        batchRepository: SqliteImportBatchRepository(
+          ImportBatchDao(db),
+          appDatabase: appDatabase,
+        ),
       ),
       importSourceRepository: SqliteImportSourceRepository(
         ImportSourceDao(db),
+        appDatabase: appDatabase,
       ),
       mediaFileBindingRepository: bindingRepository,
       onSongsBecameUnavailable: onSongsBecameUnavailable,
+      // The same atomic source reconciliation as ImportScope.
+      sourceReconciliationService: ImportSourceReconciliationService(
+        appDatabase: appDatabase,
+      ),
     );
 
     final summary = await workflow.importStructuredFolder(

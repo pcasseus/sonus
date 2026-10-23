@@ -26,6 +26,7 @@ import '../../application/services/import_duration_repair_service.dart';
 import '../../application/services/import_review_cleanup_service.dart';
 import '../../application/services/import_review_service.dart';
 import '../../application/services/import_source_picker.dart';
+import '../../application/services/import_source_reconciliation_service.dart';
 import '../../application/services/import_workflow_service.dart';
 import '../../application/services/library_import_service.dart';
 import '../../application/services/lyrics_ingestion_service.dart';
@@ -138,8 +139,11 @@ class _ImportScopeState extends State<ImportScope> {
       appDatabase: database,
     );
 
+    // Standalone binding writes, such as reactivating an existing binding
+    // during import, participate in restore admission.
     final mediaFileBindingRepository = SqliteMediaFileBindingRepository(
       MediaFileBindingDao(sqliteDatabase),
+      appDatabase: database,
     );
 
     final trackLyricsRepository = SqliteTrackLyricsRepository(
@@ -223,6 +227,9 @@ class _ImportScopeState extends State<ImportScope> {
       importSourceRepository: importSourceRepository,
       mediaFileBindingRepository: mediaFileBindingRepository,
       onSongsBecameUnavailable: playbackCoordinator.removeSongsFromQueue,
+      sourceReconciliationService: ImportSourceReconciliationService(
+        appDatabase: database,
+      ),
     );
 
     if (!mounted || version != _initializationVersion) {

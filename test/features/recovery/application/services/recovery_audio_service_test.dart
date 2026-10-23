@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -5,6 +6,8 @@ import 'package:path/path.dart' as path;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:sonus_next/core/database/app_database.dart';
 import 'package:sonus_next/core/database/database_tables.dart';
+import 'package:sonus_next/core/database/library_mutation_coordinator.dart';
+import 'package:sonus_next/features/import/application/services/import_workflow_service.dart';
 import 'package:sonus_next/features/artwork/data/services/file_system_artwork_managed_storage.dart';
 import 'package:sonus_next/features/import/application/services/atomic_library_importer.dart';
 import 'package:sonus_next/features/import/application/services/metadata_resolver.dart';
@@ -108,14 +111,16 @@ void main() {
 
   RecoveryAudioRelinkService relinker(
     List<String> files,
-    Map<String, AudioMetadata> tags,
-  ) => RecoveryAudioRelinkService(
+    Map<String, AudioMetadata> tags, {
+    SongsBecameUnavailableCallback? onSongsBecameUnavailable,
+  }) => RecoveryAudioRelinkService(
     appDatabase: target,
     candidateDiscovery: _FolderDiscovery(files),
     metadataResolver: MetadataResolver(
       primaryReader: _TagReader(tags),
       fallbackReader: _TagReader(tags),
     ),
+    onSongsBecameUnavailable: onSongsBecameUnavailable,
   );
 
   test('counts songs without available audio', () async {
@@ -177,18 +182,19 @@ void main() {
     await seedConnectedLibrary(db, key: 'a');
     final before = await snapshotDatabase(db);
 
-    final result = await AtomicLibraryImporter(
-      appDatabase: target,
-      userId: 'user-1',
-      relinkOnly: true,
-    ).import(
-      candidate: ImportCandidate(
-        filePath: '/music/new.mp3',
-        normalizedPath: '/music/new.mp3',
-        discoveredAt: DateTime.utc(2026, 10, 21),
-      ),
-      metadata: _tags('Brand New', 'Debut', 'First'),
-    );
+    final result =
+        await AtomicLibraryImporter(
+          appDatabase: target,
+          userId: 'user-1',
+          relinkOnly: true,
+        ).import(
+          candidate: ImportCandidate(
+            filePath: '/music/new.mp3',
+            normalizedPath: '/music/new.mp3',
+            discoveredAt: DateTime.utc(2026, 10, 21),
+          ),
+          metadata: _tags('Brand New', 'Debut', 'First'),
+        );
 
     expect(result.status, ImportResultStatus.skipped);
     expect(result.songId, isNull);
@@ -249,92 +255,255 @@ void main() {
     expect((await store.read()).lastBackup, isNull);
   });
 
-  test('new device: restore, report missing audio, relink, keep history', () async {
-    final support = Directory(path.join(root.path, 'support'));
-    final recovery = Directory(path.join(support.path, 'sonus', 'recovery'));
-    final artwork = Directory(path.join(support.path, 'sonus', 'artwork'));
-    final oldDevice = Directory(path.join(root.path, 'old-device'));
-    await oldDevice.create(recursive: true);
+  test(
+    'new device: restore, report missing audio, relink, keep history',
+    () async {
+      final support = Directory(path.join(root.path, 'support'));
+      final recovery = Directory(path.join(support.path, 'sonus', 'recovery'));
+      final artwork = Directory(path.join(support.path, 'sonus', 'artwork'));
+      final oldDevice = Directory(path.join(root.path, 'old-device'));
+      await oldDevice.create(recursive: true);
 
-    final cover = File(path.join(oldDevice.path, 'cover.jpg'));
-    await cover.writeAsBytes([8, 8, 8]);
+      final cover = File(path.join(oldDevice.path, 'cover.jpg'));
+      await cover.writeAsBytes([8, 8, 8]);
 
-    final source = fileAppDatabase(oldDevice, 'old.db');
-    late File backup;
+      final source = fileAppDatabase(oldDevice, 'old.db');
+      late File backup;
 
-    try {
-      final db = await source.database;
-      await seedConnectedLibrary(db, key: 'a', artworkPath: cover.path);
-      await seedConnectedLibrary(db, key: 'b', week: 1);
-      await seedMediaBinding(db, key: 'a');
-      await seedMediaBinding(db, key: 'b');
-      backup = await createFixtureBackup(source: source, directory: oldDevice);
-    } finally {
-      await source.close();
-    }
+      try {
+        final db = await source.database;
+        await seedConnectedLibrary(db, key: 'a', artworkPath: cover.path);
+        await seedConnectedLibrary(db, key: 'b', week: 1);
+        await seedMediaBinding(db, key: 'a');
+        await seedMediaBinding(db, key: 'b');
+        backup = await createFixtureBackup(
+          source: source,
+          directory: oldDevice,
+        );
+      } finally {
+        await source.close();
+      }
 
-    final statusStore = RecoveryStatusStore(directory: () async => recovery);
+      final statusStore = RecoveryStatusStore(directory: () async => recovery);
 
-    final result = await SonusRestoreOrchestrator(
-      appDatabase: target,
-      gate: RecoverySyncGate(
-        holdStore: RecoverySyncHoldStore(directory: () async => recovery),
-      ),
-      recoveryDirectory: () async => recovery,
-      artworkDirectory: () async => artwork,
-      storageProbe: null,
-      statusStore: statusStore,
-      installer: RestoredArtworkInstaller(
-        storageFactory: (fileId) => FileSystemArtworkManagedStorage(
-          applicationSupportDirectoryProvider: () async => support,
-          fileIdGenerator: fileId,
+      final result = await SonusRestoreOrchestrator(
+        appDatabase: target,
+        gate: RecoverySyncGate(
+          holdStore: RecoverySyncHoldStore(directory: () async => recovery),
         ),
+        recoveryDirectory: () async => recovery,
+        artworkDirectory: () async => artwork,
+        storageProbe: null,
+        statusStore: statusStore,
+        installer: RestoredArtworkInstaller(
+          storageFactory: (fileId) => FileSystemArtworkManagedStorage(
+            applicationSupportDirectoryProvider: () async => support,
+            fileIdGenerator: fileId,
+          ),
+        ),
+      ).restore(backup);
+
+      final db = await target.database;
+
+      // Old-device audio bindings are never restored.
+      expect(await db.query(DatabaseTables.mediaFileBindings), isEmpty);
+      expect(
+        (await snapshotDatabase(db)).toString(),
+        isNot(contains(oldDevice.path)),
+      );
+
+      final restoredStatus = await statusStore.read();
+      expect(restoredStatus.lastRestore!.backupId, result.backupId);
+      expect(restoredStatus.lastRestore!.songsWithoutAudio, 2);
+
+      final audio = RecoveryAudioStatusService(appDatabase: target);
+      expect((await audio.status()).songsWithoutAudio, 2);
+
+      final newFile = path.join(root.path, 'Music', 'Artist a', '01 Song.mp3');
+      final relinked = await relinker(
+        [newFile],
+        {'01 Song.mp3': _tags('Artist a', 'Album a', 'Song')},
+      ).relinkFolder(path.join(root.path, 'Music'));
+
+      expect(relinked.relinked, 1);
+      expect((await audio.status()).songsWithoutAudio, 1);
+
+      // Listening history keeps its identities and links.
+      final play = (await db.query(
+        DatabaseTables.qualifiedPlays,
+        where: 'id = ?',
+        whereArgs: ['play-a'],
+      )).single;
+      expect(play['playback_session_id'], 'session-a');
+      expect(play['song_id'], 'song-a');
+
+      final entry = (await db.query(
+        DatabaseTables.chartEntries,
+        where: 'id = ?',
+        whereArgs: ['entry-a'],
+      )).single;
+      expect(entry['entity_id'], 'song-a');
+
+      final binding = (await db.query(DatabaseTables.mediaFileBindings)).single;
+      expect(binding['song_id'], 'song-a');
+      expect(binding['file_path'], newFile);
+    },
+  );
+
+  group('relink coordination', () {
+    late String music;
+    late String fileA;
+    late String fileB;
+
+    setUp(() async {
+      final db = await target.database;
+      await seedConnectedLibrary(db, key: 'a');
+      await seedConnectedLibrary(db, key: 'b', week: 1);
+
+      music = path.join(root.path, 'Music');
+      fileA = path.join(music, 'Artist a', 'Album a', '01 Song.mp3');
+      fileB = path.join(music, 'Artist b', 'Album b', '01 Song.mp3');
+    });
+
+    // Tags keyed by full path, since both files share a name.
+    RecoveryAudioRelinkService relinkerFor(
+      List<String> files, {
+      SongsBecameUnavailableCallback? onSongsBecameUnavailable,
+    }) => RecoveryAudioRelinkService(
+      appDatabase: target,
+      candidateDiscovery: _FolderDiscovery(files),
+      metadataResolver: MetadataResolver(
+        primaryReader: _PathTagReader({
+          fileA: _tags('Artist a', 'Album a', 'Song'),
+          fileB: _tags('Artist b', 'Album b', 'Song'),
+        }),
+        fallbackReader: _PathTagReader(const {}),
       ),
-    ).restore(backup);
-
-    final db = await target.database;
-
-    // Old-device audio bindings are never restored.
-    expect(await db.query(DatabaseTables.mediaFileBindings), isEmpty);
-    expect(
-      (await snapshotDatabase(db)).toString(),
-      isNot(contains(oldDevice.path)),
+      onSongsBecameUnavailable: onSongsBecameUnavailable,
     );
 
-    final restoredStatus = await statusStore.read();
-    expect(restoredStatus.lastRestore!.backupId, result.backupId);
-    expect(restoredStatus.lastRestore!.songsWithoutAudio, 2);
+    Future<Map<String, int>> availability() async {
+      final rows = await (await target.database).query(
+        DatabaseTables.mediaFileBindings,
+      );
+      return {
+        for (final row in rows)
+          row['song_id'] as String: row['is_available'] as int,
+      };
+    }
 
-    final audio = RecoveryAudioStatusService(appDatabase: target);
-    expect((await audio.status()).songsWithoutAudio, 2);
+    Future<Object?> lastScannedAt() async {
+      final rows = await (await target.database).query(
+        DatabaseTables.importSources,
+      );
+      return rows.single['last_scanned_at'];
+    }
 
-    final newFile = path.join(root.path, 'Music', 'Artist a', '01 Song.mp3');
-    final relinked = await relinker(
-      [newFile],
-      {'01 Song.mp3': _tags('Artist a', 'Album a', 'Song')},
-    ).relinkFolder(path.join(root.path, 'Music'));
+    test('a rescan reconciles the source through the shared service', () async {
+      await relinkerFor([fileA, fileB]).relinkFolder(music);
+      expect(await availability(), {'song-a': 1, 'song-b': 1});
+      final firstScan = await lastScannedAt();
 
-    expect(relinked.relinked, 1);
-    expect((await audio.status()).songsWithoutAudio, 1);
+      Set<String>? reported;
+      int? activeDuringCallback;
 
-    // Listening history keeps its identities and links.
-    final play = (await db.query(
-      DatabaseTables.qualifiedPlays,
-      where: 'id = ?',
-      whereArgs: ['play-a'],
-    )).single;
-    expect(play['playback_session_id'], 'session-a');
-    expect(play['song_id'], 'song-a');
+      final result = await relinkerFor(
+        [fileA],
+        onSongsBecameUnavailable: (ids) async {
+          reported = ids;
+          activeDuringCallback = target.mutationCoordinator.activeMutations;
+        },
+      ).relinkFolder(music);
 
-    final entry = (await db.query(
-      DatabaseTables.chartEntries,
-      where: 'id = ?',
-      whereArgs: ['entry-a'],
-    )).single;
-    expect(entry['entity_id'], 'song-a');
+      expect(result.relinked, 0);
+      expect(result.unmatchedOrAlreadyLinked, 1);
+      expect(await availability(), {'song-a': 1, 'song-b': 0});
+      expect(reported, {'song-b'});
+      // Playback hears about it only after the transaction committed.
+      expect(activeDuringCallback, 0);
+      expect(await lastScannedAt(), isNot(firstScan));
+    });
 
-    final binding = (await db.query(DatabaseTables.mediaFileBindings)).single;
-    expect(binding['song_id'], 'song-a');
-    expect(binding['file_path'], newFile);
+    test('a failed reconciliation rolls back and notifies nothing', () async {
+      await relinkerFor([fileA, fileB]).relinkFolder(music);
+      final firstScan = await lastScannedAt();
+
+      await (await target.database).execute('''
+        CREATE TRIGGER reject_source_scan
+        BEFORE UPDATE ON ${DatabaseTables.importSources}
+        BEGIN
+          SELECT RAISE(ABORT, 'test rejection');
+        END
+      ''');
+
+      var notified = false;
+
+      await expectLater(
+        relinkerFor(
+          [fileA],
+          onSongsBecameUnavailable: (_) async => notified = true,
+        ).relinkFolder(music),
+        throwsA(isA<Exception>()),
+      );
+
+      expect(await availability(), {'song-a': 1, 'song-b': 1});
+      expect(await lastScannedAt(), firstScan);
+      expect(notified, isFalse);
+    });
+
+    test('a restore requested mid-relink rejects the binding write', () async {
+      final db = await target.database;
+      await db.insert(DatabaseTables.mediaFileBindings, {
+        'id': 'binding-a',
+        'song_id': 'song-a',
+        'file_path': fileA,
+        'normalized_path': fileA.replaceAll('\\', '/').toLowerCase(),
+        'is_available': 0,
+        'created_at': '2026-10-01T00:00:00.000Z',
+        'updated_at': '2026-10-01T00:00:00.000Z',
+      });
+      final before = await db.query(DatabaseTables.mediaFileBindings);
+
+      final release = Completer<void>();
+      Future<void>? restore;
+
+      try {
+        // The batch is recorded and discovery is done; then a restore
+        // begins before the first item reactivates the existing binding.
+        await expectLater(
+          relinkerFor([fileA]).relinkFolder(
+            music,
+            onProgress: (_) => restore ??= target.mutationCoordinator
+                .runExclusiveRestore(() => release.future),
+          ),
+          throwsA(isA<LibraryMutationUnavailable>()),
+        );
+
+        expect(await db.query(DatabaseTables.mediaFileBindings), before);
+        expect(await lastScannedAt(), isNull);
+      } finally {
+        release.complete();
+        await restore;
+      }
+
+      // After the restore the same relink proceeds normally.
+      final result = await relinkerFor([fileA]).relinkFolder(music);
+      expect(result.relinked, 1);
+      expect(await availability(), {'song-a': 1});
+    });
   });
+}
+
+/// Metadata keyed by full file path.
+class _PathTagReader implements AudioMetadataReader {
+  _PathTagReader(this.tags);
+
+  final Map<String, AudioMetadata> tags;
+
+  @override
+  Future<AudioMetadata> read(ImportCandidate candidate) async {
+    final metadata = tags[candidate.filePath];
+    if (metadata == null) throw StateError('No tags.');
+    return metadata;
+  }
 }
