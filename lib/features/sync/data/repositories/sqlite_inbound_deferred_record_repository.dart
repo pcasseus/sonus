@@ -20,6 +20,19 @@ class SqliteInboundDeferredRecordRepository
   }
 
   @override
+  Future<InboundDeferredRecord?> getDeferral({
+    required String userId,
+    required CloudDataEntity entityType,
+    required String entityId,
+  }) {
+    return dao.getDeferral(
+      userId: userId,
+      entityType: entityType,
+      entityId: entityId,
+    );
+  }
+
+  @override
   Future<void> clearThroughRevision({
     required String userId,
     required CloudDataEntity entityType,

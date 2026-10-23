@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:sonus_next/features/sync/application/services/outbound_sync_processor.dart';
 import 'package:sonus_next/features/sync/application/services/sync_service.dart';
 import 'package:sonus_next/features/sync/domain/models/local_sync_models.dart';
 import 'package:sonus_next/features/sync/domain/models/sync_data_contract.dart';
@@ -246,6 +247,81 @@ void main() {
     );
 
     expect(pulled, isFalse);
+  });
+
+  test('entry failures still pull, then report the push failure', () async {
+    final calls = <String>[];
+    final failure = StateError('album conflict');
+
+    final service = SyncService.forTesting(
+      bindToUser: (_) async {},
+      claimUnowned: (_) async => 0,
+      getPending: (userId) async => [_entry('entry-1', userId)],
+      pushPending: (_) async => fail('Isolated push must be used.'),
+      pushPendingIsolated: (userId) async {
+        calls.add('push');
+        return OutboundPushReport(
+          failures: [
+            OutboundEntryFailure(
+              entry: _entry('entry-1', userId),
+              error: failure,
+              stackTrace: StackTrace.current,
+            ),
+          ],
+        );
+      },
+      pullAll: (_) async {
+        calls.add('pull');
+        return 2;
+      },
+    );
+
+    await expectLater(
+      () => service.synchronize('user-1'),
+      throwsA(same(failure)),
+    );
+
+    expect(calls, ['push', 'pull']);
+  });
+
+  test('a safety hold during isolated push prevents the pull', () async {
+    var pulled = false;
+
+    final service = SyncService.forTesting(
+      bindToUser: (_) async {},
+      claimUnowned: (_) async => 0,
+      getPending: (_) async => const [],
+      pushPending: (_) async => fail('Isolated push must be used.'),
+      pushPendingIsolated: (_) async {
+        throw StateError('artist recovery failed');
+      },
+      pullAll: (_) async {
+        pulled = true;
+        return 0;
+      },
+    );
+
+    await expectLater(
+      () => service.synchronize('user-1'),
+      throwsA(isA<StateError>()),
+    );
+
+    expect(pulled, isFalse);
+  });
+
+  test('a complete isolated push syncs normally', () async {
+    final service = SyncService.forTesting(
+      bindToUser: (_) async {},
+      claimUnowned: (_) async => 0,
+      getPending: (_) async => const [],
+      pushPending: (_) async => fail('Isolated push must be used.'),
+      pushPendingIsolated: (_) async => const OutboundPushReport(failures: []),
+      pullAll: (_) async => 4,
+    );
+
+    final result = await service.synchronize('user-1');
+
+    expect(result.pulledRecordCount, 4);
   });
 
   test(

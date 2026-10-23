@@ -433,6 +433,11 @@ abstract final class DatabaseMigrations {
         await SyncSchema.createInboundDeferredRecords(db);
         return;
 
+      case 33:
+        await SyncSchema.rebuildInboundDeferredRecords(db);
+        await SyncSchema.createOutboundConflicts(db);
+        return;
+
       default:
         throw UnsupportedError(
           'No Sonus database migration exists for version $targetVersion.',

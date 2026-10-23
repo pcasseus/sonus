@@ -1,3 +1,5 @@
+import 'package:uuid/uuid.dart';
+
 import '../../../artwork/domain/repositories/artwork_asset_repository.dart';
 import '../../../library/domain/metadata/metadata_field_state.dart';
 import '../../../library/domain/repositories/metadata_field_state_repository.dart';
@@ -8,12 +10,17 @@ import '../../../library/domain/repositories/song_repository.dart';
 import '../../application/mappers/cloud_record_mapper.dart';
 import '../../application/repositories/local_sync_repository.dart';
 import '../../application/repositories/cloud_revision_baseline_repository.dart';
+import '../../application/repositories/outbound_conflict_repository.dart';
 import '../../domain/models/cloud_records.dart';
 import '../../domain/models/local_sync_models.dart';
+import '../../domain/models/outbound_sync_conflict.dart';
 import '../../domain/models/sync_data_contract.dart';
 import 'cloud_artwork_storage.dart';
 import 'cloud_conditional_write_result.dart';
+import 'cloud_record_equivalence.dart';
 import 'cloud_sync_gateway.dart';
+import 'cloud_sync_reader.dart';
+import 'outbound_artist_write_coordinator.dart';
 
 /// Handles an explicit artist mutation and owns its acknowledgement.
 typedef PushArtistMutation =
@@ -71,6 +78,34 @@ class OutboundRecordWriteConflict implements Exception {
   }
 }
 
+/// One outbox entry that could not be completed in a push run.
+class OutboundEntryFailure {
+  const OutboundEntryFailure({
+    required this.entry,
+    required this.error,
+    required this.stackTrace,
+  });
+
+  final SyncOutboxEntry entry;
+  final Object error;
+  final StackTrace stackTrace;
+}
+
+/// Result of a push run whose safety holds all passed.
+///
+/// Failed entries stay pending. Holds (recovery, ownership and
+/// configuration failures) are thrown instead and never reported here.
+class OutboundPushReport {
+  const OutboundPushReport({required this.failures});
+
+  final List<OutboundEntryFailure> failures;
+
+  bool get isComplete => failures.isEmpty;
+}
+
+typedef ArtworkVersionGenerator = String Function();
+typedef OutboundClock = DateTime Function();
+
 class OutboundSyncProcessor {
   OutboundSyncProcessor({
     required this.localSyncRepository,
@@ -87,7 +122,11 @@ class OutboundSyncProcessor {
     this.pushArtistDeletion,
     this.ensureArtistDependency,
     this.recoverArtistWrites,
-  });
+    this.outboundConflictRepository,
+    ArtworkVersionGenerator? newArtworkVersion,
+    OutboundClock? now,
+  }) : _newArtworkVersion = newArtworkVersion ?? const Uuid().v4,
+       _now = now ?? DateTime.now;
 
   final LocalSyncRepository localSyncRepository;
   final ArtistRepository artistRepository;
@@ -103,12 +142,28 @@ class OutboundSyncProcessor {
   final PushArtistDeletion? pushArtistDeletion;
   final EnsureArtistDependency? ensureArtistDependency;
   final RecoverArtistWrites? recoverArtistWrites;
+  final OutboundConflictRepository? outboundConflictRepository;
+  final ArtworkVersionGenerator _newArtworkVersion;
+  final OutboundClock _now;
 
   // Serialize full outbound runs on this processor instance.
   // Recover from failure so subsequent retries can execute.
   Future<void> _pendingPushRun = Future<void>.value();
 
-  Future<void> pushPending(String userId) {
+  /// Pushes every eligible entry and rethrows the first entry failure.
+  Future<void> pushPending(String userId) async {
+    final report = await pushPendingIsolated(userId);
+
+    if (!report.isComplete) {
+      final first = report.failures.first;
+      Error.throwWithStackTrace(first.error, first.stackTrace);
+    }
+  }
+
+  /// Pushes every eligible entry and reports entry failures.
+  ///
+  /// Safety-hold failures are still thrown before any entry is written.
+  Future<OutboundPushReport> pushPendingIsolated(String userId) {
     final current = _pendingPushRun.then((_) => _pushPendingOnce(userId));
 
     _pendingPushRun = current.then<void>(
@@ -119,7 +174,7 @@ class OutboundSyncProcessor {
     return current;
   }
 
-  Future<void> _pushPendingOnce(String userId) async {
+  Future<OutboundPushReport> _pushPendingOnce(String userId) async {
     final trimmedUserId = userId.trim();
 
     if (trimmedUserId.isEmpty) {
@@ -183,8 +238,7 @@ class OutboundSyncProcessor {
       }
     }
 
-    Object? firstError;
-    StackTrace? firstStackTrace;
+    final failures = <OutboundEntryFailure>[];
 
     for (final entry in ordered) {
       try {
@@ -197,17 +251,26 @@ class OutboundSyncProcessor {
           ensuredAlbumEditionIds: ensuredAlbumEditionIds,
           ensuredSongIds: ensuredSongIds,
         );
+
+        await outboundConflictRepository?.clear(
+          userId: trimmedUserId,
+          entityType: entry.entityType,
+          entityId: entry.entityId,
+        );
       } catch (error, stackTrace) {
         // A failed entry stays pending. Later entries still run; any that
         // depend on it re-attempt the dependency and fail the same way.
-        firstError ??= error;
-        firstStackTrace ??= stackTrace;
+        failures.add(
+          OutboundEntryFailure(
+            entry: entry,
+            error: error,
+            stackTrace: stackTrace,
+          ),
+        );
       }
     }
 
-    if (firstError != null) {
-      Error.throwWithStackTrace(firstError, firstStackTrace!);
-    }
+    return OutboundPushReport(failures: List.unmodifiable(failures));
   }
 
   Future<void> _pushEntry(
@@ -237,6 +300,8 @@ class OutboundSyncProcessor {
         if (entry.entityType == CloudDataEntity.artist &&
             guardedDeletion != null) {
           await guardedDeletion(userId: userId, entry: entry);
+        } else if (cloudRevisionBaselineRepository != null) {
+          await _deleteConditionally(entry, userId: userId);
         } else {
           await cloudSyncGateway.markDeleted(
             userId: userId,
@@ -335,7 +400,10 @@ class OutboundSyncProcessor {
   /// upsert. With baselines, a known revision is compare-and-set and an
   /// unknown one is insert-if-absent. A dependency that already has a
   /// baseline is not rewritten.
-  Future<void> _writeRecord(
+  ///
+  /// Returns true when the cloud row now holds [record]'s payload, and
+  /// false when an existing dependency row was used as is.
+  Future<bool> _writeRecord(
     CloudOwnedRecord record, {
     required CloudDataEntity entityType,
     required SyncOutboxEntry? explicitEntry,
@@ -344,7 +412,7 @@ class OutboundSyncProcessor {
 
     if (baselines == null) {
       await cloudSyncGateway.upsert(record);
-      return;
+      return true;
     }
 
     final baseline = await baselines.getRevision(
@@ -358,7 +426,7 @@ class OutboundSyncProcessor {
     }
 
     if (explicitEntry == null && baseline != null) {
-      return;
+      return false;
     }
 
     final result = baseline == null
@@ -368,11 +436,11 @@ class OutboundSyncProcessor {
             expectedServerRevision: baseline,
           );
 
+    final expectedRevision = baseline == null ? 1 : baseline + 1;
+
     switch (result.outcome) {
       case CloudConditionalWriteOutcome.applied:
       case CloudConditionalWriteOutcome.replayed:
-        final expectedRevision = baseline == null ? 1 : baseline + 1;
-
         if (result.serverRevision != expectedRevision) {
           throw StateError(
             'Unexpected applied ${entityType.name} revision: '
@@ -387,29 +455,207 @@ class OutboundSyncProcessor {
           serverRevision: expectedRevision,
         );
 
+        return true;
+
       case CloudConditionalWriteOutcome.conflict:
-        // A dependency only needs to exist. Its content is not adopted.
-        if (explicitEntry == null && baseline == null) {
-          return;
-        }
-
-        throw OutboundRecordWriteConflict(
-          entityType: entityType,
-          entityId: record.id,
-          outcome: result.outcome,
-          expectedServerRevision: baseline,
-          observedServerRevision: result.serverRevision,
-        );
-
       case CloudConditionalWriteOutcome.notFound:
-        throw OutboundRecordWriteConflict(
+        return _reconcileRejectedWrite(
+          record,
           entityType: entityType,
-          entityId: record.id,
-          outcome: result.outcome,
-          expectedServerRevision: baseline,
-          observedServerRevision: result.serverRevision,
+          explicitEntry: explicitEntry,
+          baseline: baseline,
+          expectedRevision: expectedRevision,
+          result: result,
         );
     }
+  }
+
+  /// Handles a rejected conditional write.
+  ///
+  /// The cloud row is adopted only when it is owned, live, at or beyond
+  /// the revision this write would have produced, and canonically
+  /// identical to [record]. That covers a lost response and a cloud row
+  /// that already holds this exact payload. Anything else is a durable
+  /// conflict and the outbox entry stays pending.
+  Future<bool> _reconcileRejectedWrite(
+    CloudOwnedRecord record, {
+    required CloudDataEntity entityType,
+    required SyncOutboxEntry? explicitEntry,
+    required int? baseline,
+    required int expectedRevision,
+    required CloudConditionalWriteResult result,
+  }) async {
+    final current = await cloudSyncGateway.fetchCurrent(
+      userId: record.userId,
+      entityType: entityType,
+      entityId: record.id,
+    );
+
+    final currentRevision = current?.serverRevision;
+
+    if (current != null &&
+        currentRevision != null &&
+        current.record.userId == record.userId &&
+        !current.record.isDeleted &&
+        currentRevision >= expectedRevision &&
+        CloudRecordEquivalence.isEquivalent(current.record, record)) {
+      await cloudRevisionBaselineRepository!.saveObservedRevision(
+        userId: record.userId,
+        entityType: entityType,
+        entityId: record.id,
+        serverRevision: currentRevision,
+      );
+
+      return true;
+    }
+
+    // A dependency only needs a live row. Its content is not adopted, and
+    // a child is never written under a tombstoned parent.
+    if (explicitEntry == null &&
+        baseline == null &&
+        current != null &&
+        current.record.userId == record.userId &&
+        !current.record.isDeleted) {
+      return false;
+    }
+
+    if (explicitEntry != null) {
+      await _recordConflict(
+        entry: explicitEntry,
+        expectedServerRevision: baseline,
+        current: current,
+      );
+    }
+
+    throw OutboundRecordWriteConflict(
+      entityType: entityType,
+      entityId: record.id,
+      outcome: result.outcome,
+      expectedServerRevision: baseline,
+      observedServerRevision: currentRevision ?? result.serverRevision,
+    );
+  }
+
+  /// Tombstones a cloud row only from a verified revision.
+  ///
+  /// A row that is already a tombstone or absent satisfies the deletion.
+  /// A live row that is newer than, or unknown to, local state is never
+  /// tombstoned; it becomes a durable conflict.
+  Future<void> _deleteConditionally(
+    SyncOutboxEntry entry, {
+    required String userId,
+  }) async {
+    final baselines = cloudRevisionBaselineRepository!;
+
+    final baseline = await baselines.getRevision(
+      userId: userId,
+      entityType: entry.entityType,
+      entityId: entry.entityId,
+    );
+
+    if (baseline != null && baseline < 1) {
+      throw StateError('Invalid stored server revision for ${entry.entityId}.');
+    }
+
+    CloudConditionalWriteResult? result;
+
+    if (baseline != null) {
+      result = await cloudSyncGateway.markDeletedIfRevision(
+        userId: userId,
+        entityType: entry.entityType,
+        entityId: entry.entityId,
+        deletedAt: entry.updatedAt,
+        expectedServerRevision: baseline,
+      );
+
+      if (result.outcome == CloudConditionalWriteOutcome.applied ||
+          result.outcome == CloudConditionalWriteOutcome.replayed) {
+        if (result.serverRevision != baseline + 1) {
+          throw StateError(
+            'Unexpected deleted ${entry.entityType.name} revision: '
+            '${result.serverRevision}; expected ${baseline + 1}.',
+          );
+        }
+
+        await baselines.saveObservedRevision(
+          userId: userId,
+          entityType: entry.entityType,
+          entityId: entry.entityId,
+          serverRevision: baseline + 1,
+        );
+
+        return;
+      }
+    }
+
+    final current = await cloudSyncGateway.fetchCurrent(
+      userId: userId,
+      entityType: entry.entityType,
+      entityId: entry.entityId,
+    );
+
+    if (current == null) {
+      // Nothing owned by this account exists to delete.
+      return;
+    }
+
+    final currentRevision = current.serverRevision;
+
+    if (current.record.isDeleted && currentRevision != null) {
+      await baselines.saveObservedRevision(
+        userId: userId,
+        entityType: entry.entityType,
+        entityId: entry.entityId,
+        serverRevision: currentRevision,
+      );
+
+      return;
+    }
+
+    await _recordConflict(
+      entry: entry,
+      expectedServerRevision: baseline,
+      current: current,
+    );
+
+    throw OutboundRecordWriteConflict(
+      entityType: entry.entityType,
+      entityId: entry.entityId,
+      outcome: result?.outcome ?? CloudConditionalWriteOutcome.conflict,
+      expectedServerRevision: baseline,
+      observedServerRevision: currentRevision,
+    );
+  }
+
+  Future<void> _recordConflict({
+    required SyncOutboxEntry entry,
+    required int? expectedServerRevision,
+    required CloudSyncItem? current,
+  }) async {
+    final repository = outboundConflictRepository;
+
+    if (repository == null) {
+      return;
+    }
+
+    await repository.record(
+      OutboundSyncConflict(
+        userId: entry.userId!,
+        entityType: entry.entityType,
+        entityId: entry.entityId,
+        outboxId: entry.id,
+        mutationRevision: entry.mutationRevision,
+        operation: entry.operation,
+        expectedServerRevision: expectedServerRevision,
+        observedServerRevision: current?.serverRevision,
+        observedState: current == null
+            ? OutboundConflictCloudState.absent
+            : current.record.isDeleted
+            ? OutboundConflictCloudState.tombstoned
+            : OutboundConflictCloudState.live,
+        detectedAt: _now().toUtc(),
+      ),
+    );
   }
 
   Future<void> _ensureArtwork(
@@ -435,35 +681,126 @@ class OutboundSyncProcessor {
 
     final baselines = cloudRevisionBaselineRepository;
 
-    // A reconciled artwork dependency is neither re-uploaded nor rewritten.
-    if (explicitEntry == null &&
-        baselines != null &&
-        await baselines.getRevision(
-              userId: userId,
-              entityType: CloudDataEntity.artworkAsset,
-              entityId: normalizedArtworkId,
-            ) !=
-            null) {
+    if (baselines == null) {
+      final storageObjectKey = await cloudArtworkStorage.upload(
+        userId: userId,
+        artworkAsset: entity,
+      );
+
+      await _writeRecord(
+        CloudRecordMapper.artworkAsset(
+          artworkAsset: entity,
+          userId: userId,
+          storageObjectKey: storageObjectKey,
+        ),
+        entityType: CloudDataEntity.artworkAsset,
+        explicitEntry: explicitEntry,
+      );
+
       ensuredArtworkIds.add(normalizedArtworkId);
       return;
     }
 
-    final storageObjectKey = await cloudArtworkStorage.upload(
+    if (explicitEntry == null) {
+      // An artwork dependency that already exists in the cloud is used
+      // as is: never re-uploaded and never rewritten.
+      final baseline = await baselines.getRevision(
+        userId: userId,
+        entityType: CloudDataEntity.artworkAsset,
+        entityId: normalizedArtworkId,
+      );
+
+      if (baseline != null) {
+        ensuredArtworkIds.add(normalizedArtworkId);
+        return;
+      }
+
+      final current = await cloudSyncGateway.fetchCurrent(
+        userId: userId,
+        entityType: CloudDataEntity.artworkAsset,
+        entityId: normalizedArtworkId,
+      );
+
+      if (current != null && !current.record.isDeleted) {
+        ensuredArtworkIds.add(normalizedArtworkId);
+        return;
+      }
+    }
+
+    // Immutable keys: a rejected row write cannot alter the bytes behind
+    // the accepted row. An explicit entry reuses one key per mutation so
+    // a lost response can be proven by canonical equivalence.
+    final version = explicitEntry == null
+        ? _newArtworkVersion()
+        : '${explicitEntry.id}-r${explicitEntry.mutationRevision}';
+
+    final storageObjectKey = await cloudArtworkStorage.uploadImmutable(
       userId: userId,
       artworkAsset: entity,
+      version: version,
     );
 
-    await _writeRecord(
-      CloudRecordMapper.artworkAsset(
-        artworkAsset: entity,
+    final bool accepted;
+
+    try {
+      accepted = await _writeRecord(
+        CloudRecordMapper.artworkAsset(
+          artworkAsset: entity,
+          userId: userId,
+          storageObjectKey: storageObjectKey,
+        ),
+        entityType: CloudDataEntity.artworkAsset,
+        explicitEntry: explicitEntry,
+      );
+    } catch (_) {
+      await _discardUnreferencedArtwork(
         userId: userId,
-        storageObjectKey: storageObjectKey,
-      ),
-      entityType: CloudDataEntity.artworkAsset,
-      explicitEntry: explicitEntry,
-    );
+        artworkId: normalizedArtworkId,
+        objectKey: storageObjectKey,
+      );
+      rethrow;
+    }
+
+    if (!accepted) {
+      await _discardUnreferencedArtwork(
+        userId: userId,
+        artworkId: normalizedArtworkId,
+        objectKey: storageObjectKey,
+      );
+    }
 
     ensuredArtworkIds.add(normalizedArtworkId);
+  }
+
+  /// Best-effort removal of an uploaded object that the current cloud row
+  /// does not reference. An object the row does reference is never removed.
+  Future<void> _discardUnreferencedArtwork({
+    required String userId,
+    required String artworkId,
+    required String objectKey,
+  }) async {
+    try {
+      final current = await cloudSyncGateway.fetchCurrent(
+        userId: userId,
+        entityType: CloudDataEntity.artworkAsset,
+        entityId: artworkId,
+      );
+
+      final record = current?.record;
+
+      if (record is CloudArtworkAssetRecord &&
+          record.storageObjectKey == objectKey) {
+        return;
+      }
+
+      await cloudArtworkStorage.deleteObject(
+        userId: userId,
+        objectKey: objectKey,
+      );
+    } catch (_) {
+      // An orphaned immutable object is harmless; the write outcome is
+      // what the caller must observe.
+    }
   }
 
   Future<void> _ensureOptionalArtwork(
@@ -534,17 +871,56 @@ class OutboundSyncProcessor {
       await cloudSyncGateway.upsert(cloudArtist);
     } else if (explicitEntry != null) {
       // The coordinator commits both the cloud revision and acknowledgement.
-      await guardedPusher(
-        userId: userId,
-        entry: explicitEntry,
-        artist: cloudArtist,
-      );
+      try {
+        await guardedPusher(
+          userId: userId,
+          entry: explicitEntry,
+          artist: cloudArtist,
+        );
+      } on OutboundArtistWriteConflict {
+        await _recordConflict(
+          entry: explicitEntry,
+          expectedServerRevision: await cloudRevisionBaselineRepository
+              ?.getRevision(
+                userId: userId,
+                entityType: CloudDataEntity.artist,
+                entityId: normalizedArtistId,
+              ),
+          current: await cloudSyncGateway.fetchCurrent(
+            userId: userId,
+            entityType: CloudDataEntity.artist,
+            entityId: normalizedArtistId,
+          ),
+        );
+        rethrow;
+      }
     } else {
       // A dependency cannot unconditionally overwrite an artist.
       final dependencyEnsurer = ensureArtistDependency;
 
       if (dependencyEnsurer != null) {
-        await dependencyEnsurer(userId: userId, artist: cloudArtist);
+        try {
+          await dependencyEnsurer(userId: userId, artist: cloudArtist);
+        } on OutboundArtistWriteConflict catch (error) {
+          // A baseline-less artist that already exists live in the cloud
+          // satisfies the dependency. Nothing is adopted or overwritten.
+          if (error.outcome != CloudConditionalWriteOutcome.conflict ||
+              error.expectedServerRevision != null) {
+            rethrow;
+          }
+
+          final current = await cloudSyncGateway.fetchCurrent(
+            userId: userId,
+            entityType: CloudDataEntity.artist,
+            entityId: normalizedArtistId,
+          );
+
+          if (current == null ||
+              current.record.userId != userId ||
+              current.record.isDeleted) {
+            rethrow;
+          }
+        }
       } else {
         // Compatibility path for existing guarded processor tests.
         final baselines = cloudRevisionBaselineRepository;

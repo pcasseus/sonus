@@ -59,22 +59,38 @@ class InboundDeferredRecordDao {
       orderBy: 'server_updated_at, entity_type, entity_id',
     );
 
-    return [
-      for (final row in rows)
-        InboundDeferredRecord(
-          userId: row['user_id'] as String,
-          entityType: CloudDataEntity.values.byName(
-            row['entity_type'] as String,
-          ),
-          entityId: row['entity_id'] as String,
-          serverRevision: row['server_revision'] as int,
-          serverUpdatedAt: DateTime.parse(
-            row['server_updated_at'] as String,
-          ).toUtc(),
-          reason: InboundDeferralReason.values.byName(row['reason'] as String),
-          deferredAt: DateTime.parse(row['deferred_at'] as String).toUtc(),
-        ),
-    ];
+    return rows.map(_fromRow).toList(growable: false);
+  }
+
+  Future<InboundDeferredRecord?> getDeferral({
+    required String userId,
+    required CloudDataEntity entityType,
+    required String entityId,
+  }) async {
+    _validateIdentity(userId, entityId);
+
+    final rows = await db.query(
+      SyncSchema.inboundDeferredRecordsTable,
+      where: 'user_id = ? AND entity_type = ? AND entity_id = ?',
+      whereArgs: [userId, entityType.name, entityId],
+      limit: 1,
+    );
+
+    return rows.isEmpty ? null : _fromRow(rows.single);
+  }
+
+  InboundDeferredRecord _fromRow(Map<String, Object?> row) {
+    return InboundDeferredRecord(
+      userId: row['user_id'] as String,
+      entityType: CloudDataEntity.values.byName(row['entity_type'] as String),
+      entityId: row['entity_id'] as String,
+      serverRevision: row['server_revision'] as int,
+      serverUpdatedAt: DateTime.parse(
+        row['server_updated_at'] as String,
+      ).toUtc(),
+      reason: InboundDeferralReason.values.byName(row['reason'] as String),
+      deferredAt: DateTime.parse(row['deferred_at'] as String).toUtc(),
+    );
   }
 
   Future<void> clearThroughRevision({

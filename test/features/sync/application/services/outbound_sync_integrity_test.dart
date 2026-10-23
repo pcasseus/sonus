@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sonus_next/features/sync/application/services/cloud_conditional_write_result.dart';
 import 'package:sonus_next/features/sync/application/services/cloud_sync_gateway.dart';
+import 'package:sonus_next/features/sync/application/services/cloud_sync_reader.dart';
 import 'package:sonus_next/features/sync/application/services/outbound_sync_processor.dart';
 import 'package:sonus_next/features/sync/domain/models/cloud_records.dart';
 import 'package:sonus_next/features/sync/domain/models/local_sync_models.dart';
@@ -347,6 +348,22 @@ void main() {
             serverRevision: 7,
           );
 
+      // The live cloud album differs from local content: it is used as a
+      // dependency but never adopted as a baseline.
+      gateway.currentRows['album:album_1'] = CloudSyncItem(
+        record: CloudAlbumRecord(
+          id: 'album_1',
+          userId: 'user_1',
+          artistId: 'artist_1',
+          title: 'Cloud Title',
+          canonicalTitle: 'cloud title',
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        ),
+        serverUpdatedAt: timestamp,
+        serverRevision: 7,
+      );
+
       localSync.pending.add(
         outbox(
           id: 'outbox_edition',
@@ -411,7 +428,10 @@ void main() {
 
       await guardedProcessor().pushPending('user_1');
 
-      expect(storage.calls, ['upload:user_1:artwork_1']);
+      // One immutable key per mutation; nothing is overwritten.
+      expect(storage.calls, [
+        'uploadImmutable:user_1:artwork_1:outbox_artwork-r1',
+      ]);
       expect(gateway.calls, ['update:artworkAsset:artwork_1@2']);
       expect(baselineOf(CloudDataEntity.artworkAsset, 'artwork_1'), 3);
     });
@@ -421,8 +441,6 @@ void main() {
 /// Records every cloud write. Conditional writes succeed with the next
 /// revision unless [results] overrides them.
 ///
-/// Methods are not annotated so the fake also compiles against an
-/// interface that predates conditional writes.
 class _ConditionalGateway implements CloudSyncGateway {
   final List<String> calls = [];
   final Map<String, CloudConditionalWriteResult> results = {};
@@ -433,7 +451,7 @@ class _ConditionalGateway implements CloudSyncGateway {
     _record('upsert:${_type(record)}:${record.id}');
   }
 
-  // ignore: annotate_overrides
+  @override
   Future<CloudConditionalWriteResult> insertIfAbsent(
     CloudOwnedRecord record,
   ) async {
@@ -447,12 +465,48 @@ class _ConditionalGateway implements CloudSyncGateway {
         );
   }
 
-  // ignore: annotate_overrides
+  @override
   Future<CloudConditionalWriteResult> updateIfRevision(
     CloudOwnedRecord record, {
     required int expectedServerRevision,
   }) async {
     final call = 'update:${_type(record)}:${record.id}@$expectedServerRevision';
+    _record(call);
+
+    return results[call] ??
+        CloudConditionalWriteResult(
+          outcome: CloudConditionalWriteOutcome.applied,
+          serverRevision: expectedServerRevision + 1,
+        );
+  }
+
+  /// Current cloud rows keyed by `type:id`; absent rows return null.
+  final Map<String, CloudSyncItem> currentRows = {};
+  int fetchCount = 0;
+
+  @override
+  Future<CloudSyncItem?> fetchCurrent({
+    required String userId,
+    required CloudDataEntity entityType,
+    required String entityId,
+  }) async {
+    fetchCount += 1;
+    final item = currentRows['${entityType.name}:$entityId'];
+
+    // Row-level security never returns another account's row.
+    return item == null || item.record.userId != userId ? null : item;
+  }
+
+  @override
+  Future<CloudConditionalWriteResult> markDeletedIfRevision({
+    required String userId,
+    required CloudDataEntity entityType,
+    required String entityId,
+    required DateTime deletedAt,
+    required int expectedServerRevision,
+  }) async {
+    final call =
+        'conditionalDelete:${entityType.name}:$entityId@$expectedServerRevision';
     _record(call);
 
     return results[call] ??

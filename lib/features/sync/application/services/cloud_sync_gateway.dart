@@ -1,6 +1,7 @@
 import '../../domain/models/cloud_records.dart';
 import '../../domain/models/sync_data_contract.dart';
 import 'cloud_conditional_write_result.dart';
+import 'cloud_sync_reader.dart';
 
 abstract interface class CloudSyncGateway {
   /// Unconditional write. Only for callers without revision baselines.
@@ -18,6 +19,24 @@ abstract interface class CloudSyncGateway {
     required int expectedServerRevision,
   });
 
+  /// Tombstones a live row only while its server revision still equals
+  /// [expectedServerRevision]. A newer or already deleted row is untouched.
+  Future<CloudConditionalWriteResult> markDeletedIfRevision({
+    required String userId,
+    required CloudDataEntity entityType,
+    required String entityId,
+    required DateTime deletedAt,
+    required int expectedServerRevision,
+  });
+
+  /// Reads the current cloud row owned by [userId], or null when absent.
+  Future<CloudSyncItem?> fetchCurrent({
+    required String userId,
+    required CloudDataEntity entityType,
+    required String entityId,
+  });
+
+  /// Unconditional tombstone. Only for callers without revision baselines.
   Future<void> markDeleted({
     required String userId,
     required CloudDataEntity entityType,

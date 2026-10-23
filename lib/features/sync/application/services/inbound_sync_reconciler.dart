@@ -5,6 +5,7 @@ import '../../domain/models/local_sync_models.dart';
 import '../../domain/models/sync_data_contract.dart';
 import 'cloud_sync_reader.dart';
 import 'inbound_cloud_record_applier.dart';
+import 'sync_mutation_context.dart';
 import 'sync_mutation_runner.dart';
 
 typedef InboundSyncClock = DateTime Function();
@@ -175,77 +176,77 @@ class InboundSyncReconciler implements InboundSyncPageReconciler {
           );
         }
 
-        final pending = await context.localSyncRepository.getPending(
-          normalizedUserId,
+        final baseline = await baselineRepository.getRevision(
+          userId: normalizedUserId,
+          entityType: entityType,
+          entityId: item.record.id,
         );
 
-        final hasPendingLocalMutation = pending.any(
-          (entry) =>
-              entry.entityType == entityType &&
-              entry.entityId == item.record.id,
-        );
+        final deferredRepository = context.inboundDeferredRecordRepository;
 
-        if (hasPendingLocalMutation) {
-          throw StateError(
-            'Inbound record ${item.record.id} conflicts with a pending local mutation.',
+        if (baseline != null && revision <= baseline) {
+          // Already reconciled. Any older replay obligation is obsolete.
+          await deferredRepository?.clearThroughRevision(
+            userId: normalizedUserId,
+            entityType: entityType,
+            entityId: item.record.id,
+            serverRevision: baseline,
           );
-        }
-
-        {
-          final baseline = await baselineRepository.getRevision(
+        } else {
+          // Pending local work and unresolved artist journals are holds:
+          // the cloud revision is deferred and local data is untouched.
+          final holdReason = await _holdReason(
+            context: context,
             userId: normalizedUserId,
             entityType: entityType,
             entityId: item.record.id,
           );
 
-          if (baseline == null || revision > baseline) {
-            final result = await applier.apply(
-              record: item.record,
-              context: context,
-            );
+          final deferralReason =
+              holdReason ??
+              (await applier.apply(
+                record: item.record,
+                context: context,
+              )).deferralReason;
 
-            final deferredRepository = context.inboundDeferredRecordRepository;
-            final deferralReason = result.deferralReason;
-
-            if (deferralReason != null) {
-              // The cursor may pass this revision only if its replay
-              // obligation commits in the same transaction. No baseline
-              // is recorded, so a replay still counts as newer.
-              if (deferredRepository == null) {
-                throw StateError(
-                  'Inbound record ${item.record.id} cannot be applied yet '
-                  'and no deferred record repository is available.',
-                );
-              }
-
-              await deferredRepository.saveDeferred(
-                InboundDeferredRecord(
-                  userId: normalizedUserId,
-                  entityType: entityType,
-                  entityId: item.record.id,
-                  serverRevision: revision,
-                  serverUpdatedAt: itemPosition.serverUpdatedAt,
-                  reason: deferralReason,
-                  deferredAt: _now().toUtc(),
-                ),
-              );
-
-              deferredCount += 1;
-            } else {
-              await baselineRepository.saveObservedRevision(
-                userId: normalizedUserId,
-                entityType: entityType,
-                entityId: item.record.id,
-                serverRevision: revision,
-              );
-
-              await deferredRepository?.clearThroughRevision(
-                userId: normalizedUserId,
-                entityType: entityType,
-                entityId: item.record.id,
-                serverRevision: revision,
+          if (deferralReason != null) {
+            // The cursor may pass this revision only if its replay
+            // obligation commits in the same transaction. No baseline
+            // is recorded, so a replay still counts as newer.
+            if (deferredRepository == null) {
+              throw StateError(
+                'Inbound record ${item.record.id} cannot be applied yet '
+                'and no deferred record repository is available.',
               );
             }
+
+            await deferredRepository.saveDeferred(
+              InboundDeferredRecord(
+                userId: normalizedUserId,
+                entityType: entityType,
+                entityId: item.record.id,
+                serverRevision: revision,
+                serverUpdatedAt: itemPosition.serverUpdatedAt,
+                reason: deferralReason,
+                deferredAt: _now().toUtc(),
+              ),
+            );
+
+            deferredCount += 1;
+          } else {
+            await baselineRepository.saveObservedRevision(
+              userId: normalizedUserId,
+              entityType: entityType,
+              entityId: item.record.id,
+              serverRevision: revision,
+            );
+
+            await deferredRepository?.clearThroughRevision(
+              userId: normalizedUserId,
+              entityType: entityType,
+              entityId: item.record.id,
+              serverRevision: revision,
+            );
           }
         }
 
@@ -275,6 +276,34 @@ class InboundSyncReconciler implements InboundSyncPageReconciler {
       lastReadPosition: page.lastPosition,
       deferredCount: deferredCount,
     );
+  }
+
+  Future<InboundDeferralReason?> _holdReason({
+    required SyncMutationContext context,
+    required String userId,
+    required CloudDataEntity entityType,
+    required String entityId,
+  }) async {
+    final pending = await context.localSyncRepository.getPending(userId);
+
+    if (pending.any(
+      (entry) => entry.entityType == entityType && entry.entityId == entityId,
+    )) {
+      return InboundDeferralReason.pendingLocalMutation;
+    }
+
+    if (entityType == CloudDataEntity.artist) {
+      final writeJournal = await context.artistWriteJournalRepository
+          ?.findUnresolved(userId: userId, artistId: entityId);
+      final dependencyJournal = await context.artistDependencyJournalRepository
+          ?.findUnresolved(userId: userId, artistId: entityId);
+
+      if (writeJournal != null || dependencyJournal != null) {
+        return InboundDeferralReason.unresolvedArtistJournal;
+      }
+    }
+
+    return null;
   }
 
   bool _isAfter(CloudSyncPosition candidate, CloudSyncPosition? current) {

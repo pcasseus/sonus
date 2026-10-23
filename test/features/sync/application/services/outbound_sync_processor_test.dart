@@ -18,6 +18,7 @@ import 'package:sonus_next/features/sync/application/repositories/cloud_revision
 import 'package:sonus_next/features/sync/application/services/cloud_artwork_storage.dart';
 import 'package:sonus_next/features/sync/application/services/cloud_conditional_write_result.dart';
 import 'package:sonus_next/features/sync/application/services/cloud_sync_gateway.dart';
+import 'package:sonus_next/features/sync/application/services/cloud_sync_reader.dart';
 import 'package:sonus_next/features/sync/application/services/outbound_sync_processor.dart';
 import 'package:sonus_next/features/sync/domain/models/cloud_records.dart';
 import 'package:sonus_next/features/sync/domain/models/local_sync_models.dart';
@@ -456,6 +457,7 @@ void main() {
     OutboundSyncProcessor deletionProcessor({
       PushArtistDeletion? deletion,
       bool guardedUpsert = true,
+      FakeCloudRevisionBaselineRepository? baselines,
     }) {
       return OutboundSyncProcessor(
         localSyncRepository: localSyncRepository,
@@ -468,7 +470,7 @@ void main() {
         cloudArtworkStorage: cloudArtworkStorage,
         cloudSyncGateway: cloudSyncGateway,
         cloudRevisionBaselineRepository: guardedUpsert
-            ? FakeCloudRevisionBaselineRepository()
+            ? baselines ?? FakeCloudRevisionBaselineRepository()
             : null,
         pushArtistMutation: guardedUpsert
             ? ({required userId, required entry, required artist}) async {
@@ -601,6 +603,7 @@ void main() {
       var guardedCalls = 0;
 
       processor = deletionProcessor(
+        baselines: songBaseline(),
         deletion: ({required userId, required entry}) async {
           guardedCalls++;
           throw StateError('Song must not use artist deletion.');
@@ -611,7 +614,8 @@ void main() {
 
       expect(guardedCalls, 0);
       expect(cloudSyncGateway.calls, [
-        'delete:song:song_1:${timestamp.toIso8601String()}',
+        // Guarded deletes are revision-conditional.
+        'conditionalDelete:song:song_1@3',
       ]);
       expect(localSyncRepository.processedIds, ['ordinary_song_delete']);
       expect(localSyncRepository.pending, isEmpty);
@@ -721,7 +725,7 @@ void main() {
         artworkAssetRepository: artworkAssetRepository,
         cloudArtworkStorage: cloudArtworkStorage,
         cloudSyncGateway: cloudSyncGateway,
-        cloudRevisionBaselineRepository: FakeCloudRevisionBaselineRepository(),
+        cloudRevisionBaselineRepository: songBaseline(),
         pushArtistMutation:
             ({required userId, required entry, required artist}) async {
               throw StateError('Unexpected artist mutation.');
@@ -748,7 +752,8 @@ void main() {
 
       expect(events, ['recovered']);
       expect(cloudSyncGateway.calls, [
-        'delete:song:song_1:${timestamp.toIso8601String()}',
+        // Guarded deletes are revision-conditional.
+        'conditionalDelete:song:song_1@3',
       ]);
       expect(localSyncRepository.processedIds, ['new_song_delete']);
       expect(localSyncRepository.pending, isEmpty);
@@ -808,7 +813,7 @@ void main() {
         artworkAssetRepository: artworkAssetRepository,
         cloudArtworkStorage: cloudArtworkStorage,
         cloudSyncGateway: cloudSyncGateway,
-        cloudRevisionBaselineRepository: FakeCloudRevisionBaselineRepository(),
+        cloudRevisionBaselineRepository: songBaseline(),
         pushArtistMutation:
             ({required userId, required entry, required artist}) async {
               throw StateError('Unexpected artist mutation.');
@@ -841,7 +846,8 @@ void main() {
 
       expect(events, ['recovery-start', 'recovery-end']);
       expect(cloudSyncGateway.calls, [
-        'delete:song:song_1:${timestamp.toIso8601String()}',
+        // Guarded deletes are revision-conditional.
+        'conditionalDelete:song:song_1@3',
       ]);
       expect(localSyncRepository.processedIds, ['ordinary_after_recovery']);
       expect(localSyncRepository.pending, isEmpty);
@@ -1440,6 +1446,12 @@ Song song(DateTime timestamp) {
   );
 }
 
+/// A verified cloud baseline for song_1, so guarded deletes are attempted.
+FakeCloudRevisionBaselineRepository songBaseline() {
+  return FakeCloudRevisionBaselineRepository()
+    ..revisions['user_1:song:song_1'] = 3;
+}
+
 class FakeCloudRevisionBaselineRepository
     implements CloudRevisionBaselineRepository {
   final Map<String, int> revisions = {};
@@ -1558,6 +1570,29 @@ class FakeCloudArtworkStorage implements CloudArtworkStorage {
 
     return returnedObjectKey;
   }
+
+  @override
+  Future<String> uploadImmutable({
+    required String userId,
+    required ArtworkAsset artworkAsset,
+    required String version,
+  }) async {
+    calls.add('uploadImmutable:$userId:${artworkAsset.id}:$version');
+
+    if (shouldFail) {
+      throw StateError('Simulated artwork storage failure.');
+    }
+
+    return '$userId/${artworkAsset.id}/$version.png';
+  }
+
+  @override
+  Future<void> deleteObject({
+    required String userId,
+    required String objectKey,
+  }) async {
+    calls.add('deleteObject:$objectKey');
+  }
 }
 
 class FakeCloudSyncGateway implements CloudSyncGateway {
@@ -1622,6 +1657,40 @@ class FakeCloudSyncGateway implements CloudSyncGateway {
     if (callback != null) {
       await callback(record);
     }
+  }
+
+  /// Current cloud rows keyed by `type:id`; absent rows return null.
+  final Map<String, CloudSyncItem> currentRows = {};
+
+  @override
+  Future<CloudSyncItem?> fetchCurrent({
+    required String userId,
+    required CloudDataEntity entityType,
+    required String entityId,
+  }) async {
+    return currentRows['${entityType.name}:$entityId'];
+  }
+
+  @override
+  Future<CloudConditionalWriteResult> markDeletedIfRevision({
+    required String userId,
+    required CloudDataEntity entityType,
+    required String entityId,
+    required DateTime deletedAt,
+    required int expectedServerRevision,
+  }) async {
+    final call =
+        'conditionalDelete:${entityType.name}:$entityId@$expectedServerRevision';
+    calls.add(call);
+
+    if (call == failOn) {
+      throw StateError('Simulated cloud failure.');
+    }
+
+    return CloudConditionalWriteResult(
+      outcome: CloudConditionalWriteOutcome.applied,
+      serverRevision: expectedServerRevision + 1,
+    );
   }
 
   @override

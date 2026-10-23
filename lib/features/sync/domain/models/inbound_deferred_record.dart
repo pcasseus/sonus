@@ -10,6 +10,18 @@ enum InboundDeferralReason {
 
   /// The record references artwork that is not available locally.
   missingLocalArtwork,
+
+  /// A required parent row (artist, album or edition) is not held locally.
+  missingLocalParent,
+
+  /// A required parent has an outstanding deferred revision.
+  parentDeferred,
+
+  /// A pending local mutation for the same entity must not be overwritten.
+  pendingLocalMutation,
+
+  /// An artist write or dependency journal awaits cloud verification.
+  unresolvedArtistJournal,
 }
 
 /// A durable replay obligation for a cloud revision the inbound cursor

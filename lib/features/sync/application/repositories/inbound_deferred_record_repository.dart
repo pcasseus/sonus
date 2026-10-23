@@ -10,6 +10,12 @@ abstract interface class InboundDeferredRecordRepository {
 
   Future<List<InboundDeferredRecord>> getDeferred(String userId);
 
+  Future<InboundDeferredRecord?> getDeferral({
+    required String userId,
+    required CloudDataEntity entityType,
+    required String entityId,
+  });
+
   /// Removes a deferral once a revision at or above it has been applied.
   Future<void> clearThroughRevision({
     required String userId,

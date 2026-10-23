@@ -2,6 +2,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../application/services/cloud_conditional_write_result.dart';
 import '../../application/services/cloud_sync_gateway.dart';
+import '../../application/services/cloud_sync_reader.dart';
 import '../../domain/models/cloud_records.dart';
 import '../../domain/models/sync_data_contract.dart';
 import '../contracts/supabase_sync_contract.dart';
@@ -91,6 +92,74 @@ class SupabaseCloudSyncGateway implements CloudSyncGateway {
     return _observeUnapplied(table, record);
   }
 
+  @override
+  Future<CloudConditionalWriteResult> markDeletedIfRevision({
+    required String userId,
+    required CloudDataEntity entityType,
+    required String entityId,
+    required DateTime deletedAt,
+    required int expectedServerRevision,
+  }) async {
+    if (expectedServerRevision < 1) {
+      throw ArgumentError.value(
+        expectedServerRevision,
+        'expectedServerRevision',
+        'Must be positive.',
+      );
+    }
+
+    final table = _tableFor(entityType);
+    final timestamp = deletedAt.toUtc().toIso8601String();
+
+    // A single compare-and-set UPDATE on a live row.
+    final List<Map<String, dynamic>> updated = await client
+        .from(table)
+        .update({
+          SupabaseSyncContract.deletedAtColumn: timestamp,
+          SupabaseSyncContract.updatedAtColumn: timestamp,
+        })
+        .eq(SupabaseSyncContract.userIdColumn, userId)
+        .eq(SupabaseSyncContract.idColumn, entityId)
+        .eq(SupabaseSyncContract.serverRevisionColumn, expectedServerRevision)
+        .isFilter(SupabaseSyncContract.deletedAtColumn, null)
+        .select(SupabaseSyncContract.serverRevisionColumn);
+
+    if (updated.isNotEmpty) {
+      return _appliedResult(updated);
+    }
+
+    return _observeUnappliedRow(table, userId: userId, entityId: entityId);
+  }
+
+  @override
+  Future<CloudSyncItem?> fetchCurrent({
+    required String userId,
+    required CloudDataEntity entityType,
+    required String entityId,
+  }) async {
+    final List<Map<String, dynamic>> rows = await client
+        .from(_tableFor(entityType))
+        .select()
+        .eq(SupabaseSyncContract.userIdColumn, userId)
+        .eq(SupabaseSyncContract.idColumn, entityId)
+        .limit(1);
+
+    if (rows.isEmpty) {
+      return null;
+    }
+
+    final item = SupabaseCloudRecordMapper.fromRow(
+      entityType: entityType,
+      row: rows.single,
+    );
+
+    if (item.record.userId != userId || item.record.id != entityId) {
+      throw StateError('Fetched cloud row does not match the requested owner.');
+    }
+
+    return item;
+  }
+
   CloudConditionalWriteResult _appliedResult(List<Map<String, dynamic>> rows) {
     if (rows.length != 1) {
       throw StateError('Expected exactly one conditionally written row.');
@@ -106,12 +175,24 @@ class SupabaseCloudSyncGateway implements CloudSyncGateway {
   Future<CloudConditionalWriteResult> _observeUnapplied(
     String table,
     CloudOwnedRecord record,
-  ) async {
+  ) {
+    return _observeUnappliedRow(
+      table,
+      userId: record.userId,
+      entityId: record.id,
+    );
+  }
+
+  Future<CloudConditionalWriteResult> _observeUnappliedRow(
+    String table, {
+    required String userId,
+    required String entityId,
+  }) async {
     final List<Map<String, dynamic>> existing = await client
         .from(table)
         .select(SupabaseSyncContract.serverRevisionColumn)
-        .eq(SupabaseSyncContract.userIdColumn, record.userId)
-        .eq(SupabaseSyncContract.idColumn, record.id)
+        .eq(SupabaseSyncContract.userIdColumn, userId)
+        .eq(SupabaseSyncContract.idColumn, entityId)
         .limit(1);
 
     if (existing.isEmpty) {

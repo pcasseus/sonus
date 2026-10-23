@@ -105,4 +105,33 @@ abstract final class SupabaseSyncContract {
 
     return '$normalizedUserId/$normalizedArtworkId.$normalizedExtension';
   }
+
+  /// Immutable key for one uploaded version of an artwork asset.
+  static String versionedArtworkObjectKey({
+    required String userId,
+    required String artworkId,
+    required String version,
+    required String extension,
+  }) {
+    final normalizedVersion = version.trim();
+
+    if (normalizedVersion.isEmpty ||
+        !RegExp(r'^[A-Za-z0-9_-]+$').hasMatch(normalizedVersion)) {
+      throw ArgumentError.value(
+        version,
+        'version',
+        'Artwork version must be a non-empty key-safe token.',
+      );
+    }
+
+    final legacyKey = artworkObjectKey(
+      userId: userId,
+      artworkId: artworkId,
+      extension: extension,
+    );
+    final dot = legacyKey.lastIndexOf('.');
+
+    return '${legacyKey.substring(0, dot)}/$normalizedVersion'
+        '${legacyKey.substring(dot)}';
+  }
 }

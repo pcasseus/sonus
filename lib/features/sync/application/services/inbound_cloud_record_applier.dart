@@ -7,6 +7,7 @@ import '../../../library/domain/entities/song.dart';
 import '../../../library/domain/metadata/metadata_field_state.dart';
 import '../../domain/models/cloud_records.dart';
 import '../../domain/models/inbound_deferred_record.dart';
+import '../../domain/models/sync_data_contract.dart';
 import 'sync_mutation_context.dart';
 
 /// The local effect of reconciling one verified cloud revision.
@@ -48,6 +49,14 @@ class InboundCloudRecordApplier {
               InboundDeferralReason.artworkDownloadRequired,
             )
           : const InboundApplyResult.applied();
+    }
+
+    // A child must never be applied ahead of a parent that is missing
+    // locally or whose newer revision is still deferred.
+    final parentReason = await _unavailableParentReason(record, context);
+
+    if (parentReason != null) {
+      return InboundApplyResult.deferred(parentReason);
     }
 
     // Local artwork foreign keys would reject the write.
@@ -103,6 +112,53 @@ class InboundCloudRecordApplier {
     };
 
     return existing != null;
+  }
+
+  Future<InboundDeferralReason?> _unavailableParentReason(
+    CloudOwnedRecord record,
+    SyncMutationContext context,
+  ) async {
+    final parents = switch (record) {
+      CloudAlbumRecord() => [(CloudDataEntity.artist, record.artistId)],
+      CloudAlbumEditionRecord() => [(CloudDataEntity.album, record.albumId)],
+      CloudSongRecord() => [
+        (CloudDataEntity.artist, record.artistId),
+        (CloudDataEntity.album, record.albumId),
+        (CloudDataEntity.albumEdition, record.albumEditionId),
+      ],
+      _ => const <(CloudDataEntity, String)>[],
+    };
+
+    for (final (entityType, entityId) in parents) {
+      final Object? parent = switch (entityType) {
+        CloudDataEntity.artist => await context.artistRepository.getById(
+          entityId,
+        ),
+        CloudDataEntity.album => await context.albumRepository.getById(
+          entityId,
+        ),
+        CloudDataEntity.albumEdition =>
+          await context.albumEditionRepository.getById(entityId),
+        _ => throw StateError('Unsupported parent type: ${entityType.name}'),
+      };
+
+      if (parent == null) {
+        return InboundDeferralReason.missingLocalParent;
+      }
+
+      final deferral = await context.inboundDeferredRecordRepository
+          ?.getDeferral(
+            userId: record.userId,
+            entityType: entityType,
+            entityId: entityId,
+          );
+
+      if (deferral != null) {
+        return InboundDeferralReason.parentDeferred;
+      }
+    }
+
+    return null;
   }
 
   Future<bool> _referencedArtworkExists(

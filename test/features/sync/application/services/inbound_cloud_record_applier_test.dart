@@ -207,6 +207,7 @@ void main() {
 
     test('maps and creates album', () async {
       final bundle = _TestContextBundle();
+      bundle.seedParents(album: false, edition: false);
 
       final record = _recordFromRow(CloudDataEntity.album, {
         'id': 'album-1',
@@ -230,6 +231,7 @@ void main() {
 
     test('maps album edition type and nullable metadata', () async {
       final bundle = _TestContextBundle();
+      bundle.seedParents(edition: false);
 
       final record = _recordFromRow(CloudDataEntity.albumEdition, {
         'id': 'edition-1',
@@ -263,6 +265,7 @@ void main() {
 
     test('maps song fields including featured artists', () async {
       final bundle = _TestContextBundle();
+      bundle.seedParents();
 
       final record = _recordFromRow(CloudDataEntity.song, {
         'id': 'song-1',
@@ -329,6 +332,7 @@ void main() {
       'inbound song updates compatibility placement without changing sort position',
       () async {
         final bundle = _TestContextBundle();
+        bundle.seedParents();
 
         bundle.song.existing = Song(
           id: 'song-1',
@@ -402,6 +406,7 @@ void main() {
     );
     test('inbound song preserves manual compatibility numbering', () async {
       final bundle = _TestContextBundle();
+      bundle.seedParents();
 
       bundle.song.existing = Song(
         id: 'song-manual',
@@ -485,6 +490,7 @@ void main() {
       'same-album inbound edition change preserves prior membership',
       () async {
         final bundle = _TestContextBundle();
+        bundle.seedParents();
 
         bundle.song.existing = Song(
           id: 'song-1',
@@ -562,6 +568,7 @@ void main() {
       'cross-album inbound move removes only former compatibility membership',
       () async {
         final bundle = _TestContextBundle();
+        bundle.seedParents();
 
         bundle.song.existing = Song(
           id: 'song-1',
@@ -823,6 +830,48 @@ class _TestContextBundle {
   final _FakeMetadataFieldStateRepository metadata;
 
   late final SyncMutationContext context;
+
+  /// Makes every parent lookup succeed so a child record can be applied.
+  void seedParents({
+    bool artist = true,
+    bool album = true,
+    bool edition = true,
+  }) {
+    final timestamp = DateTime.utc(2026, 9, 10);
+
+    if (artist) {
+      this.artist.existing = Artist(
+        id: 'parent-artist',
+        name: 'Parent Artist',
+        canonicalName: 'parent artist',
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      );
+    }
+
+    if (album) {
+      this.album.existing = Album(
+        id: 'parent-album',
+        artistId: 'parent-artist',
+        title: 'Parent Album',
+        canonicalTitle: 'parent album',
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      );
+    }
+
+    if (edition) {
+      this.edition.existing = AlbumEdition(
+        id: 'parent-edition',
+        albumId: 'parent-album',
+        title: 'Parent Edition',
+        type: AlbumEditionType.standard,
+        isPrimary: true,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      );
+    }
+  }
 }
 
 class _FakeArtistRepository implements ArtistRepository {

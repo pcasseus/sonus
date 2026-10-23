@@ -39,12 +39,14 @@ import '../../application/services/sync_network_policy_service.dart';
 import '../../application/services/sync_service.dart';
 import '../../data/daos/local_sync_dao.dart';
 import '../../data/daos/cloud_revision_baseline_dao.dart';
+import '../../data/daos/outbound_conflict_dao.dart';
 import '../../data/gateways/supabase_cloud_sync_gateway.dart';
 import '../../data/gateways/supabase_artist_create_gateway.dart';
 import '../../data/gateways/supabase_artist_record_conditional_write_gateway.dart';
 import '../../data/gateways/supabase_cloud_sync_reader.dart';
 import '../../data/repositories/sqlite_local_sync_repository.dart';
 import '../../data/repositories/sqlite_cloud_revision_baseline_repository.dart';
+import '../../data/repositories/sqlite_outbound_conflict_repository.dart';
 import '../../data/repositories/sync_mutation_transaction_runner.dart';
 import '../../data/services/supabase_cloud_artwork_storage.dart';
 import '../widgets/automatic_sync_lifecycle_bridge.dart';
@@ -183,6 +185,9 @@ class _SyncScopeState extends State<SyncScope> {
       ensureArtistDependency:
           receiptPipeline?.guardedDependency ?? artistDependencyEnsurer.ensure,
       recoverArtistWrites: receiptPipeline?.recover,
+      outboundConflictRepository: SqliteOutboundConflictRepository(
+        dao: OutboundConflictDao(executor),
+      ),
     );
 
     final inboundReconciler = InboundSyncReconciler(
