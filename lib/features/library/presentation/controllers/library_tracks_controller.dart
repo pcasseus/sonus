@@ -62,7 +62,10 @@ class LibraryTracksController extends ChangeNotifier {
   LibraryTrackOrder _order = LibraryTrackOrder.title;
 
   bool _isLoading = false;
-  bool _isShuffleEnabled = false;
+  // Starts from the player's actual mode, which may have been restored
+  // from the listener's saved preference.
+  late bool _isShuffleEnabled =
+      _playbackCoordinator.currentState.shuffleEnabled;
   Object? _error;
 
   List<LibraryTrack> get tracks => _tracks;

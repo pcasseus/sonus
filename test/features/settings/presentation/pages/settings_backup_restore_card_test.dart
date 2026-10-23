@@ -115,6 +115,15 @@ void main() {
       accountController: AccountController(repository: _SignedInRepository()),
     );
 
+    // The landing summary flags the hold before the details are opened.
+    expect(
+      tester.widget<Text>(key('settings-account-cloud-subtitle')).data,
+      'Cloud sync is paused for recovery review.',
+    );
+
+    await tester.tap(key('settings-account-cloud'));
+    await tester.pumpAndSettle();
+
     expect(find.text('Paused for recovery review'), findsOneWidget);
     expect(key('settings-sync-recovery-hold'), findsOneWidget);
     expect(key('settings-sync-error'), findsNothing);

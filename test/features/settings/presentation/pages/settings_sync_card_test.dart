@@ -9,7 +9,7 @@ import 'package:sonus_next/features/account/application/controllers/account_cont
 import 'package:sonus_next/features/account/application/repositories/local_account_binding_repository.dart';
 import 'package:sonus_next/features/account/domain/entities/account_user.dart';
 import 'package:sonus_next/features/account/domain/repositories/account_repository.dart';
-import 'package:sonus_next/features/settings/presentation/pages/settings_page.dart';
+import 'package:sonus_next/features/settings/presentation/pages/account_cloud_settings_page.dart';
 import 'package:sonus_next/features/sync/application/controllers/sync_controller.dart';
 import 'package:sonus_next/features/sync/application/services/automatic_sync_coordinator.dart';
 import 'package:sonus_next/features/sync/application/services/sync_network_policy_service.dart';
@@ -285,6 +285,116 @@ void main() {
     expect(coordinator.mobileConsentRequired, isFalse);
     expect(syncController.status, SyncStatus.success);
   });
+  testWidgets('after choosing Wi-Fi only, mobile data can still be allowed', (
+    tester,
+  ) async {
+    bool? mobileAllowed = false;
+    var syncCalls = 0;
+
+    final syncController = SyncController.forTesting(
+      synchronize: (_) async {
+        syncCalls += 1;
+        return _successResult();
+      },
+    );
+    await syncController.activateUser('user-1');
+
+    final coordinator = AutomaticSyncCoordinator(
+      syncController: syncController,
+      networkPolicy: SyncNetworkPolicyService.forTesting(
+        checkConnectivity: () async => [ConnectivityResult.mobile],
+        getBool: (_) async => mobileAllowed,
+        setBool: (key, value) async {
+          expect(key, SyncNetworkPolicyService.mobileDataAllowedPreferenceKey);
+          mobileAllowed = value;
+        },
+        remove: (_) async {
+          mobileAllowed = null;
+        },
+      ),
+    );
+    coordinator.updateUserId('user-1');
+    await coordinator.trigger();
+
+    expect(coordinator.networkAccess, SyncNetworkAccess.mobileDenied);
+    expect(syncCalls, 0);
+
+    await tester.pumpWidget(
+      _buildTestApp(
+        accountController: _signedInAccountController(),
+        syncController: syncController,
+        coordinator: coordinator,
+      ),
+    );
+
+    expect(
+      find.byKey(const ValueKey<String>('settings-sync-wifi-only')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('settings-sync-mobile-consent')),
+      findsNothing,
+    );
+
+    final allow = find.byKey(
+      const ValueKey<String>('settings-sync-allow-mobile-later'),
+    );
+    await tester.ensureVisible(allow);
+    await tester.pumpAndSettle();
+    await tester.tap(allow);
+    await tester.pumpAndSettle();
+
+    expect(mobileAllowed, isTrue);
+    expect(syncCalls, 1);
+    expect(
+      find.byKey(const ValueKey<String>('settings-sync-wifi-only')),
+      findsNothing,
+    );
+  });
+
+  testWidgets('explains what cloud sync covers from the sync contract', (
+    tester,
+  ) async {
+    final syncController = SyncController.forTesting(
+      synchronize: (_) async => _successResult(),
+    );
+    await tester.pumpWidget(
+      _buildTestApp(
+        accountController: _signedInAccountController(),
+        syncController: syncController,
+        coordinator: AutomaticSyncCoordinator(
+          syncController: syncController,
+          networkPolicy: _wifiPolicy(),
+        ),
+      ),
+    );
+
+    final synced = find.byKey(
+      const ValueKey<String>('settings-sync-coverage-synced'),
+    );
+    await tester.scrollUntilVisible(
+      synced,
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+
+    expect(
+      find.descendant(
+        of: synced,
+        matching: find.text('Artists, Albums, Album editions, Songs, Artwork'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(
+          const ValueKey<String>('settings-sync-coverage-not-synced'),
+        ),
+        matching: find.textContaining('Playlists'),
+      ),
+      findsOneWidget,
+    );
+  });
 }
 
 Widget _buildTestApp({
@@ -300,7 +410,7 @@ Widget _buildTestApp({
         value: coordinator,
       ),
     ],
-    child: const MaterialApp(home: Scaffold(body: SettingsPage())),
+    child: const MaterialApp(home: AccountCloudSettingsPage()),
   );
 }
 

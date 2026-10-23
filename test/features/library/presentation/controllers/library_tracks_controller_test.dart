@@ -351,6 +351,16 @@ void main() {
     );
   }
 
+  test('starts from the shuffle mode the player is already using', () async {
+    // The player may have restored a remembered shuffle mode at launch.
+    final controller = LibraryTracksController(
+      repository: FakeLibraryQueryRepository(),
+      playbackCoordinator: PlaybackCoordinator(engine: _ShuffledEngine()),
+    );
+
+    expect(controller.isShuffleEnabled, isTrue);
+  });
+
   test('loads tracks using the current order', () async {
     final repository = FakeLibraryQueryRepository()
       ..tracks = [track(id: 'song-1', title: 'First Song')];
@@ -1488,4 +1498,9 @@ class UnusedTrackSyncMutationRunner implements SyncMutationRunner {
   Future<T> run<T>(SyncMutationAction<T> action) {
     throw StateError('Sync mutation runner should not be used by this fake.');
   }
+}
+
+class _ShuffledEngine extends FakePlaybackEngine {
+  @override
+  PlaybackState get currentState => const PlaybackState(shuffleEnabled: true);
 }
