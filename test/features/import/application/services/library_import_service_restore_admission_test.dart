@@ -5,8 +5,10 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:sonus_next/core/database/app_database.dart';
 import 'package:sonus_next/core/database/database_tables.dart';
+import 'package:sonus_next/core/database/library_mutation_coordinator.dart';
 import 'package:sonus_next/features/import/application/services/atomic_library_importer.dart';
 import 'package:sonus_next/features/import/application/services/library_import_service.dart';
+import 'package:sonus_next/features/import/application/services/lyrics_ingestion_service.dart';
 import 'package:sonus_next/features/import/application/services/metadata_resolver.dart';
 import 'package:sonus_next/features/import/data/daos/media_file_binding_dao.dart';
 import 'package:sonus_next/features/import/data/repositories/sqlite_media_file_binding_repository.dart';
@@ -15,6 +17,9 @@ import 'package:sonus_next/features/import/domain/models/import_candidate.dart';
 import 'package:sonus_next/features/import/domain/models/import_failure.dart';
 import 'package:sonus_next/features/import/domain/models/import_result.dart';
 import 'package:sonus_next/features/import/domain/services/audio_metadata_reader.dart';
+import 'package:sonus_next/features/import/domain/services/lyrics_source_reader.dart';
+import 'package:sonus_next/features/player/data/daos/track_lyrics_dao.dart';
+import 'package:sonus_next/features/player/data/repositories/sqlite_track_lyrics_repository.dart';
 
 import '../../../../support/library_seed.dart';
 
@@ -190,4 +195,197 @@ void main() {
       expect(created['is_available'], 1);
     });
   });
+
+  // SN-42 3B-3B-3A: sidecar lyrics are written after the song import
+  // commits, through the coordinated ImportScope lyrics repository.
+  group('sidecar lyrics', () {
+    Future<LibraryImportService> withLyrics(_ScriptedSidecar sidecar) async {
+      final db = await database.database;
+
+      return LibraryImportService(
+        metadataResolver: MetadataResolver(
+          primaryReader: const _FixedTags(),
+          fallbackReader: const _FixedTags(),
+        ),
+        atomicImporter: AtomicLibraryImporter(appDatabase: database),
+        mediaFileBindingRepository: SqliteMediaFileBindingRepository(
+          MediaFileBindingDao(db),
+          appDatabase: database,
+        ),
+        lyricsIngestionService: LyricsIngestionService(
+          sourceReader: sidecar,
+          trackLyricsRepository: SqliteTrackLyricsRepository(
+            TrackLyricsDao(db),
+            appDatabase: database,
+          ),
+        ),
+      );
+    }
+
+    ImportCandidate withSidecar(String filePath, String normalizedPath) {
+      return ImportCandidate(
+        filePath: filePath,
+        normalizedPath: normalizedPath,
+        lyricsPath: '$filePath.lrc',
+        discoveredAt: importedAt,
+      );
+    }
+
+    // seedConnectedLibrary gives song-a the plain lyrics 'Lyrics a'.
+    Future<Map<String, Object?>?> lyricsOf(String songId) async {
+      final rows = await (await database.database).query(
+        DatabaseTables.trackLyrics,
+        where: 'song_id = ?',
+        whereArgs: [songId],
+      );
+      return rows.isEmpty ? null : rows.single;
+    }
+
+    test('a restore that begins during the sidecar read rejects the lyrics '
+        'write and propagates', () async {
+      await seedBinding(available: false);
+      final lyricsBefore = await lyricsOf('song-a');
+
+      final release = Completer<void>();
+      Future<void>? restore;
+
+      final sidecar = _ScriptedSidecar((_) async {
+        // The song work has committed; a restore starts while the file
+        // is still being read.
+        restore ??= database.mutationCoordinator.runExclusiveRestore(
+          () => release.future,
+        );
+        return '[00:01.00]New line';
+      });
+
+      try {
+        await expectLater(
+          (await withLyrics(
+            sidecar,
+          )).importCandidate(withSidecar(knownPath, knownNormalized)),
+          throwsA(isA<LibraryMutationUnavailable>()),
+        );
+
+        expect(await lyricsOf('song-a'), lyricsBefore);
+        // The binding refresh committed before the restore began.
+        expect((await bindings()).single['is_available'], 1);
+      } finally {
+        release.complete();
+        await restore;
+      }
+
+      // After the restore ends, a later rescan ingests the sidecar.
+      final rescan = await (await withLyrics(
+        _ScriptedSidecar((_) async => '[00:01.00]New line'),
+      )).importCandidate(withSidecar(knownPath, knownNormalized));
+
+      expect(rescan.status, ImportResultStatus.skipped);
+      final lyrics = await lyricsOf('song-a');
+      expect(lyrics?['synced_text'], '[00:01.00]New line');
+      expect(lyrics?['plain_text'], isNull);
+    });
+
+    test(
+      'rejection after a new import propagates and keeps the song',
+      () async {
+        final release = Completer<void>();
+        Future<void>? restore;
+
+        final sidecar = _ScriptedSidecar((_) async {
+          restore ??= database.mutationCoordinator.runExclusiveRestore(
+            () => release.future,
+          );
+          return 'Plain words';
+        });
+
+        try {
+          // Not reported as unreadable metadata: the rejection escapes.
+          await expectLater(
+            (await withLyrics(sidecar)).importCandidate(
+              withSidecar('C:/Music/new.mp3', 'c:/music/new.mp3'),
+            ),
+            throwsA(isA<LibraryMutationUnavailable>()),
+          );
+
+          final created = (await bindings()).single;
+          expect(created['normalized_path'], 'c:/music/new.mp3');
+          expect(await lyricsOf(created['song_id']! as String), isNull);
+        } finally {
+          release.complete();
+          await restore;
+        }
+      },
+    );
+
+    test('an ordinary sidecar read failure stays best-effort', () async {
+      await seedBinding(available: false);
+      final lyricsBefore = await lyricsOf('song-a');
+
+      final result = await (await withLyrics(
+        _ScriptedSidecar((_) async => throw const _SidecarUnreadable()),
+      )).importCandidate(withSidecar(knownPath, knownNormalized));
+
+      expect(result.status, ImportResultStatus.relinked);
+      expect(await lyricsOf('song-a'), lyricsBefore);
+    });
+
+    test('an ordinary lyrics persistence failure stays best-effort', () async {
+      await seedBinding(available: false);
+      final lyricsBefore = await lyricsOf('song-a');
+
+      await (await database.database).execute('''
+        CREATE TRIGGER reject_lyrics
+        BEFORE UPDATE ON ${DatabaseTables.trackLyrics}
+        BEGIN
+          SELECT RAISE(ABORT, 'test rejection');
+        END
+      ''');
+
+      final result = await (await withLyrics(
+        _ScriptedSidecar((_) async => 'Plain words'),
+      )).importCandidate(withSidecar(knownPath, knownNormalized));
+
+      expect(result.status, ImportResultStatus.relinked);
+      expect(await lyricsOf('song-a'), lyricsBefore);
+    });
+
+    test('plain sidecar text is stored as plain lyrics', () async {
+      await seedBinding(available: true);
+
+      final result = await (await withLyrics(
+        _ScriptedSidecar((_) async => 'Plain words'),
+      )).importCandidate(withSidecar(knownPath, knownNormalized));
+
+      expect(result.status, ImportResultStatus.skipped);
+      final lyrics = await lyricsOf('song-a');
+      expect(lyrics?['plain_text'], 'Plain words');
+      expect(lyrics?['synced_text'], isNull);
+    });
+
+    test('a timestamped sidecar on a new import is stored as synced', () async {
+      final result = await (await withLyrics(
+        _ScriptedSidecar((_) async => '[00:02.00]Second\n[00:01.00]First'),
+      )).importCandidate(withSidecar('C:/Music/new.mp3', 'c:/music/new.mp3'));
+
+      expect(result.status, ImportResultStatus.imported);
+      final lyrics = await lyricsOf(result.songId!);
+      expect(lyrics?['synced_text'], '[00:02.00]Second\n[00:01.00]First');
+      expect(lyrics?['plain_text'], isNull);
+      expect(database.mutationCoordinator.activeMutations, 0);
+    });
+  });
+}
+
+class _ScriptedSidecar implements LyricsSourceReader {
+  _ScriptedSidecar(this.onRead);
+
+  final Future<String?> Function(ImportCandidate candidate) onRead;
+
+  @override
+  Future<String?> read(ImportCandidate candidate) => onRead(candidate);
+}
+
+/// An ordinary I/O-style failure, distinct from restore admission.
+class _SidecarUnreadable implements Exception {
+  const _SidecarUnreadable();
 }

@@ -146,8 +146,11 @@ class _ImportScopeState extends State<ImportScope> {
       appDatabase: database,
     );
 
+    // Sidecar lyrics are written after the song import commits, so the write
+    // must participate in restore admission on its own.
     final trackLyricsRepository = SqliteTrackLyricsRepository(
       TrackLyricsDao(sqliteDatabase),
+      appDatabase: database,
     );
 
     final reviewRepository = SqliteSongImportReviewRepository(

@@ -1,3 +1,4 @@
+import 'package:sonus_next/core/database/library_mutation_coordinator.dart';
 import 'package:sonus_next/core/identity/text_normalizer.dart';
 import 'package:sonus_next/features/import/application/services/atomic_library_importer.dart';
 import 'package:sonus_next/features/import/application/services/lyrics_ingestion_service.dart';
@@ -29,7 +30,12 @@ class LibraryImportService {
 
     final bindingRepository = mediaFileBindingRepository;
 
+    // Lyrics are ingested after, not inside, the error handling below, so a
+    // restore rejection of the lyrics write is never reported as a binding
+    // or metadata failure.
     if (bindingRepository != null) {
+      ImportResult? refreshed;
+
       try {
         final existingBinding = await bindingRepository.getByNormalizedPath(
           normalizedPath,
@@ -49,15 +55,13 @@ class LibraryImportService {
 
           await bindingRepository.save(updatedBinding);
 
-          final result = ImportResult(
+          refreshed = ImportResult(
             status: wasAvailable
                 ? ImportResultStatus.skipped
                 : ImportResultStatus.relinked,
             filePath: candidate.filePath,
             songId: existingBinding.songId,
           );
-
-          return await _ingestLyrics(candidate, result);
         }
       } catch (error) {
         return ImportResult(
@@ -69,20 +73,24 @@ class LibraryImportService {
           ),
         );
       }
+
+      if (refreshed != null) {
+        return _ingestLyrics(candidate, refreshed);
+      }
     }
+
+    final ImportResult imported;
 
     try {
       final resolvedMetadata = await metadataResolver.resolve(candidate);
 
-      final result = await atomicImporter.import(
+      imported = await atomicImporter.import(
         candidate: candidate,
         metadata: resolvedMetadata.metadata,
         metadataSource: resolvedMetadata.source,
         metadataOrigins: resolvedMetadata.origins,
         now: timestamp,
       );
-
-      return await _ingestLyrics(candidate, result);
     } catch (error) {
       return ImportResult(
         status: ImportResultStatus.failed,
@@ -93,6 +101,8 @@ class LibraryImportService {
         ),
       );
     }
+
+    return _ingestLyrics(candidate, imported);
   }
 
   Future<ImportResult> _ingestLyrics(
@@ -114,6 +124,10 @@ class LibraryImportService {
 
     try {
       await service.ingest(candidate: candidate, songId: songId);
+    } on LibraryMutationUnavailable {
+      // A restore refused the write. Surface it so the batch stops; the
+      // committed song stands and a later rescan ingests the sidecar.
+      rethrow;
     } catch (_) {
       // Sidecar lyrics are optional enrichment. Audio import/binding success
       // must not be converted into a failed import if lyrics cannot be read.

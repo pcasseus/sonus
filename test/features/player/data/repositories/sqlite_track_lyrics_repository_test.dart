@@ -1,10 +1,17 @@
+import 'dart:async';
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import 'package:sonus_next/core/database/app_database.dart';
 import 'package:sonus_next/core/database/database_tables.dart';
+import 'package:sonus_next/core/database/library_mutation_coordinator.dart';
 import 'package:sonus_next/core/database/schema/lyrics_schema.dart';
 import 'package:sonus_next/features/player/data/daos/track_lyrics_dao.dart';
 import 'package:sonus_next/features/player/data/repositories/sqlite_track_lyrics_repository.dart';
+
+import '../../../../support/library_seed.dart';
 
 void main() {
   sqfliteFfiInit();
@@ -77,5 +84,83 @@ void main() {
     await repository.deleteBySongId('song_1');
 
     expect(await repository.getBySongId('song_1'), isNull);
+  });
+
+  group('coordinated with restore admission', () {
+    late Directory directory;
+    late AppDatabase appDatabase;
+    late SqliteTrackLyricsRepository coordinated;
+
+    setUp(() async {
+      // A separate file: sqflite shares one in-memory handle per path, and
+      // the file-level setUp already holds it with a minimal schema.
+      directory = await Directory.systemTemp.createTemp('sonus_lyrics_');
+      appDatabase = AppDatabase(
+        databaseFactory: databaseFactoryFfi,
+        databasePath: '${directory.path}${Platform.pathSeparator}lyrics.db',
+      );
+      final executor = await appDatabase.database;
+
+      // Seeds song-a with existing plain lyrics 'Lyrics a'.
+      await seedConnectedLibrary(executor, key: 'a');
+
+      coordinated = SqliteTrackLyricsRepository(
+        TrackLyricsDao(executor),
+        appDatabase: appDatabase,
+      );
+    });
+
+    tearDown(() async {
+      await appDatabase.close();
+      await directory.delete(recursive: true);
+    });
+
+    Future<List<Map<String, Object?>>> lyricsRows() async {
+      return (await appDatabase.database).query(DatabaseTables.trackLyrics);
+    }
+
+    test('save and delete are rejected during an exclusive restore', () async {
+      final before = await lyricsRows();
+      expect(before.single['plain_text'], 'Lyrics a');
+
+      final entered = Completer<void>();
+      final release = Completer<void>();
+      final restore = appDatabase.mutationCoordinator.runExclusiveRestore(
+        () async {
+          entered.complete();
+          await release.future;
+        },
+      );
+      await entered.future;
+
+      try {
+        await expectLater(
+          coordinated.save(songId: 'song-a', syncedText: '[00:01.00]New'),
+          throwsA(isA<LibraryMutationUnavailable>()),
+        );
+        await expectLater(
+          coordinated.deleteBySongId('song-a'),
+          throwsA(isA<LibraryMutationUnavailable>()),
+        );
+
+        expect(await lyricsRows(), before);
+      } finally {
+        release.complete();
+        await restore;
+      }
+    });
+
+    test('save and delete work when no restore is active', () async {
+      await coordinated.save(songId: 'song-a', syncedText: '[00:01.00]New');
+
+      final saved = await coordinated.getBySongId('song-a');
+      expect(saved?.plainText, isNull);
+      expect(saved?.syncedLines.single.text, 'New');
+      expect(appDatabase.mutationCoordinator.activeMutations, 0);
+
+      await coordinated.deleteBySongId('song-a');
+
+      expect(await coordinated.getBySongId('song-a'), isNull);
+    });
   });
 }
