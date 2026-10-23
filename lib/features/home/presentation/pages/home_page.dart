@@ -1,9 +1,13 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../../core/design/sonus_theme.dart';
+import '../../../../core/design/widgets/sonus_artwork_frame.dart';
+import '../../../../core/design/widgets/sonus_decorations.dart';
 import '../../../library/application/models/library_album.dart';
 import '../../../library/application/models/library_artist.dart';
 import '../../../library/application/models/library_track.dart';
@@ -72,7 +76,7 @@ class HomePage extends StatelessWidget {
             ),
 
           if (snapshot.weeklyPopularTracks.isNotEmpty) ...[
-            const _SectionHeading(title: 'Popular This Week'),
+            const _SectionHeading(title: 'Popular This Week', featured: true),
             const SizedBox(height: 12),
             _PopularTracksRail(entries: snapshot.weeklyPopularTracks),
             const SizedBox(height: 30),
@@ -104,20 +108,32 @@ class HomePage extends StatelessWidget {
 }
 
 class _SectionHeading extends StatelessWidget {
-  const _SectionHeading({required this.title});
+  const _SectionHeading({required this.title, this.featured = false});
 
   final String title;
 
+  /// The lead section carries the theme's surface texture behind its
+  /// heading. Rails and cards stay untextured.
+  final bool featured;
+
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
-      child: Text(
-        title,
-        style: Theme.of(
-          context,
-        ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
-      ),
+    final metrics = SonusTheme.of(context).metrics;
+
+    final heading = SonusSectionHeading(
+      title: title,
+      padding: EdgeInsets.symmetric(horizontal: metrics.pageGutter),
+    );
+
+    if (!featured) {
+      return heading;
+    }
+
+    return Stack(
+      children: [
+        const Positioned.fill(child: SonusSurfaceTexture()),
+        heading,
+      ],
     );
   }
 }
@@ -130,7 +146,7 @@ class _PopularTracksRail extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 270,
+      height: _railHeight(context, artwork: 170, text: 100),
       child: ListView.separated(
         padding: const EdgeInsets.symmetric(horizontal: 20),
         scrollDirection: Axis.horizontal,
@@ -166,7 +182,9 @@ class _PopularTrackCard extends StatelessWidget {
       width: 170,
       child: InkWell(
         key: ValueKey<String>('home-popular-track-${track.songId}'),
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(
+          SonusTheme.of(context).metrics.cardRadius,
+        ),
         onTap: onTap,
         child: Padding(
           padding: const EdgeInsets.only(bottom: 6),
@@ -206,6 +224,8 @@ class _PopularTrackCard extends StatelessWidget {
               const SizedBox(height: 3),
               Text(
                 '${entry.qualifiedStreamCount} weekly streams',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: theme.colorScheme.onSurfaceVariant,
                 ),
@@ -225,8 +245,14 @@ class _TopArtistsRail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cardWidth = _ArtistCard.widthFor(context);
+
     return SizedBox(
-      height: 235,
+      height: _railHeight(
+        context,
+        artwork: _ArtistCard.artworkHeightFor(cardWidth),
+        text: _ArtistCard.infoHeight,
+      ),
       child: ListView.separated(
         padding: const EdgeInsets.symmetric(horizontal: 20),
         scrollDirection: Axis.horizontal,
@@ -237,6 +263,7 @@ class _TopArtistsRail extends StatelessWidget {
 
           return _ArtistCard(
             entry: entry,
+            width: cardWidth,
             onTap: () {
               Navigator.of(context).push(
                 MaterialPageRoute<void>(
@@ -254,61 +281,137 @@ class _TopArtistsRail extends StatelessWidget {
   }
 }
 
+/// A portrait Top Artists card: tall artwork above a separate information
+/// panel, like an editorial artist feature.
 class _ArtistCard extends StatelessWidget {
-  const _ArtistCard({required this.entry, required this.onTap});
+  const _ArtistCard({
+    required this.entry,
+    required this.width,
+    required this.onTap,
+  });
+
+  /// Portrait artwork, width : height.
+  static const double artworkAspectRatio = 3 / 4;
+
+  /// Room for a name of up to two lines and two statistic lines at 1x
+  /// text, so long names stay readable at large text sizes too.
+  static const double infoHeight = 104;
+
+  /// About two and a quarter cards per screen, so the rail reads as
+  /// scrollable on every width.
+  static double widthFor(BuildContext context) {
+    final screenWidth = MediaQuery.sizeOf(context).width;
+
+    return ((screenWidth - 54) / 2.25).clamp(140.0, 190.0);
+  }
+
+  static double artworkHeightFor(double width) => width / artworkAspectRatio;
 
   final HomeTopArtist entry;
+  final double width;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final tokens = SonusTheme.of(context);
+    final radius = BorderRadius.circular(tokens.metrics.cardRadius);
 
     return SizedBox(
-      width: 160,
-      child: InkWell(
-        key: ValueKey<String>('home-top-artist-${entry.artist.artistId}'),
-        borderRadius: BorderRadius.circular(20),
-        onTap: onTap,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Stack(
-              children: [
-                _ArtistArtwork(artist: entry.artist, size: 160),
-                Positioned(
-                  top: 10,
-                  left: 10,
-                  child: _RankBadge(rank: entry.rank),
+      width: width,
+      child: Material(
+        color: tokens.colors.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: radius,
+          side: tokens.decoration.showMarks
+              ? BorderSide(color: tokens.colors.artworkFrame)
+              : BorderSide.none,
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          key: ValueKey<String>('home-top-artist-${entry.artist.artistId}'),
+          onTap: onTap,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SizedBox(
+                height: artworkHeightFor(width),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    _ArtistArtwork(artist: entry.artist),
+                    if (tokens.decoration.allowGradients)
+                      _ArtworkFade(color: tokens.colors.surface),
+                    Positioned(
+                      top: 10,
+                      left: 10,
+                      child: _RankBadge(rank: entry.rank),
+                    ),
+                  ],
                 ),
-              ],
-            ),
-            const SizedBox(height: 10),
-            Text(
-              entry.artist.name,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.w700,
               ),
-            ),
-            const SizedBox(height: 3),
-            Text(
-              '${entry.qualifiedStreamCount} weekly streams',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodySmall,
-            ),
-            const SizedBox(height: 2),
-            Text(
-              _formatListeningDuration(entry.weeklyListeningDuration),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        entry.artist.name,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          color: tokens.colors.textPrimary,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        '${entry.qualifiedStreamCount} weekly streams',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: tokens.colors.textPrimary,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        _formatListeningDuration(entry.weeklyListeningDuration),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: tokens.colors.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Blends the bottom of the artwork into the information panel.
+class _ArtworkFade extends StatelessWidget {
+  const _ArtworkFade({required this.color});
+
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            stops: const [0.72, 1],
+            colors: [color.withValues(alpha: 0), color],
+          ),
         ),
       ),
     );
@@ -323,7 +426,7 @@ class _RecentlyAddedTracksRail extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 225,
+      height: _railHeight(context, artwork: 150, text: 75),
       child: ListView.separated(
         padding: const EdgeInsets.symmetric(horizontal: 20),
         scrollDirection: Axis.horizontal,
@@ -361,7 +464,9 @@ class _RecentTrackCard extends StatelessWidget {
       width: 150,
       child: InkWell(
         key: ValueKey<String>('home-recent-track-${track.songId}'),
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(
+          SonusTheme.of(context).metrics.cardRadius,
+        ),
         onTap: onTap,
         child: Opacity(
           opacity: isDisabled ? 0.55 : 1,
@@ -382,7 +487,9 @@ class _RecentTrackCard extends StatelessWidget {
                           color: theme.colorScheme.surface.withValues(
                             alpha: 0.45,
                           ),
-                          borderRadius: BorderRadius.circular(18),
+                          borderRadius: BorderRadius.circular(
+                            SonusTheme.of(context).metrics.artworkRadius,
+                          ),
                         ),
                         child: const Center(child: Icon(Icons.block_rounded)),
                       ),
@@ -421,7 +528,7 @@ class _AlbumsRail extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 230,
+      height: _railHeight(context, artwork: 160, text: 70),
       child: ListView.separated(
         padding: const EdgeInsets.symmetric(horizontal: 20),
         scrollDirection: Axis.horizontal,
@@ -463,7 +570,9 @@ class _AlbumCard extends StatelessWidget {
       width: 160,
       child: InkWell(
         key: ValueKey<String>('home-new-album-${album.albumId}'),
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(
+          SonusTheme.of(context).metrics.cardRadius,
+        ),
         onTap: onTap,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -499,20 +608,23 @@ class _RankBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
+    final tokens = SonusTheme.of(context);
 
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: colorScheme.surface.withValues(alpha: 0.9),
+        color: tokens.colors.accentPrimary,
         borderRadius: BorderRadius.circular(999),
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
         child: Text(
           '#$rank',
-          style: Theme.of(
-            context,
-          ).textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w800),
+          semanticsLabel: 'Rank $rank',
+          style: Theme.of(context).textTheme.labelMedium?.copyWith(
+            color: tokens.colors.onAccentPrimary,
+            fontWeight: FontWeight.w800,
+            fontFeatures: const [FontFeature.tabularFigures()],
+          ),
         ),
       ),
     );
@@ -534,18 +646,15 @@ class _SquareArtwork extends StatelessWidget {
   Widget build(BuildContext context) {
     final normalizedPath = path?.trim();
 
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(18),
-      child: SizedBox.square(
-        dimension: size,
-        child: normalizedPath != null && normalizedPath.isNotEmpty
-            ? Image.file(
-                File(normalizedPath),
-                fit: BoxFit.cover,
-                errorBuilder: (_, _, _) => _ArtworkFallback(icon: fallbackIcon),
-              )
-            : _ArtworkFallback(icon: fallbackIcon),
-      ),
+    return SonusArtworkFrame(
+      size: size,
+      child: normalizedPath != null && normalizedPath.isNotEmpty
+          ? Image.file(
+              File(normalizedPath),
+              fit: BoxFit.cover,
+              errorBuilder: (_, _, _) => _ArtworkFallback(icon: fallbackIcon),
+            )
+          : _ArtworkFallback(icon: fallbackIcon),
     );
   }
 }
@@ -557,22 +666,18 @@ class _ArtworkFallback extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-
-    return ColoredBox(
-      color: colorScheme.surfaceContainerHighest,
-      child: Center(
-        child: Icon(icon, size: 42, color: colorScheme.onSurfaceVariant),
-      ),
-    );
+    return SonusArtworkPlaceholder(icon: icon, iconSize: 42);
   }
 }
 
 class _ArtistArtwork extends StatelessWidget {
-  const _ArtistArtwork({required this.artist, required this.size});
+  const _ArtistArtwork({required this.artist});
+
+  /// Portrait crops keep the upper part of the image, where faces usually
+  /// are, rather than the exact centre.
+  static const Alignment _portraitFocus = Alignment(0, -0.35);
 
   final LibraryArtist artist;
-  final double size;
 
   @override
   Widget build(BuildContext context) {
@@ -585,21 +690,55 @@ class _ArtistArtwork extends StatelessWidget {
         ? headerPath
         : null;
 
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(size / 2),
-      child: SizedBox.square(
-        dimension: size,
-        child: path == null
-            ? const _ArtworkFallback(icon: Icons.person_rounded)
-            : Image.file(
-                File(path),
-                key: ValueKey<String>(
-                  'home-top-artist-artwork-${artist.artistId}',
+    if (path == null) {
+      return _ArtistInitials(name: artist.name);
+    }
+
+    return Image.file(
+      File(path),
+      key: ValueKey<String>('home-top-artist-artwork-${artist.artistId}'),
+      fit: BoxFit.cover,
+      alignment: _portraitFocus,
+      errorBuilder: (_, _, _) => _ArtistInitials(name: artist.name),
+    );
+  }
+}
+
+/// The artist's initials on the theme placeholder, shown when there is no
+/// artwork.
+class _ArtistInitials extends StatelessWidget {
+  const _ArtistInitials({required this.name});
+
+  final String name;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = SonusTheme.of(context);
+    final initials = name
+        .split(RegExp(r'\s+'))
+        .where((word) => word.isNotEmpty)
+        .take(2)
+        .map((word) => word.characters.first.toUpperCase())
+        .join();
+
+    return ColoredBox(
+      key: const ValueKey<String>('home-top-artist-initials'),
+      color: tokens.colors.artworkPlaceholder,
+      child: Center(
+        child: ExcludeSemantics(
+          child: initials.isEmpty
+              ? Icon(
+                  Icons.person_rounded,
+                  size: 48,
+                  color: tokens.colors.onArtworkPlaceholder,
+                )
+              : Text(
+                  initials,
+                  style: tokens.text.featuredStat.copyWith(
+                    color: tokens.colors.onArtworkPlaceholder,
+                  ),
                 ),
-                fit: BoxFit.cover,
-                errorBuilder: (_, _, _) =>
-                    const _ArtworkFallback(icon: Icons.person_rounded),
-              ),
+        ),
       ),
     );
   }
@@ -615,22 +754,17 @@ class _AlbumArtwork extends StatelessWidget {
   Widget build(BuildContext context) {
     final path = album.artworkPath?.trim();
 
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(18),
-      child: SizedBox.square(
-        dimension: size,
-        child: path == null || path.isEmpty
-            ? const _ArtworkFallback(icon: Icons.album_rounded)
-            : Image.file(
-                File(path),
-                key: ValueKey<String>(
-                  'home-new-album-artwork-${album.albumId}',
-                ),
-                fit: BoxFit.cover,
-                errorBuilder: (_, _, _) =>
-                    const _ArtworkFallback(icon: Icons.album_rounded),
-              ),
-      ),
+    return SonusArtworkFrame(
+      size: size,
+      child: path == null || path.isEmpty
+          ? const _ArtworkFallback(icon: Icons.album_rounded)
+          : Image.file(
+              File(path),
+              key: ValueKey<String>('home-new-album-artwork-${album.albumId}'),
+              fit: BoxFit.cover,
+              errorBuilder: (_, _, _) =>
+                  const _ArtworkFallback(icon: Icons.album_rounded),
+            ),
     );
   }
 }
@@ -746,6 +880,21 @@ class _RefreshErrorBanner extends StatelessWidget {
   }
 }
 
+/// Height of a horizontal rail: its artwork plus room for the card's text.
+///
+/// Rails scroll sideways, so their height is fixed up front. The text
+/// allowance grows with the system text scale so titles and statistics stay
+/// inside the card; at 1x the heights match the original layout.
+double _railHeight(
+  BuildContext context, {
+  required double artwork,
+  required double text,
+}) {
+  final textScale = MediaQuery.textScalerOf(context).scale(14) / 14;
+
+  return artwork + text * math.max(1, textScale);
+}
+
 Future<void> _showTrackContext(BuildContext context, LibraryTrack track) async {
   if (track.isBlocked || !track.isAvailable) {
     return;
@@ -770,7 +919,7 @@ Future<void> _showTrackContext(BuildContext context, LibraryTrack track) async {
                   overflow: TextOverflow.ellipsis,
                 ),
                 subtitle: Text(
-                  '${track.artistName} � ${track.albumTitle}',
+                  '${track.artistName} · ${track.albumTitle}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),

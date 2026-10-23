@@ -3,6 +3,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'package:sonus_next/core/design/sonus_theme_factory.dart';
+import 'package:sonus_next/core/design/sonus_theme_id.dart';
+import 'package:sonus_next/core/design/sonus_tokens.dart';
 
 import 'package:sonus_next/features/player/application/controllers/playback_coordinator.dart';
 import 'package:sonus_next/features/player/domain/models/playback_queue.dart';
@@ -153,7 +156,7 @@ const track3 = PlaybackTrack(
   filePath: '/music/third.mp3',
   duration: Duration(minutes: 5),
 );
-Widget buildSubject(FakePlaybackEngine engine) {
+Widget buildSubject(FakePlaybackEngine engine, {ThemeData? theme}) {
   final coordinator = PlaybackCoordinator(engine: engine);
   final stateController = PlaybackStateController(coordinator: coordinator);
 
@@ -165,8 +168,9 @@ Widget buildSubject(FakePlaybackEngine engine) {
       ),
       ChangeNotifierProvider<LyricsController?>.value(value: null),
     ],
-    child: const MaterialApp(
-      home: Scaffold(bottomNavigationBar: ShellPlaybackSlot()),
+    child: MaterialApp(
+      theme: theme,
+      home: const Scaffold(bottomNavigationBar: ShellPlaybackSlot()),
     ),
   );
 }
@@ -864,6 +868,91 @@ void main() {
     );
 
     await engine.dispose();
+  });
+
+  group('Sonus themes', () {
+    const playing = PlaybackState(
+      queue: PlaybackQueue(tracks: [track1, track2], currentIndex: 0),
+      status: PlaybackStatus.playing,
+      position: Duration(minutes: 1),
+      duration: Duration(minutes: 3),
+    );
+
+    for (final themeId in SonusThemeId.values) {
+      testWidgets('mini-player inherits ${themeId.label} tokens', (
+        tester,
+      ) async {
+        await tester.binding.setSurfaceSize(const Size(320, 640));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+        final theme = SonusThemeFactory.build(
+          SonusAppearanceSpec(themeId: themeId),
+        );
+        final colors = theme.extension<SonusColors>()!;
+        final engine = FakePlaybackEngine(initialState: playing);
+
+        await tester.pumpWidget(buildSubject(engine, theme: theme));
+        await tester.pump();
+
+        expect(tester.takeException(), isNull);
+
+        final container = tester.widget<Container>(
+          find.byKey(const ValueKey<String>('mini-player')),
+        );
+        final decoration = container.decoration! as BoxDecoration;
+        expect(decoration.color, colors.raisedSurface);
+
+        final progress = tester.widget<LinearProgressIndicator>(
+          find.descendant(
+            of: find.byKey(const ValueKey<String>('mini-player-progress')),
+            matching: find.byType(LinearProgressIndicator),
+          ),
+        );
+        expect(progress.color, colors.progressActive);
+        expect(progress.backgroundColor, colors.progressInactive);
+
+        final playPause = tester.widget<IconButton>(
+          find.byKey(const ValueKey<String>('mini-player-play-pause')),
+        );
+        expect(
+          playPause.style!.backgroundColor!.resolve(<WidgetState>{}),
+          colors.playbackControl,
+        );
+        expect(
+          find.byKey(const ValueKey<String>('mini-player-artwork-fallback')),
+          findsOneWidget,
+        );
+
+        final next = find.byKey(const ValueKey<String>('mini-player-next'));
+        expect(tester.getSize(next).height, greaterThanOrEqualTo(44));
+
+        await engine.dispose();
+      });
+    }
+
+    testWidgets('reduced motion opens Now Playing without a transition', (
+      tester,
+    ) async {
+      final engine = FakePlaybackEngine(initialState: playing);
+
+      await tester.pumpWidget(
+        buildSubject(
+          engine,
+          theme: SonusThemeFactory.build(
+            const SonusAppearanceSpec(reduceMotion: true),
+          ),
+        ),
+      );
+
+      await tester.tap(find.byKey(const ValueKey<String>('mini-player-open')));
+      await tester.pump();
+      await tester.pump();
+
+      final page = find.byKey(const ValueKey<String>('now-playing-page'));
+      final route = ModalRoute.of(tester.element(page))!;
+      expect(route.animation!.status, AnimationStatus.completed);
+
+      await engine.dispose();
+    });
   });
 
   testWidgets('now playing lyrics button opens lyrics page', (tester) async {

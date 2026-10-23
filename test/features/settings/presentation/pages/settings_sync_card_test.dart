@@ -121,6 +121,8 @@ void main() {
     );
 
     await tester.ensureVisible(button);
+
+    await tester.pumpAndSettle();
     await tester.tap(button);
     await tester.pumpAndSettle();
 
@@ -160,6 +162,8 @@ void main() {
     );
 
     await tester.ensureVisible(button);
+
+    await tester.pumpAndSettle();
     await tester.tap(button);
     await tester.pumpAndSettle();
 
@@ -271,6 +275,8 @@ void main() {
     );
 
     await tester.ensureVisible(allowButton);
+
+    await tester.pumpAndSettle();
     await tester.tap(allowButton);
     await tester.pumpAndSettle();
 

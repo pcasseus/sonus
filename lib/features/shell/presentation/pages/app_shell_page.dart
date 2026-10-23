@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../../core/design/sonus_theme.dart';
+import '../../../../core/design/widgets/sonus_brand_mark.dart';
 import '../../../charts/presentation/pages/charts_page.dart';
 import '../../../analytics/presentation/pages/listening_insights_page.dart';
 import '../../../home/presentation/pages/home_page.dart';
@@ -45,19 +47,33 @@ class _AppShellPageState extends State<AppShellPage>
   }
 
   void _selectDestination(AppDestination destination) {
+    final motion = SonusTheme.of(context).motion;
+
     _shellController.selectDestination(destination);
 
     if (_tabController.index != destination.index) {
-      _tabController.animateTo(destination.index);
+      _tabController.animateTo(
+        destination.index,
+        duration: motion.reduced ? Duration.zero : kTabScrollDuration,
+      );
     }
 
     if (!_pageController.hasClients) {
       return;
     }
 
+    // Reduced motion switches destinations without sliding through the
+    // pages in between.
+    if (motion.reduced) {
+      _pageController.jumpToPage(destination.index);
+      return;
+    }
+
     _pageController.animateToPage(
       destination.index,
-      duration: const Duration(milliseconds: 250),
+      duration: motion.medium,
+      // Not the theme's curve: an overshooting curve would drag the
+      // PageView past its first or last page.
       curve: Curves.easeOutCubic,
     );
   }
@@ -179,12 +195,37 @@ class _SonusAppTitle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Row(
+    final tokens = SonusTheme.of(context);
+
+    return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(Icons.graphic_eq_rounded, key: ValueKey<String>('sonus-app-mark')),
-        SizedBox(width: 8),
-        Text('Sonus', key: ValueKey<String>('sonus-app-title')),
+        // The wordmark beside it already reads "Sonus", so the mark is
+        // hidden from screen readers to avoid announcing the name twice.
+        const ExcludeSemantics(
+          child: SonusBrandMark(
+            key: ValueKey<String>('sonus-app-mark'),
+            concept: SonusBrandConcept.selected,
+            style: SonusBrandMarkStyle.theme,
+            size: 30,
+          ),
+        ),
+        const SizedBox(width: 8),
+        // Display headings are larger than the default title; on narrow
+        // screens or with large text the wordmark shrinks rather than
+        // overflowing the actions.
+        Flexible(
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              'Sonus',
+              key: const ValueKey<String>('sonus-app-title'),
+              style: tokens.text.sectionHeading.copyWith(
+                color: tokens.colors.textPrimary,
+              ),
+            ),
+          ),
+        ),
       ],
     );
   }

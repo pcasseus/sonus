@@ -65,6 +65,9 @@ void main() {
       contains('restore it on a new device'),
     );
 
+    // scrollUntilVisible can stop with the card at the bottom edge.
+    await tester.ensureVisible(key('settings-backup-restore'));
+    await tester.pumpAndSettle();
     await tester.tap(key('settings-backup-restore'));
     await tester.pumpAndSettle();
 
