@@ -135,6 +135,7 @@ class _ImportScopeState extends State<ImportScope> {
 
     final importSourceRepository = SqliteImportSourceRepository(
       ImportSourceDao(sqliteDatabase),
+      appDatabase: database,
     );
 
     final mediaFileBindingRepository = SqliteMediaFileBindingRepository(
