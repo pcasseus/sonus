@@ -1,10 +1,14 @@
 import 'dart:developer' as developer;
 
+import '../../../../core/identity/text_normalizer.dart';
+import '../../../artwork/application/services/owned_artwork_managed_storage.dart';
+import '../../../artwork/domain/entities/artwork_asset.dart';
 import '../repositories/local_sync_repository.dart';
 import '../../domain/models/cloud_records.dart';
 import '../../domain/models/inbound_deferred_record.dart';
 import '../../domain/models/local_sync_models.dart';
 import '../../domain/models/sync_data_contract.dart';
+import 'cloud_artwork_recovery_service.dart';
 import 'cloud_sync_reader.dart';
 import 'inbound_cloud_record_applier.dart';
 import 'sync_mutation_context.dart';
@@ -64,11 +68,15 @@ class InboundReplayResult {
     this.skippedCount = 0,
     this.unresolvedCount = 0,
     this.notAttemptedCount = 0,
+    this.installedArtworkCount = 0,
     this.failures = const [],
   });
 
   /// Replays whose obligation is now satisfied and cleared.
   final int appliedCount;
+
+  /// Cloud artwork downloaded and committed as a local asset.
+  final int installedArtworkCount;
 
   /// Fetched and durably deferred again, possibly for a new reason.
   final int stillDeferredCount;
@@ -117,6 +125,8 @@ class InboundSyncReconciler implements InboundSyncPageReconciler {
     InboundCloudRecordApplier? applier,
     InboundSyncClock? now,
     InboundReplayLogger? replayLogger,
+    this.recoverArtwork,
+    this.maxArtworkDownloads = 10,
   }) : applier = applier ?? const InboundCloudRecordApplier(),
        _now = now ?? DateTime.now,
        _logReplay = replayLogger ?? _developerLog;
@@ -127,6 +137,13 @@ class InboundSyncReconciler implements InboundSyncPageReconciler {
   final InboundCloudRecordApplier applier;
   final InboundSyncClock _now;
   final InboundReplayLogger _logReplay;
+
+  /// Downloads cloud-only artwork during replay. Without it, artwork that
+  /// exists only in the cloud stays deferred.
+  final RecoverCloudArtwork? recoverArtwork;
+
+  /// Upper bound on artwork downloads per replay pass.
+  final int maxArtworkDownloads;
 
   static void _developerLog(String message) {
     developer.log(message, name: 'sonus.sync.replay', level: 900);
@@ -295,9 +312,11 @@ class InboundSyncReconciler implements InboundSyncPageReconciler {
 
     // Local-only screening. A record whose blocker visibly still holds is
     // not fetched; a newer cloud revision reaches it through the cursor.
-    final (:candidates, :skippedCount) = await mutationRunner.run((
-      context,
-    ) async {
+    final (
+      :candidates,
+      :skippedCount,
+      :downloadKeys,
+    ) = await mutationRunner.run((context) async {
       final ledger = await context.inboundDeferredRecordRepository?.getDeferred(
         normalizedUserId,
       );
@@ -310,17 +329,29 @@ class InboundSyncReconciler implements InboundSyncPageReconciler {
       };
 
       final candidates = <InboundDeferredRecord>[];
+      final downloadKeys = <String>{};
       var skippedCount = 0;
 
       for (final record in ledger ?? const <InboundDeferredRecord>[]) {
         if (await _blockerStillHolds(context, record, pendingKeys)) {
           skippedCount += 1;
-        } else {
-          candidates.add(record);
+          continue;
+        }
+
+        candidates.add(record);
+
+        if (record.reason == InboundDeferralReason.artworkDownloadRequired &&
+            await context.artworkAssetRepository.getById(record.entityId) ==
+                null) {
+          downloadKeys.add(_key(record.entityType, record.entityId));
         }
       }
 
-      return (candidates: candidates, skippedCount: skippedCount);
+      return (
+        candidates: candidates,
+        skippedCount: skippedCount,
+        downloadKeys: downloadKeys,
+      );
     });
 
     // Least recently attempted first. Every attempt re-saves its row with a
@@ -331,9 +362,30 @@ class InboundSyncReconciler implements InboundSyncPageReconciler {
       return byAttempt != 0 ? byAttempt : _dependencyOrder(a, b);
     });
 
-    final batch = candidates.take(maxFetches).toList()..sort(_dependencyOrder);
+    // Downloads are heavier than fetches and have their own per-pass limit.
+    final batch = <InboundDeferredRecord>[];
+    var plannedDownloads = 0;
+
+    for (final record in candidates) {
+      if (batch.length == maxFetches) {
+        break;
+      }
+
+      if (downloadKeys.contains(_key(record.entityType, record.entityId))) {
+        if (plannedDownloads == maxArtworkDownloads) {
+          continue;
+        }
+
+        plannedDownloads += 1;
+      }
+
+      batch.add(record);
+    }
+
+    batch.sort(_dependencyOrder);
 
     var appliedCount = 0;
+    var installedArtworkCount = 0;
     var stillDeferredCount = 0;
     var unresolvedCount = 0;
     final failures = <InboundReplayFailure>[];
@@ -348,10 +400,47 @@ class InboundSyncReconciler implements InboundSyncPageReconciler {
           entityId: record.entityId,
         );
 
-        final outcome = await mutationRunner.run(
-          (context) =>
-              _replayRecord(context: context, record: record, current: current),
-        );
+        // Download and decoding finish before the record's transaction
+        // starts, so no database mutation is held open during them.
+        final install =
+            downloadKeys.contains(_key(record.entityType, record.entityId))
+            ? await _recoverArtworkFor(record, current)
+            : null;
+
+        final _ItemOutcome outcome;
+        var installed = false;
+
+        try {
+          outcome = await mutationRunner.run((context) async {
+            final result = await _replayRecord(
+              context: context,
+              record: record,
+              current: current,
+              install: install,
+            );
+
+            installed =
+                install != null &&
+                (await context.artworkAssetRepository.getById(
+                      record.entityId,
+                    ))?.filePath ==
+                    install.filePath;
+
+            return result;
+          });
+        } catch (_) {
+          // Nothing committed, so the downloaded file is not referenced.
+          await _discardRecoveredArtwork(install, record);
+          rethrow;
+        }
+
+        if (installed) {
+          installedArtworkCount += 1;
+        } else {
+          // Not adopted, for example because another operation installed
+          // this artwork first. Only our own file is removed.
+          await _discardRecoveredArtwork(install, record);
+        }
 
         switch (outcome) {
           case _ItemOutcome.applied:
@@ -404,14 +493,61 @@ class InboundSyncReconciler implements InboundSyncPageReconciler {
       skippedCount: skippedCount,
       unresolvedCount: unresolvedCount,
       notAttemptedCount: candidates.length - batch.length,
+      installedArtworkCount: installedArtworkCount,
       failures: List.unmodifiable(failures),
     );
+  }
+
+  /// Downloads artwork only for a live cloud row that matches the deferred
+  /// identity and is not older than the deferral. Anything else is left to
+  /// the transaction, which keeps or resolves the obligation without bytes.
+  Future<OwnedArtworkImport?> _recoverArtworkFor(
+    InboundDeferredRecord record,
+    CloudSyncItem? current,
+  ) async {
+    final recover = recoverArtwork;
+    final cloudRecord = current?.record;
+    final revision = current?.serverRevision;
+
+    if (recover == null ||
+        cloudRecord is! CloudArtworkAssetRecord ||
+        cloudRecord.isDeleted ||
+        cloudRecord.userId != record.userId ||
+        cloudRecord.id != record.entityId ||
+        revision == null ||
+        revision < record.serverRevision) {
+      return null;
+    }
+
+    return recover(cloudRecord);
+  }
+
+  Future<void> _discardRecoveredArtwork(
+    OwnedArtworkImport? install,
+    InboundDeferredRecord record,
+  ) async {
+    if (install == null) {
+      return;
+    }
+
+    try {
+      await install.discard();
+    } catch (error) {
+      // The file is unreferenced either way; report it, keep the outcome.
+      _logReplay(
+        'Discarding recovered artwork failed: '
+        'entityType=${record.entityType.name} '
+        'entityId=${record.entityId} '
+        'error=${error.runtimeType}',
+      );
+    }
   }
 
   Future<_ItemOutcome> _replayRecord({
     required SyncMutationContext context,
     required InboundDeferredRecord record,
     required CloudSyncItem? current,
+    OwnedArtworkImport? install,
   }) async {
     final revision = current?.serverRevision;
 
@@ -439,6 +575,36 @@ class InboundSyncReconciler implements InboundSyncPageReconciler {
       userId: record.userId,
       entityType: record.entityType,
       item: current,
+      artworkInstall: install,
+    );
+  }
+
+  /// Records recovered artwork as a local asset when none exists yet.
+  ///
+  /// Runs inside the reconciling transaction, after revision and hold
+  /// checks, so the asset, baseline and ledger change commit together. An
+  /// asset installed concurrently by another operation is left untouched.
+  Future<void> _installRecoveredArtwork({
+    required SyncMutationContext context,
+    required CloudOwnedRecord record,
+    required OwnedArtworkImport install,
+  }) async {
+    if (record is! CloudArtworkAssetRecord || record.isDeleted) {
+      throw StateError('Recovered artwork must match a live artwork row.');
+    }
+
+    if (await context.artworkAssetRepository.getById(record.id) != null) {
+      return;
+    }
+
+    await context.artworkAssetRepository.create(
+      ArtworkAsset(
+        id: record.id,
+        filePath: install.filePath,
+        normalizedPath: TextNormalizer.normalizePath(install.filePath),
+        createdAt: record.createdAt,
+        updatedAt: record.updatedAt,
+      ),
     );
   }
 
@@ -517,9 +683,11 @@ class InboundSyncReconciler implements InboundSyncPageReconciler {
     }
 
     return switch (record.reason) {
-      // Bytes are only ever available once a local asset exists.
+      // Without artwork recovery, bytes only arrive with a local asset.
       InboundDeferralReason.artworkDownloadRequired =>
-        await context.artworkAssetRepository.getById(record.entityId) == null,
+        recoverArtwork == null &&
+            await context.artworkAssetRepository.getById(record.entityId) ==
+                null,
 
       // Local deletion is never automatic. Only a tombstone for an entity
       // that no longer exists locally can be reconciled.
@@ -591,6 +759,7 @@ class InboundSyncReconciler implements InboundSyncPageReconciler {
     required String userId,
     required CloudDataEntity entityType,
     required CloudSyncItem item,
+    OwnedArtworkImport? artworkInstall,
   }) async {
     final baselineRepository = context.cloudRevisionBaselineRepository;
 
@@ -635,6 +804,14 @@ class InboundSyncReconciler implements InboundSyncPageReconciler {
       entityType: entityType,
       entityId: item.record.id,
     );
+
+    if (holdReason == null && artworkInstall != null) {
+      await _installRecoveredArtwork(
+        context: context,
+        record: item.record,
+        install: artworkInstall,
+      );
+    }
 
     final deferralReason =
         holdReason ??

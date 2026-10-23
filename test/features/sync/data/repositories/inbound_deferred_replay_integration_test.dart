@@ -5,15 +5,21 @@ import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:sonus_next/core/database/app_database.dart';
+import 'package:sonus_next/features/artwork/data/services/file_system_artwork_managed_storage.dart';
+import 'package:sonus_next/features/artwork/domain/entities/artwork_asset.dart';
 import 'package:sonus_next/features/library/domain/entities/album.dart';
 import 'package:sonus_next/features/library/domain/entities/artist.dart';
+import 'package:sonus_next/features/sync/application/services/cloud_artwork_recovery_service.dart';
+import 'package:sonus_next/features/sync/application/services/cloud_artwork_storage.dart';
 import 'package:sonus_next/features/sync/application/services/cloud_sync_reader.dart';
 import 'package:sonus_next/features/sync/application/services/inbound_sync_processor.dart';
 import 'package:sonus_next/features/sync/application/services/inbound_sync_reconciler.dart';
 import 'package:sonus_next/features/sync/application/services/sync_mutation_runner.dart';
+import 'package:sonus_next/features/sync/data/contracts/supabase_sync_contract.dart';
 import 'package:sonus_next/features/sync/data/daos/local_sync_dao.dart';
 import 'package:sonus_next/features/sync/data/repositories/sqlite_local_sync_repository.dart';
 import 'package:sonus_next/features/sync/data/repositories/sync_mutation_transaction_runner.dart';
+import 'package:sonus_next/features/sync/data/services/supabase_cloud_artwork_storage.dart';
 import 'package:sonus_next/features/sync/domain/models/cloud_records.dart';
 import 'package:sonus_next/features/sync/domain/models/inbound_deferred_record.dart';
 import 'package:sonus_next/features/sync/domain/models/local_sync_models.dart';
@@ -36,6 +42,8 @@ void main() {
   Future<InboundSyncProcessor> processorFor(
     AppDatabase database, {
     int replayLimit = 50,
+    RecoverCloudArtwork? recoverArtwork,
+    int maxArtworkDownloads = 10,
   }) async {
     faults = _FaultInjectingRunner(
       SyncMutationTransactionRunner(
@@ -56,6 +64,8 @@ void main() {
         mutationRunner: faults,
         now: () => clock,
         replayLogger: replayLog.add,
+        recoverArtwork: recoverArtwork,
+        maxArtworkDownloads: maxArtworkDownloads,
       ),
       replayWindow: Duration.zero,
       deferredReplayFetchLimit: replayLimit,
@@ -705,6 +715,340 @@ void main() {
     });
   });
 
+  group('cloud artwork recovery', () {
+    late Directory root;
+    late _ArtworkObjects objects;
+
+    setUp(() async {
+      root = await Directory.systemTemp.createTemp('sn47b3_');
+      objects = _ArtworkObjects();
+    });
+
+    tearDown(() async {
+      await root.delete(recursive: true);
+    });
+
+    Directory downloads() => Directory(p.join(root.path, 'downloads'));
+    Directory managed() => Directory(p.join(root.path, 'sonus', 'artwork'));
+
+    List<String> filesIn(Directory directory) {
+      return directory.existsSync()
+          ? directory.listSync().map((entry) => entry.path).toList()
+          : const [];
+    }
+
+    // The real recovery service and managed storage; only the cloud objects
+    // and the image check are stubbed. A leading 0 byte marks bad bytes.
+    RecoverCloudArtwork recovery() {
+      return CloudArtworkRecoveryService(
+        cloudArtworkStorage: objects,
+        managedStorage: FileSystemArtworkManagedStorage(
+          applicationSupportDirectoryProvider: () async => root,
+        ),
+        validateImage: (path) async {
+          if ((await File(path).readAsBytes()).first == 0) {
+            throw StateError('Not an image.');
+          }
+        },
+        downloadDirectory: () async =>
+            (await downloads().create(recursive: true)).path,
+      ).recover;
+    }
+
+    CloudArtworkAssetRecord artworkRow({
+      String id = 'artwork_1',
+      String? key,
+      DateTime? deletedAt,
+    }) {
+      return CloudArtworkAssetRecord(
+        id: id,
+        userId: 'u1',
+        storageObjectKey: key ?? 'u1/$id/v1.png',
+        createdAt: _at(1),
+        updatedAt: _at(2),
+        deletedAt: deletedAt,
+      );
+    }
+
+    Future<ArtworkAsset?> localArtwork(String id) {
+      return runner.run(
+        (context) => context.artworkAssetRepository.getById(id),
+      );
+    }
+
+    Future<InboundDeferredRecord?> artworkDeferral(String id) {
+      return runner.run(
+        (context) => context.inboundDeferredRecordRepository!.getDeferral(
+          userId: 'u1',
+          entityType: CloudDataEntity.artworkAsset,
+          entityId: id,
+        ),
+      );
+    }
+
+    /// The cursor passes cloud-only artwork while no recovery is configured.
+    Future<void> deferArtwork({
+      String id = 'artwork_1',
+      String? key,
+      List<int> bytes = const [1, 2, 3],
+    }) async {
+      final row = artworkRow(id: id, key: key);
+      objects.objects[row.storageObjectKey] = bytes;
+      cloud.publish(row, hour: 3, revision: 2);
+      await (await processorFor(appDatabase)).pullAll(userId: 'u1');
+      cloud.passCursor();
+    }
+
+    test(
+      'downloads cloud-only artwork and commits it with its baseline',
+      () async {
+        objects.objects['u1/artwork_1/v1.png'] = [1, 2, 3];
+        cloud.publish(artworkRow(), hour: 3, revision: 2);
+
+        final processor = await processorFor(
+          appDatabase,
+          recoverArtwork: recovery(),
+        );
+        await processor.pullAll(userId: 'u1');
+
+        final asset = await localArtwork('artwork_1');
+        expect(asset, isNotNull);
+        expect(p.dirname(asset!.filePath), managed().path);
+        expect(File(asset.filePath).readAsBytesSync(), [1, 2, 3]);
+        expect(asset.createdAt, _at(1));
+        expect(await baseline(CloudDataEntity.artworkAsset, 'artwork_1'), 2);
+        expect(await ledger(), isEmpty);
+        expect(filesIn(managed()), [asset.filePath]);
+        expect(filesIn(downloads()), isEmpty);
+
+        // A recovered asset is cloud state; it is never queued for upload.
+        final pending = await LocalSyncDao(
+          await appDatabase.database,
+        ).findPending('u1');
+        expect(pending, isEmpty);
+      },
+    );
+
+    test('artwork-dependent records recover in the same pass', () async {
+      objects.objects['u1/artwork_1/v1.png'] = [1, 2, 3];
+      cloud
+        ..publish(artworkRow(), hour: 3, revision: 1)
+        ..publish(_artist(), hour: 4, revision: 1)
+        ..publish(_album(), hour: 5, revision: 1)
+        ..publish(_edition(), hour: 6, revision: 1)
+        ..publish(_song(artworkId: 'artwork_1'), hour: 7, revision: 1);
+
+      final processor = await processorFor(
+        appDatabase,
+        recoverArtwork: recovery(),
+      );
+      await processor.pullAll(userId: 'u1');
+
+      expect((await localChain()).every((entity) => entity != null), isTrue);
+      expect(await ledger(), isEmpty);
+      expect(objects.downloads, ['artwork_1']);
+    });
+
+    test('a failed download keeps the obligation and retries later', () async {
+      await deferArtwork();
+      objects.errors['artwork_1'] = const SocketException('connection reset');
+
+      final processor = await processorFor(
+        appDatabase,
+        recoverArtwork: recovery(),
+      );
+
+      clock = _at(13);
+      await expectLater(
+        processor.pullAll(userId: 'u1'),
+        throwsA(isA<SocketException>()),
+      );
+
+      final kept = await artworkDeferral('artwork_1');
+      expect(kept?.serverRevision, 2);
+      expect(kept?.reason, InboundDeferralReason.artworkDownloadRequired);
+      expect(kept?.deferredAt, _at(13));
+      expect(await localArtwork('artwork_1'), isNull);
+      expect(filesIn(managed()), isEmpty);
+      expect(filesIn(downloads()), isEmpty);
+      expect(replayLog.single, contains('entityType=artworkAsset'));
+      expect(replayLog.single, contains('error=SocketException'));
+
+      objects.errors.clear();
+      clock = _at(14);
+      await processor.pullAll(userId: 'u1');
+
+      expect(await localArtwork('artwork_1'), isNotNull);
+      expect(await ledger(), isEmpty);
+    });
+
+    test('bytes that fail validation are never installed', () async {
+      await deferArtwork(bytes: const [0, 1, 2]);
+
+      await expectLater(
+        (await processorFor(
+          appDatabase,
+          recoverArtwork: recovery(),
+        )).pullAll(userId: 'u1'),
+        throwsStateError,
+      );
+
+      expect(await localArtwork('artwork_1'), isNull);
+      expect(await baseline(CloudDataEntity.artworkAsset, 'artwork_1'), isNull);
+      expect((await artworkDeferral('artwork_1'))?.serverRevision, 2);
+      expect(filesIn(managed()), isEmpty);
+      expect(filesIn(downloads()), isEmpty);
+    });
+
+    test('a key for another owner or artwork is refused', () async {
+      await deferArtwork(key: 'u2/artwork_1/v1.png');
+      await deferArtwork(id: 'artwork_2', key: 'u1/artwork_9.png');
+
+      await expectLater(
+        (await processorFor(
+          appDatabase,
+          recoverArtwork: recovery(),
+        )).pullAll(userId: 'u1'),
+        throwsA(isA<CloudArtworkDownloadException>()),
+      );
+
+      expect(objects.downloads, isEmpty);
+      expect(await localArtwork('artwork_1'), isNull);
+      expect(await localArtwork('artwork_2'), isNull);
+      expect(await ledger(), {
+        CloudDataEntity.artworkAsset: (
+          2,
+          InboundDeferralReason.artworkDownloadRequired,
+        ),
+      });
+      expect((await artworkDeferral('artwork_1'))?.serverRevision, 2);
+      expect((await artworkDeferral('artwork_2'))?.serverRevision, 2);
+      expect(filesIn(managed()), isEmpty);
+    });
+
+    test('restore admission rejection discards the file and keeps the '
+        'obligation', () async {
+      await deferArtwork();
+      final processor = await processorFor(
+        appDatabase,
+        recoverArtwork: recovery(),
+      );
+
+      // A restore begins while the download is in flight. The install
+      // transaction and the requeue are both refused before any SQLite work.
+      objects.onDownload = (_) async => faults.rejectNextRuns = 2;
+
+      clock = _at(13);
+      await expectLater(
+        processor.pullAll(userId: 'u1'),
+        throwsA(isA<_RestoreAdmissionRejected>()),
+      );
+
+      expect(filesIn(managed()), isEmpty);
+      expect(filesIn(downloads()), isEmpty);
+      expect(await localArtwork('artwork_1'), isNull);
+      expect(await baseline(CloudDataEntity.artworkAsset, 'artwork_1'), isNull);
+
+      final kept = await artworkDeferral('artwork_1');
+      expect(kept?.serverRevision, 2);
+      expect(kept?.reason, InboundDeferralReason.artworkDownloadRequired);
+      expect(kept?.deferredAt, _at(12));
+      expect(
+        replayLog.single,
+        contains('queue=requeueFailed(_RestoreAdmissionRejected)'),
+      );
+
+      // Once the restore ends the intact obligation recovers normally.
+      objects.onDownload = null;
+      clock = _at(14);
+      await processor.pullAll(userId: 'u1');
+
+      expect(await localArtwork('artwork_1'), isNotNull);
+      expect(await ledger(), isEmpty);
+    });
+
+    test('a concurrent install of the same artwork is never touched', () async {
+      await deferArtwork();
+      final theirs = File(p.join(root.path, 'theirs.png'))
+        ..writeAsBytesSync([7, 7, 7]);
+
+      objects.onDownload = (id) async {
+        await runner.run<void>((context) async {
+          await context.artworkAssetRepository.create(
+            ArtworkAsset(
+              id: id,
+              filePath: theirs.path,
+              normalizedPath: theirs.path,
+              createdAt: _at(5),
+              updatedAt: _at(5),
+            ),
+          );
+        });
+      };
+
+      await (await processorFor(
+        appDatabase,
+        recoverArtwork: recovery(),
+      )).pullAll(userId: 'u1');
+
+      final asset = await localArtwork('artwork_1');
+      expect(asset?.filePath, theirs.path);
+      expect(theirs.readAsBytesSync(), [7, 7, 7]);
+      expect(filesIn(managed()), isEmpty);
+      expect(await ledger(), isEmpty);
+      expect(await baseline(CloudDataEntity.artworkAsset, 'artwork_1'), 2);
+    });
+
+    test('tombstoned artwork is never downloaded; cursors stay put', () async {
+      await deferArtwork();
+      cloud.publish(
+        artworkRow(deletedAt: _at(8)),
+        hour: 8,
+        revision: 3,
+        onPage: false,
+      );
+      final cursorBefore = await cursor(CloudDataEntity.artworkAsset);
+
+      await (await processorFor(
+        appDatabase,
+        recoverArtwork: recovery(),
+      )).pullAll(userId: 'u1');
+
+      expect(objects.downloads, isEmpty);
+      expect(await localArtwork('artwork_1'), isNull);
+      expect(filesIn(managed()), isEmpty);
+      expect(await ledger(), isEmpty);
+      expect(await baseline(CloudDataEntity.artworkAsset, 'artwork_1'), 3);
+
+      final cursorAfter = await cursor(CloudDataEntity.artworkAsset);
+      expect(cursorAfter?.lastServerId, cursorBefore?.lastServerId);
+      expect(
+        cursorAfter?.lastServerUpdatedAt,
+        cursorBefore?.lastServerUpdatedAt,
+      );
+    });
+
+    test('downloads per pass are bounded and rotate', () async {
+      await deferArtwork();
+      await deferArtwork(id: 'artwork_2');
+
+      final processor = await processorFor(
+        appDatabase,
+        recoverArtwork: recovery(),
+        maxArtworkDownloads: 1,
+      );
+
+      clock = _at(13);
+      await processor.pullAll(userId: 'u1');
+      expect(objects.downloads, ['artwork_1']);
+
+      clock = _at(14);
+      await processor.pullAll(userId: 'u1');
+      expect(objects.downloads, ['artwork_1', 'artwork_2']);
+      expect(await ledger(), isEmpty);
+    });
+  });
+
   group('incompatible and deleted records', () {
     test('a tombstone for a held entity is preserved, never applied', () async {
       final processor = await processorFor(appDatabase);
@@ -925,6 +1269,11 @@ class _FaultInjectingRunner implements SyncMutationRunner {
   final SyncMutationRunner _inner;
   bool failNextRun = false;
 
+  /// Rejects this many upcoming transactions with [rejection] before any
+  /// SQLite work, as SN-42's mutation coordinator does during a restore.
+  int rejectNextRuns = 0;
+  Object rejection = const _RestoreAdmissionRejected();
+
   @override
   Future<T> run<T>(SyncMutationAction<T> action) {
     if (failNextRun) {
@@ -932,8 +1281,85 @@ class _FaultInjectingRunner implements SyncMutationRunner {
       return Future.error(StateError('Ledger unavailable.'));
     }
 
+    if (rejectNextRuns > 0) {
+      rejectNextRuns -= 1;
+      return Future.error(rejection);
+    }
+
     return _inner.run(action);
   }
+}
+
+/// Stands in for SN-42's `LibraryMutationUnavailable`, which is not on this
+/// branch. Like it, the rejection happens before any transaction starts.
+class _RestoreAdmissionRejected implements Exception {
+  const _RestoreAdmissionRejected();
+}
+
+/// Cloud artwork objects served to the real recovery service. Applies the
+/// production key policy, so identity mismatches are refused as in Supabase.
+class _ArtworkObjects implements CloudArtworkStorage {
+  final Map<String, List<int>> objects = {};
+  final List<String> downloads = [];
+  final Map<String, Object> errors = {};
+
+  /// Runs while the download is in flight, before bytes are written.
+  Future<void> Function(String artworkId)? onDownload;
+
+  @override
+  Future<String> downloadToTemporaryFile({
+    required String userId,
+    required String artworkId,
+    required String objectKey,
+    required String directoryPath,
+    required int maxBytes,
+  }) async {
+    final extension = SupabaseSyncContract.verifiedArtworkObjectKeyExtension(
+      userId: userId,
+      artworkId: artworkId,
+      objectKey: objectKey,
+    );
+
+    if (extension == null) {
+      throw const CloudArtworkDownloadException('Foreign artwork key.');
+    }
+
+    downloads.add(artworkId);
+    await onDownload?.call(artworkId);
+
+    final error = errors[artworkId];
+
+    if (error != null) {
+      throw error;
+    }
+
+    final file = File(
+      p.join(directoryPath, 'download_${downloads.length}.$extension'),
+    );
+    await file.create(exclusive: true);
+    await file.writeAsBytes(objects[objectKey]!);
+
+    return file.path;
+  }
+
+  @override
+  Future<String> upload({
+    required String userId,
+    required ArtworkAsset artworkAsset,
+  }) => throw UnimplementedError();
+
+  @override
+  Future<String> uploadImmutable({
+    required String userId,
+    required ArtworkAsset artworkAsset,
+    required String version,
+  }) => throw UnimplementedError();
+
+  @override
+  Future<void> deleteObject({
+    required String userId,
+    required String objectKey,
+  }) => throw UnimplementedError();
 }
 
 /// A replay failure whose message carries library content, which must

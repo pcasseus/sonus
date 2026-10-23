@@ -20,6 +20,21 @@ abstract interface class CloudArtworkStorage {
     required String version,
   });
 
+  /// Streams the artwork object at [objectKey] into a new file created
+  /// exclusively in [directoryPath] and returns that file's path.
+  ///
+  /// The key must be an approved artwork key for exactly [userId] and
+  /// [artworkId]; otherwise nothing is requested. The download stops as
+  /// soon as more than [maxBytes] arrive. On any failure the partial file
+  /// is removed. No existing file is ever overwritten.
+  Future<String> downloadToTemporaryFile({
+    required String userId,
+    required String artworkId,
+    required String objectKey,
+    required String directoryPath,
+    required int maxBytes,
+  });
+
   /// Removes an object that no accepted cloud row references.
   Future<void> deleteObject({
     required String userId,

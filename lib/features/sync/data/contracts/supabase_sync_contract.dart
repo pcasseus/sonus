@@ -106,6 +106,47 @@ abstract final class SupabaseSyncContract {
     return '$normalizedUserId/$normalizedArtworkId.$normalizedExtension';
   }
 
+  /// Image extensions accepted when downloading cloud artwork.
+  static const Set<String> downloadableArtworkExtensions = {
+    'jpg',
+    'jpeg',
+    'png',
+    'webp',
+    'gif',
+    'bmp',
+  };
+
+  /// Returns the extension of [objectKey] when it is a legacy or versioned
+  /// artwork key for exactly [userId] and [artworkId] with an accepted
+  /// image extension, otherwise null.
+  static String? verifiedArtworkObjectKeyExtension({
+    required String userId,
+    required String artworkId,
+    required String objectKey,
+  }) {
+    final safeSegment = RegExp(r'^[A-Za-z0-9_-]+$');
+
+    if (!safeSegment.hasMatch(userId) || !safeSegment.hasMatch(artworkId)) {
+      return null;
+    }
+
+    final prefix = '$userId/$artworkId';
+
+    if (!objectKey.startsWith(prefix)) {
+      return null;
+    }
+
+    final match = RegExp(
+      r'^(?:/[A-Za-z0-9_-]+)?\.([a-z0-9]+)$',
+    ).firstMatch(objectKey.substring(prefix.length));
+    final extension = match?.group(1);
+
+    return extension != null &&
+            downloadableArtworkExtensions.contains(extension)
+        ? extension
+        : null;
+  }
+
   /// Immutable key for one uploaded version of an artwork asset.
   static String versionedArtworkObjectKey({
     required String userId,

@@ -1593,6 +1593,17 @@ class FakeCloudArtworkStorage implements CloudArtworkStorage {
   }) async {
     calls.add('deleteObject:$objectKey');
   }
+
+  @override
+  Future<String> downloadToTemporaryFile({
+    required String userId,
+    required String artworkId,
+    required String objectKey,
+    required String directoryPath,
+    required int maxBytes,
+  }) {
+    throw StateError('Outbound sync never downloads artwork.');
+  }
 }
 
 class FakeCloudSyncGateway implements CloudSyncGateway {

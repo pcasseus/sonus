@@ -45,6 +45,7 @@ import '../../data/repositories/sqlite_outbound_conflict_repository.dart';
 import '../../data/repositories/sync_mutation_transaction_runner.dart';
 import '../../data/services/supabase_cloud_artwork_storage.dart';
 import '../widgets/automatic_sync_lifecycle_bridge.dart';
+import 'cloud_artwork_recovery_composition.dart';
 import 'legacy_artist_sync_composition.dart';
 
 class SyncScope extends StatefulWidget {
@@ -182,6 +183,8 @@ class _SyncScopeState extends State<SyncScope> {
       reader: SupabaseCloudSyncReader(client: client),
       localSyncRepository: localSyncRepository,
       mutationRunner: mutationRunner,
+      // Deferred cloud-only artwork is downloaded during replay.
+      recoverArtwork: createCloudArtworkRecovery(client: client).recover,
     );
 
     final inboundProcessor = InboundSyncProcessor(
