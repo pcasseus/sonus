@@ -137,6 +137,7 @@ class BackupRestoreController extends ChangeNotifier {
     }
 
     await _run(RecoveryOperation.restoring, () async {
+      _restoreResult = null;
       _restoreResult = await service.restore(
         preview.backupFile,
         onStage: (stage) {
@@ -217,6 +218,13 @@ class BackupRestoreController extends ChangeNotifier {
     _operationError = null;
     _backupStage = null;
     _restoreStage = null;
+
+    // A prior restore result must not hide subsequent operations.
+    // The completion screen remains available until a new user action.
+    if (operation != RecoveryOperation.checkingRecovery) {
+      _restoreResult = null;
+    }
+
     _notify();
 
     try {

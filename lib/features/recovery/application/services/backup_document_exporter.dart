@@ -61,10 +61,8 @@ class MethodChannelBackupDocumentPlatform implements BackupDocumentPlatform {
   final MethodChannel channel;
 
   @override
-  Future<String?> createDocument(String suggestedName) =>
-      channel.invokeMethod<String>('createDocument', {
-        'suggestedName': suggestedName,
-      });
+  Future<String?> createDocument(String suggestedName) => channel
+      .invokeMethod<String>('createDocument', {'suggestedName': suggestedName});
 
   @override
   Future<int> writeDocument({required File source, required String uri}) async {
@@ -104,8 +102,7 @@ class MethodChannelBackupDocumentPlatform implements BackupDocumentPlatform {
 
   @override
   Future<bool> deleteDocument(String uri) async =>
-      await channel.invokeMethod<bool>('deleteDocument', {'uri': uri}) ??
-      false;
+      await channel.invokeMethod<bool>('deleteDocument', {'uri': uri}) ?? false;
 }
 
 /// Saves a backup outside the app and proves the saved bytes are intact.
@@ -124,6 +121,22 @@ class BackupDocumentExporter {
     required File source,
     required String suggestedName,
   }) async {
+    // Verify that the source can be read before asking the document
+    // provider to create anything. Otherwise an unreadable source could
+    // leave an empty document at the user's chosen destination.
+    final int expectedLength;
+    final String expectedDigest;
+
+    try {
+      expectedLength = await source.length();
+      expectedDigest = (await sha256.bind(source.openRead()).first).toString();
+    } catch (_) {
+      return const BackupExportResult(
+        outcome: BackupExportOutcome.failed,
+        message: 'The backup file could not be read.',
+      );
+    }
+
     final String? uri;
 
     try {
@@ -143,10 +156,6 @@ class BackupDocumentExporter {
     if (uri == null) {
       return const BackupExportResult(outcome: BackupExportOutcome.cancelled);
     }
-
-    final expectedLength = await source.length();
-    final expectedDigest = (await sha256.bind(source.openRead()).first)
-        .toString();
 
     try {
       final written = await platform.writeDocument(source: source, uri: uri);

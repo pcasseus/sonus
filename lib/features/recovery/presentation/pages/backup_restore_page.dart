@@ -271,7 +271,8 @@ class _RestoreCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final preview = controller.preview;
-    final preparing = controller.operation == RecoveryOperation.preparingRestore;
+    final preparing =
+        controller.operation == RecoveryOperation.preparingRestore;
 
     return _SectionCard(
       title: 'Restore',
@@ -279,7 +280,7 @@ class _RestoreCard extends StatelessWidget {
       children: [
         const Text(
           'Replaces the library on this device with a backup. Sonus first '
-          'saves a verified safety backup of your current library, and '
+          'creates a verified safety backup when needed, and '
           'nothing changes until you confirm.',
         ),
         const SizedBox(height: 12),
@@ -323,7 +324,9 @@ class _RestorePreviewView extends StatelessWidget {
           path.basename(preview.backupFile.path),
           style: const TextStyle(fontWeight: FontWeight.w600),
         ),
-        Text('Created ${RecoveryMessages.dateTime(preflight.backupCreatedAtUtc)}'),
+        Text(
+          'Created ${RecoveryMessages.dateTime(preflight.backupCreatedAtUtc)}',
+        ),
         const SizedBox(height: 8),
         if (!preview.canRestore) ...[
           for (final blocker in preflight.blockers)
@@ -452,16 +455,19 @@ class _RestoreConfirmationDialogState
         children: [
           const Text(
             'Your current library, history, charts, and playlists on this '
-            'device will be replaced by the backup. A verified safety backup '
-            'is saved first; if it cannot be created, nothing is changed.',
+            'device will be replaced by the backup. When needed, Sonus '
+            'creates and verifies a safety backup first. If it cannot be created, nothing is replaced.',
           ),
           const SizedBox(height: 12),
           CheckboxListTile(
             key: const ValueKey<String>('recovery-confirm-acknowledge'),
             contentPadding: EdgeInsets.zero,
             value: _acknowledged,
-            onChanged: (value) => setState(() => _acknowledged = value ?? false),
-            title: const Text('I understand my current library will be replaced'),
+            onChanged: (value) =>
+                setState(() => _acknowledged = value ?? false),
+            title: const Text(
+              'I understand my current library will be replaced',
+            ),
           ),
         ],
       ),

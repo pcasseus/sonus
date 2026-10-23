@@ -19,7 +19,8 @@ class _FolderDocuments implements BackupDocumentPlatform {
   int? reportWritten;
   final deleted = <String>[];
 
-  File _file(String uri) => File(path.join(root.path, Uri.parse(uri).path.split('/').last));
+  File _file(String uri) =>
+      File(path.join(root.path, Uri.parse(uri).path.split('/').last));
 
   @override
   Future<String?> createDocument(String suggestedName) async {
@@ -77,6 +78,17 @@ void main() {
     platform: platform,
   ).export(source: source, suggestedName: 'sonus.sonusbackup');
 
+  test('an unreadable source never creates a destination document', () async {
+    await source.delete();
+
+    final result = await export();
+
+    expect(result.outcome, BackupExportOutcome.failed);
+    expect(result.isVerified, isFalse);
+    expect(result.message, contains('could not be read'));
+    expect(await documents.list().isEmpty, isTrue);
+    expect(platform.deleted, isEmpty);
+  });
   test('verified only when read-back SHA-256 and length match', () async {
     final result = await export();
 

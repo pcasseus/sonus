@@ -159,9 +159,7 @@ void main() {
   });
 
   group('restore', () {
-    testWidgets('preview, confirmation gating, and completion', (
-      tester,
-    ) async {
+    testWidgets('preview, confirmation gating, and completion', (tester) async {
       service.onPreview = (file) => RestorePreview(
         backupFile: file,
         preflight: fakePreflight(cloudLinked: true),
@@ -184,7 +182,9 @@ void main() {
       await tester.pumpAndSettle();
 
       // Replace stays disabled until the user acknowledges.
-      final replace = tester.widget<FilledButton>(key('recovery-confirm-replace'));
+      final replace = tester.widget<FilledButton>(
+        key('recovery-confirm-replace'),
+      );
       expect(replace.onPressed, isNull);
 
       await tester.tap(key('recovery-confirm-acknowledge'));
@@ -199,9 +199,7 @@ void main() {
       expect(key('recovery-reload-app'), findsOneWidget);
     });
 
-    testWidgets('cancelling the confirmation restores nothing', (
-      tester,
-    ) async {
+    testWidgets('cancelling the confirmation restores nothing', (tester) async {
       await pumpPage(tester);
       await scrollTo(tester, 'recovery-choose-backup');
       await tester.tap(key('recovery-choose-backup'));
@@ -311,13 +309,83 @@ void main() {
       await tester.tap(key('recovery-confirm-replace'));
       await tester.pumpAndSettle();
 
-      await tester.scrollUntilVisible(key('recovery-error'), -200,
-          scrollable: find.byType(Scrollable).first);
+      await tester.scrollUntilVisible(
+        key('recovery-error'),
+        -200,
+        scrollable: find.byType(Scrollable).first,
+      );
       expect(key('recovery-error'), findsOneWidget);
       expect(find.textContaining('left exactly as it was'), findsOneWidget);
       expect(key('recovery-restore-complete'), findsNothing);
     });
 
+    test('clears a completed restore when a new operation starts', () async {
+      final subject = BackupRestoreController(service: service);
+      addTearDown(subject.dispose);
+
+      await subject.previewBackup(File('/first.sonusbackup'));
+      await subject.confirmRestore(acknowledged: true);
+
+      expect(subject.restoreResult, isNotNull);
+
+      await subject.createBackup();
+
+      expect(subject.restoreResult, isNull);
+      expect(subject.operation, RecoveryOperation.idle);
+      expect(subject.backupResult, isNotNull);
+    });
+
+    test(
+      'clears a previous completion even when the new preview fails',
+      () async {
+        final subject = BackupRestoreController(service: service);
+        addTearDown(subject.dispose);
+
+        await subject.previewBackup(File('/first.sonusbackup'));
+        await subject.confirmRestore(acknowledged: true);
+        expect(subject.restoreResult, isNotNull);
+
+        service.onPreview = (_) => throw StateError('preview failed');
+
+        await subject.previewBackup(File('/second.sonusbackup'));
+
+        expect(subject.restoreResult, isNull);
+        expect(subject.operationError, isA<StateError>());
+        expect(subject.operation, RecoveryOperation.idle);
+      },
+    );
+
+    testWidgets('empty destination does not promise a safety backup', (
+      tester,
+    ) async {
+      service.onPreview = (file) => RestorePreview(
+        backupFile: file,
+        preflight: fakePreflight(),
+        plan: fakePlan(removed: 0),
+      );
+
+      await pumpPage(tester);
+      await scrollTo(tester, 'recovery-choose-backup');
+      await tester.tap(key('recovery-choose-backup'));
+      await tester.pumpAndSettle();
+
+      expect(key('recovery-restore-preview'), findsOneWidget);
+      expect(key('recovery-safety-notice'), findsNothing);
+
+      await scrollTo(tester, 'recovery-start-restore');
+      await tester.tap(key('recovery-start-restore'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('When needed, Sonus'), findsOneWidget);
+      expect(
+        find.textContaining('A verified safety backup is saved first'),
+        findsNothing,
+      );
+
+      await tester.tap(key('recovery-confirm-cancel'));
+      await tester.pumpAndSettle();
+      expect(service.calls, isNot(contains('restore')));
+    });
     test('the controller refuses a restore without acknowledgement', () async {
       final controller = BackupRestoreController(service: service);
       await controller.previewBackup(File('/x.sonusbackup'));
@@ -380,7 +448,10 @@ void main() {
       await scrollTo(tester, 'recovery-private-backup-1');
 
       expect(find.text('Private backups on this device'), findsOneWidget);
-      expect(find.textContaining('lost if Sonus is uninstalled'), findsOneWidget);
+      expect(
+        find.textContaining('lost if Sonus is uninstalled'),
+        findsOneWidget,
+      );
       expect(find.text('Safety backup (before a restore)'), findsOneWidget);
       expect(find.text('Backup not verified off-device'), findsOneWidget);
 
