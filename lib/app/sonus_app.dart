@@ -17,6 +17,8 @@ import '../features/playlists/presentation/scopes/playlists_scope.dart';
 import '../features/recovery/application/services/recovery_service.dart';
 import '../features/recovery/application/services/recovery_sync_gate.dart';
 import '../features/recovery/presentation/scopes/recovery_scope.dart';
+import '../features/settings/application/controllers/appearance_controller.dart';
+import '../features/settings/presentation/scopes/appearance_scope.dart';
 import '../features/shell/presentation/pages/app_shell_page.dart';
 import '../features/sync/application/services/sync_run_guard.dart';
 import '../features/sync/presentation/scopes/sync_scope.dart';
@@ -32,6 +34,7 @@ class SonusApp extends StatefulWidget {
     this.accountRepository,
     this.recoverySyncGate,
     this.recoveryService,
+    this.appearanceController,
   });
 
   final PlaybackEngineFactory? playbackEngineFactory;
@@ -43,6 +46,10 @@ class SonusApp extends StatefulWidget {
 
   /// Overrides the platform recovery service (tests).
   final RecoveryService? recoveryService;
+
+  /// Overrides the appearance controller (tests). When null the app loads
+  /// the device's stored appearance preferences.
+  final AppearanceController? appearanceController;
 
   @override
   State<SonusApp> createState() => _SonusAppState();
@@ -73,36 +80,42 @@ class _SonusAppState extends State<SonusApp> {
         Provider<RecoverySyncGate?>.value(value: gate),
         Provider<SyncRunGuard?>.value(value: gate),
       ],
-      child: AppRestartScope(
-        child: LibraryQueryScope(
-          database: _database,
-          child: PlaylistsScope(
-            child: PlaybackScope(
-              engineFactory: widget.playbackEngineFactory,
-              child: AccountScope(
-                repository: widget.accountRepository,
-                child: SyncScope(
-                  database: _database,
-                  // Unchanged: only an injected database activates it.
-                  child: AccountSyncOwnershipBridge(
-                    database: widget.libraryDatabase,
-                    child: AccountAnalyticsBridge(
-                      child: MonthlyListeningInsightsScope(
-                        child: YearInSonusScope(
-                          child: HomeScope(
-                            child: ChartsScope(
-                              child: ImportScope(
-                                child: RecoveryScope(
-                                  service: widget.recoveryService,
-                                  child: MaterialApp(
-                                    debugShowCheckedModeBanner: false,
-                                    title: 'Sonus',
-                                    theme: ThemeData(
-                                      colorScheme: ColorScheme.fromSeed(
-                                        seedColor: Colors.deepPurple,
-                                      ),
+      // Above the restart scope, so the theme survives a reload after a
+      // restore.
+      child: AppearanceScope(
+        controller: widget.appearanceController,
+        child: AppRestartScope(
+          child: LibraryQueryScope(
+            database: _database,
+            child: PlaylistsScope(
+              child: PlaybackScope(
+                engineFactory: widget.playbackEngineFactory,
+                child: AccountScope(
+                  repository: widget.accountRepository,
+                  child: SyncScope(
+                    database: _database,
+                    // Unchanged: only an injected database activates it.
+                    child: AccountSyncOwnershipBridge(
+                      database: widget.libraryDatabase,
+                      child: AccountAnalyticsBridge(
+                        child: MonthlyListeningInsightsScope(
+                          child: YearInSonusScope(
+                            child: HomeScope(
+                              child: ChartsScope(
+                                child: ImportScope(
+                                  child: RecoveryScope(
+                                    service: widget.recoveryService,
+                                    child: SonusThemedAppBuilder(
+                                      builder: (context, theme, duration) {
+                                        return MaterialApp(
+                                          debugShowCheckedModeBanner: false,
+                                          title: 'Sonus',
+                                          theme: theme,
+                                          themeAnimationDuration: duration,
+                                          home: const AppShellPage(),
+                                        );
+                                      },
                                     ),
-                                    home: const AppShellPage(),
                                   ),
                                 ),
                               ),

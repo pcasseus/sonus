@@ -8,6 +8,8 @@ import '../../../recovery/presentation/pages/backup_restore_page.dart';
 import '../../../sync/application/controllers/sync_controller.dart';
 import '../../../sync/application/services/automatic_sync_coordinator.dart';
 import '../../../sync/application/services/sync_network_policy_service.dart';
+import '../../application/controllers/appearance_controller.dart';
+import 'appearance_settings_page.dart';
 import 'blacklisted_songs_page.dart';
 import 'metadata_intelligence_settings_page.dart';
 
@@ -30,6 +32,10 @@ class SettingsPage extends StatelessWidget {
           Text('Account', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 8),
           _AccountCard(controller: accountController),
+          const SizedBox(height: 24),
+          Text('Appearance', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 8),
+          const _AppearanceCard(),
           const SizedBox(height: 24),
           Text('Sync', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 8),
@@ -408,7 +414,9 @@ class _BackupRestoreCard extends StatelessWidget {
       child: ListTile(
         key: const ValueKey<String>('settings-backup-restore'),
         leading: Icon(
-          held ? Icons.cloud_off_rounded : Icons.settings_backup_restore_rounded,
+          held
+              ? Icons.cloud_off_rounded
+              : Icons.settings_backup_restore_rounded,
         ),
         title: const Text('Backup & Restore'),
         subtitle: Text(
@@ -422,6 +430,39 @@ class _BackupRestoreCard extends StatelessWidget {
           Navigator.of(context).push(
             MaterialPageRoute<void>(
               builder: (context) => const BackupRestorePage(),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _AppearanceCard extends StatelessWidget {
+  const _AppearanceCard();
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = context.watch<AppearanceController?>();
+    final subtitle = controller == null
+        ? 'Themes, typography, decoration and scheduling.'
+        : '${controller.resolved.theme.label} · '
+              '${controller.preferences.typography.label}';
+
+    return Card(
+      child: ListTile(
+        key: const ValueKey<String>('settings-appearance'),
+        leading: const Icon(Icons.palette_outlined),
+        title: const Text('Theme & appearance'),
+        subtitle: Text(
+          subtitle,
+          key: const ValueKey<String>('settings-appearance-subtitle'),
+        ),
+        trailing: const Icon(Icons.chevron_right_rounded),
+        onTap: () {
+          Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (context) => const AppearanceSettingsPage(),
             ),
           );
         },

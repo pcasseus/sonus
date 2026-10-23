@@ -1,11 +1,17 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/material.dart' show Theme;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+import 'package:sonus_next/app/app_restart_scope.dart';
 import 'package:sonus_next/app/sonus_app.dart';
+import 'package:sonus_next/core/design/sonus_theme_catalog.dart';
+import 'package:sonus_next/core/design/sonus_theme_id.dart';
+import 'package:sonus_next/core/design/sonus_tokens.dart';
 import 'package:sonus_next/core/database/app_database.dart';
 import 'package:sonus_next/features/player/application/controllers/playback_coordinator.dart';
 import 'package:sonus_next/features/player/domain/models/playback_repeat_mode.dart';
@@ -15,6 +21,9 @@ import 'package:sonus_next/features/player/domain/repositories/track_lyrics_repo
 import 'package:sonus_next/features/player/domain/services/playback_engine.dart';
 import 'package:sonus_next/features/player/presentation/controllers/lyrics_controller.dart';
 import 'package:sonus_next/features/player/presentation/controllers/playback_state_controller.dart';
+import 'package:sonus_next/features/settings/application/controllers/appearance_controller.dart';
+import 'package:sonus_next/features/settings/data/appearance_preferences_store.dart';
+import 'package:sonus_next/features/settings/domain/models/appearance_preferences.dart';
 
 class FakePlaybackEngine implements PlaybackEngine {
   final StreamController<PlaybackState> _controller =
@@ -258,6 +267,55 @@ void main() {
     await tester.pump();
 
     expect(factoryCalls, 1);
+  });
+
+  testWidgets('Sonus app applies the stored appearance and keeps it across '
+      'a restore reload', (tester) async {
+    final engine = FakePlaybackEngine();
+    final fixture = await createTestDatabaseFor(tester);
+    addDatabaseTearDown(tester, fixture);
+
+    final storage = {
+      AppearancePreferencesStore.preferencesKey: jsonEncode(
+        const AppearancePreferences(theme: SonusThemeId.kickflip).toJson(),
+      ),
+    };
+    final appearance = AppearanceController(
+      store: AppearancePreferencesStore.forTesting(
+        getString: (key) async => storage[key],
+        setString: (key, value) async => storage[key] = value,
+      ),
+    );
+    addTearDown(appearance.dispose);
+    await appearance.load();
+
+    await tester.pumpWidget(
+      SonusApp(
+        libraryDatabase: fixture.database,
+        playbackEngineFactory: () => engine,
+        appearanceController: appearance,
+      ),
+    );
+    await tester.pump();
+
+    final kickflip = SonusThemeCatalog.of(SonusThemeId.kickflip).palette;
+    SonusColors colors() =>
+        Theme.of(tester.element(find.text('Sonus'))).extension<SonusColors>()!;
+
+    expect(colors().background, kickflip.background);
+
+    AppRestartScope.restart(tester.element(find.text('Sonus')));
+    await tester.pump();
+    await tester.pump();
+
+    expect(colors().background, kickflip.background);
+    expect(
+      Provider.of<AppearanceController>(
+        tester.element(find.text('Sonus')),
+        listen: false,
+      ),
+      same(appearance),
+    );
   });
 
   testWidgets('playback engine is disposed with app scope', (tester) async {

@@ -4,6 +4,9 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../../core/design/sonus_theme.dart';
+import '../../../../core/design/widgets/sonus_artwork_frame.dart';
+import '../../../../core/design/widgets/sonus_decorations.dart';
 import '../../../player/application/controllers/playback_coordinator.dart';
 import '../../../player/domain/models/playback_state.dart';
 import '../../../player/domain/models/playback_track.dart';
@@ -60,8 +63,7 @@ class _MiniPlayer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
+    final tokens = SonusTheme.of(context);
 
     return Semantics(
       container: true,
@@ -69,12 +71,8 @@ class _MiniPlayer extends StatelessWidget {
       child: Container(
         key: const ValueKey<String>('mini-player'),
         decoration: BoxDecoration(
-          color: colorScheme.surfaceContainerLow,
-          border: Border(
-            top: BorderSide(
-              color: colorScheme.outlineVariant.withValues(alpha: 0.55),
-            ),
-          ),
+          color: tokens.colors.raisedSurface,
+          border: Border(top: BorderSide(color: tokens.colors.divider)),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -87,7 +85,9 @@ class _MiniPlayer extends StatelessWidget {
                   Expanded(
                     child: InkWell(
                       key: const ValueKey<String>('mini-player-open'),
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(
+                        tokens.metrics.controlRadius,
+                      ),
                       onTap: () => _openNowPlaying(context),
                       child: Row(
                         children: [
@@ -147,8 +147,16 @@ class _MiniPlayer extends StatelessWidget {
   }
 
   void _openNowPlaying(BuildContext context) {
+    final reducedMotion = SonusTheme.of(context).motion.reduced;
+
     Navigator.of(context).push(
       PageRouteBuilder<void>(
+        transitionDuration: reducedMotion
+            ? Duration.zero
+            : const Duration(milliseconds: 300),
+        reverseTransitionDuration: reducedMotion
+            ? Duration.zero
+            : const Duration(milliseconds: 300),
         pageBuilder: (context, animation, secondaryAnimation) {
           return const NowPlayingPage();
         },
@@ -182,14 +190,15 @@ class _MiniPlayerProgress extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
+    final colors = SonusTheme.of(context).colors;
 
     return SizedBox(
       key: const ValueKey<String>('mini-player-progress'),
       height: 2,
       child: LinearProgressIndicator(
         value: state.duration > Duration.zero ? state.progress : 0,
-        backgroundColor: colorScheme.surfaceContainerHighest,
+        color: colors.progressActive,
+        backgroundColor: colors.progressInactive,
       ),
     );
   }
@@ -202,46 +211,29 @@ class _MiniPlayerArtwork extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
     final path = track.artworkPath?.trim();
 
-    return SizedBox.square(
+    return SonusArtworkFrame(
       key: const ValueKey<String>('mini-player-artwork'),
-      dimension: 52,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(12),
-        child: Material(
-          color: colorScheme.surfaceContainerHighest,
-          child: path != null && path.isNotEmpty
-              ? Image.file(
-                  File(path),
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, _, _) =>
-                      _MiniPlayerArtworkFallback(colorScheme: colorScheme),
-                )
-              : _MiniPlayerArtworkFallback(colorScheme: colorScheme),
-        ),
-      ),
+      size: 52,
+      child: path != null && path.isNotEmpty
+          ? Image.file(
+              File(path),
+              fit: BoxFit.cover,
+              errorBuilder: (_, _, _) => const _MiniPlayerArtworkFallback(),
+            )
+          : const _MiniPlayerArtworkFallback(),
     );
   }
 }
 
 class _MiniPlayerArtworkFallback extends StatelessWidget {
-  const _MiniPlayerArtworkFallback({required this.colorScheme});
-
-  final ColorScheme colorScheme;
+  const _MiniPlayerArtworkFallback();
 
   @override
   Widget build(BuildContext context) {
-    return ColoredBox(
-      key: const ValueKey<String>('mini-player-artwork-fallback'),
-      color: colorScheme.surfaceContainerHighest,
-      child: Center(
-        child: Icon(
-          Icons.music_note_rounded,
-          color: colorScheme.onSurfaceVariant,
-        ),
-      ),
+    return const SonusArtworkPlaceholder(
+      key: ValueKey<String>('mini-player-artwork-fallback'),
     );
   }
 }
@@ -254,6 +246,7 @@ class _MiniPlayerMetadata extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final colors = SonusTheme.of(context).colors;
 
     return Column(
       key: const ValueKey<String>('mini-player-metadata'),
@@ -266,6 +259,7 @@ class _MiniPlayerMetadata extends StatelessWidget {
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: theme.textTheme.bodyLarge?.copyWith(
+            color: colors.textPrimary,
             fontWeight: FontWeight.w700,
           ),
         ),
@@ -276,7 +270,7 @@ class _MiniPlayerMetadata extends StatelessWidget {
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: theme.textTheme.bodyMedium?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
+            color: colors.textSecondary,
             fontWeight: FontWeight.w500,
           ),
         ),
@@ -297,9 +291,14 @@ class _MiniPlayerPlayPauseButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isLoading = state.status == PlaybackStatus.loading;
+    final colors = SonusTheme.of(context).colors;
 
     return IconButton.filled(
       key: const ValueKey<String>('mini-player-play-pause'),
+      style: IconButton.styleFrom(
+        backgroundColor: colors.playbackControl,
+        foregroundColor: colors.onPlaybackControl,
+      ),
       tooltip: state.isPlaying ? 'Pause' : 'Play',
       onPressed: isLoading
           ? null

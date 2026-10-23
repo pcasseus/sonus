@@ -3,6 +3,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'package:sonus_next/core/design/sonus_theme_factory.dart';
+import 'package:sonus_next/core/design/sonus_theme_id.dart';
+import 'package:sonus_next/core/design/sonus_tokens.dart';
 import 'package:sonus_next/features/home/application/models/home_popular_track.dart';
 import 'package:sonus_next/features/home/application/models/home_snapshot.dart';
 import 'package:sonus_next/features/home/application/models/home_top_artist.dart';
@@ -12,6 +15,7 @@ import 'package:sonus_next/features/home/presentation/pages/home_page.dart';
 import 'package:sonus_next/features/library/application/models/library_album.dart';
 import 'package:sonus_next/features/library/application/models/library_artist.dart';
 import 'package:sonus_next/features/library/application/models/library_track.dart';
+import 'package:sonus_next/features/library/presentation/pages/artist_profile_page.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
 
 void main() {
@@ -256,6 +260,316 @@ void main() {
     expect(find.text('Home could not refresh.'), findsOneWidget);
     expect(find.text('Retry'), findsOneWidget);
   });
+
+  group('Sonus themes', _themeTests);
+  group('Top Artists cards', _topArtistCardTests);
+}
+
+void _topArtistCardTests() {
+  const card = ValueKey<String>('home-top-artist-artist_1');
+
+  Size artworkSize(WidgetTester tester) => tester.getSize(
+    find.descendant(of: find.byKey(card), matching: find.byType(Stack)).first,
+  );
+
+  testWidgets('cards are portrait with artwork above an info panel', (
+    tester,
+  ) async {
+    final controller = await _loadedController(_snapshot());
+
+    await _pumpHome(
+      tester,
+      controller,
+      theme: SonusThemeFactory.build(const SonusAppearanceSpec()),
+      size: const Size(411, 1600),
+    );
+
+    final cardSize = tester.getSize(find.byKey(card));
+    final artwork = artworkSize(tester);
+
+    expect(artwork.height / artwork.width, closeTo(4 / 3, 0.01));
+    expect(cardSize.height, greaterThan(cardSize.width * 1.6));
+    expect(artwork.width, closeTo(cardSize.width, 0.01));
+
+    // The name and statistics sit below the artwork, not on it.
+    final artworkBottom = tester
+        .getBottomLeft(
+          find
+              .descendant(of: find.byKey(card), matching: find.byType(Stack))
+              .first,
+        )
+        .dy;
+    expect(
+      tester.getTopLeft(find.text('Artist 1').last).dy,
+      greaterThanOrEqualTo(artworkBottom),
+    );
+    expect(find.text('Rank 1', skipOffstage: false), findsNothing);
+    expect(
+      find.descendant(of: find.byKey(card), matching: find.text('#1')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('card width adapts to the screen', (tester) async {
+    final controller = await _loadedController(_snapshot());
+
+    for (final (width, expected) in [
+      (320.0, 140.0),
+      (411.0, 158.67),
+      (800.0, 190.0),
+    ]) {
+      // MediaQuery follows the view, not the test surface.
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = Size(width, 1600);
+      addTearDown(tester.view.reset);
+
+      await _pumpHome(tester, controller, size: Size(width, 1600));
+
+      expect(
+        tester.getSize(find.byKey(card)).width,
+        closeTo(expected, 0.01),
+        reason: 'screen $width',
+      );
+    }
+  });
+
+  testWidgets('portrait artwork crops with cover, keeping the upper part', (
+    tester,
+  ) async {
+    final controller = await _loadedController(
+      _snapshot(artist: _artist(topArtistsArtworkPath: 'C:/art/portrait.png')),
+    );
+
+    await _pumpHome(tester, controller);
+
+    final image = tester.widget<Image>(
+      find.byKey(const ValueKey<String>('home-top-artist-artwork-artist_1')),
+    );
+    expect(image.fit, BoxFit.cover);
+    expect((image.alignment as Alignment).y, lessThan(0));
+  });
+
+  testWidgets('an artist without artwork shows their initials', (tester) async {
+    final controller = await _loadedController(_snapshot());
+
+    await _pumpHome(tester, controller);
+
+    final initials = find.descendant(
+      of: find.byKey(card),
+      matching: find.byKey(const ValueKey<String>('home-top-artist-initials')),
+    );
+    expect(initials, findsOneWidget);
+    expect(
+      find.descendant(of: initials, matching: find.text('A1')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('long names wrap to two lines without overflow at 2x text', (
+    tester,
+  ) async {
+    const name = 'The Extraordinarily Long Sample Collective';
+    final controller = await _loadedController(
+      _snapshot(
+        artist: LibraryArtist(
+          artistId: 'artist_1',
+          name: name,
+          albumCount: 1,
+          songCount: 2,
+          dateAdded: DateTime.utc(2026, 9, 28),
+        ),
+      ),
+    );
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(320, 2400);
+    addTearDown(tester.view.reset);
+
+    await _pumpHome(
+      tester,
+      controller,
+      size: const Size(320, 2400),
+      textScale: 2,
+    );
+
+    expect(tester.takeException(), isNull);
+    final nameText = tester.widget<Text>(
+      find.descendant(of: find.byKey(card), matching: find.text(name)),
+    );
+    expect(nameText.maxLines, 2);
+  });
+
+  testWidgets('tapping a card still opens the artist', (tester) async {
+    final controller = await _loadedController(_snapshot());
+
+    await _pumpHome(tester, controller);
+    await tester.tap(find.byKey(card));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(find.byType(ArtistProfilePage), findsOneWidget);
+  });
+}
+
+void _themeTests() {
+  for (final themeId in SonusThemeId.values) {
+    testWidgets('renders every section in ${themeId.label} at 320px', (
+      tester,
+    ) async {
+      final controller = await _loadedController(_snapshot());
+
+      await _pumpHome(
+        tester,
+        controller,
+        theme: SonusThemeFactory.build(SonusAppearanceSpec(themeId: themeId)),
+        size: const Size(320, 1600),
+      );
+
+      expect(tester.takeException(), isNull);
+      for (final title in [
+        'Popular This Week',
+        'Top Artists',
+        'Recently Added',
+        'New Albums',
+      ]) {
+        expect(find.text(title), findsOneWidget);
+      }
+      expect(
+        find.byKey(const ValueKey<String>('home-popular-track-song_popular')),
+        findsOneWidget,
+      );
+    });
+  }
+
+  testWidgets('track sheet separates artist and album with a middle dot', (
+    tester,
+  ) async {
+    final controller = await _loadedController(_snapshot());
+
+    await _pumpHome(tester, controller);
+    await tester.tap(
+      find.byKey(const ValueKey<String>('home-popular-track-song_popular')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Artist 1 · Album 1'), findsOneWidget);
+  });
+
+  testWidgets('rails grow with large text instead of overflowing', (
+    tester,
+  ) async {
+    final controller = await _loadedController(_snapshot());
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(320, 2400);
+    addTearDown(tester.view.reset);
+
+    await _pumpHome(
+      tester,
+      controller,
+      theme: SonusThemeFactory.build(const SonusAppearanceSpec()),
+      size: const Size(320, 2400),
+      textScale: 2,
+    );
+
+    // Portrait artist cards keep their minimum width on a narrow screen.
+    expect(
+      tester
+          .getSize(
+            find.byKey(const ValueKey<String>('home-top-artist-artist_1')),
+          )
+          .width,
+      140,
+    );
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('Popular Song'), findsOneWidget);
+    expect(find.text('12 weekly streams'), findsWidgets);
+  });
+
+  testWidgets('section headings are announced as headings', (tester) async {
+    final semantics = tester.ensureSemantics();
+    final controller = await _loadedController(_snapshot());
+
+    await _pumpHome(
+      tester,
+      controller,
+      theme: SonusThemeFactory.build(const SonusAppearanceSpec()),
+    );
+
+    expect(
+      tester.getSemantics(find.text('Top Artists')),
+      matchesSemantics(label: 'Top Artists', isHeader: true),
+    );
+    semantics.dispose();
+  });
+
+  testWidgets('rank badges use the theme accent and read as a rank', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    final controller = await _loadedController(_snapshot());
+    final theme = SonusThemeFactory.build(
+      const SonusAppearanceSpec(themeId: SonusThemeId.kickflip),
+    );
+    final colors = theme.extension<SonusColors>()!;
+
+    await _pumpHome(tester, controller, theme: theme);
+
+    final badge = find.text('#1').first;
+    final label = tester.getSemantics(badge).label;
+    expect(label, contains('Rank 1'));
+    expect(label, isNot(contains('#1')));
+    expect(tester.widget<Text>(badge).style!.color, colors.onAccentPrimary);
+    final decorated = tester.widget<DecoratedBox>(
+      find.ancestor(of: badge, matching: find.byType(DecoratedBox)).first,
+    );
+    expect((decorated.decoration as BoxDecoration).color, colors.accentPrimary);
+    semantics.dispose();
+  });
+
+  testWidgets('decoration Off removes heading marks but keeps content', (
+    tester,
+  ) async {
+    final controller = await _loadedController(_snapshot());
+
+    await _pumpHome(
+      tester,
+      controller,
+      theme: SonusThemeFactory.build(
+        const SonusAppearanceSpec(decoration: SonusDecorationIntensity.off),
+      ),
+    );
+
+    expect(
+      find.byKey(const ValueKey<String>('sonus-motif-mark')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('sonus-surface-texture')),
+      findsNothing,
+    );
+    expect(find.text('Popular This Week'), findsOneWidget);
+  });
+
+  testWidgets('Concrete & Spray marks headings and textures the lead section', (
+    tester,
+  ) async {
+    final controller = await _loadedController(_snapshot());
+
+    await _pumpHome(
+      tester,
+      controller,
+      theme: SonusThemeFactory.build(const SonusAppearanceSpec()),
+    );
+
+    expect(
+      find.byKey(const ValueKey<String>('sonus-motif-mark')),
+      findsNWidgets(4),
+    );
+    expect(
+      find.byKey(const ValueKey<String>('sonus-surface-texture')),
+      findsOneWidget,
+    );
+  });
 }
 
 Future<HomeController> _loadedController(HomeSnapshot snapshot) async {
@@ -273,15 +587,27 @@ Future<void> _pumpHome(
   WidgetTester tester,
   HomeController controller, {
   bool settle = true,
+  ThemeData? theme,
+  Size size = const Size(800, 1600),
+  double textScale = 1,
 }) async {
-  await tester.binding.setSurfaceSize(const Size(800, 1600));
+  await tester.binding.setSurfaceSize(size);
 
   addTearDown(() => tester.binding.setSurfaceSize(null));
 
   await tester.pumpWidget(
     ChangeNotifierProvider<HomeController?>.value(
       value: controller,
-      child: const MaterialApp(home: Scaffold(body: HomePage())),
+      child: MaterialApp(
+        theme: theme,
+        themeAnimationDuration: Duration.zero,
+        builder: (context, child) => MediaQuery.withClampedTextScaling(
+          minScaleFactor: textScale,
+          maxScaleFactor: textScale,
+          child: child!,
+        ),
+        home: const Scaffold(body: HomePage()),
+      ),
     ),
   );
 

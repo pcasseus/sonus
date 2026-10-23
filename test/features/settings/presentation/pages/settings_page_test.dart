@@ -7,6 +7,10 @@ import 'package:provider/provider.dart';
 import 'package:sonus_next/features/account/application/controllers/account_controller.dart';
 import 'package:sonus_next/features/account/domain/entities/account_user.dart';
 import 'package:sonus_next/features/account/domain/repositories/account_repository.dart';
+import 'package:sonus_next/core/design/sonus_theme_id.dart';
+import 'package:sonus_next/features/settings/application/controllers/appearance_controller.dart';
+import 'package:sonus_next/features/settings/data/appearance_preferences_store.dart';
+import 'package:sonus_next/features/settings/presentation/pages/appearance_settings_page.dart';
 import 'package:sonus_next/features/settings/presentation/pages/settings_page.dart';
 
 void main() {
@@ -143,9 +147,18 @@ void main() {
   testWidgets('opens Metadata Intelligence settings', (tester) async {
     await tester.pumpWidget(const MaterialApp(home: SettingsPage()));
 
-    await tester.ensureVisible(
-      find.byKey(const ValueKey<String>('settings-metadata-intelligence')),
+    final tile = find.byKey(
+      const ValueKey<String>('settings-metadata-intelligence'),
     );
+
+    // The tile starts below the list's build window.
+    await tester.scrollUntilVisible(
+      tile,
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.ensureVisible(tile);
+    await tester.pumpAndSettle();
 
     await tester.tap(
       find.byKey(const ValueKey<String>('settings-metadata-intelligence')),
@@ -180,6 +193,51 @@ void main() {
 
     expect(
       find.byKey(const ValueKey<String>('settings-account-signed-out')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('opens Appearance settings showing the active theme', (
+    tester,
+  ) async {
+    final appearance = AppearanceController(
+      store: AppearancePreferencesStore.forTesting(
+        getString: (key) async => null,
+        setString: (key, value) async {},
+      ),
+    );
+    addTearDown(appearance.dispose);
+    await appearance.load();
+    await appearance.selectTheme(SonusThemeId.afterHours);
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider<AppearanceController>.value(
+        value: appearance,
+        child: const MaterialApp(home: SettingsPage()),
+      ),
+    );
+
+    final tile = find.byKey(const ValueKey<String>('settings-appearance'));
+    await tester.scrollUntilVisible(
+      tile,
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+
+    expect(
+      find.descendant(
+        of: tile,
+        matching: find.text('After Hours · Street Bold'),
+      ),
+      findsOneWidget,
+    );
+
+    await tester.tap(tile);
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AppearanceSettingsPage), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('appearance-preview')),
       findsOneWidget,
     );
   });

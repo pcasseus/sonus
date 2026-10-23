@@ -3,6 +3,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'package:sonus_next/core/design/sonus_theme_factory.dart';
+import 'package:sonus_next/core/design/sonus_theme_id.dart';
+import 'package:sonus_next/core/design/sonus_tokens.dart';
+import 'package:sonus_next/core/design/widgets/sonus_brand_mark.dart';
 
 import 'package:sonus_next/features/player/application/controllers/playback_coordinator.dart';
 import 'package:sonus_next/features/player/domain/models/playback_repeat_mode.dart';
@@ -13,7 +17,7 @@ import 'package:sonus_next/features/player/presentation/controllers/playback_sta
 import 'package:sonus_next/features/shell/presentation/pages/app_shell_page.dart';
 
 void main() {
-  Widget buildSubject() {
+  Widget buildSubject({ThemeData? theme}) {
     final engine = _FakePlaybackEngine();
     final coordinator = PlaybackCoordinator(engine: engine);
     final stateController = PlaybackStateController(coordinator: coordinator);
@@ -25,7 +29,7 @@ void main() {
           value: stateController,
         ),
       ],
-      child: const MaterialApp(home: AppShellPage()),
+      child: MaterialApp(theme: theme, home: const AppShellPage()),
     );
   }
 
@@ -38,6 +42,171 @@ void main() {
     expect(find.text('Library'), findsOneWidget);
     expect(find.text('Playlists'), findsOneWidget);
     expect(find.text('Settings'), findsOneWidget);
+  });
+
+  SonusBrandMarkPainter markPainter(WidgetTester tester) {
+    return tester
+            .widget<CustomPaint>(
+              find.descendant(
+                of: find.byKey(const ValueKey<String>('sonus-app-mark')),
+                matching: find.byType(CustomPaint),
+              ),
+            )
+            .painter!
+        as SonusBrandMarkPainter;
+  }
+
+  testWidgets('shows the Waveform S brand mark beside the wordmark', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      buildSubject(theme: SonusThemeFactory.build(const SonusAppearanceSpec())),
+    );
+
+    final mark = tester.widget<SonusBrandMark>(
+      find.byKey(const ValueKey<String>('sonus-app-mark')),
+    );
+    expect(mark.concept, SonusBrandConcept.waveformS);
+    expect(SonusBrandConcept.selected, SonusBrandConcept.waveformS);
+    expect(
+      find.byKey(const ValueKey<String>('sonus-app-title')),
+      findsOneWidget,
+    );
+    expect(find.byIcon(Icons.graphic_eq_rounded), findsNothing);
+  });
+
+  testWidgets('the brand mark takes its colours from the active theme', (
+    tester,
+  ) async {
+    for (final themeId in [
+      SonusThemeId.concreteSpray,
+      SonusThemeId.monochrome,
+      SonusThemeId.evergreen,
+    ]) {
+      final theme = SonusThemeFactory.build(
+        SonusAppearanceSpec(themeId: themeId),
+      );
+      final colors = theme.extension<SonusColors>()!;
+
+      await tester.pumpWidget(buildSubject(theme: theme));
+      // Let the theme transition finish before reading the colours.
+      await tester.pumpAndSettle();
+
+      expect(markPainter(tester).primary, colors.accentPrimary);
+      expect(markPainter(tester).secondary, colors.accentSecondary);
+    }
+  });
+
+  testWidgets('the header announces "Sonus" only once', (tester) async {
+    final semantics = tester.ensureSemantics();
+
+    await tester.pumpWidget(
+      buildSubject(theme: SonusThemeFactory.build(const SonusAppearanceSpec())),
+    );
+
+    final appBar = find.byType(AppBar);
+    expect(
+      find.descendant(of: appBar, matching: find.bySemanticsLabel('Sonus')),
+      findsOneWidget,
+    );
+    semantics.dispose();
+  });
+
+  testWidgets('the brand mark fits the header at 320px with 2x text', (
+    tester,
+  ) async {
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(320, 640);
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(
+      MediaQuery(
+        data: const MediaQueryData(
+          size: Size(320, 640),
+          textScaler: TextScaler.linear(2),
+        ),
+        child: buildSubject(
+          theme: SonusThemeFactory.build(const SonusAppearanceSpec()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    final mark = tester.getRect(
+      find.byKey(const ValueKey<String>('sonus-app-mark')),
+    );
+    expect(mark.size, const Size(30, 30));
+    expect(mark.left, greaterThanOrEqualTo(0));
+    expect(
+      mark.right,
+      lessThanOrEqualTo(
+        tester
+            .getRect(find.byKey(const ValueKey<String>('shell-search-button')))
+            .left,
+      ),
+    );
+  });
+
+  testWidgets('tabs stay scrollable and readable in every theme at 320px', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(320, 640));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    for (final themeId in SonusThemeId.values) {
+      await tester.pumpWidget(
+        buildSubject(
+          theme: SonusThemeFactory.build(SonusAppearanceSpec(themeId: themeId)),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull, reason: themeId.label);
+      expect(tester.widget<TabBar>(find.byType(TabBar)).isScrollable, isTrue);
+    }
+  });
+
+  testWidgets('reduced motion switches destinations without sliding', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      buildSubject(
+        theme: SonusThemeFactory.build(
+          const SonusAppearanceSpec(reduceMotion: true),
+        ),
+      ),
+    );
+
+    await tester.tap(find.byKey(const ValueKey<String>('app-tab-library')));
+    await tester.pump();
+
+    final pageView = tester.widget<PageView>(find.byType(PageView));
+    expect(pageView.controller!.page, 4);
+    expect(
+      find.byKey(const ValueKey<String>('app-destination-library')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('normal motion still animates between destinations', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      buildSubject(theme: SonusThemeFactory.build(const SonusAppearanceSpec())),
+    );
+
+    await tester.tap(find.byKey(const ValueKey<String>('app-tab-library')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+
+    final controller = tester
+        .widget<PageView>(find.byType(PageView))
+        .controller;
+    expect(controller!.page, greaterThan(0));
+    expect(controller.page, lessThan(4));
+
+    await tester.pumpAndSettle();
   });
 
   testWidgets('opens search from the global top bar', (tester) async {
