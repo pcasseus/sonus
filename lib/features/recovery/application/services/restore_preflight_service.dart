@@ -5,7 +5,7 @@ import 'package:sqflite/sqflite.dart';
 import '../../../../core/database/app_database.dart';
 import '../../../../core/database/database_tables.dart';
 import '../../../../core/database/schema/sync_schema.dart';
-import '../models/backup_manifest.dart';
+import '../models/backup_compatibility.dart';
 import '../models/backup_table_coverage.dart';
 import '../models/restore_preflight.dart';
 import 'backup_archive_verifier.dart';
@@ -42,16 +42,24 @@ class RestorePreflightService {
     DatabaseTables.chartMomentEvents,
   ];
 
+  // Unpushed local work. Outbound conflicts are deliberately not listed:
+  // an unresolved conflict keeps its outbox entry pending, which already
+  // blocks the restore, while a conflict left behind after its mutation was
+  // pushed cannot be resolved and would otherwise block every restore.
   static const _pendingSyncTables = [
     DatabaseTables.syncOutbox,
     SyncSchema.artistWriteJournalTable,
     SyncSchema.artistDependencyJournalTable,
   ];
 
+  // Deferred replay obligations and recorded conflicts exist only for an
+  // account, so they mark the device as cloud-linked like its binding.
   static const _cloudStateTables = [
     DatabaseTables.localAccountBinding,
     DatabaseTables.syncState,
     SyncSchema.cloudRevisionBaselinesTable,
+    SyncSchema.inboundDeferredRecordsTable,
+    SyncSchema.outboundConflictsTable,
   ];
 
   Future<RestorePreflight> assess(VerifiedBackupContents contents) async {
@@ -78,8 +86,7 @@ class RestorePreflightService {
 
     final blockers = <RestoreBlocker>[];
 
-    if (manifest.formatVersion != BackupManifest.currentFormatVersion ||
-        manifest.databaseVersion != AppDatabase.databaseVersion) {
+    if (!BackupCompatibility.canRestore(manifest)) {
       blockers.add(RestoreBlocker.incompatibleBackupVersion);
     }
 

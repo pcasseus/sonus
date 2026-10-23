@@ -23,7 +23,7 @@ class AppDatabase {
        _databasePathOverride = databasePath;
 
   static const String databaseName = 'sonus_next.db';
-  static const int databaseVersion = 31;
+  static const int databaseVersion = 33;
 
   /// Coordinates normal database transactions with recovery.
   final LibraryMutationCoordinator mutationCoordinator;

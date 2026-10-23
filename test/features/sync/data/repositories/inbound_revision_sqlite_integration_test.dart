@@ -9,6 +9,7 @@ import 'package:sonus_next/features/sync/data/daos/local_sync_dao.dart';
 import 'package:sonus_next/features/sync/data/repositories/sqlite_local_sync_repository.dart';
 import 'package:sonus_next/features/sync/data/repositories/sync_mutation_transaction_runner.dart';
 import 'package:sonus_next/features/sync/domain/models/cloud_records.dart';
+import 'package:sonus_next/features/sync/domain/models/inbound_deferred_record.dart';
 import 'package:sonus_next/features/sync/domain/models/local_sync_models.dart';
 import 'package:sonus_next/features/sync/domain/models/sync_data_contract.dart';
 
@@ -78,15 +79,21 @@ void main() {
           expect(cursor?.lastServerId, 'artist-1');
         });
 
-        // Tombstone application is currently unsupported. Its failure
-        // must not acknowledge the later cloud record.
+        // An unverifiable revision fails inside the transaction. That
+        // failure must not acknowledge the later cloud record.
         reader.page = CloudSyncPage(
           items: [
-            _artistItem(
-              'artist-2',
-              serverRevision: 9,
+            CloudSyncItem(
+              record: CloudArtistRecord(
+                id: 'artist-2',
+                userId: 'user-1',
+                name: 'Artist artist-2',
+                canonicalName: 'artist artist-2',
+                createdAt: DateTime.utc(2026, 10, 15),
+                updatedAt: DateTime.utc(2026, 10, 16),
+              ),
               serverUpdatedAt: secondTimestamp,
-              deletedAt: secondTimestamp,
+              serverRevision: null,
             ),
           ],
           hasMore: false,
@@ -140,7 +147,7 @@ void main() {
       }
     },
   );
-  test('real pending outbox prevents inbound artist overwrite', () async {
+  test('real pending outbox defers inbound artist without overwrite', () async {
     final appDatabase = AppDatabase(
       databaseFactory: databaseFactoryFfi,
       databasePath: inMemoryDatabasePath,
@@ -209,16 +216,25 @@ void main() {
         hasMore: false,
       );
 
-      await expectLater(
-        reconciler.reconcilePage(
-          userId: 'user-1',
-          entityType: CloudDataEntity.artist,
-          limit: 10,
-        ),
-        throwsStateError,
+      final result = await reconciler.reconcilePage(
+        userId: 'user-1',
+        entityType: CloudDataEntity.artist,
+        limit: 10,
       );
 
+      expect(result.deferredCount, 1);
+
       await runner.run<void>((context) async {
+        final deferral = await context.inboundDeferredRecordRepository!
+            .getDeferral(
+              userId: 'user-1',
+              entityType: CloudDataEntity.artist,
+              entityId: 'artist-1',
+            );
+
+        expect(deferral?.serverRevision, 8);
+        expect(deferral?.reason, InboundDeferralReason.pendingLocalMutation);
+
         final artist = await context.artistRepository.getById('artist-1');
 
         final revision = await context.cloudRevisionBaselineRepository!
@@ -235,10 +251,12 @@ void main() {
 
         final pending = await context.localSyncRepository.getPending('user-1');
 
+        // The local edit and its baseline are protected; the cursor only
+        // advances because the replay obligation committed with it.
         expect(artist?.name, 'Protected Local Artist');
         expect(revision, 7);
-        expect(cursor?.lastServerUpdatedAt, previousTimestamp);
-        expect(cursor?.lastServerId, 'artist-0');
+        expect(cursor?.lastServerUpdatedAt, DateTime.utc(2026, 10, 16, 10));
+        expect(cursor?.lastServerId, 'artist-1');
 
         expect(pending, hasLength(1));
         expect(pending.single.entityType, CloudDataEntity.artist);
@@ -360,6 +378,21 @@ CloudSyncItem _artistItem(
 }
 
 class _TestCloudReader implements CloudSyncReader {
+  @override
+  Future<CloudSyncItem?> fetchCurrent({
+    required String userId,
+    required CloudDataEntity entityType,
+    required String entityId,
+  }) async {
+    for (final item in page.items) {
+      if (item.record.userId == userId && item.record.id == entityId) {
+        return item;
+      }
+    }
+
+    return null;
+  }
+
   CloudSyncPage page = const CloudSyncPage(items: [], hasMore: false);
 
   @override

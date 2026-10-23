@@ -43,6 +43,8 @@ class RecoveryFingerprintService {
     SyncSchema.cloudRevisionBaselinesTable,
     SyncSchema.artistWriteJournalTable,
     SyncSchema.artistDependencyJournalTable,
+    SyncSchema.inboundDeferredRecordsTable,
+    SyncSchema.outboundConflictsTable,
   ];
 
   /// Digest of a table with no rows.

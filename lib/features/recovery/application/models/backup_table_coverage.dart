@@ -133,6 +133,14 @@ abstract final class BackupCoverageContract {
       table: SyncSchema.artistDependencyJournalTable,
       policy: BackupTablePolicy.internalState,
     ),
+    BackupTableCoverage(
+      table: SyncSchema.inboundDeferredRecordsTable,
+      policy: BackupTablePolicy.internalState,
+    ),
+    BackupTableCoverage(
+      table: SyncSchema.outboundConflictsTable,
+      policy: BackupTablePolicy.internalState,
+    ),
   ];
 
   static List<BackupTableCoverage> get portableTables =>

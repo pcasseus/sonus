@@ -7,6 +7,7 @@ import '../../domain/models/sync_data_contract.dart';
 import '../../data/gateways/artist_journal_replay_gateway.dart';
 import 'artist_receipt_request_codec.dart';
 import 'cloud_conditional_write_result.dart';
+import 'outbound_acknowledgement.dart';
 import 'sync_mutation_runner.dart';
 
 /// Durable receipt-aware artist write execution.
@@ -316,11 +317,14 @@ class ArtistWriteRecoveryService {
         serverRevision: revision,
       );
 
-      await context.localSyncRepository.markProcessed(
+      await acknowledgeOutboundMutation(
+        context,
         userId: entry.userId,
-        outboxEntryId: entry.outboxId,
-        expectedRevision: entry.mutationRevision,
-        expectedOperation: entry.operation == ArtistWriteJournalOperation.delete
+        entityType: CloudDataEntity.artist,
+        entityId: entry.artistId,
+        outboxId: entry.outboxId,
+        mutationRevision: entry.mutationRevision,
+        operation: entry.operation == ArtistWriteJournalOperation.delete
             ? SyncOutboxOperation.delete
             : SyncOutboxOperation.upsert,
       );

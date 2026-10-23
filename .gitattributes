@@ -1,0 +1,3 @@
+# Recovery test fixtures are byte-exact; never normalize line endings.
+*.db binary
+*.sonusbackup binary

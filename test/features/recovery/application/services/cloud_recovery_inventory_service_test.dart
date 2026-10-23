@@ -29,6 +29,16 @@ class FakeCloudReader implements CloudSyncReader {
   int readCount = 0;
 
   @override
+  Future<CloudSyncItem?> fetchCurrent({
+    required String userId,
+    required CloudDataEntity entityType,
+    required String entityId,
+  }) {
+    // Recovery inventory only scans pages; it never fetches single rows.
+    throw UnsupportedError('fetchCurrent is not used by recovery.');
+  }
+
+  @override
   Future<CloudSyncPage> readPage({
     required String userId,
     required CloudDataEntity entityType,
@@ -68,6 +78,16 @@ class FakeCloudReader implements CloudSyncReader {
 }
 
 class RepeatingCloudReader implements CloudSyncReader {
+  @override
+  Future<CloudSyncItem?> fetchCurrent({
+    required String userId,
+    required CloudDataEntity entityType,
+    required String entityId,
+  }) {
+    // Recovery inventory only scans pages; it never fetches single rows.
+    throw UnsupportedError('fetchCurrent is not used by recovery.');
+  }
+
   @override
   Future<CloudSyncPage> readPage({
     required String userId,

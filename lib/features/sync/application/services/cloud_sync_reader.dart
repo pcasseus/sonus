@@ -50,4 +50,13 @@ abstract interface class CloudSyncReader {
     DateTime? fromServerUpdatedAtInclusive,
     required int limit,
   });
+
+  /// Reads the current cloud row for one entity owned by [userId], or null
+  /// when no such row exists. Used to replay deferred revisions the cursor
+  /// has already passed.
+  Future<CloudSyncItem?> fetchCurrent({
+    required String userId,
+    required CloudDataEntity entityType,
+    required String entityId,
+  });
 }

@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sonus_next/features/sync/application/services/cloud_sync_reader.dart';
 import 'package:sonus_next/features/sync/application/services/inbound_sync_processor.dart';
 import 'package:sonus_next/features/sync/application/services/inbound_sync_reconciler.dart';
+import 'package:sonus_next/features/sync/domain/models/inbound_deferred_record.dart';
 import 'package:sonus_next/features/sync/domain/models/sync_data_contract.dart';
 
 void main() {
@@ -44,6 +45,137 @@ void main() {
       );
 
       expect(reconciler.calls.every((call) => call.limit == 25), isTrue);
+    });
+
+    group('deferred replay', () {
+      test(
+        'runs once after every cursor page, with the bounded limit',
+        () async {
+          final reconciler = _FakeInboundSyncPageReconciler();
+
+          final processor = InboundSyncProcessor(
+            reconciler: reconciler,
+            replayWindow: replayWindow,
+            deferredReplayFetchLimit: 7,
+          );
+
+          await processor.pullAll(userId: ' user-1 ');
+
+          expect(reconciler.deferredReplays, [('user-1', 7, 5)]);
+        },
+      );
+
+      test('rejects a nonpositive limit before reconciliation', () async {
+        final reconciler = _FakeInboundSyncPageReconciler();
+
+        await expectLater(
+          InboundSyncProcessor(
+            reconciler: reconciler,
+            replayWindow: replayWindow,
+            deferredReplayFetchLimit: 0,
+          ).pullAll(userId: 'user-1'),
+          throwsArgumentError,
+        );
+
+        expect(reconciler.calls, isEmpty);
+        expect(reconciler.deferredReplays, isEmpty);
+      });
+
+      test('defaults to a bounded fetch limit', () async {
+        final reconciler = _FakeInboundSyncPageReconciler();
+
+        await InboundSyncProcessor(
+          reconciler: reconciler,
+          replayWindow: replayWindow,
+        ).pullAll(userId: 'user-1');
+
+        expect(reconciler.deferredReplays.single.$2, 50);
+      });
+
+      test('counts applied replays as processed records', () async {
+        final reconciler = _FakeInboundSyncPageReconciler()
+          ..responses[CloudDataEntity.song] = [
+            const InboundSyncBatchResult(
+              processedCount: 2,
+              hasMore: false,
+              lastReadPosition: null,
+            ),
+          ]
+          ..deferredReplayResult = const InboundReplayResult(
+            appliedCount: 3,
+            stillDeferredCount: 4,
+            skippedCount: 5,
+            unresolvedCount: 1,
+          );
+
+        final processed = await InboundSyncProcessor(
+          reconciler: reconciler,
+          replayWindow: replayWindow,
+        ).pullAll(userId: 'user-1');
+
+        expect(processed, 5);
+      });
+
+      test('reports the first failure after the whole pass', () async {
+        final first = StateError('first replay failure');
+        final record = InboundDeferredRecord(
+          userId: 'user-1',
+          entityType: CloudDataEntity.album,
+          entityId: 'album-1',
+          serverRevision: 2,
+          serverUpdatedAt: DateTime.utc(2026, 10, 22),
+          reason: InboundDeferralReason.missingLocalParent,
+          deferredAt: DateTime.utc(2026, 10, 22),
+        );
+
+        final reconciler = _FakeInboundSyncPageReconciler()
+          ..deferredReplayResult = InboundReplayResult(
+            appliedCount: 1,
+            failures: [
+              InboundReplayFailure(
+                record: record,
+                error: first,
+                stackTrace: StackTrace.current,
+              ),
+              InboundReplayFailure(
+                record: record,
+                error: StateError('second replay failure'),
+                stackTrace: StackTrace.current,
+              ),
+            ],
+          );
+
+        await expectLater(
+          InboundSyncProcessor(
+            reconciler: reconciler,
+            replayWindow: replayWindow,
+          ).pullAll(userId: 'user-1'),
+          throwsA(same(first)),
+        );
+
+        expect(reconciler.deferredReplays, hasLength(1));
+      });
+
+      test('does not replay when a cursor page fails', () async {
+        final reconciler = _FakeInboundSyncPageReconciler()
+          ..responses[CloudDataEntity.artist] = [
+            const InboundSyncBatchResult(
+              processedCount: 0,
+              hasMore: true,
+              lastReadPosition: null,
+            ),
+          ];
+
+        await expectLater(
+          InboundSyncProcessor(
+            reconciler: reconciler,
+            replayWindow: replayWindow,
+          ).pullAll(userId: 'user-1'),
+          throwsStateError,
+        );
+
+        expect(reconciler.deferredReplays, isEmpty);
+      });
     });
 
     test(
@@ -292,6 +424,19 @@ class _FakeInboundSyncPageReconciler implements InboundSyncPageReconciler {
 
   final List<_ReplayCall> replayCalls = [];
   final List<_ReconcileCall> calls = [];
+
+  /// Each replayDeferred call, recorded as (userId, maxFetches, pages seen).
+  final List<(String, int, int)> deferredReplays = [];
+  InboundReplayResult deferredReplayResult = const InboundReplayResult();
+
+  @override
+  Future<InboundReplayResult> replayDeferred({
+    required String userId,
+    required int maxFetches,
+  }) async {
+    deferredReplays.add((userId, maxFetches, calls.length));
+    return deferredReplayResult;
+  }
 
   @override
   Future<DateTime?> replayStart({
