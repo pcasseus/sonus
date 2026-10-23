@@ -1,6 +1,7 @@
 import 'package:path/path.dart' as path;
 import 'package:sqflite/sqflite.dart' as sqflite;
 
+import 'library_mutation_coordinator.dart';
 import 'database_migrations.dart';
 import 'schema/account_schema.dart';
 import 'schema/analytics_schema.dart';
@@ -12,12 +13,20 @@ import 'schema/playlist_schema.dart';
 import 'schema/sync_schema.dart';
 
 class AppDatabase {
-  AppDatabase({sqflite.DatabaseFactory? databaseFactory, String? databasePath})
-    : _databaseFactory = databaseFactory ?? sqflite.databaseFactory,
-      _databasePathOverride = databasePath;
+  AppDatabase({
+    sqflite.DatabaseFactory? databaseFactory,
+    String? databasePath,
+    LibraryMutationCoordinator? mutationCoordinator,
+  }) : mutationCoordinator =
+           mutationCoordinator ?? LibraryMutationCoordinator(),
+       _databaseFactory = databaseFactory ?? sqflite.databaseFactory,
+       _databasePathOverride = databasePath;
 
   static const String databaseName = 'sonus_next.db';
   static const int databaseVersion = 31;
+
+  /// Coordinates normal database transactions with recovery.
+  final LibraryMutationCoordinator mutationCoordinator;
 
   final sqflite.DatabaseFactory _databaseFactory;
   final String? _databasePathOverride;
@@ -98,9 +107,11 @@ class AppDatabase {
 
   Future<T> transaction<T>(
     Future<T> Function(sqflite.Transaction transaction) action,
-  ) async {
-    final db = await database;
-    return db.transaction(action);
+  ) {
+    return mutationCoordinator.runMutation(() async {
+      final db = await database;
+      return db.transaction(action);
+    });
   }
 
   Future<void> close() async {

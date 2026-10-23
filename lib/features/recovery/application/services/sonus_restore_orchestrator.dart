@@ -190,22 +190,41 @@ class SonusRestoreOrchestrator {
         // free space may have changed meanwhile, so decide again before
         // anything is written. Nothing has changed yet, so a blocked
         // restore reinstates the previous hold unchanged.
-        final current = await preflightService.assess(contents);
+        // If local admission cannot be acquired, no restore work ran.
+        // Reinstate the previous persisted sync hold in that case only.
+        // Once the callback starts, existing restore failure handling owns
+        // rollback verification and hold recovery.
+        var exclusiveRestoreStarted = false;
 
-        if (!current.canRestore) {
-          await _reinstateHold(previousHold);
-          throw RestoreBlockedException(current);
+        try {
+          return await appDatabase.mutationCoordinator.runExclusiveRestore(
+            () async {
+              exclusiveRestoreStarted = true;
+
+              final current = await preflightService.assess(contents);
+
+              if (!current.canRestore) {
+                await _reinstateHold(previousHold);
+                throw RestoreBlockedException(current);
+              }
+
+              return _restoreWhileHeld(
+                contents: contents,
+                sessionId: sessionId,
+                previousHold: previousHold,
+                captureBaseline: captureBaseline,
+                preflightService: preflightService,
+                report: report,
+                progressFailures: progressFailures,
+              );
+            },
+          );
+        } catch (_) {
+          if (!exclusiveRestoreStarted) {
+            await _reinstateHold(previousHold);
+          }
+          rethrow;
         }
-
-        return await _restoreWhileHeld(
-          contents: contents,
-          sessionId: sessionId,
-          previousHold: previousHold,
-          captureBaseline: captureBaseline,
-          preflightService: preflightService,
-          report: report,
-          progressFailures: progressFailures,
-        );
       } finally {
         gate.endRestore();
       }

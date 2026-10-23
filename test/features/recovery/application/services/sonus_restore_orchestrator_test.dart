@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as path;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:sonus_next/core/database/app_database.dart';
+import 'package:sonus_next/core/database/library_mutation_coordinator.dart';
 import 'package:sonus_next/core/database/database_tables.dart';
 import 'package:sonus_next/core/database/schema/sync_schema.dart';
 import 'package:sonus_next/features/artwork/data/services/file_system_artwork_managed_storage.dart';
@@ -965,6 +966,122 @@ void main() {
     });
   });
 
+  test('local admission refusal restores the previous sync hold', () async {
+    final db = await target.database;
+    await seedConnectedLibrary(db, key: 'local');
+
+    final backup = await backupOf('admission-refused', (source) async {
+      await seedConnectedLibrary(source, key: 'backup');
+    });
+
+    // A separate exclusive owner prevents this restore from
+    // acquiring local-write admission.
+    final exclusiveEntered = Completer<void>();
+    final releaseExclusive = Completer<void>();
+
+    final blocker = target.mutationCoordinator.runExclusiveRestore(() async {
+      exclusiveEntered.complete();
+      await releaseExclusive.future;
+    });
+
+    await exclusiveEntered.future;
+
+    try {
+      await expectLater(
+        orchestrator().restore(backup),
+        throwsA(isA<LibraryMutationUnavailable>()),
+      );
+
+      // Restore must not leave a persisted restoring hold behind.
+      expect(await holdState(), isA<NoRecoverySyncHold>());
+      expect(await syncAllowed(), isTrue);
+      expect(gate.isRestoreActive, isFalse);
+
+      // The original local library must remain intact.
+      final songs = await db.query(DatabaseTables.songs);
+      expect(songs.map((row) => row['id']), contains('song-local'));
+
+      await expectNoSessionLeftovers();
+    } finally {
+      releaseExclusive.complete();
+      await blocker;
+    }
+
+    expect(target.mutationCoordinator.isRestoreRequested, isFalse);
+    expect(target.mutationCoordinator.activeMutations, 0);
+
+    // Local database transactions become available again.
+    await target.transaction((transaction) async {
+      final rows = await transaction.rawQuery('SELECT 1 AS value');
+      expect(rows.single['value'], 1);
+    });
+  });
+  test('local admission drain timeout restores sync hold', () async {
+    // Install a short-timeout coordinator before opening the target DB.
+    await target.close();
+
+    target = AppDatabase(
+      databaseFactory: databaseFactoryFfi,
+      databasePath: path.join(root.path, 'target.db'),
+      mutationCoordinator: LibraryMutationCoordinator(
+        drainTimeout: const Duration(milliseconds: 200),
+      ),
+    );
+
+    final db = await target.database;
+    await seedConnectedLibrary(db, key: 'local');
+
+    final backup = await backupOf('admission-timeout', (source) async {
+      await seedConnectedLibrary(source, key: 'backup');
+    });
+
+    final mutationEntered = Completer<void>();
+    final releaseMutation = Completer<void>();
+
+    // Register a local mutation without taking a SQLite lock.
+    // This allows preflight to finish and isolates coordinator draining.
+    final activeMutation = target.mutationCoordinator.runMutation(() async {
+      mutationEntered.complete();
+      await releaseMutation.future;
+    });
+
+    await mutationEntered.future;
+
+    try {
+      await expectLater(
+        orchestrator().restore(backup),
+        throwsA(isA<LibraryMutationUnavailable>()),
+      );
+
+      expect(await holdState(), isA<NoRecoverySyncHold>());
+      expect(await syncAllowed(), isTrue);
+      expect(gate.isRestoreActive, isFalse);
+
+      expect(
+        (await db.query(DatabaseTables.songs)).map((row) => row['id']),
+        contains('song-local'),
+      );
+
+      expect(target.mutationCoordinator.isRestoreRequested, isFalse);
+      expect(target.mutationCoordinator.activeMutations, 1);
+
+      await expectNoSessionLeftovers();
+    } finally {
+      releaseMutation.complete();
+      await activeMutation;
+    }
+
+    expect(target.mutationCoordinator.activeMutations, 0);
+
+    await target.transaction((transaction) async {
+      final rows = await transaction.rawQuery('SELECT 1 AS value');
+      expect(rows.single['value'], 1);
+    });
+
+    await target.mutationCoordinator.runExclusiveRestore(() async {
+      expect(target.mutationCoordinator.activeMutations, 0);
+    });
+  });
   group('A07: progress observers cannot change the outcome', () {
     for (final failing in RestoreStage.values) {
       test('an observer throwing at ${failing.name}', () async {
