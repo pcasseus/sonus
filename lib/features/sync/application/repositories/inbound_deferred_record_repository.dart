@@ -16,6 +16,17 @@ abstract interface class InboundDeferredRecordRepository {
     required String entityId,
   });
 
+  /// Moves an obligation still at [serverRevision] to the back of the
+  /// replay queue without changing its revision or reason. Never inserts.
+  /// Returns whether the obligation was requeued.
+  Future<bool> requeueDeferral({
+    required String userId,
+    required CloudDataEntity entityType,
+    required String entityId,
+    required int serverRevision,
+    required DateTime deferredAt,
+  });
+
   /// Removes a deferral once a revision at or above it has been applied.
   Future<void> clearThroughRevision({
     required String userId,

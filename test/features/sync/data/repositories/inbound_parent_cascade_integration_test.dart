@@ -185,6 +185,26 @@ void main() {
 DateTime _at(int hour) => DateTime.utc(2026, 10, 23, hour);
 
 class _EntityPageReader implements CloudSyncReader {
+  @override
+  Future<CloudSyncItem?> fetchCurrent({
+    required String userId,
+    required CloudDataEntity entityType,
+    required String entityId,
+  }) async {
+    CloudSyncItem? current;
+
+    for (final item in pages[entityType] ?? const <CloudSyncItem>[]) {
+      if (item.record.userId == userId &&
+          item.record.id == entityId &&
+          (current == null ||
+              (item.serverRevision ?? 0) > (current.serverRevision ?? 0))) {
+        current = item;
+      }
+    }
+
+    return current;
+  }
+
   final Map<CloudDataEntity, List<CloudSyncItem>> pages = {};
 
   void seedChain({String? artistHeaderArtworkId, int artistRevision = 1}) {

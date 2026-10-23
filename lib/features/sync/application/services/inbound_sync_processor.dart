@@ -6,10 +6,14 @@ class InboundSyncProcessor {
   const InboundSyncProcessor({
     required this.reconciler,
     required this.replayWindow,
+    this.deferredReplayFetchLimit = 50,
   });
 
   final InboundSyncPageReconciler reconciler;
   final Duration replayWindow;
+
+  /// Upper bound on cloud rows fetched per run to replay deferred records.
+  final int deferredReplayFetchLimit;
 
   Future<int> pullAll({required String userId, int pageSize = 100}) async {
     final normalizedUserId = userId.trim();
@@ -31,6 +35,14 @@ class InboundSyncProcessor {
         replayWindow,
         'replayWindow',
         'Replay window must not be negative.',
+      );
+    }
+
+    if (deferredReplayFetchLimit <= 0) {
+      throw ArgumentError.value(
+        deferredReplayFetchLimit,
+        'deferredReplayFetchLimit',
+        'Must be greater than zero.',
       );
     }
 
@@ -71,6 +83,21 @@ class InboundSyncProcessor {
 
         cyclePosition = result.lastReadPosition;
       }
+    }
+
+    // Cursors have passed every deferred revision, so replay comes from
+    // the durable ledger. Failed replays keep their obligations; the first
+    // failure is reported only after the whole bounded pass.
+    final replay = await reconciler.replayDeferred(
+      userId: normalizedUserId,
+      maxFetches: deferredReplayFetchLimit,
+    );
+
+    totalProcessed += replay.appliedCount;
+
+    if (replay.failures.isNotEmpty) {
+      final first = replay.failures.first;
+      Error.throwWithStackTrace(first.error, first.stackTrace);
     }
 
     return totalProcessed;

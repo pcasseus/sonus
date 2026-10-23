@@ -99,6 +99,50 @@ class SupabaseCloudSyncReader implements CloudSyncReader {
     );
   }
 
+  @override
+  Future<CloudSyncItem?> fetchCurrent({
+    required String userId,
+    required CloudDataEntity entityType,
+    required String entityId,
+  }) async {
+    final trimmedUserId = userId.trim();
+    final trimmedEntityId = entityId.trim();
+
+    if (trimmedUserId.isEmpty) {
+      throw ArgumentError.value(userId, 'userId', 'Must not be blank.');
+    }
+
+    if (trimmedEntityId.isEmpty) {
+      throw ArgumentError.value(entityId, 'entityId', 'Must not be blank.');
+    }
+
+    final rows = await _rowSource.readById(
+      table: SupabaseCloudRecordMapper.tableForEntity(entityType),
+      userId: trimmedUserId,
+      id: trimmedEntityId,
+    );
+
+    if (rows.isEmpty) {
+      return null;
+    }
+
+    if (rows.length > 1) {
+      throw StateError('Cloud returned more than one row for $entityId.');
+    }
+
+    final item = SupabaseCloudRecordMapper.fromRow(
+      entityType: entityType,
+      row: rows.single,
+    );
+
+    if (item.record.userId != trimmedUserId ||
+        item.record.id != trimmedEntityId) {
+      throw StateError('Fetched cloud row does not match the requested owner.');
+    }
+
+    return item;
+  }
+
   CloudSyncPage _pageFromRows({
     required List<Map<String, dynamic>> rows,
     required CloudDataEntity entityType,

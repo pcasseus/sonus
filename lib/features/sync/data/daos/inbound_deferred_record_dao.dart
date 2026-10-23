@@ -93,6 +93,33 @@ class InboundDeferredRecordDao {
     );
   }
 
+  /// Moves an obligation to the back of the replay queue by updating only
+  /// its deferral time, and only while it is still at [serverRevision].
+  ///
+  /// Never inserts, so a cleared obligation is not revived, and never
+  /// touches a newer revision or the stored reason. Returns whether the
+  /// row was updated.
+  Future<bool> requeueDeferral({
+    required String userId,
+    required CloudDataEntity entityType,
+    required String entityId,
+    required int serverRevision,
+    required DateTime deferredAt,
+  }) async {
+    _validateIdentity(userId, entityId);
+
+    final updated = await db.update(
+      SyncSchema.inboundDeferredRecordsTable,
+      {'deferred_at': deferredAt.toUtc().toIso8601String()},
+      where:
+          'user_id = ? AND entity_type = ? AND entity_id = ? '
+          'AND server_revision = ?',
+      whereArgs: [userId, entityType.name, entityId, serverRevision],
+    );
+
+    return updated == 1;
+  }
+
   Future<void> clearThroughRevision({
     required String userId,
     required CloudDataEntity entityType,

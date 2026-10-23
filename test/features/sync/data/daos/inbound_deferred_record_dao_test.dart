@@ -126,6 +126,50 @@ void main() {
         throwsA(isA<DatabaseException>()),
       );
     });
+
+    group('requeueDeferral', () {
+      final later = DateTime.utc(2026, 10, 23, 15);
+
+      Future<bool> requeue({int revision = 2, String entityId = 'artist-1'}) {
+        return dao.requeueDeferral(
+          userId: 'user-1',
+          entityType: CloudDataEntity.artist,
+          entityId: entityId,
+          serverRevision: revision,
+          deferredAt: later,
+        );
+      }
+
+      test('moves only the deferral time of the same revision', () async {
+        await dao.saveDeferred(record());
+
+        expect(await requeue(), isTrue);
+
+        final stored = (await dao.getDeferred('user-1')).single;
+        expect(stored.serverRevision, 2);
+        expect(stored.reason, InboundDeferralReason.missingLocalArtwork);
+        expect(stored.serverUpdatedAt, DateTime.utc(2026, 10, 23, 10, 2));
+        expect(stored.deferredAt, later);
+      });
+
+      test('never downgrades or touches a newer revision', () async {
+        await dao.saveDeferred(
+          record(revision: 5, reason: InboundDeferralReason.parentDeferred),
+        );
+
+        expect(await requeue(revision: 2), isFalse);
+
+        final stored = (await dao.getDeferred('user-1')).single;
+        expect(stored.serverRevision, 5);
+        expect(stored.reason, InboundDeferralReason.parentDeferred);
+        expect(stored.deferredAt, DateTime.utc(2026, 10, 23, 12));
+      });
+
+      test('never revives a cleared obligation', () async {
+        expect(await requeue(), isFalse);
+        expect(await dao.getDeferred('user-1'), isEmpty);
+      });
+    });
   });
 
   test('version 31 upgrade adds the ledger and keeps sync state', () async {

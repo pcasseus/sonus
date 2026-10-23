@@ -226,10 +226,105 @@ void main() {
         throwsArgumentError,
       );
     });
+
+    group('fetchCurrent', () {
+      test('reads one owner-scoped row by id', () async {
+        final source = _FakeRowSource([
+          _artistRow(id: 'a', serverUpdatedAt: '2026-09-13T10:00:00.000Z'),
+          _artistRow(id: 'b', serverUpdatedAt: '2026-09-13T11:00:00.000Z'),
+        ]);
+
+        final item = await SupabaseCloudSyncReader.withRowSource(source)
+            .fetchCurrent(
+              userId: ' user-1 ',
+              entityType: CloudDataEntity.artist,
+              entityId: 'b',
+            );
+
+        expect(source.lastUserId, 'user-1');
+        expect(item?.record.id, 'b');
+        expect(item?.serverRevision, 1);
+        expect(
+          item?.serverUpdatedAt,
+          DateTime.parse('2026-09-13T11:00:00.000Z').toUtc(),
+        );
+      });
+
+      test('returns null when no owned row exists', () async {
+        final source = _FakeRowSource([
+          {
+            ..._artistRow(id: 'a', serverUpdatedAt: '2026-09-13T10:00:00Z'),
+            'user_id': 'user-2',
+          },
+        ]);
+
+        final item = await SupabaseCloudSyncReader.withRowSource(source)
+            .fetchCurrent(
+              userId: 'user-1',
+              entityType: CloudDataEntity.artist,
+              entityId: 'a',
+            );
+
+        expect(item, isNull);
+      });
+
+      test('rejects more than one row for an id', () async {
+        final source = _FakeRowSource([
+          _artistRow(id: 'a', serverUpdatedAt: '2026-09-13T10:00:00.000Z'),
+          _artistRow(id: 'a', serverUpdatedAt: '2026-09-13T11:00:00.000Z'),
+        ]);
+
+        await expectLater(
+          SupabaseCloudSyncReader.withRowSource(source).fetchCurrent(
+            userId: 'user-1',
+            entityType: CloudDataEntity.artist,
+            entityId: 'a',
+          ),
+          throwsStateError,
+        );
+      });
+
+      test('rejects blank identity before reading', () async {
+        final source = _FakeRowSource(const []);
+        final reader = SupabaseCloudSyncReader.withRowSource(source);
+
+        await expectLater(
+          reader.fetchCurrent(
+            userId: ' ',
+            entityType: CloudDataEntity.artist,
+            entityId: 'a',
+          ),
+          throwsArgumentError,
+        );
+        await expectLater(
+          reader.fetchCurrent(
+            userId: 'user-1',
+            entityType: CloudDataEntity.artist,
+            entityId: ' ',
+          ),
+          throwsArgumentError,
+        );
+
+        expect(source.lastUserId, isNull);
+      });
+    });
   });
 }
 
 class _FakeRowSource implements SupabaseCloudSyncRowSource {
+  @override
+  Future<List<Map<String, dynamic>>> readById({
+    required String table,
+    required String userId,
+    required String id,
+  }) async {
+    lastUserId = userId;
+
+    return rows
+        .where((row) => row['user_id'] == userId && row['id'] == id)
+        .toList(growable: false);
+  }
+
   _FakeRowSource(this.rows);
 
   final List<Map<String, dynamic>> rows;

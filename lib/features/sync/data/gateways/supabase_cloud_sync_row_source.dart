@@ -30,6 +30,13 @@ abstract interface class SupabaseCloudSyncRowSource {
     required DateTime serverUpdatedAt,
     required int limit,
   });
+
+  /// Reads the row with [id] owned by [userId], if any.
+  Future<List<Map<String, dynamic>>> readById({
+    required String table,
+    required String userId,
+    required String id,
+  });
 }
 
 class SupabaseClientCloudSyncRowSource implements SupabaseCloudSyncRowSource {
@@ -111,5 +118,19 @@ class SupabaseClientCloudSyncRowSource implements SupabaseCloudSyncRowSource {
         .order(SupabaseSyncContract.serverUpdatedAtColumn, ascending: true)
         .order(SupabaseSyncContract.idColumn, ascending: true)
         .limit(limit);
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> readById({
+    required String table,
+    required String userId,
+    required String id,
+  }) {
+    return client
+        .from(table)
+        .select()
+        .eq(SupabaseSyncContract.userIdColumn, userId)
+        .eq(SupabaseSyncContract.idColumn, id)
+        .limit(2);
   }
 }

@@ -325,6 +325,26 @@ ArtworkAsset _localArtwork(String id) {
 
 /// Serves one fixed page per entity type, honoring the read position.
 class _EntityPageReader implements CloudSyncReader {
+  @override
+  Future<CloudSyncItem?> fetchCurrent({
+    required String userId,
+    required CloudDataEntity entityType,
+    required String entityId,
+  }) async {
+    CloudSyncItem? current;
+
+    for (final item in pages[entityType] ?? const <CloudSyncItem>[]) {
+      if (item.record.userId == userId &&
+          item.record.id == entityId &&
+          (current == null ||
+              (item.serverRevision ?? 0) > (current.serverRevision ?? 0))) {
+        current = item;
+      }
+    }
+
+    return current;
+  }
+
   final Map<CloudDataEntity, List<CloudSyncItem>> pages = {};
 
   @override

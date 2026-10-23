@@ -1201,6 +1201,34 @@ class _FakeInboundDeferredRecordRepository
   }
 
   @override
+  Future<bool> requeueDeferral({
+    required String userId,
+    required CloudDataEntity entityType,
+    required String entityId,
+    required int serverRevision,
+    required DateTime deferredAt,
+  }) async {
+    final key = _key(userId, entityType, entityId);
+    final previous = values[key];
+
+    if (previous == null || previous.serverRevision != serverRevision) {
+      return false;
+    }
+
+    values[key] = InboundDeferredRecord(
+      userId: previous.userId,
+      entityType: previous.entityType,
+      entityId: previous.entityId,
+      serverRevision: previous.serverRevision,
+      serverUpdatedAt: previous.serverUpdatedAt,
+      reason: previous.reason,
+      deferredAt: deferredAt,
+    );
+
+    return true;
+  }
+
+  @override
   Future<void> clearThroughRevision({
     required String userId,
     required CloudDataEntity entityType,
@@ -1217,6 +1245,21 @@ class _FakeInboundDeferredRecordRepository
 }
 
 class _FakeCloudSyncReader implements CloudSyncReader {
+  final Map<String, CloudSyncItem> currentRows = {};
+  int fetchCount = 0;
+
+  @override
+  Future<CloudSyncItem?> fetchCurrent({
+    required String userId,
+    required CloudDataEntity entityType,
+    required String entityId,
+  }) async {
+    fetchCount += 1;
+    final item = currentRows['${entityType.name}:$entityId'];
+
+    return item != null && item.record.userId == userId ? item : null;
+  }
+
   CloudSyncPage page = const CloudSyncPage(items: [], hasMore: false);
 
   int readCount = 0;

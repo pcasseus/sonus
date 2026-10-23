@@ -33,6 +33,23 @@ class SqliteInboundDeferredRecordRepository
   }
 
   @override
+  Future<bool> requeueDeferral({
+    required String userId,
+    required CloudDataEntity entityType,
+    required String entityId,
+    required int serverRevision,
+    required DateTime deferredAt,
+  }) {
+    return dao.requeueDeferral(
+      userId: userId,
+      entityType: entityType,
+      entityId: entityId,
+      serverRevision: serverRevision,
+      deferredAt: deferredAt,
+    );
+  }
+
+  @override
   Future<void> clearThroughRevision({
     required String userId,
     required CloudDataEntity entityType,

@@ -378,6 +378,21 @@ CloudSyncItem _artistItem(
 }
 
 class _TestCloudReader implements CloudSyncReader {
+  @override
+  Future<CloudSyncItem?> fetchCurrent({
+    required String userId,
+    required CloudDataEntity entityType,
+    required String entityId,
+  }) async {
+    for (final item in page.items) {
+      if (item.record.userId == userId && item.record.id == entityId) {
+        return item;
+      }
+    }
+
+    return null;
+  }
+
   CloudSyncPage page = const CloudSyncPage(items: [], hasMore: false);
 
   @override
