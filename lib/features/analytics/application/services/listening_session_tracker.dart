@@ -1,5 +1,6 @@
 // ignore_for_file: prefer_initializing_formals
 
+import '../../../../core/database/library_mutation_coordinator.dart';
 import '../../../../core/identity/entity_id.dart';
 import '../../domain/entities/playback_listening_segment.dart';
 import '../../domain/entities/playback_session.dart';
@@ -65,6 +66,28 @@ class ListeningSessionTracker {
 
   bool get hasQualified => _hasQualified;
 
+  /// Forgets the in-memory session without writing anything.
+  ///
+  /// Rows already committed stay as they are; a session left open in the
+  /// database is closed by startup recovery.
+  void abandon() {
+    _session = null;
+    _listeningSegment = null;
+    _playingSince = null;
+    _hasQualified = false;
+  }
+
+  /// A restore that refuses a write may replace the library before this
+  /// tracker runs again, so its in-memory state must never be written later.
+  Future<T> _write<T>(Future<T> Function() write) async {
+    try {
+      return await write();
+    } on LibraryMutationUnavailable {
+      abandon();
+      rethrow;
+    }
+  }
+
   Future<void> attachCurrentSessionToUser(String userId) async {
     final normalizedUserId = userId.trim();
 
@@ -99,15 +122,17 @@ class ListeningSessionTracker {
     }
 
     if (existingPlay != null && existingPlay.userId == null) {
-      await _qualifiedPlays.save(
-        existingPlay.copyWith(userId: normalizedUserId),
+      await _write(
+        () => _qualifiedPlays.save(
+          existingPlay.copyWith(userId: normalizedUserId),
+        ),
       );
     }
 
     if (currentOwner == null) {
       final attached = current.copyWith(userId: normalizedUserId);
 
-      await _playbackSessions.save(attached);
+      await _write(() => _playbackSessions.save(attached));
 
       _session = attached;
     }
@@ -146,7 +171,7 @@ class ListeningSessionTracker {
       updatedAt: now,
     );
 
-    await _playbackSessions.create(session);
+    await _write(() => _playbackSessions.create(session));
 
     _session = session;
     _listeningSegment = null;
@@ -191,7 +216,7 @@ class ListeningSessionTracker {
       updatedAt: now,
     );
 
-    await _playbackSessions.save(updated);
+    await _write(() => _playbackSessions.save(updated));
 
     _session = updated;
 
@@ -218,12 +243,14 @@ class ListeningSessionTracker {
         : null;
 
     if (updatedSegment != null) {
-      await _mutationRunner.run((context) async {
-        await context.listeningSegments.save(updatedSegment);
-        await context.playbackSessions.save(updated);
-      });
+      await _write(
+        () => _mutationRunner.run((context) async {
+          await context.listeningSegments.save(updatedSegment);
+          await context.playbackSessions.save(updated);
+        }),
+      );
     } else {
-      await _playbackSessions.save(updated);
+      await _write(() => _playbackSessions.save(updated));
     }
 
     _session = updated;
@@ -256,12 +283,14 @@ class ListeningSessionTracker {
         : null;
 
     if (updatedSegment != null) {
-      await _mutationRunner.run((context) async {
-        await context.listeningSegments.save(updatedSegment);
-        await context.playbackSessions.save(updated);
-      });
+      await _write(
+        () => _mutationRunner.run((context) async {
+          await context.listeningSegments.save(updatedSegment);
+          await context.playbackSessions.save(updated);
+        }),
+      );
     } else {
-      await _playbackSessions.save(updated);
+      await _write(() => _playbackSessions.save(updated));
     }
 
     _session = updated;
@@ -300,12 +329,14 @@ class ListeningSessionTracker {
         : null;
 
     if (updatedSegment != null) {
-      await _mutationRunner.run((context) async {
-        await context.listeningSegments.save(updatedSegment);
-        await context.playbackSessions.save(ended);
-      });
+      await _write(
+        () => _mutationRunner.run((context) async {
+          await context.listeningSegments.save(updatedSegment);
+          await context.playbackSessions.save(ended);
+        }),
+      );
     } else {
-      await _playbackSessions.save(ended);
+      await _write(() => _playbackSessions.save(ended));
     }
 
     _session = ended;
@@ -369,7 +400,7 @@ class ListeningSessionTracker {
       updatedAt: startedAt,
     );
 
-    await _listeningSegments.create(segment);
+    await _write(() => _listeningSegments.create(segment));
 
     _listeningSegment = segment;
   }
@@ -441,7 +472,7 @@ class ListeningSessionTracker {
       createdAt: qualifiedAt,
     );
 
-    await _qualifiedPlays.create(play);
+    await _write(() => _qualifiedPlays.create(play));
 
     _hasQualified = true;
   }

@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:sonus_next/core/database/app_database.dart';
 import 'package:sonus_next/core/database/database_tables.dart';
+import 'package:sonus_next/core/database/library_mutation_coordinator.dart';
 import 'package:sonus_next/features/import/application/services/atomic_library_importer.dart';
 import 'package:sonus_next/features/import/data/daos/import_source_dao.dart';
 import 'package:sonus_next/features/import/data/daos/media_file_binding_dao.dart';
@@ -29,6 +32,8 @@ import 'package:sonus_next/features/library/domain/entities/artist.dart';
 import 'package:sonus_next/features/library/domain/entities/song.dart';
 import 'package:sonus_next/features/sync/data/daos/local_sync_dao.dart';
 import 'package:sonus_next/features/sync/domain/models/sync_data_contract.dart';
+
+import '../../../../support/library_seed.dart';
 
 void main() {
   sqfliteFfiInit();
@@ -410,6 +415,88 @@ void main() {
     expect(editions, hasLength(1));
     expect(songs, hasLength(1));
     expect(bindings, hasLength(1));
+  });
+
+  group('restore rejection', () {
+    test('a refused import propagates and writes nothing', () async {
+      final db = await appDatabase.database;
+      final before = await snapshotDatabase(db);
+      final entered = Completer<void>();
+      final release = Completer<void>();
+      final restore = appDatabase.mutationCoordinator.runExclusiveRestore(
+        () async {
+          entered.complete();
+          await release.future;
+        },
+      );
+      await entered.future;
+
+      try {
+        await expectLater(
+          importer.import(
+            candidate: candidate(),
+            metadata: metadata(),
+            now: now,
+          ),
+          throwsA(isA<LibraryMutationUnavailable>()),
+        );
+      } finally {
+        release.complete();
+        await restore;
+      }
+
+      expect(await snapshotDatabase(db), before);
+      expect(appDatabase.mutationCoordinator.activeMutations, 0);
+    });
+
+    test('a rejection raised inside the transaction rolls back and '
+        'propagates unchanged', () async {
+      const rejection = LibraryMutationUnavailable('restoring');
+      final db = await appDatabase.database;
+      final before = await snapshotDatabase(db);
+
+      await expectLater(
+        AtomicLibraryImporter(
+          appDatabase: appDatabase,
+          beforeBindingWrite: () async => throw rejection,
+        ).import(candidate: candidate(), metadata: metadata(), now: now),
+        throwsA(same(rejection)),
+      );
+
+      expect(await snapshotDatabase(db), before);
+    });
+
+    test('genuine failures keep their classifications', () async {
+      final persistence = await AtomicLibraryImporter(
+        appDatabase: appDatabase,
+        beforeBindingWrite: () async => throw StateError('disk full'),
+      ).import(candidate: candidate(), metadata: metadata(), now: now);
+
+      expect(persistence.status, ImportResultStatus.failed);
+      expect(persistence.failure?.type, ImportFailureType.persistenceFailure);
+
+      final db = await appDatabase.database;
+      for (final id in ['artist_twin_1', 'artist_twin_2']) {
+        await ArtistDao(db).insert(
+          Artist(
+            id: id,
+            name: 'Artist Name',
+            canonicalName: 'artist name',
+            createdAt: now,
+            updatedAt: now,
+          ),
+        );
+      }
+
+      final ambiguous = await importer.import(
+        candidate: candidate(),
+        metadata: metadata(),
+        now: now,
+      );
+
+      expect(ambiguous.status, ImportResultStatus.failed);
+      expect(ambiguous.failure?.type, ImportFailureType.invalidMetadata);
+    });
   });
 
   test('ambiguous artist match fails without creating partial graph', () async {

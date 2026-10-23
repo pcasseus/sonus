@@ -1,5 +1,6 @@
 // ignore_for_file: prefer_initializing_formals
 
+import '../../../../core/database/library_mutation_coordinator.dart';
 import '../../../analytics/domain/repositories/qualified_play_repository.dart';
 import '../../domain/entities/chart_entry.dart';
 import '../../domain/entities/chart_snapshot.dart';
@@ -16,6 +17,9 @@ import '../../domain/services/chart_week_resolver.dart';
 import 'chart_snapshot_builder_service.dart';
 
 typedef ChartFinalizationNow = DateTime Function();
+
+/// Reads LibraryMutationCoordinator.restoreGeneration.
+typedef ChartRestoreGeneration = int Function();
 
 class ChartFinalizationService {
   ChartFinalizationService({
@@ -35,6 +39,7 @@ class ChartFinalizationService {
     DateTime? momentsActivationWeekStartUtc,
     ChartWeekResolver weekResolver = const ChartWeekResolver(),
     ChartFinalizationNow? now,
+    ChartRestoreGeneration? restoreGeneration,
   }) : _builder = builder,
        _charts = charts,
        _qualifiedPlays = qualifiedPlays,
@@ -48,7 +53,8 @@ class ChartFinalizationService {
            ChartMomentLifetimeStreamService(qualifiedPlays: qualifiedPlays),
        _momentsActivationWeekStartUtc = momentsActivationWeekStartUtc?.toUtc(),
        _weekResolver = weekResolver,
-       _now = now ?? DateTime.now;
+       _now = now ?? DateTime.now,
+       _restoreGeneration = restoreGeneration;
 
   final ChartSnapshotBuilderService _builder;
   final ChartRepository _charts;
@@ -64,10 +70,14 @@ class ChartFinalizationService {
 
   final ChartWeekResolver _weekResolver;
   final ChartFinalizationNow _now;
+  final ChartRestoreGeneration? _restoreGeneration;
 
   Future<List<ChartSnapshot>> finalizeCompletedWeeks({
     required DateTime referenceLocal,
   }) async {
+    // Captured once, before any read: the whole pass, including its list of
+    // weeks, is computed from the library as it was at this point.
+    final generation = _restoreGeneration?.call();
     final currentWeek = _weekResolver.resolve(referenceLocal);
 
     final plays = await _qualifiedPlays.getAll(
@@ -92,7 +102,7 @@ class ChartFinalizationService {
     final results = <ChartSnapshot>[];
 
     for (final week in weeks) {
-      results.addAll(await reconcileCompletedWeek(week));
+      results.addAll(await _reconcileWeek(week, generation));
     }
 
     return List<ChartSnapshot>.unmodifiable(results);
@@ -113,19 +123,47 @@ class ChartFinalizationService {
     return reconcileCompletedWeek(week);
   }
 
-  Future<List<ChartSnapshot>> reconcileCompletedWeek(ChartWeek week) async {
+  Future<List<ChartSnapshot>> reconcileCompletedWeek(ChartWeek week) {
+    return _reconcileWeek(week, _restoreGeneration?.call());
+  }
+
+  Future<List<ChartSnapshot>> _reconcileWeek(
+    ChartWeek week,
+    int? generation,
+  ) async {
     final results = <ChartSnapshot>[];
 
     for (final chartType in ChartType.values) {
-      results.add(await _reconcileType(chartType: chartType, week: week));
+      results.add(
+        await _reconcileType(
+          chartType: chartType,
+          week: week,
+          generation: generation,
+        ),
+      );
     }
 
     return List<ChartSnapshot>.unmodifiable(results);
   }
 
+  /// A restore since [captured] may have replaced what this pass read, so
+  /// its results must not be written into the restored library. Called
+  /// immediately before each write, with no await before the write's own
+  /// admission check, so no restore can be requested in between.
+  void _ensureNoRestoreSince(int? captured) {
+    final current = _restoreGeneration?.call();
+
+    if (current != captured) {
+      throw const LibraryMutationUnavailable(
+        'The library was restored while charts were being finalized.',
+      );
+    }
+  }
+
   Future<ChartSnapshot> _reconcileType({
     required ChartType chartType,
     required ChartWeek week,
+    required int? generation,
   }) async {
     final existing = await _charts.getForWeek(
       chartType: chartType,
@@ -145,16 +183,20 @@ class ChartFinalizationService {
     if (existing != null && _sameChartContent(existing, candidate)) {
       canonical = existing;
     } else {
+      _ensureNoRestoreSince(generation);
       await _charts.replaceSnapshot(candidate);
       canonical = candidate;
     }
 
-    await _reconcileFinalizedMoments(canonical);
+    await _reconcileFinalizedMoments(canonical, generation);
 
     return canonical;
   }
 
-  Future<void> _reconcileFinalizedMoments(ChartSnapshot snapshot) async {
+  Future<void> _reconcileFinalizedMoments(
+    ChartSnapshot snapshot,
+    int? generation,
+  ) async {
     final moments = _moments;
     final activationWeekStartUtc = _momentsActivationWeekStartUtc;
 
@@ -222,6 +264,7 @@ class ChartFinalizationService {
       );
     }
 
+    _ensureNoRestoreSince(generation);
     await moments.replaceFinalizedForWeek(
       chartType: snapshot.chartType,
       weekStartUtc: snapshot.weekStartUtc,

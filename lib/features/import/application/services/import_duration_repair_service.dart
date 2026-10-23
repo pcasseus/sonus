@@ -1,3 +1,4 @@
+import '../../../../core/database/library_mutation_coordinator.dart';
 import '../../../sync/application/services/sync_mutation_runner.dart';
 import '../../../sync/domain/models/sync_data_contract.dart';
 import '../../domain/entities/media_file_binding.dart';
@@ -107,7 +108,13 @@ class ImportDurationRepairService {
         } else {
           skipped++;
         }
+      } on LibraryMutationUnavailable {
+        // A restore refused the write: stop the pass instead of reading
+        // more files whose repairs would be refused as well.
+        rethrow;
       } catch (_) {
+        // One unreadable file must not stop the others; the caller reports
+        // the failed count.
         failed++;
       }
     }

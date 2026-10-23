@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:sonus_next/core/database/library_mutation_coordinator.dart';
 import 'package:sonus_next/features/analytics/domain/entities/playback_session.dart';
 import 'package:sonus_next/features/analytics/domain/entities/qualified_play.dart';
 import 'package:sonus_next/features/analytics/domain/models/listening_history_cursor.dart';
@@ -80,6 +81,7 @@ void main() {
     required _RecordingChartRepository charts,
     _RecordingMomentRepository? moments,
     DateTime? momentsActivationWeekStartUtc,
+    ChartRestoreGeneration? restoreGeneration,
   }) {
     final library = _FakeLibraryQueryRepository(
       tracks: [
@@ -103,8 +105,107 @@ void main() {
       moments: moments,
       momentsActivationWeekStartUtc: momentsActivationWeekStartUtc,
       now: () => DateTime.utc(2026, 10, 4, 1),
+      restoreGeneration: restoreGeneration,
     );
   }
+
+  group('restore generation', () {
+    final week = ChartWeek(
+      startUtc: DateTime.utc(2026, 9, 27),
+      endUtc: DateTime.utc(2026, 10, 4),
+    );
+
+    _MutableQualifiedPlayRepository weekPlays() {
+      return _MutableQualifiedPlayRepository([
+        play(
+          id: '1',
+          songId: 'song-a',
+          albumId: 'album-a',
+          qualifiedAt: DateTime.utc(2026, 9, 28, 10),
+        ),
+        play(
+          id: '2',
+          songId: 'song-b',
+          albumId: 'album-b',
+          qualifiedAt: DateTime.utc(2026, 9, 29, 10),
+        ),
+      ]);
+    }
+
+    test('an unchanged generation leaves finalization identical', () async {
+      final plainCharts = _RecordingChartRepository();
+      final plainMoments = _RecordingMomentRepository();
+      final guardedCharts = _RecordingChartRepository();
+      final guardedMoments = _RecordingMomentRepository();
+
+      final plain = await createService(
+        qualifiedPlays: weekPlays(),
+        charts: plainCharts,
+        moments: plainMoments,
+        momentsActivationWeekStartUtc: week.startUtc,
+      ).reconcileCompletedWeek(week);
+
+      final guarded = await createService(
+        qualifiedPlays: weekPlays(),
+        charts: guardedCharts,
+        moments: guardedMoments,
+        momentsActivationWeekStartUtc: week.startUtc,
+        restoreGeneration: () => 7,
+      ).reconcileCompletedWeek(week);
+
+      expect(guardedCharts.replaceCalls, plainCharts.replaceCalls);
+      expect(
+        guardedMoments.replacements.length,
+        plainMoments.replacements.length,
+      );
+
+      for (var index = 0; index < plain.length; index++) {
+        final expected = plain[index];
+        final actual = guarded[index];
+
+        expect(actual.revision, expected.revision);
+        expect(
+          actual.entries.map(
+            (entry) => (
+              entry.entity.entityId,
+              entry.rank,
+              entry.qualifiedStreamCount,
+              entry.movement,
+            ),
+          ),
+          expected.entries.map(
+            (entry) => (
+              entry.entity.entityId,
+              entry.rank,
+              entry.qualifiedStreamCount,
+              entry.movement,
+            ),
+          ),
+        );
+      }
+    });
+
+    test('a generation that moved after capture refuses every write', () async {
+      final charts = _RecordingChartRepository();
+      final moments = _RecordingMomentRepository();
+      var generation = 0;
+
+      final pass = createService(
+        qualifiedPlays: weekPlays(),
+        charts: charts,
+        moments: moments,
+        momentsActivationWeekStartUtc: week.startUtc,
+        restoreGeneration: () => generation,
+      ).reconcileCompletedWeek(week);
+
+      // Captured synchronously when the pass began.
+      generation++;
+
+      await expectLater(pass, throwsA(isA<LibraryMutationUnavailable>()));
+      expect(charts.replaceCalls, 0);
+      expect(moments.replacements, isEmpty);
+    });
+  });
 
   test('finalizes songs and albums for completed week', () async {
     final qualifiedPlays = _MutableQualifiedPlayRepository([

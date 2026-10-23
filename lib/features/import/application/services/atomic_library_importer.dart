@@ -1,4 +1,5 @@
 import 'package:sonus_next/core/database/app_database.dart';
+import 'package:sonus_next/core/database/library_mutation_coordinator.dart';
 import 'package:sonus_next/core/identity/entity_id.dart';
 import 'package:sonus_next/core/identity/text_normalizer.dart';
 import 'package:sonus_next/features/import/application/identity/import_identity_metadata_normalizer.dart';
@@ -47,11 +48,17 @@ class AtomicLibraryImporter {
     required this.appDatabase,
     this.userId,
     this.beforeBindingWrite,
+    this.relinkOnly = false,
   });
 
   final AppDatabase appDatabase;
   final String? userId;
   final BeforeBindingWrite? beforeBindingWrite;
+
+  /// Only attach files to songs that already exist (e.g. after restoring a
+  /// backup on a new device). Files without an existing song are skipped
+  /// and nothing is created or modified for them.
+  final bool relinkOnly;
 
   Future<ImportResult> import({
     required ImportCandidate candidate,
@@ -197,6 +204,13 @@ class AtomicLibraryImporter {
               message:
                   'Import metadata matches multiple existing library entities.',
             ),
+          );
+        }
+
+        if (relinkOnly && match.song == null) {
+          return ImportResult(
+            status: ImportResultStatus.skipped,
+            filePath: candidate.filePath,
           );
         }
 
@@ -704,6 +718,9 @@ class AtomicLibraryImporter {
           songId: song.id,
         );
       });
+    } on LibraryMutationUnavailable {
+      // A restore refused the import: an interruption, not a failed file.
+      rethrow;
     } catch (error) {
       return ImportResult(
         status: ImportResultStatus.failed,

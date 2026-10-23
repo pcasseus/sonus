@@ -1,12 +1,14 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sonus_next/core/database/library_mutation_coordinator.dart';
 import 'package:sonus_next/features/import/application/models/import_batch.dart';
 import 'package:sonus_next/features/import/application/models/import_execution_summary.dart';
 import 'package:sonus_next/features/import/application/services/import_batch_runner.dart';
 import 'package:sonus_next/features/import/application/services/import_source_picker.dart';
 import 'package:sonus_next/features/import/application/services/import_workflow_service.dart';
 import 'package:sonus_next/features/import/domain/models/import_candidate.dart';
+import 'package:sonus_next/features/import/domain/models/import_result.dart';
 import 'package:sonus_next/features/import/domain/models/import_source_discovery_exception.dart';
 import 'package:sonus_next/features/import/domain/services/import_candidate_discovery.dart';
 import 'package:sonus_next/features/import/presentation/controllers/imports_controller.dart';
@@ -237,6 +239,74 @@ void main() {
       expect(controller.errorMessage, 'Could not complete the import.');
 
       controller.dispose();
+    });
+
+    group('restore interruption', () {
+      const restoreMessage =
+          'Import stopped because a backup is being restored. Music already '
+          'imported remains in your library. You can try again after '
+          'restoration.';
+
+      Future<ImportsController> importFolderFailingWith(Object error) async {
+        final controller = _buildController(
+          sourcePicker: _FakeImportSourcePicker(
+            onPickStructuredFolder: () async => r'C:\Music',
+          ),
+          candidateDiscovery: _FakeCandidateDiscovery(
+            folderCandidates: [
+              _candidate(r'C:\Music\Artist\Album\01 - First.mp3'),
+              _candidate(r'C:\Music\Artist\Album\02 - Second.mp3'),
+            ],
+          ),
+          batchRunner: _FakeBatchRunner(
+            onExecute: (batch, onProgress) async {
+              final running = batch.start(DateTime(2026, 9, 16, 12));
+              final items = List.of(running.items);
+              items[0] = items[0].completeWith(
+                ImportResult(
+                  status: ImportResultStatus.imported,
+                  filePath: items[0].candidate.filePath,
+                  songId: 'song-1',
+                ),
+              );
+              onProgress?.call(running.withItems(items));
+              throw error;
+            },
+          ),
+        );
+
+        final result = await controller.importStructuredFolder();
+        expect(result, isFalse);
+        return controller;
+      }
+
+      test('a restore shows its own message and keeps progress', () async {
+        final controller = await importFolderFailingWith(
+          const LibraryMutationUnavailable('internal restore detail'),
+        );
+
+        expect(controller.status, ImportsControllerStatus.failed);
+        expect(controller.error, isA<LibraryMutationUnavailable>());
+        expect(controller.errorMessage, restoreMessage);
+        expect(controller.errorMessage, isNot(contains('internal')));
+        expect(
+          controller.errorMessage,
+          isNot(contains('LibraryMutationUnavailable')),
+        );
+        expect(controller.completedCount, 1);
+
+        controller.dispose();
+      });
+
+      test('other failures keep the generic message', () async {
+        final controller = await importFolderFailingWith(
+          StateError('internal failure detail'),
+        );
+
+        expect(controller.errorMessage, 'Could not complete the import.');
+
+        controller.dispose();
+      });
     });
 
     test('blocks another import while source selection is active', () async {

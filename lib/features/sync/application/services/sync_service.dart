@@ -5,6 +5,7 @@ import '../../domain/models/local_sync_models.dart';
 import '../repositories/local_sync_repository.dart';
 import 'inbound_sync_processor.dart';
 import 'outbound_sync_processor.dart';
+import 'sync_run_guard.dart';
 
 typedef SyncClock = DateTime Function();
 
@@ -41,6 +42,7 @@ class SyncService {
     required InboundSyncProcessor inboundSyncProcessor,
     SyncClock? now,
     this._attachAccount,
+    this._runGuard,
   }) : _bindToUser = accountBindingRepository.bindToUser,
        _claimUnowned = localSyncOwnershipRepository.claimUnowned,
        _getPending = localSyncRepository.getPending,
@@ -57,9 +59,13 @@ class SyncService {
     required this._pullAll,
     SyncClock? now,
     this._attachAccount,
+    this._runGuard,
   }) : _now = now ?? DateTime.now;
 
   final Future<int> Function(String userId)? _attachAccount;
+
+  // Guards the entire run, so attachment, push, and pull are all covered.
+  final SyncRunGuard? _runGuard;
   final Future<void> Function(String userId) _bindToUser;
   final Future<int> Function(String userId) _claimUnowned;
   final Future<List<SyncOutboxEntry>> Function(String userId) _getPending;
@@ -74,6 +80,16 @@ class SyncService {
       throw ArgumentError.value(userId, 'userId', 'User id must not be blank.');
     }
 
+    final guard = _runGuard;
+
+    if (guard == null) {
+      return _synchronize(normalizedUserId);
+    }
+
+    return guard.guard(() => _synchronize(normalizedUserId));
+  }
+
+  Future<SyncRunResult> _synchronize(String normalizedUserId) async {
     final startedAt = _now().toUtc();
 
     final attachAccount = _attachAccount;

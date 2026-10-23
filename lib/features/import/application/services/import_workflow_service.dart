@@ -9,6 +9,7 @@ import '../models/import_batch.dart';
 import '../models/import_batch_item.dart';
 import '../models/import_execution_summary.dart';
 import 'import_batch_runner.dart';
+import 'import_source_reconciliation_service.dart';
 
 typedef ImportBatchIdFactory = String Function();
 typedef ImportSourceIdFactory = String Function();
@@ -22,6 +23,7 @@ class ImportWorkflowService {
     this.importSourceRepository,
     this.mediaFileBindingRepository,
     this.onSongsBecameUnavailable,
+    this.sourceReconciliationService,
     this.batchIdFactory = EntityId.importBatch,
     this.sourceIdFactory = EntityId.importSource,
   });
@@ -31,6 +33,7 @@ class ImportWorkflowService {
   final ImportSourceRepository? importSourceRepository;
   final MediaFileBindingRepository? mediaFileBindingRepository;
   final SongsBecameUnavailableCallback? onSongsBecameUnavailable;
+  final ImportSourceReconciliationService? sourceReconciliationService;
   final ImportBatchIdFactory batchIdFactory;
   final ImportSourceIdFactory sourceIdFactory;
 
@@ -91,6 +94,7 @@ class ImportWorkflowService {
       await _reconcileSource(
         source,
         candidates,
+        discoveredAt: timestamp,
         scannedAt: completedAt ?? DateTime.now(),
       );
     }
@@ -139,6 +143,7 @@ class ImportWorkflowService {
     await _reconcileSource(
       source,
       candidates,
+      discoveredAt: timestamp,
       scannedAt: completedAt ?? DateTime.now(),
     );
 
@@ -190,6 +195,7 @@ class ImportWorkflowService {
   Future<void> _reconcileSource(
     ImportSource source,
     List<ImportCandidate> candidates, {
+    required DateTime discoveredAt,
     required DateTime scannedAt,
   }) async {
     final sourceRepository = importSourceRepository;
@@ -202,6 +208,18 @@ class ImportWorkflowService {
     final seenPaths = candidates
         .map((candidate) => candidate.normalizedPath)
         .toSet();
+
+    final reconciler = sourceReconciliationService;
+    if (reconciler != null) {
+      await reconciler.reconcile(
+        sourceId: source.id,
+        seenPaths: seenPaths,
+        discoveredAt: discoveredAt,
+        scannedAt: scannedAt,
+        onSongsBecameUnavailable: onSongsBecameUnavailable,
+      );
+      return;
+    }
 
     final bindings = await bindingRepository.getBySourceId(source.id);
     final potentiallyUnavailableSongIds = <String>{};

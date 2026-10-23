@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 
 import 'package:flutter/widgets.dart';
 import 'package:provider/provider.dart';
 
 import '../../../../core/database/app_database.dart';
+import '../../../../core/database/library_mutation_coordinator.dart';
 import '../../../player/application/controllers/playback_coordinator.dart';
 import '../../application/controllers/playback_analytics_controller.dart';
 import '../../application/services/listening_session_recovery_service.dart';
@@ -20,6 +22,22 @@ import '../../domain/repositories/playback_session_repository.dart';
 import '../../domain/repositories/qualified_play_repository.dart';
 
 typedef AnalyticsScopeNow = DateTime Function();
+
+typedef AnalyticsRuntimeLogger =
+    void Function(String message, {required int level, StackTrace? stackTrace});
+
+void _logAnalytics(
+  String message, {
+  required int level,
+  StackTrace? stackTrace,
+}) {
+  developer.log(
+    message,
+    name: 'sonus.analytics',
+    level: level,
+    stackTrace: stackTrace,
+  );
+}
 
 class AnalyticsRuntime {
   const AnalyticsRuntime({
@@ -39,19 +57,26 @@ class AnalyticsRuntime {
     required PlaybackCoordinator playbackCoordinator,
     AnalyticsScopeNow? now,
     PlaybackAnalyticsUserIdProvider? userIdProvider,
+    AnalyticsRuntimeLogger log = _logAnalytics,
   }) async {
     final database = await appDatabase.database;
 
+    // Every write outside the tracker's runner, including startup recovery
+    // and account attachment through the provided repositories, participates
+    // in restore admission. The runner keeps its own transaction-scoped ones.
     final playbackSessions = SqlitePlaybackSessionRepository(
       PlaybackSessionDao(database),
+      appDatabase: appDatabase,
     );
 
     final listeningSegments = SqlitePlaybackListeningSegmentRepository(
       PlaybackListeningSegmentDao(database),
+      appDatabase: appDatabase,
     );
 
     final qualifiedPlays = SqliteQualifiedPlayRepository(
       QualifiedPlayDao(database),
+      appDatabase: appDatabase,
     );
 
     final recovery = ListeningSessionRecoveryService(
@@ -59,7 +84,22 @@ class AnalyticsRuntime {
       listeningSegments: listeningSegments,
     );
 
-    await recovery.recoverInterruptedSessions();
+    // Sessions left open stay open and are recovered at the next start, so
+    // a failure here must not leave playback unrecorded for this run.
+    try {
+      await recovery.recoverInterruptedSessions();
+    } on LibraryMutationUnavailable {
+      log(
+        'Startup listening recovery stopped: library restoration is active.',
+        level: 800,
+      );
+    } catch (error, stackTrace) {
+      log(
+        'Startup listening recovery failed: ${error.runtimeType}.',
+        level: 1000,
+        stackTrace: stackTrace,
+      );
+    }
 
     final tracker = ListeningSessionTracker(
       playbackSessions: playbackSessions,

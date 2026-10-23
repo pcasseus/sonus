@@ -100,6 +100,8 @@ class _ChartsScopeState extends State<ChartsScope> {
       qualifiedPlays: qualifiedPlays,
       moments: moments,
       momentsActivationWeekStartUtc: DateTime(2026, 9, 27).toUtc(),
+      // A pass that spans a restore must not write what it read before it.
+      restoreGeneration: () => database.mutationCoordinator.restoreGeneration,
     );
 
     final controller = ChartsController(

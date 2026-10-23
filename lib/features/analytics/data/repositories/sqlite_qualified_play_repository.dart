@@ -1,21 +1,42 @@
+import '../../../../core/database/app_database.dart';
 import '../../domain/entities/qualified_play.dart';
 import '../../domain/repositories/qualified_play_repository.dart';
 import '../daos/qualified_play_dao.dart';
 import '../mappers/qualified_play_row_mapper.dart';
 
 class SqliteQualifiedPlayRepository implements QualifiedPlayRepository {
-  const SqliteQualifiedPlayRepository(this.dao);
+  const SqliteQualifiedPlayRepository(this.dao, {this.appDatabase});
 
   final QualifiedPlayDao dao;
 
+  /// Coordinates standalone production writes with exclusive restoration.
+  /// Omit when a caller already owns the transaction.
+  final AppDatabase? appDatabase;
+
   @override
   Future<void> create(QualifiedPlay play) {
-    return dao.insert(QualifiedPlayRowMapper.toRow(play));
+    final row = QualifiedPlayRowMapper.toRow(play);
+    final database = appDatabase;
+    if (database == null) {
+      return dao.insert(row);
+    }
+
+    return database.transaction(
+      (transaction) => QualifiedPlayDao(transaction).insert(row),
+    );
   }
 
   @override
   Future<void> save(QualifiedPlay play) {
-    return dao.update(QualifiedPlayRowMapper.toRow(play));
+    final row = QualifiedPlayRowMapper.toRow(play);
+    final database = appDatabase;
+    if (database == null) {
+      return dao.update(row);
+    }
+
+    return database.transaction(
+      (transaction) => QualifiedPlayDao(transaction).update(row),
+    );
   }
 
   @override

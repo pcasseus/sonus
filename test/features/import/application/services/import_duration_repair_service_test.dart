@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:sonus_next/core/database/app_database.dart';
+import 'package:sonus_next/core/database/library_mutation_coordinator.dart';
 import 'package:sonus_next/features/import/application/services/import_duration_repair_service.dart';
 import 'package:sonus_next/features/import/data/daos/media_file_binding_dao.dart';
 import 'package:sonus_next/features/import/data/repositories/sqlite_media_file_binding_repository.dart';
@@ -19,6 +22,8 @@ import 'package:sonus_next/features/sync/data/daos/local_sync_dao.dart';
 import 'package:sonus_next/features/sync/data/repositories/sync_mutation_transaction_runner.dart';
 import 'package:sonus_next/features/sync/domain/models/local_sync_models.dart';
 import 'package:sonus_next/features/sync/domain/models/sync_data_contract.dart';
+
+import '../../../../support/library_seed.dart';
 
 class CallbackAudioMetadataReader implements AudioMetadataReader {
   CallbackAudioMetadataReader(this.callback);
@@ -300,6 +305,45 @@ void main() {
     expect(stored, isNotNull);
     expect(stored!.durationSeconds, 0);
     expect(stored.updatedAt, originalTime);
+  });
+
+  test('a restore rejection stops the pass without further reads', () async {
+    final first = await createSong(suffix: 'one');
+    final second = await createSong(suffix: 'two');
+    await createBinding(song: first, suffix: 'one');
+    await createBinding(song: second, suffix: 'two');
+
+    final db = await appDatabase.database;
+    final before = await snapshotDatabase(db);
+    final release = Completer<void>();
+    Future<void>? restore;
+    var reads = 0;
+
+    final service = buildService(
+      CallbackAudioMetadataReader((candidate) async {
+        reads++;
+        // The restore begins while the first file is being read, so its
+        // repair is refused.
+        restore ??= appDatabase.mutationCoordinator.runExclusiveRestore(
+          () => release.future,
+        );
+        return metadata(durationSeconds: 240);
+      }),
+    );
+
+    try {
+      await expectLater(
+        service.repair(userId: null, now: repairTime),
+        throwsA(isA<LibraryMutationUnavailable>()),
+      );
+    } finally {
+      release.complete();
+      await restore;
+    }
+
+    expect(reads, 1);
+    expect(await snapshotDatabase(db), before);
+    expect(appDatabase.mutationCoordinator.activeMutations, 0);
   });
 
   test('reader failure does not stop later repairs', () async {

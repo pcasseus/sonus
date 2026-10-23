@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import '../../../../core/database/library_mutation_coordinator.dart';
 import '../../application/models/import_batch.dart';
 import '../../application/models/import_execution_summary.dart';
 import '../../application/services/import_source_picker.dart';
@@ -232,6 +233,12 @@ class ImportsController extends ChangeNotifier {
       }
 
       return '${error.message}\n\nProblem path:\n$sourcePath';
+    }
+
+    if (error is LibraryMutationUnavailable) {
+      return 'Import stopped because a backup is being restored. Music '
+          'already imported remains in your library. You can try again '
+          'after restoration.';
     }
 
     return 'Could not complete the import.';

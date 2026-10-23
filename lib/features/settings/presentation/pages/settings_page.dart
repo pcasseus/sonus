@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 
 import '../../../account/application/controllers/account_controller.dart';
 import '../../../analytics/presentation/pages/listening_history_page.dart';
+import '../../../recovery/application/controllers/backup_restore_controller.dart';
+import '../../../recovery/presentation/pages/backup_restore_page.dart';
 import '../../../sync/application/controllers/sync_controller.dart';
 import '../../../sync/application/services/automatic_sync_coordinator.dart';
 import '../../../sync/application/services/sync_network_policy_service.dart';
@@ -51,6 +53,13 @@ class SettingsPage extends StatelessWidget {
           Text('Library', style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 8),
           const _LibraryCard(),
+          const SizedBox(height: 24),
+          Text(
+            'Backup & Restore',
+            style: Theme.of(context).textTheme.titleMedium,
+          ),
+          const SizedBox(height: 8),
+          const _BackupRestoreCard(),
         ],
       ),
     );
@@ -165,6 +174,15 @@ class _SyncCard extends StatelessWidget {
                 key: const ValueKey<String>('settings-sync-account-conflict'),
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
+            ] else if (syncController.isRecoveryHeld) ...[
+              const SizedBox(height: 16),
+              Text(
+                'Cloud sync is paused while Sonus confirms a restored library '
+                'is consistent with your cloud account. Open Backup & Restore '
+                'for details.',
+                key: const ValueKey<String>('settings-sync-recovery-hold'),
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
             ] else if (syncController.status == SyncStatus.error) ...[
               const SizedBox(height: 16),
               Text(
@@ -267,6 +285,10 @@ class _SyncCard extends StatelessWidget {
       return 'Syncing your library...';
     }
 
+    if (controller.isRecoveryHeld) {
+      return 'Paused for recovery review';
+    }
+
     if (controller.status == SyncStatus.error) {
       return 'Waiting to retry';
     }
@@ -364,6 +386,42 @@ class _LibraryCard extends StatelessWidget {
           Navigator.of(context).push(
             MaterialPageRoute<void>(
               builder: (context) => const BlacklistedSongsPage(),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _BackupRestoreCard extends StatelessWidget {
+  const _BackupRestoreCard();
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = context.watch<BackupRestoreController?>();
+    final held =
+        controller?.startupError != null ||
+        (controller?.overview?.hold.pausesSync ?? false);
+
+    return Card(
+      child: ListTile(
+        key: const ValueKey<String>('settings-backup-restore'),
+        leading: Icon(
+          held ? Icons.cloud_off_rounded : Icons.settings_backup_restore_rounded,
+        ),
+        title: const Text('Backup & Restore'),
+        subtitle: Text(
+          held
+              ? 'Cloud sync is paused for recovery review.'
+              : 'Back up your library or restore it on a new device.',
+          key: const ValueKey<String>('settings-backup-restore-subtitle'),
+        ),
+        trailing: const Icon(Icons.chevron_right_rounded),
+        onTap: () {
+          Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (context) => const BackupRestorePage(),
             ),
           );
         },

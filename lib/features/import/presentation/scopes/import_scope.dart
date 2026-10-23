@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 import 'dart:io';
 
 import 'package:flutter/widgets.dart';
@@ -6,6 +7,7 @@ import 'package:provider/provider.dart';
 import 'package:saf/saf.dart';
 
 import '../../../../core/database/app_database.dart';
+import '../../../../core/database/library_mutation_coordinator.dart';
 import '../../../account/application/controllers/account_controller.dart';
 import '../../../library/application/repositories/library_query_repository.dart';
 import '../../../library/application/services/artist_creation_service.dart';
@@ -26,6 +28,7 @@ import '../../application/services/import_duration_repair_service.dart';
 import '../../application/services/import_review_cleanup_service.dart';
 import '../../application/services/import_review_service.dart';
 import '../../application/services/import_source_picker.dart';
+import '../../application/services/import_source_reconciliation_service.dart';
 import '../../application/services/import_workflow_service.dart';
 import '../../application/services/library_import_service.dart';
 import '../../application/services/lyrics_ingestion_service.dart';
@@ -44,6 +47,88 @@ import '../../data/services/media_metadata_reader.dart';
 import '../../data/services/path_fallback_metadata_reader.dart';
 import '../../data/services/saf_import_candidate_discovery.dart';
 import '../services/file_picker_import_source_picker.dart';
+
+typedef ImportMaintenanceLogger =
+    void Function(String message, {required int level, StackTrace? stackTrace});
+
+/// Repairs song durations, then clears review reasons the repair made stale.
+///
+/// Cleanup only runs after a successful repair. Each stage reports its own
+/// failure, by stage and error type only, so diagnostics never carry user
+/// data. A restore in progress stops the chain without retrying; the restart
+/// that follows a restore runs it again.
+Future<void> runStartupDurationMaintenance({
+  required Future<void> Function() repairDurations,
+  required Future<void> Function() cleanupReviews,
+  ImportMaintenanceLogger log = _logImportMaintenance,
+}) async {
+  if (await runStartupMaintenanceStage(
+    'duration repair',
+    repairDurations,
+    log: log,
+  )) {
+    await runStartupMaintenanceStage(
+      'review cleanup',
+      cleanupReviews,
+      log: log,
+    );
+  }
+}
+
+/// Runs duration repair, then reports how many songs could not be repaired.
+/// A refused write propagates, so the stage reports it as stopped instead.
+Future<void> repairDurationsReportingFailures(
+  Future<ImportDurationRepairSummary> Function() repair, {
+  ImportMaintenanceLogger log = _logImportMaintenance,
+}) async {
+  final summary = await repair();
+
+  if (summary.failed > 0) {
+    log(
+      'Startup duration repair could not repair ${summary.failed} of '
+      '${summary.examined} songs.',
+      level: 900,
+    );
+  }
+}
+
+/// Runs one startup maintenance stage, reporting its outcome by stage name
+/// and error type only. Nothing escapes, so the stage can run unawaited, and
+/// nothing is retried: a restore stops the stage until the next start.
+/// Returns whether the stage completed.
+Future<bool> runStartupMaintenanceStage(
+  String stage,
+  Future<void> Function() action, {
+  ImportMaintenanceLogger log = _logImportMaintenance,
+}) async {
+  try {
+    await action();
+    return true;
+  } on LibraryMutationUnavailable {
+    log('Startup $stage stopped: library restoration is active.', level: 800);
+  } catch (error, stackTrace) {
+    log(
+      'Startup $stage failed: ${error.runtimeType}.',
+      level: 1000,
+      stackTrace: stackTrace,
+    );
+  }
+
+  return false;
+}
+
+void _logImportMaintenance(
+  String message, {
+  required int level,
+  StackTrace? stackTrace,
+}) {
+  developer.log(
+    message,
+    name: 'sonus.import',
+    level: level,
+    stackTrace: stackTrace,
+  );
+}
 
 class ImportScope extends StatefulWidget {
   const ImportScope({super.key, required this.child});
@@ -130,26 +215,38 @@ class _ImportScopeState extends State<ImportScope> {
 
     final batchRepository = SqliteImportBatchRepository(
       ImportBatchDao(sqliteDatabase),
+      appDatabase: database,
     );
 
     final importSourceRepository = SqliteImportSourceRepository(
       ImportSourceDao(sqliteDatabase),
+      appDatabase: database,
     );
 
+    // Standalone binding writes, such as reactivating an existing binding
+    // during import, participate in restore admission.
     final mediaFileBindingRepository = SqliteMediaFileBindingRepository(
       MediaFileBindingDao(sqliteDatabase),
+      appDatabase: database,
     );
 
+    // Sidecar lyrics are written after the song import commits, so the write
+    // must participate in restore admission on its own.
     final trackLyricsRepository = SqliteTrackLyricsRepository(
       TrackLyricsDao(sqliteDatabase),
+      appDatabase: database,
     );
 
+    // Review resolution and startup cleanup write outside any caller-owned
+    // transaction, so both participate in restore admission.
     final reviewRepository = SqliteSongImportReviewRepository(
       SongImportReviewDao(sqliteDatabase),
+      appDatabase: database,
     );
     final reviewCleanupService = ImportReviewCleanupService(
       reviewRepository: reviewRepository,
       songRepository: SqliteSongRepository(SongDao(sqliteDatabase)),
+      appDatabase: database,
     );
 
     final reviewService =
@@ -221,6 +318,9 @@ class _ImportScopeState extends State<ImportScope> {
       importSourceRepository: importSourceRepository,
       mediaFileBindingRepository: mediaFileBindingRepository,
       onSongsBecameUnavailable: playbackCoordinator.removeSongsFromQueue,
+      sourceReconciliationService: ImportSourceReconciliationService(
+        appDatabase: database,
+      ),
     );
 
     if (!mounted || version != _initializationVersion) {
@@ -236,16 +336,26 @@ class _ImportScopeState extends State<ImportScope> {
       _durationRepairStarted = true;
 
       unawaited(
-        durationRepairService
-            .repair(userId: userId)
-            .then((_) => reviewCleanupService.cleanupStaleDurationReasons()),
+        runStartupDurationMaintenance(
+          repairDurations: () => repairDurationsReportingFailures(
+            () => durationRepairService.repair(userId: userId),
+          ),
+          cleanupReviews: reviewCleanupService.cleanupStaleDurationReasons,
+        ),
       );
     }
 
     if (!_artistIdentityRepairStarted) {
       _artistIdentityRepairStarted = true;
 
-      unawaited(artistIdentityRepairScanService.repairAll(userId: userId));
+      // Independent of the duration chain, as before; failures are reported
+      // instead of escaping the unawaited future.
+      unawaited(
+        runStartupMaintenanceStage(
+          'artist identity repair',
+          () => artistIdentityRepairScanService.repairAll(userId: userId),
+        ),
+      );
     }
   }
 
