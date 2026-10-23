@@ -50,17 +50,63 @@ class PlaybackAnalyticsController {
 
   bool _disposed = false;
 
+  /// Set while a library restore is pending or has replaced the library.
+  bool _suspended = false;
+
   Object? _lastError;
 
   Object? get lastError => _lastError;
 
   Future<void> get settled => _pending;
 
+  bool get isSuspended => _suspended;
+
+  /// Stops recording playback for a library restore. Call it after playback
+  /// has stopped; the returned future completes once every queued analytics
+  /// write has finished.
+  ///
+  /// The coordinator's current state is queued and suspension starts in the
+  /// same synchronous step, so the end of the session is recorded even if
+  /// the engine has not delivered its idle state yet, and nothing delivered
+  /// afterwards is recorded. A session the drain could not end is abandoned
+  /// so it is never written into a restored library.
+  Future<void> suspendForRestore() {
+    if (_disposed || _suspended) {
+      return _pending;
+    }
+
+    _enqueueState(_playbackCoordinator.currentState);
+    _suspended = true;
+
+    _pending = _pending.then((_) {
+      if (_tracker.hasActiveSession) {
+        _tracker.abandon();
+      }
+    });
+
+    return _pending;
+  }
+
+  /// Records playback again after a restore that did not change the library.
+  void resumeAfterRestore() {
+    if (_disposed || !_suspended) {
+      return;
+    }
+
+    _suspended = false;
+    _enqueueState(_playbackCoordinator.currentState);
+  }
+
   Future<void> attachActiveSessionToUser(String userId) {
     if (_disposed) {
       return Future<void>.error(
         StateError('Playback analytics controller is disposed.'),
       );
+    }
+
+    // A suspended controller has no active session to attach.
+    if (_suspended) {
+      return Future<void>.value();
     }
 
     final completer = Completer<void>();
@@ -82,7 +128,7 @@ class PlaybackAnalyticsController {
   }
 
   void _enqueueState(PlaybackState state) {
-    if (_disposed) {
+    if (_disposed || _suspended) {
       return;
     }
 
@@ -350,7 +396,9 @@ class PlaybackAnalyticsController {
     await _subscription.cancel();
     await _pending;
 
-    if (_tracker.hasActiveSession) {
+    // A suspended controller belongs to a library that is being, or has
+    // been, replaced by a restore; it must not write on the way out.
+    if (!_suspended && _tracker.hasActiveSession) {
       final previous = _previousState;
 
       await _tracker.end(

@@ -574,6 +574,268 @@ void main() {
       PlaybackSessionEndReason.interrupted,
     );
   });
+
+  group('restore suspension barrier', () {
+    late _DeferredStopEngine deferred;
+    late _CountedSessions sessions;
+    late _CountedSegments segments;
+    late _CountedPlays plays;
+    late DirectListeningSessionMutationRunner runner;
+    late ListeningSessionTracker barrierTracker;
+    late PlaybackCoordinator coordinator;
+    late PlaybackAnalyticsController barrier;
+    late _WriteCount writes;
+
+    setUp(() {
+      writes = _WriteCount();
+      deferred = _DeferredStopEngine();
+      sessions = _CountedSessions(writes);
+      segments = _CountedSegments(writes);
+      plays = _CountedPlays(writes);
+      runner = DirectListeningSessionMutationRunner(
+        playbackSessions: sessions,
+        listeningSegments: segments,
+        qualifiedPlays: plays,
+      );
+
+      var sessionNumber = 0;
+
+      barrierTracker = ListeningSessionTracker(
+        playbackSessions: sessions,
+        qualifiedPlays: plays,
+        listeningSegments: segments,
+        mutationRunner: runner,
+        now: () => now,
+        playbackSessionIdGenerator: () => 'session_${++sessionNumber}',
+      );
+
+      coordinator = PlaybackCoordinator(engine: deferred);
+      barrier = PlaybackAnalyticsController(
+        playbackCoordinator: coordinator,
+        tracker: barrierTracker,
+        now: () => now,
+      );
+    });
+
+    tearDown(() async {
+      await barrier.dispose();
+      await deferred.dispose();
+    });
+
+    Future<void> startPlaying() async {
+      deferred.emit(state(status: PlaybackStatus.playing));
+      await barrier.settled;
+      expect(sessions.values.single.isEnded, isFalse);
+    }
+
+    test('records the stop even before the engine delivers idle', () async {
+      await startPlaying();
+      now = now.add(const Duration(seconds: 12));
+
+      await coordinator.stop();
+      expect(deferred.heldEvents, 1);
+
+      await barrier.suspendForRestore();
+
+      final ended = sessions.values.single;
+      expect(ended.endReason, PlaybackSessionEndReason.stopped);
+      expect(ended.listenedDuration, const Duration(seconds: 12));
+      expect(barrierTracker.hasActiveSession, isFalse);
+      expect(barrier.isSuspended, isTrue);
+
+      // The idle delivered late, and any later player or position update,
+      // record nothing.
+      final count = writes.value;
+      deferred.deliverHeld();
+      deferred.emit(state(status: PlaybackStatus.playing));
+      deferred.emit(
+        state(
+          status: PlaybackStatus.playing,
+          position: const Duration(seconds: 3),
+        ),
+      );
+      await pumpEventQueue();
+      await barrier.settled;
+
+      expect(writes.value, count);
+      expect(sessions.values, hasLength(1));
+      expect(barrier.lastError, isNull);
+    });
+
+    test('a pending session end holds the barrier until it commits', () async {
+      await startPlaying();
+      now = now.add(const Duration(seconds: 7));
+      final gate = Completer<void>();
+      sessions.gate = gate;
+
+      await coordinator.stop();
+
+      var drained = false;
+      final barrierDone = barrier.suspendForRestore().then((_) {
+        drained = true;
+      });
+
+      await pumpEventQueue();
+      expect(drained, isFalse);
+      expect(sessions.values.single.isEnded, isFalse);
+
+      gate.complete();
+      await barrierDone;
+
+      expect(drained, isTrue);
+      expect(
+        sessions.values.single.endReason,
+        PlaybackSessionEndReason.stopped,
+      );
+    });
+
+    test('events after suspension cannot start a session', () async {
+      await barrier.suspendForRestore();
+
+      deferred.emit(state(status: PlaybackStatus.playing));
+      deferred.emit(state(status: PlaybackStatus.playing, track: track2));
+      await pumpEventQueue();
+      await barrier.settled;
+
+      expect(writes.value, 0);
+      expect(barrierTracker.hasActiveSession, isFalse);
+    });
+
+    test('disposal while suspended performs no writes', () async {
+      await startPlaying();
+      await coordinator.stop();
+      await barrier.suspendForRestore();
+      final count = writes.value;
+
+      await barrier.dispose();
+
+      expect(writes.value, count);
+    });
+
+    test('a session end that fails during the drain is abandoned', () async {
+      await startPlaying();
+      now = now.add(const Duration(seconds: 4));
+      runner.failNextMutation = true;
+
+      await coordinator.stop();
+      await barrier.suspendForRestore();
+
+      expect(barrier.lastError, isA<StateError>());
+      expect(barrierTracker.hasActiveSession, isFalse);
+      // Left open for startup recovery, never ended from stale memory.
+      expect(sessions.values.single.isEnded, isFalse);
+
+      final count = writes.value;
+      await barrier.dispose();
+      expect(writes.value, count);
+    });
+
+    test('active session attachment is skipped while suspended', () async {
+      await barrier.suspendForRestore();
+
+      await barrier.attachActiveSessionToUser('user-1');
+
+      expect(writes.value, 0);
+    });
+
+    test('resuming records playback again, exactly once', () async {
+      await barrier.suspendForRestore();
+      await barrier.suspendForRestore();
+
+      barrier.resumeAfterRestore();
+      barrier.resumeAfterRestore();
+      expect(barrier.isSuspended, isFalse);
+
+      deferred.emit(state(status: PlaybackStatus.playing));
+      await barrier.settled;
+
+      expect(sessions.values, hasLength(1));
+      expect(sessions.values.single.isEnded, isFalse);
+    });
+  });
+}
+
+class _WriteCount {
+  int value = 0;
+}
+
+class _CountedSessions extends _MemoryPlaybackSessionRepository {
+  _CountedSessions(this._writes);
+
+  final _WriteCount _writes;
+
+  /// When set, saves wait for it, standing in for a slow commit.
+  Completer<void>? gate;
+
+  @override
+  Future<void> create(PlaybackSession session) async {
+    _writes.value++;
+    await super.create(session);
+  }
+
+  @override
+  Future<void> save(PlaybackSession session) async {
+    _writes.value++;
+    await gate?.future;
+    await super.save(session);
+  }
+}
+
+class _CountedSegments extends _MemoryPlaybackListeningSegmentRepository {
+  _CountedSegments(this._writes);
+
+  final _WriteCount _writes;
+
+  @override
+  Future<void> create(PlaybackListeningSegment segment) async {
+    _writes.value++;
+    await super.create(segment);
+  }
+
+  @override
+  Future<void> save(PlaybackListeningSegment segment) async {
+    _writes.value++;
+    await super.save(segment);
+  }
+}
+
+class _CountedPlays extends _MemoryQualifiedPlayRepository {
+  _CountedPlays(this._writes);
+
+  final _WriteCount _writes;
+
+  @override
+  Future<void> create(QualifiedPlay play) async {
+    _writes.value++;
+    await super.create(play);
+  }
+
+  @override
+  Future<void> save(QualifiedPlay play) async {
+    _writes.value++;
+    await super.save(play);
+  }
+}
+
+/// Like the production engine, stop() updates the current state at once but
+/// its idle event reaches listeners only later; here, when released.
+class _DeferredStopEngine extends _FakePlaybackEngine {
+  final List<PlaybackState> _held = [];
+
+  int get heldEvents => _held.length;
+
+  @override
+  Future<void> stop() async {
+    _state = PlaybackState(queue: _state.queue, status: PlaybackStatus.idle);
+    _held.add(_state);
+  }
+
+  void deliverHeld() {
+    for (final held in _held) {
+      _states.add(held);
+    }
+    _held.clear();
+  }
 }
 
 const track1 = PlaybackTrack(

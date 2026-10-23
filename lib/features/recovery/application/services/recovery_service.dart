@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as path;
 import 'package:uuid/uuid.dart';
 
@@ -33,6 +34,27 @@ abstract interface class RecoveryFilePicker {
 }
 
 typedef RelinkFolder = Future<RecoveryRelinkResult> Function(String folder);
+
+/// Listening analytics paused for a restore.
+class RestoreQuiescence {
+  const RestoreQuiescence({required this.drained, required this.resume});
+
+  /// Completes once every pending analytics write has finished.
+  final Future<void> drained;
+
+  /// Records playback again; called only when the library was not replaced.
+  final void Function() resume;
+}
+
+/// Pauses listening analytics synchronously, before returning, or returns
+/// null when there is nothing to pause.
+typedef SuspendAnalytics = RestoreQuiescence? Function();
+
+typedef RestoreRunner =
+    Future<RestoreResult> Function(
+      File backupFile, {
+      void Function(RestoreStage stage)? onProgress,
+    });
 
 /// Everything the Backup & Restore screens can ask of recovery.
 abstract interface class RecoveryService {
@@ -72,10 +94,12 @@ class DefaultRecoveryService implements RecoveryService {
     required this.picker,
     required this.stopPlayback,
     required this.relink,
+    this.suspendAnalytics,
     this.exporter = const BackupDocumentExporter(),
     this.publisher = const VerifiedBackupPublisher(),
     this.storageProbe = const PlatformStorageSpaceProbe(),
     DateTime Function()? now,
+    @visibleForTesting this._restoreRunner,
   }) : _now = now ?? DateTime.now;
 
   final AppDatabase appDatabase;
@@ -85,11 +109,16 @@ class DefaultRecoveryService implements RecoveryService {
   final RecoveryDirectoryProvider supportDirectory;
   final RecoveryFilePicker picker;
   final Future<void> Function() stopPlayback;
+
+  /// Pauses listening analytics once playback has stopped.
+  final SuspendAnalytics? suspendAnalytics;
+
   final RelinkFolder relink;
   final BackupDocumentExporter exporter;
   final VerifiedBackupPublisher publisher;
   final StorageSpaceProbe? storageProbe;
   final DateTime Function() _now;
+  final RestoreRunner? _restoreRunner;
 
   static const _verifier = BackupArchiveVerifier();
 
@@ -226,17 +255,18 @@ class DefaultRecoveryService implements RecoveryService {
         .substring(0, 14);
     final name = 'sonus-backup-$stamp.sonusbackup';
 
-    final backup = await SonusBackupOrchestrator(
-      exporter: SqliteBackupExporter(
-        appDatabase: appDatabase,
-        generateId: () => backupId,
-        now: () => createdAt,
-      ),
-      publisher: publisher,
-    ).createBackup(
-      destination: File(path.join(directory.path, name)),
-      onProgress: onStage,
-    );
+    final backup =
+        await SonusBackupOrchestrator(
+          exporter: SqliteBackupExporter(
+            appDatabase: appDatabase,
+            generateId: () => backupId,
+            now: () => createdAt,
+          ),
+          publisher: publisher,
+        ).createBackup(
+          destination: File(path.join(directory.path, name)),
+          onProgress: onStage,
+        );
 
     final export = await exporter.export(source: backup, suggestedName: name);
 
@@ -322,9 +352,58 @@ class DefaultRecoveryService implements RecoveryService {
   }) async {
     await stopPlayback();
 
-    // Every check runs again: the backup and device may have changed
-    // since the preview.
-    return _restorer.restore(backupFile, onProgress: onStage);
+    final quiescence = suspendAnalytics?.call();
+
+    // The restore reports restoringDatabase just before its transaction and
+    // assessingSync only once that transaction has committed.
+    var transactionStarted = false;
+    var committed = false;
+
+    try {
+      await quiescence?.drained;
+
+      // Every check runs again: the backup and device may have changed
+      // since the preview.
+      final run = _restoreRunner ?? _restorer.restore;
+
+      return await run(
+        backupFile,
+        onProgress: (stage) {
+          if (stage == RestoreStage.restoringDatabase) {
+            transactionStarted = true;
+          } else if (stage == RestoreStage.assessingSync) {
+            committed = true;
+          }
+
+          onStage?.call(stage);
+        },
+      );
+    } catch (error) {
+      // Analytics resumes only when the library certainly was not replaced.
+      // After a commit, or when a rollback could not be verified, it stays
+      // paused until Sonus reloads.
+      if (quiescence != null &&
+          _libraryUnchanged(
+            error,
+            transactionStarted: transactionStarted,
+            committed: committed,
+          )) {
+        quiescence.resume();
+      }
+
+      rethrow;
+    }
+  }
+
+  static bool _libraryUnchanged(
+    Object error, {
+    required bool transactionStarted,
+    required bool committed,
+  }) {
+    if (committed) return false;
+    if (!transactionStarted) return true;
+
+    return error is RestoreFailedException && error.rollbackVerified;
   }
 
   @override

@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 import 'package:saf/saf.dart';
 
 import '../../../../core/database/app_database.dart';
+import '../../../analytics/application/controllers/playback_analytics_controller.dart';
 import '../../../import/application/services/metadata_resolver.dart';
 import '../../../import/data/services/file_system_import_candidate_discovery.dart';
 import '../../../import/data/services/media_metadata_reader.dart';
@@ -62,7 +63,8 @@ class _RecoveryScopeState extends State<RecoveryScope> {
   }
 
   RecoveryService _platformService(AppDatabase database) {
-    final gate = context.read<RecoverySyncGate?>() ?? RecoverySyncGate.application;
+    final gate =
+        context.read<RecoverySyncGate?>() ?? RecoverySyncGate.application;
     final playback = context.read<PlaybackCoordinator>();
 
     Future<Directory> support() => getApplicationSupportDirectory();
@@ -77,6 +79,7 @@ class _RecoveryScopeState extends State<RecoveryScope> {
       supportDirectory: support,
       picker: FilePickerRecoveryFilePicker(saf: _saf),
       stopPlayback: playback.stop,
+      suspendAnalytics: _suspendAnalytics,
       relink: (folder) => RecoveryAudioRelinkService(
         appDatabase: database,
         candidateDiscovery: Platform.isAndroid
@@ -90,6 +93,20 @@ class _RecoveryScopeState extends State<RecoveryScope> {
         ),
         onSongsBecameUnavailable: playback.removeSongsFromQueue,
       ).relinkFolder(folder),
+    );
+  }
+
+  /// Read when a restore starts: the analytics runtime is created
+  /// asynchronously and may not exist when this scope builds its service.
+  RestoreQuiescence? _suspendAnalytics() {
+    if (!mounted) return null;
+
+    final analytics = context.read<PlaybackAnalyticsController?>();
+    if (analytics == null) return null;
+
+    return RestoreQuiescence(
+      drained: analytics.suspendForRestore(),
+      resume: analytics.resumeAfterRestore,
     );
   }
 

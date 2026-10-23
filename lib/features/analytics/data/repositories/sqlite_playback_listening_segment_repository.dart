@@ -1,3 +1,4 @@
+import '../../../../core/database/app_database.dart';
 import '../../domain/entities/playback_listening_segment.dart';
 import '../../domain/repositories/playback_listening_segment_repository.dart';
 import '../daos/playback_listening_segment_dao.dart';
@@ -5,18 +6,38 @@ import '../mappers/playback_listening_segment_row_mapper.dart';
 
 class SqlitePlaybackListeningSegmentRepository
     implements PlaybackListeningSegmentRepository {
-  const SqlitePlaybackListeningSegmentRepository(this.dao);
+  const SqlitePlaybackListeningSegmentRepository(this.dao, {this.appDatabase});
 
   final PlaybackListeningSegmentDao dao;
 
+  /// Coordinates standalone production writes with exclusive restoration.
+  /// Omit when a caller already owns the transaction.
+  final AppDatabase? appDatabase;
+
   @override
   Future<void> create(PlaybackListeningSegment segment) {
-    return dao.insert(PlaybackListeningSegmentRowMapper.toRow(segment));
+    final row = PlaybackListeningSegmentRowMapper.toRow(segment);
+    final database = appDatabase;
+    if (database == null) {
+      return dao.insert(row);
+    }
+
+    return database.transaction(
+      (transaction) => PlaybackListeningSegmentDao(transaction).insert(row),
+    );
   }
 
   @override
   Future<void> save(PlaybackListeningSegment segment) {
-    return dao.update(PlaybackListeningSegmentRowMapper.toRow(segment));
+    final row = PlaybackListeningSegmentRowMapper.toRow(segment);
+    final database = appDatabase;
+    if (database == null) {
+      return dao.update(row);
+    }
+
+    return database.transaction(
+      (transaction) => PlaybackListeningSegmentDao(transaction).update(row),
+    );
   }
 
   @override

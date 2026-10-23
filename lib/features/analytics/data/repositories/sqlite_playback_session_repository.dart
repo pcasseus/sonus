@@ -1,3 +1,4 @@
+import '../../../../core/database/app_database.dart';
 import '../../domain/models/listening_history_cursor.dart';
 import '../../domain/entities/playback_session.dart';
 import '../../domain/repositories/playback_session_repository.dart';
@@ -5,18 +6,38 @@ import '../daos/playback_session_dao.dart';
 import '../mappers/playback_session_row_mapper.dart';
 
 class SqlitePlaybackSessionRepository implements PlaybackSessionRepository {
-  const SqlitePlaybackSessionRepository(this.dao);
+  const SqlitePlaybackSessionRepository(this.dao, {this.appDatabase});
 
   final PlaybackSessionDao dao;
 
+  /// Coordinates standalone production writes with exclusive restoration.
+  /// Omit when a caller already owns the transaction.
+  final AppDatabase? appDatabase;
+
   @override
   Future<void> create(PlaybackSession session) {
-    return dao.insert(PlaybackSessionRowMapper.toRow(session));
+    final row = PlaybackSessionRowMapper.toRow(session);
+    final database = appDatabase;
+    if (database == null) {
+      return dao.insert(row);
+    }
+
+    return database.transaction(
+      (transaction) => PlaybackSessionDao(transaction).insert(row),
+    );
   }
 
   @override
   Future<void> save(PlaybackSession session) {
-    return dao.update(PlaybackSessionRowMapper.toRow(session));
+    final row = PlaybackSessionRowMapper.toRow(session);
+    final database = appDatabase;
+    if (database == null) {
+      return dao.update(row);
+    }
+
+    return database.transaction(
+      (transaction) => PlaybackSessionDao(transaction).update(row),
+    );
   }
 
   @override

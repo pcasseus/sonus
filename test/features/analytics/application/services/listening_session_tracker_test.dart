@@ -2,8 +2,10 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../../support/direct_listening_session_mutation_runner.dart';
 
+import 'package:sonus_next/core/database/library_mutation_coordinator.dart';
 import 'package:sonus_next/features/analytics/domain/models/listening_history_cursor.dart';
 
+import 'package:sonus_next/features/analytics/application/services/listening_session_mutation_runner.dart';
 import 'package:sonus_next/features/analytics/application/services/listening_session_start.dart';
 import 'package:sonus_next/features/analytics/application/services/listening_session_tracker.dart';
 import 'package:sonus_next/features/analytics/domain/entities/playback_listening_segment.dart';
@@ -367,6 +369,301 @@ void main() {
 
     await expectLater(tracker.markPaused(), throwsA(isA<StateError>()));
   });
+
+  group('restore rejection abandons in-memory state', () {
+    late _Admission admission;
+    late _AdmittedSessions sessions;
+    late _AdmittedSegments segments;
+    late _AdmittedPlays plays;
+    late _AdmittedRunner runner;
+    late ListeningSessionTracker guarded;
+
+    setUp(() {
+      admission = _Admission();
+      sessions = _AdmittedSessions(admission);
+      segments = _AdmittedSegments(admission);
+      plays = _AdmittedPlays(admission);
+      runner = _AdmittedRunner(
+        admission,
+        playbackSessions: sessions,
+        listeningSegments: segments,
+        qualifiedPlays: plays,
+      );
+
+      var sessionNumber = 0;
+      var playNumber = 0;
+
+      guarded = ListeningSessionTracker(
+        playbackSessions: sessions,
+        qualifiedPlays: plays,
+        listeningSegments: segments,
+        mutationRunner: runner,
+        now: () => now,
+        playbackSessionIdGenerator: () => 'session_${++sessionNumber}',
+        qualifiedPlayIdGenerator: () => 'play_${++playNumber}',
+      );
+    });
+
+    Future<List<Object?>> rows() async => [
+      for (final session in sessions.values)
+        (
+          session.id,
+          session.userId,
+          session.listenedDuration,
+          session.finalPosition,
+          session.endedAt,
+          session.endReason,
+          session.updatedAt,
+        ),
+      for (final segment in await segments.getAll())
+        (
+          segment.id,
+          segment.endedAt,
+          segment.listenedDuration,
+          segment.updatedAt,
+        ),
+      for (final play in plays.values) (play.id, play.userId),
+    ];
+
+    /// Closes admission for [writes], runs [operation], and expects the
+    /// rejection to propagate with nothing written and no state retained.
+    Future<void> expectAbandoned(
+      Set<String> writes,
+      Future<Object?> Function() operation,
+    ) async {
+      final before = await rows();
+      admission.rejected.addAll(writes);
+
+      await expectLater(
+        operation(),
+        throwsA(isA<LibraryMutationUnavailable>()),
+      );
+
+      admission.rejected.clear();
+      expect(await rows(), before);
+      expect(guarded.hasActiveSession, isFalse);
+      expect(guarded.currentSession, isNull);
+      expect(guarded.currentListeningSegment, isNull);
+      expect(guarded.isPlaying, isFalse);
+      expect(guarded.hasQualified, isFalse);
+    }
+
+    test('session creation (W3)', () async {
+      await expectAbandoned({'session.create'}, () => guarded.start(start));
+    });
+
+    test('segment creation after a committed session (W5)', () async {
+      admission.rejected.add('segment.create');
+
+      await expectLater(
+        guarded.start(start, playing: true),
+        throwsA(isA<LibraryMutationUnavailable>()),
+      );
+
+      // The committed session stays open for startup recovery.
+      expect(sessions.values.single.isEnded, isFalse);
+      expect(guarded.hasActiveSession, isFalse);
+      expect(guarded.currentListeningSegment, isNull);
+    });
+
+    test('mark playing (W4)', () async {
+      await guarded.start(start);
+
+      await expectAbandoned({'session.save'}, () => guarded.markPlaying());
+    });
+
+    test('pause without an open segment (W7)', () async {
+      await guarded.start(start);
+
+      await expectAbandoned({'session.save'}, () => guarded.markPaused());
+    });
+
+    test('pause with an open segment (W6)', () async {
+      await guarded.start(start, playing: true);
+      now = now.add(const Duration(seconds: 10));
+
+      await expectAbandoned({'runner'}, () => guarded.markPaused());
+    });
+
+    test('checkpoint with and without an open segment (W8)', () async {
+      await guarded.start(start, playing: true);
+      now = now.add(const Duration(seconds: 10));
+
+      await expectAbandoned({
+        'runner',
+      }, () => guarded.checkpoint(position: const Duration(seconds: 10)));
+
+      await guarded.start(start);
+
+      await expectAbandoned({
+        'session.save',
+      }, () => guarded.checkpoint(position: Duration.zero));
+    });
+
+    test('end with and without an open segment (W9)', () async {
+      await guarded.start(start, playing: true);
+      now = now.add(const Duration(seconds: 10));
+
+      await expectAbandoned(
+        {'runner'},
+        () => guarded.end(
+          reason: PlaybackSessionEndReason.stopped,
+          position: const Duration(seconds: 10),
+        ),
+      );
+
+      await guarded.start(start);
+
+      await expectAbandoned(
+        {'session.save'},
+        () => guarded.end(
+          reason: PlaybackSessionEndReason.stopped,
+          position: Duration.zero,
+        ),
+      );
+    });
+
+    test('qualified play creation (W10)', () async {
+      await guarded.start(start, playing: true);
+      now = now.add(const Duration(seconds: 31));
+      final before = await rows();
+      admission.rejected.add('play.create');
+
+      await expectLater(
+        guarded.checkpoint(position: const Duration(seconds: 31)),
+        throwsA(isA<LibraryMutationUnavailable>()),
+      );
+
+      // The checkpoint transaction itself was admitted; no play was made.
+      expect(plays.values, isEmpty);
+      expect(await rows(), isNot(before));
+      expect(guarded.hasActiveSession, isFalse);
+      expect(guarded.hasQualified, isFalse);
+    });
+
+    test('active session account attachment (W1, W2)', () async {
+      await guarded.start(start, playing: true);
+      now = now.add(const Duration(seconds: 31));
+      await guarded.checkpoint(position: const Duration(seconds: 31));
+      expect(plays.values.single.userId, isNull);
+
+      await expectAbandoned({
+        'play.save',
+      }, () => guarded.attachCurrentSessionToUser('user-1'));
+
+      expect(plays.values.single.userId, isNull);
+      expect(sessions.values.single.userId, isNull);
+    });
+
+    test('a later session starts fresh after a rejection', () async {
+      await guarded.start(start, playing: true);
+      now = now.add(const Duration(seconds: 10));
+      await expectAbandoned({'runner'}, () => guarded.markPaused());
+
+      final next = await guarded.start(start, playing: true);
+
+      expect(next.id, 'session_2');
+      expect(guarded.currentSession!.id, 'session_2');
+      expect(sessions.values.map((session) => session.id), [
+        'session_1',
+        'session_2',
+      ]);
+    });
+
+    test('other write failures keep their existing behaviour', () async {
+      await guarded.start(start, playing: true);
+      now = now.add(const Duration(seconds: 10));
+      runner.failNextMutation = true;
+
+      await expectLater(guarded.markPaused(), throwsA(isA<StateError>()));
+
+      expect(guarded.hasActiveSession, isTrue);
+      expect(guarded.currentListeningSegment, isNotNull);
+    });
+  });
+}
+
+/// Names the writes a pretend restore currently refuses.
+class _Admission {
+  final Set<String> rejected = {};
+
+  void check(String write) {
+    if (rejected.contains(write)) {
+      throw const LibraryMutationUnavailable('Library restoration is active.');
+    }
+  }
+}
+
+class _AdmittedSessions extends _MemoryPlaybackSessionRepository {
+  _AdmittedSessions(this._admission);
+
+  final _Admission _admission;
+
+  @override
+  Future<void> create(PlaybackSession session) async {
+    _admission.check('session.create');
+    await super.create(session);
+  }
+
+  @override
+  Future<void> save(PlaybackSession session) async {
+    _admission.check('session.save');
+    await super.save(session);
+  }
+}
+
+class _AdmittedSegments extends _MemoryPlaybackListeningSegmentRepository {
+  _AdmittedSegments(this._admission);
+
+  final _Admission _admission;
+
+  @override
+  Future<void> create(PlaybackListeningSegment segment) async {
+    _admission.check('segment.create');
+    await super.create(segment);
+  }
+
+  @override
+  Future<void> save(PlaybackListeningSegment segment) async {
+    _admission.check('segment.save');
+    await super.save(segment);
+  }
+}
+
+class _AdmittedPlays extends _MemoryQualifiedPlayRepository {
+  _AdmittedPlays(this._admission);
+
+  final _Admission _admission;
+
+  @override
+  Future<void> create(QualifiedPlay play) async {
+    _admission.check('play.create');
+    await super.create(play);
+  }
+
+  @override
+  Future<void> save(QualifiedPlay play) async {
+    _admission.check('play.save');
+    await super.save(play);
+  }
+}
+
+/// Refuses the whole transaction, as AppDatabase.transaction does.
+class _AdmittedRunner extends DirectListeningSessionMutationRunner {
+  _AdmittedRunner(
+    this._admission, {
+    required super.playbackSessions,
+    required super.listeningSegments,
+    required super.qualifiedPlays,
+  });
+
+  final _Admission _admission;
+
+  @override
+  Future<T> run<T>(ListeningSessionMutationAction<T> action) async {
+    _admission.check('runner');
+    return super.run(action);
+  }
 }
 
 class _MemoryPlaybackSessionRepository implements PlaybackSessionRepository {
