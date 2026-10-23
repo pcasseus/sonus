@@ -1,7 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:sonus_next/core/database/app_database.dart';
+import 'package:sonus_next/core/database/database_tables.dart';
+import 'package:sonus_next/core/database/library_mutation_coordinator.dart';
 import 'package:sonus_next/features/import/data/daos/song_import_review_dao.dart';
 import 'package:sonus_next/features/import/data/repositories/sqlite_song_import_review_repository.dart';
 import 'package:sonus_next/features/import/domain/entities/song_import_review.dart';
@@ -140,4 +144,101 @@ void main() {
       expect(await repository.getUnresolved(), isEmpty);
     },
   );
+
+  group('coordinated with restore admission', () {
+    final now = DateTime.utc(2026, 9, 17, 12);
+
+    SongImportReview review() {
+      return SongImportReview(
+        songId: 'song_review_repo',
+        metadataSource: MetadataSource.fallback,
+        reasons: const [ImportReviewReason.missingDuration],
+        createdAt: now,
+        updatedAt: now,
+      );
+    }
+
+    Future<List<Map<String, Object?>>> reviewRows() async {
+      return (await appDatabase.database).query(
+        DatabaseTables.songImportReviews,
+      );
+    }
+
+    Future<SqliteSongImportReviewRepository> coordinated() async {
+      final db = await appDatabase.database;
+      await createSong(db, now);
+
+      return SqliteSongImportReviewRepository(
+        SongImportReviewDao(db),
+        appDatabase: appDatabase,
+      );
+    }
+
+    Future<void> duringRestore(Future<void> Function() body) async {
+      final entered = Completer<void>();
+      final release = Completer<void>();
+      final restore = appDatabase.mutationCoordinator.runExclusiveRestore(
+        () async {
+          entered.complete();
+          await release.future;
+        },
+      );
+      await entered.future;
+
+      try {
+        await body();
+      } finally {
+        release.complete();
+        await restore;
+      }
+    }
+
+    test('create is rejected during an exclusive restore', () async {
+      final repository = await coordinated();
+
+      await duringRestore(() async {
+        await expectLater(
+          repository.create(review()),
+          throwsA(isA<LibraryMutationUnavailable>()),
+        );
+      });
+
+      expect(await reviewRows(), isEmpty);
+    });
+
+    test('save is rejected during an exclusive restore', () async {
+      final repository = await coordinated();
+      await repository.create(review());
+      final before = await reviewRows();
+      final resolvedAt = now.add(const Duration(hours: 1));
+
+      await duringRestore(() async {
+        await expectLater(
+          repository.save(
+            review().copyWith(resolvedAt: resolvedAt, updatedAt: resolvedAt),
+          ),
+          throwsA(isA<LibraryMutationUnavailable>()),
+        );
+      });
+
+      expect(await reviewRows(), before);
+      final stored = await repository.getBySongId('song_review_repo');
+      expect(stored!.isResolved, isFalse);
+    });
+
+    test('create and save work when no restore is active', () async {
+      final repository = await coordinated();
+      final resolvedAt = now.add(const Duration(hours: 1));
+
+      await repository.create(review());
+      await repository.save(
+        review().copyWith(resolvedAt: resolvedAt, updatedAt: resolvedAt),
+      );
+
+      final stored = await repository.getBySongId('song_review_repo');
+      expect(stored!.resolvedAt, resolvedAt);
+      expect(stored.reasons, const [ImportReviewReason.missingDuration]);
+      expect(appDatabase.mutationCoordinator.activeMutations, 0);
+    });
+  });
 }

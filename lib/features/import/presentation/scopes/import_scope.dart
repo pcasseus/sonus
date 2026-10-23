@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 import 'dart:io';
 
 import 'package:flutter/widgets.dart';
@@ -6,6 +7,7 @@ import 'package:provider/provider.dart';
 import 'package:saf/saf.dart';
 
 import '../../../../core/database/app_database.dart';
+import '../../../../core/database/library_mutation_coordinator.dart';
 import '../../../account/application/controllers/account_controller.dart';
 import '../../../library/application/repositories/library_query_repository.dart';
 import '../../../library/application/services/artist_creation_service.dart';
@@ -45,6 +47,59 @@ import '../../data/services/media_metadata_reader.dart';
 import '../../data/services/path_fallback_metadata_reader.dart';
 import '../../data/services/saf_import_candidate_discovery.dart';
 import '../services/file_picker_import_source_picker.dart';
+
+typedef ImportMaintenanceLogger =
+    void Function(String message, {required int level, StackTrace? stackTrace});
+
+/// Repairs song durations, then clears review reasons the repair made stale.
+///
+/// Cleanup only runs after a successful repair. Each stage reports its own
+/// failure, by stage and error type only, so diagnostics never carry user
+/// data. A restore in progress stops the chain without retrying; the restart
+/// that follows a restore runs it again.
+Future<void> runStartupDurationMaintenance({
+  required Future<void> Function() repairDurations,
+  required Future<void> Function() cleanupReviews,
+  ImportMaintenanceLogger log = _logImportMaintenance,
+}) async {
+  if (await _runMaintenanceStage('duration repair', repairDurations, log)) {
+    await _runMaintenanceStage('review cleanup', cleanupReviews, log);
+  }
+}
+
+Future<bool> _runMaintenanceStage(
+  String stage,
+  Future<void> Function() action,
+  ImportMaintenanceLogger log,
+) async {
+  try {
+    await action();
+    return true;
+  } on LibraryMutationUnavailable {
+    log('Startup $stage stopped: library restoration is active.', level: 800);
+  } catch (error, stackTrace) {
+    log(
+      'Startup $stage failed: ${error.runtimeType}.',
+      level: 1000,
+      stackTrace: stackTrace,
+    );
+  }
+
+  return false;
+}
+
+void _logImportMaintenance(
+  String message, {
+  required int level,
+  StackTrace? stackTrace,
+}) {
+  developer.log(
+    message,
+    name: 'sonus.import',
+    level: level,
+    stackTrace: stackTrace,
+  );
+}
 
 class ImportScope extends StatefulWidget {
   const ImportScope({super.key, required this.child});
@@ -153,12 +208,16 @@ class _ImportScopeState extends State<ImportScope> {
       appDatabase: database,
     );
 
+    // Review resolution and startup cleanup write outside any caller-owned
+    // transaction, so both participate in restore admission.
     final reviewRepository = SqliteSongImportReviewRepository(
       SongImportReviewDao(sqliteDatabase),
+      appDatabase: database,
     );
     final reviewCleanupService = ImportReviewCleanupService(
       reviewRepository: reviewRepository,
       songRepository: SqliteSongRepository(SongDao(sqliteDatabase)),
+      appDatabase: database,
     );
 
     final reviewService =
@@ -248,9 +307,10 @@ class _ImportScopeState extends State<ImportScope> {
       _durationRepairStarted = true;
 
       unawaited(
-        durationRepairService
-            .repair(userId: userId)
-            .then((_) => reviewCleanupService.cleanupStaleDurationReasons()),
+        runStartupDurationMaintenance(
+          repairDurations: () => durationRepairService.repair(userId: userId),
+          cleanupReviews: reviewCleanupService.cleanupStaleDurationReasons,
+        ),
       );
     }
 
