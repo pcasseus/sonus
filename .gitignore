@@ -79,3 +79,6 @@ config/sonus.prod.json
 **/secrets.properties
 /audit_exports/
 /SONUS_SEC*
+
+# Byte-exact database fixtures from earlier releases (restore compatibility).
+!test/fixtures/recovery/*.db

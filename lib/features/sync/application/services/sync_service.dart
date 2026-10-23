@@ -47,6 +47,7 @@ class SyncService {
        _claimUnowned = localSyncOwnershipRepository.claimUnowned,
        _getPending = localSyncRepository.getPending,
        _pushPending = outboundSyncProcessor.pushPending,
+       _pushPendingIsolated = outboundSyncProcessor.pushPendingIsolated,
        _pullAll = ((userId) => inboundSyncProcessor.pullAll(userId: userId)),
        _now = now ?? DateTime.now;
 
@@ -60,6 +61,7 @@ class SyncService {
     SyncClock? now,
     this._attachAccount,
     this._runGuard,
+    this._pushPendingIsolated,
   }) : _now = now ?? DateTime.now;
 
   final Future<int> Function(String userId)? _attachAccount;
@@ -70,6 +72,8 @@ class SyncService {
   final Future<int> Function(String userId) _claimUnowned;
   final Future<List<SyncOutboxEntry>> Function(String userId) _getPending;
   final Future<void> Function(String userId) _pushPending;
+  final Future<OutboundPushReport> Function(String userId)?
+  _pushPendingIsolated;
   final Future<int> Function(String userId) _pullAll;
   final SyncClock _now;
 
@@ -104,9 +108,25 @@ class SyncService {
 
     final pendingBeforePush = (await _getPending(normalizedUserId)).length;
 
-    await _pushPending(normalizedUserId);
+    final pushIsolated = _pushPendingIsolated;
+    final int pulledRecordCount;
 
-    final pulledRecordCount = await _pullAll(normalizedUserId);
+    if (pushIsolated == null) {
+      await _pushPending(normalizedUserId);
+      pulledRecordCount = await _pullAll(normalizedUserId);
+    } else {
+      // Safety holds throw here and stop the run before any pull.
+      final report = await pushIsolated(normalizedUserId);
+
+      // Failed entries stay pending. Inbound still runs because it defers,
+      // and never overwrites, records with pending local mutations.
+      pulledRecordCount = await _pullAll(normalizedUserId);
+
+      if (!report.isComplete) {
+        final first = report.failures.first;
+        Error.throwWithStackTrace(first.error, first.stackTrace);
+      }
+    }
 
     final pendingAfterSync = (await _getPending(normalizedUserId)).length;
 

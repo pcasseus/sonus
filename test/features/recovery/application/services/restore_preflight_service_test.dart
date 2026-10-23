@@ -7,6 +7,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:sonus_next/core/database/app_database.dart';
 import 'package:sonus_next/core/database/database_tables.dart';
 import 'package:sonus_next/core/database/schema/sync_schema.dart';
+import 'package:sonus_next/features/recovery/application/models/backup_compatibility.dart';
 import 'package:sonus_next/features/recovery/application/models/backup_data_payload.dart';
 import 'package:sonus_next/features/recovery/application/models/backup_manifest.dart';
 import 'package:sonus_next/features/recovery/application/models/backup_table_coverage.dart';
@@ -17,6 +18,7 @@ import 'package:sonus_next/features/recovery/application/services/backup_integri
 import 'package:sonus_next/features/recovery/application/services/restore_preflight_service.dart';
 
 import '../../../../support/recovery_fixtures.dart';
+import '../../../../support/sync_ledger_seed.dart';
 
 void main() {
   sqfliteFfiInit();
@@ -124,15 +126,60 @@ void main() {
     expect(result.estimatedRequiredBytes, greaterThan(0));
   });
 
-  test('rejects backups from another database version', () async {
-    final contents = await handBuiltContents(
-      databaseVersion: AppDatabase.databaseVersion - 1,
+  test('supports exactly the reviewed backup database versions', () {
+    expect(BackupCompatibility.restorableDatabaseVersions, {31, 32, 33});
+    expect(
+      BackupCompatibility.restorableDatabaseVersions,
+      contains(AppDatabase.databaseVersion),
     );
+  });
+
+  for (final version in [31, 32]) {
+    test('accepts a backup from supported database version $version', () async {
+      final contents = await handBuiltContents(databaseVersion: version);
+
+      final result = await service.assess(contents);
+
+      expect(result.blockers, isEmpty);
+      expect(result.backupDatabaseVersion, version);
+    });
+  }
+
+  test('rejects backups older than the oldest supported version', () async {
+    final contents = await handBuiltContents(databaseVersion: 30);
 
     final result = await service.assess(contents);
 
     expect(result.blockers, [RestoreBlocker.incompatibleBackupVersion]);
     expect(result.canRestore, isFalse);
+  });
+
+  test('rejects backups newer than this build', () async {
+    await expectLater(
+      handBuiltContents(databaseVersion: AppDatabase.databaseVersion + 1),
+      throwsFormatException,
+    );
+  });
+
+  test('validates older supported backups against the local schema', () async {
+    final contents = await handBuiltContents(
+      databaseVersion: 31,
+      rows: {
+        DatabaseTables.playlists: [
+          {
+            'id': 'playlist-1',
+            'name': 'Mix',
+            'created_at': fixtureTimestamp,
+            'updated_at': fixtureTimestamp,
+            'unexpected_column': 'x',
+          },
+        ],
+      },
+    );
+
+    final result = await service.assess(contents);
+
+    expect(result.blockers, [RestoreBlocker.schemaMismatch]);
   });
 
   test('rejects restoring into a local database at another version', () async {
@@ -274,6 +321,69 @@ void main() {
       'entity_id': 'artist-a',
       'server_revision': 3,
     });
+
+    final contents = await verifiedFixtureContents(
+      directory: root,
+      seed: (db) => seedConnectedLibrary(db, key: 'a'),
+    );
+
+    final result = await service.assess(contents);
+
+    expect(result.blockers, isEmpty);
+    expect(result.requiresSyncAssessment, isTrue);
+  });
+
+  test(
+    'a deferred replay ledger marks the device as sync-associated',
+    () async {
+      await seedDeferredRecord(
+        await target.database,
+        userId: 'user-1',
+        entityId: 'song-a',
+      );
+
+      final contents = await verifiedFixtureContents(
+        directory: root,
+        seed: (db) => seedConnectedLibrary(db, key: 'a'),
+      );
+
+      final result = await service.assess(contents);
+
+      expect(result.blockers, isEmpty);
+      expect(result.requiresSyncAssessment, isTrue);
+    },
+  );
+
+  test('a conflict whose outbox entry is pending blocks the restore', () async {
+    final db = await target.database;
+    await db.insert(DatabaseTables.syncOutbox, {
+      'id': 'outbox-conflict',
+      'entity_type': 'song',
+      'entity_id': 'song-a',
+      'operation': 'upsert',
+      'created_at': fixtureTimestamp,
+      'updated_at': fixtureTimestamp,
+    });
+    await seedOutboundConflict(db, userId: 'user-1', entityId: 'song-a');
+
+    final contents = await verifiedFixtureContents(
+      directory: root,
+      seed: (db) => seedConnectedLibrary(db, key: 'a'),
+    );
+
+    final result = await service.assess(contents);
+
+    expect(result.blockers, [RestoreBlocker.pendingSyncWork]);
+    expect(result.pendingSyncItemCount, 1);
+    expect(result.requiresSyncAssessment, isTrue);
+  });
+
+  test('a conflict left without pending work needs assessment only', () async {
+    await seedOutboundConflict(
+      await target.database,
+      userId: 'user-1',
+      entityId: 'song-a',
+    );
 
     final contents = await verifiedFixtureContents(
       directory: root,

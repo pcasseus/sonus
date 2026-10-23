@@ -2,13 +2,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sonus_next/core/database/database_tables.dart';
 import 'package:sonus_next/core/database/schema/sync_schema.dart';
 import 'package:sonus_next/features/recovery/application/models/backup_table_coverage.dart';
+import 'package:sonus_next/features/recovery/application/services/recovery_fingerprint_service.dart';
 
 void main() {
   test('every declared table appears exactly once', () {
     final tables = BackupCoverageContract.tables;
     final names = tables.map((entry) => entry.table).toSet();
 
-    expect(tables.length, 27);
+    expect(tables.length, 29);
     expect(names.length, tables.length);
     expect(names.every((name) => name.trim().isNotEmpty), isTrue);
   });
@@ -63,13 +64,26 @@ void main() {
         .map((entry) => entry.table)
         .toSet();
 
-    expect(internal.length, 6);
+    expect(internal.length, 8);
     expect(internal, contains(DatabaseTables.syncState));
     expect(internal, contains(DatabaseTables.syncOutbox));
     expect(internal, contains(DatabaseTables.localAccountBinding));
     expect(internal, contains(SyncSchema.cloudRevisionBaselinesTable));
     expect(internal, contains(SyncSchema.artistWriteJournalTable));
     expect(internal, contains(SyncSchema.artistDependencyJournalTable));
+    expect(internal, contains(SyncSchema.inboundDeferredRecordsTable));
+    expect(internal, contains(SyncSchema.outboundConflictsTable));
+  });
+
+  test('every internal sync table is watched as sync state', () {
+    final internal = BackupCoverageContract.tables
+        .where((entry) => entry.policy == BackupTablePolicy.internalState)
+        .map((entry) => entry.table)
+        .toSet();
+
+    // Restore change detection and the post-restore sync assessment both
+    // rely on this list; an internal table missing here goes unnoticed.
+    expect(RecoveryFingerprintService.syncStateTables.toSet(), internal);
   });
 
   test('coverage collections cannot be modified', () {

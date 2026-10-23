@@ -4,8 +4,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:sonus_next/core/database/app_database.dart';
+import 'package:sonus_next/core/database/library_mutation_coordinator.dart';
 import 'package:sonus_next/features/sync/application/repositories/cloud_revision_baseline_repository.dart';
+import 'package:sonus_next/features/sync/application/services/cloud_artist_create_verifier.dart';
 import 'package:sonus_next/features/sync/application/services/cloud_conditional_write_result.dart';
+import 'package:sonus_next/features/sync/application/services/cloud_sync_reader.dart';
 import 'package:sonus_next/features/sync/application/services/outbound_artist_write_committer.dart';
 import 'package:sonus_next/features/sync/application/services/outbound_artist_write_coordinator.dart';
 import 'package:sonus_next/features/sync/data/gateways/supabase_artist_receipt_write_gateway.dart';
@@ -16,6 +19,13 @@ import 'package:sonus_next/features/sync/data/repositories/sync_mutation_transac
 import 'package:sonus_next/features/sync/domain/models/cloud_records.dart';
 import 'package:sonus_next/features/sync/domain/models/local_sync_models.dart';
 import 'package:sonus_next/features/sync/domain/models/sync_data_contract.dart';
+
+Future<CloudSyncItem?> unexpectedFetch({
+  required String userId,
+  required String artistId,
+}) {
+  throw StateError('Cloud artist fetch was not expected.');
+}
 
 void main() {
   sqfliteFfiInit();
@@ -52,15 +62,29 @@ void main() {
     await appDatabase.close();
   });
 
-  CloudArtistRecord artist({String userId = 'user-1'}) {
+  CloudArtistRecord artist({
+    String userId = 'user-1',
+    String name = 'Artist',
+    DateTime? deletedAt,
+    List<CloudMetadataFieldState>? metadataFieldStates = const [],
+  }) {
     return CloudArtistRecord(
       id: 'artist-1',
       userId: userId,
-      name: 'Artist',
+      name: name,
       canonicalName: 'artist',
       createdAt: now,
       updatedAt: now,
-      metadataFieldStates: const [],
+      deletedAt: deletedAt,
+      metadataFieldStates: metadataFieldStates,
+    );
+  }
+
+  CloudSyncItem cloudRow(CloudArtistRecord record, int? revision) {
+    return CloudSyncItem(
+      record: record,
+      serverUpdatedAt: now,
+      serverRevision: revision,
     );
   }
 
@@ -121,12 +145,14 @@ void main() {
   OutboundArtistWriteCoordinator coordinator({
     required CreateCloudArtist create,
     required UpdateCloudArtist update,
+    FetchCurrentCloudArtist fetch = unexpectedFetch,
   }) {
     return OutboundArtistWriteCoordinator(
       baselineRepository: baselines,
       createArtist: create,
       updateArtist: update,
       committer: committer,
+      fetchCurrentArtist: fetch,
     );
   }
 
@@ -186,6 +212,8 @@ void main() {
       update: ({required artist, required expectedServerRevision}) async {
         throw StateError('Unexpected update.');
       },
+      fetch: ({required userId, required artistId}) async =>
+          cloudRow(artist(name: 'Someone Else'), 12),
     );
 
     await expectLater(
@@ -439,6 +467,7 @@ void main() {
     final service = OutboundArtistWriteCoordinator(
       baselineRepository: baselines,
       committer: committer,
+      fetchCurrentArtist: unexpectedFetch,
       createArtist: ({required artist}) async {
         throw StateError('Legacy creation must not run.');
       },
@@ -484,6 +513,7 @@ void main() {
     final service = OutboundArtistWriteCoordinator(
       baselineRepository: baselines,
       committer: committer,
+      fetchCurrentArtist: unexpectedFetch,
       createArtist: ({required artist}) async {
         throw StateError('Legacy creation must not run.');
       },
@@ -530,6 +560,7 @@ void main() {
     final service = OutboundArtistWriteCoordinator(
       baselineRepository: baselines,
       committer: committer,
+      fetchCurrentArtist: unexpectedFetch,
       createArtist: ({required artist}) async {
         calls++;
         return applied(1);
@@ -598,6 +629,7 @@ void main() {
     final service = OutboundArtistWriteCoordinator(
       baselineRepository: baselines,
       committer: committer,
+      fetchCurrentArtist: unexpectedFetch,
       createArtist: ({required artist}) async {
         throw StateError('Legacy creation must not run.');
       },
@@ -677,6 +709,7 @@ void main() {
     final service = OutboundArtistWriteCoordinator(
       baselineRepository: baselines,
       committer: committer,
+      fetchCurrentArtist: unexpectedFetch,
       createArtist: ({required artist}) async {
         throw StateError('Legacy creation must not run.');
       },
@@ -710,5 +743,302 @@ void main() {
     expect(calls, 2);
     expect(await revision(), 8);
     expect(await pending(), isEmpty);
+  });
+
+  group('SN-42 restore admission', () {
+    /// Starts a real restore on the database's coordinator and holds it
+    /// open. Admission closes synchronously, before this returns.
+    Future<void> Function() beginRestore() {
+      final release = Completer<void>();
+      final restore = appDatabase.mutationCoordinator.runExclusiveRestore(
+        () => release.future,
+      );
+      expect(appDatabase.mutationCoordinator.isRestoreRequested, isTrue);
+
+      return () async {
+        release.complete();
+        await restore;
+      };
+    }
+
+    test('a creation accepted by the cloud during a restore stays pending '
+        'and is adopted on retry', () async {
+      final entry = await enqueue();
+      CloudSyncItem? committedRow;
+      Future<void> Function()? endRestore;
+
+      final service = coordinator(
+        create: ({required artist}) async {
+          if (committedRow == null) {
+            // The cloud commits; a restore begins before the local commit.
+            committedRow = cloudRow(artist, 1);
+            endRestore = beginRestore();
+            return applied(1);
+          }
+
+          return conflict(1);
+        },
+        update: ({required artist, required expectedServerRevision}) async {
+          throw StateError('Update must not run.');
+        },
+        fetch: ({required userId, required artistId}) async => committedRow,
+      );
+
+      await expectLater(
+        service.push(userId: 'user-1', entry: entry, artist: artist()),
+        throwsA(isA<LibraryMutationUnavailable>()),
+      );
+      await endRestore!();
+
+      // Nothing was acknowledged locally.
+      expect(await revision(), isNull);
+      final kept = await pending();
+      expect(kept.single.id, entry.id);
+      expect(kept.single.mutationRevision, entry.mutationRevision);
+
+      await service.push(
+        userId: 'user-1',
+        entry: kept.single,
+        artist: artist(),
+      );
+
+      expect(await revision(), 1);
+      expect(await pending(), isEmpty);
+    });
+
+    test('an update accepted by the cloud during a restore keeps the '
+        'baseline and the pending mutation', () async {
+      await saveRevision(7);
+      final entry = await enqueue();
+      Future<void> Function()? endRestore;
+
+      final service = coordinator(
+        create: ({required artist}) async {
+          throw StateError('Create must not run.');
+        },
+        update: ({required artist, required expectedServerRevision}) async {
+          endRestore = beginRestore();
+          return applied(8);
+        },
+      );
+
+      await expectLater(
+        service.push(userId: 'user-1', entry: entry, artist: artist()),
+        throwsA(isA<LibraryMutationUnavailable>()),
+      );
+      await endRestore!();
+
+      expect(await revision(), 7);
+      expect((await pending()).single.id, entry.id);
+    });
+  });
+
+  group('legacy lost creation response', () {
+    UpdateCloudArtist noUpdate() {
+      return ({required artist, required expectedServerRevision}) async {
+        throw StateError('Update must not run.');
+      };
+    }
+
+    test('is adopted on retry once the fetched artist is verified', () async {
+      final entry = await enqueue();
+      CloudSyncItem? committedRow;
+      var creates = 0;
+      var fetches = 0;
+
+      final service = coordinator(
+        create: ({required artist}) async {
+          creates++;
+
+          if (committedRow == null) {
+            // The server committed, but the response was lost.
+            committedRow = cloudRow(artist, 1);
+            throw StateError('Transport interrupted after cloud commit.');
+          }
+
+          return conflict(1);
+        },
+        update: noUpdate(),
+        fetch: ({required userId, required artistId}) async {
+          fetches++;
+          expect(userId, 'user-1');
+          expect(artistId, 'artist-1');
+          return committedRow;
+        },
+      );
+
+      await expectLater(
+        service.push(userId: 'user-1', entry: entry, artist: artist()),
+        throwsStateError,
+      );
+
+      expect(fetches, 0);
+      expect(await revision(), isNull);
+      expect(await pending(), hasLength(1));
+
+      final retry = (await pending()).single;
+      await service.push(userId: 'user-1', entry: retry, artist: artist());
+
+      expect(creates, 2);
+      expect(fetches, 1);
+      expect(await revision(), 1);
+      expect(await pending(), isEmpty);
+    });
+
+    test('identical artist at a later revision is adopted there', () async {
+      final entry = await enqueue();
+
+      final service = coordinator(
+        create: ({required artist}) async => conflict(4),
+        update: noUpdate(),
+        fetch: ({required userId, required artistId}) async =>
+            cloudRow(artist(), 4),
+      );
+
+      await service.push(userId: 'user-1', entry: entry, artist: artist());
+
+      expect(await revision(), 4);
+      expect(await pending(), isEmpty);
+    });
+
+    test('local edit during verification stays pending', () async {
+      final entry = await enqueue();
+
+      final service = coordinator(
+        create: ({required artist}) async => conflict(1),
+        update: noUpdate(),
+        fetch: ({required userId, required artistId}) async {
+          await runner.run<void>((context) async {
+            await context.localSyncRepository.recordUpsert(
+              userId: 'user-1',
+              entityType: CloudDataEntity.artist,
+              entityId: 'artist-1',
+            );
+          });
+
+          return cloudRow(artist(), 1);
+        },
+      );
+
+      await service.push(userId: 'user-1', entry: entry, artist: artist());
+
+      // The verified revision is kept so the newer edit uploads as an
+      // update conditioned on it.
+      expect(await revision(), 1);
+      final remaining = await pending();
+      expect(remaining, hasLength(1));
+      expect(remaining.single.mutationRevision, 2);
+    });
+
+    test('concurrent cloud edit is a conflict, never adopted', () async {
+      final entry = await enqueue();
+
+      final service = coordinator(
+        create: ({required artist}) async => conflict(2),
+        update: noUpdate(),
+        fetch: ({required userId, required artistId}) async =>
+            cloudRow(artist(name: 'Renamed Elsewhere'), 2),
+      );
+
+      await expectLater(
+        service.push(userId: 'user-1', entry: entry, artist: artist()),
+        throwsA(
+          isA<OutboundArtistWriteConflict>()
+              .having((e) => e.expectedServerRevision, 'expected', isNull)
+              .having((e) => e.observedServerRevision, 'observed', 2),
+        ),
+      );
+
+      expect(await revision(), isNull);
+      expect(await pending(), hasLength(1));
+    });
+
+    final rejected = <String, CloudSyncItem? Function()>{
+      'a missing cloud row': () => null,
+      'a tombstoned cloud row': () => cloudRow(artist(deletedAt: now), 2),
+      'a row owned by another account': () =>
+          cloudRow(artist(userId: 'user-2'), 1),
+      'a row whose provenance was never synced': () =>
+          cloudRow(artist(metadataFieldStates: null), 1),
+      'no server revision': () => cloudRow(artist(), null),
+    };
+
+    for (final scenario in rejected.entries) {
+      test('${scenario.key} is never adopted', () async {
+        final entry = await enqueue();
+
+        final service = coordinator(
+          create: ({required artist}) async => conflict(1),
+          update: noUpdate(),
+          fetch: ({required userId, required artistId}) async =>
+              scenario.value(),
+        );
+
+        await expectLater(
+          service.push(userId: 'user-1', entry: entry, artist: artist()),
+          throwsA(isA<OutboundArtistWriteConflict>()),
+        );
+
+        expect(await revision(), isNull);
+        expect(await pending(), hasLength(1));
+      });
+    }
+
+    test('a failed verification fetch keeps the mutation pending', () async {
+      final entry = await enqueue();
+
+      final service = coordinator(
+        create: ({required artist}) async => conflict(1),
+        update: noUpdate(),
+        fetch: ({required userId, required artistId}) async {
+          throw StateError('Network failure during verification.');
+        },
+      );
+
+      await expectLater(
+        service.push(userId: 'user-1', entry: entry, artist: artist()),
+        throwsStateError,
+      );
+
+      expect(await revision(), isNull);
+      expect(await pending(), hasLength(1));
+    });
+
+    test('receipt route conflicts are never verified by fetch', () async {
+      final entry = await enqueue();
+
+      final service = OutboundArtistWriteCoordinator(
+        baselineRepository: baselines,
+        committer: committer,
+        fetchCurrentArtist: unexpectedFetch,
+        createArtist: ({required artist}) async {
+          throw StateError('Legacy creation must not run.');
+        },
+        updateArtist: noUpdate(),
+        createArtistWithReceipt:
+            ({
+              required artist,
+              required outboxId,
+              required mutationRevision,
+            }) async => conflict(1),
+        updateArtistWithReceipt:
+            ({
+              required artist,
+              required expectedServerRevision,
+              required outboxId,
+              required mutationRevision,
+            }) async {
+              throw StateError('Update must not run.');
+            },
+      );
+
+      await expectLater(
+        service.push(userId: 'user-1', entry: entry, artist: artist()),
+        throwsA(isA<OutboundArtistWriteConflict>()),
+      );
+
+      expect(await revision(), isNull);
+      expect(await pending(), hasLength(1));
+    });
   });
 }

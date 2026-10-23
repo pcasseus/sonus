@@ -1,6 +1,7 @@
 import '../../domain/models/local_sync_models.dart';
 import '../../domain/models/sync_data_contract.dart';
 import 'cloud_conditional_write_result.dart';
+import 'outbound_acknowledgement.dart';
 import 'sync_mutation_runner.dart';
 
 /// Completes a verified artist cloud deletion locally.
@@ -67,11 +68,14 @@ class OutboundArtistDeleteCommitter {
 
       // Compare-and-delete: never remove a newer local edit
       // or a different pending outbox operation.
-      await context.localSyncRepository.markProcessed(
+      await acknowledgeOutboundMutation(
+        context,
         userId: owner,
-        outboxEntryId: entry.id,
-        expectedRevision: entry.mutationRevision,
-        expectedOperation: SyncOutboxOperation.delete,
+        entityType: CloudDataEntity.artist,
+        entityId: entry.entityId,
+        outboxId: entry.id,
+        mutationRevision: entry.mutationRevision,
+        operation: SyncOutboxOperation.delete,
       );
     });
   }

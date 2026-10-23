@@ -9,12 +9,16 @@ import 'package:sonus_next/features/library/domain/repositories/artist_repositor
 import 'package:sonus_next/features/library/domain/repositories/song_repository.dart';
 import 'package:sonus_next/features/library/domain/repositories/song_artist_credit_repository.dart';
 import 'package:sonus_next/features/sync/application/repositories/local_sync_repository.dart';
+import 'package:sonus_next/features/sync/application/repositories/artist_dependency_journal_repository.dart';
 import 'package:sonus_next/features/sync/application/repositories/cloud_revision_baseline_repository.dart';
+import 'package:sonus_next/features/sync/application/repositories/inbound_deferred_record_repository.dart';
 import 'package:sonus_next/features/sync/application/services/cloud_sync_reader.dart';
 import 'package:sonus_next/features/sync/application/services/inbound_sync_reconciler.dart';
 import 'package:sonus_next/features/sync/application/services/sync_mutation_context.dart';
 import 'package:sonus_next/features/sync/application/services/sync_mutation_runner.dart';
+import 'package:sonus_next/features/sync/domain/models/artist_dependency_journal_entry.dart';
 import 'package:sonus_next/features/sync/domain/models/cloud_records.dart';
+import 'package:sonus_next/features/sync/domain/models/inbound_deferred_record.dart';
 import 'package:sonus_next/features/sync/domain/models/local_sync_models.dart';
 import 'package:sonus_next/features/sync/domain/models/sync_data_contract.dart';
 
@@ -566,10 +570,11 @@ void main() {
               id: 'artist-a',
               serverUpdatedAt: DateTime.utc(2026, 9, 13, 10),
             ),
+            // An unverifiable revision fails inside the transaction.
             _artistItem(
               id: 'artist-b',
               serverUpdatedAt: DateTime.utc(2026, 9, 13, 11),
-              deletedAt: DateTime.utc(2026, 9, 13, 11),
+              serverRevision: null,
             ),
             _artistItem(
               id: 'artist-c',
@@ -703,19 +708,76 @@ void main() {
       },
     );
 
+    test('pending local mutation is deferred without overwrite', () async {
+      final bundle = _Bundle(now);
+
+      bundle.artist.values['artist-a'] = Artist(
+        id: 'artist-a',
+        name: 'Local Artist',
+        canonicalName: 'local artist',
+        createdAt: DateTime.utc(2026, 9, 10),
+        updatedAt: DateTime.utc(2026, 9, 13, 9),
+      );
+
+      bundle.transactionSync.pending.add(
+        SyncOutboxEntry(
+          id: 'outbox-1',
+          userId: 'user-1',
+          entityType: CloudDataEntity.artist,
+          entityId: 'artist-a',
+          operation: SyncOutboxOperation.upsert,
+          createdAt: DateTime.utc(2026, 9, 13, 9),
+          updatedAt: DateTime.utc(2026, 9, 13, 9),
+        ),
+      );
+
+      bundle.reader.page = CloudSyncPage(
+        items: [
+          _artistItem(
+            id: 'artist-a',
+            serverUpdatedAt: DateTime.utc(2026, 9, 13, 10),
+          ),
+        ],
+        hasMore: false,
+      );
+
+      final result = await bundle.reconciler.reconcilePage(
+        userId: 'user-1',
+        entityType: CloudDataEntity.artist,
+        limit: 10,
+      );
+
+      // Local data and the pending mutation are untouched; the cloud
+      // revision is a durable replay obligation, not a baseline.
+      expect(result.deferredCount, 1);
+      expect(bundle.artist.values['artist-a']?.name, 'Local Artist');
+      expect(bundle.transactionSync.pending, hasLength(1));
+      expect(bundle.baselines.values, isEmpty);
+      expect(
+        bundle.deferred.values['user-1|artist|artist-a']?.reason,
+        InboundDeferralReason.pendingLocalMutation,
+      );
+      expect(
+        bundle.transactionSync.savedCursors.single.lastServerId,
+        'artist-a',
+      );
+    });
+
     test(
-      'pending local mutation blocks inbound overwrite and cursor advance',
+      'already reconciled revision is skipped despite pending work',
       () async {
         final bundle = _Bundle(now);
-
-        bundle.artist.values['artist-a'] = Artist(
-          id: 'artist-a',
-          name: 'Local Artist',
-          canonicalName: 'local artist',
-          createdAt: DateTime.utc(2026, 9, 10),
-          updatedAt: DateTime.utc(2026, 9, 13, 9),
-        );
-
+        bundle.baselines.values['user-1|artist|artist-a'] = 5;
+        bundle.deferred.values['user-1|artist|artist-a'] =
+            InboundDeferredRecord(
+              userId: 'user-1',
+              entityType: CloudDataEntity.artist,
+              entityId: 'artist-a',
+              serverRevision: 4,
+              serverUpdatedAt: DateTime.utc(2026, 9, 13, 8),
+              reason: InboundDeferralReason.pendingLocalMutation,
+              deferredAt: DateTime.utc(2026, 9, 13, 8),
+            );
         bundle.transactionSync.pending.add(
           SyncOutboxEntry(
             id: 'outbox-1',
@@ -723,8 +785,8 @@ void main() {
             entityType: CloudDataEntity.artist,
             entityId: 'artist-a',
             operation: SyncOutboxOperation.upsert,
-            createdAt: DateTime.utc(2026, 9, 13, 9),
-            updatedAt: DateTime.utc(2026, 9, 13, 9),
+            createdAt: now,
+            updatedAt: now,
           ),
         );
 
@@ -733,25 +795,222 @@ void main() {
             _artistItem(
               id: 'artist-a',
               serverUpdatedAt: DateTime.utc(2026, 9, 13, 10),
+              serverRevision: 5,
             ),
           ],
           hasMore: false,
         );
 
-        await expectLater(
-          bundle.reconciler.reconcilePage(
-            userId: 'user-1',
-            entityType: CloudDataEntity.artist,
-            limit: 10,
-          ),
-          throwsStateError,
+        final result = await bundle.reconciler.reconcilePage(
+          userId: 'user-1',
+          entityType: CloudDataEntity.artist,
+          limit: 10,
         );
 
-        expect(bundle.artist.values['artist-a']?.name, 'Local Artist');
-        expect(bundle.transactionSync.savedCursors, isEmpty);
-        expect(bundle.runner.runCount, 1);
+        expect(result.deferredCount, 0);
+        expect(bundle.artist.values, isEmpty);
+        expect(bundle.baselines.values['user-1|artist|artist-a'], 5);
+        // The obsolete obligation at revision 4 is cleared.
+        expect(bundle.deferred.values, isEmpty);
+        expect(bundle.transactionSync.pending, hasLength(1));
       },
     );
+
+    test('unresolved artist journal holds the cloud revision', () async {
+      final bundle = _Bundle(now);
+
+      final reconciler = InboundSyncReconciler(
+        reader: bundle.reader,
+        localSyncRepository: bundle.outerSync,
+        mutationRunner: _FakeSyncMutationRunner(
+          SyncMutationContext(
+            artistRepository: bundle.artist,
+            albumRepository: bundle.album,
+            albumEditionRepository: bundle.edition,
+            albumEditionTrackRepository: bundle.membership,
+            songRepository: bundle.song,
+            songArtistCreditRepository: bundle.credit,
+            artworkAssetRepository: bundle.artwork,
+            localSyncRepository: bundle.transactionSync,
+            cloudRevisionBaselineRepository: bundle.baselines,
+            inboundDeferredRecordRepository: bundle.deferred,
+            artistDependencyJournalRepository: _UnresolvedDependencyJournal(
+              'artist-a',
+            ),
+          ),
+        ),
+        now: () => now,
+      );
+
+      bundle.reader.page = CloudSyncPage(
+        items: [
+          _artistItem(
+            id: 'artist-a',
+            serverUpdatedAt: DateTime.utc(2026, 9, 13, 10),
+            serverRevision: 2,
+          ),
+        ],
+        hasMore: false,
+      );
+
+      await reconciler.reconcilePage(
+        userId: 'user-1',
+        entityType: CloudDataEntity.artist,
+        limit: 10,
+      );
+
+      expect(bundle.artist.values, isEmpty);
+      expect(bundle.baselines.values, isEmpty);
+      expect(
+        bundle.deferred.values['user-1|artist|artist-a']?.reason,
+        InboundDeferralReason.unresolvedArtistJournal,
+      );
+    });
+
+    test(
+      'unappliable record advances cursor only with durable replay',
+      () async {
+        final bundle = _Bundle(now);
+        bundle.artist.values['artist-a'] = Artist(
+          id: 'artist-a',
+          name: 'Local Artist',
+          canonicalName: 'local artist',
+          createdAt: DateTime.utc(2026, 9, 10),
+          updatedAt: DateTime.utc(2026, 9, 12),
+        );
+        bundle.baselines.values['user-1|artist|artist-a'] = 3;
+
+        bundle.reader.page = CloudSyncPage(
+          items: [
+            _artistItem(
+              id: 'artist-a',
+              serverUpdatedAt: DateTime.utc(2026, 9, 13, 10),
+              serverRevision: 4,
+              deletedAt: DateTime.utc(2026, 9, 13, 10),
+            ),
+            _artistItem(
+              id: 'artist-b',
+              serverUpdatedAt: DateTime.utc(2026, 9, 13, 11),
+              serverRevision: 1,
+            ),
+          ],
+          hasMore: false,
+        );
+
+        final result = await bundle.reconciler.reconcilePage(
+          userId: 'user-1',
+          entityType: CloudDataEntity.artist,
+          limit: 10,
+        );
+
+        expect(result.processedCount, 2);
+        expect(result.deferredCount, 1);
+        expect(bundle.artist.values['artist-a']?.name, 'Local Artist');
+        expect(bundle.baselines.values['user-1|artist|artist-a'], 3);
+        expect(bundle.baselines.values['user-1|artist|artist-b'], 1);
+        expect(bundle.transactionSync.savedCursors.map((c) => c.lastServerId), [
+          'artist-a',
+          'artist-b',
+        ]);
+
+        final deferred = bundle.deferred.values.values.single;
+        expect(deferred.entityId, 'artist-a');
+        expect(deferred.serverRevision, 4);
+        expect(
+          deferred.reason,
+          InboundDeferralReason.tombstoneRequiresLocalDeletion,
+        );
+        expect(deferred.serverUpdatedAt, DateTime.utc(2026, 9, 13, 10));
+      },
+    );
+
+    test('unappliable record without a deferral ledger fails closed', () async {
+      final bundle = _Bundle(now);
+      bundle.artist.values['artist-a'] = Artist(
+        id: 'artist-a',
+        name: 'Local Artist',
+        canonicalName: 'local artist',
+        createdAt: DateTime.utc(2026, 9, 10),
+        updatedAt: DateTime.utc(2026, 9, 12),
+      );
+
+      final reconciler = InboundSyncReconciler(
+        reader: bundle.reader,
+        localSyncRepository: bundle.outerSync,
+        mutationRunner: _FakeSyncMutationRunner(
+          SyncMutationContext(
+            artistRepository: bundle.artist,
+            albumRepository: bundle.album,
+            albumEditionRepository: bundle.edition,
+            albumEditionTrackRepository: bundle.membership,
+            songRepository: bundle.song,
+            songArtistCreditRepository: bundle.credit,
+            artworkAssetRepository: bundle.artwork,
+            localSyncRepository: bundle.transactionSync,
+            cloudRevisionBaselineRepository: bundle.baselines,
+          ),
+        ),
+        now: () => now,
+      );
+
+      bundle.reader.page = CloudSyncPage(
+        items: [
+          _artistItem(
+            id: 'artist-a',
+            serverUpdatedAt: DateTime.utc(2026, 9, 13, 10),
+            serverRevision: 4,
+            deletedAt: DateTime.utc(2026, 9, 13, 10),
+          ),
+        ],
+        hasMore: false,
+      );
+
+      await expectLater(
+        reconciler.reconcilePage(
+          userId: 'user-1',
+          entityType: CloudDataEntity.artist,
+          limit: 10,
+        ),
+        throwsStateError,
+      );
+
+      expect(bundle.transactionSync.savedCursors, isEmpty);
+      expect(bundle.baselines.values, isEmpty);
+    });
+
+    test('applied revision clears an older deferral', () async {
+      final bundle = _Bundle(now);
+      bundle.deferred.values['user-1|artist|artist-a'] = InboundDeferredRecord(
+        userId: 'user-1',
+        entityType: CloudDataEntity.artist,
+        entityId: 'artist-a',
+        serverRevision: 2,
+        serverUpdatedAt: DateTime.utc(2026, 9, 13, 9),
+        reason: InboundDeferralReason.missingLocalArtwork,
+        deferredAt: DateTime.utc(2026, 9, 13, 9),
+      );
+
+      bundle.reader.page = CloudSyncPage(
+        items: [
+          _artistItem(
+            id: 'artist-a',
+            serverUpdatedAt: DateTime.utc(2026, 9, 13, 10),
+            serverRevision: 3,
+          ),
+        ],
+        hasMore: false,
+      );
+
+      final result = await bundle.reconciler.reconcilePage(
+        userId: 'user-1',
+        entityType: CloudDataEntity.artist,
+        limit: 10,
+      );
+
+      expect(result.deferredCount, 0);
+      expect(bundle.deferred.values, isEmpty);
+      expect(bundle.baselines.values['user-1|artist|artist-a'], 3);
+    });
 
     test('trims user id before cursor lookup and cloud read', () async {
       final bundle = _Bundle(now);
@@ -830,6 +1089,7 @@ class _Bundle {
       outerSync = _FakeLocalSyncRepository(),
       transactionSync = _FakeLocalSyncRepository(),
       baselines = _FakeCloudRevisionBaselineRepository(),
+      deferred = _FakeInboundDeferredRecordRepository(),
       artist = _FakeArtistRepository(),
       album = _FakeAlbumRepository(),
       edition = _FakeAlbumEditionRepository(),
@@ -847,6 +1107,7 @@ class _Bundle {
       artworkAssetRepository: artwork,
       localSyncRepository: transactionSync,
       cloudRevisionBaselineRepository: baselines,
+      inboundDeferredRecordRepository: deferred,
     );
 
     runner = _FakeSyncMutationRunner(context);
@@ -863,6 +1124,7 @@ class _Bundle {
   final _FakeLocalSyncRepository outerSync;
   final _FakeLocalSyncRepository transactionSync;
   final _FakeCloudRevisionBaselineRepository baselines;
+  final _FakeInboundDeferredRecordRepository deferred;
   final _FakeArtistRepository artist;
   final _FakeAlbumRepository album;
   final _FakeAlbumEditionRepository edition;
@@ -907,7 +1169,97 @@ class _FakeCloudRevisionBaselineRepository
   }
 }
 
+class _FakeInboundDeferredRecordRepository
+    implements InboundDeferredRecordRepository {
+  final Map<String, InboundDeferredRecord> values = {};
+
+  String _key(String userId, CloudDataEntity entityType, String entityId) =>
+      '$userId|${entityType.name}|$entityId';
+
+  @override
+  Future<void> saveDeferred(InboundDeferredRecord record) async {
+    final key = _key(record.userId, record.entityType, record.entityId);
+    final previous = values[key];
+
+    if (previous == null || record.serverRevision >= previous.serverRevision) {
+      values[key] = record;
+    }
+  }
+
+  @override
+  Future<List<InboundDeferredRecord>> getDeferred(String userId) async {
+    return values.values.where((record) => record.userId == userId).toList();
+  }
+
+  @override
+  Future<InboundDeferredRecord?> getDeferral({
+    required String userId,
+    required CloudDataEntity entityType,
+    required String entityId,
+  }) async {
+    return values[_key(userId, entityType, entityId)];
+  }
+
+  @override
+  Future<bool> requeueDeferral({
+    required String userId,
+    required CloudDataEntity entityType,
+    required String entityId,
+    required int serverRevision,
+    required DateTime deferredAt,
+  }) async {
+    final key = _key(userId, entityType, entityId);
+    final previous = values[key];
+
+    if (previous == null || previous.serverRevision != serverRevision) {
+      return false;
+    }
+
+    values[key] = InboundDeferredRecord(
+      userId: previous.userId,
+      entityType: previous.entityType,
+      entityId: previous.entityId,
+      serverRevision: previous.serverRevision,
+      serverUpdatedAt: previous.serverUpdatedAt,
+      reason: previous.reason,
+      deferredAt: deferredAt,
+    );
+
+    return true;
+  }
+
+  @override
+  Future<void> clearThroughRevision({
+    required String userId,
+    required CloudDataEntity entityType,
+    required String entityId,
+    required int serverRevision,
+  }) async {
+    final key = _key(userId, entityType, entityId);
+    final previous = values[key];
+
+    if (previous != null && previous.serverRevision <= serverRevision) {
+      values.remove(key);
+    }
+  }
+}
+
 class _FakeCloudSyncReader implements CloudSyncReader {
+  final Map<String, CloudSyncItem> currentRows = {};
+  int fetchCount = 0;
+
+  @override
+  Future<CloudSyncItem?> fetchCurrent({
+    required String userId,
+    required CloudDataEntity entityType,
+    required String entityId,
+  }) async {
+    fetchCount += 1;
+    final item = currentRows['${entityType.name}:$entityId'];
+
+    return item != null && item.record.userId == userId ? item : null;
+  }
+
   CloudSyncPage page = const CloudSyncPage(items: [], hasMore: false);
 
   int readCount = 0;
@@ -1075,6 +1427,29 @@ class _FakeSongArtistCreditRepository implements SongArtistCreditRepository {
 }
 
 class _FakeArtworkRepository implements ArtworkAssetRepository {
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _UnresolvedDependencyJournal
+    implements ArtistDependencyJournalRepository {
+  _UnresolvedDependencyJournal(this.artistId);
+
+  final String artistId;
+
+  @override
+  Future<ArtistDependencyJournalEntry?> findUnresolved({
+    required String userId,
+    required String artistId,
+  }) async {
+    return artistId == this.artistId ? _JournalEntryStub() : null;
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _JournalEntryStub implements ArtistDependencyJournalEntry {
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

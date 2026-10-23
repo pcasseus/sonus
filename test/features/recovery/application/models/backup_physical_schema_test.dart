@@ -44,7 +44,7 @@ void main() {
         reason: 'Backup contract references nonexistent database tables.',
       );
 
-      expect(actual, hasLength(27));
+      expect(actual, hasLength(29));
     } finally {
       await appDatabase.close();
     }

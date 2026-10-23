@@ -19,6 +19,7 @@ import 'package:sonus_next/features/sync/application/services/inbound_cloud_reco
 import 'package:sonus_next/features/sync/application/services/sync_mutation_context.dart';
 import 'package:sonus_next/features/sync/data/mappers/supabase_cloud_record_mapper.dart';
 import 'package:sonus_next/features/sync/domain/models/cloud_records.dart';
+import 'package:sonus_next/features/sync/domain/models/inbound_deferred_record.dart';
 import 'package:sonus_next/features/sync/domain/models/local_sync_models.dart';
 import 'package:sonus_next/features/sync/domain/models/sync_data_contract.dart';
 
@@ -206,6 +207,7 @@ void main() {
 
     test('maps and creates album', () async {
       final bundle = _TestContextBundle();
+      bundle.seedParents(album: false, edition: false);
 
       final record = _recordFromRow(CloudDataEntity.album, {
         'id': 'album-1',
@@ -229,6 +231,7 @@ void main() {
 
     test('maps album edition type and nullable metadata', () async {
       final bundle = _TestContextBundle();
+      bundle.seedParents(edition: false);
 
       final record = _recordFromRow(CloudDataEntity.albumEdition, {
         'id': 'edition-1',
@@ -262,6 +265,7 @@ void main() {
 
     test('maps song fields including featured artists', () async {
       final bundle = _TestContextBundle();
+      bundle.seedParents();
 
       final record = _recordFromRow(CloudDataEntity.song, {
         'id': 'song-1',
@@ -328,6 +332,7 @@ void main() {
       'inbound song updates compatibility placement without changing sort position',
       () async {
         final bundle = _TestContextBundle();
+        bundle.seedParents();
 
         bundle.song.existing = Song(
           id: 'song-1',
@@ -401,6 +406,7 @@ void main() {
     );
     test('inbound song preserves manual compatibility numbering', () async {
       final bundle = _TestContextBundle();
+      bundle.seedParents();
 
       bundle.song.existing = Song(
         id: 'song-manual',
@@ -484,6 +490,7 @@ void main() {
       'same-album inbound edition change preserves prior membership',
       () async {
         final bundle = _TestContextBundle();
+        bundle.seedParents();
 
         bundle.song.existing = Song(
           id: 'song-1',
@@ -561,6 +568,7 @@ void main() {
       'cross-album inbound move removes only former compatibility membership',
       () async {
         final bundle = _TestContextBundle();
+        bundle.seedParents();
 
         bundle.song.existing = Song(
           id: 'song-1',
@@ -650,8 +658,78 @@ void main() {
         expect(bundle.membership.deletedSongId, 'song-1');
       },
     );
-    test('rejects tombstones without mutating local data', () async {
+    test(
+      'defers tombstone of an existing entity without mutating it',
+      () async {
+        final bundle = _TestContextBundle();
+        bundle.artist.existing = Artist(
+          id: 'artist-1',
+          name: 'Local Artist',
+          canonicalName: 'local artist',
+          createdAt: DateTime.utc(2026, 9, 10),
+          updatedAt: DateTime.utc(2026, 9, 11),
+        );
+
+        final result = await applier.apply(
+          record: _artistTombstone(),
+          context: bundle.context,
+        );
+
+        expect(
+          result.deferralReason,
+          InboundDeferralReason.tombstoneRequiresLocalDeletion,
+        );
+        expect(bundle.artist.created, isNull);
+        expect(bundle.artist.saved, isNull);
+      },
+    );
+
+    test('tombstone of an entity never held locally is applied', () async {
       final bundle = _TestContextBundle();
+
+      final result = await applier.apply(
+        record: _artistTombstone(),
+        context: bundle.context,
+      );
+
+      expect(result.isDeferred, isFalse);
+      expect(bundle.artist.created, isNull);
+      expect(bundle.artist.saved, isNull);
+    });
+
+    test('defers artwork whose bytes are not held locally', () async {
+      final bundle = _TestContextBundle();
+      bundle.artwork.missingIds.add('artwork-1');
+
+      final result = await applier.apply(
+        record: _artworkRecord(),
+        context: bundle.context,
+      );
+
+      expect(
+        result.deferralReason,
+        InboundDeferralReason.artworkDownloadRequired,
+      );
+      expect(bundle.artwork.created, isNull);
+      expect(bundle.artwork.saved, isNull);
+    });
+
+    test('artwork already held locally is applied without writes', () async {
+      final bundle = _TestContextBundle();
+
+      final result = await applier.apply(
+        record: _artworkRecord(),
+        context: bundle.context,
+      );
+
+      expect(result.isDeferred, isFalse);
+      expect(bundle.artwork.created, isNull);
+      expect(bundle.artwork.saved, isNull);
+    });
+
+    test('defers a record that references missing local artwork', () async {
+      final bundle = _TestContextBundle();
+      bundle.artwork.missingIds.add('header-1');
 
       final record = _recordFromRow(CloudDataEntity.artist, {
         'id': 'artist-1',
@@ -659,44 +737,51 @@ void main() {
         'name': 'Artist',
         'canonical_name': 'artist',
         'is_blacklisted': false,
-        'header_artwork_id': null,
+        'header_artwork_id': 'header-1',
         'top_artists_artwork_id': null,
         'created_at': '2026-09-10T10:00:00.000Z',
         'updated_at': '2026-09-12T12:00:00.000Z',
         'server_updated_at': '2026-09-12T12:00:01.000Z',
-        'deleted_at': '2026-09-12T12:00:00.000Z',
-      });
-
-      await expectLater(
-        applier.apply(record: record, context: bundle.context),
-        throwsStateError,
-      );
-
-      expect(bundle.artist.created, isNull);
-      expect(bundle.artist.saved, isNull);
-    });
-
-    test('rejects artwork until Storage download is implemented', () async {
-      final bundle = _TestContextBundle();
-
-      final record = _recordFromRow(CloudDataEntity.artworkAsset, {
-        'id': 'artwork-1',
-        'user_id': 'user-1',
-        'storage_object_key': 'user-1/artwork-1.jpg',
-        'created_at': '2026-09-10T10:00:00.000Z',
-        'updated_at': '2026-09-11T11:00:00.000Z',
-        'server_updated_at': '2026-09-12T12:00:00.000Z',
         'deleted_at': null,
       });
 
-      await expectLater(
-        applier.apply(record: record, context: bundle.context),
-        throwsStateError,
+      final result = await applier.apply(
+        record: record,
+        context: bundle.context,
       );
 
-      expect(bundle.artwork.created, isNull);
-      expect(bundle.artwork.saved, isNull);
+      expect(result.deferralReason, InboundDeferralReason.missingLocalArtwork);
+      expect(bundle.artist.created, isNull);
+      expect(bundle.artist.saved, isNull);
     });
+  });
+}
+
+CloudOwnedRecord _artistTombstone() {
+  return _recordFromRow(CloudDataEntity.artist, {
+    'id': 'artist-1',
+    'user_id': 'user-1',
+    'name': 'Artist',
+    'canonical_name': 'artist',
+    'is_blacklisted': false,
+    'header_artwork_id': null,
+    'top_artists_artwork_id': null,
+    'created_at': '2026-09-10T10:00:00.000Z',
+    'updated_at': '2026-09-12T12:00:00.000Z',
+    'server_updated_at': '2026-09-12T12:00:01.000Z',
+    'deleted_at': '2026-09-12T12:00:00.000Z',
+  });
+}
+
+CloudOwnedRecord _artworkRecord() {
+  return _recordFromRow(CloudDataEntity.artworkAsset, {
+    'id': 'artwork-1',
+    'user_id': 'user-1',
+    'storage_object_key': 'user-1/artwork-1.jpg',
+    'created_at': '2026-09-10T10:00:00.000Z',
+    'updated_at': '2026-09-11T11:00:00.000Z',
+    'server_updated_at': '2026-09-12T12:00:00.000Z',
+    'deleted_at': null,
   });
 }
 
@@ -745,6 +830,48 @@ class _TestContextBundle {
   final _FakeMetadataFieldStateRepository metadata;
 
   late final SyncMutationContext context;
+
+  /// Makes every parent lookup succeed so a child record can be applied.
+  void seedParents({
+    bool artist = true,
+    bool album = true,
+    bool edition = true,
+  }) {
+    final timestamp = DateTime.utc(2026, 9, 10);
+
+    if (artist) {
+      this.artist.existing = Artist(
+        id: 'parent-artist',
+        name: 'Parent Artist',
+        canonicalName: 'parent artist',
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      );
+    }
+
+    if (album) {
+      this.album.existing = Album(
+        id: 'parent-album',
+        artistId: 'parent-artist',
+        title: 'Parent Album',
+        canonicalTitle: 'parent album',
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      );
+    }
+
+    if (edition) {
+      this.edition.existing = AlbumEdition(
+        id: 'parent-edition',
+        albumId: 'parent-album',
+        title: 'Parent Edition',
+        type: AlbumEditionType.standard,
+        isPrimary: true,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      );
+    }
+  }
 }
 
 class _FakeArtistRepository implements ArtistRepository {
@@ -901,6 +1028,24 @@ class _FakeSongArtistCreditRepository implements SongArtistCreditRepository {
 class _FakeArtworkRepository implements ArtworkAssetRepository {
   ArtworkAsset? created;
   ArtworkAsset? saved;
+
+  /// Every other artwork id is treated as held locally.
+  final Set<String> missingIds = {};
+
+  @override
+  Future<ArtworkAsset?> getById(String id) async {
+    if (missingIds.contains(id)) {
+      return null;
+    }
+
+    return ArtworkAsset(
+      id: id,
+      filePath: '/artwork/$id.jpg',
+      normalizedPath: '/artwork/$id.jpg',
+      createdAt: DateTime.utc(2026, 9, 10),
+      updatedAt: DateTime.utc(2026, 9, 10),
+    );
+  }
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);

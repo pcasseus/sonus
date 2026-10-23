@@ -12,6 +12,8 @@ import '../repositories/local_sync_repository.dart';
 import '../repositories/cloud_revision_baseline_repository.dart';
 import '../repositories/artist_write_journal_repository.dart';
 import '../repositories/artist_dependency_journal_repository.dart';
+import '../repositories/inbound_deferred_record_repository.dart';
+import '../repositories/outbound_conflict_repository.dart';
 
 class SyncMutationContext {
   const SyncMutationContext({
@@ -28,6 +30,8 @@ class SyncMutationContext {
     this.cloudRevisionBaselineRepository,
     this.artistWriteJournalRepository,
     this.artistDependencyJournalRepository,
+    this.inboundDeferredRecordRepository,
+    this.outboundConflictRepository,
     this.playlistRepository,
   });
 
@@ -44,5 +48,7 @@ class SyncMutationContext {
   final CloudRevisionBaselineRepository? cloudRevisionBaselineRepository;
   final ArtistWriteJournalRepository? artistWriteJournalRepository;
   final ArtistDependencyJournalRepository? artistDependencyJournalRepository;
+  final InboundDeferredRecordRepository? inboundDeferredRecordRepository;
+  final OutboundConflictRepository? outboundConflictRepository;
   final PlaylistRepository? playlistRepository;
 }

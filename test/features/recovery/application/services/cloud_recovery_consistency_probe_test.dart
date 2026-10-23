@@ -25,6 +25,16 @@ class ChangingReader implements CloudSyncReader {
   int calls = 0;
 
   @override
+  Future<CloudSyncItem?> fetchCurrent({
+    required String userId,
+    required CloudDataEntity entityType,
+    required String entityId,
+  }) {
+    // Recovery inventory only scans pages; it never fetches single rows.
+    throw UnsupportedError('fetchCurrent is not used by recovery.');
+  }
+
+  @override
   Future<CloudSyncPage> readPage({
     required String userId,
     required CloudDataEntity entityType,

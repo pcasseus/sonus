@@ -2,6 +2,7 @@ import '../repositories/cloud_revision_baseline_repository.dart';
 import '../../domain/models/cloud_records.dart';
 import '../../domain/models/local_sync_models.dart';
 import '../../domain/models/sync_data_contract.dart';
+import 'cloud_artist_create_verifier.dart';
 import 'cloud_conditional_write_result.dart';
 import 'outbound_artist_write_committer.dart';
 
@@ -68,6 +69,7 @@ class OutboundArtistWriteCoordinator {
     required this.createArtist,
     required this.updateArtist,
     required this.committer,
+    required this.fetchCurrentArtist,
     this.createArtistWithReceipt,
     this.updateArtistWithReceipt,
   });
@@ -76,6 +78,7 @@ class OutboundArtistWriteCoordinator {
   final CreateCloudArtist createArtist;
   final UpdateCloudArtist updateArtist;
   final OutboundArtistWriteCommitter committer;
+  final FetchCurrentCloudArtist fetchCurrentArtist;
   final ReceiptCreateCloudArtist? createArtistWithReceipt;
   final ReceiptUpdateCloudArtist? updateArtistWithReceipt;
 
@@ -137,6 +140,30 @@ class OutboundArtistWriteCoordinator {
               outboxId: entry.id,
               mutationRevision: entry.mutationRevision,
             );
+    }
+
+    // Legacy creation only: the receipt path recovers through its journal.
+    if (baseline == null &&
+        createArtistWithReceipt == null &&
+        result.outcome == CloudConditionalWriteOutcome.conflict) {
+      final adoptedRevision = await CloudArtistCreateVerifier(
+        fetchCurrentArtist: fetchCurrentArtist,
+      ).adoptableRevision(userId: owner, artist: artist);
+
+      if (adoptedRevision != null) {
+        // The cloud already holds exactly this artist. The committer still
+        // keeps a local edit made during the upload pending.
+        await committer.commitApplied(
+          userId: owner,
+          entry: entry,
+          result: CloudConditionalWriteResult(
+            outcome: CloudConditionalWriteOutcome.applied,
+            serverRevision: adoptedRevision,
+          ),
+        );
+
+        return;
+      }
     }
 
     switch (result.outcome) {

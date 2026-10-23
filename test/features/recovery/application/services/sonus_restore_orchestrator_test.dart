@@ -9,6 +9,7 @@ import 'package:sonus_next/core/database/library_mutation_coordinator.dart';
 import 'package:sonus_next/core/database/database_tables.dart';
 import 'package:sonus_next/core/database/schema/sync_schema.dart';
 import 'package:sonus_next/features/artwork/data/services/file_system_artwork_managed_storage.dart';
+import 'package:sonus_next/features/recovery/application/models/backup_table_coverage.dart';
 import 'package:sonus_next/features/recovery/application/models/recovery_sync_hold.dart';
 import 'package:sonus_next/features/recovery/application/models/restore_preflight.dart';
 import 'package:sonus_next/features/recovery/application/models/restore_result.dart';
@@ -27,6 +28,7 @@ import 'package:sonus_next/features/recovery/application/services/verified_backu
 import 'package:sonus_next/features/sync/application/services/sync_run_guard.dart';
 
 import '../../../../support/recovery_fixtures.dart';
+import '../../../../support/sync_ledger_seed.dart';
 import '../../../../support/test_only_backup_publication.dart';
 
 class _InjectedFailure implements Exception {
@@ -615,6 +617,87 @@ void main() {
     expect(await syncAllowed(), isFalse);
   });
 
+  group('a real version 31 backup from the SN-42 release', () {
+    final fixtureDir = path.join('test', 'fixtures', 'recovery');
+
+    Future<File> v31Backup() => File(
+      path.join(fixtureDir, 'sonus_v31.sonusbackup'),
+    ).copy(path.join(root.path, 'sonus_v31.sonusbackup'));
+
+    /// Portable rows written by the version 31 build, read without
+    /// migrating its database.
+    Future<Map<String, List<Map<String, Object?>>>> v31PortableRows() async {
+      final copy = await File(
+        path.join(fixtureDir, 'sonus_v31.db'),
+      ).copy(path.join(root.path, 'sonus_v31_source.db'));
+      final db = await databaseFactoryFfi.openDatabase(
+        copy.path,
+        options: OpenDatabaseOptions(readOnly: true),
+      );
+
+      try {
+        return await portableRows(db);
+      } finally {
+        await db.close();
+      }
+    }
+
+    test('restores its library, relationships, and artwork', () async {
+      final result = await orchestrator().restore(await v31Backup());
+      final db = await target.database;
+
+      expect(result.backupId, 'sn42-v31-fixture');
+      expect(result.artworkInstalled, 1);
+      expect(
+        (await db.rawQuery('PRAGMA user_version')).single['user_version'],
+        AppDatabase.databaseVersion,
+      );
+
+      // Every portable row matches what the version 31 build stored.
+      expect(await portableRows(db), await v31PortableRows());
+
+      final songs = await db.query(DatabaseTables.songs, orderBy: 'id');
+      expect(songs.map((row) => row['title']), ['First Light', 'Second Wind']);
+      expect(songs.first['album_edition_id'], 'edition-v31a');
+      expect(
+        (await db.query(
+          DatabaseTables.qualifiedPlays,
+          orderBy: 'id',
+        )).map((row) => row['playback_session_id']),
+        ['session-v31a', 'session-v31b'],
+      );
+      expect(await db.rawQuery('PRAGMA foreign_key_check'), isEmpty);
+
+      final artwork = (await db.query(DatabaseTables.artworkAssets)).single;
+      final installed = File(artwork['file_path']! as String);
+      expect(path.isWithin(artworkDir.path, installed.path), isTrue);
+      expect(await installed.readAsBytes(), [
+        0xFF, 0xD8, 0xFF, 0xE0, 3, 1, 3, 1, 0xFF, 0xD9, //
+      ]);
+
+      // The history belongs to an account this device has not confirmed.
+      expect(result.syncHeld, isTrue);
+      await expectNoSessionLeftovers();
+    });
+
+    test('keeps this device\'s replay ledger and conflicts', () async {
+      final db = await target.database;
+      await bindAccount('user-31');
+      await seedDeferredRecord(db, userId: 'user-31', entityId: 'song-v31a');
+      await seedOutboundConflict(db, userId: 'user-31', entityId: 'song-v31b');
+      final syncBefore = await syncTables();
+      expect(syncBefore[SyncSchema.inboundDeferredRecordsTable], hasLength(1));
+      expect(syncBefore[SyncSchema.outboundConflictsTable], hasLength(1));
+
+      final result = await orchestrator().restore(await v31Backup());
+
+      expect(await syncTables(), syncBefore);
+      expect(await portableRows(db), await v31PortableRows());
+      expect(result.syncHeld, isTrue);
+      expect(await syncAllowed(), isFalse);
+    });
+  });
+
   test('an interrupted restore that never committed is recovered', () async {
     await bindAccount('user-1');
     final db = await target.database;
@@ -963,6 +1046,35 @@ void main() {
 
         expect(change.changedTables, contains(DatabaseTables.localAccountBinding));
       });
+
+      test('a deferred replay obligation recorded meanwhile is kept', () async {
+        final change = await expectAbandoned(
+          (db) => seedDeferredRecord(db, userId: 'user-9', entityId: 'song-a'),
+        );
+
+        expect(
+          change.changedTables,
+          contains(SyncSchema.inboundDeferredRecordsTable),
+        );
+        expect(
+          await (await target.database).query(
+            SyncSchema.inboundDeferredRecordsTable,
+          ),
+          hasLength(1),
+        );
+      });
+
+      test('an outbound conflict recorded meanwhile is kept', () async {
+        final change = await expectAbandoned(
+          (db) =>
+              seedOutboundConflict(db, userId: 'user-9', entityId: 'song-a'),
+        );
+
+        expect(
+          change.changedTables,
+          contains(SyncSchema.outboundConflictsTable),
+        );
+      });
     });
   });
 
@@ -1151,4 +1263,25 @@ void main() {
       expect(await syncAllowed(), isFalse);
     });
   });
+}
+
+/// Portable rows ordered by identity, without device-local artwork paths.
+Future<Map<String, List<Map<String, Object?>>>> portableRows(
+  DatabaseExecutor db,
+) async {
+  return {
+    for (final coverage in BackupCoverageContract.portableTables)
+      coverage.table: [
+        // Table names come from the backup coverage contract.
+        for (final row in await db.rawQuery(
+          'SELECT * FROM "${coverage.table}" ORDER BY rowid',
+        ))
+          {
+            for (final entry in row.entries)
+              if (coverage.table != DatabaseTables.artworkAssets ||
+                  (entry.key != 'file_path' && entry.key != 'normalized_path'))
+                entry.key: entry.value,
+          },
+      ],
+  };
 }

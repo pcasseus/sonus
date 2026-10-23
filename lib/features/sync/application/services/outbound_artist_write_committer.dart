@@ -1,12 +1,14 @@
 import '../../domain/models/local_sync_models.dart';
 import '../../domain/models/sync_data_contract.dart';
 import 'cloud_conditional_write_result.dart';
+import 'outbound_acknowledgement.dart';
 import 'sync_mutation_runner.dart';
 
 /// Completes an already-applied artist cloud update locally.
 ///
 /// Cloud requests must finish before this method is called.
-/// The baseline and mutation acknowledgement share one SQLite transaction.
+/// The baseline, the mutation acknowledgement and the clearing of the
+/// conflict it resolves share one SQLite transaction.
 class OutboundArtistWriteCommitter {
   const OutboundArtistWriteCommitter({required this.mutationRunner});
 
@@ -60,11 +62,14 @@ class OutboundArtistWriteCommitter {
 
       // This is a compare-and-delete. If a local edit arrived during
       // upload, its mutation revision changed and the entry survives.
-      await context.localSyncRepository.markProcessed(
+      await acknowledgeOutboundMutation(
+        context,
         userId: owner,
-        outboxEntryId: entry.id,
-        expectedRevision: entry.mutationRevision,
-        expectedOperation: entry.operation,
+        entityType: CloudDataEntity.artist,
+        entityId: entry.entityId,
+        outboxId: entry.id,
+        mutationRevision: entry.mutationRevision,
+        operation: entry.operation,
       );
     });
   }
