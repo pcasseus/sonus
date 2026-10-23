@@ -184,4 +184,87 @@ void main() {
 
     expect(nestedActionExecuted, isFalse);
   });
+
+  group('restore generation', () {
+    test('ordinary mutations never change it', () async {
+      final coordinator = LibraryMutationCoordinator();
+
+      expect(coordinator.restoreGeneration, 0);
+
+      await coordinator.runMutation(() async {});
+      await expectLater(
+        coordinator.runMutation<void>(() async => throw StateError('failed')),
+        throwsStateError,
+      );
+
+      expect(coordinator.restoreGeneration, 0);
+    });
+
+    test('advances synchronously as admission closes', () async {
+      final coordinator = LibraryMutationCoordinator();
+      final release = Completer<void>();
+
+      final restore = coordinator.runExclusiveRestore(() => release.future);
+
+      // Not awaited: both changes are visible before any asynchronous step.
+      expect(coordinator.isRestoreRequested, isTrue);
+      expect(coordinator.restoreGeneration, 1);
+
+      release.complete();
+      await restore;
+
+      expect(coordinator.isRestoreRequested, isFalse);
+      expect(coordinator.restoreGeneration, 1);
+    });
+
+    test(
+      'stays advanced after success, failure and a timed-out drain',
+      () async {
+        final coordinator = LibraryMutationCoordinator(
+          drainTimeout: Duration.zero,
+        );
+
+        await coordinator.runExclusiveRestore(() async {});
+        expect(coordinator.restoreGeneration, 1);
+
+        await expectLater(
+          coordinator.runExclusiveRestore<void>(
+            () async => throw StateError('restore blocked'),
+          ),
+          throwsStateError,
+        );
+        expect(coordinator.restoreGeneration, 2);
+
+        final releaseMutation = Completer<void>();
+        final mutation = coordinator.runMutation(() => releaseMutation.future);
+
+        await expectLater(
+          coordinator.runExclusiveRestore(() async {}),
+          throwsA(isA<LibraryMutationUnavailable>()),
+        );
+        expect(coordinator.restoreGeneration, 3);
+
+        releaseMutation.complete();
+        await mutation;
+        await coordinator.runMutation(() async {});
+
+        expect(coordinator.restoreGeneration, 3);
+      },
+    );
+
+    test('a refused second restore request does not advance it', () async {
+      final coordinator = LibraryMutationCoordinator();
+      final release = Completer<void>();
+      final first = coordinator.runExclusiveRestore(() => release.future);
+
+      await expectLater(
+        coordinator.runExclusiveRestore(() async {}),
+        throwsA(isA<LibraryMutationUnavailable>()),
+      );
+      expect(coordinator.restoreGeneration, 1);
+
+      release.complete();
+      await first;
+    });
+  });
 }
