@@ -87,7 +87,8 @@ void main() {
   });
 
   test('restore waits for an active sync and blocks new ones', () async {
-    final gate = RecoverySyncGate(holdStore: store);
+    final observed = _ObservedHoldStore(directory: () async => root);
+    final gate = RecoverySyncGate(holdStore: observed);
     final started = Completer<void>();
     final release = Completer<void>();
     final events = <String>[];
@@ -107,49 +108,90 @@ void main() {
       events.add('restore owns gate');
     });
 
-    await Future<void>.delayed(const Duration(milliseconds: 20));
+    try {
+      // Wait for the restore's hold write itself to finish: its temporary
+      // has been renamed over the hold file. The timeout only turns a hang
+      // into a failure; it is not what the test waits for.
+      await observed.firstWriteCompleted.timeout(const Duration(seconds: 30));
 
-    // The hold is durable before the restore proceeds...
-    expect(await store.read(), isA<ActiveRecoverySyncHold>());
-    // ...new runs are refused synchronously...
-    await expectLater(
-      gate.guard(() async => events.add('late sync')),
-      heldFor(SyncHoldReason.restoreInProgress),
-    );
-    // ...and the restore has not proceeded while sync is active.
-    expect(events, ['sync started']);
+      // The hold is durable before the restore proceeds...
+      expect(await store.read(), isA<ActiveRecoverySyncHold>());
+      // ...new runs are refused synchronously...
+      await expectLater(
+        gate.guard(() async => events.add('late sync')),
+        heldFor(SyncHoldReason.restoreInProgress),
+      );
+      // ...and the restore has not proceeded while sync is active.
+      expect(events, ['sync started']);
+    } finally {
+      // Even after a failure, let the sync and the restore (and its hold
+      // write) finish before tearDown removes their directory.
+      if (!release.isCompleted) release.complete();
+      await activeSync;
 
-    release.complete();
-    await activeSync;
-    await restore;
+      try {
+        await restore;
+      } finally {
+        gate.endRestore();
+      }
+    }
 
     expect(events, ['sync started', 'sync finished', 'restore owns gate']);
-    gate.endRestore();
   });
 
-  test('a requested sync that has not begun work is rejected, not run', () async {
-    final gate = RecoverySyncGate(holdStore: store);
-    var ran = false;
+  test('new runs are refused before the hold write has completed', () async {
+    final observed = _ObservedHoldStore(directory: () async => root)
+      ..writeGate = Completer<void>();
+    final gate = RecoverySyncGate(holdStore: observed);
 
-    // Requested, but still checking the persisted hold.
-    final pending = expectLater(
-      gate.guard(() async => ran = true),
-      throwsA(
-        isA<SyncHeldForRecovery>().having(
-          (e) => e.reason,
-          'reason',
-          SyncHoldReason.restoreInProgress,
+    final restore = gate.beginRestore((_) => hold());
+
+    try {
+      // Admission closes synchronously, before anything is durable: however
+      // long the write takes, elapsed time alone proves nothing about it.
+      await expectLater(
+        gate.guard(() async {}),
+        heldFor(SyncHoldReason.restoreInProgress),
+      );
+      expect(await store.read(), isA<NoRecoverySyncHold>());
+    } finally {
+      observed.writeGate!.complete();
+      try {
+        await restore;
+      } finally {
+        gate.endRestore();
+      }
+    }
+
+    expect(await store.read(), isA<ActiveRecoverySyncHold>());
+  });
+
+  test(
+    'a requested sync that has not begun work is rejected, not run',
+    () async {
+      final gate = RecoverySyncGate(holdStore: store);
+      var ran = false;
+
+      // Requested, but still checking the persisted hold.
+      final pending = expectLater(
+        gate.guard(() async => ran = true),
+        throwsA(
+          isA<SyncHeldForRecovery>().having(
+            (e) => e.reason,
+            'reason',
+            SyncHoldReason.restoreInProgress,
+          ),
         ),
-      ),
-    );
+      );
 
-    await gate.beginRestore((_) => hold());
-    await pending;
-    expect(ran, isFalse);
-    expect(gate.activeSyncRuns, 0);
+      await gate.beginRestore((_) => hold());
+      await pending;
+      expect(ran, isFalse);
+      expect(gate.activeSyncRuns, 0);
 
-    gate.endRestore();
-  });
+      gate.endRestore();
+    },
+  );
 
   test('a sync that never finishes aborts the restore safely', () async {
     final gate = RecoverySyncGate(
@@ -289,4 +331,25 @@ void main() {
 
     expect(state.hold.toJson(), hold().toJson());
   });
+}
+
+/// A real hold store that reports when a write has fully completed (the
+/// atomic rename included), and can hold a write back until released.
+class _ObservedHoldStore extends RecoverySyncHoldStore {
+  _ObservedHoldStore({required super.directory});
+
+  final _firstWrite = Completer<void>();
+
+  /// When set, writes wait for it before touching the file system.
+  Completer<void>? writeGate;
+
+  Future<void> get firstWriteCompleted => _firstWrite.future;
+
+  @override
+  Future<void> write(RecoverySyncHold hold) async {
+    await writeGate?.future;
+    await super.write(hold);
+
+    if (!_firstWrite.isCompleted) _firstWrite.complete();
+  }
 }
