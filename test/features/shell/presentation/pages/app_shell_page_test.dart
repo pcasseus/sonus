@@ -245,7 +245,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(
-      find.byKey(const ValueKey<String>('settings-account-unavailable')),
+      find.byKey(const ValueKey<String>('settings-account-cloud')),
       findsOneWidget,
     );
   });

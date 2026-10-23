@@ -5,9 +5,11 @@ import 'package:provider/provider.dart';
 
 import '../../../../core/database/app_database.dart';
 import '../../application/controllers/playback_coordinator.dart';
+import '../../application/controllers/playback_preferences_controller.dart';
 import '../../data/daos/track_lyrics_dao.dart';
 import '../../data/engines/just_audio_playback_engine.dart';
 import '../../data/repositories/sqlite_track_lyrics_repository.dart';
+import '../../data/services/playback_preferences_store.dart';
 import '../../domain/repositories/track_lyrics_repository.dart';
 import '../../domain/services/playback_engine.dart';
 import '../controllers/lyrics_controller.dart';
@@ -16,10 +18,18 @@ import '../controllers/playback_state_controller.dart';
 typedef PlaybackEngineFactory = PlaybackEngine Function();
 
 class PlaybackScope extends StatefulWidget {
-  const PlaybackScope({super.key, required this.child, this.engineFactory});
+  const PlaybackScope({
+    super.key,
+    required this.child,
+    this.engineFactory,
+    this.preferencesStore,
+  });
 
   final Widget child;
   final PlaybackEngineFactory? engineFactory;
+
+  /// Overrides the device preference store (tests).
+  final PlaybackPreferencesStore? preferencesStore;
 
   @override
   State<PlaybackScope> createState() => _PlaybackScopeState();
@@ -29,6 +39,7 @@ class _PlaybackScopeState extends State<PlaybackScope> {
   late final PlaybackEngine _engine;
   late final PlaybackCoordinator _coordinator;
   late final PlaybackStateController _stateController;
+  late final PlaybackPreferencesController _preferencesController;
 
   AppDatabase? _database;
   TrackLyricsRepository? _lyricsRepository;
@@ -42,6 +53,11 @@ class _PlaybackScopeState extends State<PlaybackScope> {
     _engine = widget.engineFactory?.call() ?? JustAudioPlaybackEngine();
     _coordinator = PlaybackCoordinator(engine: _engine);
     _stateController = PlaybackStateController(coordinator: _coordinator);
+    _preferencesController = PlaybackPreferencesController(
+      store: widget.preferencesStore ?? PlaybackPreferencesStore(),
+      coordinator: _coordinator,
+    );
+    unawaited(_preferencesController.load());
   }
 
   @override
@@ -101,6 +117,9 @@ class _PlaybackScopeState extends State<PlaybackScope> {
         ChangeNotifierProvider<PlaybackStateController>.value(
           value: _stateController,
         ),
+        ChangeNotifierProvider<PlaybackPreferencesController>.value(
+          value: _preferencesController,
+        ),
         Provider<TrackLyricsRepository?>.value(value: _lyricsRepository),
         ChangeNotifierProvider<LyricsController?>.value(
           value: _lyricsController,
@@ -114,6 +133,7 @@ class _PlaybackScopeState extends State<PlaybackScope> {
   void dispose() {
     _initializationVersion++;
     _lyricsController?.dispose();
+    _preferencesController.dispose();
     _stateController.dispose();
     unawaited(_engine.dispose());
     super.dispose();

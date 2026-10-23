@@ -1447,6 +1447,9 @@ class RecordingPlaybackEngine implements PlaybackEngine {
   Stream<PlaybackState> get states => const Stream.empty();
 
   @override
+  PlaybackState get currentState => const PlaybackState();
+
+  @override
   Future<void> loadQueue(
     dynamic tracks, {
     int startIndex = 0,

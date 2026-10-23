@@ -33,6 +33,8 @@ class MainActivity : FlutterActivity() {
             flutterEngine.dartExecutor.binaryMessenger
         )
 
+        AppInfoChannel(this, flutterEngine.dartExecutor.binaryMessenger)
+
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             publicationChannel

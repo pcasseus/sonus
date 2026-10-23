@@ -9,6 +9,7 @@ import '../../../../core/design/sonus_tokens.dart';
 import '../../../../core/design/sonus_typography.dart';
 import '../../../../core/design/widgets/sonus_decorations.dart';
 import '../../application/controllers/appearance_controller.dart';
+import '../widgets/appearance/appearance_accessibility_controls.dart';
 import '../widgets/appearance/appearance_preview.dart';
 import '../widgets/appearance/appearance_schedule_section.dart';
 import '../widgets/appearance/appearance_theme_tile.dart';
@@ -72,7 +73,7 @@ class _AppearanceSettingsBody extends StatelessWidget {
         heading('Decoration'),
         _DecorationSection(controller: controller),
         heading('Accessibility & motion'),
-        _AccessibilitySection(controller: controller),
+        AppearanceAccessibilityControls(controller: controller),
         heading('Scheduled themes'),
         AppearanceScheduleSection(controller: controller),
       ],
@@ -347,66 +348,6 @@ class _ChoiceGroup<T> extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-class _AccessibilitySection extends StatelessWidget {
-  const _AccessibilitySection({required this.controller});
-
-  final AppearanceController controller;
-
-  @override
-  Widget build(BuildContext context) {
-    final preferences = controller.preferences;
-
-    return Card(
-      child: Column(
-        children: [
-          SwitchListTile(
-            key: const ValueKey<String>('appearance-high-contrast'),
-            title: const Text('High contrast'),
-            subtitle: Text(
-              controller.systemHighContrast
-                  ? 'Your device already asks for high contrast, so Sonus '
-                        'uses it.'
-                  : 'Stronger text, borders and focus outlines in every '
-                        'theme.',
-            ),
-            value: preferences.highContrast,
-            onChanged: (value) {
-              unawaited(controller.setHighContrast(value));
-            },
-          ),
-          const Divider(height: 1),
-          SwitchListTile(
-            key: const ValueKey<String>('appearance-reduce-motion'),
-            title: const Text('Reduce motion'),
-            subtitle: Text(
-              controller.systemReduceMotion
-                  ? 'Your device already asks for reduced motion, so Sonus '
-                        'uses it.'
-                  : 'Switch screens and themes without animation.',
-            ),
-            value: preferences.reduceMotion,
-            onChanged: (value) {
-              unawaited(controller.setReduceMotion(value));
-            },
-          ),
-          const Divider(height: 1),
-          SwitchListTile(
-            key: const ValueKey<String>('appearance-low-effects'),
-            title: const Text('Low effects'),
-            subtitle: const Text(
-              'Skip glows, gradients and textures on this device.',
-            ),
-            value: controller.device.lowEffects,
-            onChanged: (value) {
-              unawaited(controller.setLowEffects(value));
-            },
-          ),
-        ],
-      ),
     );
   }
 }

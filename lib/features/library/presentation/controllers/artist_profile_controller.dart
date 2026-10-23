@@ -75,7 +75,10 @@ class ArtistProfileController extends ChangeNotifier {
   List<LibraryTrack> _featuredTracks = const [];
 
   bool _isLoading = false;
-  bool _isShuffleEnabled = false;
+  // Starts from the player's actual mode, which may have been restored
+  // from the listener's saved preference.
+  late bool _isShuffleEnabled =
+      _playbackCoordinator?.currentState.shuffleEnabled ?? false;
   Object? _error;
 
   String get artistId => _artistId;

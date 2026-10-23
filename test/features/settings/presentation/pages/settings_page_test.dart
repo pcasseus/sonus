@@ -11,13 +11,16 @@ import 'package:sonus_next/core/design/sonus_theme_id.dart';
 import 'package:sonus_next/features/settings/application/controllers/appearance_controller.dart';
 import 'package:sonus_next/features/settings/data/appearance_preferences_store.dart';
 import 'package:sonus_next/features/settings/presentation/pages/appearance_settings_page.dart';
+import 'package:sonus_next/features/settings/presentation/pages/account_cloud_settings_page.dart';
 import 'package:sonus_next/features/settings/presentation/pages/settings_page.dart';
 
 void main() {
   testWidgets('shows unavailable account state without controller', (
     tester,
   ) async {
-    await tester.pumpWidget(const MaterialApp(home: SettingsPage()));
+    await tester.pumpWidget(
+      const MaterialApp(home: AccountCloudSettingsPage()),
+    );
 
     expect(
       find.byKey(const ValueKey<String>('settings-account-unavailable')),
@@ -110,6 +113,17 @@ void main() {
   testWidgets('opens listening history from settings', (tester) async {
     await tester.pumpWidget(const MaterialApp(home: SettingsPage()));
 
+    final listeningTile = find.byKey(
+      const ValueKey<String>('settings-listening'),
+    );
+    await tester.scrollUntilVisible(
+      listeningTile,
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(listeningTile);
+    await tester.pumpAndSettle();
+
     await tester.tap(
       find.byKey(const ValueKey<String>('settings-listening-history')),
     );
@@ -124,6 +138,15 @@ void main() {
   });
   testWidgets('opens blacklisted songs from settings', (tester) async {
     await tester.pumpWidget(const MaterialApp(home: SettingsPage()));
+
+    final libraryTile = find.byKey(const ValueKey<String>('settings-library'));
+    await tester.scrollUntilVisible(
+      libraryTile,
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(libraryTile);
+    await tester.pumpAndSettle();
 
     final blacklistedSongsTile = find.byKey(
       const ValueKey<String>('settings-blacklisted-songs'),
@@ -246,7 +269,7 @@ void main() {
 Widget _buildTestApp(AccountController controller) {
   return ChangeNotifierProvider<AccountController>.value(
     value: controller,
-    child: const MaterialApp(home: SettingsPage()),
+    child: const MaterialApp(home: AccountCloudSettingsPage()),
   );
 }
 
