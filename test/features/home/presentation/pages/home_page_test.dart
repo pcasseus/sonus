@@ -276,6 +276,66 @@ void _railLayoutTests() {
   double widthOf(WidgetTester tester, Key key) =>
       tester.getSize(find.byKey(key)).width;
 
+  // Regression: the rails shared the page's PageStorage slot, so a rail
+  // built after scrolling down restored the page's vertical offset as its
+  // own horizontal one and opened part-way along.
+  testWidgets('rails built after scrolling down start at their first card', (
+    tester,
+  ) async {
+    final base = _snapshot();
+    final controller = await _loadedController(
+      HomeSnapshot(
+        recentlyAddedTracks: base.recentlyAddedTracks,
+        recentlyAddedAlbums: [
+          for (var i = 1; i <= 6; i++)
+            LibraryAlbum(
+              albumId: 'album_$i',
+              title: 'Album $i',
+              artistId: 'artist_1',
+              artistName: 'Artist 1',
+              trackCount: 2,
+              dateAdded: DateTime.utc(2026, 9, 28),
+            ),
+        ],
+        weeklyPopularTracks: base.weeklyPopularTracks,
+        weeklyTopArtists: base.weeklyTopArtists,
+      ),
+    );
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(411, 600);
+    addTearDown(tester.view.reset);
+
+    await _pumpHome(tester, controller, size: const Size(411, 600));
+
+    // The New Albums rail is below the fold and not built yet.
+    expect(find.byKey(album), findsNothing);
+
+    final page = tester.state<ScrollableState>(
+      find
+          .byWidgetPredicate(
+            (widget) =>
+                widget is Scrollable &&
+                widget.axisDirection == AxisDirection.down,
+          )
+          .first,
+    );
+    page.position.jumpTo(page.position.maxScrollExtent);
+    await tester.pumpAndSettle();
+
+    // Any album card locates the rail, even if it opened past the first.
+    final albumCard = find.byWidgetPredicate((widget) {
+      final key = widget.key;
+      return key is ValueKey<String> && key.value.startsWith('home-new-album-');
+    });
+    final rail = tester.state<ScrollableState>(
+      find
+          .ancestor(of: albumCard.first, matching: find.byType(Scrollable))
+          .first,
+    );
+    expect(rail.position.axis, Axis.horizontal);
+    expect(rail.position.pixels, 0);
+  });
+
   testWidgets('featured cards lead and supporting rails share one size', (
     tester,
   ) async {

@@ -214,11 +214,16 @@ abstract final class _RailSizing {
 /// A horizontal rail of cards inset by the page gutter.
 class _Rail extends StatelessWidget {
   const _Rail({
+    required this.storageId,
     required this.height,
     required this.itemCount,
     required this.itemBuilder,
   });
 
+  /// Gives the rail its own PageStorage slot. Without it every rail shares
+  /// the page's slot and restores the page's vertical offset as its own
+  /// horizontal one.
+  final String storageId;
   final double height;
   final int itemCount;
   final IndexedWidgetBuilder itemBuilder;
@@ -230,6 +235,7 @@ class _Rail extends StatelessWidget {
     return SizedBox(
       height: height,
       child: ListView.separated(
+        key: PageStorageKey<String>('home-rail-$storageId'),
         padding: EdgeInsets.symmetric(horizontal: gutter),
         scrollDirection: Axis.horizontal,
         itemCount: itemCount,
@@ -250,6 +256,7 @@ class _PopularTracksRail extends StatelessWidget {
     final cardWidth = _RailSizing.featuredWidth(context);
 
     return _Rail(
+      storageId: 'popular',
       height: _railHeight(context, artwork: cardWidth, text: 100),
       itemCount: entries.length,
       itemBuilder: (context, index) {
@@ -428,6 +435,7 @@ class _TopArtistsRail extends StatelessWidget {
     final cardWidth = _ArtistCard.widthFor(context);
 
     return _Rail(
+      storageId: 'top-artists',
       height: _railHeight(
         context,
         artwork: _ArtistCard.artworkHeightFor(cardWidth),
@@ -606,6 +614,7 @@ class _RecentlyAddedTracksRail extends StatelessWidget {
     final cardWidth = _RailSizing.standardWidth(context);
 
     return _Rail(
+      storageId: 'recent',
       height: _railHeight(context, artwork: cardWidth, text: 75),
       itemCount: tracks.length,
       itemBuilder: (context, index) {
@@ -674,6 +683,7 @@ class _AlbumsRail extends StatelessWidget {
     final cardWidth = _RailSizing.standardWidth(context);
 
     return _Rail(
+      storageId: 'albums',
       height: _railHeight(context, artwork: cardWidth, text: 75),
       itemCount: albums.length,
       itemBuilder: (context, index) {
