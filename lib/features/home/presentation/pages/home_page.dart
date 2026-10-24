@@ -76,29 +76,33 @@ class HomePage extends StatelessWidget {
             ),
 
           if (snapshot.weeklyPopularTracks.isNotEmpty) ...[
-            const _SectionHeading(title: 'Popular This Week', featured: true),
-            const SizedBox(height: 12),
+            const _SectionHeading(
+              title: 'Popular This Week',
+              caption: 'Your most-played tracks this week',
+              featured: true,
+            ),
+            const SizedBox(height: _headingGap),
             _PopularTracksRail(entries: snapshot.weeklyPopularTracks),
-            const SizedBox(height: 30),
+            const SizedBox(height: _sectionGap),
           ],
 
           if (snapshot.weeklyTopArtists.isNotEmpty) ...[
             const _SectionHeading(title: 'Top Artists'),
-            const SizedBox(height: 12),
+            const SizedBox(height: _headingGap),
             _TopArtistsRail(entries: snapshot.weeklyTopArtists),
-            const SizedBox(height: 30),
+            const SizedBox(height: _sectionGap),
           ],
 
           if (snapshot.recentlyAddedTracks.isNotEmpty) ...[
             const _SectionHeading(title: 'Recently Added'),
-            const SizedBox(height: 12),
+            const SizedBox(height: _headingGap),
             _RecentlyAddedTracksRail(tracks: snapshot.recentlyAddedTracks),
-            const SizedBox(height: 30),
+            const SizedBox(height: _sectionGap),
           ],
 
           if (snapshot.recentlyAddedAlbums.isNotEmpty) ...[
             const _SectionHeading(title: 'New Albums'),
-            const SizedBox(height: 12),
+            const SizedBox(height: _headingGap),
             _AlbumsRail(albums: snapshot.recentlyAddedAlbums),
           ],
         ],
@@ -107,10 +111,24 @@ class HomePage extends StatelessWidget {
   }
 }
 
+/// Space between a section heading and its rail.
+const double _headingGap = 12;
+
+/// Space between one section's rail and the next heading.
+const double _sectionGap = 32;
+
 class _SectionHeading extends StatelessWidget {
-  const _SectionHeading({required this.title, this.featured = false});
+  const _SectionHeading({
+    required this.title,
+    this.caption,
+    this.featured = false,
+  });
 
   final String title;
+
+  /// A short line under the lead section's heading that sets it apart from
+  /// the supporting rails.
+  final String? caption;
 
   /// The lead section carries the theme's surface texture behind its
   /// heading. Rails and cards stay untextured.
@@ -118,12 +136,38 @@ class _SectionHeading extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final metrics = SonusTheme.of(context).metrics;
+    final tokens = SonusTheme.of(context);
+    final caption = this.caption;
 
-    final heading = SonusSectionHeading(
+    Widget heading = SonusSectionHeading(
       title: title,
-      padding: EdgeInsets.symmetric(horizontal: metrics.pageGutter),
+      padding: EdgeInsets.symmetric(horizontal: tokens.metrics.pageGutter),
     );
+
+    if (caption != null) {
+      heading = Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          heading,
+          Padding(
+            padding: EdgeInsets.fromLTRB(
+              tokens.metrics.pageGutter,
+              tokens.metrics.spaceXs,
+              tokens.metrics.pageGutter,
+              0,
+            ),
+            child: Text(
+              caption,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                color: tokens.colors.textSecondary,
+              ),
+            ),
+          ),
+        ],
+      );
+    }
 
     if (!featured) {
       return heading;
@@ -138,6 +182,64 @@ class _SectionHeading extends StatelessWidget {
   }
 }
 
+/// Card widths for the Home rails, derived from the screen so every rail
+/// shows a partial next card and reads as scrollable.
+///
+/// Popular This Week leads with the largest cards; Recently Added and New
+/// Albums share one smaller size, so the page reads as a feature followed
+/// by supporting rails.
+abstract final class _RailSizing {
+  /// Space between cards in a rail.
+  static const double gap = 14;
+
+  static double featuredWidth(BuildContext context) =>
+      fit(context, cardsPerScreen: 2.1, min: 150, max: 220);
+
+  static double standardWidth(BuildContext context) =>
+      fit(context, cardsPerScreen: 2.5, min: 130, max: 180);
+
+  static double fit(
+    BuildContext context, {
+    required double cardsPerScreen,
+    required double min,
+    required double max,
+  }) {
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final gutter = SonusTheme.of(context).metrics.pageGutter;
+
+    return ((screenWidth - gutter * 2 - gap) / cardsPerScreen).clamp(min, max);
+  }
+}
+
+/// A horizontal rail of cards inset by the page gutter.
+class _Rail extends StatelessWidget {
+  const _Rail({
+    required this.height,
+    required this.itemCount,
+    required this.itemBuilder,
+  });
+
+  final double height;
+  final int itemCount;
+  final IndexedWidgetBuilder itemBuilder;
+
+  @override
+  Widget build(BuildContext context) {
+    final gutter = SonusTheme.of(context).metrics.pageGutter;
+
+    return SizedBox(
+      height: height,
+      child: ListView.separated(
+        padding: EdgeInsets.symmetric(horizontal: gutter),
+        scrollDirection: Axis.horizontal,
+        itemCount: itemCount,
+        separatorBuilder: (_, _) => const SizedBox(width: _RailSizing.gap),
+        itemBuilder: itemBuilder,
+      ),
+    );
+  }
+}
+
 class _PopularTracksRail extends StatelessWidget {
   const _PopularTracksRail({required this.entries});
 
@@ -145,95 +247,173 @@ class _PopularTracksRail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: _railHeight(context, artwork: 170, text: 100),
-      child: ListView.separated(
-        padding: const EdgeInsets.symmetric(horizontal: 20),
-        scrollDirection: Axis.horizontal,
-        itemCount: entries.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 14),
-        itemBuilder: (context, index) {
-          final entry = entries[index];
+    final cardWidth = _RailSizing.featuredWidth(context);
 
-          return _PopularTrackCard(
-            entry: entry,
-            onTap: () {
-              unawaited(_showTrackContext(context, entry.track));
-            },
-          );
-        },
+    return _Rail(
+      height: _railHeight(context, artwork: cardWidth, text: 100),
+      itemCount: entries.length,
+      itemBuilder: (context, index) {
+        final entry = entries[index];
+        final track = entry.track;
+
+        return _RailCard(
+          cardKey: ValueKey<String>('home-popular-track-${track.songId}'),
+          width: cardWidth,
+          title: track.title,
+          subtitle: track.artistName,
+          detail: '${entry.qualifiedStreamCount} weekly streams',
+          artwork: Stack(
+            children: [
+              _SquareArtwork(
+                path: track.artworkPath,
+                fallbackIcon: Icons.music_note_rounded,
+                size: cardWidth,
+              ),
+              Positioned(
+                top: 10,
+                left: 10,
+                child: _RankBadge(rank: entry.rank),
+              ),
+            ],
+          ),
+          onTap: () {
+            unawaited(_showTrackContext(context, track));
+          },
+        );
+      },
+    );
+  }
+}
+
+/// A square-artwork rail card: artwork, a bold title, a secondary line and
+/// an optional statistic.
+class _RailCard extends StatelessWidget {
+  const _RailCard({
+    required this.cardKey,
+    required this.width,
+    required this.artwork,
+    required this.title,
+    required this.subtitle,
+    this.detail,
+    this.onTap,
+    this.dimmed = false,
+  });
+
+  final Key cardKey;
+  final double width;
+  final Widget artwork;
+  final String title;
+  final String subtitle;
+
+  /// A figure such as a stream count, set in tabular digits.
+  final String? detail;
+
+  /// Null leaves the card visible but not interactive.
+  final VoidCallback? onTap;
+
+  /// Fades the card for content that cannot be played.
+  final bool dimmed;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final tokens = SonusTheme.of(context);
+    final radius = BorderRadius.circular(tokens.metrics.cardRadius);
+    final secondaryStyle = theme.textTheme.bodySmall?.copyWith(
+      color: tokens.colors.textSecondary,
+    );
+    final detail = this.detail;
+
+    return SizedBox(
+      width: width,
+      child: _CardFocusRing(
+        borderRadius: radius,
+        builder: (onFocusChange) => InkWell(
+          key: cardKey,
+          borderRadius: radius,
+          onTap: onTap,
+          onFocusChange: onFocusChange,
+          child: Opacity(
+            opacity: dimmed ? 0.55 : 1,
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  artwork,
+                  const SizedBox(height: 10),
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      color: tokens.colors.textPrimary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    subtitle,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: secondaryStyle,
+                  ),
+                  if (detail != null) ...[
+                    const SizedBox(height: 3),
+                    Text(
+                      detail,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: secondaryStyle?.copyWith(
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
 }
 
-class _PopularTrackCard extends StatelessWidget {
-  const _PopularTrackCard({required this.entry, required this.onTap});
+/// Outlines a card in the theme's focus colour while it has keyboard focus.
+///
+/// Ink highlights paint beneath artwork, so without a ring a focused card
+/// would barely change. The ring is a foreground border: it adds no layout.
+class _CardFocusRing extends StatefulWidget {
+  const _CardFocusRing({required this.borderRadius, required this.builder});
 
-  final HomePopularTrack entry;
-  final VoidCallback onTap;
+  final BorderRadius borderRadius;
+  final Widget Function(ValueChanged<bool> onFocusChange) builder;
+
+  @override
+  State<_CardFocusRing> createState() => _CardFocusRingState();
+}
+
+class _CardFocusRingState extends State<_CardFocusRing> {
+  bool _focused = false;
+
+  void _handleFocusChange(bool focused) {
+    if (focused != _focused) {
+      setState(() => _focused = focused);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final track = entry.track;
+    final colors = SonusTheme.of(context).colors;
 
-    return SizedBox(
-      width: 170,
-      child: InkWell(
-        key: ValueKey<String>('home-popular-track-${track.songId}'),
-        borderRadius: BorderRadius.circular(
-          SonusTheme.of(context).metrics.cardRadius,
-        ),
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.only(bottom: 6),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Stack(
-                children: [
-                  _SquareArtwork(
-                    path: track.artworkPath,
-                    fallbackIcon: Icons.music_note_rounded,
-                    size: 170,
-                  ),
-                  Positioned(
-                    top: 10,
-                    left: 10,
-                    child: _RankBadge(rank: entry.rank),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Text(
-                track.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 3),
-              Text(
-                track.artistName,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodySmall,
-              ),
-              const SizedBox(height: 3),
-              Text(
-                '${entry.qualifiedStreamCount} weekly streams',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ],
-          ),
-        ),
+    return DecoratedBox(
+      key: _focused ? const ValueKey<String>('home-card-focus-ring') : null,
+      position: DecorationPosition.foreground,
+      decoration: BoxDecoration(
+        borderRadius: widget.borderRadius,
+        border: _focused ? Border.all(color: colors.focus, width: 3) : null,
       ),
+      child: widget.builder(_handleFocusChange),
     );
   }
 }
@@ -247,36 +427,31 @@ class _TopArtistsRail extends StatelessWidget {
   Widget build(BuildContext context) {
     final cardWidth = _ArtistCard.widthFor(context);
 
-    return SizedBox(
+    return _Rail(
       height: _railHeight(
         context,
         artwork: _ArtistCard.artworkHeightFor(cardWidth),
         text: _ArtistCard.infoHeight,
       ),
-      child: ListView.separated(
-        padding: const EdgeInsets.symmetric(horizontal: 20),
-        scrollDirection: Axis.horizontal,
-        itemCount: entries.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 14),
-        itemBuilder: (context, index) {
-          final entry = entries[index];
+      itemCount: entries.length,
+      itemBuilder: (context, index) {
+        final entry = entries[index];
 
-          return _ArtistCard(
-            entry: entry,
-            width: cardWidth,
-            onTap: () {
-              Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => ArtistProfilePage(
-                    artistId: entry.artist.artistId,
-                    initialArtistName: entry.artist.name,
-                  ),
+        return _ArtistCard(
+          entry: entry,
+          width: cardWidth,
+          onTap: () {
+            Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => ArtistProfilePage(
+                  artistId: entry.artist.artistId,
+                  initialArtistName: entry.artist.name,
                 ),
-              );
-            },
-          );
-        },
-      ),
+              ),
+            );
+          },
+        );
+      },
     );
   }
 }
@@ -299,11 +474,8 @@ class _ArtistCard extends StatelessWidget {
 
   /// About two and a quarter cards per screen, so the rail reads as
   /// scrollable on every width.
-  static double widthFor(BuildContext context) {
-    final screenWidth = MediaQuery.sizeOf(context).width;
-
-    return ((screenWidth - 54) / 2.25).clamp(140.0, 190.0);
-  }
+  static double widthFor(BuildContext context) =>
+      _RailSizing.fit(context, cardsPerScreen: 2.25, min: 140, max: 190);
 
   static double artworkHeightFor(double width) => width / artworkAspectRatio;
 
@@ -319,75 +491,81 @@ class _ArtistCard extends StatelessWidget {
 
     return SizedBox(
       width: width,
-      child: Material(
-        color: tokens.colors.surface,
-        shape: RoundedRectangleBorder(
-          borderRadius: radius,
-          side: tokens.decoration.showMarks
-              ? BorderSide(color: tokens.colors.artworkFrame)
-              : BorderSide.none,
-        ),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          key: ValueKey<String>('home-top-artist-${entry.artist.artistId}'),
-          onTap: onTap,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              SizedBox(
-                height: artworkHeightFor(width),
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    _ArtistArtwork(artist: entry.artist),
-                    if (tokens.decoration.allowGradients)
-                      _ArtworkFade(color: tokens.colors.surface),
-                    Positioned(
-                      top: 10,
-                      left: 10,
-                      child: _RankBadge(rank: entry.rank),
-                    ),
-                  ],
-                ),
-              ),
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+      child: _CardFocusRing(
+        borderRadius: radius,
+        builder: (onFocusChange) => Material(
+          color: tokens.colors.surface,
+          shape: RoundedRectangleBorder(
+            borderRadius: radius,
+            side: tokens.decoration.showMarks
+                ? BorderSide(color: tokens.colors.artworkFrame)
+                : BorderSide.none,
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            key: ValueKey<String>('home-top-artist-${entry.artist.artistId}'),
+            onTap: onTap,
+            onFocusChange: onFocusChange,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                SizedBox(
+                  height: artworkHeightFor(width),
+                  child: Stack(
+                    fit: StackFit.expand,
                     children: [
-                      Text(
-                        entry.artist.name,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.titleSmall?.copyWith(
-                          color: tokens.colors.textPrimary,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        '${entry.qualifiedStreamCount} weekly streams',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: tokens.colors.textPrimary,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        _formatListeningDuration(entry.weeklyListeningDuration),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: tokens.colors.textSecondary,
-                        ),
+                      _ArtistArtwork(artist: entry.artist),
+                      if (tokens.decoration.allowGradients)
+                        _ArtworkFade(color: tokens.colors.surface),
+                      Positioned(
+                        top: 10,
+                        left: 10,
+                        child: _RankBadge(rank: entry.rank),
                       ),
                     ],
                   ),
                 ),
-              ),
-            ],
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          entry.artist.name,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.titleSmall?.copyWith(
+                            color: tokens.colors.textPrimary,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          '${entry.qualifiedStreamCount} weekly streams',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: tokens.colors.textPrimary,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text(
+                          _formatListeningDuration(
+                            entry.weeklyListeningDuration,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: tokens.colors.textSecondary,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -425,95 +603,61 @@ class _RecentlyAddedTracksRail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: _railHeight(context, artwork: 150, text: 75),
-      child: ListView.separated(
-        padding: const EdgeInsets.symmetric(horizontal: 20),
-        scrollDirection: Axis.horizontal,
-        itemCount: tracks.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 14),
-        itemBuilder: (context, index) {
-          final track = tracks[index];
+    final cardWidth = _RailSizing.standardWidth(context);
 
-          return _RecentTrackCard(
-            track: track,
-            onTap: track.isBlocked
-                ? null
-                : () {
-                    unawaited(_showTrackContext(context, track));
-                  },
-          );
-        },
-      ),
+    return _Rail(
+      height: _railHeight(context, artwork: cardWidth, text: 75),
+      itemCount: tracks.length,
+      itemBuilder: (context, index) {
+        final track = tracks[index];
+        final isBlocked = track.isBlocked;
+
+        return _RailCard(
+          cardKey: ValueKey<String>('home-recent-track-${track.songId}'),
+          width: cardWidth,
+          title: track.title,
+          subtitle: track.artistName,
+          dimmed: isBlocked,
+          artwork: Stack(
+            children: [
+              _SquareArtwork(
+                path: track.artworkPath,
+                fallbackIcon: Icons.music_note_rounded,
+                size: cardWidth,
+              ),
+              if (isBlocked) const Positioned.fill(child: _BlockedOverlay()),
+            ],
+          ),
+          onTap: isBlocked
+              ? null
+              : () {
+                  unawaited(_showTrackContext(context, track));
+                },
+        );
+      },
     );
   }
 }
 
-class _RecentTrackCard extends StatelessWidget {
-  const _RecentTrackCard({required this.track, required this.onTap});
-
-  final LibraryTrack track;
-  final VoidCallback? onTap;
+/// Marks artwork of a track that cannot be played. The icon carries a
+/// label, so the state is not conveyed by fading alone.
+class _BlockedOverlay extends StatelessWidget {
+  const _BlockedOverlay();
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final isDisabled = track.isBlocked;
+    final tokens = SonusTheme.of(context);
 
-    return SizedBox(
-      width: 150,
-      child: InkWell(
-        key: ValueKey<String>('home-recent-track-${track.songId}'),
-        borderRadius: BorderRadius.circular(
-          SonusTheme.of(context).metrics.cardRadius,
-        ),
-        onTap: onTap,
-        child: Opacity(
-          opacity: isDisabled ? 0.55 : 1,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Stack(
-                children: [
-                  _SquareArtwork(
-                    path: track.artworkPath,
-                    fallbackIcon: Icons.music_note_rounded,
-                    size: 150,
-                  ),
-                  if (isDisabled)
-                    Positioned.fill(
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          color: theme.colorScheme.surface.withValues(
-                            alpha: 0.45,
-                          ),
-                          borderRadius: BorderRadius.circular(
-                            SonusTheme.of(context).metrics.artworkRadius,
-                          ),
-                        ),
-                        child: const Center(child: Icon(Icons.block_rounded)),
-                      ),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Text(
-                track.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 3),
-              Text(
-                track.artistName,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodySmall,
-              ),
-            ],
-          ),
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: tokens.colors.background.withValues(alpha: 0.45),
+        borderRadius: BorderRadius.circular(tokens.metrics.artworkRadius),
+      ),
+      child: Center(
+        child: Icon(
+          Icons.block_rounded,
+          semanticLabel: 'Unavailable',
+          color: tokens.colors.textPrimary,
         ),
       ),
     );
@@ -527,76 +671,32 @@ class _AlbumsRail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: _railHeight(context, artwork: 160, text: 70),
-      child: ListView.separated(
-        padding: const EdgeInsets.symmetric(horizontal: 20),
-        scrollDirection: Axis.horizontal,
-        itemCount: albums.length,
-        separatorBuilder: (_, _) => const SizedBox(width: 14),
-        itemBuilder: (context, index) {
-          final album = albums[index];
+    final cardWidth = _RailSizing.standardWidth(context);
 
-          return _AlbumCard(
-            album: album,
-            onTap: () {
-              Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => AlbumProfilePage(
-                    albumId: album.albumId,
-                    initialAlbumTitle: album.title,
-                  ),
+    return _Rail(
+      height: _railHeight(context, artwork: cardWidth, text: 75),
+      itemCount: albums.length,
+      itemBuilder: (context, index) {
+        final album = albums[index];
+
+        return _RailCard(
+          cardKey: ValueKey<String>('home-new-album-${album.albumId}'),
+          width: cardWidth,
+          title: album.title,
+          subtitle: album.artistName,
+          artwork: _AlbumArtwork(album: album, size: cardWidth),
+          onTap: () {
+            Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => AlbumProfilePage(
+                  albumId: album.albumId,
+                  initialAlbumTitle: album.title,
                 ),
-              );
-            },
-          );
-        },
-      ),
-    );
-  }
-}
-
-class _AlbumCard extends StatelessWidget {
-  const _AlbumCard({required this.album, required this.onTap});
-
-  final LibraryAlbum album;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return SizedBox(
-      width: 160,
-      child: InkWell(
-        key: ValueKey<String>('home-new-album-${album.albumId}'),
-        borderRadius: BorderRadius.circular(
-          SonusTheme.of(context).metrics.cardRadius,
-        ),
-        onTap: onTap,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _AlbumArtwork(album: album, size: 160),
-            const SizedBox(height: 10),
-            Text(
-              album.title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.w700,
               ),
-            ),
-            const SizedBox(height: 3),
-            Text(
-              album.artistName,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodySmall,
-            ),
-          ],
-        ),
-      ),
+            );
+          },
+        );
+      },
     );
   }
 }

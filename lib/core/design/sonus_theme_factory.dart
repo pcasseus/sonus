@@ -145,7 +145,14 @@ abstract final class SonusThemeFactory {
         indicatorSize: TabBarIndicatorSize.label,
         dividerColor: colors.divider,
         tabAlignment: TabAlignment.start,
-        overlayColor: WidgetStatePropertyAll(colors.selection),
+        // Keyboard focus gets a stronger wash than touch feedback so the
+        // focused destination stays visible in every theme.
+        overlayColor: WidgetStateProperty.resolveWith(
+          (states) => states.contains(WidgetState.focused)
+              ? colors.focus.withValues(alpha: 0.24)
+              : colors.selection,
+        ),
+        splashBorderRadius: BorderRadius.circular(metrics.controlRadius),
       ),
       cardTheme: CardThemeData(
         color: colors.surface,

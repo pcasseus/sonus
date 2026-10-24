@@ -86,6 +86,33 @@ void main() {
     );
   });
 
+  group('navigation tabs', () {
+    for (final id in SonusThemeId.values) {
+      test('${id.label} gives focused tabs a stronger wash', () {
+        final theme = SonusThemeFactory.build(SonusAppearanceSpec(themeId: id));
+        final colors = theme.extension<SonusColors>()!;
+        final overlay = theme.tabBarTheme.overlayColor!;
+
+        expect(
+          overlay.resolve({WidgetState.focused}),
+          colors.focus.withValues(alpha: 0.24),
+        );
+        expect(overlay.resolve({WidgetState.pressed}), colors.selection);
+        expect(overlay.resolve({}), colors.selection);
+      });
+    }
+
+    test('tab ripples follow the control radius', () {
+      final theme = SonusThemeFactory.build(const SonusAppearanceSpec());
+      final metrics = theme.extension<SonusMetrics>()!;
+
+      expect(
+        theme.tabBarTheme.splashBorderRadius,
+        BorderRadius.circular(metrics.controlRadius),
+      );
+    });
+  });
+
   group('decoration', () {
     SonusDecorationTokens decorationOf(SonusAppearanceSpec spec) =>
         SonusThemeFactory.build(spec).extension<SonusDecorationTokens>()!;

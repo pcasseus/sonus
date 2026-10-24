@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:sonus_next/core/design/sonus_theme_factory.dart';
@@ -263,6 +264,174 @@ void main() {
 
   group('Sonus themes', _themeTests);
   group('Top Artists cards', _topArtistCardTests);
+  group('Rail layout and focus', _railLayoutTests);
+}
+
+void _railLayoutTests() {
+  const popular = ValueKey<String>('home-popular-track-song_popular');
+  const artist = ValueKey<String>('home-top-artist-artist_1');
+  const recent = ValueKey<String>('home-recent-track-song_recent');
+  const album = ValueKey<String>('home-new-album-album_1');
+
+  double widthOf(WidgetTester tester, Key key) =>
+      tester.getSize(find.byKey(key)).width;
+
+  testWidgets('featured cards lead and supporting rails share one size', (
+    tester,
+  ) async {
+    final controller = await _loadedController(_snapshot());
+
+    for (final (width, featured, standard) in [
+      (320.0, 150.0, 130.0),
+      (411.0, 170.0, 142.8),
+      (800.0, 220.0, 180.0),
+    ]) {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = Size(width, 1600);
+      addTearDown(tester.view.reset);
+
+      await _pumpHome(tester, controller, size: Size(width, 1600));
+
+      final reason = 'screen $width';
+      expect(widthOf(tester, popular), closeTo(featured, 0.01), reason: reason);
+      expect(widthOf(tester, recent), closeTo(standard, 0.01), reason: reason);
+      expect(widthOf(tester, album), widthOf(tester, recent), reason: reason);
+      expect(
+        widthOf(tester, popular),
+        greaterThan(widthOf(tester, artist)),
+        reason: reason,
+      );
+      expect(
+        widthOf(tester, artist),
+        greaterThan(widthOf(tester, recent)),
+        reason: reason,
+      );
+    }
+  });
+
+  testWidgets('the featured section carries a caption', (tester) async {
+    final controller = await _loadedController(_snapshot());
+
+    await _pumpHome(
+      tester,
+      controller,
+      theme: SonusThemeFactory.build(const SonusAppearanceSpec()),
+    );
+
+    expect(find.text('Your most-played tracks this week'), findsOneWidget);
+  });
+
+  testWidgets('secondary card lines use the theme secondary text colour', (
+    tester,
+  ) async {
+    final controller = await _loadedController(_snapshot());
+    final theme = SonusThemeFactory.build(
+      const SonusAppearanceSpec(themeId: SonusThemeId.neonMixtape),
+    );
+    final colors = theme.extension<SonusColors>()!;
+
+    await _pumpHome(tester, controller, theme: theme);
+
+    final streams = tester.widget<Text>(
+      find.descendant(
+        of: find.byKey(popular),
+        matching: find.text('12 weekly streams'),
+      ),
+    );
+    expect(streams.style!.color, colors.textSecondary);
+    expect(
+      streams.style!.fontFeatures,
+      contains(const FontFeature.tabularFigures()),
+    );
+
+    final title = tester.widget<Text>(
+      find.descendant(
+        of: find.byKey(popular),
+        matching: find.text('Popular Song'),
+      ),
+    );
+    expect(title.style!.color, colors.textPrimary);
+  });
+
+  testWidgets('a blocked track is labelled unavailable for screen readers', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    final controller = await _loadedController(
+      _snapshot(
+        recentTrack: _track(
+          id: 'song_blocked',
+          title: 'Blocked Song',
+          blocked: true,
+        ),
+      ),
+    );
+
+    await _pumpHome(tester, controller);
+
+    // The card merges its children, so the state is part of its label.
+    final label = tester
+        .getSemantics(
+          find.byKey(const ValueKey<String>('home-recent-track-song_blocked')),
+        )
+        .label;
+    expect(label, startsWith('Unavailable'));
+    expect(label, contains('Blocked Song'));
+    semantics.dispose();
+  });
+
+  testWidgets('keyboard focus outlines a card in the theme focus colour', (
+    tester,
+  ) async {
+    final controller = await _loadedController(_snapshot());
+    final theme = SonusThemeFactory.build(const SonusAppearanceSpec());
+    final colors = theme.extension<SonusColors>()!;
+    const ring = ValueKey<String>('home-card-focus-ring');
+
+    // The card's own focus node, which InkWell places above its child.
+    FocusNode cardFocus(Key card) => Focus.of(
+      tester.element(
+        find.descendant(of: find.byKey(card), matching: find.byType(Column)),
+      ),
+    );
+
+    Future<void> tabUntil(bool Function() reached) async {
+      for (var i = 0; i < 8 && !reached(); i++) {
+        await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+        await tester.pumpAndSettle();
+      }
+    }
+
+    await _pumpHome(tester, controller, theme: theme);
+
+    expect(find.byKey(ring), findsNothing);
+
+    await tabUntil(() => cardFocus(popular).hasPrimaryFocus);
+    expect(cardFocus(popular).hasPrimaryFocus, isTrue);
+
+    final focusRing = find.byKey(ring);
+    expect(focusRing, findsOneWidget);
+    expect(
+      find.descendant(of: focusRing, matching: find.byKey(popular)),
+      findsOneWidget,
+    );
+    final border =
+        (tester.widget<DecoratedBox>(focusRing).decoration as BoxDecoration)
+                .border!
+            as Border;
+    expect(border.top.color, colors.focus);
+
+    // Moving on hands the ring to the next card; only one card shows it.
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.pumpAndSettle();
+
+    expect(cardFocus(popular).hasPrimaryFocus, isFalse);
+    expect(find.byKey(ring), findsOneWidget);
+    expect(
+      find.descendant(of: find.byKey(ring), matching: find.byKey(popular)),
+      findsNothing,
+    );
+  });
 }
 
 void _topArtistCardTests() {
