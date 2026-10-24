@@ -506,6 +506,9 @@ class _DailyTimeline extends StatelessWidget {
         ),
         const SizedBox(height: 14),
         SingleChildScrollView(
+          // Its own PageStorage slot: without it the timeline shares the
+          // page's slot and reopens at the page's vertical offset.
+          key: const PageStorageKey<String>('monthly-insights-timeline-scroll'),
           scrollDirection: Axis.horizontal,
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.end,
@@ -758,6 +761,7 @@ class _TrackTable extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return _HorizontalInsightTable(
+      storageId: 'tracks',
       minWidth: 940,
       header: const _TableHeader(entityLabel: 'TRACK'),
       rows: [
@@ -779,6 +783,7 @@ class _ArtistTable extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return _HorizontalInsightTable(
+      storageId: 'artists',
       minWidth: 900,
       header: const _TableHeader(entityLabel: 'ARTIST'),
       rows: [
@@ -800,6 +805,7 @@ class _AlbumTable extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return _HorizontalInsightTable(
+      storageId: 'albums',
       minWidth: 920,
       header: const _TableHeader(entityLabel: 'ALBUM'),
       rows: [
@@ -815,11 +821,16 @@ class _AlbumTable extends StatelessWidget {
 
 class _HorizontalInsightTable extends StatelessWidget {
   const _HorizontalInsightTable({
+    required this.storageId,
     required this.minWidth,
     required this.header,
     required this.rows,
   });
 
+  /// Gives the table its own PageStorage slot. Without it every table shares
+  /// the page's slot and reopens at the page's vertical offset, scrolling
+  /// the rank, artwork and title columns off screen.
+  final String storageId;
   final double minWidth;
   final Widget header;
   final List<Widget> rows;
@@ -836,6 +847,7 @@ class _HorizontalInsightTable extends StatelessWidget {
           borderRadius: BorderRadius.circular(16),
         ),
         child: SingleChildScrollView(
+          key: PageStorageKey<String>('monthly-insights-table-$storageId'),
           scrollDirection: Axis.horizontal,
           child: SizedBox(
             width: minWidth,
