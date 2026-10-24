@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'dart:math' as math;
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/application/models/library_album.dart';
@@ -613,6 +616,126 @@ void main() {
     expect(controller.error, isA<StateError>());
     expect(controller.isLoading, isFalse);
   });
+
+  group('load lifecycle', () {
+    late _FakeChartFinalizationService finalization;
+    late _FakeLiveChartService liveCharts;
+    late ChartsController controller;
+
+    setUp(() {
+      finalization = _FakeChartFinalizationService();
+      liveCharts = _FakeLiveChartService(
+        snapshot: _snapshot(
+          id: 'live',
+          chartType: ChartType.songs,
+          weekStartUtc: DateTime.utc(2026, 9, 27),
+        ),
+      );
+      controller = ChartsController(
+        liveCharts: liveCharts,
+        finalization: finalization,
+        charts: _FakeChartRepository(),
+        library: _FakeLibraryQueryRepository(),
+        now: () => referenceLocal,
+      );
+    });
+
+    // Regression: refresh() did not check for an in-flight load, so a
+    // pull-to-refresh during the first load ran a second, concurrent
+    // finalization pass.
+    test(
+      'refresh during a load joins it instead of finalizing again',
+      () async {
+        finalization.gate = Completer<void>();
+
+        final loading = controller.load();
+        final refreshing = controller.refresh();
+
+        finalization.gate!.complete();
+        await Future.wait([loading, refreshing]);
+
+        expect(finalization.callCount, 1);
+        expect(finalization.maxConcurrent, 1);
+        expect(controller.snapshot?.id, 'live');
+        expect(controller.isLoading, isFalse);
+      },
+    );
+
+    test('repeated refreshes during a load share one pass', () async {
+      finalization.gate = Completer<void>();
+
+      final pending = [
+        controller.load(),
+        controller.refresh(),
+        controller.refresh(),
+      ];
+
+      finalization.gate!.complete();
+      await Future.wait(pending);
+
+      expect(finalization.callCount, 1);
+    });
+
+    test('refresh after a load has finished finalizes again', () async {
+      await controller.load();
+      await controller.refresh();
+
+      expect(finalization.callCount, 2);
+      expect(finalization.maxConcurrent, 1);
+    });
+
+    test('load during a load waits for its result', () async {
+      finalization.gate = Completer<void>();
+
+      final first = controller.load();
+      final second = controller.load();
+      var secondDone = false;
+      unawaited(second.then((_) => secondDone = true));
+
+      await Future<void>.delayed(Duration.zero);
+      expect(secondDone, isFalse);
+
+      finalization.gate!.complete();
+      await Future.wait([first, second]);
+
+      expect(finalization.callCount, 1);
+      expect(controller.snapshot?.id, 'live');
+    });
+
+    // Regression: a load still in flight when the controller was disposed
+    // called notifyListeners() on the disposed notifier and kept loading.
+    test('disposing during a load stops it without notifying', () async {
+      finalization.gate = Completer<void>();
+      var notifications = 0;
+      controller.addListener(() => notifications++);
+
+      final loading = controller.load();
+      final notificationsBeforeDispose = notifications;
+      controller.dispose();
+
+      finalization.gate!.complete();
+      await loading;
+
+      expect(notifications, notificationsBeforeDispose);
+      expect(liveCharts.callCount, 0);
+    });
+
+    test('calls after dispose do nothing and do not throw', () async {
+      controller.dispose();
+
+      await controller.load();
+      await controller.refresh();
+      await controller.selectChartType(ChartType.albums);
+      await controller.selectViewSize(ChartViewSize.top10);
+      controller.selectPresentationMode(ChartsPresentationMode.moments);
+      controller.showOlderWeek();
+      controller.showNewerWeek();
+      controller.showLive();
+
+      expect(finalization.callCount, 0);
+      expect(liveCharts.callCount, 0);
+    });
+  });
 }
 
 ChartMomentEvent _momentEvent({
@@ -754,12 +877,26 @@ class _FakeChartFinalizationService implements ChartFinalizationService {
   int callCount = 0;
   DateTime? lastReferenceLocal;
 
+  /// When set, each pass waits for it, so tests can hold a load in flight.
+  Completer<void>? gate;
+
+  int _active = 0;
+  int maxConcurrent = 0;
+
   @override
   Future<List<ChartSnapshot>> finalizeCompletedWeeks({
     required DateTime referenceLocal,
   }) async {
     callCount++;
     lastReferenceLocal = referenceLocal;
+    _active++;
+    maxConcurrent = math.max(maxConcurrent, _active);
+
+    try {
+      await gate?.future;
+    } finally {
+      _active--;
+    }
 
     return const [];
   }

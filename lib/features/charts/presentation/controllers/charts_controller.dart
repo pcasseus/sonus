@@ -66,6 +66,13 @@ class ChartsController extends ChangeNotifier {
 
   int _requestGeneration = 0;
 
+  /// The in-flight load that finalizes completed weeks. Callers that ask
+  /// for another finalizing load while it runs share it, so finalization
+  /// never runs twice at once.
+  Future<void>? _finalizingLoad;
+
+  bool _isDisposed = false;
+
   ChartType get chartType => _chartType;
 
   ChartViewSize get viewSize => _viewSize;
@@ -191,7 +198,7 @@ class ChartsController extends ChangeNotifier {
     }
 
     _presentationMode = value;
-    notifyListeners();
+    _notify();
   }
 
   String? artworkPathForMoment(ChartMomentFeedItem item) {
@@ -215,19 +222,37 @@ class ChartsController extends ChangeNotifier {
   }
 
   Future<void> load() {
-    if (_isLoading) {
+    if (_isDisposed) {
       return Future<void>.value();
     }
 
-    return _load(finalizeCompletedWeeks: true);
+    if (_isLoading) {
+      return _finalizingLoad ?? Future<void>.value();
+    }
+
+    return _startFinalizingLoad();
   }
 
   Future<void> refresh() {
-    return _load(finalizeCompletedWeeks: true);
+    if (_isDisposed) {
+      return Future<void>.value();
+    }
+
+    return _finalizingLoad ?? _startFinalizingLoad();
+  }
+
+  @override
+  void dispose() {
+    _isDisposed = true;
+    // Makes every in-flight request stale, so none of them writes state or
+    // notifies after this point.
+    _requestGeneration++;
+
+    super.dispose();
   }
 
   Future<void> selectChartType(ChartType value) async {
-    if (_chartType == value) {
+    if (_isDisposed || _chartType == value) {
       return;
     }
 
@@ -238,14 +263,14 @@ class ChartsController extends ChangeNotifier {
   }
 
   Future<void> selectViewSize(ChartViewSize value) async {
-    if (_viewSize == value) {
+    if (_isDisposed || _viewSize == value) {
       return;
     }
 
     _viewSize = value;
 
     if (isViewingHistory) {
-      notifyListeners();
+      _notify();
       return;
     }
 
@@ -258,7 +283,7 @@ class ChartsController extends ChangeNotifier {
     }
 
     _historyIndex = null;
-    notifyListeners();
+    _notify();
   }
 
   void showOlderWeek() {
@@ -270,7 +295,7 @@ class ChartsController extends ChangeNotifier {
 
     if (index == null) {
       _historyIndex = 0;
-      notifyListeners();
+      _notify();
       return;
     }
 
@@ -279,7 +304,7 @@ class ChartsController extends ChangeNotifier {
     }
 
     _historyIndex = index + 1;
-    notifyListeners();
+    _notify();
   }
 
   void showNewerWeek() {
@@ -291,12 +316,12 @@ class ChartsController extends ChangeNotifier {
 
     if (index == 0) {
       _historyIndex = null;
-      notifyListeners();
+      _notify();
       return;
     }
 
     _historyIndex = index - 1;
-    notifyListeners();
+    _notify();
   }
 
   bool selectHistoricalWeek(DateTime weekStartUtc) {
@@ -311,17 +336,46 @@ class ChartsController extends ChangeNotifier {
     }
 
     _historyIndex = index;
-    notifyListeners();
+    _notify();
 
     return true;
   }
 
+  Future<void> _startFinalizingLoad() {
+    late final Future<void> loading;
+
+    loading = _load(finalizeCompletedWeeks: true).whenComplete(() {
+      if (identical(_finalizingLoad, loading)) {
+        _finalizingLoad = null;
+      }
+    });
+
+    _finalizingLoad = loading;
+
+    return loading;
+  }
+
+  /// Notifies listeners unless the controller has been disposed.
+  void _notify() {
+    if (!_isDisposed) {
+      notifyListeners();
+    }
+  }
+
   Future<void> _load({required bool finalizeCompletedWeeks}) async {
+    if (_isDisposed) {
+      return;
+    }
+
     final generation = ++_requestGeneration;
 
     _isLoading = true;
     _error = null;
-    notifyListeners();
+    _notify();
+
+    // A superseded or disposed request stops between steps rather than
+    // loading data nobody will read.
+    bool isStale() => generation != _requestGeneration;
 
     try {
       final referenceLocal = _now();
@@ -330,6 +384,10 @@ class ChartsController extends ChangeNotifier {
         await _finalization.finalizeCompletedWeeks(
           referenceLocal: referenceLocal,
         );
+
+        if (isStale()) {
+          return;
+        }
       }
 
       final live = await _liveCharts.load(
@@ -337,6 +395,10 @@ class ChartsController extends ChangeNotifier {
         referenceLocal: referenceLocal,
         viewSize: _viewSize,
       );
+
+      if (isStale()) {
+        return;
+      }
 
       final history = await _charts.getHistory(_chartType);
 
@@ -390,17 +452,21 @@ class ChartsController extends ChangeNotifier {
     } finally {
       if (generation == _requestGeneration) {
         _isLoading = false;
-        notifyListeners();
+        _notify();
       }
     }
   }
 
   Future<void> _loadLiveOnly() async {
+    if (_isDisposed) {
+      return;
+    }
+
     final generation = ++_requestGeneration;
 
     _isLoading = true;
     _error = null;
-    notifyListeners();
+    _notify();
 
     try {
       final live = await _liveCharts.load(
@@ -424,7 +490,7 @@ class ChartsController extends ChangeNotifier {
     } finally {
       if (generation == _requestGeneration) {
         _isLoading = false;
-        notifyListeners();
+        _notify();
       }
     }
   }
