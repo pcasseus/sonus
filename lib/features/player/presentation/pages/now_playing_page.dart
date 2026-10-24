@@ -11,6 +11,7 @@ import '../../domain/models/playback_track.dart';
 import '../controllers/playback_state_controller.dart';
 import 'lyrics_page.dart';
 import 'playback_queue_page.dart';
+import '../widgets/playback_error_notice.dart';
 
 class NowPlayingPage extends StatelessWidget {
   const NowPlayingPage({super.key});
@@ -78,16 +79,17 @@ class _NowPlayingContent extends StatelessWidget {
                   ),
                   const SizedBox(height: 28),
                   _TrackMetadata(track: track),
+                  // Directly under the song, so it is seen without scrolling.
+                  if (state.hasError) ...[
+                    const SizedBox(height: 16),
+                    const _PlaybackError(),
+                  ],
                   const SizedBox(height: 24),
                   _SeekSection(state: state, coordinator: coordinator),
                   const SizedBox(height: 14),
                   _PrimaryControls(state: state, coordinator: coordinator),
                   const SizedBox(height: 22),
                   _SecondaryActions(),
-                  if (state.hasError) ...[
-                    const SizedBox(height: 20),
-                    _PlaybackError(message: state.errorMessage),
-                  ],
                 ],
               ),
             ),
@@ -301,7 +303,7 @@ class _PrimaryControls extends StatelessWidget {
           key: const ValueKey<String>('now-playing-previous'),
           tooltip: 'Previous',
           iconSize: 36,
-          onPressed: state.queue.hasPrevious
+          onPressed: state.canSkipPrevious
               ? () {
                   unawaited(coordinator.skipPrevious());
                 }
@@ -335,7 +337,7 @@ class _PrimaryControls extends StatelessWidget {
           key: const ValueKey<String>('now-playing-next'),
           tooltip: 'Next',
           iconSize: 36,
-          onPressed: state.queue.hasNext
+          onPressed: state.canSkipNext
               ? () {
                   unawaited(coordinator.skipNext());
                 }
@@ -426,10 +428,10 @@ class _SecondaryActions extends StatelessWidget {
 }
 
 class _PlaybackError extends StatelessWidget {
-  const _PlaybackError({required this.message});
+  const _PlaybackError();
 
-  final String? message;
-
+  // The engine's error text is technical and can contain file paths, so the
+  // listener sees plain wording instead.
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
@@ -439,15 +441,11 @@ class _PlaybackError extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: colorScheme.errorContainer,
+        color: colorScheme.surfaceContainerHighest,
         borderRadius: BorderRadius.circular(14),
       ),
-      child: Text(
-        message?.trim().isNotEmpty == true
-            ? message!
-            : 'Playback could not continue.',
-        textAlign: TextAlign.center,
-        style: TextStyle(color: colorScheme.onErrorContainer),
+      child: const Center(
+        child: PlaybackErrorNotice(message: PlaybackErrorNotice.fullMessage),
       ),
     );
   }

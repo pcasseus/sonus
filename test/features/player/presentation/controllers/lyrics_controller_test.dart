@@ -347,4 +347,136 @@ void main() {
     controller.dispose();
     await engine.dispose();
   });
+
+  group('reload (SN-44)', () {
+    test('picks up lyrics saved while the song is playing', () async {
+      final engine = FakePlaybackEngine()..state = playbackStateFor('song-a');
+      final repository = FakeTrackLyricsRepository();
+      final controller = LyricsController(
+        playbackCoordinator: PlaybackCoordinator(engine: engine),
+        repository: repository,
+      );
+      addTearDown(() async {
+        controller.dispose();
+        await engine.dispose();
+      });
+      await flushAsync();
+      expect(controller.state.status, LyricsStatus.empty);
+
+      repository.lyricsBySongId['song-a'] = const TrackLyrics(
+        songId: 'song-a',
+        plainText: 'Imported later',
+      );
+      await controller.reload();
+
+      expect(controller.state.status, LyricsStatus.loaded);
+      expect(controller.state.lyrics?.plainText, 'Imported later');
+    });
+
+    test('retries a failed load for the same song', () async {
+      final engine = FakePlaybackEngine()..state = playbackStateFor('song-a');
+      final repository = FakeTrackLyricsRepository()
+        ..errorsBySongId['song-a'] = StateError('busy');
+      final controller = LyricsController(
+        playbackCoordinator: PlaybackCoordinator(engine: engine),
+        repository: repository,
+      );
+      addTearDown(() async {
+        controller.dispose();
+        await engine.dispose();
+      });
+      await flushAsync();
+      expect(controller.state.status, LyricsStatus.failed);
+
+      repository.errorsBySongId.remove('song-a');
+      repository.lyricsBySongId['song-a'] = const TrackLyrics(
+        songId: 'song-a',
+        plainText: 'Readable now',
+      );
+      await controller.reload();
+
+      expect(controller.state.status, LyricsStatus.loaded);
+      expect(controller.state.lyrics?.plainText, 'Readable now');
+    });
+
+    test('keeps showing current lyrics while reloading', () async {
+      final engine = FakePlaybackEngine()..state = playbackStateFor('song-a');
+      final repository = FakeTrackLyricsRepository()
+        ..lyricsBySongId['song-a'] = const TrackLyrics(
+          songId: 'song-a',
+          plainText: 'Shown',
+        );
+      final controller = LyricsController(
+        playbackCoordinator: PlaybackCoordinator(engine: engine),
+        repository: repository,
+      );
+      addTearDown(() async {
+        controller.dispose();
+        await engine.dispose();
+      });
+      await flushAsync();
+
+      final pending = Completer<TrackLyrics?>();
+      repository.pendingBySongId['song-a'] = pending;
+      final reloading = controller.reload();
+
+      expect(controller.state.status, LyricsStatus.loaded);
+      expect(controller.state.lyrics?.plainText, 'Shown');
+
+      pending.complete(
+        const TrackLyrics(songId: 'song-a', plainText: 'Updated'),
+      );
+      await reloading;
+      expect(controller.state.lyrics?.plainText, 'Updated');
+    });
+
+    test('a reload overtaken by a track change is discarded', () async {
+      final engine = FakePlaybackEngine()..state = playbackStateFor('song-a');
+      final repository = FakeTrackLyricsRepository();
+      final controller = LyricsController(
+        playbackCoordinator: PlaybackCoordinator(engine: engine),
+        repository: repository,
+      );
+      addTearDown(() async {
+        controller.dispose();
+        await engine.dispose();
+      });
+      await flushAsync();
+
+      final stale = Completer<TrackLyrics?>();
+      repository.pendingBySongId['song-a'] = stale;
+      final reloading = controller.reload();
+      repository.lyricsBySongId['song-b'] = const TrackLyrics(
+        songId: 'song-b',
+        plainText: 'Song B',
+      );
+      engine.emit(playbackStateFor('song-b'));
+      await flushAsync();
+
+      stale.complete(
+        const TrackLyrics(songId: 'song-a', plainText: 'Old song'),
+      );
+      await reloading;
+
+      expect(controller.state.songId, 'song-b');
+      expect(controller.state.lyrics?.plainText, 'Song B');
+    });
+
+    test('does nothing when nothing is playing', () async {
+      final engine = FakePlaybackEngine();
+      final repository = FakeTrackLyricsRepository();
+      final controller = LyricsController(
+        playbackCoordinator: PlaybackCoordinator(engine: engine),
+        repository: repository,
+      );
+      addTearDown(() async {
+        controller.dispose();
+        await engine.dispose();
+      });
+
+      await controller.reload();
+
+      expect(repository.requestedSongIds, isEmpty);
+    });
+  });
 }

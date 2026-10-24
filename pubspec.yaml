@@ -41,6 +41,10 @@ dependencies:
   provider: ^6.1.5+1
   just_audio: 0.10.6
   audio_session: 0.2.4
+  # Android media session, notification controls and MediaBrowserService (SN-44).
+  # audio_service 0.18.18 with one patch; see third_party/audio_service/PATCHES.md.
+  audio_service:
+    path: third_party/audio_service
   file_picker: ^12.3.0
   supabase_flutter: 2.17.2
   google_sign_in: 7.2.0

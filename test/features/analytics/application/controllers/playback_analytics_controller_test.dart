@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 
+import '../../../player/data/engines/simulated_just_audio_player.dart';
 import '../../support/direct_listening_session_mutation_runner.dart';
 
 import 'package:sonus_next/features/analytics/domain/models/listening_history_cursor.dart';
@@ -17,6 +19,11 @@ import 'package:sonus_next/features/analytics/domain/repositories/qualified_play
 import 'package:sonus_next/features/library/application/models/library_track.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
 import 'package:sonus_next/features/player/application/controllers/playback_coordinator.dart';
+import 'package:sonus_next/features/player/application/controllers/playback_restoration_controller.dart';
+import 'package:sonus_next/features/player/application/services/media_session/sonus_audio_handler.dart';
+import 'package:sonus_next/features/player/data/engines/just_audio_playback_engine.dart';
+import 'package:sonus_next/features/player/data/services/playback_session_store.dart';
+import 'package:sonus_next/features/player/domain/models/playback_session_snapshot.dart';
 import 'package:sonus_next/features/player/domain/models/playback_queue.dart';
 import 'package:sonus_next/features/player/domain/models/playback_repeat_mode.dart';
 import 'package:sonus_next/features/player/domain/models/playback_state.dart';
@@ -467,6 +474,249 @@ void main() {
     ]);
   });
 
+  test(
+    'restoring a session after restart records nothing until play (SN-44)',
+    () async {
+      final responsive = _ResponsiveEngine();
+      final coordinator = PlaybackCoordinator(engine: responsive);
+      final analytics = PlaybackAnalyticsController(
+        playbackCoordinator: coordinator,
+        tracker: tracker,
+        now: () => now,
+        userIdProvider: () => currentUserId,
+        checkpointInterval: const Duration(seconds: 5),
+      );
+      final restoration = PlaybackRestorationController(
+        store: PlaybackSessionStore.forTesting(
+          getString: (key) async => jsonEncode(
+            const PlaybackSessionSnapshot(
+              songIds: ['song_1'],
+              currentIndex: 0,
+              position: Duration(seconds: 95),
+            ).toJson(),
+          ),
+          setString: (key, value) async {},
+          remove: (key) async {},
+        ),
+        coordinator: coordinator,
+      );
+      addTearDown(() async {
+        restoration.dispose();
+        await analytics.dispose();
+        await responsive.dispose();
+      });
+
+      final outcome = await restoration.restore(() async => [libraryTrack1]);
+      await analytics.settled;
+      now = now.add(const Duration(minutes: 10));
+      await analytics.settled;
+
+      expect(outcome, PlaybackRestoreOutcome.restored);
+      expect(responsive.currentState.status, PlaybackStatus.paused);
+      expect(playbackSessions.values, isEmpty);
+      expect(qualifiedPlays.values, isEmpty);
+
+      // Only real listening after the listener presses play counts.
+      await coordinator.play();
+      await analytics.settled;
+      now = now.add(const Duration(seconds: 40));
+      await coordinator.stop();
+      await analytics.settled;
+
+      expect(playbackSessions.values, hasLength(1));
+      expect(qualifiedPlays.values, hasLength(1));
+    },
+  );
+
+  group('media session commands (SN-44)', () {
+    test(
+      'notification and headset commands record exactly one qualified play',
+      () async {
+        final responsive = _ResponsiveEngine();
+        final coordinator = PlaybackCoordinator(engine: responsive);
+        final analytics = PlaybackAnalyticsController(
+          playbackCoordinator: coordinator,
+          tracker: tracker,
+          now: () => now,
+          userIdProvider: () => currentUserId,
+          checkpointInterval: const Duration(seconds: 5),
+        );
+        final mediaSession = SonusAudioHandler(
+          artworkExists: (_) => false,
+          now: () => now,
+        )..attach(coordinator);
+        addTearDown(() async {
+          mediaSession.detach(coordinator);
+          await analytics.dispose();
+          await responsive.dispose();
+        });
+
+        // The track is loaded and paused; everything below arrives from
+        // Android, never from the app's own UI.
+        responsive.emit(state(status: PlaybackStatus.paused));
+        await analytics.settled;
+
+        await mediaSession.play();
+        await analytics.settled;
+        now = now.add(const Duration(seconds: 20));
+
+        // Rapid pause/resume from the notification and a headset button.
+        await mediaSession.pause();
+        await analytics.settled;
+        await mediaSession.click();
+        await analytics.settled;
+        await mediaSession.pause();
+        await analytics.settled;
+        await mediaSession.play();
+        await analytics.settled;
+        now = now.add(const Duration(seconds: 20));
+
+        await mediaSession.stop();
+        await analytics.settled;
+
+        expect(qualifiedPlays.values, hasLength(1));
+        expect(playbackSessions.values, hasLength(1));
+        expect(
+          playbackSessions.values.single.endReason,
+          PlaybackSessionEndReason.stopped,
+        );
+      },
+    );
+
+    test(
+      'pausing from the notification before 30 seconds records no play',
+      () async {
+        final responsive = _ResponsiveEngine();
+        final coordinator = PlaybackCoordinator(engine: responsive);
+        final analytics = PlaybackAnalyticsController(
+          playbackCoordinator: coordinator,
+          tracker: tracker,
+          now: () => now,
+          userIdProvider: () => currentUserId,
+          checkpointInterval: const Duration(seconds: 5),
+        );
+        final mediaSession = SonusAudioHandler(
+          artworkExists: (_) => false,
+          now: () => now,
+        )..attach(coordinator);
+        addTearDown(() async {
+          mediaSession.detach(coordinator);
+          await analytics.dispose();
+          await responsive.dispose();
+        });
+
+        responsive.emit(state(status: PlaybackStatus.paused));
+        await analytics.settled;
+
+        for (var i = 0; i < 5; i++) {
+          await mediaSession.play();
+          await analytics.settled;
+          now = now.add(const Duration(seconds: 4));
+          await mediaSession.pause();
+          await analytics.settled;
+        }
+
+        expect(qualifiedPlays.values, isEmpty);
+      },
+    );
+
+    group('with the real engine', () {
+      late SimulatedJustAudioPlayer player;
+      late JustAudioPlaybackEngine realEngine;
+      late PlaybackCoordinator coordinator;
+      late PlaybackAnalyticsController analytics;
+
+      setUp(() {
+        player = SimulatedJustAudioPlayer();
+        realEngine = JustAudioPlaybackEngine(
+          audioPlayer: player,
+          configureAudioSession: () async {},
+        );
+        coordinator = PlaybackCoordinator(engine: realEngine);
+        analytics = PlaybackAnalyticsController(
+          playbackCoordinator: coordinator,
+          tracker: tracker,
+          now: () => now,
+          userIdProvider: () => currentUserId,
+          checkpointInterval: const Duration(seconds: 5),
+        );
+      });
+
+      tearDown(() async {
+        await analytics.dispose();
+        await realEngine.dispose();
+      });
+
+      Future<void> settle() async {
+        await Future<void>.delayed(Duration.zero);
+        await analytics.settled;
+      }
+
+      test(
+        'a song picked while another plays keeps counting listening',
+        () async {
+          await coordinator.playTracks([libraryTrack1]);
+          await settle();
+          now = now.add(const Duration(seconds: 40));
+
+          await coordinator.playTracks([libraryTrack2]);
+          await settle();
+          now = now.add(const Duration(seconds: 40));
+
+          await coordinator.stop();
+          await settle();
+
+          expect(qualifiedPlays.values.map((play) => play.songId), [
+            'song_1',
+            'song_2',
+          ]);
+          expect(playbackSessions.values, hasLength(2));
+        },
+      );
+
+      test(
+        'a song that becomes unreadable ends its session as failed',
+        () async {
+          await coordinator.playTracks([libraryTrack1, libraryTrack2]);
+          await settle();
+          now = now.add(const Duration(seconds: 40));
+
+          player.failSource();
+          await settle();
+
+          expect(playbackSessions.values, hasLength(1));
+          expect(
+            playbackSessions.values.single.endReason,
+            PlaybackSessionEndReason.failed,
+          );
+          expect(qualifiedPlays.values.map((play) => play.songId), ['song_1']);
+        },
+      );
+
+      test('a song picked after the queue finished is counted once', () async {
+        await coordinator.playTracks([libraryTrack1]);
+        await settle();
+        now = now.add(const Duration(seconds: 40));
+        player.complete();
+        await settle();
+
+        await coordinator.playTracks([libraryTrack2]);
+        await settle();
+        now = now.add(const Duration(seconds: 40));
+
+        await coordinator.togglePlayPause();
+        await settle();
+        now = now.add(const Duration(seconds: 60));
+
+        expect(player.audible, isFalse);
+        expect(qualifiedPlays.values.map((play) => play.songId), [
+          'song_1',
+          'song_2',
+        ]);
+      });
+    });
+  });
+
   test('completed playback closes the session as completed', () async {
     engine.emit(state(status: PlaybackStatus.playing));
     await controller.settled;
@@ -838,6 +1088,45 @@ class _DeferredStopEngine extends _FakePlaybackEngine {
   }
 }
 
+/// The library record behind [track1], as restoration reads it.
+final libraryTrack1 = LibraryTrack(
+  songId: 'song_1',
+  title: 'Track 1',
+  artistId: 'artist_1',
+  artistName: 'Artist',
+  albumId: 'album_1',
+  albumTitle: 'Album',
+  albumEditionId: 'edition_1',
+  albumEditionTitle: 'Standard',
+  albumEditionType: AlbumEditionType.standard,
+  trackNumber: 1,
+  durationSeconds: 180,
+  isSingle: false,
+  featuredArtists: const [],
+  dateAdded: DateTime.utc(2026, 9, 1),
+  isAvailable: true,
+  filePath: 'C:/Music/track_1.mp3',
+);
+
+final libraryTrack2 = LibraryTrack(
+  songId: 'song_2',
+  title: 'Track 2',
+  artistId: 'artist_1',
+  artistName: 'Artist',
+  albumId: 'album_1',
+  albumTitle: 'Album',
+  albumEditionId: 'edition_1',
+  albumEditionTitle: 'Standard',
+  albumEditionType: AlbumEditionType.standard,
+  trackNumber: 2,
+  durationSeconds: 180,
+  isSingle: false,
+  featuredArtists: const [],
+  dateAdded: DateTime.utc(2026, 9, 1),
+  isAvailable: true,
+  filePath: 'C:/Music/track_2.mp3',
+);
+
 const track1 = PlaybackTrack(
   songId: 'song_1',
   title: 'Track 1',
@@ -948,6 +1237,45 @@ class _FakePlaybackEngine implements PlaybackEngine {
   @override
   Future<void> dispose() async {
     await _states.close();
+  }
+}
+
+/// Behaves like the real engine for play, pause and stop: the command
+/// changes the reported state, which is all analytics ever observes.
+class _ResponsiveEngine extends _FakePlaybackEngine {
+  @override
+  Future<void> loadQueue(
+    List<PlaybackTrack> tracks, {
+    int startIndex = 0,
+    bool autoPlay = false,
+  }) async {
+    emit(
+      PlaybackState(
+        queue: PlaybackQueue(tracks: tracks, currentIndex: startIndex),
+        status: autoPlay ? PlaybackStatus.playing : PlaybackStatus.paused,
+        duration: tracks[startIndex].duration,
+      ),
+    );
+  }
+
+  @override
+  Future<void> seek(Duration position) async {
+    emit(currentState.copyWith(position: position));
+  }
+
+  @override
+  Future<void> play() async {
+    emit(currentState.copyWith(status: PlaybackStatus.playing));
+  }
+
+  @override
+  Future<void> pause() async {
+    emit(currentState.copyWith(status: PlaybackStatus.paused));
+  }
+
+  @override
+  Future<void> stop() async {
+    emit(PlaybackState(queue: currentState.queue, status: PlaybackStatus.idle));
   }
 }
 

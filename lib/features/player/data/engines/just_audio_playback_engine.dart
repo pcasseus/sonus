@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 
 import 'package:audio_session/audio_session.dart';
 import 'package:just_audio/just_audio.dart';
@@ -105,6 +106,13 @@ class JustAudioPlaybackEngine implements PlaybackEngine {
     try {
       await _configureAudioSession();
 
+      // just_audio keeps `playing` set across source changes, including
+      // after a queue completes, so the new sources would start on their
+      // own. A queue loaded without autoplay must stay silent.
+      if (!autoPlay && _audioPlayer.playing) {
+        await _audioPlayer.pause();
+      }
+
       final sources = tracks.map(_audioSourceFor).toList(growable: false);
 
       final loadedDuration = await _audioPlayer.setAudioSources(
@@ -113,9 +121,13 @@ class JustAudioPlaybackEngine implements PlaybackEngine {
         initialPosition: Duration.zero,
       );
 
+      // When the player was already playing, the new queue is audible now
+      // and play() below emits nothing, so report it as playing.
       _emit(
         _state.copyWith(
-          status: PlaybackStatus.ready,
+          status: _audioPlayer.playing
+              ? PlaybackStatus.playing
+              : PlaybackStatus.ready,
           duration: loadedDuration ?? queue.currentTrack!.duration,
           position: Duration.zero,
           clearError: true,
@@ -512,6 +524,14 @@ class JustAudioPlaybackEngine implements PlaybackEngine {
       ProcessingState.completed => PlaybackStatus.completed,
     };
 
+    // A failed source leaves the player idle. Reporting that as an ordinary
+    // idle would erase the failure and playback would end silently; Stop
+    // and loading a queue still replace it.
+    if (status == PlaybackStatus.idle &&
+        _state.status == PlaybackStatus.failed) {
+      return;
+    }
+
     _emit(
       _state.copyWith(
         status: status,
@@ -530,6 +550,15 @@ class JustAudioPlaybackEngine implements PlaybackEngine {
   }
 
   void _emitFailure(Object error) {
+    // Song id and error type only: messages can contain file paths.
+    developer.log(
+      'Playback failed. song=${_state.queue.currentTrack?.songId} '
+      'error=${error.runtimeType}'
+      '${error is PlayerException ? ' code=${error.code}' : ''}',
+      name: 'sonus.playback',
+      level: 900,
+    );
+
     _emit(
       _state.copyWith(
         status: PlaybackStatus.failed,
@@ -540,10 +569,15 @@ class JustAudioPlaybackEngine implements PlaybackEngine {
   }
 
   void _emit(PlaybackState state) {
-    _state = state;
+    // Every state carries the player's own answer for Next and Previous,
+    // so the controls follow shuffle order and repeat all.
+    _state = state.copyWith(
+      nextAvailable: state.hasTrack && _audioPlayer.hasNext,
+      previousAvailable: state.hasTrack && _audioPlayer.hasPrevious,
+    );
 
     if (!_stateController.isClosed) {
-      _stateController.add(state);
+      _stateController.add(_state);
     }
   }
 
