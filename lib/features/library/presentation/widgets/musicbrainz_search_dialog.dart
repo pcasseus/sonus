@@ -10,6 +10,7 @@ import '../../application/services/external_metadata_candidate_ranking_service.d
 import '../../application/models/external_metadata_search_query.dart';
 import '../../application/services/external_metadata_application_service.dart';
 import '../../application/services/metadata_provider.dart';
+import 'online_lookup_disclosure.dart';
 
 typedef MusicBrainzCandidateApplier =
     Future<ExternalMetadataApplicationResult> Function(
@@ -66,6 +67,9 @@ class _MusicBrainzSearchDialogState extends State<MusicBrainzSearchDialog> {
   Object? _error;
 
   bool _isLoading = true;
+
+  /// True while the online lookup disclosure waits for the user.
+  bool _needsConsent = false;
   bool _isApplying = false;
 
   @override
@@ -75,7 +79,18 @@ class _MusicBrainzSearchDialogState extends State<MusicBrainzSearchDialog> {
   }
 
   Future<void> _search() async {
+    final consent = onlineLookupConsentOf(context);
+
+    if (consent != null && !consent.isOnlineLookupAccepted) {
+      setState(() {
+        _needsConsent = true;
+        _isLoading = false;
+      });
+      return;
+    }
+
     setState(() {
+      _needsConsent = false;
       _isLoading = true;
       _error = null;
       _results = const [];
@@ -296,7 +311,19 @@ class _MusicBrainzSearchDialogState extends State<MusicBrainzSearchDialog> {
     );
   }
 
+  Future<void> _acceptAndSearch() async {
+    await onlineLookupConsentOf(context)?.acceptOnlineLookup();
+
+    if (mounted) {
+      await _search();
+    }
+  }
+
   Widget _buildContent() {
+    if (_needsConsent) {
+      return OnlineLookupDisclosure(onContinue: _acceptAndSearch);
+    }
+
     if (_isLoading) {
       return const Center(
         child: Padding(
