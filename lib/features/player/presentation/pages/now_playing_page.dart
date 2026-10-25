@@ -16,6 +16,9 @@ import '../widgets/playback_error_notice.dart';
 class NowPlayingPage extends StatelessWidget {
   const NowPlayingPage({super.key});
 
+  /// Route name the playback host uses to hide the mini-player here.
+  static const routeName = '/now-playing';
+
   @override
   Widget build(BuildContext context) {
     final state = context.watch<PlaybackStateController>().state;

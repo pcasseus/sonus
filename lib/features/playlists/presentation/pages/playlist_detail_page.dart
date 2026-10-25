@@ -8,7 +8,6 @@ import '../../../library/application/models/library_track.dart';
 import '../../../library/presentation/pages/album_profile_page.dart';
 import '../../../library/presentation/pages/artist_profile_page.dart';
 import '../../../player/application/controllers/playback_coordinator.dart';
-import '../../../shell/presentation/widgets/shell_playback_slot.dart';
 import '../../application/models/playlist_track.dart';
 import '../../application/services/playlist_service.dart';
 import '../controllers/playlist_detail_controller.dart';
@@ -120,7 +119,6 @@ class _PlaylistDetailPageState extends State<PlaylistDetailPage> {
               animation: controller,
               builder: (context, _) => _buildBody(controller),
             ),
-      bottomNavigationBar: const ShellPlaybackSlot(),
     );
   }
 
@@ -309,9 +307,8 @@ class _PlaylistDetailPageState extends State<PlaylistDetailPage> {
   }
 
   void _showError(String message) {
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(SnackBar(content: Text(message)));
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
