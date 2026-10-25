@@ -17,6 +17,18 @@ class AlbumEditionDao {
     );
   }
 
+  Future<void> delete(String id) async {
+    final count = await db.delete(
+      DatabaseTables.albumEditions,
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+
+    if (count != 1) {
+      throw StateError('Album edition not found: $id');
+    }
+  }
+
   Future<void> update(AlbumEdition edition) async {
     final count = await db.update(
       DatabaseTables.albumEditions,

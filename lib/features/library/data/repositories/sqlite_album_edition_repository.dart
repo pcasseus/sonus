@@ -2,7 +2,8 @@ import '../../domain/entities/album_edition.dart';
 import '../../domain/repositories/album_edition_repository.dart';
 import '../daos/album_edition_dao.dart';
 
-class SqliteAlbumEditionRepository implements AlbumEditionRepository {
+class SqliteAlbumEditionRepository
+    implements AlbumEditionRepository, AlbumEditionDeletionRepository {
   const SqliteAlbumEditionRepository(this.dao);
 
   final AlbumEditionDao dao;
@@ -30,5 +31,10 @@ class SqliteAlbumEditionRepository implements AlbumEditionRepository {
   @override
   Future<List<AlbumEdition>> getByAlbumId(String albumId) {
     return dao.findByAlbumId(albumId);
+  }
+
+  @override
+  Future<void> delete(String id) {
+    return dao.delete(id);
   }
 }
