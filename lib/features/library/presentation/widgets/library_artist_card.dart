@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../../../../core/design/sonus_theme.dart';
+import '../../../../core/design/widgets/sonus_word_fit_text.dart';
 import '../../application/models/library_artist.dart';
 
 /// An Artists grid card: square artwork, the name on up to two lines and
@@ -62,7 +63,9 @@ class LibraryArtistCard extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Flexible(
-                          child: Text(
+                          // A long single name shrinks rather than breaking
+                          // mid-word on narrow cards at large text.
+                          child: SonusWordFitText(
                             name,
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,

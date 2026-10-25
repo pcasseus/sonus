@@ -6,6 +6,7 @@ import '../../sonus_theme.dart';
 import '../sonus_artwork_frame.dart';
 import '../sonus_artwork_image.dart';
 import '../sonus_artwork_atmosphere_builder.dart';
+import '../sonus_word_fit_text.dart';
 import 'sonus_playback_controls.dart';
 import 'sonus_playback_progress.dart';
 
@@ -198,9 +199,10 @@ class SonusNowPlayingView extends StatelessWidget {
       children: [
         Semantics(
           header: true,
-          child: Text(
+          // A long single word shrinks to fit instead of breaking.
+          child: SonusWordFitText(
             title,
-            key: _key('title'),
+            textKey: _key('title'),
             maxLines: 3,
             overflow: TextOverflow.ellipsis,
             style: theme.textTheme.headlineSmall?.copyWith(
