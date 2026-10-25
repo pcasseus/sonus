@@ -16,6 +16,7 @@ import '../../../library/presentation/pages/artist_profile_page.dart';
 import '../../../player/application/controllers/playback_coordinator.dart';
 import '../../../playlists/presentation/widgets/add_to_playlist_sheet.dart';
 import '../../application/models/home_popular_track.dart';
+import '../../application/models/home_ranking_week.dart';
 import '../../application/models/home_top_artist.dart';
 import '../controllers/home_controller.dart';
 
@@ -76,18 +77,32 @@ class HomePage extends StatelessWidget {
             ),
 
           if (snapshot.weeklyPopularTracks.isNotEmpty) ...[
-            const _SectionHeading(
-              title: 'Popular This Week',
-              caption: 'Your most-played tracks this week',
+            _SectionHeading(
+              key: const ValueKey<String>('home-popular-heading'),
+              title: _popularTitle(snapshot.popularTracksWeek),
+              caption: _popularCaption(snapshot.popularTracksWeek),
               featured: true,
             ),
             const SizedBox(height: _headingGap),
             _PopularTracksRail(entries: snapshot.weeklyPopularTracks),
             const SizedBox(height: _sectionGap),
+          ] else if (snapshot.weeklyTopArtists.isEmpty) ...[
+            // Neither week has rankings yet: keep the lead section in place
+            // and say what will fill it.
+            const _SectionHeading(
+              key: ValueKey<String>('home-popular-empty'),
+              title: 'Popular This Week',
+              caption: 'Play music to see your most-played tracks here.',
+              featured: true,
+            ),
+            const SizedBox(height: _sectionGap),
           ],
 
           if (snapshot.weeklyTopArtists.isNotEmpty) ...[
-            const _SectionHeading(title: 'Top Artists'),
+            _SectionHeading(
+              key: const ValueKey<String>('home-top-artists-heading'),
+              title: _topArtistsTitle(snapshot.topArtistsWeek),
+            ),
             const SizedBox(height: _headingGap),
             _TopArtistsRail(entries: snapshot.weeklyTopArtists),
             const SizedBox(height: _sectionGap),
@@ -111,6 +126,23 @@ class HomePage extends StatelessWidget {
   }
 }
 
+/// Ranking sections show last week's completed ranking until this week
+/// has enough listening; the heading always says which week it is.
+String _popularTitle(HomeRankingWeek week) => switch (week) {
+  HomeRankingWeek.thisWeek => 'Popular This Week',
+  HomeRankingWeek.lastWeek => 'Popular Last Week',
+};
+
+String _popularCaption(HomeRankingWeek week) => switch (week) {
+  HomeRankingWeek.thisWeek => 'Your most-played tracks this week',
+  HomeRankingWeek.lastWeek => 'Your most-played tracks last week',
+};
+
+String _topArtistsTitle(HomeRankingWeek week) => switch (week) {
+  HomeRankingWeek.thisWeek => 'Top Artists This Week',
+  HomeRankingWeek.lastWeek => 'Top Artists Last Week',
+};
+
 /// Space between a section heading and its rail.
 const double _headingGap = 12;
 
@@ -119,6 +151,7 @@ const double _sectionGap = 32;
 
 class _SectionHeading extends StatelessWidget {
   const _SectionHeading({
+    super.key,
     required this.title,
     this.caption,
     this.featured = false,
