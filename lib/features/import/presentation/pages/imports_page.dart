@@ -6,7 +6,10 @@ import 'package:provider/provider.dart';
 import '../../../account/application/controllers/account_controller.dart';
 import '../../../artwork/application/services/artwork_assignment_service.dart';
 import '../../../artwork/application/services/artwork_file_picker.dart';
+import '../../../library/application/models/library_health_report.dart';
 import '../../../library/application/services/album_profile_editing_service.dart';
+import '../../../library/presentation/pages/library_health_page.dart';
+import '../../application/models/import_execution_summary.dart';
 import '../../application/services/import_review_service.dart';
 import '../../application/services/import_source_picker.dart';
 import '../../application/services/import_workflow_service.dart';
@@ -209,6 +212,8 @@ class _ImportsPageState extends State<ImportsPage> {
                             ? _openReviewPage
                             : null,
                         onReset: controller.reset,
+                        onCheckHealth: () =>
+                            _openHealthReport(controller.summary!),
                       ),
                     if (controller.hasError)
                       ImportErrorCard(
@@ -257,6 +262,21 @@ class _ImportsPageState extends State<ImportsPage> {
     } catch (_) {
       // Importing remains usable even if the review count cannot be loaded.
     }
+  }
+
+  Future<void> _openHealthReport(ImportExecutionSummary summary) {
+    return Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => LibraryHealthPage(
+          importCounts: ImportHealthCounts(
+            imported: summary.importedCount,
+            relinked: summary.relinkedCount,
+            skipped: summary.skippedCount,
+            failed: summary.failedCount,
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _openReviewPage() async {
