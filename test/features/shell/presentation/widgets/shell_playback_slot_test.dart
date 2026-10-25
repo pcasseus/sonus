@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -32,6 +33,7 @@ class FakePlaybackEngine implements PlaybackEngine {
   int nextCalls = 0;
 
   Duration? lastSeekPosition;
+  int seekCount = 0;
   bool? lastShuffleEnabled;
   PlaybackRepeatMode? lastRepeatMode;
 
@@ -80,6 +82,7 @@ class FakePlaybackEngine implements PlaybackEngine {
 
   @override
   Future<void> seek(Duration position) async {
+    seekCount++;
     lastSeekPosition = position;
   }
 
@@ -769,33 +772,94 @@ void main() {
     await engine.dispose();
   });
 
-  testWidgets('now playing seek delegates selected position', (tester) async {
-    await tester.binding.setSurfaceSize(const Size(430, 932));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-    final engine = FakePlaybackEngine(
-      initialState: const PlaybackState(
-        queue: PlaybackQueue(tracks: [track1], currentIndex: 0),
-        status: PlaybackStatus.playing,
-        position: Duration(minutes: 1),
-        duration: Duration(minutes: 3),
-      ),
-    );
+  group('now playing seek', () {
+    Future<FakePlaybackEngine> openNowPlaying(WidgetTester tester) async {
+      await tester.binding.setSurfaceSize(const Size(430, 932));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final engine = FakePlaybackEngine(
+        initialState: const PlaybackState(
+          queue: PlaybackQueue(tracks: [track1], currentIndex: 0),
+          status: PlaybackStatus.playing,
+          position: Duration(minutes: 1),
+          duration: Duration(minutes: 3),
+        ),
+      );
+      addTearDown(engine.dispose);
 
-    await tester.pumpWidget(buildSubject(engine));
+      await tester.pumpWidget(buildSubject(engine));
+      await tester.tap(find.byKey(const ValueKey<String>('mini-player-open')));
+      await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const ValueKey<String>('mini-player-open')));
-    await tester.pumpAndSettle();
+      return engine;
+    }
 
-    final slider = tester.widget<Slider>(
-      find.byKey(const ValueKey<String>('now-playing-seek')),
-    );
+    final seekBar = find.byKey(const ValueKey<String>('now-playing-seek'));
+    final elapsed = find.byKey(const ValueKey<String>('now-playing-elapsed'));
 
-    slider.onChanged!(90000);
-    await tester.pump();
+    testWidgets('a completed drag seeks once, to where it ended', (
+      tester,
+    ) async {
+      final engine = await openNowPlaying(tester);
+      final slider = tester.widget<Slider>(seekBar);
 
-    expect(engine.lastSeekPosition, const Duration(seconds: 90));
+      slider.onChangeStart!(60000);
+      for (final ms in [70000, 80000, 90000]) {
+        tester.widget<Slider>(seekBar).onChanged!(ms.toDouble());
+        await tester.pump();
+      }
 
-    await engine.dispose();
+      expect(engine.seekCount, 0, reason: 'no seek while dragging');
+
+      tester.widget<Slider>(seekBar).onChangeEnd!(90000);
+      await tester.pump();
+
+      expect(engine.seekCount, 1);
+      expect(engine.lastSeekPosition, const Duration(seconds: 90));
+    });
+
+    testWidgets('the bar and time follow the drag, not playback', (
+      tester,
+    ) async {
+      final engine = await openNowPlaying(tester);
+
+      tester.widget<Slider>(seekBar).onChangeStart!(60000);
+      tester.widget<Slider>(seekBar).onChanged!(150000);
+      await tester.pump();
+
+      // Playback keeps reporting progress while the finger is down.
+      engine.emit(
+        engine.currentState.copyWith(position: const Duration(seconds: 61)),
+      );
+      await tester.pump();
+
+      expect(tester.widget<Slider>(seekBar).value, 150000);
+      expect(tester.widget<Text>(elapsed).data, '2:30');
+    });
+
+    testWidgets('a tap on the bar seeks once', (tester) async {
+      final engine = await openNowPlaying(tester);
+
+      await tester.tap(seekBar);
+      await tester.pump();
+
+      expect(engine.seekCount, 1);
+      expect(engine.lastSeekPosition!.inSeconds, closeTo(90, 2));
+    });
+
+    testWidgets('a screen-reader step seeks once', (tester) async {
+      final semantics = tester.ensureSemantics();
+      final engine = await openNowPlaying(tester);
+
+      tester.semantics.performAction(
+        find.semantics.byFlag(SemanticsFlag.isSlider),
+        SemanticsAction.increase,
+      );
+      await tester.pump();
+
+      expect(engine.seekCount, 1);
+      expect(engine.lastSeekPosition!, greaterThan(const Duration(minutes: 1)));
+      semantics.dispose();
+    });
   });
 
   testWidgets('now playing reflects live track and playback state', (

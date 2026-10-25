@@ -322,3 +322,112 @@ Dragging seeks on every frame with no local drag value. No functional defect was
 16. **Car/Bluetooth PLAY key:** connect while already playing; playback must keep playing (Q8). Headset single, double and triple presses still toggle and skip.
 17. **TalkBack:** the repeat button announces the current mode; "Song unavailable" and the Now Playing notice are announced.
 18. **Lyrics refresh:** import a `.lrc` for the song that is playing, then open Lyrics; with storage made unreadable, "Try again" recovers.
+
+## 11. Physical-device session — setup, import verification and issue backlog (2026-10-23/24)
+
+**Device:** Samsung Galaxy S26 Ultra (SM-S948U), Android 17. **Build:** release APK from `f4de457` (sha256 `926666fa…b209`), signed with the Android Debug certificate.
+
+### Setup
+- The old install (debug build, schema 26, with duplication problems) was uninstalled **at the user's request**. Only `com.sonus.sonus_next` was removed.
+- The fresh install started with an empty library at schema 33. Account & Cloud shows "Sign-in is not configured for this build", so no cloud sync is possible. Android Backup Manager is disabled.
+- **Music:** `/sdcard/Download/Music`: 874 MP3s, 6,426,077,249 bytes, 37 top-level folders. A per-file MD5 baseline was taken before uninstalling (fingerprint `6e0546b2…`). After the import, all 874 files have identical paths, sizes, modification times and MD5s.
+- **Import:** done through Sonus's folder import. The user approved Android's folder-access prompt. Result: **874 processed, 871 imported, 0 relinked, 3 skipped, 0 failed, 148 need review.**
+- Two listening events ("angel wings" and "healthy habit", Madison Beer) were played by the user during the session. They are legitimate and part of the baseline.
+
+### Library verification so far
+- **Totals:** 78 Library artist pages covering 871 songs, and 97 albums.
+- **Loose album folders, checked in the app:**
+  - *Zendaya*: 11 tracks, matches the 11 files.
+  - *Starstruck*: 8 tracks, matches the 8 files.
+  - *Rags* and *Victorious*: not checked. The scan stopped here at the user's request to move on to playback testing.
+- **Not verified:** the in-app review list (148), the untagged-song samples, and *locket* in Album Studio.
+- **The 3 skipped files** are the Cardi B "ErrTime" group (see Import-1).
+
+### Issue backlog (out of SN-44 scope; to be assigned to separate tickets)
+Status key: **CONFIRMED** = reproduced on the device or confirmed in code; **TO VERIFY** = hypothesis or not yet reproduced.
+
+| ID | Priority | Status | Summary | Evidence / root cause |
+|---|---|---|---|---|
+| Import-1 | **P0, data integrity** | CONFIRMED | Distinct recordings are silently dropped at import | Identity = primary artist + title + version label + primary edition, with featured artists ignored. Four "ErrTime" files: two ~2:26 and two ~3:16 recordings. Three were "skipped" with **no binding, no credits and no review row**. `atomic_library_importer.dart:657-662`, `library_identity_resolver.dart:154-165` |
+| Import-2 | P0 | CONFIRMED (code) | A skipped file still ingests its `.lrc` onto the kept song (can overwrite lyrics) | `library_import_service.dart:112-130` only checks `result.failed`. No impact on this library (no `.lrc` files) |
+| Edition-1 | **P0, data integrity** | CONFIRMED (code) | Saving in Track Studio re-points a song to the album's primary edition; when the album is unchanged, the old edition membership is also kept | `track_studio_page.dart:901-915`, `track_profile_editing_service.dart:476-483` |
+| Artist-1 | P1 | CONFIRMED (device) | Collaboration and feature credits become standalone artist pages | 10 pages with unparsed "[Ft.]" / "Ft." credits (e.g. "Max Schneider [Ft. Keke Palmer]") and 14 "&" collaboration pages. Features are parsed only in the artist/album folder layout when the tagged artist equals the folder artist (`import_identity_metadata_normalizer.dart`). `media_metadata_reader.dart:73` never reads features from tags |
+| Artist-3 | P1 | CONFIRMED (device, 3/3) | Album-owner-only artists open to "Artist not found" | Rags Cast, Cheetah Girls and Descendants are listed in Library (they own albums with available tracks), but the profile requires a primary or coPrimary song credit (`library_query_dao.dart:683`, `findProfileEligibleArtists`). Their 7 albums can't be reached from the owner's page |
+| Artist-2 | P1 | CONFIRMED (device) | Group and soundtrack identity is split between album owner and performers | "Cheetah Girls" owns 3 albums / 0 songs while "The Cheetah Girls" has 17 songs / 0 albums. Same for Descendants vs Descendants Cast; Rags Cast owns *Rags* with 0 songs. 43 pages have songs but no albums (98 songs). The folder artist overrides TPE2 in the artist/album layout |
+| Player-1 | P1 | CONFIRMED (code) | Mini-player hidden on most pushed pages | The slot is only the shell's `bottomNavigationBar` (`app_shell_page.dart:178`). Only Search and Playlist detail add it themselves |
+| Data-1 | P1 | CONFIRMED (code) | Screens need a manual refresh after imports, edits or playback | No app-wide change signal. Home, Charts and Insights are long-lived singletons refreshed only by pull-to-refresh; Studio edits refresh only the screen that opened them |
+| Studio-1 | P1 | CONFIRMED (code) | Album Studio and Album Profile list tracks in import-arrival order | `ORDER BY aet.sort_position` first (`library_query_dao.dart:558-563`); import appends max+1; editing numbers doesn't move the track |
+| Charts-1 | P2 | CONFIRMED (code) | No live Moments; finalization errors appear as "No Moments yet" | `LiveChartMomentService` is unused in `lib/`. The error banner is only shown in the Charts view (`charts_page.dart:81`). A fresh install legitimately shows an empty feed until a completed week has plays |
+| Build-1 | P1 (before any distribution) | CONFIRMED | Sign-in configuration is silently omitted from builds | Compile-time defines; only `tool/run-dev.ps1` and VS Code pass `config/sonus.dev.json`; no release or device-test path; no build-time guard; README undocumented |
+| Edition-2 | P2, feature | CONFIRMED (code) | No way to create or assign deluxe or other editions | Import creates only one standard primary edition; no UI to move a track between editions; MusicBrainz proposes no edition or release membership |
+| Insights-1 | P2 | TO VERIFY | Monthly Insights artwork disappears while swiping | Suspected unbounded full-resolution `Image.file` decodes plus page disposal (same pattern on about 14 screens); needs reproduction |
+| Studio-2 | P2 (SN-48) | CONFIRMED (code) | Album Studio layout leaves about 3 visible rows; overflow risk with large text | Non-scrolling `Column` with a fixed management card above the list (`album_studio_page.dart:69-121`) |
+
+**Suggested order:**
+1. Import-1, Import-2 and Edition-1 (data integrity).
+2. Player-1, Data-1, Studio-1 and Build-1.
+3. Artist-1 and Artist-2 (these need a design decision on group and soundtrack attribution).
+4. Charts-1, Edition-2, Insights-1 and Studio-2.
+
+**Regression tests needed:**
+- the ErrTime collapse (flagged, not dropped) and the lyrics overwrite;
+- Track Studio edition preservation;
+- disc/track order after import and after edits;
+- live Moments, and finalization errors in Moments mode;
+- the artwork cache-eviction case;
+- a mini-player presence test on pushed routes;
+- refresh after edits and imports.
+
+## 12. Physical-device playback results (Samsung SM-S948U, Android 17, release build)
+
+Evidence: `C:\dev\sonus\sn44_device_review\` (`playback_checklist.log` with timestamped system-state samples, `*_logcat.txt`, screenshots `fix01*`/`fix02*`). The recorder reads system services only. ADB loss is now logged explicitly as "ADB UNAVAILABLE", so it can't be mistaken for a playback failure.
+
+### Q10: Stop reset position and duration (found on device; fixed, uncommitted)
+- **Symptom (device):**
+  - After notification Stop → Play, audio resumed from the stopped position, but Sonus showed **0:00** with no progress.
+  - Closing and reopening after Stop restored the song at **0:00**.
+  - The logs showed the media session at the right position (for example 1:14), while Sonus's own state said 0.
+- **Cause:** `JustAudioPlaybackEngine.stop()` emitted a new idle state with the default position and duration (0). just_audio keeps both through `stop()`, and because the duration doesn't change it never announces it again. So the duration stayed 0, Now Playing capped the elapsed time at 0:00, the progress bar showed 0, and **the seek bar was disabled** (it is disabled when duration ≤ 0). The restoration recorder then saved 0:00.
+- **Fix:** `stop()` keeps the state's position and duration in the idle state (`just_audio_playback_engine.dart`). Nothing else changed; the media-session mapper still maps idle → idle, so the notification is still released.
+- **Tests:** `test/features/player/stop_resume_regression_test.dart` runs the real engine and coordinator on the simulated player. The simulator now models just_audio keeping its position through `stop()` and re-preparing on `play()`. **4 tests failed before the fix:** the idle state keeps position and duration; Play after Stop resumes with position, duration and progress; Now Playing shows `1:14` with the seek bar enabled (it showed `0:00` before); a restart after Stop restores 1:14, paused. **2 guards passed before and after:** Stop never starts audio; Stop still releases the notification and the session. **An analytics guard** (`playback_analytics_controller_test.dart`): Stop → Play adds no extra qualified play.
+- **Verification:**
+  - `flutter test`: **3,296 passed, 0 failed**. One run hit the known timing flake in `supabase_cloud_artwork_download_test.dart`, which passed 5/5 in isolation and in the full re-run.
+  - `flutter analyze`: clean; changed files formatted.
+  - Release APK sha256 `45e3059f…c9a9`, installed **in place** (same signing certificate `92dd91c7…`, same user ID 10666; no uninstall, data kept).
+  - **Device:** Stop removed the notification and released the foreground service. Play resumed at the stopped position. Now Playing showed **1:08 → 1:14 / 2:37** with a moving progress bar. Close-and-reopen restored **"free" paused at 0:16** with no autoplay (user confirmed; system state recorded at 13:42:01).
+
+### Q11: The seek bar seeked on every frame of a drag (fixed)
+- **Was:** dragging the Now Playing seek bar called `seek` for every drag update, with no local drag value (listed under §9 Known risks and §9b).
+- **Fix:** the seek bar keeps a local drag value. The bar and elapsed time follow the finger, and playback seeks once, when the drag or tap ends (`now_playing_page.dart`, `_SeekSection`).
+- **Tests** (`shell_playback_slot_test.dart`):
+  - Regressions, which failed before the fix:
+    - a completed drag seeks exactly once, to where it ended;
+    - the bar and time follow the drag while playback keeps reporting progress.
+  - Guards, passing before and after:
+    - a tap seeks once;
+    - a screen-reader increase seeks once.
+- **Device:** not yet verified (seek is checklist item 6).
+
+### Device checklist status
+| # | Area | Result | Evidence |
+|---|---|---|---|
+| 1 | Foreground: notification card, artwork, S icon, controls, audible | **PASS** | User; system state |
+| 2 | Background and screen-off | **PASS** | 60 s screen-off with automatic advance; about 2½ min with other apps in front; no gaps heard; no audio-focus loss or kills in the log |
+| 3 | Lock screen: play/pause/next/previous, card | **PASS** | Next and Previous recorded at 12:50:56 and 12:51:02 |
+| 4 | Bluetooth headphones | **PASS** (supported features) | Explicit PLAY/PAUSE from the headset handled; disconnect pauses with no speaker playback; reconnect stays paused. Double/triple press: not supported by the user's headphones (N/A) |
+| 5 | Track and artwork sync | **PASS** (observed) | Metadata and artwork followed every automatic advance, Next and Previous |
+| 6 | Pause, resume, seek | **PASS** for pause/resume. In-app and notification seek: not explicitly tested | Q10 fix restores seeking after Stop |
+| 7 | Calls, ducking, unplug | **UNTESTED** | No call available; wired unplug impossible (USB-C port used for ADB) |
+| 8 | Stop and end of queue | **PASS** for Stop (after the Q10 fix). End of queue: emulator only | |
+| 9 | Process lifecycle | **PASS** | Removed from Recents while playing (kept playing) and while paused/stopped (process killed by Android); reopening restored paused, no autoplay. Reboot: untested |
+| 10 | Analytics accuracy | **NOT YET TESTED** | |
+| 11 | Release build | **PASS** | Q3 keep rules: notification present in release |
+| 12 | Long session (1 h+) | **UNTESTED** | |
+| 13 | Unreadable song | **UNTESTED on device** | Would require moving a music file; verified on the emulator |
+| 14 | Shuffle/repeat controls | **NOT YET TESTED on device** | Verified on the emulator |
+| 15, 18 | Lyrics | **UNTESTED on device** (user decision: post-release) | No `.lrc` files in the library |
+| 16 | Car/Bluetooth PLAY key | **PARTIAL PASS** | Headset sends explicit PLAY/PAUSE and both behave as commands; a car head unit is untested |
+| 17 | TalkBack | **UNTESTED** | Semantics verified by widget test |
+
+### Additional observation (low severity)
+- **SystemUI tries to read notification artwork from Sonus's private storage** (`file://…/files/sonus/artwork/…`) and logs `FileNotFoundException`. The card still shows the artwork (audio_service supplies the bitmap). Serving the artwork through a `FileProvider` `content://` URI would silence it. Backlog, not SN-44.

@@ -205,22 +205,35 @@ class _TrackMetadata extends StatelessWidget {
   }
 }
 
-class _SeekSection extends StatelessWidget {
+/// The seek bar seeks once, when a drag or tap ends. While the finger is
+/// down the bar and elapsed time follow it instead of playback, so playback
+/// isn't asked to seek on every frame of a drag.
+class _SeekSection extends StatefulWidget {
   const _SeekSection({required this.state, required this.coordinator});
 
   final PlaybackState state;
   final PlaybackCoordinator coordinator;
 
   @override
+  State<_SeekSection> createState() => _SeekSectionState();
+}
+
+class _SeekSectionState extends State<_SeekSection> {
+  /// Where the drag currently is; null when not dragging.
+  double? _dragMs;
+
+  @override
   Widget build(BuildContext context) {
+    final state = widget.state;
     final durationMs = state.duration.inMilliseconds;
     final safeDurationMs = durationMs < 0 ? 0 : durationMs;
-    final rawPositionMs = state.position.inMilliseconds;
+    final rawPositionMs = _dragMs?.round() ?? state.position.inMilliseconds;
 
     final safePositionMs = rawPositionMs.clamp(0, safeDurationMs);
 
     final max = safeDurationMs > 0 ? safeDurationMs.toDouble() : 1.0;
     final value = safeDurationMs > 0 ? safePositionMs.toDouble() : 0.0;
+    final canSeek = safeDurationMs > 0;
 
     return Column(
       key: const ValueKey<String>('now-playing-seek-section'),
@@ -229,10 +242,19 @@ class _SeekSection extends StatelessWidget {
           key: const ValueKey<String>('now-playing-seek'),
           value: value,
           max: max,
-          onChanged: safeDurationMs > 0
+          onChangeStart: canSeek
+              ? (newValue) => setState(() => _dragMs = newValue)
+              : null,
+          onChanged: canSeek
+              ? (newValue) => setState(() => _dragMs = newValue)
+              : null,
+          onChangeEnd: canSeek
               ? (newValue) {
+                  setState(() => _dragMs = null);
                   unawaited(
-                    coordinator.seek(Duration(milliseconds: newValue.round())),
+                    widget.coordinator.seek(
+                      Duration(milliseconds: newValue.round()),
+                    ),
                   );
                 }
               : null,
