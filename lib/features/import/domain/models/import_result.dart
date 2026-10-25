@@ -12,6 +12,10 @@ enum ImportSkipReason {
 
   /// A relink-only pass found no existing song for the file.
   notInLibrary,
+
+  /// The recording is already in the library from another edition of the
+  /// same album; this file's edition now lists it too.
+  sharedWithEdition,
 }
 
 class ImportResult {

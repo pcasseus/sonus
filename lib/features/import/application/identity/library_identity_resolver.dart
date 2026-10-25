@@ -6,6 +6,7 @@ import 'package:sonus_next/features/library/domain/repositories/album_edition_re
 import 'package:sonus_next/features/library/domain/repositories/album_repository.dart';
 import 'package:sonus_next/features/library/domain/repositories/artist_repository.dart';
 import 'package:sonus_next/features/library/domain/repositories/song_repository.dart';
+import 'package:sonus_next/features/library/domain/services/edition_title_parser.dart';
 
 import 'library_identity_match.dart';
 import 'recording_evidence.dart';
@@ -91,9 +92,20 @@ class LibraryIdentityResolver {
 
     final artistAlbums = await albumRepository.getByArtistId(albumArtist.id);
 
-    final albumMatches = artistAlbums
+    var albumMatches = artistAlbums
         .where((album) => album.canonicalTitle == canonicalAlbum)
         .toList(growable: false);
+
+    // "locket (Deluxe)" with no album of that exact name belongs to "locket"
+    // as a Deluxe edition. Only recognized edition phrases count.
+    final qualified = EditionTitleParser.parse(metadata.albumTitle);
+
+    if (albumMatches.isEmpty && qualified != null) {
+      final canonicalBase = TextNormalizer.canonicalize(qualified.baseTitle);
+      albumMatches = artistAlbums
+          .where((album) => album.canonicalTitle == canonicalBase)
+          .toList(growable: false);
+    }
 
     if (albumMatches.length != 1) {
       return LibraryIdentityMatch(
@@ -114,10 +126,11 @@ class LibraryIdentityResolver {
 
     final editionResolution = _resolveEdition(
       editions,
-      albumTitle: canonicalAlbum,
+      fileAlbumTitle: canonicalAlbum,
+      qualified: qualified,
     );
 
-    if (editionResolution.edition == null) {
+    if (editionResolution.ambiguous) {
       return LibraryIdentityMatch(
         artist: trackArtist,
         albumArtist: albumArtist,
@@ -126,12 +139,12 @@ class LibraryIdentityResolver {
         song: null,
         artistAmbiguous: false,
         albumAmbiguous: false,
-        editionAmbiguous: editionResolution.ambiguous,
+        editionAmbiguous: true,
         songAmbiguous: false,
       );
     }
 
-    final edition = editionResolution.edition!;
+    final edition = editionResolution.edition;
 
     // A new track artist may legitimately be joining an existing soundtrack.
     // Without a resolved track artist, we cannot safely identify an existing
@@ -147,10 +160,13 @@ class LibraryIdentityResolver {
         albumAmbiguous: false,
         editionAmbiguous: false,
         songAmbiguous: false,
+        newEditionType: editionResolution.newEditionType,
       );
     }
 
-    final songs = await songRepository.getByEditionId(edition.id);
+    // The same recording may already be on another edition of this album
+    // (a Standard track on the Deluxe), so the whole album is searched.
+    final songs = await songRepository.getByAlbumId(album.id);
 
     final songMatches = songs
         .where(
@@ -185,6 +201,7 @@ class LibraryIdentityResolver {
       alternateRecordingOf: sameRecording.isEmpty && songMatches.isNotEmpty
           ? songMatches.first
           : null,
+      newEditionType: editionResolution.newEditionType,
     );
   }
 
@@ -219,10 +236,45 @@ class LibraryIdentityResolver {
 
   _EditionResolution _resolveEdition(
     List<AlbumEdition> editions, {
-    required String albumTitle,
+    required String fileAlbumTitle,
+    required ParsedEditionTitle? qualified,
   }) {
+    // The edition named exactly like the file's album, e.g. "locket (Deluxe)".
+    final titleMatches = editions
+        .where(
+          (edition) =>
+              TextNormalizer.canonicalize(edition.title) == fileAlbumTitle,
+        )
+        .toList(growable: false);
+
+    if (titleMatches.length == 1) {
+      return _EditionResolution(edition: titleMatches.single);
+    }
+
+    if (titleMatches.length > 1) {
+      return const _EditionResolution(ambiguous: true);
+    }
+
+    // A recognized edition the album doesn't have yet.
+    if (qualified != null) {
+      return _EditionResolution(newEditionType: qualified.type);
+    }
+
     if (editions.isEmpty) {
       return const _EditionResolution();
+    }
+
+    // An unqualified file for an album that so far only has recognized
+    // special editions (the Deluxe was imported first) is the Standard.
+    // Editions that aren't recognizably special keep the rules below.
+    if (editions.every(
+      (edition) =>
+          edition.type != AlbumEditionType.standard &&
+          EditionTitleParser.parse(edition.title) != null,
+    )) {
+      return const _EditionResolution(
+        newEditionType: AlbumEditionType.standard,
+      );
     }
 
     final primaryEditions = editions
@@ -237,20 +289,6 @@ class LibraryIdentityResolver {
       return const _EditionResolution(ambiguous: true);
     }
 
-    final titleMatches = editions
-        .where(
-          (edition) => TextNormalizer.canonicalize(edition.title) == albumTitle,
-        )
-        .toList(growable: false);
-
-    if (titleMatches.length == 1) {
-      return _EditionResolution(edition: titleMatches.single);
-    }
-
-    if (titleMatches.length > 1) {
-      return const _EditionResolution(ambiguous: true);
-    }
-
     if (editions.length == 1) {
       return _EditionResolution(edition: editions.single);
     }
@@ -260,8 +298,13 @@ class LibraryIdentityResolver {
 }
 
 class _EditionResolution {
-  const _EditionResolution({this.edition, this.ambiguous = false});
+  const _EditionResolution({
+    this.edition,
+    this.ambiguous = false,
+    this.newEditionType,
+  });
 
   final AlbumEdition? edition;
   final bool ambiguous;
+  final AlbumEditionType? newEditionType;
 }
