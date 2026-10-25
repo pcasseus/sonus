@@ -4,6 +4,11 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../../core/design/sonus_artwork_palette.dart';
+import '../../../../core/design/sonus_theme.dart';
+import '../../../../core/design/sonus_tokens.dart';
+import '../../../../core/design/widgets/sonus_artwork_frame.dart';
+import '../../../../core/design/widgets/sonus_segmented_selector.dart';
 import '../../domain/repositories/song_artist_credit_repository.dart';
 import '../../../account/application/controllers/account_controller.dart';
 import '../../../artwork/application/services/artwork_assignment_service.dart';
@@ -36,10 +41,14 @@ class AlbumProfilePage extends StatefulWidget {
     super.key,
     required this.albumId,
     this.initialAlbumTitle,
+    this.artworkPalette,
   });
 
   final String albumId;
   final String? initialAlbumTitle;
+
+  /// Where artwork colours come from; the app-wide cache by default.
+  final SonusArtworkPalette? artworkPalette;
 
   @override
   State<AlbumProfilePage> createState() => _AlbumProfilePageState();
@@ -48,6 +57,48 @@ class AlbumProfilePage extends StatefulWidget {
 class _AlbumProfilePageState extends State<AlbumProfilePage> {
   AlbumProfileController? _controller;
   LibraryQueryRepository? _repository;
+
+  // Artwork atmosphere: theme colours show at once; the artwork's colours
+  // arrive asynchronously and replace them once extracted.
+  SonusArtworkPalette get _palette =>
+      widget.artworkPalette ?? SonusArtworkPalette.shared;
+  String? _atmospherePath;
+  Brightness? _atmosphereBrightness;
+  SonusArtworkColors? _artworkColors;
+
+  /// Asks for the colours of the artwork now on screen. Never sets state
+  /// synchronously, so it is safe to call while building.
+  void _requestAtmosphere(String? artworkPath, Brightness brightness) {
+    if (artworkPath == _atmospherePath && brightness == _atmosphereBrightness) {
+      return;
+    }
+    _atmospherePath = artworkPath;
+    _atmosphereBrightness = brightness;
+
+    unawaited(
+      _palette.colorsFor(artworkPath, brightness: brightness).then((colors) {
+        // A newer artwork (another edition) may have been requested since.
+        if (!mounted ||
+            artworkPath != _atmospherePath ||
+            brightness != _atmosphereBrightness ||
+            colors == _artworkColors) {
+          return;
+        }
+        setState(() {
+          _artworkColors = colors;
+        });
+      }),
+    );
+  }
+
+  void _onControllerChanged() {
+    final controller = _controller;
+    if (controller == null || !mounted) return;
+    _requestAtmosphere(
+      _presentationArtworkPath(controller),
+      Theme.of(context).brightness,
+    );
+  }
 
   @override
   void didChangeDependencies() {
@@ -59,6 +110,7 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
       return;
     }
 
+    _controller?.removeListener(_onControllerChanged);
     _controller?.dispose();
 
     _repository = repository;
@@ -76,6 +128,9 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
       artworkFilePicker: context.read<ArtworkFilePicker?>(),
     );
 
+    // The artwork can change without this State rebuilding: when the album
+    // loads or another edition is selected.
+    _controller!.addListener(_onControllerChanged);
     unawaited(_controller!.load());
   }
 
@@ -84,10 +139,46 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
     final controller = _controller;
     final accountController = context.watch<AccountController?>();
     final userId = accountController?.user?.id;
+    final tokens = SonusTheme.of(context);
 
+    if (controller != null) {
+      _requestAtmosphere(
+        _presentationArtworkPath(controller),
+        Theme.of(context).brightness,
+      );
+    }
+
+    final target = SonusArtworkAtmosphere.resolve(
+      colors: tokens.colors,
+      decoration: tokens.decoration,
+      artwork: _artworkColors,
+    );
+    final reduceMotion =
+        tokens.motion.reduced || MediaQuery.disableAnimationsOf(context);
+
+    // Eases between theme and artwork colours instead of flashing; jumps
+    // straight there with reduced motion.
+    return TweenAnimationBuilder<_AtmosphereColors>(
+      tween: _AtmosphereColorsTween(end: _AtmosphereColors.of(target)),
+      duration: reduceMotion ? Duration.zero : tokens.motion.baseMedium,
+      curve: tokens.motion.curve,
+      builder: (context, atmosphere, _) =>
+          _buildPage(context, controller, userId, atmosphere),
+    );
+  }
+
+  Widget _buildPage(
+    BuildContext context,
+    AlbumProfileController? controller,
+    String? userId,
+    _AtmosphereColors atmosphere,
+  ) {
     return Scaffold(
       key: const ValueKey<String>('album-profile-page'),
+      backgroundColor: atmosphere.background,
       appBar: AppBar(
+        backgroundColor: atmosphere.background,
+        surfaceTintColor: Colors.transparent,
         title: controller == null
             ? Text(widget.initialAlbumTitle ?? 'Album')
             : AnimatedBuilder(
@@ -162,47 +253,67 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
                   return const SizedBox.shrink();
                 }
 
+                final gutter = SonusTheme.of(context).metrics.pageGutter;
+
                 return RefreshIndicator(
                   onRefresh: controller.refresh,
                   child: ListView(
                     key: const PageStorageKey<String>('album-profile-scroll'),
                     physics: const AlwaysScrollableScrollPhysics(),
-                    padding: const EdgeInsets.fromLTRB(16, 20, 16, 32),
+                    // The bottom inset keeps the last track clear of
+                    // anything anchored at the bottom of the app, such as
+                    // a persistent mini-player that reserves its space.
+                    padding: EdgeInsets.only(
+                      bottom: 32 + MediaQuery.paddingOf(context).bottom,
+                    ),
                     children: [
-                      _AlbumHeader(
+                      _AlbumHero(
                         album: album,
                         controller: controller,
                         artworkPath: _presentationArtworkPath(controller),
+                        atmosphere: atmosphere,
                       ),
-                      const SizedBox(height: 20),
-                      if (controller.editions.length > 1) ...[
-                        _EditionSelector(controller: controller),
-                        const SizedBox(height: 20),
-                      ],
-                      _PlaybackControls(controller: controller),
-                      const SizedBox(height: 28),
-                      _SectionHeading(
-                        title: 'Tracks',
+                      Padding(
+                        padding: EdgeInsets.symmetric(horizontal: gutter),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            if (controller.editions.length > 1) ...[
+                              _EditionSelector(
+                                controller: controller,
+                                atmosphere: atmosphere,
+                              ),
+                              const SizedBox(height: 18),
+                            ],
+                            _PlaybackControls(
+                              controller: controller,
+                              atmosphere: atmosphere,
+                            ),
+                            const SizedBox(height: 24),
+                          ],
+                        ),
+                      ),
+                      _TracksSection(
+                        atmosphere: atmosphere,
                         count: controller.tracks
                             .where(_hasAvailableMedia)
                             .length,
-                      ),
-                      const SizedBox(height: 8),
-                      _TracksList(
-                        controller: controller,
-                        canEditTrack: controller.canEditTrack(userId),
-                        canSetBlocked: controller.canSetTrackBlocked(userId),
-                        onEditTrack: (track) =>
-                            _editTrack(controller, track, userId),
-                        onChangeArtwork: (track) =>
-                            _changeTrackArtwork(controller, track),
-                        onClearArtwork: (track) =>
-                            _clearTrackArtwork(controller, track),
-                        onSetBlocked: (track, isBlocked) => _setTrackBlocked(
-                          controller,
-                          track,
-                          userId,
-                          isBlocked,
+                        child: _TracksList(
+                          controller: controller,
+                          canEditTrack: controller.canEditTrack(userId),
+                          canSetBlocked: controller.canSetTrackBlocked(userId),
+                          onEditTrack: (track) =>
+                              _editTrack(controller, track, userId),
+                          onChangeArtwork: (track) =>
+                              _changeTrackArtwork(controller, track),
+                          onClearArtwork: (track) =>
+                              _clearTrackArtwork(controller, track),
+                          onSetBlocked: (track, isBlocked) => _setTrackBlocked(
+                            controller,
+                            track,
+                            userId,
+                            isBlocked,
+                          ),
                         ),
                       ),
                     ],
@@ -580,10 +691,15 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
 
   @override
   void dispose() {
+    _controller?.removeListener(_onControllerChanged);
     _controller?.dispose();
     super.dispose();
   }
 }
+
+/// Text scale above which rows and controls switch to their large-text
+/// layout, as in the shared Sonus data components.
+const double _largeTextScale = 1.3;
 
 bool _hasAvailableMedia(LibraryTrack track) {
   return track.isAvailable &&
@@ -591,68 +707,213 @@ bool _hasAvailableMedia(LibraryTrack track) {
       track.filePath!.trim().isNotEmpty;
 }
 
-class _AlbumHeader extends StatelessWidget {
-  const _AlbumHeader({
+/// The colours the page paints with: theme colours, nudged by artwork.
+@immutable
+class _AtmosphereColors {
+  const _AtmosphereColors({
+    required this.background,
+    required this.surface,
+    required this.accent,
+    required this.onAccent,
+    required this.isTinted,
+  });
+
+  factory _AtmosphereColors.of(SonusArtworkAtmosphere atmosphere) {
+    return _AtmosphereColors(
+      background: atmosphere.background,
+      surface: atmosphere.surface,
+      accent: atmosphere.accent,
+      onAccent: atmosphere.onAccent,
+      isTinted: atmosphere.isTinted,
+    );
+  }
+
+  final Color background;
+  final Color surface;
+  final Color accent;
+  final Color onAccent;
+  final bool isTinted;
+
+  static _AtmosphereColors lerp(
+    _AtmosphereColors a,
+    _AtmosphereColors b,
+    double t,
+  ) {
+    return _AtmosphereColors(
+      background: Color.lerp(a.background, b.background, t)!,
+      surface: Color.lerp(a.surface, b.surface, t)!,
+      accent: Color.lerp(a.accent, b.accent, t)!,
+      // The text colour on the accent switches rather than blends, so it
+      // never passes through a low-contrast midpoint.
+      onAccent: t < 0.5 ? a.onAccent : b.onAccent,
+      isTinted: t < 0.5 ? a.isTinted : b.isTinted,
+    );
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is _AtmosphereColors &&
+      other.background == background &&
+      other.surface == surface &&
+      other.accent == accent &&
+      other.onAccent == onAccent &&
+      other.isTinted == isTinted;
+
+  @override
+  int get hashCode =>
+      Object.hash(background, surface, accent, onAccent, isTinted);
+}
+
+class _AtmosphereColorsTween extends Tween<_AtmosphereColors> {
+  _AtmosphereColorsTween({super.end});
+
+  @override
+  _AtmosphereColors lerp(double t) => _AtmosphereColors.lerp(begin!, end!, t);
+}
+
+/// Artwork, title, artist, edition and release details, on a background
+/// that flows from the artwork's tint into the page.
+class _AlbumHero extends StatelessWidget {
+  const _AlbumHero({
     required this.album,
     required this.controller,
     required this.artworkPath,
+    required this.atmosphere,
   });
 
   final LibraryAlbum album;
   final AlbumProfileController controller;
   final String? artworkPath;
+  final _AtmosphereColors atmosphere;
+
+  /// Page width from which the artwork sits beside the details
+  /// (landscape and tablets), keeping the track list in view.
+  static const double wideLayoutWidth = 560;
 
   @override
   Widget build(BuildContext context) {
+    final tokens = SonusTheme.of(context);
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        // Both ends keep text readable (the atmosphere guarantees it), so
+        // every blend between them does too.
+        gradient: atmosphere.isTinted
+            ? LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [atmosphere.surface, atmosphere.background],
+              )
+            : null,
+        color: atmosphere.isTinted ? null : atmosphere.background,
+      ),
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          tokens.metrics.pageGutter,
+          12,
+          tokens.metrics.pageGutter,
+          20,
+        ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final glow = atmosphere.isTinted && tokens.decoration.allowGlow
+                ? atmosphere.accent
+                : null;
+
+            if (constraints.maxWidth >= wideLayoutWidth) {
+              final size = (constraints.maxWidth * 0.3).clamp(140.0, 220.0);
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  _AlbumArtwork(
+                    album: album,
+                    artworkPath: artworkPath,
+                    size: size,
+                    glow: glow,
+                  ),
+                  const SizedBox(width: 24),
+                  Expanded(child: _details(context, centered: false)),
+                ],
+              );
+            }
+
+            final size = (constraints.maxWidth * 0.66).clamp(140.0, 264.0);
+            return Column(
+              children: [
+                _AlbumArtwork(
+                  album: album,
+                  artworkPath: artworkPath,
+                  size: size,
+                  glow: glow,
+                ),
+                const SizedBox(height: 20),
+                _details(context, centered: true),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _details(BuildContext context, {required bool centered}) {
+    final colors = SonusTheme.of(context).colors;
     final theme = Theme.of(context);
     final metadata = _metadata(album);
+    final edition = controller.selectedEdition;
+    const tabular = [FontFeature.tabularFigures()];
+    final align = centered ? TextAlign.center : TextAlign.start;
 
     return Column(
+      crossAxisAlignment: centered
+          ? CrossAxisAlignment.center
+          : CrossAxisAlignment.start,
       children: [
-        _AlbumArtwork(album: album, artworkPath: artworkPath),
-        const SizedBox(height: 18),
         Text(
-          _presentationAlbumTitle(album, controller.selectedEdition),
+          _presentationAlbumTitle(album, edition),
           key: ValueKey<String>('album-profile-title-${album.albumId}'),
-          textAlign: TextAlign.center,
+          textAlign: align,
           style: theme.textTheme.headlineSmall?.copyWith(
-            fontWeight: FontWeight.w700,
+            color: colors.textPrimary,
+            fontWeight: FontWeight.w800,
           ),
         ),
         const SizedBox(height: 6),
         Text(
           album.artistName,
           key: ValueKey<String>('album-profile-artist-${album.artistId}'),
-          textAlign: TextAlign.center,
-          style: theme.textTheme.titleMedium,
+          textAlign: align,
+          style: theme.textTheme.titleMedium?.copyWith(
+            color: colors.textSecondary,
+          ),
         ),
-        if (controller.selectedEdition != null) ...[
-          const SizedBox(height: 6),
-          Text(
-            _editionDisplayLabel(controller.selectedEdition!),
-            key: const ValueKey<String>('album-profile-selected-edition-label'),
-            textAlign: TextAlign.center,
-            style: theme.textTheme.labelLarge?.copyWith(
-              color: theme.colorScheme.primary,
-              fontWeight: FontWeight.w700,
-            ),
+        if (edition != null) ...[
+          const SizedBox(height: 10),
+          _EditionBadge(
+            label: _editionDisplayLabel(edition),
+            atmosphere: atmosphere,
           ),
         ],
-
-        const SizedBox(height: 10),
+        const SizedBox(height: 12),
         Text(
           _summary(),
           key: const ValueKey<String>('album-profile-summary'),
-          textAlign: TextAlign.center,
-          style: theme.textTheme.bodyMedium,
+          textAlign: align,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: colors.textPrimary,
+            fontFeatures: tabular,
+          ),
         ),
         if (metadata.isNotEmpty) ...[
-          const SizedBox(height: 6),
+          const SizedBox(height: 4),
           Text(
             metadata,
             key: const ValueKey<String>('album-profile-metadata'),
-            textAlign: TextAlign.center,
-            style: theme.textTheme.bodySmall,
+            textAlign: align,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: colors.textSecondary,
+              fontFeatures: tabular,
+            ),
           ),
         ],
       ],
@@ -680,7 +941,7 @@ class _AlbumHeader extends StatelessWidget {
       return '$trackCount $trackLabel';
     }
 
-    return '$trackCount $trackLabel \u2022 $runtime';
+    return '$trackCount $trackLabel • $runtime';
   }
 
   String _metadata(LibraryAlbum album) {
@@ -758,93 +1019,299 @@ class _AlbumHeader extends StatelessWidget {
   }
 }
 
-class _AlbumArtwork extends StatelessWidget {
-  const _AlbumArtwork({required this.album, required this.artworkPath});
+/// The selected edition's name, outlined in the album's accent.
+class _EditionBadge extends StatelessWidget {
+  const _EditionBadge({required this.label, required this.atmosphere});
 
-  final LibraryAlbum album;
-  final String? artworkPath;
+  final String label;
+  final _AtmosphereColors atmosphere;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final path = artworkPath;
+    final tokens = SonusTheme.of(context);
 
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(20),
-      child: SizedBox(
-        key: ValueKey<String>('album-profile-artwork-${album.albumId}'),
-        width: 156,
-        height: 156,
-        child: path == null
-            ? _fallback(theme)
-            : Image.file(
-                File(path),
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) {
-                  return _fallback(theme);
-                },
-              ),
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        border: Border.all(color: atmosphere.accent),
+        borderRadius: BorderRadius.circular(tokens.metrics.controlRadius),
       ),
-    );
-  }
-
-  Widget _fallback(ThemeData theme) {
-    return ColoredBox(
-      key: const ValueKey<String>('album-profile-artwork-fallback'),
-      color: theme.colorScheme.surfaceContainerHighest,
-      child: Center(
-        child: Icon(
-          Icons.album_rounded,
-          size: 82,
-          color: theme.colorScheme.primary,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+        child: Text(
+          label,
+          key: const ValueKey<String>('album-profile-selected-edition-label'),
+          textAlign: TextAlign.center,
+          style: Theme.of(context).textTheme.labelLarge?.copyWith(
+            color: tokens.colors.textPrimary,
+            fontWeight: FontWeight.w800,
+          ),
         ),
       ),
     );
   }
 }
 
+class _AlbumArtwork extends StatelessWidget {
+  const _AlbumArtwork({
+    required this.album,
+    required this.artworkPath,
+    required this.size,
+    this.glow,
+  });
+
+  final LibraryAlbum album;
+  final String? artworkPath;
+  final double size;
+
+  /// A soft glow in the artwork's accent, only with decoration effects on.
+  final Color? glow;
+
+  @override
+  Widget build(BuildContext context) {
+    final path = artworkPath;
+    final glow = this.glow;
+    // Decoded at its display size, never at the cover's full resolution.
+    final cacheSize = (size * MediaQuery.devicePixelRatioOf(context)).round();
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(
+          SonusTheme.of(context).metrics.artworkRadius,
+        ),
+        boxShadow: glow == null
+            ? null
+            : [
+                BoxShadow(
+                  color: glow.withValues(alpha: 0.32),
+                  blurRadius: 36,
+                  spreadRadius: 2,
+                ),
+              ],
+      ),
+      child: SonusArtworkFrame(
+        key: ValueKey<String>('album-profile-artwork-${album.albumId}'),
+        size: size,
+        child: path == null
+            ? const _ArtworkFallback()
+            : Image.file(
+                File(path),
+                fit: BoxFit.cover,
+                cacheWidth: cacheSize,
+                // Keeps the previous edition's cover until the next one is
+                // ready, so switching editions never flashes empty.
+                gaplessPlayback: true,
+                errorBuilder: (context, error, stackTrace) {
+                  return const _ArtworkFallback();
+                },
+              ),
+      ),
+    );
+  }
+}
+
+class _ArtworkFallback extends StatelessWidget {
+  const _ArtworkFallback();
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = SonusTheme.of(context).colors;
+
+    return ColoredBox(
+      key: const ValueKey<String>('album-profile-artwork-fallback'),
+      color: colors.artworkPlaceholder,
+      child: Center(
+        child: FractionallySizedBox(
+          widthFactor: 0.5,
+          heightFactor: 0.5,
+          child: FittedBox(
+            child: Icon(
+              Icons.album_rounded,
+              color: colors.onArtworkPlaceholder,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Switches between the album's real editions. Only shown when two or more
+/// exist; the options come from the album's data and nothing else.
+///
+/// A segmented control when every edition fits on one line, otherwise
+/// wrapping choices, so long edition titles are never clipped or hidden off
+/// screen.
 class _EditionSelector extends StatelessWidget {
-  const _EditionSelector({required this.controller});
+  const _EditionSelector({required this.controller, required this.atmosphere});
 
   final AlbumProfileController controller;
+  final _AtmosphereColors atmosphere;
 
   @override
   Widget build(BuildContext context) {
     final selectedEdition = controller.selectedEdition;
+    final editions = controller.editions;
 
-    if (selectedEdition == null || controller.editions.length < 2) {
+    if (selectedEdition == null || editions.length < 2) {
       return const SizedBox.shrink();
     }
 
-    // Its own scroll storage: without it, this horizontal scroller shares the
-    // page list's slot and reopens at the page's vertical offset.
-    return KeyedSubtree(
-      key: const PageStorageKey<String>(
-        'album-profile-edition-selector-scroll',
-      ),
-      child: SingleChildScrollView(
-        key: const ValueKey<String>('album-profile-edition-selector'),
-        scrollDirection: Axis.horizontal,
-        child: SegmentedButton<String>(
-          key: const ValueKey<String>('album-profile-edition-segmented-button'),
-          segments: [
-            for (final edition in controller.editions)
-              ButtonSegment<String>(
-                value: edition.editionId,
-                label: Text(_editionDisplayLabel(edition)),
-              ),
-          ],
-          selected: {selectedEdition.editionId},
-          showSelectedIcon: false,
-          onSelectionChanged: (selection) {
-            if (selection.isEmpty) {
-              return;
-            }
+    final labels = [
+      for (final edition in editions) _editionDisplayLabel(edition),
+    ];
 
-            unawaited(controller.selectEdition(selection.first));
-          },
-        ),
+    return Semantics(
+      container: true,
+      label: 'Album edition',
+      child: LayoutBuilder(
+        key: const ValueKey<String>('album-profile-edition-selector'),
+        builder: (context, constraints) {
+          if (_fitsOnOneLine(context, labels, constraints.maxWidth)) {
+            return Center(
+              // Its own scroll storage: without it, this horizontal
+              // scroller shares the page list's slot and reopens at the
+              // page's vertical offset.
+              child: KeyedSubtree(
+                key: const PageStorageKey<String>(
+                  'album-profile-edition-selector-scroll',
+                ),
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: SonusSegmentedSelector<String>(
+                    key: const ValueKey<String>(
+                      'album-profile-edition-segmented-button',
+                    ),
+                    segments: [
+                      for (final (index, edition) in editions.indexed)
+                        SonusSegment<String>(
+                          value: edition.editionId,
+                          label: labels[index],
+                        ),
+                    ],
+                    selected: selectedEdition.editionId,
+                    selectedBackgroundColor: atmosphere.accent,
+                    selectedForegroundColor: atmosphere.onAccent,
+                    onChanged: _select,
+                  ),
+                ),
+              ),
+            );
+          }
+
+          return _EditionChoices(
+            editions: editions,
+            labels: labels,
+            selectedId: selectedEdition.editionId,
+            maxWidth: constraints.maxWidth,
+            atmosphere: atmosphere,
+            onSelected: _select,
+          );
+        },
       ),
+    );
+  }
+
+  void _select(String editionId) {
+    if (editionId == controller.selectedEdition?.editionId) return;
+    unawaited(controller.selectEdition(editionId));
+  }
+
+  /// Whether a segmented control holding [labels] fits in [maxWidth]. Its
+  /// segments share the widest label's width, plus padding and the
+  /// selected checkmark.
+  static bool _fitsOnOneLine(
+    BuildContext context,
+    List<String> labels,
+    double maxWidth,
+  ) {
+    final style = Theme.of(context).textTheme.labelLarge;
+    final scaler = MediaQuery.textScalerOf(context);
+    var widest = 0.0;
+    for (final label in labels) {
+      final painter = TextPainter(
+        text: TextSpan(text: label, style: style),
+        textScaler: scaler,
+        textDirection: Directionality.of(context),
+        maxLines: 1,
+      )..layout();
+      if (painter.width > widest) widest = painter.width;
+      painter.dispose();
+    }
+    const segmentChrome = 24 + 26 + 2; // padding, checkmark, border
+    return (widest + segmentChrome) * labels.length <= maxWidth;
+  }
+}
+
+class _EditionChoices extends StatelessWidget {
+  const _EditionChoices({
+    required this.editions,
+    required this.labels,
+    required this.selectedId,
+    required this.maxWidth,
+    required this.atmosphere,
+    required this.onSelected,
+  });
+
+  final List<LibraryAlbumEdition> editions;
+  final List<String> labels;
+  final String selectedId;
+  final double maxWidth;
+  final _AtmosphereColors atmosphere;
+  final ValueChanged<String> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = SonusTheme.of(context);
+    final colors = tokens.colors;
+
+    return Wrap(
+      key: const ValueKey<String>('album-profile-edition-choices'),
+      alignment: WrapAlignment.center,
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        for (final (index, edition) in editions.indexed)
+          () {
+            final selected = edition.editionId == selectedId;
+            return ChoiceChip(
+              key: ValueKey<String>(
+                'album-profile-edition-choice-${edition.editionId}',
+              ),
+              label: ConstrainedBox(
+                // Long titles wrap inside the chip instead of clipping.
+                constraints: BoxConstraints(maxWidth: maxWidth - 64),
+                // Chips force their label onto one line; a fresh text
+                // style without a line limit lets long titles wrap fully.
+                child: Builder(
+                  builder: (context) => DefaultTextStyle(
+                    style: DefaultTextStyle.of(context).style,
+                    child: Text(labels[index]),
+                  ),
+                ),
+              ),
+              selected: selected,
+              showCheckmark: true,
+              checkmarkColor: selected
+                  ? atmosphere.onAccent
+                  : colors.textPrimary,
+              selectedColor: atmosphere.accent,
+              backgroundColor: Colors.transparent,
+              labelStyle: TextStyle(
+                color: selected ? atmosphere.onAccent : colors.textPrimary,
+                fontWeight: selected ? FontWeight.w800 : FontWeight.w500,
+              ),
+              side: BorderSide(
+                color: selected ? atmosphere.accent : colors.border,
+              ),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(
+                  tokens.metrics.controlRadius,
+                ),
+              ),
+              onSelected: (_) => onSelected(edition.editionId),
+            );
+          }(),
+      ],
     );
   }
 }
@@ -906,18 +1373,36 @@ bool _isGenericEditionTitle(String title) {
 }
 
 class _PlaybackControls extends StatelessWidget {
-  const _PlaybackControls({required this.controller});
+  const _PlaybackControls({required this.controller, required this.atmosphere});
 
   final AlbumProfileController controller;
+  final _AtmosphereColors atmosphere;
 
   @override
   Widget build(BuildContext context) {
+    final tokens = SonusTheme.of(context);
+    final colors = tokens.colors;
+    final shape = RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(tokens.metrics.controlRadius),
+    );
+
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        IconButton.filledTonal(
+        IconButton.outlined(
           key: const ValueKey<String>('album-profile-shuffle-button'),
           tooltip: controller.isShuffleEnabled ? 'Shuffle on' : 'Shuffle off',
+          isSelected: controller.isShuffleEnabled,
+          style: IconButton.styleFrom(
+            minimumSize: const Size.square(48),
+            foregroundColor: colors.textPrimary,
+            side: BorderSide(
+              color: controller.isShuffleEnabled
+                  ? atmosphere.accent
+                  : colors.border,
+            ),
+            shape: shape,
+          ),
           onPressed: controller.hasPlayableTracks
               ? () {
                   unawaited(controller.toggleShuffle());
@@ -930,41 +1415,91 @@ class _PlaybackControls extends StatelessWidget {
           ),
         ),
         const SizedBox(width: 12),
-        FilledButton.icon(
-          key: const ValueKey<String>('album-profile-play-all-button'),
-          onPressed: controller.hasPlayableTracks
-              ? () {
-                  unawaited(controller.playAll());
-                }
-              : null,
-          icon: const Icon(Icons.play_arrow_rounded),
-          label: const Text('Play'),
+        Flexible(
+          child: FilledButton.icon(
+            key: const ValueKey<String>('album-profile-play-all-button'),
+            style: FilledButton.styleFrom(
+              minimumSize: const Size(132, 48),
+              backgroundColor: atmosphere.accent,
+              foregroundColor: atmosphere.onAccent,
+              shape: shape,
+            ),
+            onPressed: controller.hasPlayableTracks
+                ? () {
+                    unawaited(controller.playAll());
+                  }
+                : null,
+            icon: const Icon(Icons.play_arrow_rounded),
+            label: const Text('Play'),
+          ),
         ),
       ],
     );
   }
 }
 
-class _SectionHeading extends StatelessWidget {
-  const _SectionHeading({required this.title, required this.count});
+/// The track list's tinted surface, continuing the artwork's atmosphere
+/// below the controls.
+class _TracksSection extends StatelessWidget {
+  const _TracksSection({
+    required this.atmosphere,
+    required this.count,
+    required this.child,
+  });
 
-  final String title;
+  final _AtmosphereColors atmosphere;
   final int count;
+  final Widget child;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: Text(
-            title,
-            style: Theme.of(
-              context,
-            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700),
-          ),
+    final tokens = SonusTheme.of(context);
+    final colors = tokens.colors;
+    final theme = Theme.of(context);
+    final gutter = tokens.metrics.pageGutter;
+
+    return Material(
+      key: const ValueKey<String>('album-profile-tracks-section'),
+      // A Material, so row ripples show on the tinted surface.
+      color: atmosphere.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(tokens.metrics.cardRadius + 8),
         ),
-        Text('$count', style: Theme.of(context).textTheme.bodyMedium),
-      ],
+      ),
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(gutter, 18, gutter, 8),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Semantics(
+                    header: true,
+                    child: Text(
+                      'Tracks',
+                      style: theme.textTheme.titleLarge?.copyWith(
+                        color: colors.textPrimary,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ),
+                Text(
+                  '$count',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: colors.textSecondary,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            child,
+          ],
+        ),
+      ),
     );
   }
 }
@@ -1003,12 +1538,22 @@ class _TracksList extends StatelessWidget {
       return const _EmptySection(message: 'No tracks yet');
     }
 
+    // Disc headings only when the edition really spans several discs. They
+    // follow the list's existing order; nothing is re-sorted here.
+    final multiDisc =
+        tracks.map((track) => track.discNumber).toSet().length > 1;
+
     return Column(
       key: const ValueKey<String>('album-profile-tracks-list'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        for (final track in tracks)
+        for (final (index, track) in tracks.indexed) ...[
+          if (multiDisc &&
+              (index == 0 || tracks[index - 1].discNumber != track.discNumber))
+            _DiscHeading(disc: track.discNumber, index: index),
           _TrackTile(
             track: track,
+            selectedEditionTitle: controller.selectedEdition?.title,
             isPlayable: controller.isTrackPlayable(track),
             canEditArtwork: controller.canEditTrackArtwork,
             canEditTrack: canEditTrack,
@@ -1022,7 +1567,39 @@ class _TracksList extends StatelessWidget {
             onClearArtwork: () => onClearArtwork(track),
             onSetBlocked: (isBlocked) => onSetBlocked(track, isBlocked),
           ),
+        ],
       ],
+    );
+  }
+}
+
+class _DiscHeading extends StatelessWidget {
+  const _DiscHeading({required this.disc, required this.index});
+
+  final int disc;
+
+  /// Position in the list, so a disc that appears twice keeps unique keys.
+  final int index;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = SonusTheme.of(context).colors;
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 14, bottom: 4),
+      child: Semantics(
+        header: true,
+        child: Text(
+          'Disc $disc',
+          key: ValueKey<String>('album-profile-disc-heading-$index'),
+          style: Theme.of(context).textTheme.labelLarge?.copyWith(
+            color: colors.textSecondary,
+            fontWeight: FontWeight.w800,
+            letterSpacing: 1.2,
+            fontFeatures: const [FontFeature.tabularFigures()],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -1030,6 +1607,7 @@ class _TracksList extends StatelessWidget {
 class _TrackTile extends StatelessWidget {
   const _TrackTile({
     required this.track,
+    this.selectedEditionTitle,
     required this.isPlayable,
     required this.canEditArtwork,
     required this.canEditTrack,
@@ -1045,6 +1623,9 @@ class _TrackTile extends StatelessWidget {
   });
 
   final LibraryTrack track;
+
+  /// The edition on screen; a row names its edition only when it differs.
+  final String? selectedEditionTitle;
   final bool isPlayable;
   final bool canEditArtwork;
   final bool canEditTrack;
@@ -1061,23 +1642,57 @@ class _TrackTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = SonusTheme.of(context).colors;
+    final theme = Theme.of(context);
+    const tabular = [FontFeature.tabularFigures()];
+    // Above 1.3x text the duration moves onto the credit line, so the title
+    // keeps enough width to wrap between words, not inside them.
+    final largeText =
+        MediaQuery.textScalerOf(context).scale(1) > _largeTextScale;
+    final duration = _formatDuration(track.durationSeconds);
+
     return ListTile(
       key: ValueKey<String>('album-track-${track.songId}'),
       contentPadding: EdgeInsets.zero,
+      minTileHeight: 56,
       enabled: isPlayable,
-      leading: SizedBox(
-        width: 32,
-        child: Center(child: Text('${track.trackNumber}')),
+      textColor: colors.textPrimary,
+      iconColor: colors.textSecondary,
+      // At least 28px, growing with the text, so "10" never wraps.
+      leading: ConstrainedBox(
+        constraints: BoxConstraints(
+          minWidth: MediaQuery.textScalerOf(context).scale(28),
+        ),
+        child: Text(
+          '${track.trackNumber}',
+          textAlign: TextAlign.center,
+          maxLines: 1,
+          softWrap: false,
+          style: theme.textTheme.titleSmall?.copyWith(
+            color: colors.textSecondary,
+            fontWeight: FontWeight.w700,
+            fontFeatures: tabular,
+          ),
+        ),
       ),
-      title: Text(track.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-      subtitle: _subtitle(track),
+      title: Text(
+        track.title,
+        maxLines: largeText ? 3 : 2,
+        overflow: TextOverflow.ellipsis,
+        style: theme.textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
+      ),
+      subtitle: _subtitle(track, colors, duration: largeText ? duration : null),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(
-            _formatDuration(track.durationSeconds),
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
+          if (!largeText)
+            Text(
+              duration,
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: colors.textSecondary,
+                fontFeatures: tabular,
+              ),
+            ),
           PopupMenuButton<_TrackMenuAction>(
             key: ValueKey<String>('album-track-menu-${track.songId}'),
             enabled:
@@ -1162,8 +1777,12 @@ class _TrackTile extends StatelessWidget {
     );
   }
 
-  Widget? _subtitle(LibraryTrack track) {
-    final parts = <String>[];
+  Widget? _subtitle(
+    LibraryTrack track,
+    SonusColors colors, {
+    String? duration,
+  }) {
+    final parts = <String>[?duration];
 
     if (track.isBlocked) {
       parts.add('Blacklisted');
@@ -1178,8 +1797,11 @@ class _TrackTile extends StatelessWidget {
     }
 
     final editionTitle = track.albumEditionTitle.trim();
+    final onScreen = selectedEditionTitle?.trim().toLowerCase();
 
-    if (editionTitle.isNotEmpty && editionTitle.toLowerCase() != 'standard') {
+    if (editionTitle.isNotEmpty &&
+        editionTitle.toLowerCase() != 'standard' &&
+        editionTitle.toLowerCase() != onScreen) {
       parts.add(editionTitle);
     }
 
@@ -1189,8 +1811,12 @@ class _TrackTile extends StatelessWidget {
 
     return Text(
       parts.join(' \u2022 '),
-      maxLines: 1,
+      maxLines: 2,
       overflow: TextOverflow.ellipsis,
+      style: TextStyle(
+        color: colors.textSecondary,
+        fontFeatures: const [FontFeature.tabularFigures()],
+      ),
     );
   }
 
@@ -1224,7 +1850,12 @@ class _EmptySection extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 28),
       child: Center(
-        child: Text(message, style: Theme.of(context).textTheme.bodyMedium),
+        child: Text(
+          message,
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+            color: SonusTheme.of(context).colors.textSecondary,
+          ),
+        ),
       ),
     );
   }
@@ -1243,7 +1874,11 @@ class _AlbumProfileLoadError extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.error_outline_rounded, size: 48),
+            Icon(
+              Icons.error_outline_rounded,
+              size: 48,
+              color: SonusTheme.of(context).colors.textSecondary,
+            ),
             const SizedBox(height: 16),
             const Text(
               'Could not load this album.',
@@ -1269,15 +1904,19 @@ class _AlbumNotFound extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Center(
+    return Center(
       child: Padding(
-        padding: EdgeInsets.all(24),
+        padding: const EdgeInsets.all(24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.album_outlined, size: 48),
-            SizedBox(height: 16),
-            Text('Album not found', textAlign: TextAlign.center),
+            Icon(
+              Icons.album_outlined,
+              size: 48,
+              color: SonusTheme.of(context).colors.textSecondary,
+            ),
+            const SizedBox(height: 16),
+            const Text('Album not found', textAlign: TextAlign.center),
           ],
         ),
       ),

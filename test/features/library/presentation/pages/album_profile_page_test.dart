@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sonus_next/core/design/sonus_artwork_palette.dart';
 import 'package:sonus_next/features/library/domain/services/metadata_authority_policy.dart';
 import 'package:sonus_next/features/artwork/data/services/cover_art_archive/cover_art_cancellation.dart';
 import 'package:sonus_next/features/artwork/application/services/cover_art_album_edition_assignment_service.dart';
@@ -279,94 +280,147 @@ void main() {
       expect(find.text('2 tracks • 6 min'), findsOneWidget);
     });
 
-    // Regression (SN-48J J1): the edition selector's horizontal scroller had
-    // no PageStorage slot of its own. It shared the page list's slot, so when
-    // it was rebuilt while scrolling back up it reopened at the page's
-    // vertical offset instead of its first edition.
-    testWidgets('edition selector keeps its own horizontal scroll position', (
-      tester,
-    ) async {
-      await tester.binding.setSurfaceSize(const Size(320, 640));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
+    // Regression (SN-48J J1, revised in J6): the edition selector's
+    // horizontal scroller had no PageStorage slot of its own. It shared the
+    // page list's slot, so when rebuilt while scrolling back up it reopened
+    // at the page's vertical offset and its options slid out of view. Since
+    // J6, editions that don't fit on one line wrap instead of scrolling.
+    group('edition selector after scrolling away and back', () {
+      Future<FakeEditionAwareLibraryQueryRepository> pumpEditions(
+        WidgetTester tester,
+        List<String> titles, {
+        double width = 320,
+      }) async {
+        await tester.binding.setSurfaceSize(Size(width, 640));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
 
-      final repository = FakeEditionAwareLibraryQueryRepository(
-        album: createAlbum(
-          title: 'Long Album',
-          primaryEditionId: 'edition-0',
-          primaryEditionTitle: 'Standard',
-          primaryEditionType: AlbumEditionType.standard,
-        ),
-        editions: [
-          for (var i = 0; i < 6; i++)
-            createLibraryEdition(
-              editionId: 'edition-$i',
-              title: i == 0 ? 'Standard' : 'Alternate Release Number $i',
-              type: i == 0 ? AlbumEditionType.standard : AlbumEditionType.other,
-              isPrimary: i == 0,
-            ),
-        ],
-        editionTracks: {
-          'edition-0': [
-            for (var number = 1; number <= 40; number++)
-              createTrack(
-                songId: 'song-$number',
-                title: 'Song $number',
-                albumEditionId: 'edition-0',
-                albumEditionTitle: 'Standard',
-                albumEditionType: AlbumEditionType.standard,
-                trackNumber: number,
+        final repository = FakeEditionAwareLibraryQueryRepository(
+          album: createAlbum(
+            title: 'Long Album',
+            primaryEditionId: 'edition-0',
+            primaryEditionTitle: 'Standard',
+            primaryEditionType: AlbumEditionType.standard,
+          ),
+          editions: [
+            for (final (i, title) in titles.indexed)
+              createLibraryEdition(
+                editionId: 'edition-$i',
+                title: title,
+                type: i == 0
+                    ? AlbumEditionType.standard
+                    : title == 'Deluxe'
+                    ? AlbumEditionType.deluxe
+                    : AlbumEditionType.other,
+                isPrimary: i == 0,
               ),
           ],
-        },
-      );
+          editionTracks: {
+            'edition-0': [
+              for (var number = 1; number <= 40; number++)
+                createTrack(
+                  songId: 'song-$number',
+                  title: 'Song $number',
+                  albumEditionId: 'edition-0',
+                  albumEditionTitle: 'Standard',
+                  albumEditionType: AlbumEditionType.standard,
+                  trackNumber: number,
+                ),
+            ],
+          },
+        );
 
-      await tester.pumpWidget(buildSubject(repository: repository));
-      await tester.pumpAndSettle();
-
-      final selectorFinder = find.descendant(
-        of: find.byKey(
-          const ValueKey<String>('album-profile-edition-selector'),
-        ),
-        matching: find.byType(Scrollable),
-      );
-      ScrollableState selector() =>
-          tester.state<ScrollableState>(selectorFinder.first);
-      ScrollableState page() => tester.state<ScrollableState>(
-        find
-            .descendant(
-              of: find.byKey(
-                const PageStorageKey<String>('album-profile-scroll'),
-              ),
-              matching: find.byType(Scrollable),
-            )
-            .first,
-      );
-
-      expect(selector().position.maxScrollExtent, greaterThan(0));
-      expect(selector().position.pixels, 0);
-
-      // Scroll to the end so the selector is disposed and the page stores
-      // its offset; the lazy extent grows, so jump until it settles.
-      for (var i = 0; i < 10; i++) {
-        final end = page().position.maxScrollExtent;
-        page().position.jumpTo(end);
+        await tester.pumpWidget(buildSubject(repository: repository));
         await tester.pumpAndSettle();
-        if (page().position.maxScrollExtent == end) break;
+        return repository;
       }
-      expect(selectorFinder, findsNothing);
 
-      // Scroll back up the way a fling does: the selector is rebuilt while
-      // the page is still moving.
-      unawaited(
-        page().position.animateTo(
-          0,
-          duration: const Duration(milliseconds: 400),
-          curve: Curves.linear,
-        ),
-      );
-      await tester.pumpAndSettle();
+      ScrollableState page(WidgetTester tester) =>
+          tester.state<ScrollableState>(
+            find
+                .descendant(
+                  of: find.byKey(
+                    const PageStorageKey<String>('album-profile-scroll'),
+                  ),
+                  matching: find.byType(Scrollable),
+                )
+                .first,
+          );
 
-      expect(selector().position.pixels, 0);
+      Future<void> scrollAwayAndFlingBack(WidgetTester tester) async {
+        // The lazy extent grows, so jump until it settles; the selector is
+        // disposed and the page stores its offset.
+        for (var i = 0; i < 10; i++) {
+          final end = page(tester).position.maxScrollExtent;
+          page(tester).position.jumpTo(end);
+          await tester.pumpAndSettle();
+          if (page(tester).position.maxScrollExtent == end) break;
+        }
+        expect(
+          find.byKey(const ValueKey<String>('album-profile-edition-selector')),
+          findsNothing,
+        );
+
+        // Back up the way a fling does: rebuilt while the page still moves.
+        unawaited(
+          page(tester).position.animateTo(
+            0,
+            duration: const Duration(milliseconds: 400),
+            curve: Curves.linear,
+          ),
+        );
+        await tester.pumpAndSettle();
+      }
+
+      testWidgets('short editions keep their own scroll storage', (
+        tester,
+      ) async {
+        // Wide enough for the segmented control even in the test font.
+        await pumpEditions(tester, ['Standard', 'Deluxe'], width: 411);
+
+        final scroller = find.descendant(
+          of: find.byKey(
+            const ValueKey<String>('album-profile-edition-selector'),
+          ),
+          matching: find.byType(Scrollable),
+        );
+        expect(scroller, findsOneWidget);
+        expect(
+          find.ancestor(
+            of: scroller,
+            matching: find.byKey(
+              const PageStorageKey<String>(
+                'album-profile-edition-selector-scroll',
+              ),
+            ),
+          ),
+          findsOneWidget,
+        );
+
+        await scrollAwayAndFlingBack(tester);
+
+        expect(tester.state<ScrollableState>(scroller).position.pixels, 0);
+        expect(find.text('Deluxe').hitTestable(), findsOneWidget);
+      });
+
+      testWidgets('long editions stay fully visible', (tester) async {
+        final titles = [
+          'Standard',
+          for (var i = 1; i < 6; i++) 'Alternate Release Number $i',
+        ];
+        await pumpEditions(tester, titles);
+        await scrollAwayAndFlingBack(tester);
+
+        // Every real edition is offered and none has slid out sideways.
+        for (final title in titles.skip(1)) {
+          final rect = tester.getRect(find.text(title));
+          expect(rect.left, greaterThanOrEqualTo(0), reason: title);
+          expect(rect.right, lessThanOrEqualTo(320), reason: title);
+        }
+        expect(
+          find.byKey(const ValueKey<String>('album-profile-edition-choices')),
+          findsOneWidget,
+        );
+      });
     });
 
     testWidgets('single explicit edition does not show edition selector', (
@@ -3018,6 +3072,9 @@ Widget buildSubject({
   MetadataProvider? metadataProvider,
   ExternalMetadataApplicationService? externalMetadataApplicationService,
   ExternalMetadataProposalService? externalMetadataProposalService,
+  ThemeData? theme,
+  SonusArtworkPalette? artworkPalette,
+  TransitionBuilder? appBuilder,
 }) {
   return MultiProvider(
     providers: [
@@ -3043,10 +3100,13 @@ Widget buildSubject({
     ],
     child: AccountScope(
       repository: accountRepository,
-      child: const MaterialApp(
+      child: MaterialApp(
+        theme: theme,
+        builder: appBuilder,
         home: AlbumProfilePage(
           albumId: 'album-1',
           initialAlbumTitle: 'Test Album',
+          artworkPalette: artworkPalette,
         ),
       ),
     ),

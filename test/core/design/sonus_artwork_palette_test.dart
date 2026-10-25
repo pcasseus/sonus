@@ -125,7 +125,7 @@ void main() {
       expect(atmosphere.accent, red.accent);
     });
 
-    test('Subtle keeps the accent between theme and artwork', () {
+    test('Subtle tints the page but keeps the theme accent', () {
       final (colors, decoration) = themeFor(
         const SonusAppearanceSpec(decoration: SonusDecorationIntensity.subtle),
       );
@@ -135,7 +135,8 @@ void main() {
         artwork: red,
       );
 
-      expect(atmosphere.accent, isNot(red.accent));
+      expect(atmosphere.isTinted, isTrue);
+      expect(atmosphere.accent, colors.accentPrimary);
     });
 
     // Extreme artwork on every theme and level: text stays readable and the

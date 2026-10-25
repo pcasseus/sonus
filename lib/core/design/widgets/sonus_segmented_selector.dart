@@ -26,6 +26,8 @@ class SonusSegmentedSelector<T> extends StatelessWidget {
     required this.segments,
     required this.selected,
     required this.onChanged,
+    this.selectedBackgroundColor,
+    this.selectedForegroundColor,
   });
 
   /// Text scale above which decorative segment icons are dropped.
@@ -34,6 +36,12 @@ class SonusSegmentedSelector<T> extends StatelessWidget {
   final List<SonusSegment<T>> segments;
   final T selected;
   final ValueChanged<T> onChanged;
+
+  /// Overrides the selected segment's colours, e.g. with an artwork accent.
+  /// Callers pass a pair with at least 4.5:1 contrast; both default to the
+  /// theme's selection colours.
+  final Color? selectedBackgroundColor;
+  final Color? selectedForegroundColor;
 
   @override
   Widget build(BuildContext context) {
@@ -45,8 +53,8 @@ class SonusSegmentedSelector<T> extends StatelessWidget {
     return SegmentedButton<T>(
       style: SegmentedButton.styleFrom(
         foregroundColor: colors.textSecondary,
-        selectedForegroundColor: colors.textPrimary,
-        selectedBackgroundColor: colors.selection,
+        selectedForegroundColor: selectedForegroundColor ?? colors.textPrimary,
+        selectedBackgroundColor: selectedBackgroundColor ?? colors.selection,
         side: BorderSide(color: colors.border),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(tokens.metrics.controlRadius),

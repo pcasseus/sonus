@@ -53,6 +53,9 @@ class SonusArtworkPalette {
   }) : assert(capacity > 0),
        _extractor = extractor ?? extractFromImage;
 
+  /// The app-wide cache, used when no palette is provided above a page.
+  static final SonusArtworkPalette shared = SonusArtworkPalette();
+
   /// Most artworks remembered at once; the least recently used is dropped.
   final int capacity;
 
@@ -364,10 +367,12 @@ class SonusArtworkAtmosphere {
     Color background,
     Color surface,
   ) {
-    // Subtle stays close to the theme's own accent.
-    final candidate = decoration.intensity == SonusDecorationIntensity.subtle
-        ? Color.lerp(colors.accentPrimary, artwork.accent, 0.5)!
-        : artwork.accent;
+    // Subtle keeps the theme's own accent: blending two unrelated hues
+    // gives a muddy colour, so only the background and surface are tinted.
+    if (decoration.intensity == SonusDecorationIntensity.subtle) {
+      return colors.accentPrimary;
+    }
+    final candidate = artwork.accent;
     final distinct =
         SonusContrast.ratio(candidate, background) >= 3 &&
         SonusContrast.ratio(candidate, surface) >= 3;
