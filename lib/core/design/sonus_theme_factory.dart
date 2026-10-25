@@ -278,6 +278,7 @@ abstract final class SonusThemeFactory {
           : 0.035,
       allowGlow: atLeastStandard && !limited,
       allowGradients: intensity != SonusDecorationIntensity.off && !limited,
+      progressStyle: definition.progressStyle,
     );
   }
 

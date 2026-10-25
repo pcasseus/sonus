@@ -398,6 +398,7 @@ class SonusDecorationTokens extends ThemeExtension<SonusDecorationTokens> {
     required this.textureOpacity,
     required this.allowGlow,
     required this.allowGradients,
+    this.progressStyle = SonusProgressStyle.minimalLinear,
   });
 
   /// No decoration at all; used when no Sonus theme is installed.
@@ -408,7 +409,8 @@ class SonusDecorationTokens extends ThemeExtension<SonusDecorationTokens> {
       showTexture = false,
       textureOpacity = 0,
       allowGlow = false,
-      allowGradients = false;
+      allowGradients = false,
+      progressStyle = SonusProgressStyle.minimalLinear;
 
   final SonusDecorationIntensity intensity;
   final SonusMotif motif;
@@ -419,6 +421,9 @@ class SonusDecorationTokens extends ThemeExtension<SonusDecorationTokens> {
   final double textureOpacity;
   final bool allowGlow;
   final bool allowGradients;
+
+  /// The theme's playback progress treatment (SN-48E).
+  final SonusProgressStyle progressStyle;
 
   bool get showMarks => intensity != SonusDecorationIntensity.off;
 
@@ -435,6 +440,7 @@ class SonusDecorationTokens extends ThemeExtension<SonusDecorationTokens> {
       textureOpacity: textureOpacity,
       allowGlow: allowGlow,
       allowGradients: allowGradients,
+      progressStyle: progressStyle,
     );
   }
 
