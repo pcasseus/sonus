@@ -918,7 +918,13 @@ class _ChartEntryItem extends StatelessWidget {
       onTap: canInteract
           ? () {
               if (chartType == ChartType.songs && track != null) {
-                unawaited(_showChartTrackContext(context, track));
+                unawaited(
+                  _showChartTrackContext(
+                    context,
+                    track,
+                    controller.entryTracks,
+                  ),
+                );
                 return;
               }
 
@@ -1119,9 +1125,12 @@ Future<void> _showWeekCalendar(
   }
 }
 
+/// [chartTracks] is the chart on screen, in rank order: Play queues the
+/// chart from this song, so Previous and Next follow the standings.
 Future<void> _showChartTrackContext(
   BuildContext context,
   LibraryTrack track,
+  List<LibraryTrack> chartTracks,
 ) async {
   if (track.isBlocked ||
       !track.isAvailable ||
@@ -1163,7 +1172,7 @@ Future<void> _showChartTrackContext(
                     ? null
                     : () {
                         Navigator.of(sheetContext).pop();
-                        unawaited(playback.playTrack(track));
+                        unawaited(playback.playInContext(track, chartTracks));
                       },
               ),
               ListTile(

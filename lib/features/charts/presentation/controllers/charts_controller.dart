@@ -168,6 +168,12 @@ class ChartsController extends ChangeNotifier {
   /// chart, or null if it never made a weekly Top 100.
   int? weeklyPeakFor(ChartEntry entry) => _weeklyPeaks[entry.entity.entityId];
 
+  /// The songs of the chart on screen, in rank order, for a playback
+  /// queue. Entries without a library song are left out.
+  List<LibraryTrack> get entryTracks => [
+    for (final entry in entries) ?trackForEntry(entry),
+  ];
+
   LibraryTrack? trackForEntry(ChartEntry entry) {
     if (_chartType != ChartType.songs) {
       return null;

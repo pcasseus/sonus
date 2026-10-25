@@ -861,7 +861,12 @@ class _RankingTables extends StatelessWidget {
           _InsightTable(
             storageId: 'monthly-tracks',
             identityLabel: 'TRACK',
-            rows: [for (final row in tracks) _trackRow(context, row)],
+            rows: [
+              for (final row in tracks)
+                _trackRow(context, row, [
+                  for (final ranked in tracks) ?ranked.track,
+                ]),
+            ],
           ),
         ],
         if (tracks.isNotEmpty && artists.isNotEmpty) const SizedBox(height: 28),
@@ -900,7 +905,12 @@ class _RankingTables extends StatelessWidget {
     );
   }
 
-  SonusTableRow _trackRow(BuildContext context, MonthlyTrackInsightRow row) {
+  /// [rankedTracks] is the ranking on screen; Play queues it from this song.
+  SonusTableRow _trackRow(
+    BuildContext context,
+    MonthlyTrackInsightRow row,
+    List<LibraryTrack> rankedTracks,
+  ) {
     final track = row.track;
     final badge = !row.hasCurrentLibraryEntity
         ? 'HISTORICAL'
@@ -935,7 +945,7 @@ class _RankingTables extends StatelessWidget {
       onTap: track == null
           ? null
           : () {
-              unawaited(_showInsightTrackContext(context, track));
+              unawaited(_showInsightTrackContext(context, track, rankedTracks));
             },
     );
   }
@@ -1421,6 +1431,7 @@ String _tablePercent(double? value, {required bool isNew}) {
 Future<void> _showInsightTrackContext(
   BuildContext context,
   LibraryTrack track,
+  List<LibraryTrack> rankedTracks,
 ) async {
   final canPlay =
       !track.isBlocked &&
@@ -1461,7 +1472,7 @@ Future<void> _showInsightTrackContext(
                     ? null
                     : () {
                         Navigator.of(sheetContext).pop();
-                        unawaited(playback.playTrack(track));
+                        unawaited(playback.playInContext(track, rankedTracks));
                       },
               ),
               ListTile(

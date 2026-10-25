@@ -319,7 +319,11 @@ class _PopularTracksRail extends StatelessWidget {
             ],
           ),
           onTap: () {
-            unawaited(_showTrackContext(context, track));
+            unawaited(
+              _showTrackContext(context, track, [
+                for (final entry in entries) entry.track,
+              ]),
+            );
           },
         );
       },
@@ -675,7 +679,7 @@ class _RecentlyAddedTracksRail extends StatelessWidget {
           onTap: isBlocked
               ? null
               : () {
-                  unawaited(_showTrackContext(context, track));
+                  unawaited(_showTrackContext(context, track, tracks));
                 },
         );
       },
@@ -1040,7 +1044,13 @@ double _railHeight(
   return artwork + text * math.max(1, textScale);
 }
 
-Future<void> _showTrackContext(BuildContext context, LibraryTrack track) async {
+/// [railTracks] is the rail the song was chosen from, in order: Play queues
+/// the rail from this song.
+Future<void> _showTrackContext(
+  BuildContext context,
+  LibraryTrack track,
+  List<LibraryTrack> railTracks,
+) async {
   if (track.isBlocked || !track.isAvailable) {
     return;
   }
@@ -1078,7 +1088,7 @@ Future<void> _showTrackContext(BuildContext context, LibraryTrack track) async {
                     ? null
                     : () {
                         Navigator.of(sheetContext).pop();
-                        unawaited(playback.playTrack(track));
+                        unawaited(playback.playInContext(track, railTracks));
                       },
               ),
               ListTile(

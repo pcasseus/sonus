@@ -416,9 +416,48 @@ void main() {
       await tester.pump();
 
       expect(engine.loadedQueues, hasLength(1));
-      expect(engine.loadedQueues.single, hasLength(1));
-      expect(engine.loadedQueues.single.single.songId, 'song-1');
+      expect(engine.loadedQueues.single.first.songId, 'song-1');
       expect(engine.lastLoadAutoPlay, isTrue);
+    });
+
+    testWidgets('tapping a result queues the visible results from it (SN-45)', (
+      tester,
+    ) async {
+      final engine = _RecordingPlaybackEngine();
+
+      await tester.pumpWidget(
+        _SearchTestApp(
+          repository: _FakeSearchRepository(
+            result: LibrarySearchResults(
+              tracks: [
+                _track(songId: 'song-a', title: 'Query A'),
+                _track(songId: 'song-b', title: 'Query B'),
+                _track(songId: 'song-c', title: 'Query C'),
+              ],
+            ),
+          ),
+          playbackCoordinator: PlaybackCoordinator(engine: engine),
+        ),
+      );
+
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('search-field')),
+        'query',
+      );
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump();
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('search-track-song-b')),
+      );
+      await tester.pump();
+
+      expect(engine.loadedQueues.single.map((t) => t.songId), [
+        'song-a',
+        'song-b',
+        'song-c',
+      ]);
+      expect(engine.lastStartIndex, 1);
     });
 
     testWidgets('play next sends track through playback coordinator', (
@@ -1071,6 +1110,7 @@ class _RecordingPlaybackEngine implements PlaybackEngine {
   final List<PlaybackTrack> appendedTracks = [];
 
   bool? lastLoadAutoPlay;
+  int? lastStartIndex;
 
   final PlaybackState _state = const PlaybackState();
 
@@ -1088,6 +1128,7 @@ class _RecordingPlaybackEngine implements PlaybackEngine {
   }) async {
     loadedQueues.add(List<PlaybackTrack>.from(tracks));
     lastLoadAutoPlay = autoPlay;
+    lastStartIndex = startIndex;
   }
 
   @override

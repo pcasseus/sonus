@@ -63,6 +63,27 @@ class PlaybackCoordinator {
     );
   }
 
+  /// Plays [track] with [context], the ordered list it was chosen from, as
+  /// the queue: an album, playlist, chart or search result. Previous and
+  /// Next then follow that list. Unplayable songs in [context] are skipped.
+  /// A [track] that is not in [context] plays on its own.
+  Future<void> playInContext(
+    LibraryTrack track,
+    List<LibraryTrack> context, {
+    bool autoPlay = true,
+  }) async {
+    final startIndex = context.indexWhere(
+      (candidate) => candidate.songId == track.songId,
+    );
+
+    if (startIndex == -1) {
+      await playTrack(track, autoPlay: autoPlay);
+      return;
+    }
+
+    await playTracks(context, startIndex: startIndex, autoPlay: autoPlay);
+  }
+
   Future<void> togglePlayPause() async {
     if (currentState.isPlaying) {
       await _engine.pause();
