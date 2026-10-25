@@ -2,6 +2,9 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../../../core/design/sonus_theme.dart';
+import '../../../../core/design/widgets/sonus_artwork_image.dart';
+import '../../../../core/design/widgets/sonus_form_section.dart';
 import '../../application/models/external_metadata_search_query.dart';
 import '../../application/models/library_artist.dart';
 import '../../application/repositories/library_query_repository.dart';
@@ -60,219 +63,270 @@ class _ArtistStudioPageState extends State<ArtistStudioPage> {
       builder: (context, _) {
         final artist = controller.artist;
 
+        final tokens = SonusTheme.of(context);
+        final colors = tokens.colors;
+        const tabular = [FontFeature.tabularFigures()];
+
         return Scaffold(
           key: const ValueKey<String>('artist-studio-page'),
-          appBar: AppBar(title: const Text('Artist Studio')),
+          backgroundColor: colors.background,
+          appBar: AppBar(
+            title: const Text('Artist Studio'),
+            backgroundColor: colors.background,
+            surfaceTintColor: Colors.transparent,
+          ),
           body: artist == null
               ? const Center(child: Text('Artist is unavailable.'))
               : ListView(
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+                  padding: EdgeInsets.fromLTRB(
+                    tokens.metrics.pageGutter,
+                    8,
+                    tokens.metrics.pageGutter,
+                    32,
+                  ),
                   children: [
-                    Text(
-                      artist.name,
-                      key: const ValueKey<String>('artist-studio-heading'),
-                      style: Theme.of(context).textTheme.headlineSmall,
+                    MergeSemantics(
+                      child: Row(
+                        children: [
+                          SonusArtworkImage(
+                            path:
+                                controller.topArtistsArtworkPath ??
+                                controller.headerArtworkPath,
+                            size: 64,
+                            circular: true,
+                            placeholderIcon: Icons.person_rounded,
+                          ),
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Text(
+                              artist.name,
+                              key: const ValueKey<String>(
+                                'artist-studio-heading',
+                              ),
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.titleLarge
+                                  ?.copyWith(
+                                    color: colors.textPrimary,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                    const SizedBox(height: 20),
-                    Text(
-                      'Library relationships',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 8),
-                    Card(
+                    const SizedBox(height: 16),
+                    SonusFormSection(
                       key: const ValueKey<String>(
                         'artist-studio-relationship-summary',
                       ),
-                      child: Column(
-                        children: [
-                          ListTile(
-                            leading: const Icon(Icons.album_outlined),
-                            title: const Text('Albums'),
-                            trailing: Text('${controller.albums.length}'),
-                          ),
-                          const Divider(height: 1),
-                          ListTile(
-                            leading: const Icon(Icons.music_note_outlined),
-                            title: const Text('Primary songs'),
-                            trailing: Text('${controller.tracks.length}'),
-                          ),
-                          const Divider(height: 1),
-                          ListTile(
-                            leading: const Icon(Icons.people_outline),
-                            title: const Text('Collaborations'),
-                            trailing: Text(
-                              '${controller.featuredTracks.length}',
+                      title: 'Library relationships',
+                      icon: Icons.hub_outlined,
+                      padding: const EdgeInsets.only(bottom: 6),
+                      children: [
+                        Column(
+                          children: [
+                            ListTile(
+                              leading: const Icon(Icons.album_outlined),
+                              title: const Text('Albums'),
+                              trailing: Text(
+                                '${controller.albums.length}',
+                                style: const TextStyle(fontFeatures: tabular),
+                              ),
                             ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    Text(
-                      'Identity',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 8),
-                    Card(
-                      child: Column(
-                        children: [
-                          ListTile(
-                            key: const ValueKey<String>(
-                              'artist-studio-edit-name',
+                            const Divider(height: 1),
+                            ListTile(
+                              leading: const Icon(Icons.music_note_outlined),
+                              title: const Text('Primary songs'),
+                              trailing: Text(
+                                '${controller.tracks.length}',
+                                style: const TextStyle(fontFeatures: tabular),
+                              ),
                             ),
-                            leading: const Icon(Icons.edit_outlined),
-                            title: const Text('Edit artist name'),
-                            subtitle: const Text(
-                              'Change the display name without changing '
-                              'the permanent artist identity.',
+                            const Divider(height: 1),
+                            ListTile(
+                              leading: const Icon(Icons.people_outline),
+                              title: const Text('Collaborations'),
+                              // Matches the Artist Profile's Collaborations.
+                              trailing: Text(
+                                '${controller.collaborationTracks.length}',
+                                style: const TextStyle(fontFeatures: tabular),
+                              ),
                             ),
-                            enabled: controller.canEditArtist(widget.userId),
-                            onTap: controller.canEditArtist(widget.userId)
-                                ? () {
-                                    unawaited(_editName());
-                                  }
-                                : null,
-                          ),
-                          const Divider(height: 1),
-                          ListTile(
-                            key: const ValueKey<String>(
-                              'artist-studio-merge-artist',
-                            ),
-                            leading: const Icon(Icons.merge_rounded),
-                            title: const Text('Merge artist'),
-                            subtitle: const Text(
-                              'Consolidate this identity into another '
-                              'artist in your library.',
-                            ),
-                            enabled: widget.mergeService != null && !_isMerging,
-                            onTap: widget.mergeService == null || _isMerging
-                                ? null
-                                : () {
-                                    unawaited(_mergeArtist());
-                                  },
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    Text(
-                      'Metadata',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: 8),
-                    Card(
-                      child: ListTile(
-                        key: const ValueKey<String>(
-                          'artist-studio-search-musicbrainz',
+                          ],
                         ),
-                        leading: const Icon(Icons.public_rounded),
-                        title: const Text('Search MusicBrainz'),
-                        subtitle: const Text(
-                          'Find a MusicBrainz artist match and apply '
-                          'allowed metadata.',
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    SonusFormSection(
+                      title: 'Identity',
+                      icon: Icons.badge_outlined,
+                      padding: const EdgeInsets.only(bottom: 6),
+                      children: [
+                        Column(
+                          children: [
+                            ListTile(
+                              key: const ValueKey<String>(
+                                'artist-studio-edit-name',
+                              ),
+                              leading: const Icon(Icons.edit_outlined),
+                              title: const Text('Edit artist name'),
+                              subtitle: const Text(
+                                'Change the display name without changing '
+                                'the permanent artist identity.',
+                              ),
+                              enabled: controller.canEditArtist(widget.userId),
+                              onTap: controller.canEditArtist(widget.userId)
+                                  ? () {
+                                      unawaited(_editName());
+                                    }
+                                  : null,
+                            ),
+                            const Divider(height: 1),
+                            ListTile(
+                              key: const ValueKey<String>(
+                                'artist-studio-merge-artist',
+                              ),
+                              leading: const Icon(Icons.merge_rounded),
+                              title: const Text('Merge artist'),
+                              subtitle: const Text(
+                                'Consolidate this identity into another '
+                                'artist in your library.',
+                              ),
+                              enabled:
+                                  widget.mergeService != null && !_isMerging,
+                              onTap: widget.mergeService == null || _isMerging
+                                  ? null
+                                  : () {
+                                      unawaited(_mergeArtist());
+                                    },
+                            ),
+                          ],
                         ),
-                        enabled:
-                            widget.metadataProvider != null &&
-                            widget.externalMetadataApplicationService != null &&
-                            widget.externalMetadataProposalService != null &&
-                            !_isApplyingMusicBrainz,
-                        onTap:
-                            widget.metadataProvider == null ||
-                                widget.externalMetadataApplicationService ==
-                                    null ||
-                                widget.externalMetadataProposalService ==
-                                    null ||
-                                _isApplyingMusicBrainz
-                            ? null
-                            : () {
-                                unawaited(_searchMusicBrainz());
-                              },
-                      ),
+                      ],
                     ),
-                    const SizedBox(height: 24),
-                    Text(
-                      'Artwork',
-                      style: Theme.of(context).textTheme.titleMedium,
+                    const SizedBox(height: 16),
+                    SonusFormSection(
+                      title: 'Metadata',
+                      icon: Icons.travel_explore_rounded,
+                      padding: const EdgeInsets.only(bottom: 6),
+                      children: [
+                        ListTile(
+                          key: const ValueKey<String>(
+                            'artist-studio-search-musicbrainz',
+                          ),
+                          leading: const Icon(Icons.public_rounded),
+                          title: const Text('Search MusicBrainz'),
+                          subtitle: const Text(
+                            'Find a MusicBrainz artist match and apply '
+                            'allowed metadata.',
+                          ),
+                          enabled:
+                              widget.metadataProvider != null &&
+                              widget.externalMetadataApplicationService !=
+                                  null &&
+                              widget.externalMetadataProposalService != null &&
+                              !_isApplyingMusicBrainz,
+                          onTap:
+                              widget.metadataProvider == null ||
+                                  widget.externalMetadataApplicationService ==
+                                      null ||
+                                  widget.externalMetadataProposalService ==
+                                      null ||
+                                  _isApplyingMusicBrainz
+                              ? null
+                              : () {
+                                  unawaited(_searchMusicBrainz());
+                                },
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 8),
-                    Card(
-                      child: Column(
-                        children: [
-                          ListTile(
-                            key: const ValueKey<String>(
-                              'artist-studio-change-header',
+                    const SizedBox(height: 16),
+                    SonusFormSection(
+                      title: 'Artwork',
+                      icon: Icons.image_outlined,
+                      padding: const EdgeInsets.only(bottom: 6),
+                      children: [
+                        Column(
+                          children: [
+                            ListTile(
+                              key: const ValueKey<String>(
+                                'artist-studio-change-header',
+                              ),
+                              leading: const Icon(Icons.image_outlined),
+                              title: const Text('Change header artwork'),
+                              enabled: controller.canEditArtwork,
+                              onTap: controller.canEditArtwork
+                                  ? () {
+                                      unawaited(
+                                        _runArtworkAction(
+                                          controller.changeHeaderArtwork,
+                                          'Header artwork updated.',
+                                        ),
+                                      );
+                                    }
+                                  : null,
                             ),
-                            leading: const Icon(Icons.image_outlined),
-                            title: const Text('Change header artwork'),
-                            enabled: controller.canEditArtwork,
-                            onTap: controller.canEditArtwork
-                                ? () {
-                                    unawaited(
-                                      _runArtworkAction(
-                                        controller.changeHeaderArtwork,
-                                        'Header artwork updated.',
-                                      ),
-                                    );
-                                  }
-                                : null,
-                          ),
-                          ListTile(
-                            key: const ValueKey<String>(
-                              'artist-studio-clear-header',
+                            ListTile(
+                              key: const ValueKey<String>(
+                                'artist-studio-clear-header',
+                              ),
+                              leading: const Icon(Icons.hide_image_outlined),
+                              title: const Text('Clear header artwork'),
+                              enabled: controller.canEditArtwork,
+                              onTap: controller.canEditArtwork
+                                  ? () {
+                                      unawaited(
+                                        _runArtworkAction(
+                                          controller.clearHeaderArtwork,
+                                          'Header artwork cleared.',
+                                        ),
+                                      );
+                                    }
+                                  : null,
                             ),
-                            leading: const Icon(Icons.hide_image_outlined),
-                            title: const Text('Clear header artwork'),
-                            enabled: controller.canEditArtwork,
-                            onTap: controller.canEditArtwork
-                                ? () {
-                                    unawaited(
-                                      _runArtworkAction(
-                                        controller.clearHeaderArtwork,
-                                        'Header artwork cleared.',
-                                      ),
-                                    );
-                                  }
-                                : null,
-                          ),
-                          const Divider(height: 1),
-                          ListTile(
-                            key: const ValueKey<String>(
-                              'artist-studio-change-top-artists',
+                            const Divider(height: 1),
+                            ListTile(
+                              key: const ValueKey<String>(
+                                'artist-studio-change-top-artists',
+                              ),
+                              leading: const Icon(
+                                Icons.account_circle_outlined,
+                              ),
+                              title: const Text('Change Top Artists artwork'),
+                              enabled: controller.canEditArtwork,
+                              onTap: controller.canEditArtwork
+                                  ? () {
+                                      unawaited(
+                                        _runArtworkAction(
+                                          controller.changeTopArtistsArtwork,
+                                          'Top Artists artwork updated.',
+                                        ),
+                                      );
+                                    }
+                                  : null,
                             ),
-                            leading: const Icon(Icons.account_circle_outlined),
-                            title: const Text('Change Top Artists artwork'),
-                            enabled: controller.canEditArtwork,
-                            onTap: controller.canEditArtwork
-                                ? () {
-                                    unawaited(
-                                      _runArtworkAction(
-                                        controller.changeTopArtistsArtwork,
-                                        'Top Artists artwork updated.',
-                                      ),
-                                    );
-                                  }
-                                : null,
-                          ),
-                          ListTile(
-                            key: const ValueKey<String>(
-                              'artist-studio-clear-top-artists',
+                            ListTile(
+                              key: const ValueKey<String>(
+                                'artist-studio-clear-top-artists',
+                              ),
+                              leading: const Icon(Icons.person_off_outlined),
+                              title: const Text('Clear Top Artists artwork'),
+                              enabled: controller.canEditArtwork,
+                              onTap: controller.canEditArtwork
+                                  ? () {
+                                      unawaited(
+                                        _runArtworkAction(
+                                          controller.clearTopArtistsArtwork,
+                                          'Top Artists artwork cleared.',
+                                        ),
+                                      );
+                                    }
+                                  : null,
                             ),
-                            leading: const Icon(Icons.person_off_outlined),
-                            title: const Text('Clear Top Artists artwork'),
-                            enabled: controller.canEditArtwork,
-                            onTap: controller.canEditArtwork
-                                ? () {
-                                    unawaited(
-                                      _runArtworkAction(
-                                        controller.clearTopArtistsArtwork,
-                                        'Top Artists artwork cleared.',
-                                      ),
-                                    );
-                                  }
-                                : null,
-                          ),
-                        ],
-                      ),
+                          ],
+                        ),
+                      ],
                     ),
                   ],
                 ),
