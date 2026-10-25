@@ -1,6 +1,7 @@
 import '../../../sync/application/services/sync_mutation_runner.dart';
 import '../../../sync/domain/models/sync_data_contract.dart';
 import '../../domain/entities/album_edition_track.dart';
+import '../../domain/services/album_edition_track_order.dart';
 
 class AlbumEditionReorderResult {
   const AlbumEditionReorderResult({
@@ -323,6 +324,74 @@ class AlbumEditionTrackOrderingService {
         membership: updatedMembership,
         changed: membershipChanged || compatibilitySongChanged,
         compatibilitySongChanged: compatibilitySongChanged,
+      );
+    });
+  }
+
+  /// "Sort by disc & track": returns the edition to automatic order, by disc
+  /// then track number, and clears any manual ordering so later renumbering
+  /// moves tracks again. Track numbers are untouched. Running it on an edition
+  /// already in automatic order changes nothing.
+  Future<AlbumEditionReorderResult> sortByDiscAndTrack({
+    required String albumEditionId,
+    String? userId,
+    DateTime? now,
+  }) {
+    final normalizedEditionId = albumEditionId.trim();
+
+    if (normalizedEditionId.isEmpty) {
+      throw ArgumentError.value(
+        albumEditionId,
+        'albumEditionId',
+        'Album edition id must not be blank.',
+      );
+    }
+
+    final timestamp = now ?? DateTime.now();
+
+    return mutationRunner.run((context) async {
+      final edition = await context.albumEditionRepository.getById(
+        normalizedEditionId,
+      );
+
+      if (edition == null) {
+        throw StateError('Album edition not found: $normalizedEditionId');
+      }
+
+      final memberships = [
+        ...await context.albumEditionTrackRepository.getByEditionId(
+          normalizedEditionId,
+        ),
+      ]..sort(compareByDiscAndTrack);
+
+      var changed = false;
+      final sorted = <AlbumEditionTrack>[];
+
+      for (var index = 0; index < memberships.length; index++) {
+        final membership = memberships[index];
+        final membershipChanged =
+            membership.sortPosition != index ||
+            membership.orderingAuthority != AlbumEditionTrackAuthority.inferred;
+
+        final updated = membershipChanged
+            ? membership.copyWith(
+                sortPosition: index,
+                orderingAuthority: AlbumEditionTrackAuthority.inferred,
+                updatedAt: timestamp,
+              )
+            : membership;
+
+        if (membershipChanged) {
+          await context.albumEditionTrackRepository.save(updated);
+          changed = true;
+        }
+
+        sorted.add(updated);
+      }
+
+      return AlbumEditionReorderResult(
+        memberships: List<AlbumEditionTrack>.unmodifiable(sorted),
+        changed: changed,
       );
     });
   }

@@ -161,6 +161,7 @@ class LibraryTracksController extends ChangeNotifier {
     String? artistId,
     String? albumId,
     String? albumEditionId,
+    String? placementEditionId,
   }) async {
     final service = _trackProfileEditingService;
 
@@ -184,6 +185,7 @@ class LibraryTracksController extends ChangeNotifier {
       artistId: artistId,
       albumId: albumId,
       albumEditionId: albumEditionId,
+      placementEditionId: placementEditionId,
     );
 
     await refresh();

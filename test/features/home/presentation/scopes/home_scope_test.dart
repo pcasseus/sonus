@@ -1,6 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'package:sonus_next/core/events/library_change_signal.dart';
 import 'package:sonus_next/features/analytics/domain/entities/playback_listening_segment.dart';
 import 'package:sonus_next/features/analytics/domain/entities/playback_session.dart';
 import 'package:sonus_next/features/analytics/domain/entities/qualified_play.dart';
@@ -58,6 +59,50 @@ void main() {
     expect(controller!.hasData, isTrue);
     expect(controller!.snapshot, isNotNull);
     expect(controller!.snapshot!.isEmpty, isTrue);
+  });
+
+  // Data-1: Home reloads by itself after listening or library changes.
+  testWidgets('reloads after a library or listening change', (tester) async {
+    final plays = _FakeQualifiedPlayRepository();
+    final signal = LibraryChangeSignal();
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          Provider<LibraryQueryRepository?>.value(
+            value: _FakeLibraryQueryRepository(),
+          ),
+          Provider<QualifiedPlayRepository?>.value(value: plays),
+          Provider<PlaybackSessionRepository?>.value(
+            value: _FakePlaybackSessionRepository(),
+          ),
+          Provider<PlaybackListeningSegmentRepository?>.value(
+            value: _FakePlaybackListeningSegmentRepository(),
+          ),
+        ],
+        child: HomeScope(
+          now: () => DateTime(2026, 9, 28, 12),
+          changes: signal,
+          child: const SizedBox(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final loadsAfterOpening = plays.getAllCalls;
+
+    signal.notify(LibraryChangeKind.listeningRecorded);
+    signal.notify(LibraryChangeKind.listeningRecorded);
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+
+    expect(plays.getAllCalls, greaterThan(loadsAfterOpening));
+    final oneReload = plays.getAllCalls;
+
+    await tester.pumpWidget(const SizedBox());
+    signal.notify(LibraryChangeKind.listeningRecorded);
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(plays.getAllCalls, oneReload, reason: 'nothing after dispose');
   });
 
   testWidgets('exposes no HomeController until all dependencies exist', (
@@ -158,11 +203,16 @@ class _FakeQualifiedPlayRepository implements QualifiedPlayRepository {
     Iterable<String> playbackSessionIds,
   ) async => const [];
 
+  int getAllCalls = 0;
+
   @override
   Future<List<QualifiedPlay>> getAll({
     DateTime? qualifiedAtOrAfter,
     DateTime? qualifiedBefore,
-  }) async => const [];
+  }) async {
+    getAllCalls++;
+    return const [];
+  }
 }
 
 class _FakePlaybackSessionRepository implements PlaybackSessionRepository {

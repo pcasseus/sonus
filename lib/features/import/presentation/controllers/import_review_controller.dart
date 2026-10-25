@@ -439,7 +439,8 @@ class ImportReviewController extends ChangeNotifier {
     required bool isSingle,
     required String artistId,
     required String albumId,
-    required String albumEditionId,
+    String? moveToEditionId,
+    String? placementEditionId,
   }) async {
     final item = currentItem;
 
@@ -465,7 +466,8 @@ class ImportReviewController extends ChangeNotifier {
         isSingle: isSingle,
         artistId: artistId,
         albumId: albumId,
-        albumEditionId: albumEditionId,
+        moveToEditionId: moveToEditionId,
+        placementEditionId: placementEditionId,
       );
 
       await _refreshItems(fallbackIndex: resolvedIndex);

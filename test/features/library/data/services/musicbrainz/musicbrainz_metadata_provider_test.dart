@@ -235,6 +235,120 @@ void main() {
       },
     );
 
+    // J9: the first listed release used to be recorded as "the" release.
+    test('a release group with several releases names none of them', () async {
+      transport.responseBody = '''
+{
+  "release-groups": [
+    {
+      "id": "rg-locket",
+      "title": "locket",
+      "primary-type": "Album",
+      "secondary-types": [],
+      "releases": [
+        {"id": "r-standard", "title": "locket", "date": "2026-01-16"},
+        {"id": "r-deluxe", "title": "locket (Deluxe)", "date": "2026-03-01"}
+      ]
+    }
+  ]
+}
+''';
+
+      final result = (await provider.search(
+        const ExternalMetadataSearchQuery(
+          entityKind: ExternalMetadataEntityKind.album,
+          albumTitle: 'locket',
+        ),
+      )).single;
+
+      expect(result.releaseId, isNull);
+      expect(result.externalIds, isNot(contains('musicBrainzReleaseId')));
+      expect(result.releaseGroupId, 'rg-locket');
+      expect(result.releaseOptions.map((o) => o.title), [
+        'locket',
+        'locket (Deluxe)',
+      ]);
+      expect(result.releaseOptions.last.releaseGroupId, 'rg-locket');
+    });
+
+    test(
+      'a recording on several releases keeps every option and its place',
+      () async {
+        transport.responseBody = '''
+{
+  "recordings": [
+    {
+      "id": "rec-1",
+      "title": "Song",
+      "length": 180000,
+      "releases": [
+        {
+          "id": "r-hits",
+          "title": "Hits Compilation",
+          "track-count": 20,
+          "release-group": {"id": "rg-hits", "primary-type": "Album", "secondary-types": ["Compilation"]},
+          "media": [{"position": 1, "track-offset": 11, "track": [{"number": "12"}]}]
+        },
+        {
+          "id": "r-album",
+          "title": "The Album",
+          "track-count": 10,
+          "release-group": {"id": "rg-album", "primary-type": "Album", "secondary-types": []},
+          "media": [{"position": 1, "track-offset": 2, "track": [{"number": "3"}]}]
+        }
+      ]
+    }
+  ]
+}
+''';
+
+        final result = (await provider.search(
+          const ExternalMetadataSearchQuery(
+            entityKind: ExternalMetadataEntityKind.track,
+            title: 'Song',
+          ),
+        )).single;
+
+        expect(result.releaseId, isNull);
+        expect(result.releaseTitle, isNull);
+        expect(result.releaseGroupId, isNull);
+        expect(result.secondaryTypes, isEmpty, reason: 'not the first group');
+        final album = result.releaseOptions.last;
+        expect(album.title, 'The Album');
+        expect(album.mediumPosition, 1);
+        expect(album.trackNumber, 3);
+        expect(album.trackCount, 10);
+      },
+    );
+
+    test('releases of one release group share its id and types', () async {
+      transport.responseBody = '''
+{
+  "recordings": [
+    {
+      "id": "rec-1",
+      "title": "Song",
+      "releases": [
+        {"id": "r-us", "title": "Score", "release-group": {"id": "rg-score", "secondary-types": ["Soundtrack"]}},
+        {"id": "r-uk", "title": "Score", "release-group": {"id": "rg-score", "secondary-types": ["Soundtrack"]}}
+      ]
+    }
+  ]
+}
+''';
+
+      final result = (await provider.search(
+        const ExternalMetadataSearchQuery(
+          entityKind: ExternalMetadataEntityKind.track,
+          title: 'Song',
+        ),
+      )).single;
+
+      expect(result.releaseId, isNull);
+      expect(result.releaseGroupId, 'rg-score');
+      expect(result.secondaryTypes, ['Soundtrack']);
+    });
+
     test('artist lookup maps direct entity response', () async {
       transport.responseBody = '''
 {

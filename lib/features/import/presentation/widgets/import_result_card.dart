@@ -11,12 +11,16 @@ class ImportResultCard extends StatelessWidget {
     required this.onReset,
     this.reviewCount = 0,
     this.onReview,
+    this.onCheckHealth,
   });
 
   final ImportExecutionSummary summary;
   final VoidCallback onReset;
   final int reviewCount;
   final VoidCallback? onReview;
+
+  /// Opens the Import Health Report for this import.
+  final VoidCallback? onCheckHealth;
 
   @override
   Widget build(BuildContext context) {
@@ -35,6 +39,13 @@ class ImportResultCard extends StatelessWidget {
             onPressed: onReview,
             icon: const Icon(Icons.fact_check_outlined),
             label: const Text('Review metadata'),
+          ),
+        if (onCheckHealth != null)
+          OutlinedButton.icon(
+            key: const ValueKey<String>('import-health-button'),
+            onPressed: onCheckHealth,
+            icon: const Icon(Icons.health_and_safety_outlined),
+            label: const Text('Check library health'),
           ),
         FilledButton.tonal(
           key: const ValueKey<String>('import-reset-button'),

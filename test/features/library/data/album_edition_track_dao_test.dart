@@ -186,6 +186,7 @@ void main() {
         discNumber: 1,
         trackNumber: 1,
         sortPosition: 10,
+        orderingAuthority: AlbumEditionTrackAuthority.manual,
         createdAt: now,
         updatedAt: now,
       ),
@@ -198,11 +199,14 @@ void main() {
         discNumber: 1,
         trackNumber: 99,
         sortPosition: 2,
+        orderingAuthority: AlbumEditionTrackAuthority.manual,
         createdAt: now,
         updatedAt: now,
       ),
     );
 
+    // A deliberately reordered edition keeps its order (J3); without manual
+    // ordering the edition would follow disc and track numbers instead.
     final ordered = await dao.findByEditionId('edition_order');
 
     expect(ordered.map((value) => value.songId), ['song_b', 'song_a']);

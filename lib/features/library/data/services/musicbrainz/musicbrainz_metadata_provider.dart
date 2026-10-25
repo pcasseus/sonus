@@ -192,17 +192,15 @@ class MusicBrainzMetadataProvider implements MetadataProvider {
       return null;
     }
 
-    final releases = _maps(json['releases']);
-    final primaryRelease = releases.isEmpty ? null : releases.first;
-    final releaseId = primaryRelease == null
-        ? null
-        : _string(primaryRelease['id']);
+    final options = _releaseOptions(json['releases'], releaseGroupId: id);
+    // A release group is the album; its releases are editions of it. Only a
+    // group with a single release names a specific release.
+    final onlyRelease = options.length == 1 ? options.single : null;
+    final releaseId = onlyRelease?.releaseId;
 
     final releaseDate =
         _parsePartialDate(json['first-release-date']) ??
-        (primaryRelease == null
-            ? null
-            : _parsePartialDate(primaryRelease['date']));
+        onlyRelease?.releaseDate;
 
     final externalIds = <String, String>{'musicBrainzReleaseGroupId': id};
 
@@ -223,6 +221,7 @@ class MusicBrainzMetadataProvider implements MetadataProvider {
       primaryType: _string(json['primary-type']),
       secondaryTypes: _strings(json['secondary-types']),
       externalIds: externalIds,
+      releaseOptions: options,
     );
   }
 
@@ -235,22 +234,29 @@ class MusicBrainzMetadataProvider implements MetadataProvider {
     }
 
     final releases = _maps(json['releases']);
-    final release = releases.isEmpty ? null : releases.first;
+    final options = _releaseOptions(json['releases']);
 
-    final releaseId = release == null ? null : _string(release['id']);
-    final releaseTitle = release == null ? null : _string(release['title']);
+    // A recording appears on many releases (album, Deluxe, compilations).
+    // Release fields are filled only when they are unambiguous.
+    final onlyRelease = options.length == 1 ? options.single : null;
+    final releaseId = onlyRelease?.releaseId;
+    final releaseTitle = onlyRelease?.title;
 
-    final releaseGroup = release == null
-        ? null
-        : _mapValue(release['release-group']);
+    final groupIds = {for (final option in options) option.releaseGroupId};
+    final releaseGroupId = groupIds.length == 1 ? groupIds.single : null;
 
-    final releaseGroupId = releaseGroup == null
-        ? null
-        : _string(releaseGroup['id']);
+    Map<String, dynamic>? releaseGroup;
+    for (final release in releases) {
+      final group = _mapValue(release['release-group']);
+      if (group != null && _string(group['id']) == releaseGroupId) {
+        releaseGroup = group;
+        break;
+      }
+    }
 
     final firstReleaseDate =
         _parsePartialDate(json['first-release-date']) ??
-        (release == null ? null : _parsePartialDate(release['date']));
+        onlyRelease?.releaseDate;
 
     final externalIds = <String, String>{'musicBrainzRecordingId': id};
 
@@ -280,8 +286,61 @@ class MusicBrainzMetadataProvider implements MetadataProvider {
           ? const []
           : _strings(releaseGroup['secondary-types']),
       externalIds: externalIds,
+      releaseOptions: options,
     );
   }
+
+  /// Every release in [raw], with the track's medium and number when the
+  /// response includes them. [releaseGroupId] applies to releases listed
+  /// under a release group.
+  List<ExternalMetadataReleaseOption> _releaseOptions(
+    Object? raw, {
+    String? releaseGroupId,
+  }) {
+    final options = <ExternalMetadataReleaseOption>[];
+
+    for (final release in _maps(raw)) {
+      final id = _string(release['id']);
+      final title = _string(release['title']);
+
+      if (id == null || title == null) {
+        continue;
+      }
+
+      final group = _mapValue(release['release-group']);
+      final media = _maps(release['media']);
+      final medium = media.isEmpty ? null : media.first;
+      final tracks = medium == null
+          ? const <Map<String, dynamic>>[]
+          : _maps(medium['track']);
+      final track = tracks.isEmpty ? null : tracks.first;
+      final trackOffset = medium == null ? null : _int(medium['track-offset']);
+
+      options.add(
+        ExternalMetadataReleaseOption(
+          releaseId: id,
+          title: title,
+          releaseGroupId: group == null ? releaseGroupId : _string(group['id']),
+          releaseDate: _parsePartialDate(release['date']),
+          country: _string(release['country']),
+          status: _string(release['status']),
+          mediumPosition: medium == null ? null : _int(medium['position']),
+          trackNumber:
+              (track == null ? null : int.tryParse('${track['number']}')) ??
+              (trackOffset == null ? null : trackOffset + 1),
+          trackCount: _int(release['track-count']),
+        ),
+      );
+    }
+
+    return options;
+  }
+
+  static int? _int(Object? value) => switch (value) {
+    final int number => number,
+    final String text => int.tryParse(text),
+    _ => null,
+  };
 
   List<ExternalMetadataArtistCredit> _artistCredits(Object? raw) {
     if (raw is! List) {

@@ -5,6 +5,8 @@ import 'package:sonus_next/core/database/app_database.dart';
 import 'package:sonus_next/features/library/application/models/external_metadata_candidate.dart';
 import 'package:sonus_next/features/library/application/models/external_metadata_search_query.dart';
 import 'package:sonus_next/features/library/application/services/external_metadata_application_service.dart';
+import 'package:sonus_next/features/library/data/repositories/sqlite_library_organization_repository.dart';
+import 'package:sonus_next/features/library/domain/entities/library_organization.dart';
 import 'package:sonus_next/features/library/data/daos/album_dao.dart';
 import 'package:sonus_next/features/library/data/daos/album_edition_dao.dart';
 import 'package:sonus_next/features/library/data/daos/artist_dao.dart';
@@ -929,4 +931,86 @@ void main() {
       expect(pending.single.entityId, graph.artist.id);
     },
   );
+
+  group('release classification from MusicBrainz', () {
+    late SqliteLibraryOrganizationRepository organization;
+    late ExternalMetadataApplicationService classifying;
+
+    setUp(() {
+      organization = SqliteLibraryOrganizationRepository(appDatabase);
+      var nextOutboxId = 0;
+      classifying = ExternalMetadataApplicationService(
+        mutationRunner: SyncMutationTransactionRunner(
+          appDatabase: appDatabase,
+          generateId: () => 'classify_outbox_${++nextOutboxId}',
+          now: () => mutationTime,
+        ),
+        organization: organization,
+      );
+    });
+
+    ExternalMetadataCandidate releaseGroup(List<String> secondaryTypes) =>
+        ExternalMetadataCandidate(
+          provider: ExternalMetadataProviderKind.musicBrainz,
+          entityKind: ExternalMetadataEntityKind.album,
+          providerEntityId: 'rg-1',
+          displayName: 'Old Album',
+          primaryType: 'Album',
+          secondaryTypes: secondaryTypes,
+        );
+
+    test('a Soundtrack release group classifies the album', () async {
+      final graph = await createGraph();
+
+      await classifying.applyAlbumCandidate(
+        userId: null,
+        albumId: graph.album.id,
+        candidate: releaseGroup(const ['Soundtrack']),
+        now: mutationTime,
+      );
+
+      final classification = (await organization.getClassifications()).single;
+      expect(classification.albumId, graph.album.id);
+      expect(classification.kind, ReleaseKind.soundtrack);
+      expect(classification.authority, ReleaseClassificationAuthority.external);
+      expect(classification.sourceReference, contains('rg-1'));
+    });
+
+    test('a plain album release group classifies nothing', () async {
+      final graph = await createGraph();
+
+      await classifying.applyAlbumCandidate(
+        userId: null,
+        albumId: graph.album.id,
+        candidate: releaseGroup(const []),
+        now: mutationTime,
+      );
+
+      expect(await organization.getClassifications(), isEmpty);
+    });
+
+    test("the user's own classification is never replaced", () async {
+      final graph = await createGraph();
+      await organization.saveClassification(
+        AlbumReleaseClassification(
+          albumId: graph.album.id,
+          kind: ReleaseKind.castRecording,
+          authority: ReleaseClassificationAuthority.manual,
+          createdAt: originalTime,
+          updatedAt: originalTime,
+        ),
+      );
+
+      await classifying.applyAlbumCandidate(
+        userId: null,
+        albumId: graph.album.id,
+        candidate: releaseGroup(const ['Compilation']),
+        now: mutationTime,
+      );
+
+      final classification = (await organization.getClassifications()).single;
+      expect(classification.kind, ReleaseKind.castRecording);
+      expect(classification.authority, ReleaseClassificationAuthority.manual);
+    });
+  });
 }

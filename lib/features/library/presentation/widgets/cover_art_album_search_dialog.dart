@@ -6,6 +6,7 @@ import '../../application/models/external_metadata_candidate.dart';
 import '../../application/models/external_metadata_search_query.dart';
 import '../../application/services/external_metadata_candidate_ranking_service.dart';
 import '../../application/services/metadata_provider.dart';
+import 'online_lookup_disclosure.dart';
 
 class CoverArtAlbumSearchDialog extends StatefulWidget {
   const CoverArtAlbumSearchDialog({
@@ -28,6 +29,9 @@ class _CoverArtAlbumSearchDialogState extends State<CoverArtAlbumSearchDialog> {
   bool _hasError = false;
   bool _ambiguous = false;
 
+  /// True while the online lookup disclosure waits for the user.
+  bool _needsConsent = false;
+
   @override
   void initState() {
     super.initState();
@@ -35,7 +39,18 @@ class _CoverArtAlbumSearchDialogState extends State<CoverArtAlbumSearchDialog> {
   }
 
   Future<void> _search() async {
+    final consent = onlineLookupConsentOf(context);
+
+    if (consent != null && !consent.isOnlineLookupAccepted) {
+      setState(() {
+        _needsConsent = true;
+        _loading = false;
+      });
+      return;
+    }
+
     setState(() {
+      _needsConsent = false;
       _loading = true;
       _hasError = false;
       _ambiguous = false;
@@ -98,7 +113,19 @@ class _CoverArtAlbumSearchDialogState extends State<CoverArtAlbumSearchDialog> {
     );
   }
 
+  Future<void> _acceptAndSearch() async {
+    await onlineLookupConsentOf(context)?.acceptOnlineLookup();
+
+    if (mounted) {
+      await _search();
+    }
+  }
+
   Widget _buildContent() {
+    if (_needsConsent) {
+      return OnlineLookupDisclosure(onContinue: _acceptAndSearch);
+    }
+
     if (_loading) {
       return const Center(
         child: CircularProgressIndicator(

@@ -9,6 +9,7 @@ import 'schema/chart_schema.dart';
 import 'schema/import_schema.dart';
 import 'schema/library_schema.dart';
 import 'schema/lyrics_schema.dart';
+import 'schema/organization_schema.dart';
 import 'schema/playlist_schema.dart';
 import 'schema/sync_schema.dart';
 
@@ -23,7 +24,7 @@ class AppDatabase {
        _databasePathOverride = databasePath;
 
   static const String databaseName = 'sonus_next.db';
-  static const int databaseVersion = 33;
+  static const int databaseVersion = 34;
 
   /// Coordinates normal database transactions with recovery.
   final LibraryMutationCoordinator mutationCoordinator;
@@ -91,6 +92,7 @@ class AppDatabase {
     await PlaylistSchema.create(db);
     await SyncSchema.create(db);
     await AccountSchema.create(db);
+    await OrganizationSchema.create(db);
   }
 
   Future<void> _onUpgrade(

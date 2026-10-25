@@ -247,6 +247,7 @@ class ArtistProfileController extends ChangeNotifier {
     String? artistId,
     String? albumId,
     String? albumEditionId,
+    String? placementEditionId,
   }) async {
     final service = _trackProfileEditingService;
 
@@ -270,6 +271,7 @@ class ArtistProfileController extends ChangeNotifier {
       artistId: artistId,
       albumId: albumId,
       albumEditionId: albumEditionId,
+      placementEditionId: placementEditionId,
     );
 
     await refresh();

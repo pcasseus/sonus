@@ -107,6 +107,16 @@ abstract final class BackupCoverageContract {
       table: DatabaseTables.songImportReviews,
       policy: BackupTablePolicy.deviceLocal,
     ),
+    // Organization preferences. Device-local for now: adding portable tables
+    // would need every older backup to restore without them.
+    BackupTableCoverage(
+      table: DatabaseTables.albumReleaseClassifications,
+      policy: BackupTablePolicy.deviceLocal,
+    ),
+    BackupTableCoverage(
+      table: DatabaseTables.artistProjectAssignments,
+      policy: BackupTablePolicy.deviceLocal,
+    ),
 
     // Never restore as another device's active sync/ownership state.
     BackupTableCoverage(

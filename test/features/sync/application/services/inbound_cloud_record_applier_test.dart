@@ -684,6 +684,72 @@ void main() {
       },
     );
 
+    // SN-48J J2 (scenario H): an ordinary track save no longer changes the
+    // song's edition pointer, so the receiving device must not add the song
+    // to any other edition listing.
+    test(
+      'inbound song with an unchanged edition pointer adds no listing',
+      () async {
+        final bundle = _TestContextBundle();
+        bundle.seedParents();
+
+        bundle.song.existing = Song(
+          id: 'song-bonus',
+          artistId: 'artist-1',
+          albumId: 'album-1',
+          albumEditionId: 'edition-deluxe',
+          title: 'Bonus',
+          canonicalTitle: 'bonus',
+          trackNumber: 12,
+          discNumber: 1,
+          durationSeconds: 200,
+          isSingle: false,
+          isBlocked: false,
+          featuredArtists: const [],
+          createdAt: DateTime.utc(2026, 9, 1),
+          updatedAt: DateTime.utc(2026, 9, 10),
+        );
+        final deluxeListing = AlbumEditionTrack(
+          albumEditionId: 'edition-deluxe',
+          songId: 'song-bonus',
+          discNumber: 1,
+          trackNumber: 12,
+          sortPosition: 11,
+          createdAt: DateTime.utc(2026, 9, 1),
+          updatedAt: DateTime.utc(2026, 9, 10),
+        );
+        bundle.membership.memberships.add(deluxeListing);
+
+        final record = _recordFromRow(CloudDataEntity.song, {
+          'id': 'song-bonus',
+          'user_id': 'user-1',
+          'artist_id': 'artist-1',
+          'album_id': 'album-1',
+          'album_edition_id': 'edition-deluxe',
+          'title': 'Bonus (renamed)',
+          'canonical_title': 'bonus (renamed)',
+          'track_number': 12,
+          'disc_number': 1,
+          'duration_seconds': 200,
+          'is_single': false,
+          'is_blocked': false,
+          'featured_artists': <String>[],
+          'artwork_id': null,
+          'created_at': '2026-09-01T00:00:00.000Z',
+          'updated_at': '2026-09-20T00:00:00.000Z',
+          'server_updated_at': '2026-09-20T00:00:01.000Z',
+          'deleted_at': null,
+        });
+
+        await applier.apply(record: record, context: bundle.context);
+
+        expect(bundle.song.saved!.title, 'Bonus (renamed)');
+        expect(bundle.membership.created, isNull);
+        expect(bundle.membership.deletedEditionId, isNull);
+        expect(bundle.membership.memberships, [deluxeListing]);
+      },
+    );
+
     test('tombstone of an entity never held locally is applied', () async {
       final bundle = _TestContextBundle();
 

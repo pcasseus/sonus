@@ -294,21 +294,7 @@ class _TrackProfileEditDialogState extends State<TrackProfileEditDialog> {
       return;
     }
 
-    String albumEditionId = widget.track.albumEditionId;
-
-    for (final album in widget.albums) {
-      if (album.albumId != _albumId) {
-        continue;
-      }
-
-      final primaryEditionId = album.primaryEditionId?.trim();
-
-      if (primaryEditionId != null && primaryEditionId.isNotEmpty) {
-        albumEditionId = primaryEditionId;
-      }
-
-      break;
-    }
+    final moveToEditionId = _moveToEditionId();
 
     final featuredArtists = _featuredArtistsController.text
         .split(',')
@@ -325,9 +311,33 @@ class _TrackProfileEditDialogState extends State<TrackProfileEditDialog> {
         isSingle: _isSingle,
         artistId: _artistId,
         albumId: _albumId,
-        albumEditionId: albumEditionId,
+        moveToEditionId: moveToEditionId,
+        placementEditionId: widget.track.albumEditionId,
       ),
     );
+  }
+
+  /// The edition to move into, only when the user picked another album:
+  /// that album's primary edition. Saving within the same album never
+  /// changes edition memberships.
+  String? _moveToEditionId() {
+    if (_albumId == widget.track.albumId) {
+      return null;
+    }
+
+    for (final album in widget.albums) {
+      if (album.albumId != _albumId) {
+        continue;
+      }
+
+      final primaryEditionId = album.primaryEditionId?.trim();
+
+      return primaryEditionId == null || primaryEditionId.isEmpty
+          ? null
+          : primaryEditionId;
+    }
+
+    return null;
   }
 }
 

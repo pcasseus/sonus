@@ -12,6 +12,9 @@ abstract final class DatabaseTables {
   static const String trackLyrics = 'track_lyrics';
   static const String artworkAssets = 'artwork_assets';
   static const String metadataFieldStates = 'metadata_field_states';
+  static const String albumReleaseClassifications =
+      'album_release_classifications';
+  static const String artistProjectAssignments = 'artist_project_assignments';
 
   static const String playbackSessions = 'playback_sessions';
   static const String playbackListeningSegments = 'playback_listening_segments';

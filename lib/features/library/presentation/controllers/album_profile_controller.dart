@@ -200,6 +200,32 @@ class AlbumProfileController extends ChangeNotifier {
     return true;
   }
 
+  /// "Sort by disc & track" for the selected edition: back to automatic
+  /// order. Returns false when nothing changed.
+  Future<bool> sortSelectedEditionByDiscAndTrack({String? userId}) async {
+    final service = _albumEditionTrackOrderingService;
+    final selectedEdition = _selectedEdition;
+
+    if (service == null ||
+        selectedEdition == null ||
+        _repository is! AlbumEditionQueryRepository) {
+      return false;
+    }
+
+    final result = await service.sortByDiscAndTrack(
+      albumEditionId: selectedEdition.editionId,
+      userId: userId,
+    );
+
+    if (!result.changed) {
+      return false;
+    }
+
+    await refresh();
+
+    return true;
+  }
+
   Future<bool> updateSelectedEditionTrackPlacement({
     String? userId,
     required LibraryTrack track,
@@ -308,6 +334,7 @@ class AlbumProfileController extends ChangeNotifier {
     String? artistId,
     String? albumId,
     String? albumEditionId,
+    String? placementEditionId,
   }) async {
     final service = _trackProfileEditingService;
 
@@ -331,6 +358,7 @@ class AlbumProfileController extends ChangeNotifier {
       artistId: artistId,
       albumId: albumId,
       albumEditionId: albumEditionId,
+      placementEditionId: placementEditionId,
     );
 
     await refresh();

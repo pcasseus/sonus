@@ -4,6 +4,7 @@ import 'package:flutter/widgets.dart';
 import 'package:provider/provider.dart';
 
 import '../../../../core/database/app_database.dart';
+import '../../../../core/privacy/online_lookup_consent.dart';
 import '../../../artwork/application/services/artwork_assignment_service.dart';
 import '../../../artwork/application/services/artwork_file_picker.dart';
 import '../../../artwork/application/services/cover_art_candidate_discovery_service.dart';
@@ -43,6 +44,7 @@ import '../../data/daos/song_artist_credit_dao.dart';
 import '../../data/daos/song_dao.dart';
 import '../../data/repositories/sqlite_album_edition_repository.dart';
 import '../../data/repositories/sqlite_artist_repository.dart';
+import '../../data/repositories/sqlite_library_organization_repository.dart';
 import '../../data/repositories/sqlite_library_query_repository.dart';
 import '../../data/repositories/sqlite_song_artist_credit_repository.dart';
 import '../../data/repositories/sqlite_song_repository.dart';
@@ -192,6 +194,7 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
     final externalMetadataApplicationService =
         ExternalMetadataApplicationService(
           mutationRunner: SyncMutationTransactionRunner(appDatabase: _database),
+          organization: SqliteLibraryOrganizationRepository(_database),
         );
 
     final externalMetadataProposalService = ExternalMetadataProposalService(
@@ -282,6 +285,11 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
               ? _coverArtAlbumEditionImportService
               : null,
         ),
+        Provider<OnlineLookupConsent?>.value(
+          value: _SettingsOnlineLookupConsent(
+            _metadataIntelligenceSettingsController,
+          ),
+        ),
         Provider<MetadataProvider?>.value(
           value:
               _metadataIntelligenceSettingsController
@@ -318,4 +326,18 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
 
     super.dispose();
   }
+}
+
+/// Exposes the settings' online lookup consent without exposing the
+/// settings controller itself, which is a ChangeNotifier.
+class _SettingsOnlineLookupConsent implements OnlineLookupConsent {
+  const _SettingsOnlineLookupConsent(this._settings);
+
+  final OnlineLookupConsent _settings;
+
+  @override
+  bool get isOnlineLookupAccepted => _settings.isOnlineLookupAccepted;
+
+  @override
+  Future<void> acceptOnlineLookup() => _settings.acceptOnlineLookup();
 }

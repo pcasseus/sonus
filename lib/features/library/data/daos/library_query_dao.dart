@@ -6,11 +6,14 @@ import '../../application/models/library_album_edition.dart';
 import '../../application/models/library_artist.dart';
 import '../../application/models/library_track.dart';
 import '../../application/models/library_track_order.dart';
+import '../../application/models/project_collaborator.dart';
+import '../../domain/entities/song_artist_credit.dart';
 import '../../../search/application/models/library_search_results.dart';
 import '../mappers/library_album_row_mapper.dart';
 import '../mappers/library_album_edition_row_mapper.dart';
 import '../mappers/library_artist_row_mapper.dart';
 import '../mappers/library_track_row_mapper.dart';
+import 'edition_track_order.dart';
 
 class LibraryQueryDao {
   const LibraryQueryDao(this.db);
@@ -555,12 +558,7 @@ class LibraryQueryDao {
           LIMIT 1
         )
       WHERE aet.album_edition_id = ?
-      ORDER BY
-        aet.sort_position ASC,
-        aet.disc_number ASC,
-        aet.track_number ASC,
-        s.title COLLATE NOCASE ASC,
-        s.id ASC
+      ORDER BY ${editionTrackOrderBy('aet')}
       ''',
       [editionId],
     );
@@ -664,6 +662,15 @@ class LibraryQueryDao {
         WHERE eligibility_credit.artist_id = ar.id
           AND eligibility_credit.role IN ('primary', 'coPrimary')
       )
+      -- An album owner without a main credit (a cast or a soundtrack
+      -- owner) still has a profile showing its albums.
+      OR EXISTS (
+        SELECT 1
+        FROM ${DatabaseTables.albums} owned_album
+        INNER JOIN ${DatabaseTables.songs} owned_song
+          ON owned_song.album_id = owned_album.id
+        WHERE owned_album.artist_id = ar.id
+      )
       GROUP BY
         ar.id,
         ar.name,
@@ -678,6 +685,81 @@ class LibraryQueryDao {
     ''');
 
     return rows.map(LibraryArtistRowMapper.fromRow).toList(growable: false);
+  }
+
+  Future<List<ProjectCollaborator>> findProjectCollaborators({
+    String? albumId,
+  }) async {
+    final rows = await db.rawQuery(
+      '''
+      WITH project_songs AS (
+        SELECT s.album_id AS album_id, s.id AS song_id
+        FROM ${DatabaseTables.songs} s
+        UNION
+        SELECT ae.album_id AS album_id, aet.song_id AS song_id
+        FROM ${DatabaseTables.albumEditionTracks} aet
+        INNER JOIN ${DatabaseTables.albumEditions} ae
+          ON ae.id = aet.album_edition_id
+      ),
+      credits AS (
+        SELECT song_id, artist_id, role
+        FROM ${DatabaseTables.songArtistCredits}
+        WHERE artist_id IS NOT NULL
+        UNION
+        -- Songs without structured credits fall back to their artist.
+        SELECT s.id AS song_id, s.artist_id AS artist_id, 'primary' AS role
+        FROM ${DatabaseTables.songs} s
+        WHERE NOT EXISTS (
+          SELECT 1
+          FROM ${DatabaseTables.songArtistCredits} existing
+          WHERE existing.song_id = s.id
+        )
+      )
+      SELECT
+        ps.album_id AS album_id,
+        c.artist_id AS artist_id,
+        ar.name AS artist_name,
+        group_concat(DISTINCT c.role) AS roles,
+        COUNT(DISTINCT ps.song_id) AS song_count
+      FROM project_songs ps
+      INNER JOIN credits c
+        ON c.song_id = ps.song_id
+      INNER JOIN ${DatabaseTables.artists} ar
+        ON ar.id = c.artist_id
+      ${albumId == null ? '' : 'WHERE ps.album_id = ?'}
+      GROUP BY ps.album_id, c.artist_id, ar.name
+      ''',
+      [?albumId],
+    );
+
+    final collaborators = [
+      for (final row in rows)
+        ProjectCollaborator(
+          albumId: row['album_id']! as String,
+          artistId: row['artist_id']! as String,
+          artistName: row['artist_name']! as String,
+          roles: {
+            for (final role in (row['roles']! as String).split(','))
+              SongArtistCreditRole.values.byName(role),
+          },
+          songCount: row['song_count']! as int,
+        ),
+    ];
+
+    return collaborators..sort((a, b) {
+      for (final comparison in [
+        a.albumId.compareTo(b.albumId),
+        a.leadRole.index.compareTo(b.leadRole.index),
+        b.songCount.compareTo(a.songCount),
+        a.artistName.toLowerCase().compareTo(b.artistName.toLowerCase()),
+        a.artistId.compareTo(b.artistId),
+      ]) {
+        if (comparison != 0) {
+          return comparison;
+        }
+      }
+      return 0;
+    });
   }
 
   Future<LibraryArtist?> findProfileEligibleArtistById(String artistId) async {

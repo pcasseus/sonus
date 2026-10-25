@@ -509,7 +509,8 @@ class _ImportReviewPageState extends State<ImportReviewPage> {
       isSingle: draft.isSingle,
       artistId: draft.artistId,
       albumId: draft.albumId,
-      albumEditionId: draft.albumEditionId,
+      moveToEditionId: draft.moveToEditionId,
+      placementEditionId: draft.placementEditionId,
     );
 
     if (!mounted || saved) {
@@ -541,6 +542,8 @@ class _ImportReviewPageState extends State<ImportReviewPage> {
         return 'Loose folder structure';
       case ImportReviewReason.ambiguousArtistCredit:
         return 'Artist credit needs confirmation';
+      case ImportReviewReason.alternateRecording:
+        return 'Possibly a different recording of an existing song';
     }
   }
 
