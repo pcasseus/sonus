@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../../../../core/design/sonus_theme.dart';
 import '../../../../core/design/widgets/sonus_page_header.dart';
 import '../../../../core/design/widgets/sonus_state_view.dart';
+import '../../../../core/events/library_change_signal.dart';
 import '../../application/models/library_artist.dart';
 import '../../application/models/library_track.dart';
 import '../../application/repositories/library_query_repository.dart';
@@ -14,13 +15,18 @@ import '../widgets/library_artist_card.dart';
 import 'artist_profile_page.dart';
 
 class LibraryPage extends StatefulWidget {
-  const LibraryPage({super.key});
+  const LibraryPage({super.key, this.changes});
+
+  /// Reloads after library edits, imports and recorded listening; the
+  /// shared signal if null.
+  final LibraryChangeSignal? changes;
 
   @override
   State<LibraryPage> createState() => _LibraryPageState();
 }
 
 class _LibraryPageState extends State<LibraryPage> {
+  LibraryChangeRefresher? _refresher;
   LibraryArtistsController? _controller;
   LibraryQueryRepository? _repository;
 
@@ -34,12 +40,19 @@ class _LibraryPageState extends State<LibraryPage> {
       return;
     }
 
+    _refresher?.dispose();
     _controller?.dispose();
 
     _repository = repository;
     _controller = LibraryArtistsController(repository: repository);
 
-    unawaited(_controller!.load());
+    final controller = _controller!;
+    _refresher = LibraryChangeRefresher(
+      signal: widget.changes ?? LibraryChangeSignal.shared,
+      kinds: LibraryChangeKind.values.toSet(),
+      onChange: () => unawaited(controller.refresh()),
+    );
+    unawaited(controller.load());
   }
 
   void _openArtist(LibraryArtist artist) {
@@ -167,6 +180,7 @@ class _LibraryPageState extends State<LibraryPage> {
 
   @override
   void dispose() {
+    _refresher?.dispose();
     _controller?.dispose();
     super.dispose();
   }

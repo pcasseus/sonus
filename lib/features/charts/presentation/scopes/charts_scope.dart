@@ -4,6 +4,7 @@ import 'package:flutter/widgets.dart';
 import 'package:provider/provider.dart';
 
 import '../../../../core/database/app_database.dart';
+import '../../../../core/events/library_change_signal.dart';
 import '../../../analytics/domain/repositories/playback_session_repository.dart';
 import '../../../analytics/domain/repositories/qualified_play_repository.dart';
 import '../../../library/application/repositories/library_query_repository.dart';
@@ -15,9 +16,13 @@ import '../../data/repositories/sqlite_chart_repository.dart';
 import '../controllers/charts_controller.dart';
 
 class ChartsScope extends StatefulWidget {
-  const ChartsScope({super.key, required this.child, this.now});
+  const ChartsScope({super.key, required this.child, this.now, this.changes});
 
   final Widget child;
+
+  /// Reloads after recorded listening, imports and library edits; the
+  /// shared signal if null.
+  final LibraryChangeSignal? changes;
   final ChartsControllerNow? now;
 
   @override
@@ -31,6 +36,7 @@ class _ChartsScopeState extends State<ChartsScope> {
   PlaybackSessionRepository? _playbackSessions;
 
   ChartsController? _controller;
+  LibraryChangeRefresher? _refresher;
 
   @override
   void didChangeDependencies() {
@@ -69,6 +75,8 @@ class _ChartsScopeState extends State<ChartsScope> {
     final previousController = _controller;
     _controller = null;
 
+    _refresher?.dispose();
+    _refresher = null;
     previousController?.dispose();
 
     final database = _database;
@@ -117,6 +125,13 @@ class _ChartsScopeState extends State<ChartsScope> {
     );
 
     _controller = controller;
+    // New qualified plays move the all-time chart; imports and edits change
+    // titles, artwork and membership. Never sent for playback progress.
+    _refresher = LibraryChangeRefresher(
+      signal: widget.changes ?? LibraryChangeSignal.shared,
+      kinds: LibraryChangeKind.values.toSet(),
+      onChange: () => unawaited(controller.refresh()),
+    );
 
     unawaited(controller.load());
   }
@@ -131,6 +146,7 @@ class _ChartsScopeState extends State<ChartsScope> {
 
   @override
   void dispose() {
+    _refresher?.dispose();
     _controller?.dispose();
     super.dispose();
   }

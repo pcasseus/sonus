@@ -10,6 +10,7 @@ import '../../../../core/design/sonus_theme.dart';
 import '../../../../core/design/sonus_tokens.dart';
 import '../../../../core/design/widgets/sonus_artwork_frame.dart';
 import '../../../../core/design/widgets/sonus_segmented_selector.dart';
+import '../../../../core/events/library_change_signal.dart';
 import '../../domain/repositories/song_artist_credit_repository.dart';
 import '../../../account/application/controllers/account_controller.dart';
 import '../../../artwork/application/services/artwork_assignment_service.dart';
@@ -43,6 +44,7 @@ class AlbumProfilePage extends StatefulWidget {
     required this.albumId,
     this.initialAlbumTitle,
     this.artworkPalette,
+    this.changes,
   });
 
   final String albumId;
@@ -51,11 +53,16 @@ class AlbumProfilePage extends StatefulWidget {
   /// Where artwork colours come from; the app-wide cache by default.
   final SonusArtworkPalette? artworkPalette;
 
+  /// Reloads after library edits, imports and recorded listening; the
+  /// shared signal if null.
+  final LibraryChangeSignal? changes;
+
   @override
   State<AlbumProfilePage> createState() => _AlbumProfilePageState();
 }
 
 class _AlbumProfilePageState extends State<AlbumProfilePage> {
+  LibraryChangeRefresher? _refresher;
   AlbumProfileController? _controller;
   LibraryQueryRepository? _repository;
 
@@ -112,6 +119,7 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
     }
 
     _controller?.removeListener(_onControllerChanged);
+    _refresher?.dispose();
     _controller?.dispose();
 
     _repository = repository;
@@ -132,7 +140,13 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
     // The artwork can change without this State rebuilding: when the album
     // loads or another edition is selected.
     _controller!.addListener(_onControllerChanged);
-    unawaited(_controller!.load());
+    final controller = _controller!;
+    _refresher = LibraryChangeRefresher(
+      signal: widget.changes ?? LibraryChangeSignal.shared,
+      kinds: LibraryChangeKind.values.toSet(),
+      onChange: () => unawaited(controller.refresh()),
+    );
+    unawaited(controller.load());
   }
 
   @override
@@ -694,6 +708,7 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
   @override
   void dispose() {
     _controller?.removeListener(_onControllerChanged);
+    _refresher?.dispose();
     _controller?.dispose();
     super.dispose();
   }

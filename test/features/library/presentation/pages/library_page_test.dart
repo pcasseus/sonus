@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
+import 'package:sonus_next/core/events/library_change_signal.dart';
+
 import 'package:sonus_next/features/library/application/models/library_album.dart';
 import 'package:sonus_next/features/library/application/models/library_artist.dart';
 import 'package:sonus_next/features/library/application/models/library_track.dart';
@@ -394,6 +396,40 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Recovered Artist'), findsOneWidget);
+    });
+
+    // Data-1: the Library updates by itself after an import or an edit.
+    testWidgets('reloads after an import, and stops when disposed', (
+      tester,
+    ) async {
+      final artists = <LibraryArtist>[
+        createArtist(artistId: 'artist-1', name: 'First Artist', songCount: 1),
+      ];
+      final signal = LibraryChangeSignal();
+      final repository = FakeLibraryQueryRepository(artists: artists);
+
+      await tester.pumpWidget(
+        Provider<LibraryQueryRepository?>.value(
+          value: repository,
+          child: MaterialApp(
+            home: Scaffold(body: LibraryPage(changes: signal)),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Imported Artist'), findsNothing);
+
+      artists.add(createArtist(artistId: 'artist-2', name: 'Imported Artist'));
+      signal.notify(LibraryChangeKind.importCompleted);
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Imported Artist'), findsOneWidget);
+
+      await tester.pumpWidget(const SizedBox());
+      signal.notify(LibraryChangeKind.libraryEdited);
+      await tester.pump(const Duration(milliseconds: 400));
+      expect(tester.takeException(), isNull);
     });
   });
 }

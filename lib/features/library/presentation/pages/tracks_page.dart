@@ -7,6 +7,7 @@ import '../../../../core/design/sonus_theme.dart';
 import '../../../../core/design/widgets/sonus_page_header.dart';
 import '../../../../core/design/widgets/sonus_state_view.dart';
 import '../../../../core/design/widgets/sonus_track_tile.dart';
+import '../../../../core/events/library_change_signal.dart';
 import '../../../account/application/controllers/account_controller.dart';
 import '../../../artwork/application/services/artwork_assignment_service.dart';
 import '../../../artwork/application/services/artwork_file_picker.dart';
@@ -29,13 +30,18 @@ import '../models/track_profile_edit_draft.dart';
 import 'track_studio_page.dart';
 
 class TracksPage extends StatefulWidget {
-  const TracksPage({super.key});
+  const TracksPage({super.key, this.changes});
+
+  /// Reloads after library edits, imports and recorded listening; the
+  /// shared signal if null.
+  final LibraryChangeSignal? changes;
 
   @override
   State<TracksPage> createState() => _TracksPageState();
 }
 
 class _TracksPageState extends State<TracksPage> {
+  LibraryChangeRefresher? _refresher;
   LibraryTracksController? _controller;
   LibraryQueryRepository? _repository;
 
@@ -54,6 +60,7 @@ class _TracksPageState extends State<TracksPage> {
       return;
     }
 
+    _refresher?.dispose();
     _controller?.dispose();
 
     _repository = repository;
@@ -76,7 +83,13 @@ class _TracksPageState extends State<TracksPage> {
       artworkFilePicker: context.read<ArtworkFilePicker?>(),
     );
 
-    unawaited(_controller!.load());
+    final controller = _controller!;
+    _refresher = LibraryChangeRefresher(
+      signal: widget.changes ?? LibraryChangeSignal.shared,
+      kinds: LibraryChangeKind.values.toSet(),
+      onChange: () => unawaited(controller.refresh()),
+    );
+    unawaited(controller.load());
   }
 
   @override
@@ -417,6 +430,7 @@ class _TracksPageState extends State<TracksPage> {
 
   @override
   void dispose() {
+    _refresher?.dispose();
     _controller?.dispose();
     super.dispose();
   }
