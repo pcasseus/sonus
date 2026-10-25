@@ -8,6 +8,11 @@ enum ImportReviewReason {
   missingDuration,
   looseFolder,
   ambiguousArtistCredit,
+
+  /// Same artist, title and album as an existing song, but the duration or
+  /// featured artists show a different recording. Imported as its own song;
+  /// the user confirms or merges it.
+  alternateRecording,
 }
 
 class ImportReviewPayload {

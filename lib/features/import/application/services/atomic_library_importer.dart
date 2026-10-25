@@ -115,6 +115,7 @@ class AtomicLibraryImporter {
               status: ImportResultStatus.skipped,
               filePath: candidate.filePath,
               songId: existingPathBinding.songId,
+              skipReason: ImportSkipReason.knownFile,
             );
           }
 
@@ -211,6 +212,7 @@ class AtomicLibraryImporter {
           return ImportResult(
             status: ImportResultStatus.skipped,
             filePath: candidate.filePath,
+            skipReason: ImportSkipReason.notInLibrary,
           );
         }
 
@@ -601,6 +603,7 @@ class AtomicLibraryImporter {
             metadata: metadata,
             metadataSource: metadataSource,
             ambiguousArtistCredit: ambiguousArtistCredit,
+            alternateRecording: match.alternateRecordingOf != null,
           );
 
           if (reviewReasons.isNotEmpty) {
@@ -655,10 +658,13 @@ class AtomicLibraryImporter {
             .toList(growable: false);
 
         if (availableBindings.isNotEmpty) {
+          // Another file already plays this recording. Nothing is written for
+          // the copy; the result says which song it duplicates.
           return ImportResult(
             status: ImportResultStatus.skipped,
             filePath: candidate.filePath,
             songId: song.id,
+            skipReason: ImportSkipReason.duplicateRecording,
           );
         }
 
@@ -792,6 +798,7 @@ class AtomicLibraryImporter {
     required AudioMetadata metadata,
     required MetadataSource metadataSource,
     required String? ambiguousArtistCredit,
+    required bool alternateRecording,
   }) {
     final reasons = <ImportReviewReason>[];
 
@@ -821,6 +828,10 @@ class AtomicLibraryImporter {
 
     if (ambiguousArtistCredit != null) {
       reasons.add(ImportReviewReason.ambiguousArtistCredit);
+    }
+
+    if (alternateRecording) {
+      reasons.add(ImportReviewReason.alternateRecording);
     }
 
     return reasons;

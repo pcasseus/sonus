@@ -8,6 +8,7 @@ import 'package:sonus_next/features/library/domain/repositories/artist_repositor
 import 'package:sonus_next/features/library/domain/repositories/song_repository.dart';
 
 import 'library_identity_match.dart';
+import 'recording_evidence.dart';
 
 class LibraryIdentityResolver {
   const LibraryIdentityResolver({
@@ -164,16 +165,26 @@ class LibraryIdentityResolver {
         )
         .toList(growable: false);
 
+    // Several recordings can share artist, title and album (an album and a
+    // radio edit, a solo and a featured version). Only songs the evidence
+    // doesn't set apart are the same recording.
+    final sameRecording = songMatches
+        .where((song) => !RecordingEvidence.distinguishes(song, metadata))
+        .toList(growable: false);
+
     return LibraryIdentityMatch(
       artist: trackArtist,
       albumArtist: albumArtist,
       album: album,
       edition: edition,
-      song: songMatches.length == 1 ? songMatches.single : null,
+      song: sameRecording.length == 1 ? sameRecording.single : null,
       artistAmbiguous: false,
       albumAmbiguous: false,
       editionAmbiguous: false,
-      songAmbiguous: songMatches.length > 1,
+      songAmbiguous: sameRecording.length > 1,
+      alternateRecordingOf: sameRecording.isEmpty && songMatches.isNotEmpty
+          ? songMatches.first
+          : null,
     );
   }
 

@@ -537,6 +537,8 @@ class _ImportReviewPageState extends State<ImportReviewPage> {
         return 'Loose folder structure';
       case ImportReviewReason.ambiguousArtistCredit:
         return 'Artist credit needs confirmation';
+      case ImportReviewReason.alternateRecording:
+        return 'Possibly a different recording of an existing song';
     }
   }
 
