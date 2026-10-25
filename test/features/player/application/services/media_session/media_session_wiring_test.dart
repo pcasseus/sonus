@@ -142,6 +142,34 @@ void main() {
       expect(calls, ['releaseForeground']);
     });
 
+    test('the session starts even if the artwork folder cannot be found '
+        '(SN-45)', () async {
+      final handler = await MediaSessionBootstrap.start(
+        initialize: (builder, config) async => builder(),
+        supportDirectory: () async => throw const FileSystemException('none'),
+      );
+
+      expect(handler, isNotNull);
+      expect(handler!.carArtworkUri, isNull);
+    });
+
+    test('car artwork comes from the managed artwork folder (SN-45)', () async {
+      final support = Directory.systemTemp.createTempSync('sonus_support');
+      addTearDown(() => support.deleteSync(recursive: true));
+      final artwork = File('${support.path}/sonus/artwork/artwork_abc.jpg')
+        ..createSync(recursive: true);
+
+      final handler = await MediaSessionBootstrap.start(
+        initialize: (builder, config) async => builder(),
+        supportDirectory: () async => support,
+      );
+
+      expect(
+        handler!.carArtworkUri!(artwork.path).toString(),
+        'content://com.sonus.sonus_next.artwork/artwork_abc.jpg',
+      );
+    });
+
     test('other platforms have nothing to release', () async {
       debugDefaultTargetPlatformOverride = TargetPlatform.windows;
 

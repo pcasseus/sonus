@@ -1,9 +1,15 @@
 import 'dart:developer' as developer;
+import 'dart:io';
 
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/scheduler.dart';
 import 'package:flutter/services.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 
+import 'artwork_content_uris.dart';
+import 'media_session_state_mapper.dart';
 import 'sonus_audio_handler.dart';
 
 typedef MediaSessionInitializer =
@@ -30,7 +36,21 @@ abstract final class MediaSessionBootstrap {
     // Bounds the memory used for notification artwork.
     artDownscaleWidth: 512,
     artDownscaleHeight: 512,
+    // SN-45 Android Auto: Sonus answers searches, and lists are shown as
+    // lists unless an item asks for a grid (Albums).
+    androidBrowsableRootExtras: browsableRootExtras,
   );
+
+  /// MediaConstants.BROWSER_SERVICE_EXTRAS_KEY_SEARCH_SUPPORTED.
+  static const String searchSupportedKey =
+      'android.media.browse.SEARCH_SUPPORTED';
+
+  static const Map<String, dynamic> browsableRootExtras = {
+    searchSupportedKey: true,
+    AndroidContentStyle.supportedKey: true,
+    AndroidContentStyle.browsableHintKey: AndroidContentStyle.listItemHintValue,
+    AndroidContentStyle.playableHintKey: AndroidContentStyle.listItemHintValue,
+  };
 
   /// Implemented by MainActivity and SonusForegroundRelease.kt.
   static const MethodChannel channel = MethodChannel(
@@ -39,10 +59,18 @@ abstract final class MediaSessionBootstrap {
 
   static Future<SonusAudioHandler?> start({
     MediaSessionInitializer? initialize,
+    Future<Directory> Function()? supportDirectory,
   }) async {
     try {
+      final carArtworkUri = await _carArtworkUris(
+        supportDirectory ?? getApplicationSupportDirectory,
+      );
       return await (initialize ?? _audioServiceInit)(
-        () => SonusAudioHandler(releaseForeground: releaseForeground),
+        () => SonusAudioHandler(
+          releaseForeground: releaseForeground,
+          carArtworkUri: carArtworkUri,
+          wakeApp: wakeApp,
+        ),
         config,
       );
     } catch (error, stackTrace) {
@@ -57,6 +85,13 @@ abstract final class MediaSessionBootstrap {
     }
   }
 
+  /// Requests a frame even when Flutter has paused them, as it does while
+  /// Sonus has no activity (Android Auto started it). The app's scopes
+  /// finish loading through rebuilds, which need frames.
+  static void wakeApp() {
+    SchedulerBinding.instance.scheduleForcedFrame();
+  }
+
   /// Removes the playback notification once a session has ended. Only
   /// Android implements it; elsewhere there is no notification to remove.
   static Future<void> releaseForeground() async {
@@ -65,6 +100,33 @@ abstract final class MediaSessionBootstrap {
     }
 
     await channel.invokeMethod<bool>('releaseForeground');
+  }
+
+  /// Car-readable artwork URIs, on Android only (SonusArtworkProvider).
+  ///
+  /// Optional: if the folder cannot be found, the car shows no artwork and
+  /// the media session still starts.
+  static Future<CarArtworkUri?> _carArtworkUris(
+    Future<Directory> Function() supportDirectory,
+  ) async {
+    if (defaultTargetPlatform != TargetPlatform.android) {
+      return null;
+    }
+
+    try {
+      final support = await supportDirectory();
+      return ArtworkContentUris(
+        artworkDirectory: p.join(support.path, 'sonus', 'artwork'),
+      ).resolve;
+    } catch (error, stackTrace) {
+      developer.log(
+        'Car artwork unavailable. error=${error.runtimeType}',
+        name: 'sonus.media_session',
+        level: 900,
+        stackTrace: stackTrace,
+      );
+      return null;
+    }
   }
 
   static Future<SonusAudioHandler> _audioServiceInit(
