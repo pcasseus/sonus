@@ -542,6 +542,65 @@ void main() {
       },
     );
 
+    test('Sort by disc & track targets the selected edition', () async {
+      final repository = FakeEditionAwareLibraryQueryRepository(
+        album: createAlbum(
+          primaryEditionId: 'edition-standard',
+          primaryEditionTitle: 'Standard',
+          primaryEditionType: AlbumEditionType.standard,
+        ),
+        editions: [
+          createLibraryEdition(
+            editionId: 'edition-standard',
+            title: 'Standard',
+            type: AlbumEditionType.standard,
+            isPrimary: true,
+          ),
+          createLibraryEdition(
+            editionId: 'edition-deluxe',
+            title: 'Deluxe',
+            type: AlbumEditionType.deluxe,
+          ),
+        ],
+        editionTracks: {
+          'edition-standard': [
+            createTrack(
+              songId: 'standard-song',
+              albumEditionId: 'edition-standard',
+            ),
+          ],
+          'edition-deluxe': [
+            createTrack(
+              songId: 'deluxe-a',
+              albumEditionId: 'edition-deluxe',
+              albumEditionTitle: 'Deluxe',
+              albumEditionType: AlbumEditionType.deluxe,
+            ),
+          ],
+        },
+      );
+      final service = FakeAlbumEditionTrackOrderingService();
+      final controller = AlbumProfileController(
+        repository: repository,
+        albumId: 'album-1',
+        albumEditionTrackOrderingService: service,
+      );
+
+      await controller.load();
+      await controller.selectEdition('edition-deluxe');
+
+      final changed = await controller.sortSelectedEditionByDiscAndTrack(
+        userId: 'user-1',
+      );
+
+      expect(changed, isTrue);
+      expect(service.sortCallCount, 1);
+      expect(service.lastEditionId, 'edition-deluxe');
+      expect(controller.selectedEdition?.editionId, 'edition-deluxe');
+
+      controller.dispose();
+    });
+
     test(
       'Album Studio placement targets selected edition membership',
       () async {
@@ -2175,6 +2234,7 @@ class FakeAlbumEditionTrackOrderingService
 
   int reorderCallCount = 0;
   int placementCallCount = 0;
+  int sortCallCount = 0;
 
   String? lastUserId;
   String? lastEditionId;
@@ -2197,6 +2257,19 @@ class FakeAlbumEditionTrackOrderingService
     lastEditionId = albumEditionId;
     lastOrderedSongIds = List<String>.from(orderedSongIds);
     lastAutoRenumber = autoRenumber;
+
+    return const AlbumEditionReorderResult(memberships: [], changed: true);
+  }
+
+  @override
+  Future<AlbumEditionReorderResult> sortByDiscAndTrack({
+    required String albumEditionId,
+    String? userId,
+    DateTime? now,
+  }) async {
+    sortCallCount++;
+    lastUserId = userId;
+    lastEditionId = albumEditionId;
 
     return const AlbumEditionReorderResult(memberships: [], changed: true);
   }

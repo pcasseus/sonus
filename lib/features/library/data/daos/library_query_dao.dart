@@ -11,6 +11,7 @@ import '../mappers/library_album_row_mapper.dart';
 import '../mappers/library_album_edition_row_mapper.dart';
 import '../mappers/library_artist_row_mapper.dart';
 import '../mappers/library_track_row_mapper.dart';
+import 'edition_track_order.dart';
 
 class LibraryQueryDao {
   const LibraryQueryDao(this.db);
@@ -555,12 +556,7 @@ class LibraryQueryDao {
           LIMIT 1
         )
       WHERE aet.album_edition_id = ?
-      ORDER BY
-        aet.sort_position ASC,
-        aet.disc_number ASC,
-        aet.track_number ASC,
-        s.title COLLATE NOCASE ASC,
-        s.id ASC
+      ORDER BY ${editionTrackOrderBy('aet')}
       ''',
       [editionId],
     );

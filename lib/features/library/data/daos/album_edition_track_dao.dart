@@ -3,6 +3,7 @@ import 'package:sqflite/sqflite.dart';
 import '../../../../core/database/database_tables.dart';
 import '../../domain/entities/album_edition_track.dart';
 import '../mappers/album_edition_track_row_mapper.dart';
+import 'edition_track_order.dart';
 
 class AlbumEditionTrackDao {
   const AlbumEditionTrackDao(this.db);
@@ -34,12 +35,14 @@ class AlbumEditionTrackDao {
   }
 
   Future<List<AlbumEditionTrack>> findByEditionId(String editionId) async {
-    final rows = await db.query(
-      DatabaseTables.albumEditionTracks,
-      where: 'album_edition_id = ?',
-      whereArgs: [editionId],
-      orderBy:
-          'sort_position ASC, disc_number ASC, track_number ASC, song_id ASC',
+    final rows = await db.rawQuery(
+      '''
+      SELECT aet.*
+      FROM ${DatabaseTables.albumEditionTracks} aet
+      WHERE aet.album_edition_id = ?
+      ORDER BY ${editionTrackOrderBy('aet')}
+      ''',
+      [editionId],
     );
 
     return rows.map(AlbumEditionTrackRowMapper.fromRow).toList(growable: false);
