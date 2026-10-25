@@ -4,6 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../../core/database/app_database.dart';
+import '../../../../core/design/sonus_count_label.dart';
+import '../../../../core/design/sonus_theme.dart';
+import '../../../../core/design/widgets/sonus_form_section.dart';
+import '../../../../core/design/widgets/sonus_notice_card.dart';
+import '../../../../core/design/widgets/sonus_state_view.dart';
 import '../../../account/application/controllers/account_controller.dart';
 import '../../../sync/data/repositories/sync_mutation_transaction_runner.dart';
 import '../../application/models/library_health_report.dart';
@@ -15,7 +20,7 @@ import '../../data/daos/library_integrity_dao.dart';
 ///
 /// Verification reads the library as stored and never changes it. Safe
 /// corrections are offered with an Apply button each, and applied only
-/// when the user confirms. Presentation is deliberately plain.
+/// when the user confirms.
 class LibraryHealthPage extends StatefulWidget {
   const LibraryHealthPage({super.key, this.importCounts, this.service});
 
@@ -120,9 +125,14 @@ class _LibraryHealthPageState extends State<LibraryHealthPage> {
   @override
   Widget build(BuildContext context) {
     final report = _report;
+    final tokens = SonusTheme.of(context);
+    final gutter = tokens.metrics.pageGutter;
 
     return Scaffold(
+      backgroundColor: tokens.colors.background,
       appBar: AppBar(
+        backgroundColor: tokens.colors.background,
+        surfaceTintColor: Colors.transparent,
         title: Text(
           widget.importCounts == null
               ? 'Verify Library'
@@ -138,59 +148,72 @@ class _LibraryHealthPageState extends State<LibraryHealthPage> {
         ],
       ),
       body: report == null
-          ? Center(
-              child: _error == null
-                  ? const CircularProgressIndicator()
-                  : const Text('The library could not be checked. Try again.'),
-            )
+          ? _error == null
+                ? const SonusStateView.loading(
+                    key: ValueKey<String>('library-health-checking'),
+                    label: 'Checking your library…',
+                  )
+                : SonusStateView(
+                    key: const ValueKey<String>('library-health-failed'),
+                    icon: Icons.error_outline_rounded,
+                    isError: true,
+                    title: 'The library could not be checked.',
+                    message: 'Nothing was changed. Try again.',
+                    action: FilledButton.tonalIcon(
+                      onPressed: _busy ? null : _verify,
+                      icon: const Icon(Icons.refresh_rounded),
+                      label: const Text('Try again'),
+                    ),
+                  )
           : ListView(
               key: const ValueKey<String>('library-health-report'),
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+              padding: EdgeInsets.fromLTRB(gutter, 8, gutter, 32),
               children: [
-                if (_busy) const LinearProgressIndicator(),
-                if (_error != null)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(vertical: 8),
-                    child: Text(
-                      'A correction could not be applied. Nothing was changed.',
-                    ),
-                  ),
+                if (_busy) ...[
+                  const LinearProgressIndicator(),
+                  const SizedBox(height: 12),
+                ],
                 _Overview(report: report),
-                for (final (severity, title) in const [
-                  (HealthSeverity.needsReview, 'Needs your review'),
-                  (HealthSeverity.safeCorrection, 'Safe corrections'),
-                  (HealthSeverity.warning, 'Warnings'),
-                  (HealthSeverity.verified, 'Verified'),
+                if (_error != null) ...[
+                  const SizedBox(height: 12),
+                  const SonusNoticeCard(
+                    key: ValueKey<String>('library-health-apply-failed'),
+                    tone: SonusNoticeTone.error,
+                    title: 'A correction could not be applied.',
+                    message: 'Nothing was changed.',
+                  ),
+                ],
+                for (final (severity, title, subtitle) in const [
+                  (
+                    HealthSeverity.needsReview,
+                    'Needs your review',
+                    'Sonus won\'t change these by itself.',
+                  ),
+                  (
+                    HealthSeverity.safeCorrection,
+                    'Safe corrections',
+                    'Applied only when you choose Apply.',
+                  ),
+                  (HealthSeverity.warning, 'Warnings', null),
+                  (HealthSeverity.verified, 'Verified', null),
                 ])
                   if (report.withSeverity(severity).isNotEmpty) ...[
-                    Padding(
-                      padding: const EdgeInsets.only(top: 20, bottom: 4),
-                      child: Semantics(
-                        header: true,
-                        child: Text(
-                          title,
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
-                      ),
+                    const SizedBox(height: 16),
+                    SonusFormSection(
+                      title: title,
+                      subtitle: subtitle,
+                      icon: _iconFor(severity),
+                      padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
+                      children: [
+                        for (final finding in report.withSeverity(severity))
+                          _FindingTile(
+                            finding: finding,
+                            severity: severity,
+                            busy: _busy,
+                            onApply: () => _apply(finding),
+                          ),
+                      ],
                     ),
-                    for (final finding in report.withSeverity(severity))
-                      ListTile(
-                        key: ValueKey<String>(
-                          'library-health-${finding.check.name}',
-                        ),
-                        contentPadding: EdgeInsets.zero,
-                        leading: Icon(_iconFor(severity)),
-                        title: Text(finding.summary),
-                        trailing: finding.corrections.isEmpty
-                            ? null
-                            : TextButton(
-                                key: ValueKey<String>(
-                                  'library-health-apply-${finding.check.name}',
-                                ),
-                                onPressed: _busy ? null : () => _apply(finding),
-                                child: const Text('Apply'),
-                              ),
-                      ),
                   ],
               ],
             ),
@@ -205,6 +228,50 @@ class _LibraryHealthPageState extends State<LibraryHealthPage> {
   };
 }
 
+class _FindingTile extends StatelessWidget {
+  const _FindingTile({
+    required this.finding,
+    required this.severity,
+    required this.busy,
+    required this.onApply,
+  });
+
+  final HealthFinding finding;
+  final HealthSeverity severity;
+  final bool busy;
+  final VoidCallback onApply;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = SonusTheme.of(context).colors;
+    final theme = Theme.of(context);
+    final color = switch (severity) {
+      HealthSeverity.verified => colors.chartUp,
+      HealthSeverity.safeCorrection => colors.accentPrimary,
+      HealthSeverity.warning => colors.textSecondary,
+      HealthSeverity.needsReview => colors.chartDown,
+    };
+
+    return ListTile(
+      key: ValueKey<String>('library-health-${finding.check.name}'),
+      leading: Icon(_LibraryHealthPageState._iconFor(severity), color: color),
+      title: Text(
+        finding.summary,
+        style: theme.textTheme.bodyMedium?.copyWith(color: colors.textPrimary),
+      ),
+      trailing: finding.corrections.isEmpty
+          ? null
+          : TextButton(
+              key: ValueKey<String>(
+                'library-health-apply-${finding.check.name}',
+              ),
+              onPressed: busy ? null : onApply,
+              child: const Text('Apply'),
+            ),
+    );
+  }
+}
+
 class _Overview extends StatelessWidget {
   const _Overview({required this.report});
 
@@ -213,28 +280,27 @@ class _Overview extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final counts = report.importCounts;
+    final checked =
+        '${sonusCount(report.songCount, 'song')}, '
+        '${sonusCount(report.albumCount, 'album')} and '
+        '${sonusCount(report.artistCount, 'artist')} checked.';
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          '${report.songCount} songs, ${report.albumCount} albums, '
-          '${report.artistCount} artists checked.',
-        ),
+    return SonusNoticeCard(
+      key: const ValueKey<String>('library-health-status'),
+      tone: report.isHealthy
+          ? SonusNoticeTone.success
+          : SonusNoticeTone.warning,
+      title: report.isHealthy
+          ? 'Nothing needs your attention.'
+          : 'Some items need your attention.',
+      message: [
+        checked,
         if (counts != null)
-          Text(
-            'This import: ${counts.imported} imported, ${counts.relinked} '
-            'relinked, ${counts.skipped} skipped, ${counts.failed} failed.',
-          ),
-        const SizedBox(height: 4),
-        Text(
-          report.isHealthy
-              ? 'Nothing needs your attention.'
-              : 'Some items need your attention.',
-          key: const ValueKey<String>('library-health-status'),
-          style: Theme.of(context).textTheme.bodyLarge,
-        ),
-      ],
+          'This import: ${counts.imported} imported, ${counts.relinked} '
+              'relinked, ${counts.skipped} skipped, ${counts.failed} failed.',
+        'Checking only reads your library; nothing changes unless you apply '
+            'a correction.',
+      ].join('\n'),
     );
   }
 }
