@@ -3,6 +3,7 @@ import '../models/library_album_edition.dart';
 import '../models/library_artist.dart';
 import '../models/library_track.dart';
 import '../models/library_track_order.dart';
+import '../models/project_collaborator.dart';
 
 abstract interface class LibraryQueryRepository {
   Future<List<LibraryTrack>> getTracks({
@@ -37,6 +38,14 @@ abstract interface class AlbumEditionQueryRepository {
   Future<List<LibraryAlbumEdition>> getAlbumEditions(String albumId);
 
   Future<List<LibraryTrack>> getTracksByAlbumEditionId(String editionId);
+}
+
+/// Credited performers by project, in one query for the whole library.
+abstract interface class ProjectCollaboratorQueryRepository {
+  /// Every credited performer of every album, or of [albumId] only. Shared
+  /// edition memberships are counted once. Ordered by album, then lead role,
+  /// song count, name and id.
+  Future<List<ProjectCollaborator>> getProjectCollaborators({String? albumId});
 }
 
 abstract interface class StructuredArtistQueryRepository {

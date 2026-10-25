@@ -327,10 +327,13 @@ void main() {
     'losing last primary or co-primary credit hides profile without deleting identity',
     () async {
       await _insertArtist(db, id: 'artist_1', name: 'Artist One');
+      // The album belongs to someone else: an album owner keeps a profile
+      // for its albums (Artist-3), so this artist must own nothing.
+      await _insertArtist(db, id: 'album_owner', name: 'Album Owner');
 
       await _insertAlbumStructure(
         db,
-        artistId: 'artist_1',
+        artistId: 'album_owner',
         albumId: 'album_1',
         editionId: 'edition_1',
       );

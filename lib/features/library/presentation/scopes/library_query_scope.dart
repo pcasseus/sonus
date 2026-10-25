@@ -43,6 +43,7 @@ import '../../data/daos/song_artist_credit_dao.dart';
 import '../../data/daos/song_dao.dart';
 import '../../data/repositories/sqlite_album_edition_repository.dart';
 import '../../data/repositories/sqlite_artist_repository.dart';
+import '../../data/repositories/sqlite_library_organization_repository.dart';
 import '../../data/repositories/sqlite_library_query_repository.dart';
 import '../../data/repositories/sqlite_song_artist_credit_repository.dart';
 import '../../data/repositories/sqlite_song_repository.dart';
@@ -192,6 +193,7 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
     final externalMetadataApplicationService =
         ExternalMetadataApplicationService(
           mutationRunner: SyncMutationTransactionRunner(appDatabase: _database),
+          organization: SqliteLibraryOrganizationRepository(_database),
         );
 
     final externalMetadataProposalService = ExternalMetadataProposalService(
