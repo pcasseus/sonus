@@ -5,6 +5,30 @@ import '../models/external_metadata_search_query.dart';
 class ExternalMetadataConfidenceEvaluator {
   const ExternalMetadataConfidenceEvaluator();
 
+  /// The release title to compare with the local album: one of the
+  /// recording's releases with that title if there is one, otherwise the
+  /// single release the provider named. A recording on an album and a
+  /// compilation matches the album, whichever release came first.
+  static String? _releaseTitleFor(
+    String? albumTitle,
+    ExternalMetadataCandidate candidate,
+  ) {
+    final expected = albumTitle?.trim().toLowerCase();
+
+    if (expected != null && expected.isNotEmpty) {
+      for (final option in candidate.releaseOptions) {
+        if (option.title.trim().toLowerCase() == expected) {
+          return option.title;
+        }
+      }
+    }
+
+    return candidate.releaseTitle ??
+        (candidate.releaseOptions.isEmpty
+            ? null
+            : candidate.releaseOptions.first.title);
+  }
+
   ExternalMetadataMatchEvaluation evaluate({
     required ExternalMetadataSearchQuery query,
     required ExternalMetadataCandidate candidate,
@@ -55,7 +79,7 @@ class ExternalMetadataConfidenceEvaluator {
             kind: ExternalMetadataMatchSignalKind.album,
             weight: 15,
             expected: query.albumTitle,
-            actual: candidate.releaseTitle,
+            actual: _releaseTitleFor(query.albumTitle, candidate),
           ),
           _durationSignal(
             expected: query.durationSeconds,
