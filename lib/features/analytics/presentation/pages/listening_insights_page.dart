@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/design/sonus_theme.dart';
+import '../../../../core/design/widgets/sonus_segmented_selector.dart';
 import 'monthly_listening_insights_page.dart';
 import 'year_in_sonus_page.dart';
 
@@ -17,37 +19,36 @@ class _ListeningInsightsPageState extends State<ListeningInsightsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final gutter = SonusTheme.of(context).metrics.pageGutter;
+
     return Column(
       children: [
         SafeArea(
           bottom: false,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 10, 20, 4),
+            padding: EdgeInsets.fromLTRB(gutter, 10, gutter, 4),
             child: SizedBox(
               width: double.infinity,
-              child: SegmentedButton<_InsightsView>(
+              // The shared Sonus selector: themed locally, drops decorative
+              // icons with large text and keeps the selection checkmark.
+              child: SonusSegmentedSelector<_InsightsView>(
                 key: const ValueKey<String>('listening-insights-view-selector'),
                 segments: const [
-                  ButtonSegment<_InsightsView>(
+                  SonusSegment(
                     value: _InsightsView.monthly,
-                    icon: Icon(Icons.query_stats_rounded),
-                    label: Text('Monthly'),
+                    icon: Icons.query_stats_rounded,
+                    label: 'Monthly',
                   ),
-                  ButtonSegment<_InsightsView>(
+                  SonusSegment(
                     value: _InsightsView.year,
-                    icon: Icon(Icons.auto_awesome_rounded),
-                    label: Text('Year'),
+                    icon: Icons.auto_awesome_rounded,
+                    label: 'Year',
                   ),
                 ],
-                selected: {_view},
-                showSelectedIcon: false,
-                onSelectionChanged: (selection) {
-                  if (selection.isEmpty) {
-                    return;
-                  }
-
+                selected: _view,
+                onChanged: (view) {
                   setState(() {
-                    _view = selection.first;
+                    _view = view;
                   });
                 },
               ),

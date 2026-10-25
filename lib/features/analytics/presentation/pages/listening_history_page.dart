@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../../core/design/sonus_theme.dart';
 import '../../application/models/listening_history_entry.dart';
 import '../../application/services/listening_history_service.dart';
 import '../../domain/entities/playback_session.dart';
@@ -238,29 +239,43 @@ class _HistoryBody extends StatelessWidget {
       return _HistoryErrorState(controller: controller);
     }
 
+    final tokens = SonusTheme.of(context);
+    final theme = Theme.of(context);
+
     if (controller.isEmpty) {
       return RefreshIndicator(
         onRefresh: controller.refresh,
         child: ListView(
           key: const ValueKey<String>('listening-history-empty'),
           physics: const AlwaysScrollableScrollPhysics(),
-          children: const [
-            SizedBox(height: 180),
-            Icon(Icons.history_rounded, size: 48),
-            SizedBox(height: 16),
+          children: [
+            const SizedBox(height: 180),
+            Icon(
+              Icons.history_rounded,
+              size: 48,
+              color: tokens.colors.textSecondary,
+            ),
+            const SizedBox(height: 16),
             Center(
               child: Text(
                 'No listening history yet.',
                 textAlign: TextAlign.center,
+                style: theme.textTheme.titleMedium?.copyWith(
+                  color: tokens.colors.textPrimary,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ),
-            SizedBox(height: 8),
+            const SizedBox(height: 8),
             Center(
               child: Padding(
-                padding: EdgeInsets.symmetric(horizontal: 32),
+                padding: const EdgeInsets.symmetric(horizontal: 32),
                 child: Text(
                   'Songs you listen to will appear here, including sessions that do not qualify as streams.',
                   textAlign: TextAlign.center,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: tokens.colors.textSecondary,
+                  ),
                 ),
               ),
             ),
@@ -269,12 +284,14 @@ class _HistoryBody extends StatelessWidget {
       );
     }
 
+    final gutter = tokens.metrics.pageGutter;
+
     return RefreshIndicator(
       onRefresh: controller.refresh,
       child: ListView.builder(
         key: const ValueKey<String>('listening-history-list'),
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(12, 12, 12, 24),
+        padding: EdgeInsets.fromLTRB(gutter, 14, gutter, 24),
         itemCount:
             controller.entries.length +
             (controller.hasMore || controller.isLoadingMore ? 1 : 0),
@@ -297,6 +314,9 @@ class _HistoryErrorState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = SonusTheme.of(context).colors;
+    final theme = Theme.of(context);
+
     return Center(
       key: const ValueKey<String>('listening-history-error'),
       child: Padding(
@@ -304,15 +324,27 @@ class _HistoryErrorState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.error_outline_rounded, size: 48),
+            Icon(
+              Icons.error_outline_rounded,
+              size: 48,
+              color: colors.textSecondary,
+            ),
             const SizedBox(height: 16),
             Text(
               'Could not load listening history.',
-              style: Theme.of(context).textTheme.titleMedium,
+              style: theme.textTheme.titleMedium?.copyWith(
+                color: colors.textPrimary,
+              ),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 8),
-            const Text('Try again in a moment.', textAlign: TextAlign.center),
+            Text(
+              'Try again in a moment.',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: colors.textSecondary,
+              ),
+            ),
             const SizedBox(height: 20),
             FilledButton.icon(
               key: const ValueKey<String>('listening-history-retry'),
@@ -340,6 +372,12 @@ class _HistoryEntryCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final session = entry.session;
     final theme = Theme.of(context);
+    final tokens = SonusTheme.of(context);
+    final colors = tokens.colors;
+    final detailStyle = theme.textTheme.bodySmall?.copyWith(
+      color: colors.textSecondary,
+      fontFeatures: const [FontFeature.tabularFigures()],
+    );
 
     final localStartedAt = session.startedAt.toLocal();
     final localizations = MaterialLocalizations.of(context);
@@ -349,60 +387,84 @@ class _HistoryEntryCard extends StatelessWidget {
       TimeOfDay.fromDateTime(localStartedAt),
     );
 
-    return Card(
+    return Container(
       key: ValueKey<String>('listening-history-entry-${session.id}'),
       margin: const EdgeInsets.only(bottom: 10),
+      decoration: BoxDecoration(
+        color: colors.surface,
+        border: Border.all(color: colors.divider),
+        borderRadius: BorderRadius.circular(tokens.metrics.cardRadius),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Column(
+            // The badge sits beside the title, or beneath it when the
+            // text-scaled width is too narrow for both.
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final heading = Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      session.songTitle,
+                      key: ValueKey<String>(
+                        'listening-history-title-${session.id}',
+                      ),
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        color: colors.textPrimary,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      session.artistName,
+                      key: ValueKey<String>(
+                        'listening-history-artist-${session.id}',
+                      ),
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: colors.textSecondary,
+                      ),
+                    ),
+                  ],
+                );
+                final scale = MediaQuery.textScalerOf(context).scale(1);
+
+                if (constraints.maxWidth / scale < 300) {
+                  return Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        session.songTitle,
-                        key: ValueKey<String>(
-                          'listening-history-title-${session.id}',
-                        ),
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        session.artistName,
-                        key: ValueKey<String>(
-                          'listening-history-artist-${session.id}',
-                        ),
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                      ),
+                      heading,
+                      const SizedBox(height: 8),
+                      _QualificationBadge(entry: entry),
                     ],
-                  ),
-                ),
-                const SizedBox(width: 12),
-                _QualificationBadge(entry: entry),
-              ],
+                  );
+                }
+
+                return Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(child: heading),
+                    const SizedBox(width: 12),
+                    _QualificationBadge(entry: entry),
+                  ],
+                );
+              },
             ),
             const SizedBox(height: 10),
             Text(
               _albumLabel(session),
               key: ValueKey<String>('listening-history-album-${session.id}'),
-              style: theme.textTheme.bodyMedium,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: colors.textPrimary,
+              ),
             ),
             const SizedBox(height: 8),
             Text(
               '$dateText at $timeText',
               key: ValueKey<String>('listening-history-time-${session.id}'),
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
+              style: detailStyle,
             ),
             const SizedBox(height: 6),
             Wrap(
@@ -414,14 +476,14 @@ class _HistoryEntryCard extends StatelessWidget {
                   key: ValueKey<String>(
                     'listening-history-duration-${session.id}',
                   ),
-                  style: theme.textTheme.bodySmall,
+                  style: detailStyle?.copyWith(color: colors.textPrimary),
                 ),
                 Text(
                   _endReasonLabel(session.endReason),
                   key: ValueKey<String>(
                     'listening-history-end-reason-${session.id}',
                   ),
-                  style: theme.textTheme.bodySmall,
+                  style: detailStyle,
                 ),
               ],
             ),
@@ -432,9 +494,7 @@ class _HistoryEntryCard extends StatelessWidget {
                 key: ValueKey<String>(
                   'listening-history-qualified-at-${session.id}',
                 ),
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
+                style: detailStyle,
               ),
             ],
             if (session.sourceContext?.trim().isNotEmpty == true) ...[
@@ -442,9 +502,7 @@ class _HistoryEntryCard extends StatelessWidget {
               Text(
                 'Source: ${session.sourceContext}',
                 key: ValueKey<String>('listening-history-source-${session.id}'),
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
+                style: detailStyle,
               ),
             ],
           ],
@@ -472,14 +530,27 @@ class _QualificationBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final qualified = entry.isQualified;
+    final tokens = SonusTheme.of(context);
+    final colors = tokens.colors;
 
+    // The word carries the meaning; the icon and accent border reinforce it.
     return Chip(
       key: ValueKey<String>('listening-history-qualified-${entry.session.id}'),
       avatar: Icon(
         qualified ? Icons.check_circle_rounded : Icons.remove_circle_outline,
         size: 18,
+        color: qualified ? colors.accentPrimary : colors.textSecondary,
       ),
       label: Text(qualified ? 'Qualified' : 'Not qualified'),
+      labelStyle: Theme.of(context).textTheme.labelMedium?.copyWith(
+        color: colors.textPrimary,
+        fontWeight: FontWeight.w700,
+      ),
+      backgroundColor: colors.raisedSurface,
+      side: BorderSide(color: qualified ? colors.accentPrimary : colors.border),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(tokens.metrics.controlRadius),
+      ),
       visualDensity: VisualDensity.compact,
     );
   }
