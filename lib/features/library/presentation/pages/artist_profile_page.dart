@@ -23,6 +23,7 @@ import '../../application/services/external_metadata_proposal_service.dart';
 import '../../application/services/metadata_provider.dart';
 import '../../application/services/song_block_service.dart';
 import '../../application/services/song_artist_credit_service.dart';
+import '../../application/services/library_organization_service.dart';
 import 'package:sonus_next/features/library/application/services/track_profile_editing_service.dart';
 import '../controllers/artist_profile_controller.dart';
 import '../models/artist_profile_sections.dart';
@@ -33,6 +34,7 @@ import '../widgets/artist_profile/artist_profile_header.dart';
 import '../widgets/artist_profile/artist_profile_tracks_list.dart';
 import '../widgets/artist_profile/artist_profile_playback_controls.dart';
 import '../widgets/artist_profile/artist_profile_section_heading.dart';
+import '../widgets/artist_profile/artist_library_placement_sheet.dart';
 import 'album_profile_page.dart';
 import 'artist_studio_page.dart';
 import 'track_studio_page.dart';
@@ -254,7 +256,8 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
                       controller.canEditArtwork ||
                       controller.canEditArtist(userId) ||
                       controller.canRemoveArtist(userId) ||
-                      artistMergeService != null,
+                      artistMergeService != null ||
+                      context.read<LibraryOrganizationService?>() != null,
                   tooltip: 'Artist actions',
                   onSelected: (action) {
                     unawaited(
@@ -275,6 +278,19 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
                       child: const ListTile(
                         leading: Icon(Icons.tune_rounded),
                         title: Text('Artist Studio'),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                    ),
+                    PopupMenuItem(
+                      key: const ValueKey<String>(
+                        'artist-profile-library-placement-menu-item',
+                      ),
+                      value: _ArtistMenuAction.libraryPlacement,
+                      enabled:
+                          context.read<LibraryOrganizationService?>() != null,
+                      child: const ListTile(
+                        leading: Icon(Icons.account_tree_outlined),
+                        title: Text('Library placement'),
                         contentPadding: EdgeInsets.zero,
                       ),
                     ),
@@ -576,6 +592,10 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
       await _openArtistStudio(controller, userId, artistMergeService);
       return;
     }
+    if (action == _ArtistMenuAction.libraryPlacement) {
+      await _openLibraryPlacement(controller);
+      return;
+    }
     if (action == _ArtistMenuAction.editName) {
       await _editArtistName(controller, userId);
       return;
@@ -587,6 +607,23 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
     }
 
     await _handleArtworkAction(controller, action, userId);
+  }
+
+  /// "Assign to Project", "Show as its own artist" and "Undo my choice".
+  Future<void> _openLibraryPlacement(ArtistProfileController controller) async {
+    final service = context.read<LibraryOrganizationService?>();
+    final repository = _repository;
+    final artist = controller.artist;
+
+    if (service == null || repository == null || artist == null) return;
+
+    await showArtistLibraryPlacement(
+      context,
+      artistId: artist.artistId,
+      artistName: artist.name,
+      service: service,
+      library: repository,
+    );
   }
 
   Future<void> _openArtistStudio(
@@ -760,6 +797,7 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
     try {
       final changed = switch (action) {
         _ArtistMenuAction.studio => false,
+        _ArtistMenuAction.libraryPlacement => false,
         _ArtistMenuAction.editName => false,
         _ArtistMenuAction.removeArtist => false,
         _ArtistMenuAction.changeHeader => await controller.changeHeaderArtwork(
@@ -780,6 +818,7 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
 
       final message = switch (action) {
         _ArtistMenuAction.studio => '',
+        _ArtistMenuAction.libraryPlacement => '',
         _ArtistMenuAction.editName => '',
         _ArtistMenuAction.removeArtist => '',
         _ArtistMenuAction.changeHeader => 'Header artwork updated.',
@@ -1082,6 +1121,7 @@ class _ArtistNameEditDialogState extends State<_ArtistNameEditDialog> {
 
 enum _ArtistMenuAction {
   studio,
+  libraryPlacement,
   editName,
   changeHeader,
   clearHeader,

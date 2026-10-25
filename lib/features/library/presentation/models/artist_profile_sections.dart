@@ -1,6 +1,8 @@
 import '../../../analytics/application/models/analytics_ranked_entity.dart';
 import '../../application/models/library_artist.dart';
 import '../../application/models/library_track.dart';
+import '../../application/models/project_collaborator.dart';
+import '../../domain/entities/song_artist_credit.dart';
 
 /// A song in an artist's Top Tracks with its all-time qualified streams.
 class ArtistTopTrack {
@@ -10,20 +12,38 @@ class ArtistTopTrack {
   final int streamCount;
 }
 
-/// Someone credited as primary artist on a track of a project (an album
-/// owned by the profile's artist), with the tracks they perform there.
+/// Someone credited on a project (an album owned by the profile's artist),
+/// with the tracks they lead there.
 class ArtistProfileCollaborator {
   const ArtistProfileCollaborator({
     required this.artistId,
     required this.name,
     required this.tracks,
     this.artworkPath,
+    this.roles = const {},
+    this.songCount,
   });
 
   final String artistId;
   final String name;
   final String? artworkPath;
+
+  /// The songs they lead on the project, for playing them here.
   final List<LibraryTrack> tracks;
+
+  /// Every credited role, from the structured credits; empty when only the
+  /// songs' lead artists are known.
+  final Set<SongArtistCreditRole> roles;
+
+  /// Distinct project songs they are credited on, in any role.
+  final int? songCount;
+
+  int get displaySongCount => songCount ?? tracks.length;
+
+  /// The most prominent role, primary first, if known.
+  SongArtistCreditRole? get leadRole => roles.isEmpty
+      ? null
+      : SongArtistCreditRole.values.firstWhere(roles.contains);
 }
 
 /// Presentation-only derivations for the Artist Profile sections. They read
@@ -116,6 +136,63 @@ abstract final class ArtistProfileSections {
 
     result.sort((a, b) {
       final byCount = b.tracks.length.compareTo(a.tracks.length);
+      if (byCount != 0) return byCount;
+      final byName = a.name.toLowerCase().compareTo(b.name.toLowerCase());
+      return byName != 0 ? byName : a.artistId.compareTo(b.artistId);
+    });
+
+    return List.unmodifiable(result);
+  }
+
+  /// Every performer credited on the artist's projects, from the structured
+  /// credit query (any role: primary, co-primary, featured or guest), each
+  /// once across the projects. Ordered by most prominent role, then songs,
+  /// then name, then ID. Play uses the songs they lead on the projects.
+  static List<ArtistProfileCollaborator> structuredCollaborators({
+    required String projectArtistId,
+    required Iterable<ProjectCollaborator> credits,
+    required Iterable<LibraryTrack> projectTracks,
+    required Map<String, LibraryArtist> artistsById,
+  }) {
+    final roles = <String, Set<SongArtistCreditRole>>{};
+    final counts = <String, int>{};
+    final names = <String, String>{};
+
+    for (final credit in credits) {
+      if (credit.artistId == projectArtistId) continue;
+      roles.putIfAbsent(credit.artistId, () => {}).addAll(credit.roles);
+      counts[credit.artistId] =
+          (counts[credit.artistId] ?? 0) + credit.songCount;
+      names.putIfAbsent(credit.artistId, () => credit.artistName);
+    }
+
+    final led = <String, List<LibraryTrack>>{};
+    final seen = <String>{};
+    for (final track in projectTracks) {
+      if (roles.containsKey(track.artistId) && seen.add(track.songId)) {
+        led.putIfAbsent(track.artistId, () => []).add(track);
+      }
+    }
+
+    final result = [
+      for (final MapEntry(key: artistId, value: artistRoles) in roles.entries)
+        ArtistProfileCollaborator(
+          artistId: artistId,
+          name: artistsById[artistId]?.name ?? names[artistId] ?? artistId,
+          artworkPath: _artworkPath(artistsById[artistId]),
+          tracks: List.unmodifiable(led[artistId] ?? const <LibraryTrack>[]),
+          roles: Set.unmodifiable(artistRoles),
+          songCount: counts[artistId],
+        ),
+    ];
+
+    int roleRank(ArtistProfileCollaborator c) =>
+        c.leadRole?.index ?? SongArtistCreditRole.values.length;
+
+    result.sort((a, b) {
+      final byRole = roleRank(a).compareTo(roleRank(b));
+      if (byRole != 0) return byRole;
+      final byCount = b.displaySongCount.compareTo(a.displaySongCount);
       if (byCount != 0) return byCount;
       final byName = a.name.toLowerCase().compareTo(b.name.toLowerCase());
       return byName != 0 ? byName : a.artistId.compareTo(b.artistId);
