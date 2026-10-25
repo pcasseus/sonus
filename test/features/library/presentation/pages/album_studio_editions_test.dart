@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sonus_next/core/design/sonus_theme_factory.dart';
+import 'package:sonus_next/features/library/application/models/library_album_edition.dart';
 import 'package:sonus_next/features/library/application/models/library_track.dart';
 import 'package:sonus_next/features/library/application/services/album_edition_management_service.dart';
 import 'package:sonus_next/features/library/application/services/album_edition_track_ordering_service.dart';
+import 'package:sonus_next/features/library/data/services/edition_follow_up_dismissals.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/domain/entities/entity_factory.dart';
 import 'package:sonus_next/features/library/presentation/controllers/album_profile_controller.dart';
@@ -62,11 +64,13 @@ void main() {
     _FakeEditions? editions,
     double textScale = 1,
     Size size = const Size(411, 1000),
+    base.FakeEditionAwareLibraryQueryRepository? library,
+    _MemoryDismissals? dismissals,
   }) async {
     await tester.binding.setSurfaceSize(size);
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
-    final repo = repository();
+    final repo = library ?? repository();
     final ordering = _SortingService();
     final service = editions ?? _FakeEditions();
     final controller = AlbumProfileController(
@@ -91,6 +95,7 @@ void main() {
           userId: 'user-1',
           editionManagement: service,
           library: repo,
+          editionFollowUpDismissals: dismissals ?? _MemoryDismissals(),
         ),
       ),
     );
@@ -129,7 +134,218 @@ void main() {
     await tester.tap(key('album-studio-save-edition'));
     await tester.pumpAndSettle();
 
-    expect(service.calls, ['create album-1 Live deluxe user-1']);
+    // SN-45: a new edition starts with the Standard songs by default.
+    expect(service.calls, [
+      'create album-1 Live deluxe user-1 from edition-standard',
+    ]);
+  });
+
+  group('SN-45 edition inheritance and follow-ups', () {
+    LibraryTrack dated(String id, String edition, DateTime added) =>
+        LibraryTrack(
+          songId: id,
+          title: 'Song $id',
+          artistId: 'artist-1',
+          artistName: 'Test Artist',
+          albumId: 'album-1',
+          albumTitle: 'Studio Album',
+          albumEditionId: edition,
+          albumEditionTitle: edition,
+          albumEditionType: AlbumEditionType.standard,
+          trackNumber: 1,
+          durationSeconds: 180,
+          isSingle: false,
+          featuredArtists: const [],
+          dateAdded: added,
+          isAvailable: true,
+          filePath: '/music/$id.mp3',
+        );
+
+    LibraryAlbumEdition edition(
+      String id,
+      String title,
+      AlbumEditionType type,
+      DateTime created, {
+      bool primary = false,
+    }) => LibraryAlbumEdition(
+      editionId: id,
+      albumId: 'album-1',
+      title: title,
+      type: type,
+      isPrimary: primary,
+      dateAdded: created,
+    );
+
+    final day1 = DateTime.utc(2026, 1, 1);
+    final day2 = DateTime.utc(2026, 1, 2);
+    final day9 = DateTime.utc(2026, 1, 9);
+
+    /// Deluxe (made on day 2) lists every Standard song. "late" joined
+    /// Standard on day 9; "spare" is on the album but on no edition shown.
+    base.FakeEditionAwareLibraryQueryRepository builtOn({
+      bool lateOnStandard = false,
+    }) => base.FakeEditionAwareLibraryQueryRepository(
+      album: base.createAlbum(
+        title: 'Studio Album',
+        primaryEditionId: 'edition-standard',
+        primaryEditionTitle: 'Standard',
+      ),
+      tracks: [
+        dated('s1', 'edition-standard', day1),
+        dated('s2', 'edition-standard', day1),
+        dated('late', 'edition-standard', day9),
+        dated('spare', 'edition-standard', day1),
+      ],
+      editions: [
+        edition(
+          'edition-standard',
+          'Standard',
+          AlbumEditionType.standard,
+          day1,
+          primary: true,
+        ),
+        edition('edition-deluxe', 'Deluxe', AlbumEditionType.deluxe, day2),
+      ],
+      editionTracks: {
+        'edition-standard': [
+          dated('s1', 'edition-standard', day1),
+          dated('s2', 'edition-standard', day1),
+          if (lateOnStandard) dated('late', 'edition-standard', day9),
+        ],
+        'edition-deluxe': [
+          dated('s1', 'edition-deluxe', day1),
+          dated('s2', 'edition-deluxe', day1),
+        ],
+      },
+    );
+
+    testWidgets('the new edition dialog previews the inherited songs', (
+      tester,
+    ) async {
+      await pump(tester);
+
+      await tester.tap(key('album-studio-new-edition'));
+      await tester.pumpAndSettle();
+
+      expect(key('album-studio-edition-source-field'), findsOneWidget);
+      expect(key('album-studio-inherited-songs'), findsOneWidget);
+      expect(find.text('1. Song s1'), findsOneWidget);
+      expect(find.text('2. Song s2'), findsOneWidget);
+      expect(find.textContaining('Includes 2 songs'), findsOneWidget);
+    });
+
+    testWidgets('starting empty is an explicit choice', (tester) async {
+      final (_, service, _) = await pump(tester);
+
+      await tester.tap(key('album-studio-new-edition'));
+      await tester.pumpAndSettle();
+      await tester.enterText(key('album-studio-edition-name-field'), 'Bonus');
+      await tester.tap(key('album-studio-edition-source-field'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('No songs (start empty)').last);
+      await tester.pumpAndSettle();
+
+      expect(key('album-studio-inherited-none'), findsOneWidget);
+
+      await tester.tap(key('album-studio-save-edition'));
+      await tester.pumpAndSettle();
+
+      expect(service.calls, ['create album-1 Bonus deluxe user-1 from -']);
+    });
+
+    testWidgets('adding to Standard asks before touching Deluxe', (
+      tester,
+    ) async {
+      final service = _FakeEditions();
+      final dismissals = _MemoryDismissals();
+      await pump(
+        tester,
+        editions: service,
+        library: builtOn(),
+        dismissals: dismissals,
+      );
+
+      await tester.tap(key('album-studio-choose-songs'));
+      await tester.pumpAndSettle();
+      await tester.tap(key('album-studio-choose-song-spare'));
+      await tester.tap(key('album-studio-save-songs'));
+      await tester.pumpAndSettle();
+
+      expect(key('album-studio-follow-up-dialog'), findsOneWidget);
+      expect(find.text('Also add to Deluxe?'), findsOneWidget);
+      expect(service.calls, ['assign edition-standard spare']);
+
+      // The safe answer keeps Deluxe as it is and remembers it.
+      await tester.tap(key('album-studio-follow-up-keep'));
+      await tester.pumpAndSettle();
+
+      expect(service.calls, ['assign edition-standard spare']);
+      expect(dismissals.values['edition-deluxe'], {'spare'});
+    });
+
+    testWidgets('choosing to add puts the song on Deluxe too', (tester) async {
+      final service = _FakeEditions();
+      await pump(tester, editions: service, library: builtOn());
+
+      await tester.tap(key('album-studio-choose-songs'));
+      await tester.pumpAndSettle();
+      await tester.tap(key('album-studio-choose-song-spare'));
+      await tester.tap(key('album-studio-save-songs'));
+      await tester.pumpAndSettle();
+      await tester.tap(key('album-studio-follow-up-add'));
+      await tester.pumpAndSettle();
+
+      expect(service.calls, [
+        'assign edition-standard spare',
+        'assign edition-deluxe spare',
+      ]);
+    });
+
+    testWidgets('a curated Deluxe is never offered new songs', (tester) async {
+      final service = _FakeEditions();
+      // The default library's Deluxe lacks s2: it was curated.
+      await pump(tester, editions: service);
+
+      await tester.tap(key('album-studio-choose-songs'));
+      await tester.pumpAndSettle();
+      await tester.tap(key('album-studio-choose-song-bonus'));
+      await tester.tap(key('album-studio-save-songs'));
+      await tester.pumpAndSettle();
+
+      expect(key('album-studio-follow-up-dialog'), findsNothing);
+      expect(service.calls, ['assign edition-standard bonus']);
+    });
+
+    testWidgets('a song imported to Standard later shows a quiet notice', (
+      tester,
+    ) async {
+      final service = _FakeEditions();
+      final dismissals = _MemoryDismissals();
+      await pump(
+        tester,
+        editions: service,
+        library: builtOn(lateOnStandard: true),
+        dismissals: dismissals,
+      );
+
+      final notice = key('album-studio-follow-up-notice-edition-deluxe');
+      expect(notice, findsOneWidget);
+      expect(
+        find.text('1 song added to Standard is not on Deluxe.'),
+        findsOneWidget,
+      );
+      // Nothing changed by itself.
+      expect(service.calls, isEmpty);
+
+      await tester.tap(key('album-studio-follow-up-review-edition-deluxe'));
+      await tester.pumpAndSettle();
+      await tester.tap(key('album-studio-follow-up-keep'));
+      await tester.pumpAndSettle();
+
+      expect(service.calls, isEmpty);
+      expect(dismissals.values['edition-deluxe'], {'late'});
+      expect(notice, findsNothing);
+    });
   });
 
   testWidgets('make primary asks first, then calls the service', (
@@ -244,11 +460,15 @@ class _FakeEditions implements AlbumEditionManagementService {
     required String albumId,
     required String title,
     required AlbumEditionType type,
+    String? includeSongsFrom,
     DateTime? releaseDate,
     String? userId,
     DateTime? now,
   }) async {
-    calls.add('create $albumId $title ${type.name} $userId');
+    calls.add(
+      'create $albumId $title ${type.name} $userId '
+      'from ${includeSongsFrom ?? '-'}',
+    );
     return EntityFactory.createAlbumEdition(
       albumId: albumId,
       title: title,
@@ -324,5 +544,19 @@ class _SortingService extends base.FakeAlbumEditionTrackOrderingService {
   }) async {
     sortedEditionIds.add(albumEditionId);
     return const AlbumEditionReorderResult(memberships: [], changed: true);
+  }
+}
+
+class _MemoryDismissals implements EditionFollowUpDismissals {
+  final Map<String, Set<String>> values = {};
+
+  @override
+  Future<Set<String>> dismissed(String targetEditionId) async => {
+    ...?values[targetEditionId],
+  };
+
+  @override
+  Future<void> dismiss(String targetEditionId, Iterable<String> songIds) async {
+    values.putIfAbsent(targetEditionId, () => {}).addAll(songIds);
   }
 }

@@ -810,6 +810,102 @@ void main() {
       controller.dispose();
     });
 
+    group('SN-45: each edition keeps its own cover', () {
+      FakeEditionAwareLibraryQueryRepository editionRepository({
+        String? deluxeArtwork,
+      }) => FakeEditionAwareLibraryQueryRepository(
+        album: createAlbum(
+          primaryEditionId: 'edition-standard',
+          primaryEditionTitle: 'Standard',
+          primaryEditionType: AlbumEditionType.standard,
+        ),
+        editions: [
+          createLibraryEdition(
+            editionId: 'edition-standard',
+            title: 'Standard',
+            type: AlbumEditionType.standard,
+            isPrimary: true,
+            artworkPath: '/art/standard.jpg',
+          ),
+          createLibraryEdition(
+            editionId: 'edition-deluxe',
+            title: 'Deluxe',
+            type: AlbumEditionType.deluxe,
+            artworkPath: deluxeArtwork,
+          ),
+        ],
+        editionTracks: {
+          'edition-standard': [createTrack(songId: 'a')],
+          'edition-deluxe': [createTrack(songId: 'a')],
+        },
+      );
+
+      test('switching editions switches the cover', () async {
+        final controller = AlbumProfileController(
+          repository: editionRepository(deluxeArtwork: '/art/deluxe.jpg'),
+          albumId: 'album-1',
+        );
+        addTearDown(controller.dispose);
+        await controller.load();
+
+        expect(controller.artworkPath, '/art/standard.jpg');
+
+        await controller.selectEdition('edition-deluxe');
+        expect(controller.artworkPath, '/art/deluxe.jpg');
+        expect(controller.selectedEditionHasOwnArtwork, isTrue);
+
+        await controller.selectEdition('edition-standard');
+        expect(controller.artworkPath, '/art/standard.jpg');
+      });
+
+      test('an edition without a cover shows the primary cover', () async {
+        final controller = AlbumProfileController(
+          repository: editionRepository(),
+          albumId: 'album-1',
+        );
+        addTearDown(controller.dispose);
+        await controller.load();
+        await controller.selectEdition('edition-deluxe');
+
+        expect(controller.selectedEditionHasOwnArtwork, isFalse);
+        expect(controller.artworkPath, '/art/standard.jpg');
+      });
+
+      test('changing artwork on Deluxe leaves Standard alone', () async {
+        final service = FakeEditionArtworkAssignmentService();
+        final controller = AlbumProfileController(
+          repository: editionRepository(),
+          albumId: 'album-1',
+          artworkAssignmentService: service,
+          artworkFilePicker: FakeArtworkFilePicker(result: '/new.jpg'),
+        );
+        addTearDown(controller.dispose);
+        await controller.load();
+        await controller.selectEdition('edition-deluxe');
+
+        expect(await controller.changeArtwork(), isTrue);
+        expect(service.assigned, [('edition-deluxe', '/new.jpg')]);
+
+        expect(await controller.clearArtwork(), isTrue);
+        expect(service.cleared, ['edition-deluxe']);
+      });
+
+      test('the primary edition is edited when it is on screen', () async {
+        final service = FakeEditionArtworkAssignmentService();
+        final controller = AlbumProfileController(
+          repository: editionRepository(),
+          albumId: 'album-1',
+          artworkAssignmentService: service,
+          artworkFilePicker: FakeArtworkFilePicker(result: '/new.jpg'),
+        );
+        addTearDown(controller.dispose);
+        await controller.load();
+
+        await controller.changeArtwork();
+        expect(service.assigned, [('edition-standard', '/new.jpg')]);
+      });
+    });
+
     test('reports whether track artwork can be edited', () {
       final repository = FakeLibraryQueryRepository(album: createAlbum());
 
@@ -2806,6 +2902,36 @@ class FakeTrackArtworkAssignmentService implements ArtworkAssignmentService {
   Future<void> clearSong(String songId, {DateTime? now}) async {
     clearSongCallCount++;
     clearedSongId = songId;
+  }
+
+  @override
+  noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class FakeEditionArtworkAssignmentService implements ArtworkAssignmentService {
+  final List<(String, String)> assigned = [];
+  final List<String> cleared = [];
+
+  @override
+  Future<ArtworkAsset> assignAlbumEdition({
+    required String albumEditionId,
+    required String filePath,
+    DateTime? now,
+  }) async {
+    assigned.add((albumEditionId, filePath));
+    final timestamp = now ?? DateTime.utc(2026, 1, 1);
+    return ArtworkAsset(
+      id: 'artwork-$albumEditionId',
+      filePath: filePath,
+      normalizedPath: filePath.toLowerCase(),
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    );
+  }
+
+  @override
+  Future<void> clearAlbumEdition(String albumEditionId, {DateTime? now}) async {
+    cleared.add(albumEditionId);
   }
 
   @override

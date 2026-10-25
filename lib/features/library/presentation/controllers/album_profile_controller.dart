@@ -96,7 +96,25 @@ class AlbumProfileController extends ChangeNotifier {
       _repository is AlbumEditionQueryRepository;
   List<LibraryTrack> get tracks => _tracks;
 
+  /// The cover shown for the selected edition. Each edition keeps its own
+  /// cover (SN-45); an edition without one shows the album's primary cover.
   String? get artworkPath {
+    final editionPath = _selectedEdition?.artworkPath?.trim();
+
+    if (editionPath != null && editionPath.isNotEmpty) {
+      return editionPath;
+    }
+
+    final primaryPath = _editions
+        .where((edition) => edition.isPrimary)
+        .firstOrNull
+        ?.artworkPath
+        ?.trim();
+
+    if (primaryPath != null && primaryPath.isNotEmpty) {
+      return primaryPath;
+    }
+
     final path = _album?.artworkPath?.trim();
 
     if (path == null || path.isEmpty) {
@@ -104,6 +122,25 @@ class AlbumProfileController extends ChangeNotifier {
     }
 
     return path;
+  }
+
+  /// Whether the selected edition has a cover of its own.
+  bool get selectedEditionHasOwnArtwork {
+    final editionPath = _selectedEdition?.artworkPath?.trim();
+    return editionPath != null && editionPath.isNotEmpty;
+  }
+
+  /// The edition that artwork changes apply to: the one on screen, or the
+  /// primary edition when editions cannot be read.
+  String? get _artworkEditionId {
+    final selected = _selectedEdition?.editionId.trim();
+
+    if (selected != null && selected.isNotEmpty) {
+      return selected;
+    }
+
+    final primary = _album?.primaryEditionId?.trim();
+    return primary == null || primary.isEmpty ? null : primary;
   }
 
   bool canEditAlbumProfile(String? userId) {
@@ -404,15 +441,13 @@ class AlbumProfileController extends ChangeNotifier {
     return true;
   }
 
+  /// Replaces the selected edition's cover. Other editions keep theirs.
   Future<bool> changeArtwork() async {
     final service = _artworkAssignmentService;
     final picker = _artworkFilePicker;
-    final primaryEditionId = _album?.primaryEditionId;
+    final editionId = _artworkEditionId;
 
-    if (service == null ||
-        picker == null ||
-        primaryEditionId == null ||
-        primaryEditionId.trim().isEmpty) {
+    if (service == null || picker == null || editionId == null) {
       return false;
     }
 
@@ -423,7 +458,7 @@ class AlbumProfileController extends ChangeNotifier {
     }
 
     await service.assignAlbumEdition(
-      albumEditionId: primaryEditionId,
+      albumEditionId: editionId,
       filePath: filePath,
     );
 
@@ -432,17 +467,16 @@ class AlbumProfileController extends ChangeNotifier {
     return true;
   }
 
+  /// Clears the selected edition's own cover. Other editions keep theirs.
   Future<bool> clearArtwork() async {
     final service = _artworkAssignmentService;
-    final primaryEditionId = _album?.primaryEditionId;
+    final editionId = _artworkEditionId;
 
-    if (service == null ||
-        primaryEditionId == null ||
-        primaryEditionId.trim().isEmpty) {
+    if (service == null || editionId == null) {
       return false;
     }
 
-    await service.clearAlbumEdition(primaryEditionId);
+    await service.clearAlbumEdition(editionId);
 
     await refresh();
 

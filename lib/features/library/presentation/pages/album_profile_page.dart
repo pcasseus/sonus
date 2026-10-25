@@ -491,11 +491,21 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
         return;
       }
 
+      // Each edition has its own cover, so name it when there are several.
+      final edition = controller.editions.length > 1
+          ? controller.selectedEdition?.title
+          : null;
       final message = switch (action) {
         _AlbumMenuAction.studio => '',
         _AlbumMenuAction.editProfile => '',
-        _AlbumMenuAction.changeArtwork => 'Album artwork updated.',
-        _AlbumMenuAction.clearArtwork => 'Album artwork cleared.',
+        _AlbumMenuAction.changeArtwork =>
+          edition == null
+              ? 'Album artwork updated.'
+              : 'Cover updated for $edition.',
+        _AlbumMenuAction.clearArtwork =>
+          edition == null
+              ? 'Album artwork cleared.'
+              : 'Cover cleared for $edition.',
       };
 
       ScaffoldMessenger.of(

@@ -115,6 +115,161 @@ void main() {
     expect(await SongDao(db).findAll(), hasLength(3));
   });
 
+  group('SN-45: a new Deluxe starts with the Standard songs', () {
+    test('every Standard song is listed, in order, as the same song', () async {
+      final (album, standard, songs) = await standardAlbum();
+      final db = await appDatabase.database;
+      final songsBefore = await db.query(DatabaseTables.songs, orderBy: 'id');
+
+      final deluxe = await editions.createEdition(
+        albumId: album,
+        title: 'locket (Deluxe)',
+        type: AlbumEditionType.deluxe,
+        includeSongsFrom: standard,
+        now: now,
+      );
+
+      expect(await listedOn(deluxe.id), await listedOn(standard));
+      expect(await listedOn(deluxe.id), [
+        songs['One'],
+        songs['Two'],
+        songs['Three'],
+      ]);
+      // Same song records: nothing duplicated, nothing rewritten.
+      expect(await db.query(DatabaseTables.songs, orderBy: 'id'), songsBefore);
+      expect(deluxe.isPrimary, isFalse);
+    });
+
+    test('disc, track and sort positions carry over', () async {
+      final (album, standard, _) = await standardAlbum();
+      final db = await appDatabase.database;
+      final dao = AlbumEditionTrackDao(db);
+
+      final deluxe = await editions.createEdition(
+        albumId: album,
+        title: 'Deluxe',
+        type: AlbumEditionType.deluxe,
+        includeSongsFrom: standard,
+        now: now,
+      );
+
+      final source = await dao.findByEditionId(standard);
+      final copy = await dao.findByEditionId(deluxe.id);
+      expect(
+        [for (final m in copy) (m.discNumber, m.trackNumber, m.sortPosition)],
+        [for (final m in source) (m.discNumber, m.trackNumber, m.sortPosition)],
+      );
+    });
+
+    test('Deluxe-only songs can be added afterwards', () async {
+      final (album, standard, songs) = await standardAlbum();
+      final deluxe = await editions.createEdition(
+        albumId: album,
+        title: 'Deluxe',
+        type: AlbumEditionType.deluxe,
+        includeSongsFrom: standard,
+        now: now,
+      );
+
+      // Moving "Three" off Standard makes it Deluxe-exclusive.
+      await editions.removeTrack(
+        editionId: standard,
+        songId: songs['Three']!,
+        now: now,
+      );
+
+      expect(await listedOn(standard), [songs['One'], songs['Two']]);
+      expect(await listedOn(deluxe.id), hasLength(3));
+    });
+
+    test('listening history and playlists are untouched', () async {
+      final (album, standard, songs) = await standardAlbum();
+      final db = await appDatabase.database;
+      await db.insert(DatabaseTables.playlists, {
+        'id': 'p1',
+        'name': 'Mine',
+        'created_at': now.toIso8601String(),
+        'updated_at': now.toIso8601String(),
+      });
+      await db.insert(DatabaseTables.playlistItems, {
+        'id': 'i1',
+        'playlist_id': 'p1',
+        'song_id': songs['Two'],
+        'position': 0,
+        'created_at': now.toIso8601String(),
+        'updated_at': now.toIso8601String(),
+      });
+      Future<List<Object?>> snapshot() async => [
+        await db.query(DatabaseTables.playlistItems),
+        await db.query(DatabaseTables.playbackSessions),
+        await db.query(DatabaseTables.qualifiedPlays),
+      ];
+      final before = await snapshot();
+
+      await editions.createEdition(
+        albumId: album,
+        title: 'Deluxe',
+        type: AlbumEditionType.deluxe,
+        includeSongsFrom: standard,
+        now: now,
+      );
+
+      expect(await snapshot(), before);
+    });
+
+    test(
+      'an edition of another album is refused and nothing is created',
+      () async {
+        final (album, _, _) = await standardAlbum();
+        final importer = AtomicLibraryImporter(appDatabase: appDatabase);
+        final other = await importer.import(
+          candidate: ImportCandidate(
+            filePath: 'B/other/x.mp3',
+            normalizedPath: 'b/other/x.mp3',
+            discoveredAt: now,
+          ),
+          metadata: const AudioMetadata(
+            title: 'X',
+            artistName: 'Someone',
+            albumTitle: 'Other',
+            durationSeconds: 100,
+            trackNumber: 1,
+            discNumber: 1,
+            isSingle: false,
+            featuredArtists: [],
+          ),
+          now: now,
+        );
+        final db = await appDatabase.database;
+        final foreign = (await SongDao(db).findById(other.songId!))!;
+
+        await expectLater(
+          editions.createEdition(
+            albumId: album,
+            title: 'Deluxe',
+            type: AlbumEditionType.deluxe,
+            includeSongsFrom: foreign.albumEditionId,
+            now: now,
+          ),
+          refused(AlbumEditionRefusal.editionNotFound),
+        );
+        expect(await editionsOf(album), hasLength(1));
+      },
+    );
+
+    test('without a source, a new edition starts empty as before', () async {
+      final (album, _, _) = await standardAlbum();
+      final extra = await editions.createEdition(
+        albumId: album,
+        title: 'Bonus',
+        type: AlbumEditionType.other,
+        now: now,
+      );
+
+      expect(await listedOn(extra.id), isEmpty);
+    });
+  });
+
   test('rename and retype; titles stay unique within the album', () async {
     final (album, standard, _) = await standardAlbum();
     final extra = await editions.createEdition(

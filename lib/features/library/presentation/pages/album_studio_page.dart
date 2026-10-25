@@ -1,3 +1,4 @@
+import '../../data/services/edition_follow_up_dismissals.dart';
 import 'dart:async';
 import 'dart:io';
 
@@ -41,6 +42,7 @@ class AlbumStudioPage extends StatefulWidget {
     this.externalMetadataApplicationService,
     this.externalMetadataProposalService,
     this.editionManagement,
+    this.editionFollowUpDismissals,
     this.organization,
     this.library,
   });
@@ -58,6 +60,10 @@ class AlbumStudioPage extends StatefulWidget {
 
   /// Edition management; the section is hidden without it.
   final AlbumEditionManagementService? editionManagement;
+
+  /// Remembers "keep Deluxe as it is" answers (tests inject an in-memory
+  /// store; the app uses device preferences).
+  final EditionFollowUpDismissals? editionFollowUpDismissals;
 
   /// Release type (soundtrack, cast recording, compilation).
   final LibraryOrganizationService? organization;
@@ -144,6 +150,7 @@ class _AlbumStudioPageState extends State<AlbumStudioPage> {
                 AlbumStudioEditionsSection(
                   controller: controller,
                   service: widget.editionManagement!,
+                  dismissals: widget.editionFollowUpDismissals,
                   library: widget.library,
                   userId: widget.userId,
                 ),
