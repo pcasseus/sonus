@@ -94,8 +94,9 @@ class _AppShellPageState extends State<AppShellPage>
   }
 
   void _openImports() {
-    Navigator.of(context)
-        .push(MaterialPageRoute<void>(builder: (_) => const ImportsPage()));
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => const ImportsPage()));
   }
 
   void _openSettings() {
