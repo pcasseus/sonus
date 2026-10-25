@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/services.dart';
+import 'package:sonus_next/core/design/sonus_theme_factory.dart';
+import 'package:sonus_next/core/design/sonus_theme_id.dart';
+import 'package:sonus_next/core/design/sonus_tokens.dart';
 import 'package:provider/provider.dart';
 
 import 'package:sonus_next/features/account/application/controllers/account_controller.dart';
@@ -739,7 +743,7 @@ void main() {
         expect(find.text('Query Artist • Blacklisted'), findsOneWidget);
         expect(find.text('Query Artist • Unavailable'), findsNothing);
 
-        final tile = tester.widget<ListTile>(
+        final tile = tester.widget<InkWell>(
           find.byKey(const ValueKey<String>('search-track-song-unblock')),
         );
 
@@ -764,6 +768,95 @@ void main() {
       },
     );
   });
+
+  // SN-48K2: Search presentation.
+  group('design', () {
+    Future<void> searchFor(
+      WidgetTester tester, {
+      SonusAppearanceSpec spec = const SonusAppearanceSpec(),
+      Size size = const Size(411, 900),
+      double textScale = 1,
+    }) async {
+      await tester.binding.setSurfaceSize(size);
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        _SearchTestApp(
+          repository: _FakeSearchRepository(result: _results()),
+          theme: SonusThemeFactory.build(spec),
+          textScale: textScale,
+        ),
+      );
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('search-field')),
+        'query',
+      );
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+    }
+
+    testWidgets('filters show one kind of result at a time', (tester) async {
+      await searchFor(tester);
+
+      expect(find.text('Query Artist'), findsOneWidget);
+      expect(find.text('Query Track'), findsOneWidget);
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('search-filter-tracks')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Query Track'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey<String>('search-artist-artist-1')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey<String>('search-album-album-1')),
+        findsNothing,
+      );
+
+      await tester.tap(find.byKey(const ValueKey<String>('search-filter-all')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey<String>('search-artist-artist-1')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('Escape clears the query', (tester) async {
+      await searchFor(tester);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey<String>('search-prompt')),
+        findsOneWidget,
+      );
+    });
+
+    for (final id in SonusThemeId.values) {
+      testWidgets('${id.label} fits 320dp at 2x text', (tester) async {
+        await searchFor(
+          tester,
+          spec: SonusAppearanceSpec(themeId: id),
+          size: const Size(320, 2400),
+          textScale: 2,
+        );
+
+        expect(tester.takeException(), isNull);
+        expect(find.text('Query Track'), findsOneWidget);
+      });
+    }
+
+    for (final level in SonusDecorationIntensity.values) {
+      testWidgets('Decoration ${level.label} renders cleanly', (tester) async {
+        await searchFor(tester, spec: SonusAppearanceSpec(decoration: level));
+
+        expect(tester.takeException(), isNull);
+      });
+    }
+  });
 }
 
 class _SearchTestApp extends StatelessWidget {
@@ -773,8 +866,12 @@ class _SearchTestApp extends StatelessWidget {
     this.libraryQueryRepository,
     this.accountController,
     this.songBlockService,
+    this.theme,
+    this.textScale = 1,
   });
 
+  final ThemeData? theme;
+  final double textScale;
   final LibrarySearchRepository? repository;
   final PlaybackCoordinator? playbackCoordinator;
   final LibraryQueryRepository? libraryQueryRepository;
@@ -793,7 +890,16 @@ class _SearchTestApp extends StatelessWidget {
         ),
         Provider<SongBlockService?>.value(value: songBlockService),
       ],
-      child: const MaterialApp(home: SearchPage()),
+      child: MaterialApp(
+        theme: theme,
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(
+            context,
+          ).copyWith(textScaler: TextScaler.linear(textScale)),
+          child: child!,
+        ),
+        home: const SearchPage(),
+      ),
     );
   }
 }
