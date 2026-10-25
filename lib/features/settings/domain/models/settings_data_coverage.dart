@@ -70,6 +70,7 @@ abstract final class SettingsDataCoverage {
         'Soundtrack and collaborator organization',
     DatabaseTables.artistProjectAssignments:
         'Soundtrack and collaborator organization',
+    DatabaseTables.artworkCrops: 'How covers and artist photos are cropped',
   };
 
   static List<String> _labelsFor(BackupTablePolicy policy) {

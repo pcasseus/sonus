@@ -1,3 +1,5 @@
+import 'package:sonus_next/features/artwork/application/services/artwork_crop_service.dart';
+import 'package:sonus_next/features/artwork/domain/entities/artwork_crop.dart';
 import 'dart:async';
 import 'dart:math';
 
@@ -888,6 +890,50 @@ void main() {
 
         expect(await controller.clearArtwork(), isTrue);
         expect(service.cleared, ['edition-deluxe']);
+      });
+
+      test('a crop is applied to the edition on screen', () async {
+        final crops = FakeArtworkCropService();
+        final controller = AlbumProfileController(
+          repository: editionRepository(deluxeArtwork: '/art/deluxe.jpg'),
+          albumId: 'album-1',
+          artworkAssignmentService: FakeEditionArtworkAssignmentService(),
+          artworkFilePicker: FakeArtworkFilePicker(result: '/new.jpg'),
+          artworkCropService: crops,
+        );
+        addTearDown(controller.dispose);
+        await controller.load();
+        await controller.selectEdition('edition-deluxe');
+
+        expect(controller.canCropArtwork, isTrue);
+        final rect = CropRect(left: 0, top: 0, width: 1, height: 1);
+        expect(
+          await controller.applyArtworkCrop(sourcePath: '/new.jpg', rect: rect),
+          isTrue,
+        );
+        expect(crops.applied, [
+          (ArtworkCropTarget.albumEdition, 'edition-deluxe', '/new.jpg', rect),
+        ]);
+
+        await controller.resetArtworkCrop();
+        expect(crops.resets, ['edition-deluxe']);
+      });
+
+      test('an edition without its own cover has nothing to move', () async {
+        final crops = FakeArtworkCropService();
+        final controller = AlbumProfileController(
+          repository: editionRepository(),
+          albumId: 'album-1',
+          artworkAssignmentService: FakeEditionArtworkAssignmentService(),
+          artworkFilePicker: FakeArtworkFilePicker(result: '/new.jpg'),
+          artworkCropService: crops,
+        );
+        addTearDown(controller.dispose);
+        await controller.load();
+        await controller.selectEdition('edition-deluxe');
+
+        expect(await controller.artworkRepositionSource(), isNull);
+        expect(crops.repositionRequests, isEmpty);
       });
 
       test('the primary edition is edited when it is on screen', () async {
@@ -2932,6 +2978,48 @@ class FakeEditionArtworkAssignmentService implements ArtworkAssignmentService {
   @override
   Future<void> clearAlbumEdition(String albumEditionId, {DateTime? now}) async {
     cleared.add(albumEditionId);
+  }
+
+  @override
+  noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class FakeArtworkCropService implements ArtworkCropService {
+  final List<(ArtworkCropTarget, String, String, CropRect)> applied = [];
+  final List<String> resets = [];
+  final List<String> repositionRequests = [];
+
+  @override
+  Future<void> apply({
+    required ArtworkCropTarget target,
+    required String targetId,
+    required String sourcePath,
+    required CropRect rect,
+    String? userId,
+  }) async {
+    applied.add((target, targetId, sourcePath, rect));
+  }
+
+  @override
+  Future<bool> reset({
+    required ArtworkCropTarget target,
+    required String targetId,
+    required String? currentArtworkId,
+    String? userId,
+  }) async {
+    resets.add(targetId);
+    return true;
+  }
+
+  @override
+  Future<ArtworkCropSource?> repositionSource({
+    required ArtworkCropTarget target,
+    required String targetId,
+    required String? currentArtworkId,
+    required String? currentArtworkPath,
+  }) async {
+    repositionRequests.add(targetId);
+    return null;
   }
 
   @override

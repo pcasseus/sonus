@@ -41,7 +41,7 @@ void main() {
 
       expect(
         (await db.rawQuery('PRAGMA user_version')).single['user_version'],
-        34,
+        35,
       );
 
       final columns = await db.rawQuery('PRAGMA table_info($journal)');
@@ -115,7 +115,7 @@ void main() {
 
       expect(
         (await db.rawQuery('PRAGMA user_version')).single['user_version'],
-        34,
+        35,
       );
 
       final outbox = await db.query(DatabaseTables.syncOutbox);

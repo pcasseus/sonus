@@ -35,6 +35,7 @@ class AlbumStudioPage extends StatefulWidget {
     required this.userId,
     this.onEditDetails,
     this.onChangeArtwork,
+    this.onRepositionArtwork,
     this.onClearArtwork,
     this.metadataProvider,
     this.coverArtCandidateDiscoveryService,
@@ -51,6 +52,9 @@ class AlbumStudioPage extends StatefulWidget {
   final String? userId;
   final Future<void> Function()? onEditDetails;
   final Future<void> Function()? onChangeArtwork;
+
+  /// Moves or resets the selected edition's cropped cover (SN-45).
+  final Future<void> Function()? onRepositionArtwork;
   final Future<void> Function()? onClearArtwork;
   final MetadataProvider? metadataProvider;
   final CoverArtCandidateDiscoveryService? coverArtCandidateDiscoveryService;
@@ -120,6 +124,7 @@ class _AlbumStudioPageState extends State<AlbumStudioPage> {
                 },
                 onEditDetails: widget.onEditDetails,
                 onChangeArtwork: widget.onChangeArtwork,
+                onRepositionArtwork: widget.onRepositionArtwork,
                 onClearArtwork: widget.onClearArtwork,
                 onSearchCoverArt:
                     !_isSearchingCoverArt &&
@@ -615,6 +620,7 @@ class _AlbumTools extends StatelessWidget {
     required this.onToggle,
     required this.onEditDetails,
     required this.onChangeArtwork,
+    this.onRepositionArtwork,
     required this.onClearArtwork,
     required this.onSearchCoverArt,
     required this.onSearchMusicBrainz,
@@ -624,6 +630,7 @@ class _AlbumTools extends StatelessWidget {
   final VoidCallback onToggle;
   final Future<void> Function()? onEditDetails;
   final Future<void> Function()? onChangeArtwork;
+  final Future<void> Function()? onRepositionArtwork;
   final Future<void> Function()? onClearArtwork;
   final Future<void> Function()? onSearchCoverArt;
   final Future<void> Function()? onSearchMusicBrainz;
@@ -734,6 +741,14 @@ class _AlbumTools extends StatelessWidget {
                 title: 'Change artwork',
                 action: onChangeArtwork,
               ),
+              if (onRepositionArtwork != null)
+                _tool(
+                  key: 'album-studio-reposition-artwork',
+                  icon: Icons.crop_rounded,
+                  title: 'Reposition cover',
+                  subtitle: 'Move or zoom this edition\'s cover, or reset it.',
+                  action: onRepositionArtwork,
+                ),
               _tool(
                 key: 'album-studio-clear-artwork',
                 icon: Icons.hide_image_rounded,

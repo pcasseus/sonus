@@ -117,6 +117,12 @@ abstract final class BackupCoverageContract {
       table: DatabaseTables.artistProjectAssignments,
       policy: BackupTablePolicy.deviceLocal,
     ),
+    // SN-45 crop positions. The cropped artwork itself is a normal,
+    // portable artwork asset; only "move or reset the crop" stays here.
+    BackupTableCoverage(
+      table: DatabaseTables.artworkCrops,
+      policy: BackupTablePolicy.deviceLocal,
+    ),
 
     // Never restore as another device's active sync/ownership state.
     BackupTableCoverage(

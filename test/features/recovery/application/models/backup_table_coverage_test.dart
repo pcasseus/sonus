@@ -9,7 +9,7 @@ void main() {
     final tables = BackupCoverageContract.tables;
     final names = tables.map((entry) => entry.table).toSet();
 
-    expect(tables.length, 31);
+    expect(tables.length, 32);
     expect(names.length, tables.length);
     expect(names.every((name) => name.trim().isNotEmpty), isTrue);
   });
@@ -51,13 +51,16 @@ void main() {
         .map((entry) => entry.table)
         .toSet();
 
-    expect(local.length, 6);
+    expect(local.length, 7);
     expect(local, contains(DatabaseTables.mediaFileBindings));
     expect(local, contains(DatabaseTables.importSources));
     expect(local, contains(DatabaseTables.importBatches));
     expect(local, contains(DatabaseTables.songImportReviews));
     expect(local, contains(DatabaseTables.albumReleaseClassifications));
     expect(local, contains(DatabaseTables.artistProjectAssignments));
+    // SN-45: crop positions stay on the device; the cropped artwork itself
+    // is a portable artwork asset.
+    expect(local, contains(DatabaseTables.artworkCrops));
   });
 
   test('protects sync and ownership state from direct restoration', () {

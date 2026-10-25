@@ -1,3 +1,6 @@
+import '../../../artwork/presentation/pages/artwork_crop_editor_page.dart';
+import '../../../artwork/domain/entities/artwork_crop.dart';
+import '../../../artwork/application/services/artwork_crop_service.dart';
 import 'dart:async';
 import 'dart:io';
 
@@ -137,6 +140,7 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
       songBlockService: context.read<SongBlockService?>(),
       artworkAssignmentService: context.read<ArtworkAssignmentService?>(),
       artworkFilePicker: context.read<ArtworkFilePicker?>(),
+      artworkCropService: context.read<ArtworkCropService?>(),
     );
 
     // The artwork can change without this State rebuilding: when the album
@@ -410,6 +414,9 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
                     _AlbumMenuAction.clearArtwork,
                   )
                 : null,
+            onRepositionArtwork: controller.canCropArtwork
+                ? () => _repositionArtwork(controller)
+                : null,
           );
         },
       ),
@@ -483,7 +490,10 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
       final changed = switch (action) {
         _AlbumMenuAction.studio => false,
         _AlbumMenuAction.editProfile => false,
-        _AlbumMenuAction.changeArtwork => await controller.changeArtwork(),
+        _AlbumMenuAction.changeArtwork =>
+          controller.canCropArtwork
+              ? await _pickAndCropArtwork(controller)
+              : await controller.changeArtwork(),
         _AlbumMenuAction.clearArtwork => await controller.clearArtwork(),
       };
 
@@ -519,6 +529,82 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Could not update album artwork.')),
       );
+    }
+  }
+
+  /// Change artwork (SN-45): choose an image, then crop it to the cover.
+  Future<bool> _pickAndCropArtwork(AlbumProfileController controller) async {
+    final path = await controller.pickArtworkFile();
+
+    if (path == null || !mounted) {
+      return false;
+    }
+
+    final decision = await showArtworkCropEditor(
+      context,
+      imagePath: path,
+      target: ArtworkCropTarget.albumEdition,
+    );
+
+    if (decision is! ArtworkCropSave) {
+      return false;
+    }
+
+    return controller.applyArtworkCrop(sourcePath: path, rect: decision.rect);
+  }
+
+  /// Reposition cover: reopens the original at its saved crop.
+  Future<void> _repositionArtwork(AlbumProfileController controller) async {
+    final messenger = ScaffoldMessenger.of(context);
+
+    try {
+      final source = await controller.artworkRepositionSource();
+
+      if (!mounted) {
+        return;
+      }
+
+      if (source == null) {
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text('This edition has no cover of its own to move.'),
+          ),
+        );
+        return;
+      }
+
+      final decision = await showArtworkCropEditor(
+        context,
+        imagePath: source.filePath,
+        target: ArtworkCropTarget.albumEdition,
+        initialRect: source.rect,
+        canReset: source.isRecropping,
+      );
+
+      final String? message = switch (decision) {
+        ArtworkCropSave(:final rect) =>
+          await controller.applyArtworkCrop(
+                sourcePath: source.filePath,
+                rect: rect,
+              )
+              ? 'Cover repositioned.'
+              : null,
+        ArtworkCropReset() =>
+          await controller.resetArtworkCrop()
+              ? 'The full original cover is back.'
+              : null,
+        null => null,
+      };
+
+      if (message != null && mounted) {
+        messenger.showSnackBar(SnackBar(content: Text(message)));
+      }
+    } catch (_) {
+      if (mounted) {
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Could not reposition the cover.')),
+        );
+      }
     }
   }
 

@@ -3,6 +3,8 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 
 import '../../../artwork/application/services/artwork_assignment_service.dart';
+import '../../../artwork/application/services/artwork_crop_service.dart';
+import '../../../artwork/domain/entities/artwork_crop.dart';
 import '../../../artwork/application/services/artwork_file_picker.dart';
 import '../../../player/application/controllers/playback_coordinator.dart';
 import '../../application/models/library_album.dart';
@@ -31,6 +33,7 @@ class AlbumProfileController extends ChangeNotifier {
     SongBlockService? songBlockService,
     ArtworkAssignmentService? artworkAssignmentService,
     ArtworkFilePicker? artworkFilePicker,
+    ArtworkCropService? artworkCropService,
     Random? random,
   }) : this._(
          repository,
@@ -43,6 +46,7 @@ class AlbumProfileController extends ChangeNotifier {
          songBlockService,
          artworkAssignmentService,
          artworkFilePicker,
+         artworkCropService,
          random ?? Random(),
        );
 
@@ -57,6 +61,7 @@ class AlbumProfileController extends ChangeNotifier {
     this._songBlockService,
     this._artworkAssignmentService,
     this._artworkFilePicker,
+    this._artworkCropService,
     this._random,
   );
 
@@ -70,6 +75,7 @@ class AlbumProfileController extends ChangeNotifier {
   final SongBlockService? _songBlockService;
   final ArtworkAssignmentService? _artworkAssignmentService;
   final ArtworkFilePicker? _artworkFilePicker;
+  final ArtworkCropService? _artworkCropService;
   final Random _random;
 
   LibraryAlbum? _album;
@@ -439,6 +445,81 @@ class AlbumProfileController extends ChangeNotifier {
     await refresh();
 
     return true;
+  }
+
+  /// Whether covers can be cropped and repositioned (SN-45).
+  bool get canCropArtwork => _artworkCropService != null && canEditArtwork;
+
+  /// Lets the user choose an image; null when cancelled or unavailable.
+  Future<String?> pickArtworkFile() async =>
+      _artworkFilePicker?.pickArtworkFile();
+
+  /// Crops [sourcePath] to [rect] and makes it the selected edition's
+  /// cover. The original is kept so the crop can be moved or reset.
+  Future<bool> applyArtworkCrop({
+    required String sourcePath,
+    required CropRect rect,
+  }) async {
+    final service = _artworkCropService;
+    final editionId = _artworkEditionId;
+
+    if (service == null || editionId == null) {
+      return false;
+    }
+
+    await service.apply(
+      target: ArtworkCropTarget.albumEdition,
+      targetId: editionId,
+      sourcePath: sourcePath,
+      rect: rect,
+    );
+
+    await refresh();
+    return true;
+  }
+
+  /// What "Reposition cover" opens for the selected edition, or null when
+  /// it has no cover of its own.
+  Future<ArtworkCropSource?> artworkRepositionSource() async {
+    final service = _artworkCropService;
+    final editionId = _artworkEditionId;
+    final edition = _selectedEdition;
+
+    if (service == null ||
+        editionId == null ||
+        edition == null ||
+        !selectedEditionHasOwnArtwork) {
+      return null;
+    }
+
+    return service.repositionSource(
+      target: ArtworkCropTarget.albumEdition,
+      targetId: editionId,
+      currentArtworkId: edition.artworkId,
+      currentArtworkPath: edition.artworkPath,
+    );
+  }
+
+  /// Restores the selected edition's full, uncropped original cover.
+  Future<bool> resetArtworkCrop() async {
+    final service = _artworkCropService;
+    final editionId = _artworkEditionId;
+
+    if (service == null || editionId == null) {
+      return false;
+    }
+
+    final reset = await service.reset(
+      target: ArtworkCropTarget.albumEdition,
+      targetId: editionId,
+      currentArtworkId: _selectedEdition?.artworkId,
+    );
+
+    if (reset) {
+      await refresh();
+    }
+
+    return reset;
   }
 
   /// Replaces the selected edition's cover. Other editions keep theirs.

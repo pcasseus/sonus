@@ -69,8 +69,14 @@ void main() {
 
   test('only versions proven by this file are restorable', () {
     // Adding a version requires extending the migration proof below.
-    expect(BackupCompatibility.restorableDatabaseVersions, {31, 32, 33, 34});
-    expect(AppDatabase.databaseVersion, 34);
+    expect(BackupCompatibility.restorableDatabaseVersions, {
+      31,
+      32,
+      33,
+      34,
+      35,
+    });
+    expect(AppDatabase.databaseVersion, 35);
   });
 
   test('the fixture is a real version 31 database', () async {
@@ -91,9 +97,10 @@ void main() {
     final v31 = await openWithoutMigrating(await copyOfV31('v31.db'));
     final v32 = await migrateTo(await copyOfV31('v32.db'), 32);
     final v33 = await migrateTo(await copyOfV31('v33.db'), 33);
-    final v34 = AppDatabase(
+    final v34 = await migrateTo(await copyOfV31('v34.db'), 34);
+    final v35 = AppDatabase(
       databaseFactory: databaseFactoryFfi,
-      databasePath: await copyOfV31('v34.db'),
+      databasePath: await copyOfV31('v35.db'),
     );
     final fresh = AppDatabase(
       databaseFactory: databaseFactoryFfi,
@@ -105,16 +112,19 @@ void main() {
 
       expect(await userVersion(v32), 32);
       expect(await userVersion(v33), 33);
-      expect(await userVersion(await v34.database), 34);
+      expect(await userVersion(v34), 34);
+      expect(await userVersion(await v35.database), 35);
       expect(await _portableSchema(v31), reference);
       expect(await _portableSchema(v32), reference);
       expect(await _portableSchema(v33), reference);
-      expect(await _portableSchema(await v34.database), reference);
+      expect(await _portableSchema(v34), reference);
+      expect(await _portableSchema(await v35.database), reference);
     } finally {
       await v31.close();
       await v32.close();
       await v33.close();
       await v34.close();
+      await v35.close();
       await fresh.close();
     }
   });
@@ -139,7 +149,12 @@ void main() {
       final db = await upgraded.database;
       final rowsAfter = await _allRows(db);
 
-      expect(await userVersion(db), 34);
+      expect(await userVersion(db), 35);
+      expect(
+        rowsAfter[DatabaseTables.artworkCrops],
+        isEmpty,
+        reason: 'migration 35 must not invent crops',
+      );
       expect(
         rowsAfter[DatabaseTables.albumReleaseClassifications],
         isEmpty,
@@ -156,7 +171,8 @@ void main() {
         ..remove(SyncSchema.inboundDeferredRecordsTable)
         ..remove(SyncSchema.outboundConflictsTable)
         ..remove(DatabaseTables.albumReleaseClassifications)
-        ..remove(DatabaseTables.artistProjectAssignments);
+        ..remove(DatabaseTables.artistProjectAssignments)
+        ..remove(DatabaseTables.artworkCrops);
       expect(rowsAfter, rowsBefore);
 
       // The fixture carries real library, ownership, and sync rows.

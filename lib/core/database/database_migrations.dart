@@ -5,6 +5,7 @@ import 'package:sqflite/sqflite.dart';
 import '../identity/entity_id.dart';
 import '../identity/text_normalizer.dart';
 import 'database_tables.dart';
+import 'schema/artwork_crop_schema.dart';
 import 'schema/account_schema.dart';
 import 'schema/analytics_schema.dart';
 import 'schema/chart_schema.dart';
@@ -443,6 +444,11 @@ abstract final class DatabaseMigrations {
         // Two new device-local tables; no existing row is touched.
         await OrganizationSchema.createAlbumReleaseClassifications(db);
         await OrganizationSchema.createArtistProjectAssignments(db);
+        return;
+
+      case 35:
+        // SN-45: one new device-local table; no existing row is touched.
+        await ArtworkCropSchema.create(db);
         return;
 
       default:
