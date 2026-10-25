@@ -3,6 +3,8 @@ import '../../../library/domain/entities/album.dart';
 import '../../../library/domain/entities/album_edition.dart';
 import '../../../library/domain/entities/artist.dart';
 import '../../../library/domain/entities/song.dart';
+import '../../../library/domain/entities/album_edition_track.dart';
+import '../../../library/domain/entities/song_artist_credit.dart';
 import '../../../library/domain/metadata/metadata_field_state.dart';
 import '../../domain/models/cloud_records.dart';
 
@@ -67,6 +69,8 @@ abstract final class CloudRecordMapper {
     required Song song,
     required String userId,
     List<MetadataFieldState> metadataFieldStates = const [],
+    List<AlbumEditionTrack>? memberships,
+    List<SongArtistCredit>? credits,
   }) {
     return CloudSongRecord(
       id: song.id,
@@ -90,6 +94,39 @@ abstract final class CloudRecordMapper {
       isLeak: song.isLeak,
       artworkId: song.artworkId,
       metadataFieldStates: _metadataFieldStates(metadataFieldStates),
+      editionMemberships: memberships == null
+          ? null
+          : List<CloudEditionMembership>.unmodifiable(
+              ([...memberships]..sort(
+                    (a, b) => a.albumEditionId.compareTo(b.albumEditionId),
+                  ))
+                  .map(
+                    (membership) => CloudEditionMembership(
+                      albumEditionId: membership.albumEditionId,
+                      discNumber: membership.discNumber,
+                      trackNumber: membership.trackNumber,
+                      sortPosition: membership.sortPosition,
+                      numberingAuthority: membership.numberingAuthority.name,
+                      orderingAuthority: membership.orderingAuthority.name,
+                    ),
+                  ),
+            ),
+      artistCredits: credits == null
+          ? null
+          : List<CloudSongCredit>.unmodifiable(
+              ([
+                ...credits,
+              ]..sort((a, b) => a.position.compareTo(b.position))).map(
+                (credit) => CloudSongCredit(
+                  id: credit.id,
+                  artistId: credit.artistId,
+                  creditedName: credit.creditedName,
+                  canonicalCreditedName: credit.canonicalCreditedName,
+                  role: credit.role.name,
+                  position: credit.position,
+                ),
+              ),
+            ),
       createdAt: song.createdAt,
       updatedAt: song.updatedAt,
     );

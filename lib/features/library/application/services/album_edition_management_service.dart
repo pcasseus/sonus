@@ -124,6 +124,7 @@ class AlbumEditionManagementService {
               updatedAt: timestamp,
             ),
           );
+          await _recordSong(context, userId, membership.songId);
         }
       }
 
@@ -197,6 +198,7 @@ class AlbumEditionManagementService {
   Future<int> assignTracks({
     required String editionId,
     required List<String> songIds,
+    String? userId,
     DateTime? now,
   }) {
     final timestamp = now ?? DateTime.now();
@@ -237,6 +239,7 @@ class AlbumEditionManagementService {
             updatedAt: timestamp,
           ),
         );
+        await _recordSong(context, userId, song.id);
         added++;
       }
 
@@ -307,6 +310,7 @@ class AlbumEditionManagementService {
         editionId: edition.id,
         songId: song.id,
       );
+      await _recordSong(context, userId, song.id);
     });
   }
 
@@ -407,6 +411,20 @@ class AlbumEditionManagementService {
     }
 
     return song;
+  }
+
+  /// A song's edition listings travel with the song to the cloud, so any
+  /// change to them queues the song.
+  static Future<void> _recordSong(
+    SyncMutationContext context,
+    String? userId,
+    String songId,
+  ) {
+    return context.localSyncRepository.recordUpsert(
+      userId: userId?.trim(),
+      entityType: CloudDataEntity.song,
+      entityId: songId,
+    );
   }
 
   static Future<void> _recordEdition(

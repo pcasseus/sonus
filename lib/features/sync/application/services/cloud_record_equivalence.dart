@@ -11,6 +11,15 @@ abstract final class CloudRecordEquivalence {
     final leftForm = canonicalForm(left);
     final rightForm = canonicalForm(right);
 
+    // Song extensions only count when both sides carry them: a server or
+    // app without them leaves them null, which is unknown, not different.
+    for (final key in const ['editionMemberships', 'artistCredits']) {
+      if (!leftForm.containsKey(key) || !rightForm.containsKey(key)) {
+        leftForm.remove(key);
+        rightForm.remove(key);
+      }
+    }
+
     return _deepEquals(leftForm, rightForm);
   }
 
@@ -78,6 +87,31 @@ abstract final class CloudRecordEquivalence {
           'isLeak': record.isLeak,
           'artworkId': record.artworkId,
           'metadataFieldStates': _states(record.metadataFieldStates),
+          // Present only when carried, matching the wire row.
+          if (record.editionMemberships != null)
+            'editionMemberships': [
+              for (final m in record.editionMemberships!)
+                <String, Object?>{
+                  'albumEditionId': m.albumEditionId,
+                  'discNumber': m.discNumber,
+                  'trackNumber': m.trackNumber,
+                  'sortPosition': m.sortPosition,
+                  'numberingAuthority': m.numberingAuthority,
+                  'orderingAuthority': m.orderingAuthority,
+                },
+            ],
+          if (record.artistCredits != null)
+            'artistCredits': [
+              for (final c in record.artistCredits!)
+                <String, Object?>{
+                  'id': c.id,
+                  'artistId': c.artistId,
+                  'creditedName': c.creditedName,
+                  'canonicalCreditedName': c.canonicalCreditedName,
+                  'role': c.role,
+                  'position': c.position,
+                },
+            ],
         });
 
       case CloudArtworkAssetRecord():

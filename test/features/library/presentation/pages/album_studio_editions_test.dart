@@ -506,6 +506,7 @@ class _FakeEditions implements AlbumEditionManagementService {
   Future<int> assignTracks({
     required String editionId,
     required List<String> songIds,
+    String? userId,
     DateTime? now,
   }) async {
     calls.add('assign $editionId ${songIds.join(',')}');

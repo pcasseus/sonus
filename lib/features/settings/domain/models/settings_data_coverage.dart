@@ -19,12 +19,13 @@ abstract final class SettingsDataCoverage {
 
   /// Library data that exists in Sonus but is not part of the sync
   /// contract. Backups still include everything here except preferences.
+  /// Metadata authority is not listed: it travels inside each synced
+  /// artist, album, edition and song.
   static const List<String> neverSynced = [
     'Playlists',
     'Listening history and qualified streams',
     'Personal charts and chart moments',
     'Lyrics',
-    'Metadata authority and review decisions',
     'Appearance and playback preferences',
   ];
 

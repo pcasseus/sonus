@@ -13,6 +13,10 @@ import '../../../artwork/data/daos/artwork_asset_dao.dart';
 import '../../../artwork/data/repositories/sqlite_artwork_asset_repository.dart';
 import '../../../library/data/daos/album_dao.dart';
 import '../../../library/data/daos/album_edition_dao.dart';
+import '../../../library/data/daos/album_edition_track_dao.dart';
+import '../../../library/data/daos/song_artist_credit_dao.dart';
+import '../../../library/data/repositories/sqlite_album_edition_track_repository.dart';
+import '../../../library/data/repositories/sqlite_song_artist_credit_repository.dart';
 import '../../../library/data/daos/artist_dao.dart';
 import '../../../library/data/daos/metadata_field_state_dao.dart';
 import '../../../library/data/daos/song_dao.dart';
@@ -183,6 +187,12 @@ class _SyncScopeState extends State<SyncScope> {
       acknowledgeEntry: TransactionalOutboundAcknowledgement(
         mutationRunner: mutationRunner,
       ).acknowledge,
+      albumEditionTrackRepository: SqliteAlbumEditionTrackRepository(
+        AlbumEditionTrackDao(executor),
+      ),
+      songArtistCreditRepository: SqliteSongArtistCreditRepository(
+        SongArtistCreditDao(executor),
+      ),
     );
 
     final inboundReconciler = InboundSyncReconciler(

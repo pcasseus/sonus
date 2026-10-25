@@ -747,6 +747,14 @@ class AtomicLibraryImporter {
               updatedAt: timestamp,
             ),
           );
+
+          if (syncUserId != null && syncUserId.isNotEmpty) {
+            await localSyncRepository.recordUpsert(
+              userId: syncUserId,
+              entityType: CloudDataEntity.song,
+              entityId: song.id,
+            );
+          }
         }
 
         final existingSongBindings = await bindingRepository.getBySongId(

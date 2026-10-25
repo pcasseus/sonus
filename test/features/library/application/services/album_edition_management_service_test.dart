@@ -470,4 +470,57 @@ void main() {
     expect(rows.length, before + 1);
     expect(rows.last['entity_type'], 'albumEdition');
   });
+
+  test(
+    'every edition listing change queues the song for sync (SN-45)',
+    () async {
+      final (album, standard, songs) = await standardAlbum();
+      final db = await appDatabase.database;
+
+      Future<Set<String>> queuedSongs() async => {
+        for (final row in await db.query(
+          DatabaseTables.syncOutbox,
+          where: 'entity_type = ? AND user_id = ?',
+          whereArgs: ['song', 'user-1'],
+        ))
+          row['entity_id']! as String,
+      };
+
+      final deluxe = await editions.createEdition(
+        albumId: album,
+        title: 'Deluxe',
+        type: AlbumEditionType.deluxe,
+        includeSongsFrom: standard,
+        userId: 'user-1',
+        now: now,
+      );
+      expect(await queuedSongs(), songs.values.toSet(), reason: 'inherited');
+
+      await db.delete(DatabaseTables.syncOutbox);
+      final bonus = await editions.createEdition(
+        albumId: album,
+        title: 'Bonus',
+        type: AlbumEditionType.other,
+        userId: 'user-1',
+        now: now,
+      );
+      await db.delete(DatabaseTables.syncOutbox);
+      await editions.assignTracks(
+        editionId: bonus.id,
+        songIds: [songs['Two']!],
+        userId: 'user-1',
+        now: now,
+      );
+      expect(await queuedSongs(), {songs['Two']}, reason: 'assigned');
+
+      await db.delete(DatabaseTables.syncOutbox);
+      await editions.removeTrack(
+        editionId: deluxe.id,
+        songId: songs['One']!,
+        userId: 'user-1',
+        now: now,
+      );
+      expect(await queuedSongs(), {songs['One']}, reason: 'removed elsewhere');
+    },
+  );
 }

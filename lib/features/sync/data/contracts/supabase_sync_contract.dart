@@ -49,6 +49,15 @@ abstract final class SupabaseSyncContract {
 
   static const String storageObjectKeyColumn = 'storage_object_key';
 
+  /// SN-45 song columns, added by migration 20261025000001. Sent only to a
+  /// server that has them.
+  static const String editionMembershipsColumn = 'edition_memberships';
+  static const String artistCreditsColumn = 'artist_credits';
+  static const Set<String> songExtensionColumns = {
+    editionMembershipsColumn,
+    artistCreditsColumn,
+  };
+
   static const Set<String> cloudTables = {
     artistsTable,
     albumsTable,

@@ -256,6 +256,7 @@ class _AlbumStudioEditionsSectionState
               await widget.service.assignTracks(
                 editionId: followUp.targetEditionId,
                 songIds: followUp.songIds,
+                userId: widget.userId,
               );
             }
           },
@@ -456,6 +457,7 @@ class _AlbumStudioEditionsSectionState
         await widget.service.assignTracks(
           editionId: edition.editionId,
           songIds: added,
+          userId: widget.userId,
         );
       }
       for (final songId in removed) {

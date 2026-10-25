@@ -144,6 +144,11 @@ class AlbumEditionTrackOrderingService {
 
         if (membershipChanged) {
           await context.albumEditionTrackRepository.save(updatedMembership);
+          await context.localSyncRepository.recordUpsert(
+            userId: normalizedUserId,
+            entityType: CloudDataEntity.song,
+            entityId: songId,
+          );
           changed = true;
         }
 
@@ -296,6 +301,11 @@ class AlbumEditionTrackOrderingService {
 
       if (membershipChanged) {
         await context.albumEditionTrackRepository.save(updatedMembership);
+        await context.localSyncRepository.recordUpsert(
+          userId: normalizedUserId,
+          entityType: CloudDataEntity.song,
+          entityId: normalizedSongId,
+        );
       }
 
       final isCompatibilityEdition = song.albumEditionId == normalizedEditionId;
@@ -383,6 +393,11 @@ class AlbumEditionTrackOrderingService {
 
         if (membershipChanged) {
           await context.albumEditionTrackRepository.save(updated);
+          await context.localSyncRepository.recordUpsert(
+            userId: userId?.trim(),
+            entityType: CloudDataEntity.song,
+            entityId: updated.songId,
+          );
           changed = true;
         }
 
