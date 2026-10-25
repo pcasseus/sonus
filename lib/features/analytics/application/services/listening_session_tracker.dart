@@ -1,6 +1,7 @@
 // ignore_for_file: prefer_initializing_formals
 
 import '../../../../core/database/library_mutation_coordinator.dart';
+import '../../../../core/events/library_change_signal.dart';
 import '../../../../core/identity/entity_id.dart';
 import '../../domain/entities/playback_listening_segment.dart';
 import '../../domain/entities/playback_session.dart';
@@ -475,6 +476,7 @@ class ListeningSessionTracker {
     await _write(() => _qualifiedPlays.create(play));
 
     _hasQualified = true;
+    LibraryChangeSignal.shared.notify(LibraryChangeKind.listeningRecorded);
   }
 
   PlaybackSession _requireSession() {

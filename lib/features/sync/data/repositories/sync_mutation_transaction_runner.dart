@@ -1,5 +1,6 @@
 import '../../../../core/database/app_database.dart';
 import '../../../../core/identity/entity_id.dart';
+import '../../../../core/events/library_change_signal.dart';
 import '../../../artwork/data/daos/artwork_asset_dao.dart';
 import '../../../artwork/data/repositories/sqlite_artwork_asset_repository.dart';
 import '../../../library/data/daos/album_dao.dart';
@@ -39,15 +40,26 @@ class SyncMutationTransactionRunner implements SyncMutationRunner {
     required this.appDatabase,
     SyncIdGenerator? generateId,
     SyncClock? now,
+    LibraryChangeSignal? changes,
   }) : _generateId = generateId ?? EntityId.syncOutbox,
-       _now = now ?? DateTime.now;
+       _now = now ?? DateTime.now,
+       _changes = changes ?? LibraryChangeSignal.shared;
+
+  /// Told once each mutation has committed, so screens can reload.
+  final LibraryChangeSignal _changes;
 
   final AppDatabase appDatabase;
   final SyncIdGenerator _generateId;
   final SyncClock _now;
 
   @override
-  Future<T> run<T>(SyncMutationAction<T> action) {
+  Future<T> run<T>(SyncMutationAction<T> action) async {
+    final result = await _run(action);
+    _changes.notify(LibraryChangeKind.libraryEdited);
+    return result;
+  }
+
+  Future<T> _run<T>(SyncMutationAction<T> action) {
     return appDatabase.transaction((transaction) async {
       final context = SyncMutationContext(
         artistRepository: SqliteArtistRepository(ArtistDao(transaction)),

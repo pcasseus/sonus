@@ -2,6 +2,7 @@ import 'package:sqflite/sqflite.dart';
 
 import '../../../../core/database/app_database.dart';
 import '../../../../core/database/database_tables.dart';
+import '../../../../core/events/library_change_signal.dart';
 import '../../domain/entities/library_organization.dart';
 import '../../domain/repositories/library_organization_repository.dart';
 
@@ -9,9 +10,20 @@ import '../../domain/repositories/library_organization_repository.dart';
 /// refused during, a restore like every other library mutation.
 class SqliteLibraryOrganizationRepository
     implements LibraryOrganizationRepository {
-  const SqliteLibraryOrganizationRepository(this.appDatabase);
+  SqliteLibraryOrganizationRepository(
+    this.appDatabase, {
+    LibraryChangeSignal? changes,
+  }) : _changes = changes ?? LibraryChangeSignal.shared;
 
   final AppDatabase appDatabase;
+  final LibraryChangeSignal _changes;
+
+  Future<void> _write(
+    Future<void> Function(Transaction transaction) action,
+  ) async {
+    await appDatabase.transaction(action);
+    _changes.notify(LibraryChangeKind.libraryEdited);
+  }
 
   @override
   Future<List<AlbumReleaseClassification>> getClassifications() async {
@@ -38,7 +50,7 @@ class SqliteLibraryOrganizationRepository
 
   @override
   Future<void> saveClassification(AlbumReleaseClassification classification) {
-    return appDatabase.transaction(
+    return _write(
       (transaction) =>
           transaction.insert(DatabaseTables.albumReleaseClassifications, {
             'album_id': classification.albumId,
@@ -53,7 +65,7 @@ class SqliteLibraryOrganizationRepository
 
   @override
   Future<void> deleteClassification(String albumId) {
-    return appDatabase.transaction(
+    return _write(
       (transaction) => transaction.delete(
         DatabaseTables.albumReleaseClassifications,
         where: 'album_id = ?',
@@ -86,7 +98,7 @@ class SqliteLibraryOrganizationRepository
 
   @override
   Future<void> saveAssignment(ArtistProjectAssignment assignment) {
-    return appDatabase.transaction(
+    return _write(
       (transaction) =>
           transaction.insert(DatabaseTables.artistProjectAssignments, {
             'artist_id': assignment.artistId,
@@ -100,7 +112,7 @@ class SqliteLibraryOrganizationRepository
 
   @override
   Future<void> deleteAssignment(String artistId) {
-    return appDatabase.transaction(
+    return _write(
       (transaction) => transaction.delete(
         DatabaseTables.artistProjectAssignments,
         where: 'artist_id = ?',
