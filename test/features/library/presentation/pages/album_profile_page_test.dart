@@ -279,6 +279,96 @@ void main() {
       expect(find.text('2 tracks • 6 min'), findsOneWidget);
     });
 
+    // Regression (SN-48J J1): the edition selector's horizontal scroller had
+    // no PageStorage slot of its own. It shared the page list's slot, so when
+    // it was rebuilt while scrolling back up it reopened at the page's
+    // vertical offset instead of its first edition.
+    testWidgets('edition selector keeps its own horizontal scroll position', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(320, 640));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final repository = FakeEditionAwareLibraryQueryRepository(
+        album: createAlbum(
+          title: 'Long Album',
+          primaryEditionId: 'edition-0',
+          primaryEditionTitle: 'Standard',
+          primaryEditionType: AlbumEditionType.standard,
+        ),
+        editions: [
+          for (var i = 0; i < 6; i++)
+            createLibraryEdition(
+              editionId: 'edition-$i',
+              title: i == 0 ? 'Standard' : 'Alternate Release Number $i',
+              type: i == 0 ? AlbumEditionType.standard : AlbumEditionType.other,
+              isPrimary: i == 0,
+            ),
+        ],
+        editionTracks: {
+          'edition-0': [
+            for (var number = 1; number <= 40; number++)
+              createTrack(
+                songId: 'song-$number',
+                title: 'Song $number',
+                albumEditionId: 'edition-0',
+                albumEditionTitle: 'Standard',
+                albumEditionType: AlbumEditionType.standard,
+                trackNumber: number,
+              ),
+          ],
+        },
+      );
+
+      await tester.pumpWidget(buildSubject(repository: repository));
+      await tester.pumpAndSettle();
+
+      final selectorFinder = find.descendant(
+        of: find.byKey(
+          const ValueKey<String>('album-profile-edition-selector'),
+        ),
+        matching: find.byType(Scrollable),
+      );
+      ScrollableState selector() =>
+          tester.state<ScrollableState>(selectorFinder.first);
+      ScrollableState page() => tester.state<ScrollableState>(
+        find
+            .descendant(
+              of: find.byKey(
+                const PageStorageKey<String>('album-profile-scroll'),
+              ),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+
+      expect(selector().position.maxScrollExtent, greaterThan(0));
+      expect(selector().position.pixels, 0);
+
+      // Scroll to the end so the selector is disposed and the page stores
+      // its offset; the lazy extent grows, so jump until it settles.
+      for (var i = 0; i < 10; i++) {
+        final end = page().position.maxScrollExtent;
+        page().position.jumpTo(end);
+        await tester.pumpAndSettle();
+        if (page().position.maxScrollExtent == end) break;
+      }
+      expect(selectorFinder, findsNothing);
+
+      // Scroll back up the way a fling does: the selector is rebuilt while
+      // the page is still moving.
+      unawaited(
+        page().position.animateTo(
+          0,
+          duration: const Duration(milliseconds: 400),
+          curve: Curves.linear,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(selector().position.pixels, 0);
+    });
+
     testWidgets('single explicit edition does not show edition selector', (
       tester,
     ) async {

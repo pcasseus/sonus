@@ -666,43 +666,48 @@ class _ViewSizeSelector extends StatelessWidget {
     final tokens = SonusTheme.of(context);
     final colors = tokens.colors;
 
-    return SingleChildScrollView(
-      key: const ValueKey<String>('charts-size-selector'),
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        children: [
-          for (final size in ChartViewSize.values) ...[
-            // Styled here only; the checkmark marks the selection without
-            // relying on colour.
-            ChoiceChip(
-              key: ValueKey<String>('charts-size-${size.limit}'),
-              label: Text('Top ${size.limit}'),
-              selected: controller.viewSize == size,
-              showCheckmark: true,
-              selectedColor: colors.selection,
-              backgroundColor: Colors.transparent,
-              checkmarkColor: colors.textPrimary,
-              labelStyle: TextStyle(
-                color: controller.viewSize == size
-                    ? colors.textPrimary
-                    : colors.textSecondary,
-                fontWeight: controller.viewSize == size
-                    ? FontWeight.w800
-                    : FontWeight.w500,
-              ),
-              side: BorderSide(color: colors.border),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(
-                  tokens.metrics.controlRadius,
+    // Its own scroll storage: without it, this horizontal scroller shares the
+    // chart list's slot and reopens at the list's vertical offset.
+    return KeyedSubtree(
+      key: const PageStorageKey<String>('charts-size-selector-scroll'),
+      child: SingleChildScrollView(
+        key: const ValueKey<String>('charts-size-selector'),
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            for (final size in ChartViewSize.values) ...[
+              // Styled here only; the checkmark marks the selection without
+              // relying on colour.
+              ChoiceChip(
+                key: ValueKey<String>('charts-size-${size.limit}'),
+                label: Text('Top ${size.limit}'),
+                selected: controller.viewSize == size,
+                showCheckmark: true,
+                selectedColor: colors.selection,
+                backgroundColor: Colors.transparent,
+                checkmarkColor: colors.textPrimary,
+                labelStyle: TextStyle(
+                  color: controller.viewSize == size
+                      ? colors.textPrimary
+                      : colors.textSecondary,
+                  fontWeight: controller.viewSize == size
+                      ? FontWeight.w800
+                      : FontWeight.w500,
                 ),
+                side: BorderSide(color: colors.border),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(
+                    tokens.metrics.controlRadius,
+                  ),
+                ),
+                onSelected: (_) {
+                  controller.selectViewSize(size);
+                },
               ),
-              onSelected: (_) {
-                controller.selectViewSize(size);
-              },
-            ),
-            if (size != ChartViewSize.values.last) const SizedBox(width: 8),
+              if (size != ChartViewSize.values.last) const SizedBox(width: 8),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sonus_next/core/design/sonus_theme_factory.dart';
@@ -311,6 +313,57 @@ void main() {
         }
       }
     }
+
+    // Regression (SN-48J J1): the size selector's horizontal scroller had no
+    // PageStorage slot of its own. It shared the chart list's slot, so when
+    // it was rebuilt while scrolling back up it reopened at the list's
+    // vertical offset.
+    testWidgets('size selector keeps its own horizontal scroll position', (
+      tester,
+    ) async {
+      final controller = await _controller(live: _rankedSnapshot(100));
+      await _pumpPage(
+        tester,
+        controller,
+        size: const Size(320, 640),
+        textScale: 1.6,
+      );
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('charts-size-100')),
+        warnIfMissed: false,
+      );
+      await tester.pumpAndSettle();
+
+      final selectorFinder = find.descendant(
+        of: find.byKey(const ValueKey<String>('charts-size-selector')),
+        matching: find.byType(Scrollable),
+      );
+      ScrollableState selector() =>
+          tester.state<ScrollableState>(selectorFinder.first);
+      final page = tester.state<ScrollableState>(scrollable.first);
+
+      expect(selector().position.maxScrollExtent, greaterThan(0));
+      selector().position.jumpTo(0);
+      await tester.pumpAndSettle();
+
+      await jumpToEnd(tester);
+      await tester.pumpAndSettle();
+      expect(selectorFinder, findsNothing);
+
+      // Scroll back up the way a fling does: the selector is rebuilt while
+      // the list is still moving.
+      unawaited(
+        page.position.animateTo(
+          0,
+          duration: const Duration(milliseconds: 400),
+          curve: Curves.linear,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(selector().position.pixels, 0);
+    });
 
     testWidgets('builds entries lazily, not all 200 at once', (tester) async {
       final controller = await _controller(live: _rankedSnapshot(200));

@@ -816,27 +816,34 @@ class _EditionSelector extends StatelessWidget {
       return const SizedBox.shrink();
     }
 
-    return SingleChildScrollView(
-      key: const ValueKey<String>('album-profile-edition-selector'),
-      scrollDirection: Axis.horizontal,
-      child: SegmentedButton<String>(
-        key: const ValueKey<String>('album-profile-edition-segmented-button'),
-        segments: [
-          for (final edition in controller.editions)
-            ButtonSegment<String>(
-              value: edition.editionId,
-              label: Text(_editionDisplayLabel(edition)),
-            ),
-        ],
-        selected: {selectedEdition.editionId},
-        showSelectedIcon: false,
-        onSelectionChanged: (selection) {
-          if (selection.isEmpty) {
-            return;
-          }
+    // Its own scroll storage: without it, this horizontal scroller shares the
+    // page list's slot and reopens at the page's vertical offset.
+    return KeyedSubtree(
+      key: const PageStorageKey<String>(
+        'album-profile-edition-selector-scroll',
+      ),
+      child: SingleChildScrollView(
+        key: const ValueKey<String>('album-profile-edition-selector'),
+        scrollDirection: Axis.horizontal,
+        child: SegmentedButton<String>(
+          key: const ValueKey<String>('album-profile-edition-segmented-button'),
+          segments: [
+            for (final edition in controller.editions)
+              ButtonSegment<String>(
+                value: edition.editionId,
+                label: Text(_editionDisplayLabel(edition)),
+              ),
+          ],
+          selected: {selectedEdition.editionId},
+          showSelectedIcon: false,
+          onSelectionChanged: (selection) {
+            if (selection.isEmpty) {
+              return;
+            }
 
-          unawaited(controller.selectEdition(selection.first));
-        },
+            unawaited(controller.selectEdition(selection.first));
+          },
+        ),
       ),
     );
   }
