@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../../core/design/sonus_count_label.dart';
 import '../../../../core/design/sonus_theme.dart';
 import '../../../../core/design/widgets/sonus_artwork_frame.dart';
 import '../../../../core/design/widgets/sonus_bar_strip.dart';
@@ -447,7 +448,7 @@ class _ActivitySection extends StatelessWidget {
             ? '—'
             : '${_shortMonthName(busiestDay.localDate.month)} '
                   '${busiestDay.localDate.day} · '
-                  '${busiestDay.streams} streams',
+                  '${busiestDay.streams} ${sonusCountNoun(busiestDay.streams, 'stream')}',
       ),
       (
         'Most active hour',
@@ -594,7 +595,7 @@ class _HourlyActivity extends StatelessWidget {
                     ? '${_formatHour(hour)}, no listening'
                     : '${_formatHour(hour)}, '
                           '${_formatDuration(byHour[hour]!.listeningDuration)} '
-                          'listening, ${byHour[hour]!.streams} streams',
+                          'listening, ${byHour[hour]!.streams} ${sonusCountNoun(byHour[hour]!.streams, 'stream')}',
               ),
           ],
         ),
@@ -652,7 +653,7 @@ class _DailySection extends StatelessWidget {
                     value: (byDay[day]?.streams ?? 0).toDouble(),
                     spokenLabel: byDay[day] == null
                         ? '$monthName $day, no listening'
-                        : '$monthName $day, ${byDay[day]!.streams} streams, '
+                        : '$monthName $day, ${byDay[day]!.streams} ${sonusCountNoun(byDay[day]!.streams, 'stream')}, '
                               '${_formatDuration(byDay[day]!.listeningDuration)} '
                               'listening',
                   ),
@@ -791,7 +792,10 @@ class _DayCell extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 8),
-          Text('${day.streams} streams', style: numberStyle),
+          Text(
+            '${day.streams} ${sonusCountNoun(day.streams, 'stream')}',
+            style: numberStyle,
+          ),
           Text(_formatDuration(day.listeningDuration), style: numberStyle),
         ],
       ),
@@ -1052,10 +1056,10 @@ SonusTableRow _tableRow({
       'Rank $rank',
       title,
       subtitle,
-      '$streams streams',
+      '$streams ${sonusCountNoun(streams, 'stream')}',
       changeSpoken,
       '${_formatDuration(listeningDuration)} listening',
-      '$lifetimeStreams lifetime streams',
+      '$lifetimeStreams lifetime ${sonusCountNoun(lifetimeStreams, 'stream')}',
       ?badge?.toLowerCase(),
     ].join(', '),
     cells: [

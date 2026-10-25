@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+import '../../../../core/design/sonus_count_label.dart';
 import '../../../../core/design/sonus_theme.dart';
 import '../../../../core/design/widgets/sonus_artwork_frame.dart';
 import '../../../../core/design/widgets/sonus_decorations.dart';
@@ -97,8 +98,8 @@ class ChartEntryCard extends StatefulWidget {
       entry.entity.title,
       subtitle,
       isAllTime
-          ? '${entry.qualifiedStreamCount} lifetime streams'
-          : '${entry.qualifiedStreamCount} streams',
+          ? '${entry.qualifiedStreamCount} lifetime ${sonusCountNoun(entry.qualifiedStreamCount, 'stream')}'
+          : '${entry.qualifiedStreamCount} ${sonusCountNoun(entry.qualifiedStreamCount, 'stream')}',
       isAllTime
           ? 'all-time peak number ${entry.peakRank}'
           : 'peak number ${entry.peakRank}',
@@ -421,7 +422,7 @@ class _EntryDetails extends StatelessWidget {
           crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             Text(
-              '${entry.qualifiedStreamCount} streams',
+              '${entry.qualifiedStreamCount} ${sonusCountNoun(entry.qualifiedStreamCount, 'stream')}',
               style: statStyle?.copyWith(
                 color: colors.textPrimary,
                 fontWeight: FontWeight.w700,

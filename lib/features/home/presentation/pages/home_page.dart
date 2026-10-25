@@ -5,6 +5,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../../core/design/sonus_count_label.dart';
 import '../../../../core/design/sonus_theme.dart';
 import '../../../../core/design/widgets/sonus_artwork_frame.dart';
 import '../../../../core/design/widgets/sonus_decorations.dart';
@@ -301,7 +302,8 @@ class _PopularTracksRail extends StatelessWidget {
           width: cardWidth,
           title: track.title,
           subtitle: track.artistName,
-          detail: '${entry.qualifiedStreamCount} weekly streams',
+          detail:
+              '${entry.qualifiedStreamCount} weekly ${sonusCountNoun(entry.qualifiedStreamCount, 'stream')}',
           artwork: Stack(
             children: [
               _SquareArtwork(
@@ -583,7 +585,7 @@ class _ArtistCard extends StatelessWidget {
                         ),
                         const SizedBox(height: 3),
                         Text(
-                          '${entry.qualifiedStreamCount} weekly streams',
+                          '${entry.qualifiedStreamCount} weekly ${sonusCountNoun(entry.qualifiedStreamCount, 'stream')}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodySmall?.copyWith(

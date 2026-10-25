@@ -42,7 +42,9 @@ class MonthlyArtistInsightRow {
       return 'Historical artist';
     }
 
-    return '${current.songCount} songs / ${current.albumCount} albums';
+    final songs = current.songCount == 1 ? 'song' : 'songs';
+    final albums = current.albumCount == 1 ? 'album' : 'albums';
+    return '${current.songCount} $songs / ${current.albumCount} $albums';
   }
 
   int get rank => ranking.rank;
