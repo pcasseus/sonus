@@ -6,6 +6,8 @@ import 'package:provider/provider.dart';
 import 'package:sonus_next/features/account/domain/entities/account_user.dart';
 import 'package:sonus_next/features/account/domain/repositories/account_repository.dart';
 import 'package:sonus_next/features/account/presentation/scopes/account_scope.dart';
+import 'package:sonus_next/features/analytics/domain/entities/qualified_play.dart';
+import 'package:sonus_next/features/analytics/domain/repositories/qualified_play_repository.dart';
 import 'package:sonus_next/features/library/application/services/external_metadata_application_service.dart';
 import 'package:sonus_next/features/library/application/services/external_metadata_proposal_service.dart';
 import 'package:sonus_next/features/library/application/services/metadata_provider.dart';
@@ -87,21 +89,14 @@ void main() {
 
       expect(find.text('Test Album'), findsWidgets);
 
-      await tester.drag(
-        find.byKey(const PageStorageKey<String>('artist-profile-scroll')),
-        const Offset(0, -500),
-      );
-
-      await tester.pumpAndSettle();
-
+      // SN-48I: the full Songs section is gone; songs are reached through
+      // Top Tracks, albums and Collaborations.
+      expect(find.text('Songs'), findsNothing);
       expect(
-        find.byKey(const ValueKey<String>('artist-profile-tracks-list')),
-        findsOneWidget,
+        find.byKey(const ValueKey<String>('artist-track-list')),
+        findsNothing,
       );
-
-      expect(find.text('Test Song'), findsOneWidget);
-
-      expect(find.text('3:00'), findsOneWidget);
+      expect(find.text('Test Song'), findsNothing);
     });
 
     testWidgets(
@@ -136,7 +131,7 @@ void main() {
     );
 
     testWidgets(
-      'shows Featured On separately when artist is a featured performer',
+      'shows Collaborations when the artist is a featured performer',
       (tester) async {
         final primaryTrack = createTrack(
           songId: 'primary-song',
@@ -152,6 +147,7 @@ void main() {
 
         final repository = FakeLibraryQueryRepository(
           artist: createArtist(),
+          albums: [createAlbum()],
           tracks: [primaryTrack],
           allTracks: [primaryTrack, featuredTrack],
         );
@@ -165,10 +161,12 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        expect(find.text('Songs'), findsOneWidget);
-        expect(find.text('Primary Song'), findsOneWidget);
-        expect(find.text('Featured On'), findsOneWidget);
+        expect(find.text('Songs'), findsNothing);
+        expect(find.text('Featured On'), findsNothing);
+        expect(find.text('Collaborations'), findsOneWidget);
         expect(find.text('Featured Song'), findsOneWidget);
+        // Their own song on their own album is not a collaboration.
+        expect(find.text('Primary Song'), findsNothing);
       },
     );
 
@@ -181,9 +179,10 @@ void main() {
 
       expect(find.text('No albums yet'), findsOneWidget);
 
-      expect(find.text('No songs yet'), findsOneWidget);
-
-      expect(find.text('Featured On'), findsNothing);
+      expect(find.text('Songs'), findsNothing);
+      expect(find.text('Top Tracks'), findsNothing);
+      expect(find.text('Collaborations'), findsNothing);
+      expect(find.text('Collaborators'), findsNothing);
     });
 
     testWidgets('shows artist not found state', (tester) async {
@@ -319,9 +318,10 @@ void main() {
       await engine.dispose();
     });
 
-    testWidgets('tapping playable song starts playback', (tester) async {
+    testWidgets('tapping a top track starts playback', (tester) async {
       final repository = FakeLibraryQueryRepository(
         artist: createArtist(),
+        albums: [createAlbum()],
         tracks: [createTrack(songId: 'play-song', title: 'Play Song')],
       );
 
@@ -331,21 +331,20 @@ void main() {
         buildSubject(
           repository: repository,
           playbackCoordinator: PlaybackCoordinator(engine: engine),
+          qualifiedPlays: FakeQualifiedPlayRepository([
+            qualifiedPlay('play-song'),
+          ]),
         ),
       );
 
       await tester.pumpAndSettle();
 
-      await tester.drag(
-        find.byKey(const PageStorageKey<String>('artist-profile-scroll')),
-        const Offset(0, -500),
+      final row = find.byKey(
+        const ValueKey<String>('artist-top-track-play-song'),
       );
-
+      await tester.ensureVisible(row);
       await tester.pumpAndSettle();
-
-      await tester.tap(
-        find.byKey(const ValueKey<String>('artist-track-play-song')),
-      );
+      await tester.tap(row);
 
       await tester.pump();
 
@@ -360,11 +359,11 @@ void main() {
       await engine.dispose();
     });
 
-    testWidgets('ghosts unavailable songs from the artist profile', (
-      tester,
-    ) async {
+    testWidgets('a streamed but unavailable song stays in Top Tracks, '
+        'labelled and not playable', (tester) async {
       final repository = FakeLibraryQueryRepository(
         artist: createArtist(),
+        albums: [createAlbum()],
         tracks: [
           createTrack(
             songId: 'missing-song',
@@ -374,23 +373,37 @@ void main() {
           ),
         ],
       );
+      final engine = FakePlaybackEngine();
 
-      await tester.pumpWidget(buildSubject(repository: repository));
+      await tester.pumpWidget(
+        buildSubject(
+          repository: repository,
+          playbackCoordinator: PlaybackCoordinator(engine: engine),
+          qualifiedPlays: FakeQualifiedPlayRepository([
+            qualifiedPlay('missing-song'),
+            qualifiedPlay('missing-song'),
+          ]),
+        ),
+      );
       await tester.pumpAndSettle();
 
-      expect(
-        find.byKey(const ValueKey<String>('artist-track-missing-song')),
-        findsNothing,
+      final row = find.byKey(
+        const ValueKey<String>('artist-top-track-missing-song'),
       );
-      expect(
-        find.byKey(const ValueKey<String>('artist-track-menu-missing-song')),
-        findsNothing,
-      );
-      expect(find.text('Missing Song'), findsNothing);
-      expect(find.text('Unavailable ? Test Album'), findsNothing);
+      await tester.ensureVisible(row);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Unavailable • 2 streams • Test Album'), findsOneWidget);
+      expect(tester.widget<ListTile>(row).enabled, isFalse);
+
+      await tester.tap(row, warnIfMissed: false);
+      await tester.pump();
+      expect(engine.loadQueueCallCount, 0);
+
+      await engine.dispose();
     });
 
-    testWidgets('ghosted artist track exposes no row menu', (tester) async {
+    testWidgets('an unavailable collaboration is not listed', (tester) async {
       final repository = FakeLibraryQueryRepository(
         artist: createArtist(),
         tracks: [
@@ -852,6 +865,7 @@ void main() {
   testWidgets('blacklisted song remains removable from the artist track menu', (
     tester,
   ) async {
+    // A main credit on another artist's album: listed under Collaborations.
     final repository = FakeLibraryQueryRepository(
       artist: createArtist(),
       tracks: [
@@ -911,6 +925,7 @@ void main() {
 
       final repository = FakeLibraryQueryRepository(
         artist: createArtist(),
+        albums: [createAlbum()],
         tracks: [
           createTrack(
             songId: 'musicbrainz-artist-track',
@@ -929,15 +944,21 @@ void main() {
           metadataProvider: provider,
           externalMetadataApplicationService: applicationService,
           externalMetadataProposalService: proposalService,
+          qualifiedPlays: FakeQualifiedPlayRepository([
+            qualifiedPlay('musicbrainz-artist-track'),
+          ]),
         ),
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(
-        find.byKey(
-          const ValueKey<String>('artist-track-menu-musicbrainz-artist-track'),
+      final menu = find.byKey(
+        const ValueKey<String>(
+          'artist-top-track-menu-musicbrainz-artist-track',
         ),
       );
+      await tester.ensureVisible(menu);
+      await tester.pumpAndSettle();
+      await tester.tap(menu);
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('Track Studio'));
@@ -973,6 +994,7 @@ void main() {
   testWidgets('Artist Track Studio opens from the track menu', (tester) async {
     final repository = FakeLibraryQueryRepository(
       artist: createArtist(),
+      albums: [createAlbum()],
       tracks: [createTrack(songId: 'studio-song', title: 'Studio Song')],
     );
 
@@ -987,15 +1009,20 @@ void main() {
         repository: repository,
         accountRepository: accountRepository,
         trackProfileEditingService: editingService,
+        qualifiedPlays: FakeQualifiedPlayRepository([
+          qualifiedPlay('studio-song'),
+        ]),
       ),
     );
     await tester.pumpAndSettle();
 
     final menuFinder = find.byKey(
-      const ValueKey<String>('artist-track-menu-studio-song'),
+      const ValueKey<String>('artist-top-track-menu-studio-song'),
     );
 
     expect(menuFinder, findsOneWidget);
+    await tester.ensureVisible(menuFinder);
+    await tester.pumpAndSettle();
 
     await tester.tap(menuFinder);
     await tester.pumpAndSettle();
@@ -1029,9 +1056,15 @@ Widget buildSubject({
   ExternalMetadataApplicationService? externalMetadataApplicationService,
   ExternalMetadataProposalService? externalMetadataProposalService,
   bool wrapArtistInRoute = false,
+  ThemeData? theme,
+  TransitionBuilder? appBuilder,
+  QualifiedPlayRepository? qualifiedPlays,
+  Widget? home,
 }) {
   final app = wrapArtistInRoute
       ? MaterialApp(
+          theme: theme,
+          builder: appBuilder,
           home: Builder(
             builder: (context) {
               return Scaffold(
@@ -1055,11 +1088,15 @@ Widget buildSubject({
             },
           ),
         )
-      : const MaterialApp(
-          home: ArtistProfilePage(
-            artistId: 'artist-1',
-            initialArtistName: 'Test Artist',
-          ),
+      : MaterialApp(
+          theme: theme,
+          builder: appBuilder,
+          home:
+              home ??
+              const ArtistProfilePage(
+                artistId: 'artist-1',
+                initialArtistName: 'Test Artist',
+              ),
         );
 
   return Provider<MetadataProvider?>.value(
@@ -1080,7 +1117,10 @@ Widget buildSubject({
                   repository: accountRepository,
                   child: Provider<ExternalMetadataProposalService?>.value(
                     value: externalMetadataProposalService,
-                    child: app,
+                    child: Provider<QualifiedPlayRepository?>.value(
+                      value: qualifiedPlays,
+                      child: app,
+                    ),
                   ),
                 ),
               ),
@@ -1095,22 +1135,33 @@ Widget buildSubject({
 LibraryArtist createArtist({
   String artistId = 'artist-1',
   String name = 'Test Artist',
+  int albumCount = 1,
+  int songCount = 1,
+  String? headerArtworkPath,
 }) {
   return LibraryArtist(
     artistId: artistId,
     name: name,
-    albumCount: 1,
-    songCount: 1,
+    albumCount: albumCount,
+    songCount: songCount,
+    headerArtworkPath: headerArtworkPath,
     dateAdded: DateTime(2026, 1, 1),
   );
 }
 
-LibraryAlbum createAlbum() {
+LibraryAlbum createAlbum({
+  String albumId = 'album-1',
+  String title = 'Test Album',
+  String artistId = 'artist-1',
+  String artistName = 'Test Artist',
+  String? artworkPath,
+}) {
   return LibraryAlbum(
-    albumId: 'album-1',
-    title: 'Test Album',
-    artistId: 'artist-1',
-    artistName: 'Test Artist',
+    albumId: albumId,
+    title: title,
+    artistId: artistId,
+    artistName: artistName,
+    artworkPath: artworkPath,
     trackCount: 1,
     dateAdded: DateTime(2026, 1, 1),
   );
@@ -1120,6 +1171,9 @@ LibraryTrack createTrack({
   String songId = 'song-1',
   String title = 'Test Song',
   String artistId = 'artist-1',
+  String artistName = 'Test Artist',
+  String albumId = 'album-1',
+  String albumTitle = 'Test Album',
   String? filePath,
   bool isAvailable = true,
   bool isSongBlocked = false,
@@ -1129,9 +1183,9 @@ LibraryTrack createTrack({
     songId: songId,
     title: title,
     artistId: artistId,
-    artistName: 'Test Artist',
-    albumId: 'album-1',
-    albumTitle: 'Test Album',
+    artistName: artistName,
+    albumId: albumId,
+    albumTitle: albumTitle,
     albumEditionId: 'edition-1',
     albumEditionTitle: 'Standard',
     albumEditionType: AlbumEditionType.values.first,
@@ -1505,4 +1559,110 @@ class FakePlaybackEngine implements PlaybackEngine {
   Future<void> dispose() async {
     await _statesController.close();
   }
+}
+
+/// Qualified plays held in memory (SN-48I Top Tracks).
+class FakeQualifiedPlayRepository implements QualifiedPlayRepository {
+  FakeQualifiedPlayRepository([List<QualifiedPlay>? plays])
+    : plays = plays ?? [];
+
+  final List<QualifiedPlay> plays;
+  int getAllCount = 0;
+
+  @override
+  Future<List<QualifiedPlay>> getAll({
+    DateTime? qualifiedAtOrAfter,
+    DateTime? qualifiedBefore,
+  }) async {
+    getAllCount++;
+    return List.of(plays);
+  }
+
+  @override
+  Future<void> create(QualifiedPlay play) async => plays.add(play);
+
+  @override
+  Future<void> save(QualifiedPlay play) async => plays.add(play);
+
+  @override
+  Future<QualifiedPlay?> getById(String id) async => null;
+
+  @override
+  Future<QualifiedPlay?> getByPlaybackSessionId(
+    String playbackSessionId,
+  ) async => null;
+
+  @override
+  Future<List<QualifiedPlay>> getByPlaybackSessionIds(
+    Iterable<String> playbackSessionIds,
+  ) async => const [];
+}
+
+int _qualifiedPlayCounter = 0;
+
+QualifiedPlay qualifiedPlay(
+  String songId, {
+  DateTime? at,
+  String artistId = 'artist-1',
+  String albumId = 'album-1',
+}) {
+  final id = 'play-${_qualifiedPlayCounter++}';
+  final qualifiedAt = at ?? DateTime.utc(2026, 1, 1);
+
+  return QualifiedPlay(
+    id: id,
+    playbackSessionId: 'session-$id',
+    songId: songId,
+    artistId: artistId,
+    albumId: albumId,
+    albumEditionId: 'edition-1',
+    qualifiedAt: qualifiedAt,
+    listenedDuration: const Duration(seconds: 120),
+    trackDuration: const Duration(seconds: 180),
+    createdAt: qualifiedAt,
+  );
+}
+
+/// A structured repository, as in production: main and collaboration
+/// tracks come from credits, and only artists with a main credit are
+/// profile eligible.
+class FakeStructuredLibraryQueryRepository extends FakeLibraryQueryRepository
+    implements StructuredArtistQueryRepository {
+  FakeStructuredLibraryQueryRepository({
+    super.artist,
+    super.albums,
+    super.allTracks,
+    this.mainTracks = const [],
+    this.collaborationTracks = const [],
+    this.artists = const [],
+    this.profileEligible = true,
+  });
+
+  final List<LibraryTrack> mainTracks;
+  final List<LibraryTrack> collaborationTracks;
+  final List<LibraryArtist> artists;
+  final bool profileEligible;
+
+  @override
+  Future<List<LibraryArtist>> getProfileEligibleArtists() async =>
+      profileEligible && artist != null ? [artist!] : const [];
+
+  @override
+  Future<LibraryArtist?> getProfileEligibleArtistById(String artistId) async =>
+      profileEligible ? artist : null;
+
+  @override
+  Future<List<LibraryTrack>> getMainTracksByArtistId(
+    String artistId, {
+    LibraryTrackOrder order = LibraryTrackOrder.title,
+  }) async => mainTracks;
+
+  @override
+  Future<List<LibraryTrack>> getCollaborationTracksByArtistId(
+    String artistId, {
+    LibraryTrackOrder order = LibraryTrackOrder.title,
+  }) async => collaborationTracks;
+
+  @override
+  Future<List<LibraryArtist>> getArtists() async => artists;
 }

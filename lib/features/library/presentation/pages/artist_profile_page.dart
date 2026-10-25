@@ -3,8 +3,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../../core/design/sonus_artwork_palette.dart';
+import '../../../../core/design/sonus_atmosphere_colors.dart';
+import '../../../../core/design/sonus_theme.dart';
 import '../../domain/repositories/song_artist_credit_repository.dart';
 import '../../../account/application/controllers/account_controller.dart';
+import '../../../analytics/domain/repositories/qualified_play_repository.dart';
 import '../../../artwork/application/services/artwork_assignment_service.dart';
 import '../../../artwork/application/services/artwork_file_picker.dart';
 import '../../../player/application/controllers/playback_coordinator.dart';
@@ -20,8 +24,10 @@ import '../../application/services/song_block_service.dart';
 import '../../application/services/song_artist_credit_service.dart';
 import 'package:sonus_next/features/library/application/services/track_profile_editing_service.dart';
 import '../controllers/artist_profile_controller.dart';
+import '../models/artist_profile_sections.dart';
 import '../models/track_profile_edit_draft.dart';
 import '../widgets/artist_profile/artist_profile_albums_grid.dart';
+import '../widgets/artist_profile/artist_profile_collaborators.dart';
 import '../widgets/artist_profile/artist_profile_header.dart';
 import '../widgets/artist_profile/artist_profile_tracks_list.dart';
 import '../widgets/artist_profile/artist_profile_playback_controls.dart';
@@ -35,10 +41,14 @@ class ArtistProfilePage extends StatefulWidget {
     super.key,
     required this.artistId,
     this.initialArtistName,
+    this.artworkPalette,
   });
 
   final String artistId;
   final String? initialArtistName;
+
+  /// Where artwork colours come from; the app-wide cache by default.
+  final SonusArtworkPalette? artworkPalette;
 
   @override
   State<ArtistProfilePage> createState() => _ArtistProfilePageState();
@@ -47,6 +57,80 @@ class ArtistProfilePage extends StatefulWidget {
 class _ArtistProfilePageState extends State<ArtistProfilePage> {
   ArtistProfileController? _controller;
   LibraryQueryRepository? _repository;
+
+  // Artwork atmosphere, as on the Album Profile: theme colours show at
+  // once; the artwork's colours arrive asynchronously and replace them.
+  SonusArtworkPalette get _palette =>
+      widget.artworkPalette ?? SonusArtworkPalette.shared;
+  String? _atmospherePath;
+  Brightness? _atmosphereBrightness;
+  SonusArtworkColors? _artworkColors;
+
+  /// Asks for the colours of the artwork now on screen. Never sets state
+  /// synchronously, so it is safe to call while building.
+  void _requestAtmosphere(String? artworkPath, Brightness brightness) {
+    if (artworkPath == _atmospherePath && brightness == _atmosphereBrightness) {
+      return;
+    }
+    _atmospherePath = artworkPath;
+    _atmosphereBrightness = brightness;
+
+    unawaited(
+      _palette.colorsFor(artworkPath, brightness: brightness).then((colors) {
+        // Newer artwork may have been requested since.
+        if (!mounted ||
+            artworkPath != _atmospherePath ||
+            brightness != _atmosphereBrightness ||
+            colors == _artworkColors) {
+          return;
+        }
+        setState(() {
+          _artworkColors = colors;
+        });
+      }),
+    );
+  }
+
+  void _onControllerChanged() {
+    final controller = _controller;
+    if (controller == null || !mounted) return;
+    _requestAtmosphere(
+      _atmosphereArtworkPath(controller),
+      Theme.of(context).brightness,
+    );
+  }
+
+  /// The artist's header image, or else the cover of their first album.
+  String? _atmosphereArtworkPath(ArtistProfileController controller) {
+    final header = controller.headerArtworkPath;
+    if (header != null) return header;
+
+    for (final album in controller.albums) {
+      final path = album.artworkPath?.trim();
+      if (path != null && path.isNotEmpty) return path;
+    }
+    return null;
+  }
+
+  /// Qualified plays come from the app's analytics scope. Pages built
+  /// without one (previews, focused tests) simply show no Top Tracks.
+  static QualifiedPlayRepository? _qualifiedPlays(BuildContext context) {
+    try {
+      return context.read<QualifiedPlayRepository?>();
+    } on ProviderNotFoundException {
+      return null;
+    }
+  }
+
+  /// Opens [page], then re-reads the ranking: songs may have been played
+  /// meanwhile.
+  Future<void> _pushAndRefresh(Widget page) async {
+    await Navigator.of(
+      context,
+    ).push(MaterialPageRoute<void>(builder: (_) => page));
+    if (!mounted) return;
+    await _controller?.refreshTopTracks();
+  }
 
   @override
   void didChangeDependencies() {
@@ -58,6 +142,7 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
       return;
     }
 
+    _controller?.removeListener(_onControllerChanged);
     _controller?.dispose();
 
     _repository = repository;
@@ -71,8 +156,12 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
       artworkFilePicker: context.read<ArtworkFilePicker?>(),
       artistProfileEditingService: context.read<ArtistProfileEditingService?>(),
       songBlockService: context.read<SongBlockService?>(),
+      qualifiedPlays: _qualifiedPlays(context),
     );
 
+    // The artwork can change without this State rebuilding: when the
+    // artist loads or its header artwork changes.
+    _controller!.addListener(_onControllerChanged);
     unawaited(_controller!.load());
   }
 
@@ -82,10 +171,52 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
     final accountController = context.watch<AccountController?>();
     final userId = accountController?.user?.id;
     final artistMergeService = context.watch<ArtistMergeService?>();
+    final tokens = SonusTheme.of(context);
 
+    if (controller != null) {
+      _requestAtmosphere(
+        _atmosphereArtworkPath(controller),
+        Theme.of(context).brightness,
+      );
+    }
+
+    final target = SonusArtworkAtmosphere.resolve(
+      colors: tokens.colors,
+      decoration: tokens.decoration,
+      artwork: _artworkColors,
+    );
+    final reduceMotion =
+        tokens.motion.reduced || MediaQuery.disableAnimationsOf(context);
+
+    // Eases between theme and artwork colours instead of flashing; jumps
+    // straight there with reduced motion.
+    return TweenAnimationBuilder<SonusAtmosphereColors>(
+      tween: SonusAtmosphereColorsTween(end: SonusAtmosphereColors.of(target)),
+      duration: reduceMotion ? Duration.zero : tokens.motion.baseMedium,
+      curve: tokens.motion.curve,
+      builder: (context, atmosphere, _) => _buildPage(
+        context,
+        controller,
+        userId,
+        artistMergeService,
+        atmosphere,
+      ),
+    );
+  }
+
+  Widget _buildPage(
+    BuildContext context,
+    ArtistProfileController? controller,
+    String? userId,
+    ArtistMergeService? artistMergeService,
+    SonusAtmosphereColors atmosphere,
+  ) {
     return Scaffold(
       key: const ValueKey<String>('artist-profile-page'),
+      backgroundColor: atmosphere.background,
       appBar: AppBar(
+        backgroundColor: atmosphere.background,
+        surfaceTintColor: Colors.transparent,
         title: controller == null
             ? Text(widget.initialArtistName ?? 'Artist')
             : AnimatedBuilder(
@@ -223,10 +354,7 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
                   return const SizedBox.shrink();
                 }
 
-                final visibleTracks = controller.tracks
-                    .where(_hasAvailableMedia)
-                    .toList(growable: false);
-                final visibleFeaturedTracks = controller.featuredTracks
+                final visibleCollaborations = controller.collaborationTracks
                     .where(_hasAvailableMedia)
                     .toList(growable: false);
                 final visibleAlbumIds = controller.allTracks
@@ -237,106 +365,184 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
                 final visibleAlbums = controller.albums
                     .where((album) => visibleAlbumIds.contains(album.albumId))
                     .toList(growable: false);
+                final visibleCollaborators = controller.collaborators
+                    .where(
+                      (collaborator) =>
+                          collaborator.tracks.any(_hasAvailableMedia),
+                    )
+                    .toList(growable: false);
+                final topTracks = controller.topTracks;
+
+                final gutter = SonusTheme.of(context).metrics.pageGutter;
+                Widget section(Key key, List<Widget> children) => Padding(
+                  key: key,
+                  padding: EdgeInsets.fromLTRB(gutter, 28, gutter, 0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: children,
+                  ),
+                );
 
                 return RefreshIndicator(
                   onRefresh: controller.refresh,
                   child: ListView(
                     key: const PageStorageKey<String>('artist-profile-scroll'),
                     physics: const AlwaysScrollableScrollPhysics(),
-                    padding: const EdgeInsets.fromLTRB(16, 20, 16, 32),
+                    // Clears the system inset and any bottom player.
+                    padding: EdgeInsets.only(
+                      bottom: 32 + MediaQuery.paddingOf(context).bottom,
+                    ),
                     children: [
                       ArtistProfileHeader(
                         artist: artist,
                         artworkPath: controller.headerArtworkPath,
+                        atmosphere: atmosphere,
                       ),
-                      const SizedBox(height: 20),
-                      ArtistProfilePlaybackControls(controller: controller),
-                      const SizedBox(height: 28),
-                      ArtistProfileSectionHeading(
-                        title: 'Albums',
-                        count: visibleAlbums.length,
+                      Padding(
+                        padding: EdgeInsets.symmetric(horizontal: gutter),
+                        child: ArtistProfilePlaybackControls(
+                          controller: controller,
+                          atmosphere: atmosphere,
+                        ),
                       ),
-                      const SizedBox(height: 12),
-                      ArtistProfileAlbumsGrid(
-                        albums: visibleAlbums,
-                        onAlbumTap: (album) {
-                          Navigator.of(context).push(
-                            MaterialPageRoute<void>(
-                              builder: (_) => AlbumProfilePage(
-                                albumId: album.albumId,
-                                initialAlbumTitle: album.title,
-                              ),
+                      if (topTracks.isNotEmpty)
+                        section(
+                          const ValueKey<String>('artist-profile-top-tracks'),
+                          [
+                            const ArtistProfileSectionHeading(
+                              title: 'Top Tracks',
+                              subtitle: 'Your most streamed, all time',
                             ),
-                          );
-                        },
-                      ),
-                      const SizedBox(height: 28),
-                      ArtistProfileSectionHeading(
-                        title: 'Songs',
-                        count: visibleTracks.length,
-                      ),
-                      const SizedBox(height: 8),
-                      ArtistProfileTracksList(
-                        tracks: visibleTracks,
-                        isTrackPlayable: controller.isTrackPlayable,
-                        canEditArtwork: controller.canEditTrackArtwork,
-                        canEditTrack: controller.canEditTrack(userId),
-                        canSetBlocked: controller.canSetTrackBlocked(userId),
-                        onPlay: controller.playTrack,
-                        onPlayNext: controller.playNext,
-                        onAddToQueue: controller.addToQueue,
-                        onAddToPlaylist: (track) =>
-                            showAddToPlaylistFlow(context, track),
-                        onEditTrack: (track) =>
-                            _editTrack(controller, track, userId),
-                        onChangeArtwork: (track) =>
-                            _changeTrackArtwork(controller, track),
-                        onClearArtwork: (track) =>
-                            _clearTrackArtwork(controller, track),
-                        onSetBlocked: (track, isBlocked) => _setTrackBlocked(
-                          controller,
-                          track,
-                          userId,
-                          isBlocked,
+                            const SizedBox(height: 8),
+                            _tracksList(
+                              context,
+                              controller,
+                              userId,
+                              atmosphere,
+                              tracks: [
+                                for (final entry in topTracks) entry.track,
+                              ],
+                              keyPrefix: 'artist-top-track',
+                              streamCounts: {
+                                for (final entry in topTracks)
+                                  entry.track.songId: entry.streamCount,
+                              },
+                            ),
+                          ],
                         ),
-                      ),
-                      if (visibleFeaturedTracks.isNotEmpty) ...[
-                        const SizedBox(height: 28),
+                      section(const ValueKey<String>('artist-profile-albums'), [
                         ArtistProfileSectionHeading(
-                          title: 'Featured On',
-                          count: visibleFeaturedTracks.length,
+                          title: 'Albums',
+                          count: visibleAlbums.length,
                         ),
-                        const SizedBox(height: 8),
-                        ArtistProfileTracksList(
-                          tracks: visibleFeaturedTracks,
-                          isTrackPlayable: controller.isTrackPlayable,
-                          canEditArtwork: controller.canEditTrackArtwork,
-                          canEditTrack: controller.canEditTrack(userId),
-                          canSetBlocked: controller.canSetTrackBlocked(userId),
-                          onPlay: controller.playTrack,
-                          onPlayNext: controller.playNext,
-                          onAddToQueue: controller.addToQueue,
-                          onAddToPlaylist: (track) =>
-                              showAddToPlaylistFlow(context, track),
-                          onEditTrack: (track) =>
-                              _editTrack(controller, track, userId),
-                          onChangeArtwork: (track) =>
-                              _changeTrackArtwork(controller, track),
-                          onClearArtwork: (track) =>
-                              _clearTrackArtwork(controller, track),
-                          onSetBlocked: (track, isBlocked) => _setTrackBlocked(
-                            controller,
-                            track,
-                            userId,
-                            isBlocked,
+                        const SizedBox(height: 12),
+                        ArtistProfileAlbumsGrid(
+                          albums: visibleAlbums,
+                          onAlbumTap: (album) {
+                            unawaited(
+                              _pushAndRefresh(
+                                AlbumProfilePage(
+                                  albumId: album.albumId,
+                                  initialAlbumTitle: album.title,
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ]),
+                      if (visibleCollaborations.isNotEmpty)
+                        section(
+                          const ValueKey<String>(
+                            'artist-profile-collaborations',
                           ),
+                          [
+                            ArtistProfileSectionHeading(
+                              title: 'Collaborations',
+                              count: visibleCollaborations.length,
+                            ),
+                            const SizedBox(height: 8),
+                            _tracksList(
+                              context,
+                              controller,
+                              userId,
+                              atmosphere,
+                              tracks: visibleCollaborations,
+                              keyPrefix: 'artist-track',
+                              profileArtistId: artist.artistId,
+                            ),
+                          ],
                         ),
-                      ],
+                      if (visibleCollaborators.isNotEmpty)
+                        section(
+                          const ValueKey<String>(
+                            'artist-profile-collaborators',
+                          ),
+                          [
+                            ArtistProfileSectionHeading(
+                              title: 'Collaborators',
+                              count: visibleCollaborators.length,
+                              subtitle: 'Lead artists on these albums',
+                            ),
+                            const SizedBox(height: 8),
+                            ArtistProfileCollaborators(
+                              collaborators: visibleCollaborators,
+                              tileColor: atmosphere.surface,
+                              isPlayable: (collaborator) => collaborator.tracks
+                                  .any(controller.isTrackPlayable),
+                              onPlay: controller.playCollaborator,
+                              onOpen: _openCollaborator,
+                            ),
+                          ],
+                        ),
                     ],
                   ),
                 );
               },
             ),
+    );
+  }
+
+  void _openCollaborator(ArtistProfileCollaborator collaborator) {
+    unawaited(
+      _pushAndRefresh(
+        ArtistProfilePage(
+          artistId: collaborator.artistId,
+          initialArtistName: collaborator.name,
+          artworkPalette: widget.artworkPalette,
+        ),
+      ),
+    );
+  }
+
+  Widget _tracksList(
+    BuildContext context,
+    ArtistProfileController controller,
+    String? userId,
+    SonusAtmosphereColors atmosphere, {
+    required List<LibraryTrack> tracks,
+    required String keyPrefix,
+    Map<String, int>? streamCounts,
+    String? profileArtistId,
+  }) {
+    return ArtistProfileTracksList(
+      tracks: tracks,
+      profileArtistId: profileArtistId,
+      keyPrefix: keyPrefix,
+      streamCounts: streamCounts,
+      tileColor: atmosphere.surface,
+      isTrackPlayable: controller.isTrackPlayable,
+      canEditArtwork: controller.canEditTrackArtwork,
+      canEditTrack: controller.canEditTrack(userId),
+      canSetBlocked: controller.canSetTrackBlocked(userId),
+      onPlay: controller.playTrack,
+      onPlayNext: controller.playNext,
+      onAddToQueue: controller.addToQueue,
+      onAddToPlaylist: (track) => showAddToPlaylistFlow(context, track),
+      onEditTrack: (track) => _editTrack(controller, track, userId),
+      onChangeArtwork: (track) => _changeTrackArtwork(controller, track),
+      onClearArtwork: (track) => _clearTrackArtwork(controller, track),
+      onSetBlocked: (track, isBlocked) =>
+          _setTrackBlocked(controller, track, userId, isBlocked),
     );
   }
 
@@ -684,7 +890,12 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
         ),
       );
 
-      if (!mounted || draft == null) {
+      if (!mounted) {
+        return;
+      }
+
+      if (draft == null) {
+        await controller.refreshTopTracks();
         return;
       }
 
@@ -781,6 +992,7 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
 
   @override
   void dispose() {
+    _controller?.removeListener(_onControllerChanged);
     _controller?.dispose();
     super.dispose();
   }
