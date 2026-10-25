@@ -4,6 +4,10 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../../core/design/sonus_theme.dart';
+import '../../../../core/design/widgets/sonus_artwork_frame.dart';
+import '../../../../core/design/widgets/sonus_decorations.dart';
+import '../../../../core/design/widgets/sonus_metric_tile.dart';
 import '../../application/models/year_in_sonus/year_in_sonus_album_row.dart';
 import '../../application/models/year_in_sonus/year_in_sonus_artist_row.dart';
 import '../../application/models/year_in_sonus/year_in_sonus_month_row.dart';
@@ -15,6 +19,8 @@ import '../../../library/presentation/pages/artist_profile_page.dart';
 import '../../../player/application/controllers/playback_coordinator.dart';
 import '../controllers/year_in_sonus_controller.dart';
 
+/// The annual recap as vertically scrolling editorial chapters. Every
+/// figure comes from the recap; nothing is animated.
 class YearInSonusPage extends StatelessWidget {
   const YearInSonusPage({super.key});
 
@@ -64,20 +70,23 @@ class YearInSonusPage extends StatelessWidget {
       );
     }
 
+    final gutter = SonusTheme.of(context).metrics.pageGutter;
+    const chapterGap = SizedBox(height: 34);
+
     return RefreshIndicator(
       onRefresh: controller.refresh,
       child: ListView(
         key: const PageStorageKey<String>('year-in-sonus-scroll'),
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(20, 22, 20, 40),
+        padding: EdgeInsets.fromLTRB(gutter, 22, gutter, 40),
         children: [
-          _YearHeader(
+          _YearCover(
             year: controller.selectedYear,
             isCurrentYear: controller.selectedYear == controller.currentYear,
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 14),
           _YearNavigator(controller: controller),
-          const SizedBox(height: 22),
+          const SizedBox(height: 20),
 
           if (controller.hasError) ...[
             _RefreshErrorBanner(onRetry: controller.refresh),
@@ -88,15 +97,15 @@ class YearInSonusPage extends StatelessWidget {
             _EmptyYear(year: recap.year)
           else ...[
             _HeadlineSummary(recap: recap),
-            const SizedBox(height: 28),
+            chapterGap,
             _Highlights(recap: recap),
-            const SizedBox(height: 28),
+            const SizedBox(height: 22),
             _SonusSignature(recap: recap),
-            const SizedBox(height: 28),
+            chapterGap,
             _TopThree(data: controller.presentationData),
-            const SizedBox(height: 28),
+            chapterGap,
             _MonthlyTimeline(data: controller.presentationData, recap: recap),
-            const SizedBox(height: 28),
+            chapterGap,
             _Rankings(data: controller.presentationData),
           ],
         ],
@@ -105,61 +114,87 @@ class YearInSonusPage extends StatelessWidget {
   }
 }
 
-class _YearHeader extends StatelessWidget {
-  const _YearHeader({required this.year, required this.isCurrentYear});
+/// The recap's cover: raised surface, theme texture and motif, and an
+/// accent rule. Decoration follows the user's intensity setting.
+class _YearCover extends StatelessWidget {
+  const _YearCover({required this.year, required this.isCurrentYear});
 
   final int year;
   final bool isCurrentYear;
 
   @override
   Widget build(BuildContext context) {
+    final tokens = SonusTheme.of(context);
+    final colors = tokens.colors;
     final theme = Theme.of(context);
+    final radius = BorderRadius.circular(tokens.metrics.cardRadius * 1.6);
 
-    return Container(
+    return ClipRRect(
       key: const ValueKey<String>('year-in-sonus-header'),
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(28),
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            theme.colorScheme.primaryContainer,
-            theme.colorScheme.tertiaryContainer,
+      borderRadius: radius,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: colors.raisedSurface,
+          border: Border.all(color: colors.divider),
+          borderRadius: radius,
+        ),
+        child: Stack(
+          children: [
+            const Positioned.fill(child: SonusSurfaceTexture()),
+            if (tokens.decoration.showMarks)
+              Positioned(
+                left: 0,
+                top: 0,
+                bottom: 0,
+                child: ColoredBox(
+                  color: colors.accentPrimary,
+                  child: const SizedBox(width: 6),
+                ),
+              ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(28, 26, 24, 26),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'SONUS',
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      letterSpacing: 2.4,
+                      fontWeight: FontWeight.w900,
+                      color: colors.textSecondary,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Semantics(
+                    header: true,
+                    child: Text(
+                      'Your $year in Sonus',
+                      key: const ValueKey<String>('year-in-sonus-title'),
+                      style: tokens.text.pageTitle.copyWith(
+                        color: colors.textPrimary,
+                        fontWeight: FontWeight.w900,
+                        height: 1.05,
+                      ),
+                    ),
+                  ),
+                  if (tokens.decoration.showMarks) ...[
+                    SizedBox(height: tokens.metrics.spaceSm),
+                    const SonusMotifMark(width: 72, height: 12),
+                  ],
+                  const SizedBox(height: 12),
+                  Text(
+                    isCurrentYear
+                        ? 'Your listening story so far.'
+                        : 'The music that defined your year.',
+                    style: theme.textTheme.bodyLarge?.copyWith(
+                      color: colors.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'SONUS',
-            style: theme.textTheme.labelLarge?.copyWith(
-              letterSpacing: 2.4,
-              fontWeight: FontWeight.w900,
-              color: theme.colorScheme.onPrimaryContainer,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Your $year in Sonus',
-            key: const ValueKey<String>('year-in-sonus-title'),
-            style: theme.textTheme.displaySmall?.copyWith(
-              fontWeight: FontWeight.w900,
-              height: 1,
-              color: theme.colorScheme.onPrimaryContainer,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Text(
-            isCurrentYear
-                ? 'Your listening story so far.'
-                : 'The music that defined your year.',
-            style: theme.textTheme.bodyLarge?.copyWith(
-              color: theme.colorScheme.onPrimaryContainer,
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -172,6 +207,8 @@ class _YearNavigator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = SonusTheme.of(context);
+
     return Row(
       key: const ValueKey<String>('year-in-sonus-year-navigation'),
       children: [
@@ -188,9 +225,11 @@ class _YearNavigator extends StatelessWidget {
             '${controller.selectedYear}',
             key: const ValueKey<String>('year-in-sonus-year-label'),
             textAlign: TextAlign.center,
-            style: Theme.of(
-              context,
-            ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w900),
+            style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+              color: tokens.colors.textPrimary,
+              fontWeight: FontWeight.w900,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
           ),
         ),
         IconButton(
@@ -208,6 +247,91 @@ class _YearNavigator extends StatelessWidget {
   }
 }
 
+/// A chapter heading: a small chapter number, a motif heading and an
+/// optional subtitle.
+class _ChapterTitle extends StatelessWidget {
+  const _ChapterTitle({required this.title, this.chapter, this.subtitle});
+
+  final String title;
+
+  /// Two-digit chapter number, e.g. "01"; null for sub-sections.
+  final String? chapter;
+  final String? subtitle;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = SonusTheme.of(context);
+    final theme = Theme.of(context);
+    final chapter = this.chapter;
+    final subtitle = this.subtitle;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (chapter != null)
+          ExcludeSemantics(
+            child: Text(
+              'CHAPTER $chapter',
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: tokens.colors.textSecondary,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 1.6,
+              ),
+            ),
+          ),
+        if (chapter != null) const SizedBox(height: 4),
+        SonusSectionHeading(title: title),
+        if (subtitle != null) ...[
+          const SizedBox(height: 4),
+          Text(
+            subtitle,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: tokens.colors.textSecondary,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+/// Equal-width tiles whose column count follows the text-scaled width.
+class _TileGrid extends StatelessWidget {
+  const _TileGrid({required this.tiles, required this.columnsAtWidth});
+
+  final List<Widget> tiles;
+  final int Function(double effectiveWidth) columnsAtWidth;
+
+  @override
+  Widget build(BuildContext context) {
+    const gap = 10.0;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final scale = MediaQuery.textScalerOf(context).scale(1);
+        final columns = columnsAtWidth(constraints.maxWidth / scale);
+        final width = (constraints.maxWidth - gap * (columns - 1)) / columns;
+
+        return Wrap(
+          spacing: gap,
+          runSpacing: gap,
+          children: [
+            for (final tile in tiles) SizedBox(width: width, child: tile),
+          ],
+        );
+      },
+    );
+  }
+}
+
+int _twoUp(double effectiveWidth) => effectiveWidth >= 300 ? 2 : 1;
+
+int _threeUp(double effectiveWidth) => effectiveWidth >= 360
+    ? 3
+    : effectiveWidth >= 240
+    ? 2
+    : 1;
+
 class _HeadlineSummary extends StatelessWidget {
   const _HeadlineSummary({required this.recap});
 
@@ -221,124 +345,42 @@ class _HeadlineSummary extends StatelessWidget {
       key: const ValueKey<String>('year-in-sonus-headline-summary'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: _BigMetric(
-                label: 'STREAMS',
-                value: _formatInt(summary.qualifiedStreamCount),
-              ),
+        const _ChapterTitle(chapter: '01', title: 'Your year in numbers'),
+        const SizedBox(height: 14),
+        _TileGrid(
+          columnsAtWidth: _twoUp,
+          tiles: [
+            SonusMetricTile(
+              label: 'Streams',
+              value: _formatInt(summary.qualifiedStreamCount),
+              featured: true,
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _BigMetric(
-                label: 'LISTENING',
-                value: _formatDuration(recap.audibleListeningDuration),
-              ),
+            SonusMetricTile(
+              label: 'Listening',
+              value: _formatDuration(recap.audibleListeningDuration),
+              featured: true,
             ),
           ],
         ),
-        const SizedBox(height: 12),
-        Row(
-          children: [
-            Expanded(
-              child: _SmallMetric(
-                label: 'TRACKS',
-                value: summary.distinctSongCount,
-              ),
+        const SizedBox(height: 10),
+        _TileGrid(
+          columnsAtWidth: _threeUp,
+          tiles: [
+            SonusMetricTile(
+              label: 'Tracks',
+              value: _formatInt(summary.distinctSongCount),
             ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: _SmallMetric(
-                label: 'ARTISTS',
-                value: summary.distinctArtistCount,
-              ),
+            SonusMetricTile(
+              label: 'Artists',
+              value: _formatInt(summary.distinctArtistCount),
             ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: _SmallMetric(
-                label: 'ALBUMS',
-                value: summary.distinctAlbumCount,
-              ),
+            SonusMetricTile(
+              label: 'Albums',
+              value: _formatInt(summary.distinctAlbumCount),
             ),
           ],
         ),
       ],
-    );
-  }
-}
-
-class _BigMetric extends StatelessWidget {
-  const _BigMetric({required this.label, required this.value});
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Card(
-      margin: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              label,
-              style: theme.textTheme.labelSmall?.copyWith(
-                letterSpacing: 1.3,
-                fontWeight: FontWeight.w800,
-                color: theme.colorScheme.primary,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              value,
-              style: theme.textTheme.headlineMedium?.copyWith(
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _SmallMetric extends StatelessWidget {
-  const _SmallMetric({required this.label, required this.value});
-
-  final String label;
-  final int value;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Card(
-      margin: EdgeInsets.zero,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
-        child: Column(
-          children: [
-            Text(
-              _formatInt(value),
-              style: theme.textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-            const SizedBox(height: 3),
-            Text(
-              label,
-              style: theme.textTheme.labelSmall?.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }
@@ -354,17 +396,17 @@ class _Highlights extends StatelessWidget {
     final peakDay = recap.behavior.peakDay;
 
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const _SectionTitle(
-          title: 'Your year at a glance',
+        const _ChapterTitle(
+          chapter: '02',
+          title: 'Milestones',
           subtitle: 'A few things that made this year yours.',
         ),
-        const SizedBox(height: 12),
-        Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          children: [
+        const SizedBox(height: 14),
+        _TileGrid(
+          columnsAtWidth: _twoUp,
+          tiles: [
             _HighlightCard(
               icon: Icons.calendar_month_rounded,
               label: 'Most active month',
@@ -418,6 +460,8 @@ class _Highlights extends StatelessWidget {
   }
 }
 
+/// A milestone: accent icon, label, large tabular value and a detail line,
+/// read as one sentence by screen readers.
 class _HighlightCard extends StatelessWidget {
   const _HighlightCard({
     required this.icon,
@@ -433,35 +477,53 @@ class _HighlightCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = SonusTheme.of(context);
+    final colors = tokens.colors;
     final theme = Theme.of(context);
 
-    return SizedBox(
-      width: 165,
-      child: Card(
-        margin: EdgeInsets.zero,
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(icon, color: theme.colorScheme.primary),
-              const SizedBox(height: 16),
-              Text(
-                label,
-                style: theme.textTheme.labelMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
+    return Semantics(
+      container: true,
+      child: MergeSemantics(
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: colors.surface,
+            border: Border.all(color: colors.divider),
+            borderRadius: BorderRadius.circular(tokens.metrics.cardRadius),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                ExcludeSemantics(
+                  child: Icon(icon, color: colors.accentPrimary),
                 ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                value,
-                style: theme.textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w900,
+                const SizedBox(height: 12),
+                Text(
+                  label,
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: colors.textSecondary,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 3),
-              Text(detail, style: theme.textTheme.bodySmall),
-            ],
+                const SizedBox(height: 4),
+                Text(
+                  value,
+                  style: tokens.text.numeric.copyWith(
+                    color: colors.textPrimary,
+                    fontWeight: FontWeight.w900,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  detail,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: colors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -486,17 +548,16 @@ class _SonusSignature extends StatelessWidget {
 
     return Column(
       key: const ValueKey<String>('year-in-sonus-signature'),
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const _SectionTitle(
+        const _ChapterTitle(
           title: 'Your Sonus signature',
           subtitle: 'A few patterns hidden inside your year.',
         ),
-        const SizedBox(height: 12),
-        Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          children: [
+        const SizedBox(height: 14),
+        _TileGrid(
+          columnsAtWidth: _twoUp,
+          tiles: [
             if (trackShare != null)
               _HighlightCard(
                 icon: Icons.repeat_rounded,
@@ -543,13 +604,14 @@ class _TopThree extends StatelessWidget {
     final album = current.albums.isEmpty ? null : current.albums.first;
 
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const _SectionTitle(
+        const _ChapterTitle(
+          chapter: '03',
           title: 'The ones at #1',
           subtitle: 'Your top artist, track, and album.',
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 14),
         if (artist != null)
           _ChampionCard(
             icon: Icons.person_rounded,
@@ -557,6 +619,7 @@ class _TopThree extends StatelessWidget {
             title: artist.name,
             subtitle: '${_formatInt(artist.streams)} streams',
             artworkPath: artist.artworkPath,
+            circularArtwork: true,
             onTap: artist.hasCurrentLibraryEntity
                 ? () => _openArtist(context, artist)
                 : null,
@@ -598,6 +661,7 @@ class _ChampionCard extends StatelessWidget {
     required this.subtitle,
     required this.artworkPath,
     required this.onTap,
+    this.circularArtwork = false,
   });
 
   final IconData icon;
@@ -606,13 +670,21 @@ class _ChampionCard extends StatelessWidget {
   final String subtitle;
   final String? artworkPath;
   final VoidCallback? onTap;
+  final bool circularArtwork;
 
   @override
   Widget build(BuildContext context) {
+    final tokens = SonusTheme.of(context);
+    final colors = tokens.colors;
     final theme = Theme.of(context);
+    final radius = BorderRadius.circular(tokens.metrics.cardRadius);
 
-    return Card(
-      margin: EdgeInsets.zero,
+    return Material(
+      color: colors.raisedSurface,
+      shape: RoundedRectangleBorder(
+        borderRadius: radius,
+        side: BorderSide(color: colors.divider),
+      ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: onTap,
@@ -620,8 +692,13 @@ class _ChampionCard extends StatelessWidget {
           padding: const EdgeInsets.all(14),
           child: Row(
             children: [
-              _Artwork(path: artworkPath, fallbackIcon: icon, size: 70),
-              const SizedBox(width: 14),
+              _Artwork(
+                path: artworkPath,
+                fallbackIcon: icon,
+                size: 84,
+                circular: circularArtwork,
+              ),
+              const SizedBox(width: 16),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -629,9 +706,9 @@ class _ChampionCard extends StatelessWidget {
                     Text(
                       label,
                       style: theme.textTheme.labelSmall?.copyWith(
-                        letterSpacing: 1.2,
+                        letterSpacing: 1.4,
                         fontWeight: FontWeight.w900,
-                        color: theme.colorScheme.primary,
+                        color: colors.textSecondary,
                       ),
                     ),
                     const SizedBox(height: 4),
@@ -639,8 +716,8 @@ class _ChampionCard extends StatelessWidget {
                       title,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w900,
+                      style: tokens.text.sectionHeading.copyWith(
+                        color: colors.textPrimary,
                       ),
                     ),
                     const SizedBox(height: 3),
@@ -648,12 +725,16 @@ class _ChampionCard extends StatelessWidget {
                       subtitle,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodyMedium,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: colors.textSecondary,
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                      ),
                     ),
                   ],
                 ),
               ),
-              if (onTap != null) const Icon(Icons.chevron_right_rounded),
+              if (onTap != null)
+                Icon(Icons.chevron_right_rounded, color: colors.textSecondary),
             ],
           ),
         ),
@@ -671,6 +752,7 @@ class _MonthlyTimeline extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final rows = data?.months;
+    final peak = recap.mostActiveMonth;
     final maxStreams = recap.months.fold<int>(
       0,
       (current, month) => month.streams > current ? month.streams : current,
@@ -678,10 +760,11 @@ class _MonthlyTimeline extends StatelessWidget {
 
     return Column(
       key: const ValueKey<String>('year-in-sonus-timeline'),
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const _SectionTitle(
-          title: 'January ? December',
+        const _ChapterTitle(
+          chapter: '04',
+          title: 'January–December',
           subtitle: 'How your listening moved through the year.',
         ),
         const SizedBox(height: 14),
@@ -692,6 +775,7 @@ class _MonthlyTimeline extends StatelessWidget {
             streams: recap.months[index].streams,
             listeningDuration: recap.months[index].listeningDuration,
             maxStreams: maxStreams,
+            isPeak: peak != null && recap.months[index].month == peak.month,
           ),
           if (index != recap.months.length - 1) const SizedBox(height: 12),
         ],
@@ -707,6 +791,7 @@ class _MonthTimelineRow extends StatelessWidget {
     required this.streams,
     required this.listeningDuration,
     required this.maxStreams,
+    required this.isPeak,
   });
 
   final YearInSonusMonthRow? row;
@@ -715,62 +800,127 @@ class _MonthTimelineRow extends StatelessWidget {
   final Duration listeningDuration;
   final int maxStreams;
 
+  /// The most active month, marked with a word as well as the accent.
+  final bool isPeak;
+
+  /// Text scale above which the row stacks, as in the shared data tables.
+  static const double _largeTextScale = 1.3;
+
   @override
   Widget build(BuildContext context) {
+    final tokens = SonusTheme.of(context);
+    final colors = tokens.colors;
     final theme = Theme.of(context);
     final progress = maxStreams == 0 ? 0.0 : streams / maxStreams;
+    final labelStyle = theme.textTheme.labelLarge?.copyWith(
+      color: colors.textPrimary,
+      fontWeight: FontWeight.w800,
+      fontFeatures: const [FontFeature.tabularFigures()],
+    );
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            SizedBox(
-              width: 46,
-              child: Text(
-                _monthShortName(month),
-                style: theme.textTheme.labelLarge?.copyWith(
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ),
-            Expanded(
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(999),
-                child: LinearProgressIndicator(minHeight: 9, value: progress),
-              ),
-            ),
-            const SizedBox(width: 12),
-            SizedBox(
-              width: 54,
-              child: Text(
-                _formatInt(streams),
-                textAlign: TextAlign.end,
-                style: theme.textTheme.labelLarge?.copyWith(
-                  fontWeight: FontWeight.w800,
-                ),
-              ),
-            ),
-          ],
+    // Above 1.3x text the month, count and PEAK badge share one line and the
+    // bar spans the row beneath, so "Jan" never wraps and the bar keeps its
+    // width. Below that, the label column scales with the text.
+    final textScaler = MediaQuery.textScalerOf(context);
+    final stacked = textScaler.scale(1) > _largeTextScale;
+    final labelWidth = stacked ? 0.0 : textScaler.scale(46);
+
+    final label = Text(
+      _monthShortName(month),
+      maxLines: 1,
+      softWrap: false,
+      style: labelStyle,
+    );
+    final bar = ExcludeSemantics(
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(999),
+        child: LinearProgressIndicator(
+          minHeight: 10,
+          value: progress,
+          color: isPeak
+              ? colors.accentPrimary
+              : Color.lerp(colors.surface, colors.accentPrimary, 0.6),
+          backgroundColor: colors.progressInactive,
         ),
-        if (streams > 0 && row != null) ...[
-          const SizedBox(height: 5),
-          Padding(
-            padding: const EdgeInsets.only(left: 46),
+      ),
+    );
+    final value = Text(
+      _formatInt(streams),
+      textAlign: TextAlign.end,
+      style: labelStyle,
+    );
+    final peak = [
+      if (isPeak) ...[
+        const SizedBox(width: 8),
+        DecoratedBox(
+          decoration: BoxDecoration(
+            border: Border.all(color: colors.accentPrimary),
+            borderRadius: BorderRadius.circular(tokens.metrics.controlRadius),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
             child: Text(
-              [
-                if (row!.topSongTitle != null) 'Song: ${row!.topSongTitle}',
-                if (row!.topArtistName != null) 'Artist: ${row!.topArtistName}',
-                if (listeningDuration > Duration.zero)
-                  'Listening: ${_formatDuration(listeningDuration)}',
-              ].join('  •  '),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodySmall,
+              'PEAK',
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: colors.textPrimary,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 0.8,
+              ),
             ),
           ),
-        ],
+        ),
       ],
+    ];
+
+    return Semantics(
+      container: true,
+      child: MergeSemantics(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (stacked) ...[
+              Row(
+                children: [
+                  Expanded(child: label),
+                  value,
+                  ...peak,
+                ],
+              ),
+              const SizedBox(height: 6),
+              bar,
+            ] else
+              Row(
+                children: [
+                  SizedBox(width: labelWidth, child: label),
+                  Expanded(child: bar),
+                  const SizedBox(width: 12),
+                  value,
+                  ...peak,
+                ],
+              ),
+            if (streams > 0 && row != null) ...[
+              const SizedBox(height: 5),
+              Padding(
+                padding: EdgeInsets.only(left: labelWidth),
+                child: Text(
+                  [
+                    if (row!.topSongTitle != null) 'Song: ${row!.topSongTitle}',
+                    if (row!.topArtistName != null)
+                      'Artist: ${row!.topArtistName}',
+                    if (listeningDuration > Duration.zero)
+                      'Listening: ${_formatDuration(listeningDuration)}',
+                  ].join('  •  '),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: colors.textSecondary,
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 }
@@ -789,12 +939,14 @@ class _Rankings extends StatelessWidget {
     }
 
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        const _ChapterTitle(chapter: '05', title: 'Top lists'),
+        const SizedBox(height: 16),
         _ArtistRankings(rows: current.artists),
-        const SizedBox(height: 28),
+        const SizedBox(height: 26),
         _TrackRankings(rows: current.tracks),
-        const SizedBox(height: 28),
+        const SizedBox(height: 26),
         _AlbumRankings(rows: current.albums),
       ],
     );
@@ -819,6 +971,7 @@ class _ArtistRankings extends StatelessWidget {
             subtitle: '${_formatInt(row.streams)} streams',
             artworkPath: row.artworkPath,
             fallbackIcon: Icons.person_rounded,
+            circularArtwork: true,
             onTap: row.hasCurrentLibraryEntity
                 ? () => _openArtist(context, row)
                 : null,
@@ -848,7 +1001,12 @@ class _TrackRankings extends StatelessWidget {
             fallbackIcon: Icons.music_note_rounded,
             onTap: row.canPlay ? () => _playTrack(context, row) : null,
             trailing: row.hasCurrentLibraryEntity && !row.canPlay
-                ? const Icon(Icons.block_rounded, size: 18)
+                ? Icon(
+                    Icons.block_rounded,
+                    size: 18,
+                    semanticLabel: 'Unavailable',
+                    color: SonusTheme.of(context).colors.textSecondary,
+                  )
                 : null,
           ),
       ],
@@ -896,21 +1054,46 @@ class _RankingSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = SonusTheme.of(context);
+    final colors = tokens.colors;
+    final theme = Theme.of(context);
+
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _SectionTitle(title: title),
+        Semantics(
+          header: true,
+          child: Text(
+            title,
+            style: theme.textTheme.titleLarge?.copyWith(
+              color: colors.textPrimary,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
         const SizedBox(height: 10),
         if (children.isEmpty)
-          Text(emptyMessage)
+          Text(
+            emptyMessage,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: colors.textSecondary,
+            ),
+          )
         else
-          Card(
-            margin: EdgeInsets.zero,
+          // A Material, not a coloured box, so the tiles' ink stays visible.
+          Material(
+            color: colors.surface,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(tokens.metrics.cardRadius),
+              side: BorderSide(color: colors.divider),
+            ),
+            clipBehavior: Clip.antiAlias,
             child: Column(
               children: [
                 for (var index = 0; index < children.length; index++) ...[
                   children[index],
-                  if (index != children.length - 1) const Divider(height: 1),
+                  if (index != children.length - 1)
+                    Divider(height: 1, color: colors.divider),
                 ],
               ],
             ),
@@ -929,6 +1112,7 @@ class _RankingTile extends StatelessWidget {
     required this.fallbackIcon,
     required this.onTap,
     this.trailing,
+    this.circularArtwork = false,
   });
 
   final int rank;
@@ -938,9 +1122,13 @@ class _RankingTile extends StatelessWidget {
   final IconData fallbackIcon;
   final VoidCallback? onTap;
   final Widget? trailing;
+  final bool circularArtwork;
 
   @override
   Widget build(BuildContext context) {
+    final colors = SonusTheme.of(context).colors;
+    final theme = Theme.of(context);
+
     return ListTile(
       onTap: onTap,
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
@@ -952,91 +1140,83 @@ class _RankingTile extends StatelessWidget {
             child: Text(
               '$rank',
               textAlign: TextAlign.center,
-              style: Theme.of(
-                context,
-              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w900),
+              style: theme.textTheme.titleMedium?.copyWith(
+                color: colors.textPrimary,
+                fontWeight: FontWeight.w900,
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
             ),
           ),
           const SizedBox(width: 10),
-          _Artwork(path: artworkPath, fallbackIcon: fallbackIcon, size: 46),
+          _Artwork(
+            path: artworkPath,
+            fallbackIcon: fallbackIcon,
+            size: 46,
+            circular: circularArtwork,
+          ),
         ],
       ),
-      title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
-      subtitle: Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis),
+      title: Text(
+        title,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: theme.textTheme.bodyLarge?.copyWith(
+          color: colors.textPrimary,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+      subtitle: Text(
+        subtitle,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: theme.textTheme.bodySmall?.copyWith(
+          color: colors.textSecondary,
+          fontFeatures: const [FontFeature.tabularFigures()],
+        ),
+      ),
       trailing:
           trailing ??
-          (onTap == null ? null : const Icon(Icons.chevron_right_rounded)),
+          (onTap == null
+              ? null
+              : Icon(Icons.chevron_right_rounded, color: colors.textSecondary)),
     );
   }
 }
 
+/// Artwork decoded at its display size, framed by the theme.
 class _Artwork extends StatelessWidget {
   const _Artwork({
     required this.path,
     required this.fallbackIcon,
     required this.size,
+    this.circular = false,
   });
 
   final String? path;
   final IconData fallbackIcon;
   final double size;
+  final bool circular;
 
   @override
   Widget build(BuildContext context) {
     final normalized = path?.trim();
-
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(size * 0.18),
-      child: SizedBox(
-        width: size,
-        height: size,
-        child: normalized == null || normalized.isEmpty
-            ? _fallback(context)
-            : Image.file(
-                File(normalized),
-                fit: BoxFit.cover,
-                errorBuilder: (_, _, _) {
-                  return _fallback(context);
-                },
-              ),
-      ),
+    final fallback = SonusArtworkPlaceholder(
+      icon: fallbackIcon,
+      iconSize: size * 0.42,
     );
-  }
+    final decodeSize = (size * MediaQuery.devicePixelRatioOf(context)).round();
 
-  Widget _fallback(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return ColoredBox(
-      color: theme.colorScheme.surfaceContainerHighest,
-      child: Icon(fallbackIcon, color: theme.colorScheme.primary),
-    );
-  }
-}
-
-class _SectionTitle extends StatelessWidget {
-  const _SectionTitle({required this.title, this.subtitle});
-
-  final String title;
-  final String? subtitle;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          style: theme.textTheme.headlineSmall?.copyWith(
-            fontWeight: FontWeight.w900,
-          ),
-        ),
-        if (subtitle != null) ...[
-          const SizedBox(height: 3),
-          Text(subtitle!, style: theme.textTheme.bodyMedium),
-        ],
-      ],
+    return SonusArtworkFrame(
+      size: size,
+      circular: circular,
+      child: normalized == null || normalized.isEmpty
+          ? fallback
+          : Image.file(
+              File(normalized),
+              fit: BoxFit.cover,
+              cacheWidth: decodeSize,
+              errorBuilder: (_, _, _) => fallback,
+            ),
     );
   }
 }
@@ -1048,24 +1228,35 @@ class _EmptyYear extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = SonusTheme.of(context).colors;
+    final theme = Theme.of(context);
+
     return Padding(
       key: const ValueKey<String>('year-in-sonus-empty'),
       padding: const EdgeInsets.symmetric(vertical: 56),
       child: Column(
         children: [
-          const Icon(Icons.auto_awesome_outlined, size: 54),
+          Icon(
+            Icons.auto_awesome_outlined,
+            size: 54,
+            color: colors.textSecondary,
+          ),
           const SizedBox(height: 16),
           Text(
             'No listening story for $year yet',
             textAlign: TextAlign.center,
-            style: Theme.of(
-              context,
-            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+            style: theme.textTheme.titleLarge?.copyWith(
+              color: colors.textPrimary,
+              fontWeight: FontWeight.w800,
+            ),
           ),
           const SizedBox(height: 8),
-          const Text(
+          Text(
             'Qualified listening in Sonus will build your annual recap.',
             textAlign: TextAlign.center,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: colors.textSecondary,
+            ),
           ),
         ],
       ),
@@ -1080,12 +1271,21 @@ class _RefreshErrorBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = SonusTheme.of(context);
+    final scheme = Theme.of(context).colorScheme;
+
     return Material(
-      color: Theme.of(context).colorScheme.errorContainer,
-      borderRadius: BorderRadius.circular(14),
+      color: scheme.errorContainer,
+      borderRadius: BorderRadius.circular(tokens.metrics.cardRadius),
       child: ListTile(
-        leading: const Icon(Icons.error_outline_rounded),
-        title: const Text('Could not refresh Year in Sonus'),
+        leading: Icon(
+          Icons.error_outline_rounded,
+          color: scheme.onErrorContainer,
+        ),
+        title: Text(
+          'Could not refresh Year in Sonus',
+          style: TextStyle(color: scheme.onErrorContainer),
+        ),
         trailing: TextButton(
           onPressed: () {
             unawaited(onRetry());
@@ -1113,23 +1313,33 @@ class _YearMessage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = SonusTheme.of(context).colors;
+    final theme = Theme.of(context);
+
     return Center(
       child: SingleChildScrollView(
         padding: const EdgeInsets.all(28),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 56),
+            Icon(icon, size: 56, color: colors.textSecondary),
             const SizedBox(height: 16),
             Text(
               title,
               textAlign: TextAlign.center,
-              style: Theme.of(
-                context,
-              ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+              style: theme.textTheme.titleLarge?.copyWith(
+                color: colors.textPrimary,
+                fontWeight: FontWeight.w800,
+              ),
             ),
             const SizedBox(height: 8),
-            Text(message, textAlign: TextAlign.center),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: colors.textSecondary,
+              ),
+            ),
             if (action != null) ...[const SizedBox(height: 18), action!],
           ],
         ),
