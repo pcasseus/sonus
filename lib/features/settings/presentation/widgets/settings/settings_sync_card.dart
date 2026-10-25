@@ -4,6 +4,7 @@ import '../../../../../core/design/sonus_theme.dart';
 import '../../../../../core/design/widgets/sonus_surface_card.dart';
 import '../../../../account/application/controllers/account_controller.dart';
 import '../../../../sync/application/controllers/sync_controller.dart';
+import '../../../../sync/application/models/sync_failure.dart';
 import '../../../../sync/application/services/automatic_sync_coordinator.dart';
 import '../../../../sync/application/services/sync_network_policy_service.dart';
 
@@ -127,7 +128,8 @@ class SettingsSyncCard extends StatelessWidget {
           ] else if (syncController.status == SyncStatus.error) ...[
             const SizedBox(height: 16),
             Text(
-              'Sync could not finish. Sonus will try again later.',
+              syncController.failureKind?.message ??
+                  SyncFailureKind.unknown.message,
               key: const ValueKey<String>('settings-sync-error'),
               style: TextStyle(color: Theme.of(context).colorScheme.error),
             ),
@@ -226,7 +228,13 @@ class SettingsSyncCard extends StatelessWidget {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(Icons.sync_rounded),
-            label: Text(syncController.isSyncing ? 'Syncing...' : 'Sync now'),
+            label: Text(
+              syncController.isSyncing
+                  ? 'Syncing...'
+                  : syncController.status == SyncStatus.error
+                  ? 'Try again'
+                  : 'Sync now',
+            ),
           ),
         ],
       ),
@@ -260,9 +268,9 @@ class SettingsSyncCard extends StatelessWidget {
       SyncNetworkAccess.mobileDenied => 'Waiting for Wi-Fi',
       SyncNetworkAccess.unsupported => 'Waiting for a supported network',
       SyncNetworkAccess.allowed =>
-        controller.lastSuccessfulSync == null ? 'Ready to sync' : 'Up to date',
+        controller.lastSuccessfulSync == null ? 'Not synced yet' : 'Up to date',
       null =>
-        controller.lastSuccessfulSync == null ? 'Ready to sync' : 'Up to date',
+        controller.lastSuccessfulSync == null ? 'Not synced yet' : 'Up to date',
     };
   }
 

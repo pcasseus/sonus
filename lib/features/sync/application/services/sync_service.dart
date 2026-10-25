@@ -77,6 +77,10 @@ class SyncService {
   final Future<int> Function(String userId) _pullAll;
   final SyncClock _now;
 
+  /// Local changes still waiting to be sent to the cloud.
+  Future<int> pendingCount(String userId) async =>
+      (await _getPending(userId.trim())).length;
+
   Future<SyncRunResult> synchronize(String userId) async {
     final normalizedUserId = userId.trim();
 

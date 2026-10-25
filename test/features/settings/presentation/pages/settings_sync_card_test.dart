@@ -10,7 +10,9 @@ import 'package:sonus_next/features/account/application/repositories/local_accou
 import 'package:sonus_next/features/account/domain/entities/account_user.dart';
 import 'package:sonus_next/features/account/domain/repositories/account_repository.dart';
 import 'package:sonus_next/features/settings/presentation/pages/account_cloud_settings_page.dart';
+import 'package:sonus_next/core/network/timed_http_client.dart';
 import 'package:sonus_next/features/sync/application/controllers/sync_controller.dart';
+import 'package:sonus_next/features/sync/application/models/sync_failure.dart';
 import 'package:sonus_next/features/sync/application/services/automatic_sync_coordinator.dart';
 import 'package:sonus_next/features/sync/application/services/sync_network_policy_service.dart';
 import 'package:sonus_next/features/sync/application/services/sync_service.dart';
@@ -173,6 +175,71 @@ void main() {
       find.byKey(const ValueKey<String>('settings-sync-error')),
       findsOneWidget,
     );
+  });
+
+  testWidgets('a stalled sync leaves Syncing, explains, and retries', (
+    tester,
+  ) async {
+    final accountController = _signedInAccountController();
+    final stalled = Completer<SyncRunResult>();
+    var attempts = 0;
+
+    final syncController = SyncController.forTesting(
+      synchronize: (_) {
+        attempts++;
+        return attempts == 1 ? stalled.future : Future.value(_successResult());
+      },
+      countPending: (_) async => 2,
+    );
+
+    await syncController.activateUser('user-1');
+
+    final coordinator = AutomaticSyncCoordinator(
+      syncController: syncController,
+      networkPolicy: _wifiPolicy(),
+    );
+    coordinator.updateUserId('user-1');
+
+    await tester.pumpWidget(
+      _buildTestApp(
+        accountController: accountController,
+        syncController: syncController,
+        coordinator: coordinator,
+      ),
+    );
+
+    expect(find.text('Not synced yet'), findsOneWidget);
+    expect(find.text('2'), findsOneWidget, reason: 'real pending count');
+
+    final run = syncController.synchronize('user-1');
+    await tester.pump();
+    expect(find.text('Syncing your library...'), findsOneWidget);
+
+    stalled.completeError(
+      NetworkTimeoutException(
+        NetworkTimeoutPhase.response,
+        const Duration(seconds: 45),
+        null,
+      ),
+    );
+    await run;
+    await tester.pump();
+
+    expect(syncController.isSyncing, isFalse);
+    expect(find.text('Syncing your library...'), findsNothing);
+    expect(find.text(SyncFailureKind.timeout.message), findsOneWidget);
+    expect(find.text('Never'), findsOneWidget);
+    expect(find.text('2'), findsOneWidget, reason: 'changes are kept');
+
+    final retry = find.widgetWithText(FilledButton, 'Try again');
+    await tester.ensureVisible(retry);
+    await tester.pumpAndSettle();
+    await tester.tap(retry);
+    await tester.pumpAndSettle();
+
+    expect(attempts, 2);
+    expect(find.text('Up to date'), findsOneWidget);
+    expect(find.text(SyncFailureKind.timeout.message), findsNothing);
   });
 
   testWidgets('shows account conflict and disables sync', (tester) async {

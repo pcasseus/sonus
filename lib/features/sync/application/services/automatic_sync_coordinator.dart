@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 
 import 'package:flutter/foundation.dart';
 
@@ -47,7 +48,20 @@ class AutomaticSyncCoordinator extends ChangeNotifier {
       return;
     }
 
-    final decision = await _networkPolicy.evaluate();
+    final SyncNetworkDecision decision;
+    try {
+      decision = await _networkPolicy.evaluate();
+    } catch (error) {
+      // Triggers run unawaited from lifecycle events; an unreadable network
+      // state must not become an unhandled error. The next trigger retries.
+      developer.log(
+        'Could not read the network state: ${error.runtimeType}',
+        name: 'sonus.sync',
+        level: 900,
+        error: error,
+      );
+      return;
+    }
 
     if (_userId != userId || _syncController.hasAccountConflict) {
       return;

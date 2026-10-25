@@ -46,6 +46,7 @@ import '../../data/repositories/sqlite_cloud_revision_baseline_repository.dart';
 import '../../data/repositories/sqlite_outbound_conflict_repository.dart';
 import '../../data/repositories/sync_mutation_transaction_runner.dart';
 import '../../data/services/supabase_cloud_artwork_storage.dart';
+import '../../data/services/supabase_sync_failure_classifier.dart';
 import '../widgets/automatic_sync_lifecycle_bridge.dart';
 import 'cloud_artwork_recovery_composition.dart';
 import 'legacy_artist_sync_composition.dart';
@@ -212,7 +213,10 @@ class _SyncScopeState extends State<SyncScope> {
       runGuard: runGuard,
     );
 
-    final syncController = SyncController(service: service);
+    final syncController = SyncController(
+      service: service,
+      classifyFailure: classifySupabaseSyncFailure,
+    );
 
     final automaticSyncCoordinator = AutomaticSyncCoordinator(
       syncController: syncController,

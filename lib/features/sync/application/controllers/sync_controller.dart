@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 
 import 'package:flutter/foundation.dart';
 
 import '../../../account/application/repositories/local_account_binding_repository.dart';
 import '../../data/services/sync_status_store.dart';
+import '../models/sync_failure.dart';
 import '../services/sync_run_guard.dart';
 import '../services/sync_service.dart';
 
@@ -19,16 +21,23 @@ enum SyncStatus {
 }
 
 class SyncController extends ChangeNotifier {
-  SyncController({required SyncService service, SyncStatusStore? statusStore})
-    : this._(
-        synchronize: service.synchronize,
-        statusStore: statusStore ?? SyncStatusStore(),
-      );
+  SyncController({
+    required SyncService service,
+    SyncStatusStore? statusStore,
+    SyncFailureClassifier classifyFailure = classifySyncFailure,
+  }) : this._(
+         synchronize: service.synchronize,
+         statusStore: statusStore ?? SyncStatusStore(),
+         countPending: service.pendingCount,
+         classifyFailure: classifyFailure,
+       );
 
   @visibleForTesting
   SyncController.forTesting({
     required Future<SyncRunResult> Function(String userId) synchronize,
     SyncStatusStore? statusStore,
+    Future<int> Function(String userId)? countPending,
+    SyncFailureClassifier classifyFailure = classifySyncFailure,
   }) : this._(
          synchronize: synchronize,
          statusStore:
@@ -37,14 +46,32 @@ class SyncController extends ChangeNotifier {
                getString: (_) async => null,
                setString: (_, _) async {},
              ),
+         countPending: countPending,
+         classifyFailure: classifyFailure,
        );
 
-  SyncController._({required this._synchronize, required this._statusStore});
+  SyncController._({
+    required this._synchronize,
+    required this._statusStore,
+    required this._countPending,
+    required this._classifyFailure,
+  });
 
   final Future<SyncRunResult> Function(String userId) _synchronize;
   final SyncStatusStore _statusStore;
 
+  /// Reads the local outbox, so pending work is shown before any run.
+  final Future<int> Function(String userId)? _countPending;
+  final SyncFailureClassifier _classifyFailure;
+
   Future<void> _pending = Future<void>.value();
+
+  /// A run waiting behind the current one. Further requests join it, so a
+  /// burst of triggers or taps runs at most once more.
+  Future<bool>? _queued;
+  String? _queuedUserId;
+
+  SyncFailureKind? _failureKind;
 
   SyncStatus _status = SyncStatus.idle;
   String? _currentUserId;
@@ -69,6 +96,9 @@ class SyncController extends ChangeNotifier {
   SyncRunResult? get lastResult => _lastResult;
 
   bool get retryPending => _retryPending;
+
+  /// Why the last attempt failed; null unless [status] is error.
+  SyncFailureKind? get failureKind => _failureKind;
 
   bool get isSyncing => _status == SyncStatus.syncing;
 
@@ -104,15 +134,18 @@ class SyncController extends ChangeNotifier {
     _lastError = null;
     _lastResult = null;
     _retryPending = false;
+    _failureKind = null;
     notifyListeners();
 
     DateTime? restored;
 
     try {
       restored = await _statusStore.getLastSuccessfulSync(normalizedUserId);
-    } catch (_) {
-      return;
+    } catch (error) {
+      _log('Could not read the last sync time', error);
     }
+
+    final pending = await _readPendingCount(normalizedUserId);
 
     if (generation != _activationGeneration ||
         _currentUserId != normalizedUserId) {
@@ -120,7 +153,20 @@ class SyncController extends ChangeNotifier {
     }
 
     _lastSuccessfulSync = restored;
+    _pendingChanges = pending ?? _pendingChanges;
     notifyListeners();
+  }
+
+  Future<int?> _readPendingCount(String userId) async {
+    final countPending = _countPending;
+    if (countPending == null) return null;
+
+    try {
+      return await countPending(userId);
+    } catch (error) {
+      _log('Could not count pending changes', error);
+      return null;
+    }
   }
 
   Future<bool> synchronize(String userId) {
@@ -132,9 +178,22 @@ class SyncController extends ChangeNotifier {
       );
     }
 
+    final queued = _queued;
+    if (queued != null && _queuedUserId == normalizedUserId) {
+      return queued;
+    }
+
     final completer = Completer<bool>();
+    final run = completer.future;
+    _queued = run;
+    _queuedUserId = normalizedUserId;
 
     _pending = _pending.then((_) async {
+      if (identical(_queued, run)) {
+        _queued = null;
+        _queuedUserId = null;
+      }
+
       try {
         completer.complete(await _runSynchronization(normalizedUserId));
       } catch (error, stackTrace) {
@@ -142,7 +201,7 @@ class SyncController extends ChangeNotifier {
       }
     });
 
-    return completer.future;
+    return run;
   }
 
   Future<bool> _runSynchronization(String userId) async {
@@ -150,12 +209,27 @@ class SyncController extends ChangeNotifier {
       await activateUser(userId);
     }
 
+    // A run whose account was signed out or switched while it ran must not
+    // report into the new account's state.
+    final generation = _activationGeneration;
+    bool isStale() =>
+        generation != _activationGeneration || _currentUserId != userId;
+
     _status = SyncStatus.syncing;
     _lastError = null;
+    _failureKind = null;
     notifyListeners();
 
     try {
-      final result = await _synchronize(userId);
+      final SyncRunResult result;
+      try {
+        result = await _synchronize(userId);
+      } catch (error) {
+        if (isStale()) return false;
+        rethrow;
+      }
+
+      if (isStale()) return false;
 
       _lastResult = result;
       _lastSuccessfulSync = result.completedAt;
@@ -163,12 +237,14 @@ class SyncController extends ChangeNotifier {
       _retryPending = result.hasRemainingPendingChanges;
       _status = SyncStatus.success;
       _lastError = null;
+      notifyListeners();
 
       try {
         await _statusStore.saveLastSuccessfulSync(userId, result.completedAt);
-      } catch (_) {
+      } catch (error) {
         // Sync succeeded. Failure to persist display-only status must not
         // turn a successful cloud synchronization into an error.
+        _log('Could not save the last sync time', error);
       }
 
       return true;
@@ -189,15 +265,31 @@ class SyncController extends ChangeNotifier {
       _lastError = error;
       _retryPending = true;
       _status = SyncStatus.error;
+      final kind = _failureKind = _classifyFailure(error);
+      _log('Sync failed (${kind.name})', error);
+
+      // Unsent changes stay in the outbox; show how many are waiting.
+      final pending = await _readPendingCount(userId);
+      if (pending != null && !isStale()) _pendingChanges = pending;
 
       return false;
     } finally {
-      notifyListeners();
+      if (!isStale()) notifyListeners();
     }
+  }
+
+  static void _log(String message, Object error) {
+    developer.log(
+      '$message: ${error.runtimeType}',
+      name: 'sonus.sync',
+      level: 900,
+      error: error,
+    );
   }
 
   void resetForSignedOut() {
     _activationGeneration++;
+    _failureKind = null;
     _currentUserId = null;
     _status = SyncStatus.idle;
     _lastSuccessfulSync = null;
@@ -216,6 +308,7 @@ class SyncController extends ChangeNotifier {
     }
 
     _lastError = null;
+    _failureKind = null;
 
     if (_status == SyncStatus.error || _status == SyncStatus.accountConflict) {
       _status = SyncStatus.idle;

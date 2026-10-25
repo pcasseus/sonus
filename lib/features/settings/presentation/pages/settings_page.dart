@@ -175,7 +175,7 @@ class _AccountCloudTile extends StatelessWidget {
 
   return (
     sync.lastSuccessfulSync == null
-        ? '$name · Ready to sync'
+        ? '$name · Not synced yet'
         : '$name · Up to date',
     false,
   );
