@@ -30,6 +30,8 @@ import '../../application/services/metadata_provider.dart';
 import '../../application/services/album_edition_track_ordering_service.dart';
 import '../../application/services/song_block_service.dart';
 import '../../application/services/song_artist_credit_service.dart';
+import '../../application/services/album_edition_management_service.dart';
+import '../../application/services/library_organization_service.dart';
 import '../../domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/application/services/track_profile_editing_service.dart';
 import '../controllers/album_profile_controller.dart';
@@ -390,6 +392,9 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
             externalMetadataApplicationService:
                 externalMetadataApplicationService,
             externalMetadataProposalService: externalMetadataProposalService,
+            editionManagement: context.read<AlbumEditionManagementService?>(),
+            organization: context.read<LibraryOrganizationService?>(),
+            library: context.read<LibraryQueryRepository?>(),
             onEditDetails: controller.canEditAlbumProfile(userId)
                 ? () => _editAlbumProfile(controller, userId)
                 : null,

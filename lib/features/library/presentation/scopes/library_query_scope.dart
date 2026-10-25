@@ -23,6 +23,7 @@ import '../../../search/application/repositories/library_search_repository.dart'
 import '../../../sync/data/repositories/sync_mutation_transaction_runner.dart';
 import '../../../settings/application/controllers/metadata_intelligence_settings_controller.dart';
 import '../../application/repositories/library_query_repository.dart';
+import '../../application/services/album_edition_management_service.dart';
 import '../../application/services/album_edition_track_ordering_service.dart';
 import '../../application/services/album_profile_editing_service.dart';
 import '../../application/services/artist_creation_service.dart';
@@ -30,6 +31,7 @@ import '../../application/services/artist_merge_service.dart';
 import '../../application/services/artist_profile_editing_service.dart';
 import '../../application/services/external_metadata_application_service.dart';
 import '../../application/services/external_metadata_proposal_service.dart';
+import '../../application/services/library_organization_service.dart';
 import '../../data/daos/album_dao.dart';
 import '../../data/daos/metadata_field_state_dao.dart';
 import '../../data/repositories/sqlite_album_repository.dart';
@@ -72,6 +74,8 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
   ArtworkAssignmentService? _artworkAssignmentService;
   AlbumProfileEditingService? _albumProfileEditingService;
   AlbumEditionTrackOrderingService? _albumEditionTrackOrderingService;
+  AlbumEditionManagementService? _albumEditionManagementService;
+  LibraryOrganizationService? _libraryOrganizationService;
   ArtistCreationService? _artistCreationService;
   ArtistMergeService? _artistMergeService;
   ArtistProfileEditingService? _artistProfileEditingService;
@@ -133,6 +137,18 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
 
     final albumEditionTrackOrderingService = AlbumEditionTrackOrderingService(
       mutationRunner: SyncMutationTransactionRunner(appDatabase: _database),
+    );
+
+    final albumEditionManagementService = AlbumEditionManagementService(
+      mutationRunner: SyncMutationTransactionRunner(appDatabase: _database),
+    );
+
+    // Device-local organization: soundtrack grouping, "Assign to Project"
+    // and release classification.
+    final libraryOrganizationService = LibraryOrganizationService(
+      library: libraryQueryRepository,
+      collaborators: libraryQueryRepository,
+      organization: SqliteLibraryOrganizationRepository(_database),
     );
 
     final artistCreationService = ArtistCreationService(
@@ -218,6 +234,8 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
       _artworkAssignmentService = artworkAssignmentService;
       _albumProfileEditingService = albumProfileEditingService;
       _albumEditionTrackOrderingService = albumEditionTrackOrderingService;
+      _albumEditionManagementService = albumEditionManagementService;
+      _libraryOrganizationService = libraryOrganizationService;
       _artistCreationService = artistCreationService;
       _artistProfileEditingService = artistProfileEditingService;
       _artistMergeService = artistMergeService;
@@ -258,6 +276,12 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
         ),
         Provider<AlbumEditionTrackOrderingService?>.value(
           value: _albumEditionTrackOrderingService,
+        ),
+        Provider<AlbumEditionManagementService?>.value(
+          value: _albumEditionManagementService,
+        ),
+        Provider<LibraryOrganizationService?>.value(
+          value: _libraryOrganizationService,
         ),
         Provider<ArtistCreationService?>.value(value: _artistCreationService),
         Provider<ArtistProfileEditingService?>.value(

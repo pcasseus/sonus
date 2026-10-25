@@ -13,12 +13,17 @@ import '../../../artwork/application/services/cover_art_album_edition_import_ser
 import '../../application/models/external_metadata_candidate.dart';
 import '../../application/models/external_metadata_search_query.dart';
 import '../../application/models/library_album_edition.dart';
+import '../../application/repositories/library_query_repository.dart';
+import '../../application/services/album_edition_management_service.dart';
+import '../../application/services/library_organization_service.dart';
 import '../../application/services/external_metadata_application_service.dart';
 import '../../application/services/external_metadata_proposal_service.dart';
 import '../../application/services/metadata_provider.dart';
 import '../widgets/musicbrainz_search_dialog.dart';
 import '../widgets/cover_art_album_search_dialog.dart';
 import '../widgets/cover_art_image_selection_dialog.dart';
+import '../widgets/album_studio/album_studio_editions_section.dart';
+import '../widgets/album_studio/album_studio_release_type.dart';
 import '../../application/models/library_track.dart';
 import '../controllers/album_profile_controller.dart';
 
@@ -35,6 +40,9 @@ class AlbumStudioPage extends StatefulWidget {
     this.coverArtAlbumEditionImportService,
     this.externalMetadataApplicationService,
     this.externalMetadataProposalService,
+    this.editionManagement,
+    this.organization,
+    this.library,
   });
 
   final AlbumProfileController controller;
@@ -48,6 +56,15 @@ class AlbumStudioPage extends StatefulWidget {
   final ExternalMetadataApplicationService? externalMetadataApplicationService;
   final ExternalMetadataProposalService? externalMetadataProposalService;
 
+  /// Edition management; the section is hidden without it.
+  final AlbumEditionManagementService? editionManagement;
+
+  /// Release type (soundtrack, cast recording, compilation).
+  final LibraryOrganizationService? organization;
+
+  /// Reads the album's songs for "Choose songs".
+  final LibraryQueryRepository? library;
+
   @override
   State<AlbumStudioPage> createState() => _AlbumStudioPageState();
 }
@@ -57,6 +74,7 @@ class _AlbumStudioPageState extends State<AlbumStudioPage> {
   bool _isSavingOrder = false;
   bool _isApplyingMusicBrainz = false;
   bool _isSearchingCoverArt = false;
+  bool _isSorting = false;
 
   // Album tools start collapsed so the tracks get the screen; the choice
   // lasts while the page is open.
@@ -114,6 +132,22 @@ class _AlbumStudioPageState extends State<AlbumStudioPage> {
                     ? _searchMusicBrainz
                     : null,
               ),
+              if (widget.organization != null && controller.album != null) ...[
+                const SizedBox(height: 14),
+                AlbumStudioReleaseType(
+                  albumId: controller.album!.albumId,
+                  service: widget.organization!,
+                ),
+              ],
+              if (widget.editionManagement != null) ...[
+                const SizedBox(height: 14),
+                AlbumStudioEditionsSection(
+                  controller: controller,
+                  service: widget.editionManagement!,
+                  library: widget.library,
+                  userId: widget.userId,
+                ),
+              ],
               if (edition != null) ...[
                 if (controller.editions.length > 1) ...[
                   const SizedBox(height: 14),
@@ -123,7 +157,10 @@ class _AlbumStudioPageState extends State<AlbumStudioPage> {
                 _TrackOrderSection(
                   count: tracks.length,
                   autoRenumber: _autoRenumber,
-                  isSaving: _isSavingOrder,
+                  isSaving: _isSavingOrder || _isSorting,
+                  onSortByDiscAndTrack: tracks.length < 2
+                      ? null
+                      : _sortByDiscAndTrack,
                   onAutoRenumberChanged: (value) {
                     setState(() {
                       _autoRenumber = value;
@@ -179,6 +216,34 @@ class _AlbumStudioPageState extends State<AlbumStudioPage> {
         );
       },
     );
+  }
+
+  /// "Sort by disc & track" (J3): back to automatic order for this edition.
+  Future<void> _sortByDiscAndTrack() async {
+    if (_isSorting) return;
+    setState(() => _isSorting = true);
+    final messenger = ScaffoldMessenger.of(context);
+
+    try {
+      final changed = await controller.sortSelectedEditionByDiscAndTrack(
+        userId: widget.userId,
+      );
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            changed
+                ? 'Sorted by disc and track number.'
+                : 'Already in disc and track order.',
+          ),
+        ),
+      );
+    } catch (_) {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Could not sort the tracks.')),
+      );
+    } finally {
+      if (mounted) setState(() => _isSorting = false);
+    }
   }
 
   Future<void> _searchCoverArt() async {
@@ -741,12 +806,14 @@ class _TrackOrderSection extends StatelessWidget {
     required this.autoRenumber,
     required this.isSaving,
     required this.onAutoRenumberChanged,
+    required this.onSortByDiscAndTrack,
   });
 
   final int count;
   final bool autoRenumber;
   final bool isSaving;
   final ValueChanged<bool> onAutoRenumberChanged;
+  final Future<void> Function()? onSortByDiscAndTrack;
 
   @override
   Widget build(BuildContext context) {
@@ -779,9 +846,20 @@ class _TrackOrderSection extends StatelessWidget {
             ),
           ],
         ),
-        // Order actions live here. Automatic "Sort by disc & track" (J3)
-        // joins this section once its service exists; it is deliberately
-        // not shown before then.
+        const SizedBox(height: 6),
+        Align(
+          alignment: AlignmentDirectional.centerStart,
+          child: OutlinedButton.icon(
+            key: const ValueKey<String>('album-studio-sort-disc-track'),
+            onPressed: isSaving || onSortByDiscAndTrack == null
+                ? null
+                : () {
+                    unawaited(onSortByDiscAndTrack!());
+                  },
+            icon: const Icon(Icons.sort_rounded),
+            label: const Text('Sort by disc & track'),
+          ),
+        ),
         SwitchListTile(
           key: const ValueKey<String>('album-studio-auto-renumber'),
           contentPadding: EdgeInsets.zero,
