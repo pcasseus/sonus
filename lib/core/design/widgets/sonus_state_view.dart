@@ -44,63 +44,62 @@ class SonusStateView extends StatelessWidget {
     final action = this.action;
     final icon = this.icon;
 
-    return LayoutBuilder(
-      builder: (context, constraints) => SingleChildScrollView(
-        child: ConstrainedBox(
-          constraints: BoxConstraints(minHeight: constraints.maxHeight),
-          child: Center(
-            child: Padding(
-              padding: EdgeInsets.all(tokens.metrics.pageGutter + 8),
-              child: Semantics(
-                liveRegion: true,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (loading)
-                      CircularProgressIndicator(color: colors.accentPrimary)
-                    else if (icon != null)
-                      DecoratedBox(
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
+    // Centred when it fits, scrollable when it does not; no LayoutBuilder,
+    // so it also works where intrinsic sizes are measured (slivers).
+    return Center(
+      child: SingleChildScrollView(
+        child: Center(
+          child: Padding(
+            padding: EdgeInsets.all(tokens.metrics.pageGutter + 8),
+            child: Semantics(
+              liveRegion: true,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (loading)
+                    CircularProgressIndicator(color: colors.accentPrimary)
+                  else if (icon != null)
+                    DecoratedBox(
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: isError
+                            ? theme.colorScheme.errorContainer
+                            : colors.raisedSurface,
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(20),
+                        child: Icon(
+                          icon,
+                          size: 36,
                           color: isError
-                              ? theme.colorScheme.errorContainer
-                              : colors.raisedSurface,
-                        ),
-                        child: Padding(
-                          padding: const EdgeInsets.all(20),
-                          child: Icon(
-                            icon,
-                            size: 36,
-                            color: isError
-                                ? theme.colorScheme.onErrorContainer
-                                : colors.textSecondary,
-                          ),
+                              ? theme.colorScheme.onErrorContainer
+                              : colors.textSecondary,
                         ),
                       ),
-                    if (title != null) ...[
-                      const SizedBox(height: 18),
-                      Text(
-                        title,
-                        textAlign: TextAlign.center,
-                        style: theme.textTheme.titleMedium?.copyWith(
-                          color: colors.textPrimary,
-                          fontWeight: FontWeight.w800,
-                        ),
+                    ),
+                  if (title != null) ...[
+                    const SizedBox(height: 18),
+                    Text(
+                      title,
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        color: colors.textPrimary,
+                        fontWeight: FontWeight.w800,
                       ),
-                    ],
-                    if (message != null) ...[
-                      const SizedBox(height: 8),
-                      Text(
-                        message,
-                        textAlign: TextAlign.center,
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          color: colors.textSecondary,
-                        ),
-                      ),
-                    ],
-                    if (action != null) ...[const SizedBox(height: 20), action],
+                    ),
                   ],
-                ),
+                  if (message != null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      message,
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: colors.textSecondary,
+                      ),
+                    ),
+                  ],
+                  if (action != null) ...[const SizedBox(height: 20), action],
+                ],
               ),
             ),
           ),

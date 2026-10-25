@@ -1262,6 +1262,8 @@ Widget buildSubject({
   MetadataProvider? metadataProvider,
   ExternalMetadataApplicationService? externalMetadataApplicationService,
   ExternalMetadataProposalService? externalMetadataProposalService,
+  ThemeData? theme,
+  TransitionBuilder? appBuilder,
 }) {
   final playbackEngine = engine ?? NoOpPlaybackEngine();
 
@@ -1289,7 +1291,11 @@ Widget buildSubject({
         value: externalMetadataProposalService,
       ),
     ],
-    child: const MaterialApp(home: Scaffold(body: TracksPage())),
+    child: MaterialApp(
+      theme: theme,
+      builder: appBuilder,
+      home: const Scaffold(body: TracksPage()),
+    ),
   );
 }
 

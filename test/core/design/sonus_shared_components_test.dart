@@ -1,5 +1,3 @@
-import 'dart:ui' show SemanticsFlag;
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sonus_next/core/design/sonus_theme_catalog.dart';
@@ -117,9 +115,7 @@ void main() {
 
       expect(tester.takeException(), isNull);
       expect(
-        tester
-            .getSemantics(find.text('Playlists'))
-            .hasFlag(SemanticsFlag.isHeader),
+        tester.getSemantics(find.text('Playlists')).flagsCollection.isHeader,
         isTrue,
       );
     });
@@ -216,9 +212,7 @@ void main() {
       );
 
       expect(
-        tester
-            .getSemantics(find.text('Details'))
-            .hasFlag(SemanticsFlag.isHeader),
+        tester.getSemantics(find.text('Details')).flagsCollection.isHeader,
         isTrue,
       );
       expect(find.text('Field'), findsOneWidget);

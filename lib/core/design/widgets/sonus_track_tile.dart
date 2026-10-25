@@ -18,6 +18,7 @@ class SonusTrackTile extends StatelessWidget {
     super.key,
     required this.title,
     this.subtitle,
+    this.detail,
     this.artworkPath,
     this.leadingNumber,
     this.duration,
@@ -27,11 +28,17 @@ class SonusTrackTile extends StatelessWidget {
     this.isCurrent = false,
     this.tileColor,
     this.titleKey,
+    this.inkKey,
+    this.durationKey,
+    this.status,
     this.showArtwork = true,
   });
 
   final String title;
   final String? subtitle;
+
+  /// A quieter third line, such as the album title.
+  final String? detail;
   final String? artworkPath;
 
   /// A track number or rank shown before the artwork.
@@ -48,6 +55,15 @@ class SonusTrackTile extends StatelessWidget {
   final bool isCurrent;
   final Color? tileColor;
   final Key? titleKey;
+
+  /// Key on the tappable surface, for screens whose tests find the row.
+  final Key? inkKey;
+
+  /// Key on the duration text.
+  final Key? durationKey;
+
+  /// A short state line under the subtitle, such as "Unavailable".
+  final Widget? status;
   final bool showArtwork;
 
   static const double artworkSize = 44;
@@ -109,6 +125,7 @@ class SonusTrackTile extends StatelessWidget {
         ),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
+          key: inkKey,
           onTap: enabled ? onTap : null,
           child: ConstrainedBox(
             constraints: const BoxConstraints(minHeight: 56),
@@ -145,6 +162,16 @@ class SonusTrackTile extends StatelessWidget {
                               fontFeatures: tabular,
                             ),
                           ),
+                        if (detail != null && detail!.isNotEmpty)
+                          Text(
+                            detail!,
+                            maxLines: largeText ? 2 : 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: colors.textSecondary,
+                            ),
+                          ),
+                        ?status,
                       ],
                     ),
                   ),
@@ -152,6 +179,7 @@ class SonusTrackTile extends StatelessWidget {
                     const SizedBox(width: 8),
                     Text(
                       duration,
+                      key: durationKey,
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: colors.textSecondary,
                         fontFeatures: tabular,

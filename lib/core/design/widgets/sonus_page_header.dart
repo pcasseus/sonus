@@ -10,6 +10,7 @@ class SonusPageHeader extends StatelessWidget {
     super.key,
     required this.title,
     this.subtitle,
+    this.titleKey,
     this.subtitleKey,
     this.trailing,
     this.padding,
@@ -17,6 +18,9 @@ class SonusPageHeader extends StatelessWidget {
 
   final String title;
   final String? subtitle;
+
+  /// Keeps an existing test key on the title.
+  final Key? titleKey;
 
   /// Keeps an existing test key on the summary line.
   final Key? subtitleKey;
@@ -52,6 +56,7 @@ class SonusPageHeader extends StatelessWidget {
                     alignment: AlignmentDirectional.centerStart,
                     child: Text(
                       title,
+                      key: titleKey,
                       maxLines: 1,
                       softWrap: false,
                       style: theme.textTheme.headlineMedium?.copyWith(
