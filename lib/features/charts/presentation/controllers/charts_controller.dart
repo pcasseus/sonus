@@ -8,7 +8,8 @@ import '../../../library/application/repositories/library_query_repository.dart'
 import '../../application/models/chart_moment_feed_item.dart';
 import '../../application/services/chart_finalization_service.dart';
 import '../../application/services/chart_moment_feed_aggregator.dart';
-import '../../application/services/live_chart_service.dart';
+import '../../application/services/all_time_chart_service.dart';
+import '../../domain/entities/all_time_chart.dart';
 import '../../domain/entities/chart_entry.dart';
 import '../../domain/entities/chart_snapshot.dart';
 import '../../domain/models/chart_type.dart';
@@ -21,7 +22,7 @@ typedef ChartsControllerNow = DateTime Function();
 
 class ChartsController extends ChangeNotifier {
   ChartsController({
-    required LiveChartService liveCharts,
+    required AllTimeChartService allTimeCharts,
     required ChartFinalizationService finalization,
     required ChartRepository charts,
     required LibraryQueryRepository library,
@@ -29,7 +30,7 @@ class ChartsController extends ChangeNotifier {
     ChartMomentFeedAggregator momentFeedAggregator =
         const ChartMomentFeedAggregator(),
     ChartsControllerNow? now,
-  }) : _liveCharts = liveCharts,
+  }) : _allTimeCharts = allTimeCharts,
        _finalization = finalization,
        _charts = charts,
        _library = library,
@@ -37,7 +38,7 @@ class ChartsController extends ChangeNotifier {
        _momentFeedAggregator = momentFeedAggregator,
        _now = now ?? DateTime.now;
 
-  final LiveChartService _liveCharts;
+  final AllTimeChartService _allTimeCharts;
   final ChartFinalizationService _finalization;
   final ChartRepository _charts;
   final LibraryQueryRepository _library;
@@ -50,8 +51,9 @@ class ChartsController extends ChangeNotifier {
 
   ChartsPresentationMode _presentationMode = ChartsPresentationMode.charts;
 
-  ChartSnapshot? _liveSnapshot;
+  AllTimeChart? _allTimeChart;
   List<ChartSnapshot> _history = const [];
+  Map<String, int> _weeklyPeaks = const {};
 
   List<ChartMomentFeedItem> _momentFeedItems = const [];
   Object? _momentFeedError;
@@ -93,7 +95,9 @@ class ChartsController extends ChangeNotifier {
 
   bool get isViewingHistory => _historyIndex != null;
 
-  bool get isViewingLive => _historyIndex == null;
+  /// The default view: the permanent all-time chart. Older weeks are the
+  /// finalized weekly charts, kept as history.
+  bool get isViewingAllTime => _historyIndex == null;
 
   List<ChartSnapshot> get history => _history;
 
@@ -105,7 +109,7 @@ class ChartsController extends ChangeNotifier {
 
   bool get hasMomentFeedItems => _momentFeedItems.isNotEmpty;
 
-  ChartSnapshot? get liveSnapshot => _liveSnapshot;
+  AllTimeChart? get allTimeChart => _allTimeChart;
 
   ChartSnapshot? get selectedHistoricalSnapshot {
     final index = _historyIndex;
@@ -117,22 +121,24 @@ class ChartsController extends ChangeNotifier {
     return _history[index];
   }
 
+  /// The selected finalized week, limited to the view size. Null while the
+  /// all-time chart is shown.
   ChartSnapshot? get snapshot {
     final selected = selectedHistoricalSnapshot;
 
-    if (selected != null) {
-      return _limitSnapshot(selected);
-    }
-
-    return _liveSnapshot;
+    return selected == null ? null : _limitSnapshot(selected);
   }
 
-  bool get hasSnapshot => snapshot != null;
+  /// Whether there is a chart to show, all-time or historical.
+  bool get hasChart =>
+      isViewingAllTime ? _allTimeChart != null : snapshot != null;
 
-  bool get isEmpty =>
-      !_isLoading &&
-      _error == null &&
-      (snapshot == null || snapshot!.entries.isEmpty);
+  /// The entries of the chart on screen.
+  List<ChartEntry> get entries => isViewingAllTime
+      ? _allTimeChart?.entries ?? const []
+      : snapshot?.entries ?? const [];
+
+  bool get isEmpty => !_isLoading && _error == null && entries.isEmpty;
 
   bool get canGoToOlderWeek {
     if (_history.isEmpty) {
@@ -158,6 +164,10 @@ class ChartsController extends ChangeNotifier {
     return index >= 0;
   }
 
+  /// Best official position the entity reached on a finalized weekly
+  /// chart, or null if it never made a weekly Top 100.
+  int? weeklyPeakFor(ChartEntry entry) => _weeklyPeaks[entry.entity.entityId];
+
   LibraryTrack? trackForEntry(ChartEntry entry) {
     if (_chartType != ChartType.songs) {
       return null;
@@ -175,7 +185,7 @@ class ChartsController extends ChangeNotifier {
   }
 
   bool isTrackInteractive(ChartEntry entry) {
-    if (!isViewingLive) {
+    if (!isViewingAllTime) {
       return false;
     }
 
@@ -189,7 +199,7 @@ class ChartsController extends ChangeNotifier {
   }
 
   bool isAlbumInteractive(ChartEntry entry) {
-    return isViewingLive && albumForEntry(entry) != null;
+    return isViewingAllTime && albumForEntry(entry) != null;
   }
 
   void selectPresentationMode(ChartsPresentationMode value) {
@@ -274,10 +284,10 @@ class ChartsController extends ChangeNotifier {
       return;
     }
 
-    await _loadLiveOnly();
+    await _loadAllTimeOnly();
   }
 
-  void showLive() {
+  void showAllTime() {
     if (_historyIndex == null) {
       return;
     }
@@ -390,7 +400,7 @@ class ChartsController extends ChangeNotifier {
         }
       }
 
-      final live = await _liveCharts.load(
+      final allTime = await _allTimeCharts.load(
         chartType: _chartType,
         referenceLocal: referenceLocal,
         viewSize: _viewSize,
@@ -424,8 +434,9 @@ class ChartsController extends ChangeNotifier {
         return;
       }
 
-      _liveSnapshot = live;
+      _allTimeChart = allTime;
       _history = List<ChartSnapshot>.unmodifiable(history);
+      _weeklyPeaks = _weeklyPeaksOf(history);
 
       _tracksById = {for (final track in tracks) track.songId: track};
 
@@ -457,7 +468,7 @@ class ChartsController extends ChangeNotifier {
     }
   }
 
-  Future<void> _loadLiveOnly() async {
+  Future<void> _loadAllTimeOnly() async {
     if (_isDisposed) {
       return;
     }
@@ -469,7 +480,7 @@ class ChartsController extends ChangeNotifier {
     _notify();
 
     try {
-      final live = await _liveCharts.load(
+      final allTime = await _allTimeCharts.load(
         chartType: _chartType,
         referenceLocal: _now(),
         viewSize: _viewSize,
@@ -479,7 +490,7 @@ class ChartsController extends ChangeNotifier {
         return;
       }
 
-      _liveSnapshot = live;
+      _allTimeChart = allTime;
       _error = null;
     } catch (error) {
       if (generation != _requestGeneration) {
@@ -493,6 +504,27 @@ class ChartsController extends ChangeNotifier {
         _notify();
       }
     }
+  }
+
+  static Map<String, int> _weeklyPeaksOf(List<ChartSnapshot> history) {
+    final peaks = <String, int>{};
+
+    for (final snapshot in history) {
+      for (final entry in snapshot.entries) {
+        if (!entry.isOfficiallyCharting) {
+          continue;
+        }
+
+        final id = entry.entity.entityId;
+        final best = peaks[id];
+
+        if (best == null || entry.rank < best) {
+          peaks[id] = entry.rank;
+        }
+      }
+    }
+
+    return Map<String, int>.unmodifiable(peaks);
   }
 
   ChartSnapshot _limitSnapshot(ChartSnapshot source) {
