@@ -63,13 +63,17 @@ void main() {
     Map<String, int> streams, {
     List<LibraryTrack> extraTracks = const [],
     String? headerArtworkPath = '/art/artist.png',
+    String? portraitPath,
   }) {
     final tracks = [
       for (final id in ['a', 'b', 'c', 'd', 'e', 'f', 'g'])
         base.createTrack(songId: id, title: 'Song $id'),
     ];
     final repository = base.FakeLibraryQueryRepository(
-      artist: base.createArtist(headerArtworkPath: headerArtworkPath),
+      artist: base.createArtist(
+        headerArtworkPath: headerArtworkPath,
+        topArtistsArtworkPath: portraitPath,
+      ),
       albums: [base.createAlbum()],
       tracks: [...tracks, ...extraTracks],
     );
@@ -132,10 +136,113 @@ void main() {
 
       final images = tester.widgetList<Image>(find.byType(Image)).toList();
       expect(images, isNotEmpty);
+      final view = tester.view;
+      final screenPixels = view.physicalSize.width;
       for (final image in images) {
         expect(image.image, isA<ResizeImage>());
-        expect((image.image as ResizeImage).width, lessThanOrEqualTo(200 * 3));
+        final banner =
+            image.key ==
+            const ValueKey<String>('artist-profile-banner-artist-1');
+        // The full-width banner at the screen's width; everything else at
+        // portrait or cover size.
+        expect(
+          (image.image as ResizeImage).width,
+          lessThanOrEqualTo(banner ? screenPixels : 200 * 3),
+        );
       }
+    });
+
+    group('SN-45 cinematic hero', () {
+      Finder banner() =>
+          find.byKey(const ValueKey<String>('artist-profile-banner-artist-1'));
+      Finder portrait() =>
+          find.byKey(const ValueKey<String>('artist-profile-artwork-artist-1'));
+      Finder initials() =>
+          find.byKey(const ValueKey<String>('artist-profile-artwork-fallback'));
+
+      testWidgets('banner and portrait come from different saved images', (
+        tester,
+      ) async {
+        final (repository, plays) = catalogue(
+          {},
+          headerArtworkPath: '/art/banner.png',
+          portraitPath: '/art/portrait.png',
+        );
+        await pump(tester, repository: repository, plays: plays);
+
+        final bannerImage = tester.widget<Image>(banner());
+        final portraitImage = tester.widget<Image>(portrait());
+        String fileOf(Image image) =>
+            ((image.image as ResizeImage).imageProvider as FileImage).file.path;
+        expect(fileOf(bannerImage), '/art/banner.png');
+        expect(fileOf(portraitImage), '/art/portrait.png');
+      });
+
+      testWidgets('a banner alone never doubles as the portrait', (
+        tester,
+      ) async {
+        final (repository, plays) = catalogue({});
+        await pump(tester, repository: repository, plays: plays);
+
+        expect(banner(), findsOneWidget);
+        expect(portrait(), findsNothing);
+        expect(initials(), findsOneWidget);
+      });
+
+      testWidgets('a portrait alone gets an atmosphere backdrop', (
+        tester,
+      ) async {
+        final (repository, plays) = catalogue(
+          {},
+          headerArtworkPath: null,
+          portraitPath: '/art/portrait.png',
+        );
+        await pump(tester, repository: repository, plays: plays);
+
+        expect(banner(), findsNothing);
+        expect(
+          find.byKey(const ValueKey<String>('artist-profile-banner-fallback')),
+          findsOneWidget,
+        );
+        expect(portrait(), findsOneWidget);
+      });
+
+      testWidgets('the hero runs under a clear app bar to the screen top', (
+        tester,
+      ) async {
+        final (repository, plays) = catalogue({});
+        await pump(tester, repository: repository, plays: plays);
+
+        expect(tester.getTopLeft(banner()).dy, 0);
+        final appBar = tester.widget<AppBar>(find.byType(AppBar));
+        expect(
+          appBar.backgroundColor is WidgetStateColor,
+          isTrue,
+          reason: 'clear at rest, solid only once scrolled under',
+        );
+      });
+
+      testWidgets('the standing comes from all-time qualified streams', (
+        tester,
+      ) async {
+        final (repository, plays) = catalogue({'a': 3, 'b': 2});
+        await pump(tester, repository: repository, plays: plays);
+
+        expect(
+          find.text('#1 in your artists, all time · 5 streams'),
+          findsOneWidget,
+        );
+      });
+
+      testWidgets('no standing is invented without streams', (tester) async {
+        final (repository, plays) = catalogue({});
+        await pump(tester, repository: repository, plays: plays);
+
+        expect(
+          find.byKey(const ValueKey<String>('artist-profile-standing')),
+          findsNothing,
+        );
+      });
     });
 
     testWidgets('an artist without a portrait shows their initials', (
@@ -149,6 +256,42 @@ void main() {
         findsOneWidget,
       );
       expect(find.text('TA'), findsOneWidget);
+    });
+  });
+
+  group('SN-45 Top Tracks rows', () {
+    testWidgets('streams and album, never the length', (tester) async {
+      final (repository, plays) = catalogue({'a': 8, 'b': 7});
+      await pump(tester, repository: repository, plays: plays);
+
+      expect(find.text('8 streams • Test Album'), findsOneWidget);
+      expect(find.text('7 streams • Test Album'), findsOneWidget);
+      final row = find.byKey(const ValueKey<String>('artist-top-track-a'));
+      expect(
+        find.descendant(of: row, matching: find.text('3:00')),
+        findsNothing,
+      );
+    });
+
+    testWidgets('at most five, and never unstreamed songs', (tester) async {
+      final (repository, plays) = catalogue({
+        'a': 6,
+        'b': 5,
+        'c': 4,
+        'd': 3,
+        'e': 2,
+        'f': 1,
+      });
+      await pump(tester, repository: repository, plays: plays);
+
+      for (final id in ['a', 'b', 'c', 'd', 'e']) {
+        expect(
+          find.byKey(ValueKey<String>('artist-top-track-$id')),
+          findsOneWidget,
+        );
+      }
+      expect(find.byKey(const ValueKey('artist-top-track-f')), findsNothing);
+      expect(find.byKey(const ValueKey('artist-top-track-g')), findsNothing);
     });
   });
 
@@ -318,6 +461,28 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('3 streams • Test Album'), findsOneWidget);
+    });
+
+    testWidgets('a Top Tracks song plays with Top Tracks as the queue', (
+      tester,
+    ) async {
+      final (repository, plays) = catalogue({'a': 3, 'b': 2, 'c': 1});
+      final engine = base.FakePlaybackEngine();
+      await pump(
+        tester,
+        repository: repository,
+        plays: plays,
+        playbackCoordinator: PlaybackCoordinator(engine: engine),
+      );
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('artist-top-track-b')),
+      );
+      await tester.pump();
+
+      expect(engine.lastLoadedTracks!.map((t) => t.songId), ['a', 'b', 'c']);
+      expect(engine.lastStartIndex, 1);
+      await engine.dispose();
     });
 
     testWidgets('Play all queues the whole catalogue, not just Top Tracks', (
@@ -691,7 +856,9 @@ void main() {
     testWidgets('wide screens put the portrait beside the name', (
       tester,
     ) async {
-      final (repository, plays) = everySection();
+      final (repository, plays) = catalogue({
+        'a': 1,
+      }, portraitPath: '/art/portrait.png');
       await pump(
         tester,
         repository: repository,

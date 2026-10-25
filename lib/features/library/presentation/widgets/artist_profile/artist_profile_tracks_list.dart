@@ -151,6 +151,8 @@ class _TrackTile extends StatelessWidget {
     final rank = this.rank;
     const tabular = [FontFeature.tabularFigures()];
     final duration = _formatDuration(track.durationSeconds);
+    // Ranked rows read "8 streams • locket": streams and album, no length.
+    final showDuration = rank == null;
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
@@ -200,12 +202,12 @@ class _TrackTile extends StatelessWidget {
           track,
           theme,
           colors.textSecondary,
-          duration: largeText ? duration : null,
+          duration: largeText && showDuration ? duration : null,
         ),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (!largeText)
+            if (!largeText && showDuration)
               Text(
                 duration,
                 style: theme.textTheme.bodySmall?.copyWith(

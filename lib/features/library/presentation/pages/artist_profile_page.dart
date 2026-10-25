@@ -1,3 +1,6 @@
+import '../../../artwork/presentation/pages/artwork_crop_editor_page.dart';
+import '../../../artwork/domain/entities/artwork_crop.dart';
+import '../../../artwork/application/services/artwork_crop_service.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -167,6 +170,7 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
       artistProfileEditingService: context.read<ArtistProfileEditingService?>(),
       songBlockService: context.read<SongBlockService?>(),
       qualifiedPlays: _qualifiedPlays(context),
+      artworkCropService: context.read<ArtworkCropService?>(),
     );
 
     // The artwork can change without this State rebuilding: when the
@@ -230,9 +234,16 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
     return Scaffold(
       key: const ValueKey<String>('artist-profile-page'),
       backgroundColor: atmosphere.background,
+      // The hero photo runs to the top of the screen, under the bars.
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
-        backgroundColor: atmosphere.background,
+        backgroundColor: WidgetStateColor.resolveWith(
+          (states) => states.contains(WidgetState.scrolledUnder)
+              ? atmosphere.background
+              : Colors.transparent,
+        ),
         surfaceTintColor: Colors.transparent,
+        scrolledUnderElevation: 0,
         title: controller == null
             ? Text(widget.initialArtistName ?? 'Artist')
             : AnimatedBuilder(
@@ -310,16 +321,29 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
                       enabled: controller.canEditArtwork,
                       child: const ListTile(
                         leading: Icon(Icons.image_outlined),
-                        title: Text('Change header artwork'),
+                        title: Text('Change banner photo'),
                         contentPadding: EdgeInsets.zero,
                       ),
                     ),
+                    if (controller.canCropArtwork &&
+                        controller.bannerPath != null)
+                      PopupMenuItem(
+                        key: const ValueKey<String>(
+                          'artist-profile-reposition-banner',
+                        ),
+                        value: _ArtistMenuAction.repositionBanner,
+                        child: const ListTile(
+                          leading: Icon(Icons.crop_rounded),
+                          title: Text('Reposition banner'),
+                          contentPadding: EdgeInsets.zero,
+                        ),
+                      ),
                     PopupMenuItem(
                       value: _ArtistMenuAction.clearHeader,
                       enabled: controller.canEditArtwork,
                       child: const ListTile(
                         leading: Icon(Icons.hide_image_outlined),
-                        title: Text('Clear header artwork'),
+                        title: Text('Clear banner photo'),
                         contentPadding: EdgeInsets.zero,
                       ),
                     ),
@@ -329,16 +353,29 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
                       enabled: controller.canEditArtwork,
                       child: const ListTile(
                         leading: Icon(Icons.account_circle_outlined),
-                        title: Text('Change Top Artists artwork'),
+                        title: Text('Change portrait'),
                         contentPadding: EdgeInsets.zero,
                       ),
                     ),
+                    if (controller.canCropArtwork &&
+                        controller.portraitPath != null)
+                      PopupMenuItem(
+                        key: const ValueKey<String>(
+                          'artist-profile-reposition-portrait',
+                        ),
+                        value: _ArtistMenuAction.repositionPortrait,
+                        child: const ListTile(
+                          leading: Icon(Icons.crop_rounded),
+                          title: Text('Reposition portrait'),
+                          contentPadding: EdgeInsets.zero,
+                        ),
+                      ),
                     PopupMenuItem(
                       value: _ArtistMenuAction.clearTopArtists,
                       enabled: controller.canEditArtwork,
                       child: const ListTile(
                         leading: Icon(Icons.person_off_outlined),
-                        title: Text('Clear Top Artists artwork'),
+                        title: Text('Clear portrait'),
                         contentPadding: EdgeInsets.zero,
                       ),
                     ),
@@ -425,7 +462,9 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
                     children: [
                       ArtistProfileHeader(
                         artist: artist,
-                        artworkPath: controller.headerArtworkPath,
+                        bannerPath: controller.bannerPath,
+                        portraitPath: controller.portraitPath,
+                        standing: controller.standing,
                         atmosphere: atmosphere,
                       ),
                       Padding(
@@ -453,6 +492,7 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
                                 for (final entry in topTracks) entry.track,
                               ],
                               keyPrefix: 'artist-top-track',
+                              onPlay: controller.playTopTrack,
                               streamCounts: {
                                 for (final entry in topTracks)
                                   entry.track.songId: entry.streamCount,
@@ -553,6 +593,7 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
     required String keyPrefix,
     Map<String, int>? streamCounts,
     String? profileArtistId,
+    Future<void> Function(LibraryTrack track)? onPlay,
   }) {
     return ArtistProfileTracksList(
       tracks: tracks,
@@ -564,7 +605,7 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
       canEditArtwork: controller.canEditTrackArtwork,
       canEditTrack: controller.canEditTrack(userId),
       canSetBlocked: controller.canSetTrackBlocked(userId),
-      onPlay: controller.playTrack,
+      onPlay: onPlay ?? controller.playTrack,
       onPlayNext: controller.playNext,
       onAddToQueue: controller.addToQueue,
       onAddToPlaylist: (track) => showAddToPlaylistFlow(context, track),
@@ -603,6 +644,18 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
 
     if (action == _ArtistMenuAction.removeArtist) {
       await _removeArtist(controller, userId);
+      return;
+    }
+
+    if (action == _ArtistMenuAction.repositionBanner ||
+        action == _ArtistMenuAction.repositionPortrait) {
+      await _repositionArtwork(
+        controller,
+        action == _ArtistMenuAction.repositionBanner
+            ? ArtworkCropTarget.artistBanner
+            : ArtworkCropTarget.artistPortrait,
+        userId,
+      );
       return;
     }
 
@@ -800,14 +853,27 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
         _ArtistMenuAction.libraryPlacement => false,
         _ArtistMenuAction.editName => false,
         _ArtistMenuAction.removeArtist => false,
-        _ArtistMenuAction.changeHeader => await controller.changeHeaderArtwork(
-          userId: userId,
-        ),
+        _ArtistMenuAction.repositionBanner ||
+        _ArtistMenuAction.repositionPortrait => false,
+        _ArtistMenuAction.changeHeader =>
+          controller.canCropArtwork
+              ? await _pickAndCrop(
+                  controller,
+                  ArtworkCropTarget.artistBanner,
+                  userId,
+                )
+              : await controller.changeHeaderArtwork(userId: userId),
         _ArtistMenuAction.clearHeader => await controller.clearHeaderArtwork(
           userId: userId,
         ),
         _ArtistMenuAction.changeTopArtists =>
-          await controller.changeTopArtistsArtwork(userId: userId),
+          controller.canCropArtwork
+              ? await _pickAndCrop(
+                  controller,
+                  ArtworkCropTarget.artistPortrait,
+                  userId,
+                )
+              : await controller.changeTopArtistsArtwork(userId: userId),
         _ArtistMenuAction.clearTopArtists =>
           await controller.clearTopArtistsArtwork(userId: userId),
       };
@@ -821,10 +887,12 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
         _ArtistMenuAction.libraryPlacement => '',
         _ArtistMenuAction.editName => '',
         _ArtistMenuAction.removeArtist => '',
-        _ArtistMenuAction.changeHeader => 'Header artwork updated.',
-        _ArtistMenuAction.clearHeader => 'Header artwork cleared.',
-        _ArtistMenuAction.changeTopArtists => 'Top Artists artwork updated.',
-        _ArtistMenuAction.clearTopArtists => 'Top Artists artwork cleared.',
+        _ArtistMenuAction.repositionBanner ||
+        _ArtistMenuAction.repositionPortrait => '',
+        _ArtistMenuAction.changeHeader => 'Banner photo updated.',
+        _ArtistMenuAction.clearHeader => 'Banner photo cleared.',
+        _ArtistMenuAction.changeTopArtists => 'Portrait updated.',
+        _ArtistMenuAction.clearTopArtists => 'Portrait cleared.',
       };
 
       ScaffoldMessenger.of(
@@ -838,6 +906,91 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Could not update artist artwork.')),
       );
+    }
+  }
+
+  Future<bool> _pickAndCrop(
+    ArtistProfileController controller,
+    ArtworkCropTarget target,
+    String? userId,
+  ) async {
+    final path = await controller.pickArtworkFile();
+
+    if (path == null || !mounted) {
+      return false;
+    }
+
+    final decision = await showArtworkCropEditor(
+      context,
+      imagePath: path,
+      target: target,
+      previewName: controller.artist?.name,
+    );
+
+    if (decision is! ArtworkCropSave) {
+      return false;
+    }
+
+    return controller.applyArtworkCrop(
+      target: target,
+      sourcePath: path,
+      rect: decision.rect,
+      userId: userId,
+    );
+  }
+
+  Future<void> _repositionArtwork(
+    ArtistProfileController controller,
+    ArtworkCropTarget target,
+    String? userId,
+  ) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final name = target == ArtworkCropTarget.artistBanner
+        ? 'banner'
+        : 'portrait';
+
+    try {
+      final source = await controller.artworkRepositionSource(target);
+
+      if (source == null || !mounted) {
+        return;
+      }
+
+      final decision = await showArtworkCropEditor(
+        context,
+        imagePath: source.filePath,
+        target: target,
+        initialRect: source.rect,
+        canReset: source.isRecropping,
+        previewName: controller.artist?.name,
+      );
+
+      final String? message = switch (decision) {
+        ArtworkCropSave(:final rect) =>
+          await controller.applyArtworkCrop(
+                target: target,
+                sourcePath: source.filePath,
+                rect: rect,
+                userId: userId,
+              )
+              ? 'The $name was repositioned.'
+              : null,
+        ArtworkCropReset() =>
+          await controller.resetArtworkCrop(target, userId: userId)
+              ? 'The full original $name is back.'
+              : null,
+        null => null,
+      };
+
+      if (message != null && mounted) {
+        messenger.showSnackBar(SnackBar(content: Text(message)));
+      }
+    } catch (_) {
+      if (mounted) {
+        messenger.showSnackBar(
+          SnackBar(content: Text('Could not reposition the $name.')),
+        );
+      }
     }
   }
 
@@ -1125,7 +1278,9 @@ enum _ArtistMenuAction {
   editName,
   changeHeader,
   clearHeader,
+  repositionBanner,
   changeTopArtists,
+  repositionPortrait,
   clearTopArtists,
   removeArtist,
 }
