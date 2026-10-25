@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/design/widgets/sonus_notice_card.dart';
+
 class ImportErrorCard extends StatelessWidget {
   const ImportErrorCard({
     super.key,
@@ -12,44 +14,18 @@ class ImportErrorCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Card(
+    return SonusNoticeCard(
       key: const ValueKey<String>('import-error-card'),
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(
-                  Icons.error_outline_rounded,
-                  color: theme.colorScheme.error,
-                ),
-                const SizedBox(width: 10),
-                Text(
-                  'Import failed',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Text(message),
-            const SizedBox(height: 18),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.tonal(
-                key: const ValueKey<String>('import-error-reset-button'),
-                onPressed: onReset,
-                child: const Text('Try again'),
-              ),
-            ),
-          ],
+      tone: SonusNoticeTone.error,
+      title: 'Import failed',
+      message: message,
+      actions: [
+        FilledButton.tonal(
+          key: const ValueKey<String>('import-error-reset-button'),
+          onPressed: onReset,
+          child: const Text('Try again'),
         ),
-      ),
+      ],
     );
   }
 }

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sonus_next/core/design/sonus_theme_factory.dart';
+import 'package:sonus_next/core/design/sonus_theme_id.dart';
 
 import 'package:sonus_next/features/artwork/application/services/artwork_assignment_service.dart';
 import 'package:sonus_next/features/artwork/application/services/artwork_file_picker.dart';
@@ -92,6 +94,8 @@ void main() {
     List<LibraryAlbum> albums = const [],
     List<LibraryArtist> artists = const [],
     AlbumProfileEditingService? albumProfileEditingService,
+    ThemeData? theme,
+    double textScale = 1,
   }) async {
     final reviewRepository = _FakeReviewRepository(reviews);
     final editingService = _FakeEditingService(error: editError);
@@ -114,6 +118,13 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
+        theme: theme,
+        builder: (context, child) => MediaQuery(
+          data: MediaQuery.of(
+            context,
+          ).copyWith(textScaler: TextScaler.linear(textScale)),
+          child: child!,
+        ),
         home: ImportReviewPage(
           service: service,
           userId: 'user-1',
@@ -131,6 +142,34 @@ void main() {
       editingService: editingService,
       artistCreationService: artistCreationService,
     );
+  }
+
+  // SN-48K3: Import Review in every theme at 320dp with 2x text; the
+  // review navigation stacks instead of overflowing.
+  for (final id in SonusThemeId.values) {
+    testWidgets('${id.label} fits 320dp at 2x text', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(320, 3000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await pumpReviewPage(
+        tester,
+        reviews: [review('song-1'), review('song-2')],
+        tracks: {
+          'song-1': track('song-1', 'An Exceptionally Long Imported Title'),
+          'song-2': track('song-2', 'Second Song'),
+        },
+        theme: SonusThemeFactory.build(SonusAppearanceSpec(themeId: id)),
+        textScale: 2,
+      );
+
+      expect(tester.takeException(), isNull);
+      final position = tester.getRect(
+        find.byKey(const ValueKey<String>('import-review-position')),
+      );
+      final next = tester.getRect(
+        find.byKey(const ValueKey<String>('import-review-next-button')),
+      );
+      expect(next.top, greaterThan(position.bottom));
+    });
   }
 
   testWidgets('shows current review and reason labels', (tester) async {

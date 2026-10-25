@@ -3,6 +3,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../../core/design/sonus_theme.dart';
+import '../../../../core/design/widgets/sonus_notice_card.dart';
+import '../../../../core/design/widgets/sonus_surface_card.dart';
 import '../../../account/application/controllers/account_controller.dart';
 import '../../../artwork/application/services/artwork_assignment_service.dart';
 import '../../../artwork/application/services/artwork_file_picker.dart';
@@ -80,9 +83,17 @@ class _ImportsPageState extends State<ImportsPage> {
   Widget build(BuildContext context) {
     final controller = _controller;
 
+    final tokens = SonusTheme.of(context);
+    final colors = tokens.colors;
+
     return Scaffold(
       key: const ValueKey<String>('imports-page'),
-      appBar: AppBar(title: const Text('Import music')),
+      backgroundColor: colors.background,
+      appBar: AppBar(
+        title: const Text('Import music'),
+        backgroundColor: colors.background,
+        surfaceTintColor: Colors.transparent,
+      ),
       body: controller == null
           ? const Center(
               child: CircularProgressIndicator(
@@ -93,19 +104,30 @@ class _ImportsPageState extends State<ImportsPage> {
               animation: controller,
               builder: (context, _) {
                 return ListView(
-                  padding: const EdgeInsets.fromLTRB(16, 20, 16, 32),
+                  padding: EdgeInsets.fromLTRB(
+                    tokens.metrics.pageGutter,
+                    12,
+                    tokens.metrics.pageGutter,
+                    32 + MediaQuery.paddingOf(context).bottom,
+                  ),
                   children: [
-                    Text(
-                      'Add music to Sonus',
-                      style: Theme.of(context).textTheme.headlineSmall
-                          ?.copyWith(fontWeight: FontWeight.w800),
+                    Semantics(
+                      header: true,
+                      child: Text(
+                        'Add music to Sonus',
+                        style: Theme.of(context).textTheme.headlineSmall
+                            ?.copyWith(
+                              color: colors.textPrimary,
+                              fontWeight: FontWeight.w900,
+                            ),
+                      ),
                     ),
                     const SizedBox(height: 8),
                     Text(
                       'Import one MP3 from anywhere on your device or import '
                       'an organized music folder.',
                       style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        color: colors.textSecondary,
                       ),
                     ),
                     const SizedBox(height: 24),
@@ -163,21 +185,23 @@ class _ImportsPageState extends State<ImportsPage> {
                       ],
                       if (controller.hasSources) ...[
                         const SizedBox(height: 24),
-                        Text(
-                          'Saved music folders',
-                          style: Theme.of(context).textTheme.titleLarge
-                              ?.copyWith(fontWeight: FontWeight.w800),
+                        Semantics(
+                          header: true,
+                          child: Text(
+                            'Saved music folders',
+                            style: Theme.of(context).textTheme.titleLarge
+                                ?.copyWith(
+                                  color: colors.textPrimary,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                          ),
                         ),
                         const SizedBox(height: 8),
                         Text(
                           'Scan these folders again to add new music and '
                           'detect files that are no longer available.',
                           style: Theme.of(context).textTheme.bodyMedium
-                              ?.copyWith(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.onSurfaceVariant,
-                              ),
+                              ?.copyWith(color: colors.textSecondary),
                         ),
                         const SizedBox(height: 12),
                         ...controller.sources.map(
@@ -307,52 +331,23 @@ class _NeedsReviewCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
+    return SonusNoticeCard(
       key: const ValueKey<String>('import-needs-review-card'),
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Icon(Icons.fact_check_outlined),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    '$count ${count == 1 ? 'song needs' : 'songs need'} review',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text(
-              canReview
-                  ? 'Review metadata Sonus could not confidently determine '
-                        'during import.'
-                  : 'Review is currently unavailable.',
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-              ),
-            ),
-            if (canReview) ...[
-              const SizedBox(height: 14),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.tonalIcon(
-                  key: const ValueKey<String>('open-import-review-button'),
-                  onPressed: onReview,
-                  icon: const Icon(Icons.edit_note_rounded),
-                  label: const Text('Review metadata'),
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
+      tone: SonusNoticeTone.info,
+      title: '$count ${count == 1 ? 'song needs' : 'songs need'} review',
+      message: canReview
+          ? 'Review metadata Sonus could not confidently determine during '
+                'import.'
+          : 'Review is currently unavailable.',
+      actions: [
+        if (canReview)
+          FilledButton.tonalIcon(
+            key: const ValueKey<String>('open-import-review-button'),
+            onPressed: onReview,
+            icon: const Icon(Icons.edit_note_rounded),
+            label: const Text('Review metadata'),
+          ),
+      ],
     );
   }
 }
@@ -365,54 +360,83 @@ class _SavedImportSourceCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = SonusTheme.of(context).colors;
+    final theme = Theme.of(context);
     final lastScannedAt = source.lastScannedAt;
 
-    return Card(
+    return SonusSurfaceCard(
       key: ValueKey<String>('import-source-${source.id}'),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Row(
-              children: [
-                Icon(Icons.folder_outlined),
-                SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    'Music folder',
-                    style: TextStyle(fontWeight: FontWeight.w700),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.folder_outlined, color: colors.textSecondary),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Music folder',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    color: colors.textPrimary,
+                    fontWeight: FontWeight.w800,
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            SelectableText(
-              source.rootPath,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            if (lastScannedAt != null) ...[
-              const SizedBox(height: 8),
-              Text(
-                'Last scanned: ${lastScannedAt.toLocal()}',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
                 ),
               ),
             ],
-            const SizedBox(height: 14),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                key: ValueKey<String>('rescan-source-${source.id}'),
-                onPressed: onRescan,
-                icon: const Icon(Icons.refresh_rounded),
-                label: const Text('Scan for changes'),
+          ),
+          const SizedBox(height: 8),
+          SelectableText(
+            source.rootPath,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: colors.textPrimary,
+            ),
+          ),
+          if (lastScannedAt != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Last scanned ${formatImportScanTime(lastScannedAt)}',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: colors.textSecondary,
+                fontFeatures: const [FontFeature.tabularFigures()],
               ),
             ),
           ],
-        ),
+          const SizedBox(height: 14),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              key: ValueKey<String>('rescan-source-${source.id}'),
+              onPressed: onRescan,
+              icon: const Icon(Icons.refresh_rounded),
+              label: const Text('Scan for changes'),
+            ),
+          ),
+        ],
       ),
     );
   }
+}
+
+/// "October 5, 2026 at 14:07", in local time.
+@visibleForTesting
+String formatImportScanTime(DateTime value) {
+  const months = [
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
+  ];
+  final local = value.toLocal();
+  final hour = local.hour.toString().padLeft(2, '0');
+  final minute = local.minute.toString().padLeft(2, '0');
+  return '${months[local.month - 1]} ${local.day}, ${local.year} at '
+      '$hour:$minute';
 }
