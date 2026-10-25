@@ -30,6 +30,7 @@ class SimulatedJustAudioPlayer implements PlaybackAudioPlayer {
   int? _index;
   int _length = 0;
   LoopMode _loopMode = LoopMode.off;
+  Duration _position = Duration.zero;
 
   @override
   bool get playing => _playing;
@@ -85,6 +86,16 @@ class SimulatedJustAudioPlayer implements PlaybackAudioPlayer {
     }
 
     _playing = true;
+
+    // After stop(), just_audio prepares the same sources again and
+    // resumes from the retained position.
+    if (_processing == ProcessingState.idle && _length > 0) {
+      _setProcessing(ProcessingState.loading);
+      _setProcessing(ProcessingState.ready);
+      _positions.add(_position);
+      return;
+    }
+
     _emitState();
   }
 
@@ -98,11 +109,18 @@ class SimulatedJustAudioPlayer implements PlaybackAudioPlayer {
     _emitState();
   }
 
+  /// Like just_audio, stop() releases the decoder but keeps the position.
   @override
   Future<void> stop() async {
     _playing = false;
     _processing = ProcessingState.idle;
     _emitState();
+  }
+
+  /// Playback reached [position] (the platform's position updates).
+  void advanceTo(Duration position) {
+    _position = position;
+    _positions.add(position);
   }
 
   /// The last source finished. just_audio leaves `playing` set.
@@ -129,6 +147,7 @@ class SimulatedJustAudioPlayer implements PlaybackAudioPlayer {
       _index = index;
       _indexes.add(index);
     }
+    _position = position;
     _positions.add(position);
   }
 

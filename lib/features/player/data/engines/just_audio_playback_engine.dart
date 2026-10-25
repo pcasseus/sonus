@@ -414,10 +414,15 @@ class JustAudioPlaybackEngine implements PlaybackEngine {
 
     await _audioPlayer.stop();
 
+    // just_audio keeps the position and the loaded sources through stop(),
+    // and Play resumes from there. Report the same, or the player shows
+    // 0:00 with seeking disabled and a restart restores the wrong position.
     _emit(
       PlaybackState(
         queue: _state.queue,
         status: PlaybackStatus.idle,
+        position: _state.position,
+        duration: _state.duration,
         repeatMode: _state.repeatMode,
         shuffleEnabled: _state.shuffleEnabled,
       ),

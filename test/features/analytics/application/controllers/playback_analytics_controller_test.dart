@@ -693,6 +693,30 @@ void main() {
         },
       );
 
+      test('Stop then Play adds no extra qualified play (SN-44)', () async {
+        await coordinator.playTracks([libraryTrack1]);
+        await settle();
+        now = now.add(const Duration(seconds: 40));
+        player.advanceTo(const Duration(seconds: 40));
+        await settle();
+
+        await coordinator.stop();
+        await settle();
+        await coordinator.play();
+        await settle();
+        now = now.add(const Duration(seconds: 10));
+        await coordinator.stop();
+        await settle();
+
+        expect(qualifiedPlays.values.map((play) => play.songId), ['song_1']);
+        expect(
+          playbackSessions.values.every(
+            (session) => session.endReason == PlaybackSessionEndReason.stopped,
+          ),
+          isTrue,
+        );
+      });
+
       test('a song picked after the queue finished is counted once', () async {
         await coordinator.playTracks([libraryTrack1]);
         await settle();
