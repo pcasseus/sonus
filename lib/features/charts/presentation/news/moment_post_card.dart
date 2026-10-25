@@ -351,6 +351,7 @@ class _Collage extends StatelessWidget {
                 child: _Pill(
                   label: kicker.toUpperCase(),
                   icon: Icons.auto_awesome_rounded,
+                  maxLines: 2,
                   background: colors.artworkScrim,
                   foreground: colors.onArtworkScrim,
                 ),
@@ -442,12 +443,14 @@ class _Pill extends StatelessWidget {
     required this.background,
     required this.foreground,
     this.icon,
+    this.maxLines = 1,
   });
 
   final String label;
   final Color background;
   final Color foreground;
   final IconData? icon;
+  final int maxLines;
 
   @override
   Widget build(BuildContext context) {
@@ -467,7 +470,7 @@ class _Pill extends StatelessWidget {
           Flexible(
             child: Text(
               label,
-              maxLines: 1,
+              maxLines: maxLines,
               overflow: TextOverflow.ellipsis,
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
                 color: foreground,

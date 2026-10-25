@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sonus_next/core/design/sonus_theme_factory.dart';
 import 'package:sonus_next/features/charts/domain/entities/chart_entry.dart';
@@ -215,6 +216,91 @@ void main() {
       );
 
       expect(tester.takeException(), isNull);
+      // The change stays readable, not squeezed to its icon.
+      expect(tester.getSize(find.text('+12.5%')).width, greaterThan(40));
+      // No label breaks inside a word ("STREAM / S").
+      for (final label in [
+        if (card == 'spotlight') ...[
+          'LIFETIME STREAMS',
+          'WEEKLY CHANGE',
+          'ALL-TIME PEAK',
+        ] else ...[
+          'STREAMS',
+          'PEAK',
+          'WEEK START',
+        ],
+      ]) {
+        final paragraph = tester.renderObject<RenderParagraph>(
+          find.text(label),
+        );
+        final words = label.split(' ').length;
+        expect(
+          {
+            for (final box in paragraph.getBoxesForSelection(
+              TextSelection(baseOffset: 0, extentOffset: label.length),
+            ))
+              box.top.round(),
+          }.length,
+          lessThanOrEqualTo(words),
+          reason: label,
+        );
+      }
     });
   }
+
+  testWidgets('tiles stack under Android-style nonlinear 2x text', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(320, 3000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: SonusThemeFactory.build(const SonusAppearanceSpec()),
+        builder: (context, app) => MediaQuery(
+          data: MediaQuery.of(
+            context,
+          ).copyWith(textScaler: const _AndroidLikeScaler()),
+          child: app!,
+        ),
+        home: Scaffold(
+          body: SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
+            child: AllTimeSpotlightCard(
+              entry: _entry(1),
+              chartType: ChartType.songs,
+              stats: const AllTimeEntryStats(streamsThisWeek: 2),
+              artworkPath: null,
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(tester.takeException(), isNull);
+    final streams = tester.getTopLeft(find.text('LIFETIME STREAMS'));
+    final change = tester.getTopLeft(find.text('WEEKLY CHANGE'));
+    expect(change.dy, greaterThan(streams.dy), reason: 'one tile per row');
+    final paragraph = tester.renderObject<RenderParagraph>(
+      find.text('New activity'),
+    );
+    final lines = {
+      for (final box in paragraph.getBoxesForSelection(
+        const TextSelection(baseOffset: 0, extentOffset: 12),
+      ))
+        box.top.round(),
+    };
+    expect(lines.length, lessThanOrEqualTo(2));
+  });
+}
+
+/// Body text doubles; large sizes grow much less, as on Android 14+.
+class _AndroidLikeScaler extends TextScaler {
+  const _AndroidLikeScaler();
+
+  @override
+  double scale(double fontSize) =>
+      fontSize <= 20 ? fontSize * 2 : 40 + (fontSize - 20) * 0.3;
+
+  @override
+  double get textScaleFactor => 2;
 }

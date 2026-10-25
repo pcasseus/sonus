@@ -6,6 +6,7 @@ import '../../../../core/design/sonus_count_label.dart';
 import '../../../../core/design/sonus_theme.dart';
 import '../../../../core/design/widgets/sonus_artwork_frame.dart';
 import '../../../../core/design/widgets/sonus_decorations.dart';
+import '../../../../core/design/widgets/sonus_word_fit_text.dart';
 import '../../domain/entities/chart_entry.dart';
 import '../../domain/models/all_time_entry_stats.dart';
 import '../../domain/models/chart_type.dart';
@@ -415,15 +416,11 @@ class AllTimeEntryCard extends StatelessWidget {
                           return Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Row(
-                                children: [
-                                  ...lead,
-                                  const Spacer(),
-                                  Flexible(child: changeLabel),
-                                ],
-                              ),
+                              Row(children: lead),
                               const SizedBox(height: 10),
                               heading,
+                              const SizedBox(height: 6),
+                              changeLabel,
                             ],
                           );
                         }
@@ -548,7 +545,10 @@ class _TileGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final minTile = MediaQuery.textScalerOf(context).scale(92);
+    // Scaled like body text: Android scales large sizes less, so scaling
+    // the width itself would underestimate the room 2x text needs.
+    final textGrowth = MediaQuery.textScalerOf(context).scale(14) / 14;
+    final minTile = 92 * textGrowth;
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -603,7 +603,7 @@ class _StatTile extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
+            SonusWordFitText(
               label,
               style: theme.textTheme.labelSmall?.copyWith(
                 color: colors.textSecondary,
@@ -619,7 +619,7 @@ class _StatTile extends StatelessWidget {
                   const SizedBox(width: 2),
                 ],
                 Flexible(
-                  child: Text(
+                  child: SonusWordFitText(
                     value,
                     style: theme.textTheme.titleMedium?.copyWith(
                       color: colors.textPrimary,
