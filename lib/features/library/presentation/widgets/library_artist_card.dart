@@ -2,8 +2,11 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+import '../../../../core/design/sonus_theme.dart';
 import '../../application/models/library_artist.dart';
 
+/// An Artists grid card: square artwork, the name on up to two lines and
+/// the album and song counts.
 class LibraryArtistCard extends StatelessWidget {
   const LibraryArtistCard({
     super.key,
@@ -14,80 +17,97 @@ class LibraryArtistCard extends StatelessWidget {
   final LibraryArtist artist;
   final VoidCallback onTap;
 
+  /// Height of the text under the artwork at a text scale of 1: two name
+  /// lines and the counts. Grids scale it with the text size.
+  static const double captionHeight = 84;
+
   @override
   Widget build(BuildContext context) {
+    final tokens = SonusTheme.of(context);
+    final colors = tokens.colors;
     final theme = Theme.of(context);
-    final artworkPath = _artworkPath;
+    final radius = BorderRadius.circular(tokens.metrics.cardRadius);
+    final name = artist.name.trim().isEmpty ? 'Unknown Artist' : artist.name;
 
     return Material(
       key: ValueKey<String>('artist-${artist.artistId}'),
-      color: Colors.transparent,
-      borderRadius: BorderRadius.circular(24),
+      color: colors.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: radius,
+        side: BorderSide(color: colors.divider),
+      ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         key: ValueKey<String>('artist-open-${artist.artistId}'),
         onTap: onTap,
-        borderRadius: BorderRadius.circular(24),
-        child: Ink(
-          decoration: BoxDecoration(
-            color: theme.colorScheme.surfaceContainer,
-            borderRadius: BorderRadius.circular(24),
-            border: Border.all(
-              color: theme.colorScheme.outlineVariant.withValues(alpha: 0.45),
-            ),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: _ArtistArtwork(
-                  artistName: artist.name,
-                  artworkPath: artworkPath,
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final artworkSize = constraints.maxWidth;
+
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox.square(
+                  dimension: artworkSize,
+                  child: _ArtistArtwork(
+                    artistName: name,
+                    artworkPath: _artworkPath,
+                    size: artworkSize,
+                  ),
                 ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      artist.name.trim().isEmpty
-                          ? 'Unknown Artist'
-                          : artist.name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: -0.2,
-                      ),
-                    ),
-                    const SizedBox(height: 9),
-                    Row(
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _ArtistStat(
-                          key: ValueKey<String>(
-                            'artist-album-count-${artist.artistId}',
+                        Flexible(
+                          child: Text(
+                            name,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.titleSmall?.copyWith(
+                              color: colors.textPrimary,
+                              fontWeight: FontWeight.w800,
+                              height: 1.15,
+                            ),
                           ),
-                          icon: Icons.album_outlined,
-                          value: '${artist.albumCount}',
-                          semanticsLabel: _albumLabel,
                         ),
-                        const SizedBox(width: 12),
-                        _ArtistStat(
-                          key: ValueKey<String>(
-                            'artist-song-count-${artist.artistId}',
+                        const SizedBox(height: 6),
+                        // Large counts at large text sizes scale down to the
+                        // card's width instead of overflowing it.
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: AlignmentDirectional.centerStart,
+                          child: Row(
+                            children: [
+                              _ArtistStat(
+                                key: ValueKey<String>(
+                                  'artist-album-count-${artist.artistId}',
+                                ),
+                                icon: Icons.album_outlined,
+                                value: '${artist.albumCount}',
+                                semanticsLabel: _albumLabel,
+                              ),
+                              const SizedBox(width: 12),
+                              _ArtistStat(
+                                key: ValueKey<String>(
+                                  'artist-song-count-${artist.artistId}',
+                                ),
+                                icon: Icons.music_note_rounded,
+                                value: '${artist.songCount}',
+                                semanticsLabel: _songLabel,
+                              ),
+                            ],
                           ),
-                          icon: Icons.music_note_rounded,
-                          value: '${artist.songCount}',
-                          semanticsLabel: _songLabel,
                         ),
                       ],
                     ),
-                  ],
+                  ),
                 ),
-              ),
-            ],
-          ),
+              ],
+            );
+          },
         ),
       ),
     );
@@ -119,28 +139,35 @@ class LibraryArtistCard extends StatelessWidget {
 }
 
 class _ArtistArtwork extends StatelessWidget {
-  const _ArtistArtwork({required this.artistName, required this.artworkPath});
+  const _ArtistArtwork({
+    required this.artistName,
+    required this.artworkPath,
+    required this.size,
+  });
 
   final String artistName;
   final String? artworkPath;
+  final double size;
 
   @override
   Widget build(BuildContext context) {
     final path = artworkPath;
 
-    return ClipRRect(
-      borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-      child: SizedBox.expand(
-        child: path == null
-            ? _ArtistArtworkFallback(artistName: artistName)
-            : Image.file(
-                File(path),
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) {
-                  return _ArtistArtworkFallback(artistName: artistName);
-                },
-              ),
-      ),
+    if (path == null) {
+      return _ArtistArtworkFallback(artistName: artistName);
+    }
+
+    return Image.file(
+      File(path),
+      fit: BoxFit.cover,
+      // Decoded at its display size, never at full resolution, so long
+      // grids scroll smoothly.
+      cacheWidth: (size * MediaQuery.devicePixelRatioOf(context)).round(),
+      gaplessPlayback: true,
+      excludeFromSemantics: true,
+      errorBuilder: (context, error, stackTrace) {
+        return _ArtistArtworkFallback(artistName: artistName);
+      },
     );
   }
 }
@@ -152,20 +179,11 @@ class _ArtistArtworkFallback extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final colors = SonusTheme.of(context).colors;
 
-    return DecoratedBox(
+    return ColoredBox(
       key: const ValueKey<String>('artist-artwork-fallback'),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            theme.colorScheme.surfaceContainerHighest,
-            theme.colorScheme.surfaceContainer,
-          ],
-        ),
-      ),
+      color: colors.artworkPlaceholder,
       child: Stack(
         fit: StackFit.expand,
         children: [
@@ -175,16 +193,21 @@ class _ArtistArtworkFallback extends StatelessWidget {
             child: Icon(
               Icons.graphic_eq_rounded,
               size: 112,
-              color: theme.colorScheme.onSurface.withValues(alpha: 0.045),
+              color: colors.onArtworkPlaceholder.withValues(alpha: 0.08),
             ),
           ),
           Center(
-            child: Text(
-              _initials(artistName),
-              style: theme.textTheme.displaySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-                fontWeight: FontWeight.w800,
-                letterSpacing: -1,
+            child: FittedBox(
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text(
+                  _initials(artistName),
+                  style: Theme.of(context).textTheme.displaySmall?.copyWith(
+                    color: colors.onArtworkPlaceholder,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -1,
+                  ),
+                ),
               ),
             ),
           ),
@@ -228,7 +251,7 @@ class _ArtistStat extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final colors = SonusTheme.of(context).colors;
 
     return Semantics(
       label: semanticsLabel,
@@ -236,13 +259,14 @@ class _ArtistStat extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 15, color: theme.colorScheme.onSurfaceVariant),
+          Icon(icon, size: 15, color: colors.textSecondary),
           const SizedBox(width: 4),
           Text(
             value,
-            style: theme.textTheme.labelMedium?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+              color: colors.textSecondary,
               fontWeight: FontWeight.w700,
+              fontFeatures: const [FontFeature.tabularFigures()],
             ),
           ),
         ],

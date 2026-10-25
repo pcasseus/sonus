@@ -35,6 +35,7 @@ class SettingsSection extends StatelessWidget {
               bottom: tokens.metrics.spaceSm,
             ),
             child: Semantics(
+              container: true,
               header: true,
               child: Text(
                 title,
@@ -46,16 +47,25 @@ class SettingsSection extends StatelessWidget {
               ),
             ),
           ),
-          Card(
-            margin: EdgeInsets.zero,
-            clipBehavior: Clip.antiAlias,
-            child: Column(
-              children: [
-                for (var i = 0; i < children.length; i++) ...[
-                  if (i > 0) const Divider(height: 1),
-                  children[i],
+          // A semantics container, as a Card is: rows never merge into
+          // the heading above.
+          Semantics(
+            container: true,
+            child: Material(
+              color: tokens.colors.surface,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(tokens.metrics.cardRadius),
+                side: BorderSide(color: tokens.colors.divider),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: Column(
+                children: [
+                  for (var i = 0; i < children.length; i++) ...[
+                    if (i > 0) Divider(height: 1, color: tokens.colors.divider),
+                    children[i],
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
           if (footer != null)
@@ -114,8 +124,14 @@ class SettingsNavTile extends StatelessWidget {
     final summary = subtitle;
 
     return ListTile(
-      leading: Icon(icon),
-      title: Text(title),
+      leading: Icon(icon, color: colors.textSecondary),
+      title: Text(
+        title,
+        style: TextStyle(
+          color: colors.textPrimary,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
       subtitle: summary == null
           ? null
           : Row(
@@ -143,7 +159,9 @@ class SettingsNavTile extends StatelessWidget {
             ),
       trailing:
           trailing ??
-          (onTap == null ? null : const Icon(Icons.chevron_right_rounded)),
+          (onTap == null
+              ? null
+              : Icon(Icons.chevron_right_rounded, color: colors.textSecondary)),
       onTap: onTap,
     );
   }
@@ -164,10 +182,12 @@ class SettingsInfoTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = SonusTheme.of(context).colors;
+
     return ListTile(
-      leading: Icon(icon),
-      title: Text(title),
-      subtitle: Text(body),
+      leading: Icon(icon, color: colors.textSecondary),
+      title: Text(title, style: TextStyle(color: colors.textPrimary)),
+      subtitle: Text(body, style: TextStyle(color: colors.textSecondary)),
     );
   }
 }

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/design/widgets/sonus_notice_card.dart';
+
 import '../../application/models/import_execution_summary.dart';
 
 class ImportResultCard extends StatelessWidget {
@@ -18,68 +20,38 @@ class ImportResultCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Card(
+    return SonusNoticeCard(
       key: const ValueKey<String>('import-result-card'),
-      child: Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(
-                  summary.hasFailures
-                      ? Icons.warning_amber_rounded
-                      : Icons.check_circle_outline_rounded,
-                  color: summary.hasFailures
-                      ? theme.colorScheme.error
-                      : theme.colorScheme.primary,
-                ),
-                const SizedBox(width: 10),
-                Text(
-                  summary.hasFailures
-                      ? 'Import completed with issues'
-                      : 'Import complete',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 18),
-            _ResultRow(label: 'Processed', value: summary.processedCount),
-            _ResultRow(label: 'Imported', value: summary.importedCount),
-            _ResultRow(label: 'Relinked', value: summary.relinkedCount),
-            _ResultRow(label: 'Skipped', value: summary.skippedCount),
-            _ResultRow(label: 'Failed', value: summary.failedCount),
-            if (reviewCount > 0)
-              _ResultRow(label: 'Needs review', value: reviewCount),
-            if (reviewCount > 0 && onReview != null) ...[
-              const SizedBox(height: 18),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton.icon(
-                  key: const ValueKey<String>('import-review-button'),
-                  onPressed: onReview,
-                  icon: const Icon(Icons.fact_check_outlined),
-                  label: const Text('Review metadata'),
-                ),
-              ),
-            ],
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.tonal(
-                key: const ValueKey<String>('import-reset-button'),
-                onPressed: onReset,
-                child: const Text('Import more music'),
-              ),
-            ),
-          ],
+      tone: summary.hasFailures
+          ? SonusNoticeTone.warning
+          : SonusNoticeTone.success,
+      title: summary.hasFailures
+          ? 'Import completed with issues'
+          : 'Import complete',
+      actions: [
+        if (reviewCount > 0 && onReview != null)
+          FilledButton.icon(
+            key: const ValueKey<String>('import-review-button'),
+            onPressed: onReview,
+            icon: const Icon(Icons.fact_check_outlined),
+            label: const Text('Review metadata'),
+          ),
+        FilledButton.tonal(
+          key: const ValueKey<String>('import-reset-button'),
+          onPressed: onReset,
+          child: const Text('Import more music'),
         ),
-      ),
+      ],
+      children: [
+        const SizedBox(height: 12),
+        _ResultRow(label: 'Processed', value: summary.processedCount),
+        _ResultRow(label: 'Imported', value: summary.importedCount),
+        _ResultRow(label: 'Relinked', value: summary.relinkedCount),
+        _ResultRow(label: 'Skipped', value: summary.skippedCount),
+        _ResultRow(label: 'Failed', value: summary.failedCount),
+        if (reviewCount > 0)
+          _ResultRow(label: 'Needs review', value: reviewCount),
+      ],
     );
   }
 }
@@ -97,7 +69,13 @@ class _ResultRow extends StatelessWidget {
       child: Row(
         children: [
           Expanded(child: Text(label)),
-          Text('$value', style: const TextStyle(fontWeight: FontWeight.w700)),
+          Text(
+            '$value',
+            style: const TextStyle(
+              fontWeight: FontWeight.w700,
+              fontFeatures: [FontFeature.tabularFigures()],
+            ),
+          ),
         ],
       ),
     );

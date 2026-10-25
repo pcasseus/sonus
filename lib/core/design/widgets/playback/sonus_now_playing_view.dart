@@ -1,0 +1,302 @@
+import 'package:flutter/material.dart';
+
+import '../../sonus_artwork_palette.dart';
+import '../../sonus_atmosphere_colors.dart';
+import '../../sonus_theme.dart';
+import '../sonus_artwork_frame.dart';
+import '../sonus_artwork_image.dart';
+import '../sonus_artwork_atmosphere_builder.dart';
+import 'sonus_playback_controls.dart';
+import 'sonus_playback_progress.dart';
+
+/// The Sonus Now Playing layout (SN-48E): large artwork over the artwork's
+/// atmosphere, title and artist, the theme's progress treatment, playback
+/// controls, and Queue and Lyrics actions.
+///
+/// Presentation only. The player page supplies the values and callbacks;
+/// nothing here talks to the playback engine, so integrating it is a small
+/// mapping in the player feature.
+class SonusNowPlayingView extends StatelessWidget {
+  const SonusNowPlayingView({
+    super.key,
+    required this.title,
+    required this.artist,
+    required this.position,
+    required this.duration,
+    required this.isPlaying,
+    this.album,
+    this.artworkPath,
+    this.artworkPalette,
+    this.isLoading = false,
+    this.shuffleEnabled = false,
+    this.repeat = SonusRepeatDisplay.off,
+    this.onSeek,
+    this.onPlayPause,
+    this.onPrevious,
+    this.onNext,
+    this.onToggleShuffle,
+    this.onCycleRepeat,
+    this.onOpenQueue,
+    this.onOpenLyrics,
+    this.onOpenArtist,
+    this.notice,
+  });
+
+  final String title;
+  final String artist;
+  final String? album;
+  final String? artworkPath;
+  final SonusArtworkPalette? artworkPalette;
+
+  final Duration position;
+  final Duration? duration;
+  final bool isPlaying;
+  final bool isLoading;
+  final bool shuffleEnabled;
+  final SonusRepeatDisplay repeat;
+
+  final ValueChanged<Duration>? onSeek;
+  final VoidCallback? onPlayPause;
+  final VoidCallback? onPrevious;
+  final VoidCallback? onNext;
+  final VoidCallback? onToggleShuffle;
+  final VoidCallback? onCycleRepeat;
+  final VoidCallback? onOpenQueue;
+  final VoidCallback? onOpenLyrics;
+
+  /// Makes the artist line a link, when the player can open the profile.
+  final VoidCallback? onOpenArtist;
+
+  /// For example a playback error, shown above the controls.
+  final Widget? notice;
+
+  /// Width from which artwork sits beside the controls (landscape, tablets).
+  static const double wideLayoutWidth = 720;
+
+  @override
+  Widget build(BuildContext context) {
+    return SonusArtworkAtmosphereBuilder(
+      artworkPath: artworkPath,
+      palette: artworkPalette,
+      builder: (context, atmosphere) => DecoratedBox(
+        key: const ValueKey<String>('sonus-now-playing-view'),
+        decoration: BoxDecoration(
+          gradient: atmosphere.isTinted
+              ? LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [atmosphere.surface, atmosphere.background],
+                )
+              : null,
+          color: atmosphere.isTinted ? null : atmosphere.background,
+        ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final gutter = SonusTheme.of(context).metrics.pageGutter;
+            final wide = constraints.maxWidth >= wideLayoutWidth;
+
+            if (wide) {
+              final artSize = (constraints.maxHeight - gutter * 2).clamp(
+                160.0,
+                constraints.maxWidth * 0.42,
+              );
+              return Padding(
+                padding: EdgeInsets.all(gutter),
+                child: Row(
+                  children: [
+                    _Artwork(
+                      path: artworkPath,
+                      size: artSize,
+                      atmosphere: atmosphere,
+                    ),
+                    SizedBox(width: gutter * 2),
+                    Expanded(
+                      child: SingleChildScrollView(
+                        child: _details(context, atmosphere),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }
+
+            final artSize = [
+              constraints.maxWidth - gutter * 2,
+              constraints.maxHeight * 0.46,
+              420.0,
+            ].reduce((a, b) => a < b ? a : b).clamp(120.0, 420.0);
+
+            // Scrolls rather than clips when text is large or the screen
+            // short.
+            return SingleChildScrollView(
+              padding: EdgeInsets.fromLTRB(gutter, 12, gutter, 24),
+              child: Column(
+                children: [
+                  _Artwork(
+                    path: artworkPath,
+                    size: artSize,
+                    atmosphere: atmosphere,
+                  ),
+                  const SizedBox(height: 24),
+                  _details(context, atmosphere),
+                ],
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _details(BuildContext context, SonusAtmosphereColors atmosphere) {
+    final colors = SonusTheme.of(context).colors;
+    final theme = Theme.of(context);
+    final notice = this.notice;
+    final album = this.album;
+    final onOpenArtist = this.onOpenArtist;
+
+    final artistText = Text(
+      artist,
+      maxLines: 2,
+      overflow: TextOverflow.ellipsis,
+      style: theme.textTheme.titleMedium?.copyWith(
+        color: onOpenArtist == null ? colors.textSecondary : atmosphere.accent,
+        fontWeight: FontWeight.w600,
+      ),
+    );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Semantics(
+          header: true,
+          child: Text(
+            title,
+            key: const ValueKey<String>('sonus-now-playing-title'),
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.headlineSmall?.copyWith(
+              color: colors.textPrimary,
+              fontWeight: FontWeight.w900,
+              height: 1.15,
+            ),
+          ),
+        ),
+        const SizedBox(height: 6),
+        Align(
+          alignment: AlignmentDirectional.centerStart,
+          child: onOpenArtist == null
+              ? artistText
+              : InkWell(
+                  onTap: onOpenArtist,
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(minHeight: 48),
+                    child: Align(
+                      alignment: AlignmentDirectional.centerStart,
+                      widthFactor: 1,
+                      child: artistText,
+                    ),
+                  ),
+                ),
+        ),
+        if (album != null && album.trim().isNotEmpty)
+          Text(
+            album,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: colors.textSecondary,
+            ),
+          ),
+        const SizedBox(height: 18),
+        SonusPlaybackProgress(
+          position: position,
+          duration: duration,
+          onSeek: onSeek,
+          accentColor: atmosphere.isTinted ? atmosphere.accent : null,
+        ),
+        if (notice != null) ...[const SizedBox(height: 8), notice],
+        const SizedBox(height: 12),
+        SonusPlaybackControls(
+          isPlaying: isPlaying,
+          isLoading: isLoading,
+          shuffleEnabled: shuffleEnabled,
+          repeat: repeat,
+          onPlayPause: onPlayPause,
+          onPrevious: onPrevious,
+          onNext: onNext,
+          onToggleShuffle: onToggleShuffle,
+          onCycleRepeat: onCycleRepeat,
+          accentColor: atmosphere.isTinted ? atmosphere.accent : null,
+          onAccentColor: atmosphere.isTinted ? atmosphere.onAccent : null,
+        ),
+        const SizedBox(height: 16),
+        Wrap(
+          alignment: WrapAlignment.spaceEvenly,
+          spacing: 12,
+          runSpacing: 8,
+          children: [
+            TextButton.icon(
+              key: const ValueKey<String>('sonus-now-playing-queue'),
+              onPressed: onOpenQueue,
+              icon: const Icon(Icons.queue_music_rounded),
+              label: const Text('Queue'),
+            ),
+            TextButton.icon(
+              key: const ValueKey<String>('sonus-now-playing-lyrics'),
+              onPressed: onOpenLyrics,
+              icon: const Icon(Icons.lyrics_outlined),
+              label: const Text('Lyrics'),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _Artwork extends StatelessWidget {
+  const _Artwork({
+    required this.path,
+    required this.size,
+    required this.atmosphere,
+  });
+
+  final String? path;
+  final double size;
+  final SonusAtmosphereColors atmosphere;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = SonusTheme.of(context);
+    final glow = atmosphere.isTinted && tokens.decoration.allowGlow;
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(tokens.metrics.artworkRadius),
+        boxShadow: glow
+            ? [
+                BoxShadow(
+                  color: atmosphere.accent.withValues(alpha: 0.32),
+                  blurRadius: 40,
+                  spreadRadius: 2,
+                ),
+              ]
+            : null,
+      ),
+      child: path == null || path!.trim().isEmpty
+          ? SonusArtworkFrame(
+              size: size,
+              child: ColoredBox(
+                color: tokens.colors.artworkPlaceholder,
+                child: Icon(
+                  Icons.music_note_rounded,
+                  size: size * 0.4,
+                  color: tokens.colors.onArtworkPlaceholder,
+                ),
+              ),
+            )
+          : SonusArtworkImage(path: path, size: size),
+    );
+  }
+}

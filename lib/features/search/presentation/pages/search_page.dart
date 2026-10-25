@@ -1,8 +1,13 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+
+import '../../../../core/design/sonus_theme.dart';
+import '../../../../core/design/widgets/sonus_artwork_image.dart';
+import '../../../../core/design/widgets/sonus_state_view.dart';
+import '../../../../core/design/widgets/sonus_track_tile.dart';
 
 import '../../../library/application/models/library_album.dart';
 import '../../../library/application/models/library_artist.dart';
@@ -36,6 +41,7 @@ class _SearchPageState extends State<SearchPage> {
   List<LibraryTrack> _availabilityTracks = const [];
   bool _hasAvailabilityCatalog = false;
   int _availabilityGeneration = 0;
+  _SearchFilter _filter = _SearchFilter.all;
 
   @override
   void didChangeDependencies() {
@@ -303,10 +309,16 @@ class _SearchPageState extends State<SearchPage> {
   @override
   Widget build(BuildContext context) {
     final controller = _controller;
+    final tokens = SonusTheme.of(context);
 
     return Scaffold(
       key: const ValueKey<String>('search-page'),
-      appBar: AppBar(title: const Text('Search')),
+      backgroundColor: tokens.colors.background,
+      appBar: AppBar(
+        title: const Text('Search'),
+        backgroundColor: tokens.colors.background,
+        surfaceTintColor: Colors.transparent,
+      ),
       body: controller == null
           ? const Center(
               child: CircularProgressIndicator(
@@ -318,38 +330,21 @@ class _SearchPageState extends State<SearchPage> {
               builder: (context, child) {
                 return Column(
                   children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                      child: TextField(
-                        key: const ValueKey<String>('search-field'),
-                        controller: _textController,
-                        focusNode: _searchFocusNode,
-                        autofocus: true,
-                        textInputAction: TextInputAction.search,
-                        onChanged: controller.updateQuery,
-                        decoration: InputDecoration(
-                          hintText: 'Artists, albums, tracks',
-                          prefixIcon: const Icon(Icons.search_rounded),
-                          suffixIcon: controller.hasQuery
-                              ? IconButton(
-                                  key: const ValueKey<String>(
-                                    'search-clear-button',
-                                  ),
-                                  tooltip: 'Clear search',
-                                  onPressed: _clearSearch,
-                                  icon: const Icon(Icons.close_rounded),
-                                )
-                              : null,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(18),
-                          ),
-                        ),
-                      ),
+                    _SearchField(
+                      textController: _textController,
+                      focusNode: _searchFocusNode,
+                      hasQuery: controller.hasQuery,
+                      onChanged: controller.updateQuery,
+                      onClear: _clearSearch,
                     ),
-                    if (controller.isSearching)
-                      const LinearProgressIndicator(
-                        key: ValueKey<String>('search-progress'),
-                      ),
+                    SizedBox(
+                      height: 3,
+                      child: controller.isSearching
+                          ? const LinearProgressIndicator(
+                              key: ValueKey<String>('search-progress'),
+                            )
+                          : null,
+                    ),
                     Expanded(child: _buildBody(controller)),
                   ],
                 );
@@ -427,49 +422,80 @@ class _SearchPageState extends State<SearchPage> {
       return _NoSearchResults(query: controller.query.trim());
     }
 
-    return ListView(
-      key: const ValueKey<String>('search-results'),
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
-      children: [
-        if (visibleArtists.isNotEmpty) ...[
-          _SectionHeader(title: 'Artists', count: visibleArtists.length),
-          for (final artist in visibleArtists)
-            _ArtistResultTile(artist: artist, onTap: () => _openArtist(artist)),
-          const SizedBox(height: 18),
-        ],
-        if (visibleAlbums.isNotEmpty) ...[
-          _SectionHeader(title: 'Albums', count: visibleAlbums.length),
-          for (final album in visibleAlbums)
-            _AlbumResultTile(album: album, onTap: () => _openAlbum(album)),
-          const SizedBox(height: 18),
-        ],
-        if (visibleTracks.isNotEmpty) ...[
-          _SectionHeader(title: 'Tracks', count: visibleTracks.length),
-          for (final track in visibleTracks)
-            _TrackResultTile(
-              track: track,
-              isPlayable: _isPlayable(track),
-              canSetBlocked: context.read<SongBlockService?>() != null,
-              onTap: () => _playTrack(track),
-              onAction: (action) {
-                switch (action) {
-                  case _TrackSearchAction.playNext:
-                    _playNext(track);
-                  case _TrackSearchAction.addToQueue:
-                    _addToQueue(track);
-                  case _TrackSearchAction.addToPlaylist:
-                    showAddToPlaylistFlow(context, track);
-                  case _TrackSearchAction.goToArtist:
-                    _openTrackArtist(track);
-                  case _TrackSearchAction.goToAlbum:
-                    _openTrackAlbum(track);
-                  case _TrackSearchAction.toggleBlocked:
-                    _setTrackBlocked(track, !track.isSongBlocked);
-                }
-              },
-            ),
-        ],
+    final filter = _filter;
+    bool shows(_SearchFilter kind) =>
+        filter == _SearchFilter.all || filter == kind;
+    final canSetBlocked = context.read<SongBlockService?>() != null;
+    final gutter = SonusTheme.of(context).metrics.pageGutter;
+
+    // Built lazily: large result sets only build the rows on screen.
+    final items = <WidgetBuilder>[
+      (context) => _SearchFilters(
+        selected: filter,
+        counts: {
+          _SearchFilter.artists: visibleArtists.length,
+          _SearchFilter.albums: visibleAlbums.length,
+          _SearchFilter.tracks: visibleTracks.length,
+        },
+        onSelected: (value) => setState(() => _filter = value),
+      ),
+      if (shows(_SearchFilter.artists) && visibleArtists.isNotEmpty) ...[
+        (context) =>
+            _SectionHeader(title: 'Artists', count: visibleArtists.length),
+        for (final artist in visibleArtists)
+          (context) => _ArtistResultTile(
+            artist: artist,
+            onTap: () => _openArtist(artist),
+          ),
       ],
+      if (shows(_SearchFilter.albums) && visibleAlbums.isNotEmpty) ...[
+        (context) =>
+            _SectionHeader(title: 'Albums', count: visibleAlbums.length),
+        for (final album in visibleAlbums)
+          (context) =>
+              _AlbumResultTile(album: album, onTap: () => _openAlbum(album)),
+      ],
+      if (shows(_SearchFilter.tracks) && visibleTracks.isNotEmpty) ...[
+        (context) =>
+            _SectionHeader(title: 'Tracks', count: visibleTracks.length),
+        for (final track in visibleTracks)
+          (context) => _TrackResultTile(
+            track: track,
+            isPlayable: _isPlayable(track),
+            canSetBlocked: canSetBlocked,
+            onTap: () => _playTrack(track),
+            onAction: (action) {
+              switch (action) {
+                case _TrackSearchAction.playNext:
+                  _playNext(track);
+                case _TrackSearchAction.addToQueue:
+                  _addToQueue(track);
+                case _TrackSearchAction.addToPlaylist:
+                  showAddToPlaylistFlow(context, track);
+                case _TrackSearchAction.goToArtist:
+                  _openTrackArtist(track);
+                case _TrackSearchAction.goToAlbum:
+                  _openTrackAlbum(track);
+                case _TrackSearchAction.toggleBlocked:
+                  _setTrackBlocked(track, !track.isSongBlocked);
+              }
+            },
+          ),
+      ],
+    ];
+
+    return ListView.builder(
+      key: const ValueKey<String>('search-results'),
+      // Dragging the results hides the keyboard, so they are not covered.
+      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+      padding: EdgeInsets.fromLTRB(
+        gutter - 4,
+        4,
+        gutter - 4,
+        32 + MediaQuery.paddingOf(context).bottom,
+      ),
+      itemCount: items.length,
+      itemBuilder: (context, index) => items[index](context),
     );
   }
 
@@ -483,32 +509,137 @@ class _SearchPageState extends State<SearchPage> {
   }
 }
 
+/// Which kind of result is shown; a view filter only, the search itself is
+/// unchanged.
+enum _SearchFilter { all, artists, albums, tracks }
+
+class _SearchField extends StatelessWidget {
+  const _SearchField({
+    required this.textController,
+    required this.focusNode,
+    required this.hasQuery,
+    required this.onChanged,
+    required this.onClear,
+  });
+
+  final TextEditingController textController;
+  final FocusNode focusNode;
+  final bool hasQuery;
+  final ValueChanged<String> onChanged;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = SonusTheme.of(context);
+    final colors = tokens.colors;
+    final radius = BorderRadius.circular(tokens.metrics.controlRadius);
+    final gutter = tokens.metrics.pageGutter;
+
+    return Padding(
+      padding: EdgeInsets.fromLTRB(gutter, 8, gutter, 10),
+      // Escape clears the query, like the clear button.
+      child: CallbackShortcuts(
+        bindings: {
+          const SingleActivator(LogicalKeyboardKey.escape): () {
+            if (hasQuery) onClear();
+          },
+        },
+        child: TextField(
+          key: const ValueKey<String>('search-field'),
+          controller: textController,
+          focusNode: focusNode,
+          autofocus: true,
+          textInputAction: TextInputAction.search,
+          onChanged: onChanged,
+          onSubmitted: (_) => focusNode.unfocus(),
+          style: Theme.of(
+            context,
+          ).textTheme.bodyLarge?.copyWith(color: colors.textPrimary),
+          decoration: InputDecoration(
+            hintText: 'Artists, albums, tracks',
+            prefixIcon: const Icon(Icons.search_rounded),
+            suffixIcon: hasQuery
+                ? IconButton(
+                    key: const ValueKey<String>('search-clear-button'),
+                    tooltip: 'Clear search',
+                    onPressed: onClear,
+                    icon: const Icon(Icons.close_rounded),
+                  )
+                : null,
+            filled: true,
+            fillColor: colors.raisedSurface,
+            border: OutlineInputBorder(
+              borderRadius: radius,
+              borderSide: BorderSide.none,
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: radius,
+              borderSide: BorderSide(color: colors.divider),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: radius,
+              borderSide: BorderSide(color: colors.focus, width: 2),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SearchFilters extends StatelessWidget {
+  const _SearchFilters({
+    required this.selected,
+    required this.counts,
+    required this.onSelected,
+  });
+
+  final _SearchFilter selected;
+  final Map<_SearchFilter, int> counts;
+  final ValueChanged<_SearchFilter> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final total = counts.values.fold<int>(0, (sum, count) => sum + count);
+
+    String label(_SearchFilter filter) => switch (filter) {
+      _SearchFilter.all => 'All $total',
+      _SearchFilter.artists => 'Artists ${counts[filter]}',
+      _SearchFilter.albums => 'Albums ${counts[filter]}',
+      _SearchFilter.tracks => 'Tracks ${counts[filter]}',
+    };
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(4, 0, 4, 6),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 4,
+        children: [
+          for (final filter in _SearchFilter.values)
+            if (filter == _SearchFilter.all || (counts[filter] ?? 0) > 0)
+              ChoiceChip(
+                key: ValueKey<String>('search-filter-${filter.name}'),
+                label: Text(label(filter)),
+                selected: selected == filter,
+                onSelected: (_) => onSelected(filter),
+                materialTapTargetSize: MaterialTapTargetSize.padded,
+              ),
+        ],
+      ),
+    );
+  }
+}
+
 class _SearchPrompt extends StatelessWidget {
   const _SearchPrompt();
 
   @override
   Widget build(BuildContext context) {
-    return const Center(
+    return const SonusStateView(
       key: ValueKey<String>('search-prompt'),
-      child: Padding(
-        padding: EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(Icons.library_music_rounded, size: 52),
-            SizedBox(height: 16),
-            Text(
-              'Search your library',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
-            ),
-            SizedBox(height: 8),
-            Text(
-              'Find artists, albums, and tracks in Sonus.',
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
-      ),
+      icon: Icons.manage_search_rounded,
+      title: 'Search your library',
+      message: 'Find artists, albums, and tracks in Sonus.',
     );
   }
 }
@@ -520,33 +651,17 @@ class _SearchError extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
+    return SonusStateView(
       key: const ValueKey<String>('search-error'),
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.error_outline_rounded, size: 48),
-            const SizedBox(height: 16),
-            const Text(
-              'Search failed',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Something went wrong while searching your library.',
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              key: const ValueKey<String>('search-retry-button'),
-              onPressed: onRetry,
-              icon: const Icon(Icons.refresh_rounded),
-              label: const Text('Retry'),
-            ),
-          ],
-        ),
+      icon: Icons.error_outline_rounded,
+      isError: true,
+      title: 'Search failed',
+      message: 'Something went wrong while searching your library.',
+      action: FilledButton.icon(
+        key: const ValueKey<String>('search-retry-button'),
+        onPressed: onRetry,
+        icon: const Icon(Icons.refresh_rounded),
+        label: const Text('Retry'),
       ),
     );
   }
@@ -559,28 +674,11 @@ class _NoSearchResults extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
+    return SonusStateView(
       key: const ValueKey<String>('search-empty'),
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.search_off_rounded, size: 48),
-            const SizedBox(height: 16),
-            Text(
-              'No results for "$query"',
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Try another artist, album, or track name.',
-              textAlign: TextAlign.center,
-            ),
-          ],
-        ),
-      ),
+      icon: Icons.search_off_rounded,
+      title: 'No results for "$query"',
+      message: 'Try another artist, album, or track name.',
     );
   }
 }
@@ -593,22 +691,115 @@ class _SectionHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
+    final tokens = SonusTheme.of(context);
+    final theme = Theme.of(context);
 
     return Padding(
-      padding: const EdgeInsets.only(left: 4, right: 4, top: 6, bottom: 8),
+      padding: const EdgeInsets.fromLTRB(6, 14, 6, 6),
       child: Row(
         children: [
           Expanded(
-            child: Text(
-              title,
-              style: textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w700,
+            child: Semantics(
+              header: true,
+              child: Text(
+                title,
+                style: theme.textTheme.titleLarge?.copyWith(
+                  color: tokens.colors.textPrimary,
+                  fontWeight: FontWeight.w800,
+                ),
               ),
             ),
           ),
-          Text('$count', style: textTheme.labelLarge),
+          Text(
+            '$count',
+            style: theme.textTheme.labelLarge?.copyWith(
+              color: tokens.colors.textSecondary,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
         ],
+      ),
+    );
+  }
+}
+
+class _ResultRow extends StatelessWidget {
+  const _ResultRow({
+    required this.rowKey,
+    required this.artwork,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final Key rowKey;
+  final Widget artwork;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = SonusTheme.of(context);
+    final colors = tokens.colors;
+    final theme = Theme.of(context);
+    final largeText =
+        MediaQuery.textScalerOf(context).scale(1) > sonusLargeTextScale;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Material(
+        color: Colors.transparent,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(tokens.metrics.cardRadius),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          key: rowKey,
+          onTap: onTap,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 60),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(10, 6, 6, 6),
+              child: Row(
+                children: [
+                  artwork,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          title,
+                          maxLines: largeText ? 3 : 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodyLarge?.copyWith(
+                            color: colors.textPrimary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        Text(
+                          subtitle,
+                          maxLines: largeText ? 3 : 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: colors.textSecondary,
+                            fontFeatures: const [FontFeature.tabularFigures()],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    color: colors.textSecondary,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -625,21 +816,20 @@ class _ArtistResultTile extends StatelessWidget {
     final artworkPath =
         artist.topArtistsArtworkPath ?? artist.headerArtworkPath;
 
-    return ListTile(
-      key: ValueKey<String>('search-artist-${artist.artistId}'),
+    return _ResultRow(
+      rowKey: ValueKey<String>('search-artist-${artist.artistId}'),
       onTap: onTap,
-      leading: _SearchArtwork(
+      artwork: SonusArtworkImage(
         path: artworkPath,
-        icon: Icons.person_rounded,
+        size: 52,
         circular: true,
+        placeholderIcon: Icons.person_rounded,
       ),
-      title: Text(artist.name),
-      subtitle: Text(
-        '${artist.albumCount} ${artist.albumCount == 1 ? 'album' : 'albums'}'
-        ' • '
-        '${artist.songCount} ${artist.songCount == 1 ? 'track' : 'tracks'}',
-      ),
-      trailing: const Icon(Icons.chevron_right_rounded),
+      title: artist.name,
+      subtitle:
+          '${artist.albumCount} ${artist.albumCount == 1 ? 'album' : 'albums'}'
+          ' • '
+          '${artist.songCount} ${artist.songCount == 1 ? 'track' : 'tracks'}',
     );
   }
 }
@@ -652,19 +842,18 @@ class _AlbumResultTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListTile(
-      key: ValueKey<String>('search-album-${album.albumId}'),
+    return _ResultRow(
+      rowKey: ValueKey<String>('search-album-${album.albumId}'),
       onTap: onTap,
-      leading: _SearchArtwork(
+      artwork: SonusArtworkImage(
         path: album.artworkPath,
-        icon: Icons.album_rounded,
+        size: 52,
+        placeholderIcon: Icons.album_rounded,
       ),
-      title: Text(album.title),
-      subtitle: Text(
-        '${album.artistName} • '
-        '${album.trackCount} ${album.trackCount == 1 ? 'track' : 'tracks'}',
-      ),
-      trailing: const Icon(Icons.chevron_right_rounded),
+      title: album.title,
+      subtitle:
+          '${album.artistName} • '
+          '${album.trackCount} ${album.trackCount == 1 ? 'track' : 'tracks'}',
     );
   }
 }
@@ -686,25 +875,23 @@ class _TrackResultTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListTile(
-      key: ValueKey<String>('search-track-${track.songId}'),
-      onTap: isPlayable ? onTap : null,
-      leading: _SearchArtwork(
-        path: track.artworkPath,
-        icon: Icons.music_note_rounded,
-      ),
-      title: Text(track.title),
-      subtitle: Text(
-        track.isBlocked
-            ? '${track.artistName} • Blacklisted'
-            : !track.isAvailable ||
-                  track.filePath == null ||
-                  track.filePath!.trim().isEmpty
-            ? '${track.artistName} • Unavailable'
-            : '${track.artistName} • ${track.albumTitle}',
-      ),
+    return SonusTrackTile(
+      inkKey: ValueKey<String>('search-track-${track.songId}'),
+      onTap: onTap,
+      enabled: isPlayable,
+      artworkPath: track.artworkPath,
+      title: track.title,
+      subtitle: track.isBlocked
+          ? '${track.artistName} • Blacklisted'
+          : !track.isAvailable ||
+                track.filePath == null ||
+                track.filePath!.trim().isEmpty
+          ? '${track.artistName} • Unavailable'
+          : '${track.artistName} • ${track.albumTitle}',
+      duration: sonusFormatDuration(track.durationSeconds),
       trailing: PopupMenuButton<_TrackSearchAction>(
         key: ValueKey<String>('search-track-menu-${track.songId}'),
+        tooltip: 'Song options',
         onSelected: onAction,
         itemBuilder: (context) {
           return [
@@ -772,84 +959,6 @@ class _TrackResultTile extends StatelessWidget {
           ];
         },
       ),
-    );
-  }
-}
-
-class _SearchArtwork extends StatelessWidget {
-  const _SearchArtwork({
-    required this.path,
-    required this.icon,
-    this.circular = false,
-  });
-
-  final String? path;
-  final IconData icon;
-  final bool circular;
-
-  @override
-  Widget build(BuildContext context) {
-    const size = 52.0;
-
-    final resolvedPath = path?.trim();
-
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(circular ? size / 2 : 10),
-      child: SizedBox(
-        width: size,
-        height: size,
-        child: resolvedPath == null || resolvedPath.isEmpty
-            ? _ArtworkFallback(icon: icon)
-            : _ArtworkImage(path: resolvedPath, fallbackIcon: icon),
-      ),
-    );
-  }
-}
-
-class _ArtworkImage extends StatelessWidget {
-  const _ArtworkImage({required this.path, required this.fallbackIcon});
-
-  final String path;
-  final IconData fallbackIcon;
-
-  @override
-  Widget build(BuildContext context) {
-    final file = File(path);
-
-    if (file.existsSync()) {
-      return Image.file(
-        file,
-        fit: BoxFit.cover,
-        cacheWidth: 160,
-        cacheHeight: 160,
-        errorBuilder: (context, error, stackTrace) {
-          return _ArtworkFallback(icon: fallbackIcon);
-        },
-      );
-    }
-
-    return Image.asset(
-      path,
-      fit: BoxFit.cover,
-      cacheWidth: 160,
-      cacheHeight: 160,
-      errorBuilder: (context, error, stackTrace) {
-        return _ArtworkFallback(icon: fallbackIcon);
-      },
-    );
-  }
-}
-
-class _ArtworkFallback extends StatelessWidget {
-  const _ArtworkFallback({required this.icon});
-
-  final IconData icon;
-
-  @override
-  Widget build(BuildContext context) {
-    return ColoredBox(
-      color: Theme.of(context).colorScheme.surfaceContainerHighest,
-      child: Center(child: Icon(icon)),
     );
   }
 }

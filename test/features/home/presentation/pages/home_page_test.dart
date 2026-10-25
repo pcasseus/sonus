@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:sonus_next/core/design/sonus_theme_factory.dart';
@@ -263,6 +264,234 @@ void main() {
 
   group('Sonus themes', _themeTests);
   group('Top Artists cards', _topArtistCardTests);
+  group('Rail layout and focus', _railLayoutTests);
+}
+
+void _railLayoutTests() {
+  const popular = ValueKey<String>('home-popular-track-song_popular');
+  const artist = ValueKey<String>('home-top-artist-artist_1');
+  const recent = ValueKey<String>('home-recent-track-song_recent');
+  const album = ValueKey<String>('home-new-album-album_1');
+
+  double widthOf(WidgetTester tester, Key key) =>
+      tester.getSize(find.byKey(key)).width;
+
+  // Regression: the rails shared the page's PageStorage slot, so a rail
+  // built after scrolling down restored the page's vertical offset as its
+  // own horizontal one and opened part-way along.
+  testWidgets('rails built after scrolling down start at their first card', (
+    tester,
+  ) async {
+    final base = _snapshot();
+    final controller = await _loadedController(
+      HomeSnapshot(
+        recentlyAddedTracks: base.recentlyAddedTracks,
+        recentlyAddedAlbums: [
+          for (var i = 1; i <= 6; i++)
+            LibraryAlbum(
+              albumId: 'album_$i',
+              title: 'Album $i',
+              artistId: 'artist_1',
+              artistName: 'Artist 1',
+              trackCount: 2,
+              dateAdded: DateTime.utc(2026, 9, 28),
+            ),
+        ],
+        weeklyPopularTracks: base.weeklyPopularTracks,
+        weeklyTopArtists: base.weeklyTopArtists,
+      ),
+    );
+    tester.view.devicePixelRatio = 1;
+    tester.view.physicalSize = const Size(411, 600);
+    addTearDown(tester.view.reset);
+
+    await _pumpHome(tester, controller, size: const Size(411, 600));
+
+    // The New Albums rail is below the fold and not built yet.
+    expect(find.byKey(album), findsNothing);
+
+    final page = tester.state<ScrollableState>(
+      find
+          .byWidgetPredicate(
+            (widget) =>
+                widget is Scrollable &&
+                widget.axisDirection == AxisDirection.down,
+          )
+          .first,
+    );
+    page.position.jumpTo(page.position.maxScrollExtent);
+    await tester.pumpAndSettle();
+
+    // Any album card locates the rail, even if it opened past the first.
+    final albumCard = find.byWidgetPredicate((widget) {
+      final key = widget.key;
+      return key is ValueKey<String> && key.value.startsWith('home-new-album-');
+    });
+    final rail = tester.state<ScrollableState>(
+      find
+          .ancestor(of: albumCard.first, matching: find.byType(Scrollable))
+          .first,
+    );
+    expect(rail.position.axis, Axis.horizontal);
+    expect(rail.position.pixels, 0);
+  });
+
+  testWidgets('featured cards lead and supporting rails share one size', (
+    tester,
+  ) async {
+    final controller = await _loadedController(_snapshot());
+
+    for (final (width, featured, standard) in [
+      (320.0, 150.0, 130.0),
+      (411.0, 170.0, 142.8),
+      (800.0, 220.0, 180.0),
+    ]) {
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = Size(width, 1600);
+      addTearDown(tester.view.reset);
+
+      await _pumpHome(tester, controller, size: Size(width, 1600));
+
+      final reason = 'screen $width';
+      expect(widthOf(tester, popular), closeTo(featured, 0.01), reason: reason);
+      expect(widthOf(tester, recent), closeTo(standard, 0.01), reason: reason);
+      expect(widthOf(tester, album), widthOf(tester, recent), reason: reason);
+      expect(
+        widthOf(tester, popular),
+        greaterThan(widthOf(tester, artist)),
+        reason: reason,
+      );
+      expect(
+        widthOf(tester, artist),
+        greaterThan(widthOf(tester, recent)),
+        reason: reason,
+      );
+    }
+  });
+
+  testWidgets('the featured section carries a caption', (tester) async {
+    final controller = await _loadedController(_snapshot());
+
+    await _pumpHome(
+      tester,
+      controller,
+      theme: SonusThemeFactory.build(const SonusAppearanceSpec()),
+    );
+
+    expect(find.text('Your most-played tracks this week'), findsOneWidget);
+  });
+
+  testWidgets('secondary card lines use the theme secondary text colour', (
+    tester,
+  ) async {
+    final controller = await _loadedController(_snapshot());
+    final theme = SonusThemeFactory.build(
+      const SonusAppearanceSpec(themeId: SonusThemeId.neonMixtape),
+    );
+    final colors = theme.extension<SonusColors>()!;
+
+    await _pumpHome(tester, controller, theme: theme);
+
+    final streams = tester.widget<Text>(
+      find.descendant(
+        of: find.byKey(popular),
+        matching: find.text('12 weekly streams'),
+      ),
+    );
+    expect(streams.style!.color, colors.textSecondary);
+    expect(
+      streams.style!.fontFeatures,
+      contains(const FontFeature.tabularFigures()),
+    );
+
+    final title = tester.widget<Text>(
+      find.descendant(
+        of: find.byKey(popular),
+        matching: find.text('Popular Song'),
+      ),
+    );
+    expect(title.style!.color, colors.textPrimary);
+  });
+
+  testWidgets('a blocked track is labelled unavailable for screen readers', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    final controller = await _loadedController(
+      _snapshot(
+        recentTrack: _track(
+          id: 'song_blocked',
+          title: 'Blocked Song',
+          blocked: true,
+        ),
+      ),
+    );
+
+    await _pumpHome(tester, controller);
+
+    // The card merges its children, so the state is part of its label.
+    final label = tester
+        .getSemantics(
+          find.byKey(const ValueKey<String>('home-recent-track-song_blocked')),
+        )
+        .label;
+    expect(label, startsWith('Unavailable'));
+    expect(label, contains('Blocked Song'));
+    semantics.dispose();
+  });
+
+  testWidgets('keyboard focus outlines a card in the theme focus colour', (
+    tester,
+  ) async {
+    final controller = await _loadedController(_snapshot());
+    final theme = SonusThemeFactory.build(const SonusAppearanceSpec());
+    final colors = theme.extension<SonusColors>()!;
+    const ring = ValueKey<String>('home-card-focus-ring');
+
+    // The card's own focus node, which InkWell places above its child.
+    FocusNode cardFocus(Key card) => Focus.of(
+      tester.element(
+        find.descendant(of: find.byKey(card), matching: find.byType(Column)),
+      ),
+    );
+
+    Future<void> tabUntil(bool Function() reached) async {
+      for (var i = 0; i < 8 && !reached(); i++) {
+        await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+        await tester.pumpAndSettle();
+      }
+    }
+
+    await _pumpHome(tester, controller, theme: theme);
+
+    expect(find.byKey(ring), findsNothing);
+
+    await tabUntil(() => cardFocus(popular).hasPrimaryFocus);
+    expect(cardFocus(popular).hasPrimaryFocus, isTrue);
+
+    final focusRing = find.byKey(ring);
+    expect(focusRing, findsOneWidget);
+    expect(
+      find.descendant(of: focusRing, matching: find.byKey(popular)),
+      findsOneWidget,
+    );
+    final border =
+        (tester.widget<DecoratedBox>(focusRing).decoration as BoxDecoration)
+                .border!
+            as Border;
+    expect(border.top.color, colors.focus);
+
+    // Moving on hands the ring to the next card; only one card shows it.
+    await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+    await tester.pumpAndSettle();
+
+    expect(cardFocus(popular).hasPrimaryFocus, isFalse);
+    expect(find.byKey(ring), findsOneWidget);
+    expect(
+      find.descendant(of: find.byKey(ring), matching: find.byKey(popular)),
+      findsNothing,
+    );
+  });
 }
 
 void _topArtistCardTests() {

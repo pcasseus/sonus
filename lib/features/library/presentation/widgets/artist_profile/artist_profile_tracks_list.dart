@@ -1,8 +1,14 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+import '../../../../../core/design/sonus_theme.dart';
 import '../../../application/models/library_track.dart';
+
+/// Text scale above which rows switch to their large-text layout, as in
+/// the shared Sonus data components.
+const double _largeTextScale = 1.3;
 
 class ArtistProfileTracksList extends StatelessWidget {
   const ArtistProfileTracksList({
@@ -20,9 +26,26 @@ class ArtistProfileTracksList extends StatelessWidget {
     required this.onChangeArtwork,
     required this.onClearArtwork,
     required this.onSetBlocked,
+    this.keyPrefix = 'artist-track',
+    this.streamCounts,
+    this.tileColor,
+    this.profileArtistId,
   });
 
   final List<LibraryTrack> tracks;
+
+  /// When given, rows whose primary artist is someone else name them.
+  final String? profileArtistId;
+
+  /// Prefix of each row's key (`<prefix>-<songId>`) and menu key
+  /// (`<prefix>-menu-<songId>`), so one song can appear in two sections.
+  final String keyPrefix;
+
+  /// All-time qualified streams per song. When given, rows show their rank
+  /// and stream count, in the order of [tracks].
+  final Map<String, int>? streamCounts;
+
+  final Color? tileColor;
   final bool Function(LibraryTrack track) isTrackPlayable;
   final bool canEditArtwork;
   final bool canEditTrack;
@@ -43,12 +66,22 @@ class ArtistProfileTracksList extends StatelessWidget {
       return const _EmptySection(message: 'No songs yet');
     }
 
+    final largeText =
+        MediaQuery.textScalerOf(context).scale(1) > _largeTextScale;
+
     return Column(
-      key: const ValueKey<String>('artist-profile-tracks-list'),
+      key: ValueKey<String>('$keyPrefix-list'),
       children: [
-        for (final track in tracks)
+        for (final (index, track) in tracks.indexed)
           _TrackTile(
             track: track,
+            keyPrefix: keyPrefix,
+            rank: streamCounts == null ? null : index + 1,
+            streamCount: streamCounts?[track.songId],
+            largeText: largeText,
+            tileColor: tileColor,
+            showArtist:
+                profileArtistId != null && track.artistId != profileArtistId,
             isPlayable: isTrackPlayable(track),
             canEditArtwork: canEditArtwork,
             canEditTrack: canEditTrack,
@@ -70,6 +103,12 @@ class ArtistProfileTracksList extends StatelessWidget {
 class _TrackTile extends StatelessWidget {
   const _TrackTile({
     required this.track,
+    required this.keyPrefix,
+    required this.rank,
+    required this.streamCount,
+    required this.largeText,
+    required this.tileColor,
+    required this.showArtist,
     required this.isPlayable,
     required this.canEditArtwork,
     required this.canEditTrack,
@@ -85,6 +124,12 @@ class _TrackTile extends StatelessWidget {
   });
 
   final LibraryTrack track;
+  final String keyPrefix;
+  final int? rank;
+  final int? streamCount;
+  final bool largeText;
+  final Color? tileColor;
+  final bool showArtist;
   final bool isPlayable;
   final bool canEditArtwork;
   final bool canEditTrack;
@@ -102,48 +147,74 @@ class _TrackTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
+    final colors = SonusTheme.of(context).colors;
+    final rank = this.rank;
+    const tabular = [FontFeature.tabularFigures()];
+    final duration = _formatDuration(track.durationSeconds);
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
       child: ListTile(
-        key: ValueKey<String>('artist-track-${track.songId}'),
+        key: ValueKey<String>('$keyPrefix-${track.songId}'),
         enabled: isPlayable,
-        tileColor: colorScheme.surfaceContainerLow,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        contentPadding: const EdgeInsets.only(left: 12, right: 4),
-        leading: SizedBox(
-          width: 34,
-          child: Center(
-            child: Text(
-              '${track.trackNumber}',
-              style: theme.textTheme.labelLarge?.copyWith(
-                fontWeight: FontWeight.w700,
-                color: colorScheme.onSurfaceVariant,
-              ),
-            ),
+        tileColor: tileColor ?? colors.surface,
+        textColor: colors.textPrimary,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(
+            SonusTheme.of(context).metrics.cardRadius,
           ),
+        ),
+        contentPadding: const EdgeInsets.only(left: 12, right: 4),
+        minVerticalPadding: 8,
+        leading: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // The rank column would squeeze titles at large text sizes.
+            if (rank != null && !largeText)
+              SizedBox(
+                width: 26,
+                child: Text(
+                  '$rank',
+                  key: ValueKey<String>('$keyPrefix-rank-${track.songId}'),
+                  maxLines: 1,
+                  softWrap: false,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    color: colors.textSecondary,
+                    fontWeight: FontWeight.w800,
+                    fontFeatures: tabular,
+                  ),
+                ),
+              ),
+            _TrackArtwork(track: track, size: 44),
+          ],
         ),
         title: Text(
           track.title,
-          maxLines: 1,
+          maxLines: largeText ? 3 : 1,
           overflow: TextOverflow.ellipsis,
           style: theme.textTheme.bodyLarge?.copyWith(
             fontWeight: FontWeight.w600,
           ),
         ),
-        subtitle: _subtitle(track, theme, colorScheme),
+        subtitle: _subtitle(
+          track,
+          theme,
+          colors.textSecondary,
+          duration: largeText ? duration : null,
+        ),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              _formatDuration(track.durationSeconds),
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: colorScheme.onSurfaceVariant,
+            if (!largeText)
+              Text(
+                duration,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: colors.textSecondary,
+                  fontFeatures: tabular,
+                ),
               ),
-            ),
             PopupMenuButton<_TrackMenuAction>(
-              key: ValueKey<String>('artist-track-menu-${track.songId}'),
+              key: ValueKey<String>('$keyPrefix-menu-${track.songId}'),
               enabled:
                   isPlayable || canEditArtwork || canEditTrack || canSetBlocked,
               onSelected: (action) {
@@ -230,8 +301,9 @@ class _TrackTile extends StatelessWidget {
   Widget? _subtitle(
     LibraryTrack track,
     ThemeData theme,
-    ColorScheme colorScheme,
-  ) {
+    Color color, {
+    String? duration,
+  }) {
     final parts = <String>[];
 
     if (track.isBlocked) {
@@ -242,10 +314,26 @@ class _TrackTile extends StatelessWidget {
       parts.add('Unavailable');
     }
 
+    final streamCount = this.streamCount;
+
+    if (streamCount != null) {
+      parts.add(streamCount == 1 ? '1 stream' : '$streamCount streams');
+    }
+
+    final artistName = track.artistName.trim();
+
+    if (showArtist && artistName.isNotEmpty) {
+      parts.add(artistName);
+    }
+
     final albumTitle = track.albumTitle.trim();
 
     if (albumTitle.isNotEmpty) {
       parts.add(albumTitle);
+    }
+
+    if (duration != null) {
+      parts.add(duration);
     }
 
     if (parts.isEmpty) {
@@ -253,11 +341,12 @@ class _TrackTile extends StatelessWidget {
     }
 
     return Text(
-      parts.join(' \u2022 '),
-      maxLines: 1,
+      parts.join(' • '),
+      maxLines: largeText ? 3 : 1,
       overflow: TextOverflow.ellipsis,
       style: theme.textTheme.bodySmall?.copyWith(
-        color: colorScheme.onSurfaceVariant,
+        color: color,
+        fontFeatures: const [FontFeature.tabularFigures()],
       ),
     );
   }
@@ -289,7 +378,50 @@ class _EmptySection extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 20),
       child: Center(
-        child: Text(message, style: Theme.of(context).textTheme.bodyMedium),
+        child: Text(
+          message,
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+            color: SonusTheme.of(context).colors.textSecondary,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TrackArtwork extends StatelessWidget {
+  const _TrackArtwork({required this.track, required this.size});
+
+  final LibraryTrack track;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = SonusTheme.of(context);
+    final path = track.artworkPath?.trim();
+    final fallback = ColoredBox(
+      color: tokens.colors.artworkPlaceholder,
+      child: Icon(
+        Icons.music_note_rounded,
+        size: size * 0.5,
+        color: tokens.colors.onArtworkPlaceholder,
+      ),
+    );
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(tokens.metrics.artworkRadius / 2),
+      child: SizedBox.square(
+        dimension: size,
+        child: path == null || path.isEmpty
+            ? fallback
+            : Image.file(
+                File(path),
+                fit: BoxFit.cover,
+                // Decoded at its display size, never at full resolution.
+                cacheWidth: (size * MediaQuery.devicePixelRatioOf(context))
+                    .round(),
+                errorBuilder: (context, error, stackTrace) => fallback,
+              ),
       ),
     );
   }

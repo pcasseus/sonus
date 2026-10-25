@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/design/widgets/sonus_surface_card.dart';
+
 import '../controllers/imports_controller.dart';
 
 class ImportProgressCard extends StatelessWidget {
@@ -16,10 +18,11 @@ class ImportProgressCard extends StatelessWidget {
     final completed = batch?.completedCount ?? 0;
     final progress = total == 0 ? null : batch!.progress;
 
-    return Card(
+    return SonusSurfaceCard(
       key: const ValueKey<String>('import-progress-card'),
-      child: Padding(
-        padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(20),
+      child: Semantics(
+        liveRegion: true,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -31,12 +34,14 @@ class ImportProgressCard extends StatelessWidget {
                   child: CircularProgressIndicator(strokeWidth: 2.5),
                 ),
                 const SizedBox(width: 12),
-                Text(
-                  controller.isSelectingSource
-                      ? 'Choose a source'
-                      : 'Importing music',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
+                Expanded(
+                  child: Text(
+                    controller.isSelectingSource
+                        ? 'Choose a source'
+                        : 'Importing music',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                 ),
               ],
@@ -49,7 +54,9 @@ class ImportProgressCard extends StatelessWidget {
                   ? 'Preparing import...'
                   : '$completed of $total files processed',
               key: const ValueKey<String>('import-progress-text'),
-              style: theme.textTheme.bodyMedium,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
             ),
           ],
         ),

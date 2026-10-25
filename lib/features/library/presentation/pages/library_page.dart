@@ -3,6 +3,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../../core/design/sonus_theme.dart';
+import '../../../../core/design/widgets/sonus_page_header.dart';
+import '../../../../core/design/widgets/sonus_state_view.dart';
 import '../../application/models/library_artist.dart';
 import '../../application/models/library_track.dart';
 import '../../application/repositories/library_query_repository.dart';
@@ -67,7 +70,7 @@ class _LibraryPageState extends State<LibraryPage> {
         animation: controller,
         builder: (context, _) {
           if (controller.isLoading && controller.artists.isEmpty) {
-            return const Center(child: CircularProgressIndicator());
+            return const SonusStateView.loading();
           }
 
           if (controller.hasError && controller.artists.isEmpty) {
@@ -90,6 +93,8 @@ class _LibraryPageState extends State<LibraryPage> {
               )
               .toList(growable: false);
 
+          final gutter = SonusTheme.of(context).metrics.pageGutter;
+
           return RefreshIndicator(
             onRefresh: controller.refresh,
             child: CustomScrollView(
@@ -106,24 +111,50 @@ class _LibraryPageState extends State<LibraryPage> {
                   )
                 else
                   SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(20, 8, 20, 32),
-                    sliver: SliverGrid(
-                      key: const PageStorageKey<String>('artists-grid'),
-                      delegate: SliverChildBuilderDelegate((context, index) {
-                        final artist = visibleArtists[index];
+                    padding: EdgeInsets.fromLTRB(
+                      gutter,
+                      4,
+                      gutter,
+                      32 + MediaQuery.paddingOf(context).bottom,
+                    ),
+                    sliver: SliverLayoutBuilder(
+                      builder: (context, constraints) {
+                        const spacing = 14.0;
+                        // Two columns on phones; wider screens add one per
+                        // 300dp instead of stretching the cards.
+                        final columns = (constraints.crossAxisExtent / 300)
+                            .floor()
+                            .clamp(2, 5);
+                        final tileWidth =
+                            (constraints.crossAxisExtent -
+                                spacing * (columns - 1)) /
+                            columns;
+                        final caption = MediaQuery.textScalerOf(
+                          context,
+                        ).scale(LibraryArtistCard.captionHeight);
 
-                        return LibraryArtistCard(
-                          artist: artist,
-                          onTap: () => _openArtist(artist),
+                        return SliverGrid(
+                          key: const PageStorageKey<String>('artists-grid'),
+                          delegate: SliverChildBuilderDelegate((
+                            context,
+                            index,
+                          ) {
+                            final artist = visibleArtists[index];
+
+                            return LibraryArtistCard(
+                              artist: artist,
+                              onTap: () => _openArtist(artist),
+                            );
+                          }, childCount: visibleArtists.length),
+                          gridDelegate:
+                              SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: columns,
+                                crossAxisSpacing: spacing,
+                                mainAxisSpacing: spacing,
+                                mainAxisExtent: tileWidth + caption,
+                              ),
                         );
-                      }, childCount: visibleArtists.length),
-                      gridDelegate:
-                          const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 2,
-                            crossAxisSpacing: 14,
-                            mainAxisSpacing: 14,
-                            childAspectRatio: 0.72,
-                          ),
+                      },
                     ),
                   ),
               ],
@@ -154,31 +185,11 @@ class _LibraryHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Library',
-            style: theme.textTheme.headlineMedium?.copyWith(
-              fontWeight: FontWeight.w900,
-              letterSpacing: -0.8,
-            ),
-          ),
-          const SizedBox(height: 6),
-          Text(
-            artistCount == 1
-                ? '1 artist in your library'
-                : '$artistCount artists in your library',
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ],
-      ),
+    return SonusPageHeader(
+      title: 'Library',
+      subtitle: artistCount == 1
+          ? '1 artist in your library'
+          : '$artistCount artists in your library',
     );
   }
 }
@@ -188,46 +199,10 @@ class _LibraryEmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(32, 24, 32, 96),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 84,
-              height: 84,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: theme.colorScheme.surfaceContainerHighest,
-              ),
-              child: Icon(
-                Icons.library_music_outlined,
-                size: 38,
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-            const SizedBox(height: 20),
-            Text(
-              'No artists yet',
-              textAlign: TextAlign.center,
-              style: theme.textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Artists will appear here as music is added to your library.',
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ],
-        ),
-      ),
+    return const SonusStateView(
+      icon: Icons.library_music_outlined,
+      title: 'No artists yet',
+      message: 'Artists will appear here as music is added to your library.',
     );
   }
 }
@@ -239,45 +214,17 @@ class _LibraryLoadError extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.error_outline_rounded,
-              size: 48,
-              color: theme.colorScheme.error,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'Could not load your artists.',
-              textAlign: TextAlign.center,
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Try again to reload your library.',
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-            const SizedBox(height: 18),
-            FilledButton.tonalIcon(
-              onPressed: () {
-                unawaited(onRetry());
-              },
-              icon: const Icon(Icons.refresh_rounded),
-              label: const Text('Try again'),
-            ),
-          ],
-        ),
+    return SonusStateView(
+      icon: Icons.error_outline_rounded,
+      isError: true,
+      title: 'Could not load your artists.',
+      message: 'Try again to reload your library.',
+      action: FilledButton.tonalIcon(
+        onPressed: () {
+          unawaited(onRetry());
+        },
+        icon: const Icon(Icons.refresh_rounded),
+        label: const Text('Try again'),
       ),
     );
   }

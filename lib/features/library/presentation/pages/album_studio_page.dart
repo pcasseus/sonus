@@ -1,6 +1,11 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
+
+import '../../../../core/design/sonus_theme.dart';
+import '../../../../core/design/widgets/sonus_artwork_frame.dart';
+import '../../../../core/design/widgets/sonus_segmented_selector.dart';
 
 import '../../../artwork/application/models/cover_art_archive_image.dart';
 import '../../../artwork/application/services/cover_art_candidate_discovery_service.dart';
@@ -53,6 +58,10 @@ class _AlbumStudioPageState extends State<AlbumStudioPage> {
   bool _isApplyingMusicBrainz = false;
   bool _isSearchingCoverArt = false;
 
+  // Album tools start collapsed so the tracks get the screen; the choice
+  // lasts while the page is open.
+  bool _toolsExpanded = false;
+
   AlbumProfileController get controller => widget.controller;
 
   @override
@@ -62,13 +71,29 @@ class _AlbumStudioPageState extends State<AlbumStudioPage> {
       builder: (context, _) {
         final edition = controller.selectedEdition;
         final tracks = controller.tracks;
+        final tokens = SonusTheme.of(context);
+        final gutter = tokens.metrics.pageGutter;
+        // Room for anything anchored at the bottom of the app, such as a
+        // persistent mini-player that reserves its space.
+        final bottom = 32 + MediaQuery.paddingOf(context).bottom;
 
-        return Scaffold(
-          key: const ValueKey<String>('album-studio-page'),
-          appBar: AppBar(title: const Text('Album Studio')),
-          body: Column(
+        // Everything scrolls together: the tools, edition and order
+        // controls form the list's header, so they never take space away
+        // from the tracks and there is no nested scrolling.
+        final header = Padding(
+          padding: EdgeInsets.fromLTRB(gutter, 12, gutter, 4),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              _AlbumStudioManagement(
+              _StudioSummary(controller: controller),
+              const SizedBox(height: 14),
+              _AlbumTools(
+                expanded: _toolsExpanded,
+                onToggle: () {
+                  setState(() {
+                    _toolsExpanded = !_toolsExpanded;
+                  });
+                },
                 onEditDetails: widget.onEditDetails,
                 onChangeArtwork: widget.onChangeArtwork,
                 onClearArtwork: widget.onClearArtwork,
@@ -89,64 +114,68 @@ class _AlbumStudioPageState extends State<AlbumStudioPage> {
                     ? _searchMusicBrainz
                     : null,
               ),
-              if (edition == null)
-                const Expanded(
-                  child: Center(
-                    child: Text('No album edition is available to edit.'),
-                  ),
-                )
-              else ...[
-                if (controller.editions.length > 1)
+              if (edition != null) ...[
+                if (controller.editions.length > 1) ...[
+                  const SizedBox(height: 14),
                   _EditionSelector(controller: controller),
-                SwitchListTile(
-                  key: const ValueKey<String>('album-studio-auto-renumber'),
-                  title: const Text('Auto-renumber after reorder'),
-                  subtitle: const Text(
-                    'Keeps each track on its current disc and '
-                    'renumbers tracks within each disc.',
-                  ),
-                  value: _autoRenumber,
-                  onChanged: _isSavingOrder
-                      ? null
-                      : (value) {
-                          setState(() {
-                            _autoRenumber = value;
-                          });
-                        },
-                ),
-                if (_isSavingOrder)
-                  const LinearProgressIndicator(
-                    key: ValueKey<String>('album-studio-reorder-progress'),
-                  ),
-                Expanded(
-                  child: tracks.isEmpty
-                      ? const Center(child: Text('No tracks in this edition.'))
-                      : _StudioTrackList(
-                          controller: controller,
-                          tracks: tracks,
-                          autoRenumber: _autoRenumber,
-                          isBusy: _isSavingOrder,
-                          userId: widget.userId,
-                          onReorderStarted: () {
-                            setState(() {
-                              _isSavingOrder = true;
-                            });
-                          },
-                          onReorderFinished: () {
-                            if (!mounted) {
-                              return;
-                            }
-
-                            setState(() {
-                              _isSavingOrder = false;
-                            });
-                          },
-                          onEditPlacement: _editPlacement,
-                        ),
+                ],
+                const SizedBox(height: 14),
+                _TrackOrderSection(
+                  count: tracks.length,
+                  autoRenumber: _autoRenumber,
+                  isSaving: _isSavingOrder,
+                  onAutoRenumberChanged: (value) {
+                    setState(() {
+                      _autoRenumber = value;
+                    });
+                  },
                 ),
               ],
             ],
           ),
+        );
+
+        return Scaffold(
+          key: const ValueKey<String>('album-studio-page'),
+          appBar: AppBar(title: const Text('Album Studio')),
+          body: edition == null
+              ? ListView(
+                  key: const ValueKey<String>('album-studio-scroll'),
+                  padding: EdgeInsets.only(bottom: bottom),
+                  children: [
+                    header,
+                    const Padding(
+                      padding: EdgeInsets.all(24),
+                      child: Center(
+                        child: Text('No album edition is available to edit.'),
+                      ),
+                    ),
+                  ],
+                )
+              : _StudioTrackList(
+                  controller: controller,
+                  tracks: tracks,
+                  header: header,
+                  bottomPadding: bottom,
+                  autoRenumber: _autoRenumber,
+                  isBusy: _isSavingOrder,
+                  userId: widget.userId,
+                  onReorderStarted: () {
+                    setState(() {
+                      _isSavingOrder = true;
+                    });
+                  },
+                  onReorderFinished: () {
+                    if (!mounted) {
+                      return;
+                    }
+
+                    setState(() {
+                      _isSavingOrder = false;
+                    });
+                  },
+                  onEditPlacement: _editPlacement,
+                ),
         );
       },
     );
@@ -411,8 +440,107 @@ class _AlbumStudioPageState extends State<AlbumStudioPage> {
   }
 }
 
-class _AlbumStudioManagement extends StatelessWidget {
-  const _AlbumStudioManagement({
+/// The album being edited: artwork, title, edition and track count.
+class _StudioSummary extends StatelessWidget {
+  const _StudioSummary({required this.controller});
+
+  final AlbumProfileController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = SonusTheme.of(context);
+    final colors = tokens.colors;
+    final theme = Theme.of(context);
+    final album = controller.album;
+    final edition = controller.selectedEdition;
+    final editionPath = edition?.artworkPath?.trim();
+    final path = editionPath != null && editionPath.isNotEmpty
+        ? editionPath
+        : controller.artworkPath;
+    const size = 56.0;
+    final count = controller.tracks.length;
+
+    return MergeSemantics(
+      child: Row(
+        children: [
+          SonusArtworkFrame(
+            key: const ValueKey<String>('album-studio-artwork'),
+            size: size,
+            child: path == null
+                ? const _ArtworkFallback()
+                : Image.file(
+                    File(path),
+                    fit: BoxFit.cover,
+                    // Decoded at its display size, never at full resolution.
+                    cacheWidth: (size * MediaQuery.devicePixelRatioOf(context))
+                        .round(),
+                    gaplessPlayback: true,
+                    errorBuilder: (context, error, stackTrace) =>
+                        const _ArtworkFallback(),
+                  ),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  album?.title ?? 'Album',
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    color: colors.textPrimary,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                if (album != null)
+                  Text(
+                    album.artistName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: colors.textSecondary,
+                    ),
+                  ),
+                Text(
+                  [
+                    if (edition != null) _editionDisplayLabel(edition),
+                    '$count ${count == 1 ? 'track' : 'tracks'}',
+                  ].join(' • '),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: colors.textSecondary,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ArtworkFallback extends StatelessWidget {
+  const _ArtworkFallback();
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = SonusTheme.of(context).colors;
+
+    return ColoredBox(
+      color: colors.artworkPlaceholder,
+      child: Icon(Icons.album_rounded, color: colors.onArtworkPlaceholder),
+    );
+  }
+}
+
+/// Album details, metadata search and artwork actions, behind one header
+/// so they stay one tap away without taking room from the tracks.
+class _AlbumTools extends StatelessWidget {
+  const _AlbumTools({
+    required this.expanded,
+    required this.onToggle,
     required this.onEditDetails,
     required this.onChangeArtwork,
     required this.onClearArtwork,
@@ -420,6 +548,8 @@ class _AlbumStudioManagement extends StatelessWidget {
     required this.onSearchMusicBrainz,
   });
 
+  final bool expanded;
+  final VoidCallback onToggle;
   final Future<void> Function()? onEditDetails;
   final Future<void> Function()? onChangeArtwork;
   final Future<void> Function()? onClearArtwork;
@@ -428,81 +558,141 @@ class _AlbumStudioManagement extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
-      child: Card(
+    final tokens = SonusTheme.of(context);
+    final colors = tokens.colors;
+    final theme = Theme.of(context);
+    final largeText = MediaQuery.textScalerOf(context).scale(1) > 1.3;
+
+    return Material(
+      key: const ValueKey<String>('album-studio-tools'),
+      color: colors.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(tokens.metrics.cardRadius),
+        side: BorderSide(color: colors.divider),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: AnimatedSize(
+        duration: tokens.motion.short,
+        alignment: Alignment.topCenter,
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            ListTile(
-              key: const ValueKey<String>('album-studio-edit-details'),
-              leading: const Icon(Icons.edit_outlined),
-              title: const Text('Edit album details'),
-              subtitle: const Text(
-                'Title, artist, edition, release date, and genre',
+            Semantics(
+              button: true,
+              expanded: expanded,
+              child: InkWell(
+                key: const ValueKey<String>('album-studio-tools-toggle'),
+                onTap: onToggle,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+                  child: Row(
+                    children: [
+                      Icon(Icons.tune_rounded, color: colors.textSecondary),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Album tools',
+                              style: theme.textTheme.titleMedium?.copyWith(
+                                color: colors.textPrimary,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            // One line at large text, so the header stays
+                            // short; screen readers still hear all of it.
+                            Text(
+                              'Details, MusicBrainz, Cover Art Archive and '
+                              'artwork',
+                              maxLines: largeText ? 1 : 3,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: colors.textSecondary,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      ExcludeSemantics(
+                        child: AnimatedRotation(
+                          turns: expanded ? 0.5 : 0,
+                          duration: tokens.motion.short,
+                          child: Icon(
+                            Icons.expand_more_rounded,
+                            color: colors.textSecondary,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
-              enabled: onEditDetails != null,
-              onTap: onEditDetails == null
-                  ? null
-                  : () {
-                      unawaited(onEditDetails!());
-                    },
             ),
-            const Divider(height: 1),
-            ListTile(
-              key: const ValueKey<String>('album-studio-search-musicbrainz'),
-              leading: const Icon(Icons.travel_explore_rounded),
-              title: const Text('Search MusicBrainz'),
-              subtitle: const Text(
-                'Find a MusicBrainz album match and apply allowed metadata.',
+            if (expanded) ...[
+              Divider(height: 1, color: colors.divider),
+              _tool(
+                key: 'album-studio-edit-details',
+                icon: Icons.edit_outlined,
+                title: 'Edit album details',
+                subtitle: 'Title, artist, edition, release date, and genre',
+                action: onEditDetails,
               ),
-              enabled: onSearchMusicBrainz != null,
-              onTap: onSearchMusicBrainz == null
-                  ? null
-                  : () {
-                      unawaited(onSearchMusicBrainz!());
-                    },
-            ),
-            const Divider(height: 1),
-            ListTile(
-              key: const ValueKey<String>('album-studio-search-cover-art'),
-              leading: const Icon(Icons.image_search_rounded),
-              title: const Text('Search Cover Art Archive'),
-              subtitle: const Text(
-                'Find album artwork without changing MusicBrainz metadata.',
+              _tool(
+                key: 'album-studio-search-musicbrainz',
+                icon: Icons.travel_explore_rounded,
+                title: 'Search MusicBrainz',
+                subtitle:
+                    'Find a MusicBrainz album match and apply allowed '
+                    'metadata.',
+                action: onSearchMusicBrainz,
               ),
-              enabled: onSearchCoverArt != null,
-              onTap: onSearchCoverArt == null
-                  ? null
-                  : () {
-                      unawaited(onSearchCoverArt!());
-                    },
-            ),
-            const Divider(height: 1),
-            ListTile(
-              key: const ValueKey<String>('album-studio-change-artwork'),
-              leading: const Icon(Icons.image_rounded),
-              title: const Text('Change artwork'),
-              enabled: onChangeArtwork != null,
-              onTap: onChangeArtwork == null
-                  ? null
-                  : () {
-                      unawaited(onChangeArtwork!());
-                    },
-            ),
-            ListTile(
-              key: const ValueKey<String>('album-studio-clear-artwork'),
-              leading: const Icon(Icons.hide_image_rounded),
-              title: const Text('Clear artwork'),
-              enabled: onClearArtwork != null,
-              onTap: onClearArtwork == null
-                  ? null
-                  : () {
-                      unawaited(onClearArtwork!());
-                    },
-            ),
+              _tool(
+                key: 'album-studio-search-cover-art',
+                icon: Icons.image_search_rounded,
+                title: 'Search Cover Art Archive',
+                subtitle:
+                    'Find album artwork without changing MusicBrainz '
+                    'metadata.',
+                action: onSearchCoverArt,
+              ),
+              _tool(
+                key: 'album-studio-change-artwork',
+                icon: Icons.image_rounded,
+                title: 'Change artwork',
+                action: onChangeArtwork,
+              ),
+              _tool(
+                key: 'album-studio-clear-artwork',
+                icon: Icons.hide_image_rounded,
+                title: 'Clear artwork',
+                action: onClearArtwork,
+              ),
+            ],
           ],
         ),
       ),
+    );
+  }
+
+  Widget _tool({
+    required String key,
+    required IconData icon,
+    required String title,
+    String? subtitle,
+    required Future<void> Function()? action,
+  }) {
+    return ListTile(
+      key: ValueKey<String>(key),
+      leading: Icon(icon),
+      title: Text(title),
+      subtitle: subtitle == null ? null : Text(subtitle),
+      enabled: action != null,
+      onTap: action == null
+          ? null
+          : () {
+              unawaited(action());
+            },
     );
   }
 }
@@ -520,30 +710,92 @@ class _EditionSelector extends StatelessWidget {
       return const SizedBox.shrink();
     }
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+    // Its own scroll storage, so it never shares a slot with the page.
+    return KeyedSubtree(
+      key: const PageStorageKey<String>('album-studio-edition-selector-scroll'),
       child: SingleChildScrollView(
         scrollDirection: Axis.horizontal,
-        child: SegmentedButton<String>(
+        child: SonusSegmentedSelector<String>(
           key: const ValueKey<String>('album-studio-edition-selector'),
           segments: [
             for (final edition in controller.editions)
-              ButtonSegment<String>(
+              SonusSegment<String>(
                 value: edition.editionId,
-                label: Text(_editionDisplayLabel(edition)),
+                label: _editionDisplayLabel(edition),
               ),
           ],
-          selected: {selectedEdition.editionId},
-          showSelectedIcon: false,
-          onSelectionChanged: (selection) {
-            if (selection.isEmpty) {
-              return;
-            }
-
-            unawaited(controller.selectEdition(selection.first));
+          selected: selectedEdition.editionId,
+          onChanged: (editionId) {
+            unawaited(controller.selectEdition(editionId));
           },
         ),
       ),
+    );
+  }
+}
+
+/// The heading and controls above the reorderable tracks.
+class _TrackOrderSection extends StatelessWidget {
+  const _TrackOrderSection({
+    required this.count,
+    required this.autoRenumber,
+    required this.isSaving,
+    required this.onAutoRenumberChanged,
+  });
+
+  final int count;
+  final bool autoRenumber;
+  final bool isSaving;
+  final ValueChanged<bool> onAutoRenumberChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = SonusTheme.of(context).colors;
+    final theme = Theme.of(context);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Semantics(
+                header: true,
+                child: Text(
+                  'Track order',
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    color: colors.textPrimary,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ),
+            Text(
+              '$count',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: colors.textSecondary,
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+            ),
+          ],
+        ),
+        // Order actions live here. Automatic "Sort by disc & track" (J3)
+        // joins this section once its service exists; it is deliberately
+        // not shown before then.
+        SwitchListTile(
+          key: const ValueKey<String>('album-studio-auto-renumber'),
+          contentPadding: EdgeInsets.zero,
+          dense: true,
+          title: const Text('Auto-renumber after reorder'),
+          subtitle: const Text('Renumbers tracks within their disc.'),
+          value: autoRenumber,
+          onChanged: isSaving ? null : onAutoRenumberChanged,
+        ),
+        if (isSaving)
+          const LinearProgressIndicator(
+            key: ValueKey<String>('album-studio-reorder-progress'),
+          ),
+      ],
     );
   }
 }
@@ -552,6 +804,8 @@ class _StudioTrackList extends StatelessWidget {
   const _StudioTrackList({
     required this.controller,
     required this.tracks,
+    required this.header,
+    required this.bottomPadding,
     required this.autoRenumber,
     required this.isBusy,
     required this.userId,
@@ -562,6 +816,8 @@ class _StudioTrackList extends StatelessWidget {
 
   final AlbumProfileController controller;
   final List<LibraryTrack> tracks;
+  final Widget header;
+  final double bottomPadding;
   final bool autoRenumber;
   final bool isBusy;
   final String? userId;
@@ -572,11 +828,19 @@ class _StudioTrackList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final multiDisc = _usesMultipleDiscs(tracks);
+    final gutter = SonusTheme.of(context).metrics.pageGutter;
 
     return ReorderableListView.builder(
       key: const ValueKey<String>('album-studio-track-list'),
       buildDefaultDragHandles: false,
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 32),
+      header: header,
+      footer: tracks.isEmpty
+          ? const Padding(
+              padding: EdgeInsets.all(24),
+              child: Center(child: Text('No tracks in this edition.')),
+            )
+          : null,
+      padding: EdgeInsets.only(bottom: bottomPadding),
       itemCount: tracks.length,
       onReorderItem: isBusy
           ? (_, _) {}
@@ -588,53 +852,15 @@ class _StudioTrackList extends StatelessWidget {
       itemBuilder: (context, index) {
         final track = tracks[index];
 
-        return Card(
+        return Padding(
           key: ValueKey<String>('album-studio-track-${track.songId}'),
-          child: ListTile(
-            leading: SizedBox(
-              width: 40,
-              child: Center(
-                child: Text(
-                  multiDisc
-                      ? '${track.discNumber}-${track.trackNumber}'
-                      : '${track.trackNumber}',
-                  key: ValueKey<String>(
-                    'album-studio-placement-${track.songId}',
-                  ),
-                ),
-              ),
-            ),
-            title: Text(
-              track.title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            subtitle: multiDisc
-                ? Text('Disc ${track.discNumber} • Track ${track.trackNumber}')
-                : Text('Track ${track.trackNumber}'),
-            onTap: isBusy ? null : () => onEditPlacement(track),
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                IconButton(
-                  key: ValueKey<String>(
-                    'album-studio-edit-placement-${track.songId}',
-                  ),
-                  tooltip: 'Edit track placement',
-                  onPressed: isBusy ? null : () => onEditPlacement(track),
-                  icon: const Icon(Icons.numbers_rounded),
-                ),
-                ReorderableDragStartListener(
-                  index: index,
-                  enabled: !isBusy,
-                  child: Padding(
-                    key: ValueKey<String>('album-studio-drag-${track.songId}'),
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    child: const Icon(Icons.drag_handle_rounded),
-                  ),
-                ),
-              ],
-            ),
+          padding: EdgeInsets.fromLTRB(gutter, 3, gutter, 3),
+          child: _StudioTrackRow(
+            track: track,
+            index: index,
+            multiDisc: multiDisc,
+            isBusy: isBusy,
+            onEditPlacement: onEditPlacement,
           ),
         );
       },
@@ -674,6 +900,138 @@ class _StudioTrackList extends StatelessWidget {
     } finally {
       onReorderFinished();
     }
+  }
+}
+
+class _StudioTrackRow extends StatelessWidget {
+  const _StudioTrackRow({
+    required this.track,
+    required this.index,
+    required this.multiDisc,
+    required this.isBusy,
+    required this.onEditPlacement,
+  });
+
+  final LibraryTrack track;
+  final int index;
+  final bool multiDisc;
+  final bool isBusy;
+  final Future<void> Function(LibraryTrack track) onEditPlacement;
+
+  /// Text scale above which the number column and placement button give
+  /// their width to the title; tapping the row still edits the placement.
+  static const double _largeTextScale = 1.3;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = SonusTheme.of(context);
+    final colors = tokens.colors;
+    final theme = Theme.of(context);
+    const tabular = [FontFeature.tabularFigures()];
+    final scaler = MediaQuery.textScalerOf(context);
+    final largeText = scaler.scale(1) > _largeTextScale;
+
+    final placement = multiDisc
+        ? 'Disc ${track.discNumber} • Track ${track.trackNumber}'
+        : 'Track ${track.trackNumber}';
+    final details = [
+      _formatDuration(track.durationSeconds),
+      if (track.featuredArtists.isNotEmpty)
+        'feat. ${track.featuredArtists.join(', ')}',
+    ];
+    final detailStyle = TextStyle(
+      color: colors.textSecondary,
+      fontFeatures: tabular,
+    );
+
+    return Material(
+      color: colors.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(tokens.metrics.cardRadius),
+        side: BorderSide(color: colors.divider),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: ListTile(
+        minTileHeight: 56,
+        textColor: colors.textPrimary,
+        iconColor: colors.textSecondary,
+        contentPadding: const EdgeInsets.only(left: 12, right: 4),
+        // At large text the number column gives its width to the title;
+        // the placement is still spelled out on the line below. Otherwise
+        // at least 40px, growing with the text, so "1-10" never wraps.
+        leading: largeText
+            ? null
+            : ConstrainedBox(
+                constraints: BoxConstraints(minWidth: scaler.scale(40)),
+                child: Text(
+                  multiDisc
+                      ? '${track.discNumber}-${track.trackNumber}'
+                      : '${track.trackNumber}',
+                  key: ValueKey<String>(
+                    'album-studio-placement-${track.songId}',
+                  ),
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  softWrap: false,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    color: colors.textSecondary,
+                    fontWeight: FontWeight.w800,
+                    fontFeatures: tabular,
+                  ),
+                ),
+              ),
+        title: Text(
+          track.title,
+          maxLines: largeText ? 3 : 2,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.bodyLarge?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        // The placement stays its own text; duration and credits follow and
+        // wrap onto the next line when space runs out.
+        subtitle: Wrap(
+          children: [
+            Text(placement, style: detailStyle),
+            for (final detail in details)
+              Text(' • $detail', style: detailStyle),
+          ],
+        ),
+        onTap: isBusy ? null : () => onEditPlacement(track),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (!largeText)
+              IconButton(
+                key: ValueKey<String>(
+                  'album-studio-edit-placement-${track.songId}',
+                ),
+                tooltip: 'Edit track placement',
+                onPressed: isBusy ? null : () => onEditPlacement(track),
+                icon: const Icon(Icons.numbers_rounded),
+              ),
+            ReorderableDragStartListener(
+              index: index,
+              enabled: !isBusy,
+              child: Tooltip(
+                message: 'Drag to reorder',
+                child: Padding(
+                  key: ValueKey<String>('album-studio-drag-${track.songId}'),
+                  // A 48px target around the 24px handle.
+                  padding: const EdgeInsets.all(12),
+                  child: const Icon(Icons.drag_handle_rounded),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static String _formatDuration(int seconds) {
+    final safe = seconds < 0 ? 0 : seconds;
+    return '${safe ~/ 60}:${(safe % 60).toString().padLeft(2, '0')}';
   }
 }
 

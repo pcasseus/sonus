@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../../../core/design/sonus_theme.dart';
+import '../../../../core/design/widgets/sonus_decorations.dart';
 import '../../../library/application/models/library_album.dart';
 import '../../../library/application/models/library_track.dart';
 import '../../../library/presentation/pages/album_profile_page.dart';
@@ -13,12 +15,13 @@ import '../../../playlists/presentation/widgets/add_to_playlist_sheet.dart';
 import '../../application/models/chart_moment_feed_item.dart';
 import '../../domain/entities/chart_entry.dart';
 import '../../domain/entities/chart_snapshot.dart';
-import '../../domain/models/chart_movement.dart';
 import '../../domain/models/chart_type.dart';
 import '../../domain/models/chart_view_size.dart';
 import '../formatters/chart_moment_feed_copy_formatter.dart';
 import '../models/charts_presentation_mode.dart';
 import '../controllers/charts_controller.dart';
+import '../widgets/chart_entry_card.dart';
+import '../widgets/chart_extended_divider.dart';
 
 class ChartsPage extends StatelessWidget {
   const ChartsPage({super.key});
@@ -52,56 +55,91 @@ class ChartsPage extends StatelessWidget {
       );
     }
 
+    final entries = controller.isShowingCharts
+        ? snapshot?.entries ?? const <ChartEntry>[]
+        : const <ChartEntry>[];
+
+    // Entries are built lazily: a Top 200 chart only builds the cards that
+    // are on screen. The divider sits before the first extended standing.
+    final extendedStart = entries.indexWhere(
+      (entry) => entry.isOffChartStanding,
+    );
+    final rowCount = entries.length + (extendedStart < 0 ? 0 : 1);
+
     return RefreshIndicator(
       onRefresh: controller.refresh,
-      child: ListView(
+      child: CustomScrollView(
         key: const PageStorageKey<String>('charts-scroll'),
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(20, 22, 20, 40),
-        children: [
-          const _ChartsHeader(),
-          const SizedBox(height: 18),
-          _ChartsPresentationSelector(controller: controller),
-          const SizedBox(height: 20),
+        slivers: [
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(20, 22, 20, 0),
+            sliver: SliverList.list(
+              children: [
+                const _ChartsHeader(),
+                const SizedBox(height: 18),
+                _ChartsPresentationSelector(controller: controller),
+                const SizedBox(height: 20),
 
-          if (controller.isShowingCharts) ...[
-            _ChartTypeSelector(controller: controller),
-            const SizedBox(height: 18),
-            _WeekNavigator(controller: controller),
-            const SizedBox(height: 18),
-            _ViewSizeSelector(controller: controller),
+                if (controller.isShowingCharts) ...[
+                  _ChartTypeSelector(controller: controller),
+                  const SizedBox(height: 18),
+                  _WeekNavigator(controller: controller),
+                  const SizedBox(height: 18),
+                  _ViewSizeSelector(controller: controller),
 
-            if (controller.viewSize == ChartViewSize.top200) ...[
-              const SizedBox(height: 10),
-              const _ExtendedChartNotice(),
-            ],
+                  if (controller.viewSize == ChartViewSize.top200) ...[
+                    const SizedBox(height: 10),
+                    const _ExtendedChartNotice(),
+                  ],
 
-            const SizedBox(height: 22),
+                  const SizedBox(height: 22),
 
-            if (controller.hasError && snapshot != null) ...[
-              _RefreshErrorBanner(onRetry: controller.refresh),
-              const SizedBox(height: 16),
-            ],
+                  if (controller.hasError && snapshot != null) ...[
+                    _RefreshErrorBanner(onRetry: controller.refresh),
+                    const SizedBox(height: 16),
+                  ],
 
-            if (snapshot == null || snapshot.entries.isEmpty)
-              const _ChartsMessage(
-                key: ValueKey<String>('charts-empty'),
-                icon: Icons.leaderboard_outlined,
-                title: 'No chart entries yet',
-                message:
-                    'Qualified listening this week will build your Sonus Hot 100.',
-              )
-            else ...[
-              _SnapshotSummary(snapshot: snapshot),
-              const SizedBox(height: 14),
-
-              for (final entry in snapshot.entries) ...[
-                _ChartRow(entry: entry, controller: controller),
-                const Divider(height: 1),
+                  if (snapshot == null || snapshot.entries.isEmpty)
+                    const _ChartsMessage(
+                      key: ValueKey<String>('charts-empty'),
+                      icon: Icons.leaderboard_outlined,
+                      title: 'No chart entries yet',
+                      message:
+                          'Qualified listening this week will build your Sonus Hot 100.',
+                    )
+                  else ...[
+                    _SnapshotSummary(snapshot: snapshot),
+                    const SizedBox(height: 14),
+                  ],
+                ] else
+                  _MomentsFeed(controller: controller),
               ],
-            ],
-          ] else
-            _MomentsFeed(controller: controller),
+            ),
+          ),
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 40),
+            sliver: SliverList.builder(
+              itemCount: rowCount,
+              itemBuilder: (context, index) {
+                if (index == extendedStart) {
+                  return const ChartExtendedDivider();
+                }
+
+                final entryIndex = extendedStart >= 0 && index > extendedStart
+                    ? index - 1
+                    : index;
+
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: _ChartEntryItem(
+                    entry: entries[entryIndex],
+                    controller: controller,
+                  ),
+                );
+              },
+            ),
+          ),
         ],
       ),
     );
@@ -113,32 +151,72 @@ class _ChartsHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = SonusTheme.of(context);
     final theme = Theme.of(context);
 
-    return Column(
-      key: const ValueKey<String>('charts-header'),
-      crossAxisAlignment: CrossAxisAlignment.start,
+    // The page's featured header carries the theme's texture and motif.
+    return Stack(
       children: [
-        Text(
-          'SONUS',
-          style: theme.textTheme.labelLarge?.copyWith(
-            letterSpacing: 2.4,
-            fontWeight: FontWeight.w800,
-            color: theme.colorScheme.primary,
-          ),
-        ),
-        const SizedBox(height: 3),
-        Text(
-          'Hot 100',
-          key: const ValueKey<String>('charts-title'),
-          style: theme.textTheme.displaySmall?.copyWith(
-            fontWeight: FontWeight.w900,
-            height: 1,
-          ),
+        const Positioned.fill(child: SonusSurfaceTexture()),
+        Column(
+          key: const ValueKey<String>('charts-header'),
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'SONUS',
+              style: theme.textTheme.labelLarge?.copyWith(
+                letterSpacing: 2.4,
+                fontWeight: FontWeight.w800,
+                color: tokens.colors.textSecondary,
+              ),
+            ),
+            const SizedBox(height: 3),
+            Semantics(
+              header: true,
+              child: Text(
+                'Hot 100',
+                key: const ValueKey<String>('charts-title'),
+                style: tokens.text.pageTitle.copyWith(
+                  color: tokens.colors.textPrimary,
+                  fontWeight: FontWeight.w900,
+                  height: 1,
+                ),
+              ),
+            ),
+            if (tokens.decoration.showMarks) ...[
+              SizedBox(height: tokens.metrics.spaceSm),
+              const SonusMotifMark(),
+            ],
+          ],
         ),
       ],
     );
   }
+}
+
+/// Selector styling for the Charts page only. It is applied locally so the
+/// global theme, and every other screen's selectors, stay unchanged.
+ButtonStyle _chartsSegmentedStyle(SonusThemeData tokens) {
+  final colors = tokens.colors;
+
+  return SegmentedButton.styleFrom(
+    foregroundColor: colors.textSecondary,
+    selectedForegroundColor: colors.textPrimary,
+    selectedBackgroundColor: colors.selection,
+    side: BorderSide(color: colors.border),
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(tokens.metrics.controlRadius),
+    ),
+  );
+}
+
+/// A decorative segment icon, dropped with large text so labels such as
+/// "Moments" keep their width instead of breaking mid-word. The selection
+/// checkmark stays, so the selected segment never relies on colour alone.
+Widget? _segmentIcon(BuildContext context, IconData icon) {
+  final isLargeText = MediaQuery.textScalerOf(context).scale(1) > 1.3;
+
+  return isLargeText ? null : Icon(icon);
 }
 
 class _ChartsPresentationSelector extends StatelessWidget {
@@ -150,16 +228,17 @@ class _ChartsPresentationSelector extends StatelessWidget {
   Widget build(BuildContext context) {
     return SegmentedButton<ChartsPresentationMode>(
       key: const ValueKey<String>('charts-presentation-selector'),
-      segments: const [
+      style: _chartsSegmentedStyle(SonusTheme.of(context)),
+      segments: [
         ButtonSegment<ChartsPresentationMode>(
           value: ChartsPresentationMode.charts,
           label: Text('Charts'),
-          icon: Icon(Icons.leaderboard_rounded),
+          icon: _segmentIcon(context, Icons.leaderboard_rounded),
         ),
         ButtonSegment<ChartsPresentationMode>(
           value: ChartsPresentationMode.moments,
           label: Text('Moments'),
-          icon: Icon(Icons.auto_awesome_rounded),
+          icon: _segmentIcon(context, Icons.auto_awesome_rounded),
         ),
       ],
       selected: {controller.presentationMode},
@@ -459,16 +538,17 @@ class _ChartTypeSelector extends StatelessWidget {
   Widget build(BuildContext context) {
     return SegmentedButton<ChartType>(
       key: const ValueKey<String>('charts-type-selector'),
-      segments: const [
+      style: _chartsSegmentedStyle(SonusTheme.of(context)),
+      segments: [
         ButtonSegment<ChartType>(
           value: ChartType.songs,
           label: Text('Songs'),
-          icon: Icon(Icons.music_note_rounded),
+          icon: _segmentIcon(context, Icons.music_note_rounded),
         ),
         ButtonSegment<ChartType>(
           value: ChartType.albums,
           label: Text('Albums'),
-          icon: Icon(Icons.album_rounded),
+          icon: _segmentIcon(context, Icons.album_rounded),
         ),
       ],
       selected: {controller.chartType},
@@ -551,25 +631,25 @@ class _SnapshotStatusBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
+    final colors = SonusTheme.of(context).colors;
+    final isLive = snapshot.isLive;
 
+    // LIVE is filled with the accent and FINAL is outlined, so the two read
+    // differently by shape as well as colour.
     return Container(
       key: const ValueKey<String>('charts-snapshot-status'),
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
       decoration: BoxDecoration(
-        color: snapshot.isLive
-            ? colorScheme.primaryContainer
-            : colorScheme.surfaceContainerHighest,
+        color: isLive ? colors.accentPrimary : Colors.transparent,
+        border: isLive ? null : Border.all(color: colors.border),
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(
-        snapshot.isLive ? 'LIVE' : 'FINAL',
+        isLive ? 'LIVE' : 'FINAL',
         style: Theme.of(context).textTheme.labelSmall?.copyWith(
           fontWeight: FontWeight.w900,
           letterSpacing: 1.2,
-          color: snapshot.isLive
-              ? colorScheme.onPrimaryContainer
-              : colorScheme.onSurfaceVariant,
+          color: isLive ? colors.onAccentPrimary : colors.textSecondary,
         ),
       ),
     );
@@ -583,23 +663,51 @@ class _ViewSizeSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      key: const ValueKey<String>('charts-size-selector'),
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        children: [
-          for (final size in ChartViewSize.values) ...[
-            ChoiceChip(
-              key: ValueKey<String>('charts-size-${size.limit}'),
-              label: Text('Top ${size.limit}'),
-              selected: controller.viewSize == size,
-              onSelected: (_) {
-                controller.selectViewSize(size);
-              },
-            ),
-            if (size != ChartViewSize.values.last) const SizedBox(width: 8),
+    final tokens = SonusTheme.of(context);
+    final colors = tokens.colors;
+
+    // Its own scroll storage: without it, this horizontal scroller shares the
+    // chart list's slot and reopens at the list's vertical offset.
+    return KeyedSubtree(
+      key: const PageStorageKey<String>('charts-size-selector-scroll'),
+      child: SingleChildScrollView(
+        key: const ValueKey<String>('charts-size-selector'),
+        scrollDirection: Axis.horizontal,
+        child: Row(
+          children: [
+            for (final size in ChartViewSize.values) ...[
+              // Styled here only; the checkmark marks the selection without
+              // relying on colour.
+              ChoiceChip(
+                key: ValueKey<String>('charts-size-${size.limit}'),
+                label: Text('Top ${size.limit}'),
+                selected: controller.viewSize == size,
+                showCheckmark: true,
+                selectedColor: colors.selection,
+                backgroundColor: Colors.transparent,
+                checkmarkColor: colors.textPrimary,
+                labelStyle: TextStyle(
+                  color: controller.viewSize == size
+                      ? colors.textPrimary
+                      : colors.textSecondary,
+                  fontWeight: controller.viewSize == size
+                      ? FontWeight.w800
+                      : FontWeight.w500,
+                ),
+                side: BorderSide(color: colors.border),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(
+                    tokens.metrics.controlRadius,
+                  ),
+                ),
+                onSelected: (_) {
+                  controller.selectViewSize(size);
+                },
+              ),
+              if (size != ChartViewSize.values.last) const SizedBox(width: 8),
+            ],
           ],
-        ],
+        ),
       ),
     );
   }
@@ -611,27 +719,29 @@ class _ExtendedChartNotice extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final tokens = SonusTheme.of(context);
 
     return Container(
       key: const ValueKey<String>('charts-extended-notice'),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(14),
+        color: tokens.colors.surface,
+        border: Border.all(color: tokens.colors.divider),
+        borderRadius: BorderRadius.circular(tokens.metrics.cardRadius),
       ),
       child: Row(
         children: [
           Icon(
             Icons.info_outline_rounded,
             size: 18,
-            color: theme.colorScheme.onSurfaceVariant,
+            color: tokens.colors.textSecondary,
           ),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
               'Top 100 is the official chart. Positions 101\u2013200 are extended standings.',
               style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
+                color: tokens.colors.textSecondary,
               ),
             ),
           ),
@@ -649,14 +759,23 @@ class _SnapshotSummary extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final colors = SonusTheme.of(context).colors;
 
-    return Row(
+    // A Wrap, so the count moves under the title with large text instead of
+    // overflowing.
+    return Wrap(
       key: const ValueKey<String>('charts-snapshot-summary'),
+      alignment: WrapAlignment.spaceBetween,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      spacing: 12,
+      runSpacing: 4,
       children: [
-        Expanded(
+        Semantics(
+          header: true,
           child: Text(
             snapshot.chartType == ChartType.songs ? 'Songs' : 'Albums',
             style: theme.textTheme.titleLarge?.copyWith(
+              color: colors.textPrimary,
               fontWeight: FontWeight.w800,
             ),
           ),
@@ -664,7 +783,8 @@ class _SnapshotSummary extends StatelessWidget {
         Text(
           '${snapshot.entries.length} positions',
           style: theme.textTheme.bodyMedium?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
+            color: colors.textSecondary,
+            fontFeatures: const [FontFeature.tabularFigures()],
           ),
         ),
       ],
@@ -672,8 +792,10 @@ class _SnapshotSummary extends StatelessWidget {
   }
 }
 
-class _ChartRow extends StatelessWidget {
-  const _ChartRow({required this.entry, required this.controller});
+/// Maps one chart entry and the controller's view of it onto a
+/// [ChartEntryCard]: artwork, interactivity and status badges.
+class _ChartEntryItem extends StatelessWidget {
+  const _ChartEntryItem({required this.entry, required this.controller});
 
   final ChartEntry entry;
   final ChartsController controller;
@@ -682,82 +804,55 @@ class _ChartRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final track = controller.trackForEntry(entry);
     final album = controller.albumForEntry(entry);
+    final chartType = controller.chartType;
 
-    final canInteract = switch (controller.chartType) {
+    final canInteract = switch (chartType) {
       ChartType.songs => controller.isTrackInteractive(entry),
       ChartType.albums => controller.isAlbumInteractive(entry),
     };
 
-    final artworkPath = switch (controller.chartType) {
+    final artworkPath = switch (chartType) {
       ChartType.songs => track?.artworkPath,
       ChartType.albums => album?.artworkPath,
     };
 
-    final fallbackIcon = controller.chartType == ChartType.songs
-        ? Icons.music_note_rounded
-        : Icons.album_rounded;
+    final unavailableLiveTrack =
+        controller.isViewingLive &&
+        chartType == ChartType.songs &&
+        track != null &&
+        !controller.isTrackInteractive(entry);
 
-    return Material(
+    final missingCurrentEntity = switch (chartType) {
+      ChartType.songs => track == null,
+      ChartType.albums => album == null,
+    };
+
+    final ChartEntryStatus? status = unavailableLiveTrack
+        ? (track.isBlocked
+              ? ChartEntryStatus.blacklisted
+              : ChartEntryStatus.unavailable)
+        : controller.isViewingHistory && missingCurrentEntity
+        ? ChartEntryStatus.historical
+        : null;
+
+    return ChartEntryCard(
       key: ValueKey<String>('charts-entry-${entry.entity.entityId}'),
-      color: entry.rank <= 3
-          ? Theme.of(context).colorScheme.surfaceContainerLow
-          : Colors.transparent,
-      borderRadius: BorderRadius.circular(18),
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: canInteract
-            ? () {
-                if (controller.chartType == ChartType.songs && track != null) {
-                  unawaited(_showChartTrackContext(context, track));
-                  return;
-                }
-
-                if (controller.chartType == ChartType.albums && album != null) {
-                  _openAlbum(context, album);
-                }
+      entry: entry,
+      chartType: chartType,
+      artworkPath: artworkPath,
+      status: status,
+      onTap: canInteract
+          ? () {
+              if (chartType == ChartType.songs && track != null) {
+                unawaited(_showChartTrackContext(context, track));
+                return;
               }
-            : null,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 13),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              SizedBox(
-                width: 42,
-                child: Text(
-                  '${entry.rank}',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.w900,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              _ChartArtwork(
-                path: artworkPath,
-                fallbackIcon: fallbackIcon,
-                key: ValueKey<String>(
-                  'charts-artwork-${entry.entity.entityId}',
-                ),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: _ChartMetadata(
-                  entry: entry,
-                  controller: controller,
-                  track: track,
-                  album: album,
-                ),
-              ),
-              if (canInteract)
-                const Padding(
-                  padding: EdgeInsets.only(left: 8),
-                  child: Icon(Icons.chevron_right_rounded),
-                ),
-            ],
-          ),
-        ),
-      ),
+
+              if (chartType == ChartType.albums && album != null) {
+                _openAlbum(context, album);
+              }
+            }
+          : null,
     );
   }
 }
@@ -808,161 +903,6 @@ class _ChartArtworkFallback extends StatelessWidget {
         child: Icon(icon, size: 30, color: colorScheme.onSurfaceVariant),
       ),
     );
-  }
-}
-
-class _ChartMetadata extends StatelessWidget {
-  const _ChartMetadata({
-    required this.entry,
-    required this.controller,
-    required this.track,
-    required this.album,
-  });
-
-  final ChartEntry entry;
-  final ChartsController controller;
-  final LibraryTrack? track;
-  final LibraryAlbum? album;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-
-    final subtitleParts = <String>[
-      entry.entity.artistName,
-      if (controller.chartType == ChartType.songs &&
-          entry.entity.albumTitle != null &&
-          entry.entity.albumTitle!.trim().isNotEmpty)
-        entry.entity.albumTitle!.trim(),
-    ];
-
-    final unavailableLiveTrack =
-        controller.isViewingLive &&
-        controller.chartType == ChartType.songs &&
-        track != null &&
-        !controller.isTrackInteractive(entry);
-
-    final missingCurrentEntity = switch (controller.chartType) {
-      ChartType.songs => track == null,
-      ChartType.albums => album == null,
-    };
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          entry.entity.title,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: theme.textTheme.titleMedium?.copyWith(
-            fontWeight: FontWeight.w800,
-          ),
-        ),
-        const SizedBox(height: 2),
-        Text(
-          subtitleParts.join(' \u2022 '),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: theme.textTheme.bodyMedium?.copyWith(
-            color: colorScheme.onSurfaceVariant,
-          ),
-        ),
-        const SizedBox(height: 7),
-        Wrap(
-          spacing: 10,
-          runSpacing: 4,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          children: [
-            _MovementLabel(entry: entry),
-            Text(
-              '${entry.qualifiedStreamCount} streams',
-              style: theme.textTheme.bodySmall,
-            ),
-          ],
-        ),
-        const SizedBox(height: 4),
-        Wrap(
-          spacing: 10,
-          runSpacing: 4,
-          children: [
-            Text(
-              'Peak #${entry.peakRank}',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: colorScheme.onSurfaceVariant,
-              ),
-            ),
-            Text(
-              '${entry.weeksOnChart} '
-              '${entry.weeksOnChart == 1 ? 'week' : 'weeks'}',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: colorScheme.onSurfaceVariant,
-              ),
-            ),
-            if (entry.isOffChartStanding)
-              Text(
-                'EXTENDED',
-                key: ValueKey<String>(
-                  'charts-extended-${entry.entity.entityId}',
-                ),
-                style: theme.textTheme.labelSmall?.copyWith(
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 0.8,
-                  color: colorScheme.primary,
-                ),
-              ),
-            if (unavailableLiveTrack)
-              Text(
-                track!.isBlocked ? 'BLACKLISTED' : 'UNAVAILABLE',
-                style: theme.textTheme.labelSmall?.copyWith(
-                  fontWeight: FontWeight.w800,
-                  color: colorScheme.error,
-                ),
-              ),
-            if (controller.isViewingHistory && missingCurrentEntity)
-              Text(
-                'HISTORICAL',
-                style: theme.textTheme.labelSmall?.copyWith(
-                  fontWeight: FontWeight.w700,
-                  color: colorScheme.onSurfaceVariant,
-                ),
-              ),
-          ],
-        ),
-      ],
-    );
-  }
-}
-
-class _MovementLabel extends StatelessWidget {
-  const _MovementLabel({required this.entry});
-
-  final ChartEntry entry;
-
-  @override
-  Widget build(BuildContext context) {
-    return Text(
-      switch (entry.movement) {
-        ChartMovement.newEntry => 'NEW',
-        ChartMovement.reentry => 'RE-ENTRY',
-        ChartMovement.up => '\u25B2 ${_movementDistance(entry)}',
-        ChartMovement.down => '\u25BC ${_movementDistance(entry)}',
-        ChartMovement.same => '\u2014',
-      },
-      style: Theme.of(
-        context,
-      ).textTheme.labelMedium?.copyWith(fontWeight: FontWeight.w800),
-    );
-  }
-
-  int _movementDistance(ChartEntry entry) {
-    final previous = entry.previousFinalRank;
-
-    if (previous == null) {
-      return 0;
-    }
-
-    return (previous - entry.rank).abs();
   }
 }
 

@@ -1,5 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sonus_next/core/design/sonus_theme_factory.dart';
+import 'package:sonus_next/core/design/sonus_theme_id.dart';
 import 'package:sonus_next/features/library/application/models/library_album.dart';
 import 'package:sonus_next/features/library/application/models/library_artist.dart';
 import 'package:sonus_next/features/library/application/models/library_track.dart';
@@ -289,6 +293,250 @@ void main() {
     );
   });
 
+  group('long charts', () {
+    final scrollable = find.byWidgetPredicate(
+      (widget) =>
+          widget is Scrollable && widget.axisDirection == AxisDirection.down,
+    );
+
+    // Lazy lists estimate their extent, so jump until the end stops moving.
+    Future<void> jumpToEnd(WidgetTester tester) async {
+      final state = tester.state<ScrollableState>(scrollable.first);
+
+      for (var i = 0; i < 20; i++) {
+        final before = state.position.maxScrollExtent;
+        state.position.jumpTo(before);
+        await tester.pump();
+
+        if (state.position.maxScrollExtent == before) {
+          break;
+        }
+      }
+    }
+
+    // Regression (SN-48J J1): the size selector's horizontal scroller had no
+    // PageStorage slot of its own. It shared the chart list's slot, so when
+    // it was rebuilt while scrolling back up it reopened at the list's
+    // vertical offset.
+    testWidgets('size selector keeps its own horizontal scroll position', (
+      tester,
+    ) async {
+      final controller = await _controller(live: _rankedSnapshot(100));
+      await _pumpPage(
+        tester,
+        controller,
+        size: const Size(320, 640),
+        textScale: 1.6,
+      );
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('charts-size-100')),
+        warnIfMissed: false,
+      );
+      await tester.pumpAndSettle();
+
+      final selectorFinder = find.descendant(
+        of: find.byKey(const ValueKey<String>('charts-size-selector')),
+        matching: find.byType(Scrollable),
+      );
+      ScrollableState selector() =>
+          tester.state<ScrollableState>(selectorFinder.first);
+      final page = tester.state<ScrollableState>(scrollable.first);
+
+      expect(selector().position.maxScrollExtent, greaterThan(0));
+      selector().position.jumpTo(0);
+      await tester.pumpAndSettle();
+
+      await jumpToEnd(tester);
+      await tester.pumpAndSettle();
+      expect(selectorFinder, findsNothing);
+
+      // Scroll back up the way a fling does: the selector is rebuilt while
+      // the list is still moving.
+      unawaited(
+        page.position.animateTo(
+          0,
+          duration: const Duration(milliseconds: 400),
+          curve: Curves.linear,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(selector().position.pixels, 0);
+    });
+
+    testWidgets('builds entries lazily, not all 200 at once', (tester) async {
+      final controller = await _controller(live: _rankedSnapshot(200));
+
+      await _pumpPage(tester, controller, size: const Size(411, 900));
+
+      expect(
+        find.byKey(const ValueKey<String>('charts-entry-songs_1')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(
+          const ValueKey<String>('charts-entry-songs_200'),
+          skipOffstage: false,
+        ),
+        findsNothing,
+      );
+
+      await jumpToEnd(tester);
+
+      expect(
+        find.byKey(const ValueKey<String>('charts-entry-songs_200')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(
+          const ValueKey<String>('charts-entry-songs_1'),
+          skipOffstage: false,
+        ),
+        findsNothing,
+      );
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a labelled boundary separates #100 from extended #101', (
+      tester,
+    ) async {
+      final controller = await _controller(
+        live: _rankedSnapshot(102, from: 99),
+      );
+
+      await _pumpPage(tester, controller);
+
+      const divider = ValueKey<String>('charts-extended-divider');
+      expect(find.text('Extended standings · 101–200'), findsOneWidget);
+
+      final dividerTop = tester.getTopLeft(find.byKey(divider)).dy;
+      final official = find.byKey(
+        const ValueKey<String>('charts-entry-songs_100'),
+      );
+      final extended = find.byKey(
+        const ValueKey<String>('charts-entry-songs_101'),
+      );
+
+      expect(tester.getBottomLeft(official).dy, lessThanOrEqualTo(dividerTop));
+      expect(tester.getTopLeft(extended).dy, greaterThan(dividerTop));
+
+      // Official entries are never badged as extended, and extended ones are.
+      expect(
+        find.byKey(const ValueKey<String>('charts-extended-songs_100')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey<String>('charts-extended-songs_101')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a chart without extended standings has no boundary', (
+      tester,
+    ) async {
+      final controller = await _controller(
+        live: _rankedSnapshot(100, from: 97),
+      );
+
+      await _pumpPage(tester, controller);
+
+      expect(
+        find.byKey(const ValueKey<String>('charts-entry-songs_100')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey<String>('charts-extended-divider')),
+        findsNothing,
+      );
+    });
+  });
+
+  group('Sonus themes', () {
+    for (final id in SonusThemeId.values) {
+      testWidgets('${id.label} renders at 320px with 2x text', (tester) async {
+        final controller = await _controller(live: _rankedSnapshot(3));
+
+        await _pumpPage(
+          tester,
+          controller,
+          theme: SonusThemeFactory.build(SonusAppearanceSpec(themeId: id)),
+          size: const Size(320, 2400),
+          textScale: 2,
+        );
+
+        expect(tester.takeException(), isNull);
+        expect(find.text('Hot 100'), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey<String>('charts-entry-songs_1')),
+          findsOneWidget,
+        );
+      });
+    }
+
+    // Regression from emulator QA: with 2x text "Moments" broke mid-word
+    // because the decorative segment icons took its width.
+    testWidgets('large text drops decorative selector icons only', (
+      tester,
+    ) async {
+      final controller = await _controller();
+
+      await _pumpPage(tester, controller);
+      expect(find.byIcon(Icons.auto_awesome_rounded), findsOneWidget);
+      expect(find.byIcon(Icons.album_rounded), findsWidgets);
+
+      await _pumpPage(
+        tester,
+        controller,
+        size: const Size(320, 2400),
+        textScale: 2,
+      );
+      expect(find.byIcon(Icons.auto_awesome_rounded), findsNothing);
+      expect(find.byIcon(Icons.leaderboard_rounded), findsNothing);
+      // The selected segments keep their checkmark.
+      expect(find.byIcon(Icons.check), findsWidgets);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('selectors are styled locally, not through the theme', (
+      tester,
+    ) async {
+      final theme = SonusThemeFactory.build(const SonusAppearanceSpec());
+      final controller = await _controller();
+
+      await _pumpPage(tester, controller, theme: theme);
+
+      // The shared theme keeps its defaults for other screens.
+      expect(theme.segmentedButtonTheme.style, isNull);
+      expect(theme.chipTheme.selectedColor, isNull);
+
+      final selector = tester.widget<SegmentedButton<ChartType>>(
+        find.byKey(const ValueKey<String>('charts-type-selector')),
+      );
+      expect(selector.style, isNotNull);
+    });
+
+    testWidgets('header carries the theme motif with decoration on', (
+      tester,
+    ) async {
+      final controller = await _controller();
+
+      await _pumpPage(
+        tester,
+        controller,
+        theme: SonusThemeFactory.build(const SonusAppearanceSpec()),
+      );
+
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey<String>('charts-header')),
+          matching: find.byKey(const ValueKey<String>('sonus-motif-mark')),
+        ),
+        findsOneWidget,
+      );
+    });
+  });
+
   testWidgets('calendar opens when finalized chart weeks exist', (
     tester,
   ) async {
@@ -521,19 +769,66 @@ Future<ChartsController> _controller({
   return controller;
 }
 
-Future<void> _pumpPage(WidgetTester tester, ChartsController controller) async {
-  await tester.binding.setSurfaceSize(const Size(800, 1600));
+Future<void> _pumpPage(
+  WidgetTester tester,
+  ChartsController controller, {
+  ThemeData? theme,
+  Size size = const Size(800, 1600),
+  double textScale = 1,
+}) async {
+  await tester.binding.setSurfaceSize(size);
 
   addTearDown(() => tester.binding.setSurfaceSize(null));
 
   await tester.pumpWidget(
     ChangeNotifierProvider<ChartsController?>.value(
       value: controller,
-      child: const MaterialApp(home: Scaffold(body: ChartsPage())),
+      child: MaterialApp(
+        theme: theme,
+        themeAnimationDuration: Duration.zero,
+        builder: (context, child) => MediaQuery.withClampedTextScaling(
+          minScaleFactor: textScale,
+          maxScaleFactor: textScale,
+          child: child!,
+        ),
+        home: const Scaffold(body: ChartsPage()),
+      ),
     ),
   );
 
   await tester.pumpAndSettle();
+}
+
+/// A live songs chart with [count] positions; 101 and below are extended
+/// standings without an official rank last week.
+ChartSnapshot _rankedSnapshot(int count, {int from = 1}) {
+  final start = DateTime.utc(2026, 9, 27);
+
+  return ChartSnapshot(
+    id: 'ranked-$count',
+    chartType: ChartType.songs,
+    weekStartUtc: start,
+    weekEndUtc: start.add(const Duration(days: 7)),
+    entries: [
+      for (var rank = from; rank <= count; rank++)
+        ChartEntry(
+          entity: ChartEntitySnapshot(
+            entityId: 'songs_$rank',
+            title: 'Song $rank',
+            artistName: 'Artist $rank',
+            albumTitle: 'Album $rank',
+          ),
+          rank: rank,
+          qualifiedStreamCount: 500 - rank,
+          lastQualifiedAt: start.add(const Duration(days: 2)),
+          previousFinalRank: rank <= 100 ? rank : null,
+          peakRank: rank,
+          peakAchievedAt: start,
+          weeksOnChart: rank <= 100 ? 2 : 0,
+          movement: rank <= 100 ? ChartMovement.same : ChartMovement.newEntry,
+        ),
+    ],
+  );
 }
 
 LibraryTrack _track({

@@ -1,9 +1,13 @@
+import 'dart:developer' as developer;
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 
 import 'package:sonus_next/core/identity/text_normalizer.dart';
 
+import '../../../analytics/application/models/analytics_period.dart';
+import '../../../analytics/application/services/analytics_entity_ranking_service.dart';
+import '../../../analytics/domain/repositories/qualified_play_repository.dart';
 import '../../../artwork/application/services/artwork_assignment_service.dart';
 import '../../../artwork/application/services/artwork_file_picker.dart';
 import '../../../player/application/controllers/playback_coordinator.dart';
@@ -18,6 +22,7 @@ import '../../application/services/track_profile_editing_service.dart';
 import '../../domain/entities/song_artist_credit.dart';
 import '../../domain/entities/song.dart';
 import '../../domain/repositories/song_artist_credit_repository.dart';
+import '../models/artist_profile_sections.dart';
 
 class ArtistProfileController extends ChangeNotifier {
   ArtistProfileController({
@@ -30,6 +35,8 @@ class ArtistProfileController extends ChangeNotifier {
     SongBlockService? songBlockService,
     SongArtistCreditRepository? songArtistCreditRepository,
     TrackProfileEditingService? trackProfileEditingService,
+    QualifiedPlayRepository? qualifiedPlays,
+    DateTime Function()? clock,
     Random? random,
   }) : this._(
          repository,
@@ -41,6 +48,8 @@ class ArtistProfileController extends ChangeNotifier {
          songBlockService,
          songArtistCreditRepository,
          trackProfileEditingService,
+         qualifiedPlays,
+         clock ?? DateTime.now,
          random ?? Random(),
        );
 
@@ -54,6 +63,8 @@ class ArtistProfileController extends ChangeNotifier {
     this._songBlockService,
     this._songArtistCreditRepository,
     this._trackProfileEditingService,
+    this._qualifiedPlays,
+    this._clock,
     this._random,
   );
 
@@ -66,6 +77,8 @@ class ArtistProfileController extends ChangeNotifier {
   final SongBlockService? _songBlockService;
   final SongArtistCreditRepository? _songArtistCreditRepository;
   final TrackProfileEditingService? _trackProfileEditingService;
+  final QualifiedPlayRepository? _qualifiedPlays;
+  final DateTime Function() _clock;
   final Random _random;
 
   LibraryArtist? _artist;
@@ -73,6 +86,10 @@ class ArtistProfileController extends ChangeNotifier {
   List<LibraryTrack> _tracks = const [];
   List<LibraryTrack> _allTracks = const [];
   List<LibraryTrack> _featuredTracks = const [];
+  List<LibraryTrack> _projectTracks = const [];
+  List<LibraryTrack> _collaborationTracks = const [];
+  List<ArtistProfileCollaborator> _collaborators = const [];
+  List<ArtistTopTrack> _topTracks = const [];
 
   bool _isLoading = false;
   // Starts from the player's actual mode, which may have been restored
@@ -92,6 +109,24 @@ class ArtistProfileController extends ChangeNotifier {
   List<LibraryTrack> get allTracks => _allTracks;
 
   List<LibraryTrack> get featuredTracks => _featuredTracks;
+
+  /// Tracks on albums this artist owns that another artist performs, such
+  /// as the songs of a soundtrack or cast project.
+  List<LibraryTrack> get projectTracks => _projectTracks;
+
+  /// Featured and guest credits, plus main credits on releases owned by
+  /// another artist.
+  List<LibraryTrack> get collaborationTracks => _collaborationTracks;
+
+  /// The other lead artists on this artist's albums, once each.
+  List<ArtistProfileCollaborator> get collaborators => _collaborators;
+
+  /// Up to five of the catalogue's most streamed songs, all-time.
+  List<ArtistTopTrack> get topTracks => _topTracks;
+
+  /// What Play and Shuffle queue: the artist's own songs, then the other
+  /// performers' songs on the artist's own albums.
+  List<LibraryTrack> get playbackTracks => [..._tracks, ..._projectTracks];
 
   String? get headerArtworkPath {
     final path = _artist?.headerArtworkPath?.trim();
@@ -126,7 +161,7 @@ class ArtistProfileController extends ChangeNotifier {
   }
 
   bool get hasPlayableTracks {
-    return _tracks.any(_isPlayable);
+    return playbackTracks.any(_isPlayable);
   }
 
   bool get canEditArtwork {
@@ -311,9 +346,21 @@ class ArtistProfileController extends ChangeNotifier {
           ? _repository as StructuredArtistQueryRepository
           : null;
 
-      final artist = structuredRepository != null
+      final eligibleArtist = structuredRepository != null
           ? await structuredRepository.getProfileEligibleArtistById(_artistId)
           : await _repository.getArtistById(_artistId);
+
+      // An artist who only owns albums (a soundtrack or cast project) has no
+      // main credit, so the eligibility query does not return it. Owning an
+      // album is a structured relationship, so its existing record is used.
+      final albums = eligibleArtist != null || structuredRepository != null
+          ? await _repository.getAlbumsByArtistId(_artistId)
+          : const <LibraryAlbum>[];
+      final artist =
+          eligibleArtist ??
+          (albums.isNotEmpty
+              ? await _repository.getArtistById(_artistId)
+              : null);
 
       if (artist == null) {
         _artist = null;
@@ -321,14 +368,18 @@ class ArtistProfileController extends ChangeNotifier {
         _tracks = const [];
         _allTracks = const [];
         _featuredTracks = const [];
+        _projectTracks = const [];
+        _collaborationTracks = const [];
+        _collaborators = const [];
+        _topTracks = const [];
         return;
       }
 
-      final albums = await _repository.getAlbumsByArtistId(_artistId);
+      final ownedAlbumIds = {for (final album in albums) album.albumId};
 
       final List<LibraryTrack> tracks;
       final List<LibraryTrack> featuredTracks;
-      final List<LibraryTrack> allTracks;
+      final List<LibraryTrack> catalogTracks;
 
       if (structuredRepository != null) {
         tracks = await structuredRepository.getMainTracksByArtistId(_artistId);
@@ -336,19 +387,21 @@ class ArtistProfileController extends ChangeNotifier {
         featuredTracks = await structuredRepository
             .getCollaborationTracksByArtistId(_artistId);
 
-        allTracks = [...tracks, ...featuredTracks];
+        catalogTracks = ownedAlbumIds.isEmpty
+            ? const []
+            : await _repository.getTracks();
       } else {
         tracks = await _repository.getTracksByArtistId(_artistId);
 
-        final catalogTracks = await _repository.getTracks();
+        final allCatalogTracks = await _repository.getTracks();
 
-        allTracks = catalogTracks.isEmpty && tracks.isNotEmpty
+        catalogTracks = allCatalogTracks.isEmpty && tracks.isNotEmpty
             ? tracks
-            : catalogTracks;
+            : allCatalogTracks;
 
         final canonicalArtistName = TextNormalizer.canonicalize(artist.name);
 
-        featuredTracks = allTracks
+        featuredTracks = catalogTracks
             .where(
               (track) =>
                   track.artistId != _artistId &&
@@ -361,11 +414,42 @@ class ArtistProfileController extends ChangeNotifier {
             .toList(growable: false);
       }
 
+      final ownSongIds = {
+        for (final track in [...tracks, ...featuredTracks]) track.songId,
+      };
+      final projectTracks = catalogTracks
+          .where(
+            (track) =>
+                ownedAlbumIds.contains(track.albumId) &&
+                track.artistId != _artistId &&
+                !ownSongIds.contains(track.songId),
+          )
+          .toList(growable: false);
+
+      final artistsById = projectTracks.isEmpty
+          ? const <String, LibraryArtist>{}
+          : {
+              for (final candidate in await _repository.getArtists())
+                candidate.artistId: candidate,
+            };
+
       _artist = artist;
       _albums = albums;
       _tracks = tracks;
-      _allTracks = allTracks;
       _featuredTracks = featuredTracks;
+      _projectTracks = projectTracks;
+      _allTracks = [...tracks, ...featuredTracks, ...projectTracks];
+      _collaborationTracks = ArtistProfileSections.collaborations(
+        mainTracks: tracks,
+        featuredTracks: featuredTracks,
+        ownedAlbumIds: ownedAlbumIds,
+      );
+      _collaborators = ArtistProfileSections.collaborators(
+        projectArtistId: _artistId,
+        projectTracks: projectTracks,
+        artistsById: artistsById,
+      );
+      _topTracks = await _rankTopTracks();
     } catch (error) {
       _error = error;
     } finally {
@@ -375,6 +459,57 @@ class ArtistProfileController extends ChangeNotifier {
   }
 
   Future<void> refresh() => load();
+
+  /// Re-reads the all-time ranking only, for example after returning from
+  /// another page where songs may have been played.
+  Future<void> refreshTopTracks() async {
+    if (_artist == null) return;
+
+    final topTracks = await _rankTopTracks();
+    if (_sameTopTracks(topTracks, _topTracks)) return;
+
+    _topTracks = topTracks;
+    notifyListeners();
+  }
+
+  Future<List<ArtistTopTrack>> _rankTopTracks() async {
+    final qualifiedPlays = _qualifiedPlays;
+    final catalogue = playbackTracks;
+
+    if (qualifiedPlays == null || catalogue.isEmpty) return const [];
+
+    try {
+      final rankings = await AnalyticsEntityRankingService(
+        qualifiedPlays: qualifiedPlays,
+      ).load(period: AnalyticsPeriod.lifetime, referenceLocal: _clock());
+
+      return ArtistProfileSections.topTracks(
+        catalogue: catalogue,
+        rankedSongs: rankings.songs,
+      );
+    } catch (error, stackTrace) {
+      // Top Tracks is optional; the rest of the profile still shows.
+      developer.log(
+        'Could not rank top tracks (${error.runtimeType})',
+        name: 'sonus.library.artist_profile',
+        level: 900,
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return const [];
+    }
+  }
+
+  static bool _sameTopTracks(List<ArtistTopTrack> a, List<ArtistTopTrack> b) {
+    if (a.length != b.length) return false;
+    for (var index = 0; index < a.length; index++) {
+      if (!identical(a[index].track, b[index].track) ||
+          a[index].streamCount != b[index].streamCount) {
+        return false;
+      }
+    }
+    return true;
+  }
 
   Future<bool> renameArtist({String? userId, required String name}) async {
     final service = _artistProfileEditingService;
@@ -512,7 +647,8 @@ class ArtistProfileController extends ChangeNotifier {
       return;
     }
 
-    final startIndex = _tracks.indexWhere(
+    final queue = playbackTracks;
+    final startIndex = queue.indexWhere(
       (candidate) => candidate.songId == track.songId,
     );
 
@@ -521,20 +657,22 @@ class ArtistProfileController extends ChangeNotifier {
       return;
     }
 
-    await playbackCoordinator.playTracks(_tracks, startIndex: startIndex);
+    await playbackCoordinator.playTracks(queue, startIndex: startIndex);
   }
 
   Future<void> playAll() async {
     final playbackCoordinator = _playbackCoordinator;
 
-    if (playbackCoordinator == null || _tracks.isEmpty) {
+    final queue = playbackTracks;
+
+    if (playbackCoordinator == null || queue.isEmpty) {
       return;
     }
 
     final playableIndexes = <int>[];
 
-    for (var index = 0; index < _tracks.length; index++) {
-      if (_isPlayable(_tracks[index])) {
+    for (var index = 0; index < queue.length; index++) {
+      if (_isPlayable(queue[index])) {
         playableIndexes.add(index);
       }
     }
@@ -547,7 +685,22 @@ class ArtistProfileController extends ChangeNotifier {
         ? playableIndexes[_random.nextInt(playableIndexes.length)]
         : playableIndexes.first;
 
-    await playbackCoordinator.playTracks(_tracks, startIndex: startIndex);
+    await playbackCoordinator.playTracks(queue, startIndex: startIndex);
+  }
+
+  /// Plays one collaborator's songs on this artist's projects.
+  Future<void> playCollaborator(ArtistProfileCollaborator collaborator) async {
+    final playbackCoordinator = _playbackCoordinator;
+    final first = collaborator.tracks.indexWhere(_isPlayable);
+
+    if (playbackCoordinator == null || first == -1) {
+      return;
+    }
+
+    await playbackCoordinator.playTracks(
+      collaborator.tracks,
+      startIndex: first,
+    );
   }
 
   Future<void> setShuffleEnabled(bool enabled) async {

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/design/widgets/sonus_surface_card.dart';
+
 class ImportFolderStructureCard extends StatelessWidget {
   const ImportFolderStructureCard({super.key});
 
@@ -7,7 +9,8 @@ class ImportFolderStructureCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return Card(
+    return SonusSurfaceCard(
+      padding: EdgeInsets.zero,
       key: const ValueKey<String>('import-folder-structure-card'),
       child: Padding(
         padding: const EdgeInsets.all(20),
@@ -21,10 +24,12 @@ class ImportFolderStructureCard extends StatelessWidget {
                   color: theme.colorScheme.primary,
                 ),
                 const SizedBox(width: 10),
-                Text(
-                  'Folder structure',
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.w700,
+                Expanded(
+                  child: Text(
+                    'Folder structure',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                 ),
               ],

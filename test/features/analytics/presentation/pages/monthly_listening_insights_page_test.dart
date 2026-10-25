@@ -468,7 +468,92 @@ void main() {
 
       expect(find.text('Top 25 of 26'), findsOneWidget);
     });
+
+    // Characterization (SN-48K1): navigation and ranking order the redesign
+    // must keep.
+    testWidgets('previous month loads the month before', (tester) async {
+      final loader = _RecordingInsightsLoader();
+      final controller = _controller(loader: loader);
+
+      await controller.load();
+      await tester.pumpWidget(_app(controller: controller));
+      await tester.pumpAndSettle();
+
+      expect(find.text('October 2026'), findsOneWidget);
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('monthly-insights-previous-month')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('September 2026'), findsOneWidget);
+      expect(loader.requestedMonths, [DateTime(2026, 10), DateTime(2026, 9)]);
+    });
+
+    testWidgets('ranked rows keep their rank order', (tester) async {
+      final insights = _insights(
+        month: DateTime(2026, 10),
+        streamCount: 20,
+        previousStreamCount: 10,
+      );
+      final controller = _controller(
+        loader: ImmediateInsightsLoader(result: insights),
+        enricher: StaticInsightsEnricher(
+          _presentationData(
+            insights: insights,
+            tracks: [
+              for (var rank = 1; rank <= 3; rank++)
+                _trackRow(
+                  id: 'song-$rank',
+                  title: 'Track $rank',
+                  artistName: 'Artist',
+                  rank: rank,
+                  previousRank: rank,
+                  streams: 10 - rank,
+                  previousStreams: 5,
+                  lifetimeStreams: 50,
+                ),
+            ],
+          ),
+        ),
+      );
+
+      await controller.load();
+      await tester.pumpWidget(_app(controller: controller));
+
+      await tester.scrollUntilVisible(
+        find.byKey(const ValueKey<String>('monthly-insights-track-song-3')),
+        500,
+        scrollable: _verticalScrollable(),
+      );
+
+      double top(String id) => tester
+          .getTopLeft(
+            find.byKey(ValueKey<String>('monthly-insights-track-$id')),
+          )
+          .dy;
+
+      expect(top('song-1'), lessThan(top('song-2')));
+      expect(top('song-2'), lessThan(top('song-3')));
+    });
   });
+}
+
+class _RecordingInsightsLoader implements MonthlyListeningInsightsLoader {
+  final List<DateTime> requestedMonths = [];
+
+  @override
+  Future<MonthlyListeningInsights> load({
+    required DateTime referenceLocal,
+  }) async {
+    requestedMonths.add(referenceLocal);
+
+    return _insights(
+      month: referenceLocal,
+      streamCount: 12,
+      previousStreamCount: 6,
+    );
+  }
 }
 
 Finder _verticalScrollable() {

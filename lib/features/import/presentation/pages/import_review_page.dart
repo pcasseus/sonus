@@ -2,6 +2,11 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../../../core/design/sonus_theme.dart';
+import '../../../../core/design/widgets/sonus_notice_card.dart';
+import '../../../../core/design/widgets/sonus_state_view.dart';
+import '../../../../core/design/widgets/sonus_surface_card.dart';
+import '../../../../core/design/widgets/sonus_track_tile.dart';
 import '../../../artwork/application/services/artwork_assignment_service.dart';
 import '../../../artwork/application/services/artwork_file_picker.dart';
 
@@ -53,16 +58,24 @@ class _ImportReviewPageState extends State<ImportReviewPage> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = SonusTheme.of(context).colors;
+
     return Scaffold(
       key: const ValueKey<String>('import-review-page'),
-      appBar: AppBar(title: const Text('Review metadata')),
+      backgroundColor: colors.background,
+      appBar: AppBar(
+        title: const Text('Review metadata'),
+        backgroundColor: colors.background,
+        surfaceTintColor: Colors.transparent,
+      ),
       body: AnimatedBuilder(
         animation: _controller,
         builder: (context, _) {
           if (_controller.isLoading && _controller.items.isEmpty) {
-            return const Center(
+            return Center(
               child: CircularProgressIndicator(
-                key: ValueKey<String>('import-review-loading'),
+                key: const ValueKey<String>('import-review-loading'),
+                color: colors.accentPrimary,
               ),
             );
           }
@@ -98,52 +111,45 @@ class _ImportReviewPageState extends State<ImportReviewPage> {
                 'Browse unresolved songs with Previous and Next. Correct '
                 'anything that needs attention, then save when this song '
                 'has been reviewed.',
-                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                  color: Theme.of(context).colorScheme.onSurfaceVariant,
-                ),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodyLarge?.copyWith(color: colors.textSecondary),
               ),
               const SizedBox(height: 20),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      key: const ValueKey<String>(
-                        'import-review-previous-button',
-                      ),
-                      onPressed:
-                          _controller.isBusy || !_controller.canGoPrevious
-                          ? null
-                          : _controller.goPrevious,
-                      icon: const Icon(Icons.chevron_left_rounded),
-                      label: const Text('Previous'),
-                    ),
+              _ReviewNavigation(
+                position: Text(
+                  'Song ${_controller.currentPosition} of '
+                  '${_controller.remainingCount}',
+                  key: const ValueKey<String>('import-review-position'),
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    fontFeatures: const [FontFeature.tabularFigures()],
                   ),
-                  const SizedBox(width: 12),
-                  Text(
-                    'Song ${_controller.currentPosition} of ${_controller.remainingCount}',
-                    key: const ValueKey<String>('import-review-position'),
-                    style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      key: const ValueKey<String>('import-review-next-button'),
-                      onPressed: _controller.isBusy || !_controller.canGoNext
-                          ? null
-                          : _controller.goNext,
-                      icon: const Icon(Icons.chevron_right_rounded),
-                      label: const Text('Next'),
-                    ),
-                  ),
-                ],
+                ),
+                previous: OutlinedButton.icon(
+                  key: const ValueKey<String>('import-review-previous-button'),
+                  onPressed: _controller.isBusy || !_controller.canGoPrevious
+                      ? null
+                      : _controller.goPrevious,
+                  icon: const Icon(Icons.chevron_left_rounded),
+                  label: const Text('Previous'),
+                ),
+                next: OutlinedButton.icon(
+                  key: const ValueKey<String>('import-review-next-button'),
+                  onPressed: _controller.isBusy || !_controller.canGoNext
+                      ? null
+                      : _controller.goNext,
+                  icon: const Icon(Icons.chevron_right_rounded),
+                  label: const Text('Next'),
+                ),
               ),
               const SizedBox(height: 16),
-              Card(
+              SonusSurfaceCard(
                 key: ValueKey<String>(
                   'import-review-item-${item.track.songId}',
                 ),
+                padding: EdgeInsets.zero,
                 child: Padding(
                   padding: const EdgeInsets.all(20),
                   child: Column(
@@ -324,13 +330,12 @@ class _ImportReviewPageState extends State<ImportReviewPage> {
               ),
               if (_controller.hasError) ...[
                 const SizedBox(height: 16),
-                Text(
-                  'Could not save this review. Your review remains unresolved.',
-                  key: const ValueKey<String>('import-review-error'),
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.error,
-                    fontWeight: FontWeight.w600,
-                  ),
+                const SonusNoticeCard(
+                  key: ValueKey<String>('import-review-error'),
+                  tone: SonusNoticeTone.error,
+                  title:
+                      'Could not save this review. Your review remains '
+                      'unresolved.',
                 ),
               ],
             ],
@@ -546,42 +551,67 @@ class _ImportReviewPageState extends State<ImportReviewPage> {
   }
 }
 
+/// Previous, the position and Next in one row; the position moves above
+/// the buttons on narrow screens or at large text so nothing overflows.
+class _ReviewNavigation extends StatelessWidget {
+  const _ReviewNavigation({
+    required this.previous,
+    required this.position,
+    required this.next,
+  });
+
+  final Widget previous;
+  final Widget position;
+  final Widget next;
+
+  @override
+  Widget build(BuildContext context) {
+    final stacked =
+        MediaQuery.textScalerOf(context).scale(1) > sonusLargeTextScale ||
+        MediaQuery.sizeOf(context).width < 380;
+
+    if (stacked) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          position,
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(child: previous),
+              const SizedBox(width: 12),
+              Expanded(child: next),
+            ],
+          ),
+        ],
+      );
+    }
+
+    return Row(
+      children: [
+        Expanded(child: previous),
+        const SizedBox(width: 12),
+        position,
+        const SizedBox(width: 12),
+        Expanded(child: next),
+      ],
+    );
+  }
+}
+
 class _ReviewCompleteState extends StatelessWidget {
   const _ReviewCompleteState();
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          key: const ValueKey<String>('import-review-complete'),
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.check_circle_outline_rounded,
-              size: 56,
-              color: Theme.of(context).colorScheme.primary,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              'All caught up',
-              style: Theme.of(
-                context,
-              ).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'There are no imported songs waiting for metadata review.',
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 20),
-            FilledButton.tonal(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Back to imports'),
-            ),
-          ],
-        ),
+    return SonusStateView(
+      key: const ValueKey<String>('import-review-complete'),
+      icon: Icons.check_circle_outline_rounded,
+      title: 'All caught up',
+      message: 'There are no imported songs waiting for metadata review.',
+      action: FilledButton.tonal(
+        onPressed: () => Navigator.of(context).pop(),
+        child: const Text('Back to imports'),
       ),
     );
   }
@@ -594,25 +624,13 @@ class _ReviewErrorState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.error_outline_rounded, size: 48),
-            const SizedBox(height: 16),
-            const Text(
-              'Could not load metadata reviews.',
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 16),
-            FilledButton.tonal(
-              onPressed: onRetry,
-              child: const Text('Try again'),
-            ),
-          ],
-        ),
+    return SonusStateView(
+      icon: Icons.error_outline_rounded,
+      isError: true,
+      title: 'Could not load metadata reviews.',
+      action: FilledButton.tonal(
+        onPressed: onRetry,
+        child: const Text('Try again'),
       ),
     );
   }

@@ -1,8 +1,13 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
+import '../../../../core/design/sonus_artwork_palette.dart';
+import '../../../../core/design/sonus_atmosphere_colors.dart';
+import '../../../../core/design/sonus_theme.dart';
+import '../../../../core/design/widgets/sonus_state_view.dart';
+import '../../../../core/design/widgets/sonus_track_tile.dart';
 
 import '../../../library/application/models/library_track.dart';
 import '../../../library/presentation/pages/album_profile_page.dart';
@@ -12,16 +17,21 @@ import '../../../shell/presentation/widgets/shell_playback_slot.dart';
 import '../../application/models/playlist_track.dart';
 import '../../application/services/playlist_service.dart';
 import '../controllers/playlist_detail_controller.dart';
+import '../widgets/playlist_cover.dart';
 
 class PlaylistDetailPage extends StatefulWidget {
   const PlaylistDetailPage({
     super.key,
     required this.playlistId,
     required this.initialName,
+    this.artworkPalette,
   });
 
   final String playlistId;
   final String initialName;
+
+  /// Where artwork colours come from; the app-wide cache by default.
+  final SonusArtworkPalette? artworkPalette;
 
   @override
   State<PlaylistDetailPage> createState() => _PlaylistDetailPageState();
@@ -30,6 +40,53 @@ class PlaylistDetailPage extends StatefulWidget {
 class _PlaylistDetailPageState extends State<PlaylistDetailPage> {
   PlaylistService? _service;
   PlaylistDetailController? _controller;
+
+  // Artwork atmosphere, as on the Album Profile: theme colours first, the
+  // cover's colours once extracted.
+  SonusArtworkPalette get _palette =>
+      widget.artworkPalette ?? SonusArtworkPalette.shared;
+  String? _atmospherePath;
+  Brightness? _atmosphereBrightness;
+  SonusArtworkColors? _artworkColors;
+
+  /// Never sets state synchronously, so it is safe to call while building.
+  void _requestAtmosphere(String? artworkPath, Brightness brightness) {
+    if (artworkPath == _atmospherePath && brightness == _atmosphereBrightness) {
+      return;
+    }
+    _atmospherePath = artworkPath;
+    _atmosphereBrightness = brightness;
+
+    unawaited(
+      _palette.colorsFor(artworkPath, brightness: brightness).then((colors) {
+        if (!mounted ||
+            artworkPath != _atmospherePath ||
+            brightness != _atmosphereBrightness ||
+            colors == _artworkColors) {
+          return;
+        }
+        setState(() {
+          _artworkColors = colors;
+        });
+      }),
+    );
+  }
+
+  void _onControllerChanged() {
+    final controller = _controller;
+    if (controller == null || !mounted) return;
+    _requestAtmosphere(_coverPath(controller), Theme.of(context).brightness);
+  }
+
+  /// The first visible song's artwork, used as the playlist's cover.
+  String? _coverPath(PlaylistDetailController controller) {
+    for (final entry in controller.tracks) {
+      if (!controller.isTrackVisible(entry.track)) continue;
+      final path = entry.track.artworkPath?.trim();
+      if (path != null && path.isNotEmpty) return path;
+    }
+    return null;
+  }
 
   @override
   void didChangeDependencies() {
@@ -41,6 +98,7 @@ class _PlaylistDetailPageState extends State<PlaylistDetailPage> {
       return;
     }
 
+    _controller?.removeListener(_onControllerChanged);
     _controller?.dispose();
     _controller = null;
     _service = service;
@@ -57,16 +115,47 @@ class _PlaylistDetailPageState extends State<PlaylistDetailPage> {
 
     _controller = controller;
 
+    controller.addListener(_onControllerChanged);
     unawaited(controller.load());
   }
 
   @override
   Widget build(BuildContext context) {
     final controller = _controller;
+    final tokens = SonusTheme.of(context);
 
+    if (controller != null) {
+      _requestAtmosphere(_coverPath(controller), Theme.of(context).brightness);
+    }
+
+    final target = SonusArtworkAtmosphere.resolve(
+      colors: tokens.colors,
+      decoration: tokens.decoration,
+      artwork: _artworkColors,
+    );
+    final reduceMotion =
+        tokens.motion.reduced || MediaQuery.disableAnimationsOf(context);
+
+    return TweenAnimationBuilder<SonusAtmosphereColors>(
+      tween: SonusAtmosphereColorsTween(end: SonusAtmosphereColors.of(target)),
+      duration: reduceMotion ? Duration.zero : tokens.motion.baseMedium,
+      curve: tokens.motion.curve,
+      builder: (context, atmosphere, _) =>
+          _buildPage(context, controller, atmosphere),
+    );
+  }
+
+  Widget _buildPage(
+    BuildContext context,
+    PlaylistDetailController? controller,
+    SonusAtmosphereColors atmosphere,
+  ) {
     return Scaffold(
       key: const ValueKey<String>('playlist-detail-page'),
+      backgroundColor: atmosphere.background,
       appBar: AppBar(
+        backgroundColor: atmosphere.background,
+        surfaceTintColor: Colors.transparent,
         title: AnimatedBuilder(
           animation: controller ?? _NoopListenable.instance,
           builder: (_, _) {
@@ -118,15 +207,18 @@ class _PlaylistDetailPageState extends State<PlaylistDetailPage> {
           ? const Center(child: Text('Loading playlist...'))
           : AnimatedBuilder(
               animation: controller,
-              builder: (context, _) => _buildBody(controller),
+              builder: (context, _) => _buildBody(controller, atmosphere),
             ),
       bottomNavigationBar: const ShellPlaybackSlot(),
     );
   }
 
-  Widget _buildBody(PlaylistDetailController controller) {
+  Widget _buildBody(
+    PlaylistDetailController controller,
+    SonusAtmosphereColors atmosphere,
+  ) {
     if (controller.isLoading && controller.detail == null) {
-      return const Center(child: CircularProgressIndicator());
+      return const SonusStateView.loading();
     }
 
     if (controller.hasError && controller.detail == null) {
@@ -140,19 +232,25 @@ class _PlaylistDetailPageState extends State<PlaylistDetailPage> {
     final detail = controller.detail;
 
     if (detail == null) {
-      return const Center(child: CircularProgressIndicator());
+      return const SonusStateView.loading();
     }
 
     final visibleTracks = controller.tracks
         .where((entry) => controller.isTrackVisible(entry.track))
         .toList(growable: false);
+    final gutter = SonusTheme.of(context).metrics.pageGutter;
+    final bottomInset = 120 + MediaQuery.paddingOf(context).bottom;
 
-    return Column(
+    // The header scrolls with the songs, so small screens keep the list in
+    // view.
+    final header = Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         _PlaylistDetailHeader(
           playlistName: detail.playlist.name,
           trackCount: visibleTracks.length,
-          tracks: visibleTracks,
+          coverPath: _coverPath(controller),
+          atmosphere: atmosphere,
           hasPlayableTracks: controller.hasPlayableTracks,
           isShuffleEnabled: controller.isShuffleEnabled,
           isBusy: controller.isMutating,
@@ -161,45 +259,65 @@ class _PlaylistDetailPageState extends State<PlaylistDetailPage> {
         ),
         if (controller.hasError)
           _DetailErrorBanner(onRetry: controller.refresh),
-        Expanded(
-          child: visibleTracks.isEmpty
-              ? const _EmptyPlaylistDetail()
-              : RefreshIndicator(
-                  onRefresh: controller.refresh,
-                  child: ReorderableListView.builder(
-                    key: const PageStorageKey<String>('playlist-detail-tracks'),
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    padding: const EdgeInsets.fromLTRB(12, 6, 12, 120),
-                    itemCount: visibleTracks.length,
-                    // ignore: deprecated_member_use
-                    onReorder: (oldIndex, newIndex) {
-                      unawaited(
-                        controller.reorderVisible(
-                          oldIndex: oldIndex,
-                          newIndex: newIndex,
-                        ),
-                      );
-                    },
-                    itemBuilder: (context, index) {
-                      final entry = visibleTracks[index];
-
-                      return _PlaylistTrackTile(
-                        key: ValueKey<String>(entry.item.id),
-                        entry: entry,
-                        index: index,
-                        isPlayable: controller.isTrackPlayable(entry.track),
-                        onPlay: () => controller.playTrack(entry.track),
-                        onPlayNext: () => controller.playNext(entry.track),
-                        onAddToQueue: () => controller.addToQueue(entry.track),
-                        onRemove: () => _removeTrack(controller, entry),
-                        onGoToAlbum: () => _openAlbum(entry.track),
-                        onGoToArtist: () => _openArtist(entry.track),
-                      );
-                    },
-                  ),
-                ),
-        ),
       ],
+    );
+
+    if (visibleTracks.isEmpty) {
+      return RefreshIndicator(
+        onRefresh: controller.refresh,
+        child: CustomScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          slivers: [
+            SliverToBoxAdapter(child: header),
+            const SliverFillRemaining(
+              hasScrollBody: false,
+              child: _EmptyPlaylistDetail(),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: controller.refresh,
+      child: ReorderableListView.builder(
+        key: const PageStorageKey<String>('playlist-detail-tracks'),
+        physics: const AlwaysScrollableScrollPhysics(),
+        header: header,
+        buildDefaultDragHandles: false,
+        padding: EdgeInsets.fromLTRB(gutter - 6, 0, gutter - 6, bottomInset),
+        itemCount: visibleTracks.length,
+        // ignore: deprecated_member_use
+        onReorder: (oldIndex, newIndex) {
+          unawaited(
+            controller.reorderVisible(oldIndex: oldIndex, newIndex: newIndex),
+          );
+        },
+        itemBuilder: (context, index) {
+          final entry = visibleTracks[index];
+
+          return _PlaylistTrackTile(
+            key: ValueKey<String>(entry.item.id),
+            entry: entry,
+            index: index,
+            count: visibleTracks.length,
+            isPlayable: controller.isTrackPlayable(entry.track),
+            tileColor: atmosphere.surface,
+            onPlay: () => controller.playTrack(entry.track),
+            onPlayNext: () => controller.playNext(entry.track),
+            onAddToQueue: () => controller.addToQueue(entry.track),
+            onRemove: () => _removeTrack(controller, entry),
+            // Same index convention as dragging: a move down targets the
+            // slot after the next song.
+            onMove: (offset) => controller.reorderVisible(
+              oldIndex: index,
+              newIndex: offset < 0 ? index - 1 : index + 2,
+            ),
+            onGoToAlbum: () => _openAlbum(entry.track),
+            onGoToArtist: () => _openArtist(entry.track),
+          );
+        },
+      ),
     );
   }
 
@@ -238,6 +356,11 @@ class _PlaylistDetailPageState extends State<PlaylistDetailPage> {
               child: const Text('Cancel'),
             ),
             FilledButton(
+              key: const ValueKey<String>('playlist-delete-confirm-button'),
+              style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(dialogContext).colorScheme.error,
+                foregroundColor: Theme.of(dialogContext).colorScheme.onError,
+              ),
               onPressed: () => Navigator.of(dialogContext).pop(true),
               child: const Text('Delete'),
             ),
@@ -316,6 +439,7 @@ class _PlaylistDetailPageState extends State<PlaylistDetailPage> {
 
   @override
   void dispose() {
+    _controller?.removeListener(_onControllerChanged);
     _controller?.dispose();
     super.dispose();
   }
@@ -325,7 +449,8 @@ class _PlaylistDetailHeader extends StatelessWidget {
   const _PlaylistDetailHeader({
     required this.playlistName,
     required this.trackCount,
-    required this.tracks,
+    required this.coverPath,
+    required this.atmosphere,
     required this.hasPlayableTracks,
     required this.isShuffleEnabled,
     required this.isBusy,
@@ -335,136 +460,147 @@ class _PlaylistDetailHeader extends StatelessWidget {
 
   final String playlistName;
   final int trackCount;
-  final List<PlaylistTrack> tracks;
+  final String? coverPath;
+  final SonusAtmosphereColors atmosphere;
   final bool hasPlayableTracks;
   final bool isShuffleEnabled;
   final bool isBusy;
   final Future<void> Function() onPlayAll;
   final Future<void> Function() onToggleShuffle;
 
+  /// From this width the cover sits beside the title, keeping songs in view.
+  static const double wideLayoutWidth = 560;
+
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final tokens = SonusTheme.of(context);
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 18, 20, 14),
-      child: Column(
-        children: [
-          _DetailCover(tracks: tracks),
-          const SizedBox(height: 16),
-          Text(
-            playlistName,
-            key: const ValueKey<String>('playlist-detail-title'),
-            textAlign: TextAlign.center,
-            style: theme.textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-          const SizedBox(height: 5),
-          Text(
-            trackCount == 1 ? '1 song' : '$trackCount songs',
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: FilledButton.icon(
-                  key: const ValueKey<String>('playlist-play-all-button'),
-                  onPressed: hasPlayableTracks && !isBusy
-                      ? () => unawaited(onPlayAll())
-                      : null,
-                  icon: const Icon(Icons.play_arrow_rounded),
-                  label: const Text('Play all'),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: isShuffleEnabled
-                    ? FilledButton.tonalIcon(
-                        key: const ValueKey<String>('playlist-shuffle-button'),
-                        onPressed: hasPlayableTracks && !isBusy
-                            ? () => unawaited(onToggleShuffle())
-                            : null,
-                        icon: const Icon(Icons.shuffle_on_rounded),
-                        label: const Text('Shuffle on'),
-                      )
-                    : OutlinedButton.icon(
-                        key: const ValueKey<String>('playlist-shuffle-button'),
-                        onPressed: hasPlayableTracks && !isBusy
-                            ? () => unawaited(onToggleShuffle())
-                            : null,
-                        icon: const Icon(Icons.shuffle_rounded),
-                        label: const Text('Shuffle'),
-                      ),
-              ),
-            ],
-          ),
-        ],
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: atmosphere.isTinted
+            ? LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [atmosphere.surface, atmosphere.background],
+              )
+            : null,
+        color: atmosphere.isTinted ? null : atmosphere.background,
+      ),
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+          tokens.metrics.pageGutter,
+          8,
+          tokens.metrics.pageGutter,
+          16,
+        ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            if (constraints.maxWidth >= wideLayoutWidth) {
+              final size = (constraints.maxWidth * 0.26).clamp(120.0, 200.0);
+              return Row(
+                children: [
+                  PlaylistCover(size: size, artworkPath: coverPath),
+                  const SizedBox(width: 24),
+                  Expanded(child: _details(context, centered: false)),
+                ],
+              );
+            }
+
+            final size = (constraints.maxWidth * 0.5).clamp(120.0, 220.0);
+            return Column(
+              children: [
+                PlaylistCover(size: size, artworkPath: coverPath),
+                const SizedBox(height: 16),
+                _details(context, centered: true),
+              ],
+            );
+          },
+        ),
       ),
     );
   }
-}
 
-class _DetailCover extends StatelessWidget {
-  const _DetailCover({required this.tracks});
+  Widget _details(BuildContext context, {required bool centered}) {
+    final tokens = SonusTheme.of(context);
+    final colors = tokens.colors;
+    final theme = Theme.of(context);
+    final radius = BorderRadius.circular(tokens.metrics.controlRadius);
+    final canPlay = hasPlayableTracks && !isBusy;
 
-  final List<PlaylistTrack> tracks;
-
-  @override
-  Widget build(BuildContext context) {
-    String? path;
-
-    for (final entry in tracks) {
-      final candidate = entry.track.artworkPath?.trim();
-
-      if (candidate != null && candidate.isNotEmpty) {
-        path = candidate;
-        break;
-      }
-    }
-
-    final colors = Theme.of(context).colorScheme;
-
-    return SizedBox.square(
-      dimension: 190,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(28),
-        child: path == null
-            ? DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      colors.primaryContainer,
-                      colors.secondaryContainer,
-                    ],
-                  ),
+    return Column(
+      crossAxisAlignment: centered
+          ? CrossAxisAlignment.center
+          : CrossAxisAlignment.start,
+      children: [
+        Text(
+          playlistName,
+          key: const ValueKey<String>('playlist-detail-title'),
+          textAlign: centered ? TextAlign.center : TextAlign.start,
+          maxLines: 3,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.headlineSmall?.copyWith(
+            color: colors.textPrimary,
+            fontWeight: FontWeight.w900,
+          ),
+        ),
+        const SizedBox(height: 5),
+        Text(
+          trackCount == 1 ? '1 song' : '$trackCount songs',
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: colors.textSecondary,
+            fontFeatures: const [FontFeature.tabularFigures()],
+          ),
+        ),
+        const SizedBox(height: 16),
+        Row(
+          children: [
+            Expanded(
+              child: FilledButton.icon(
+                key: const ValueKey<String>('playlist-play-all-button'),
+                onPressed: canPlay ? () => unawaited(onPlayAll()) : null,
+                style: FilledButton.styleFrom(
+                  backgroundColor: atmosphere.accent,
+                  foregroundColor: atmosphere.onAccent,
+                  minimumSize: const Size.fromHeight(48),
+                  shape: RoundedRectangleBorder(borderRadius: radius),
                 ),
-                child: Icon(
-                  Icons.queue_music_rounded,
-                  size: 76,
-                  color: colors.onPrimaryContainer,
-                ),
-              )
-            : Image.file(
-                File(path),
-                fit: BoxFit.cover,
-                errorBuilder: (_, _, _) {
-                  return ColoredBox(
-                    color: colors.surfaceContainerHighest,
-                    child: Icon(
-                      Icons.queue_music_rounded,
-                      size: 70,
-                      color: colors.onSurfaceVariant,
-                    ),
-                  );
-                },
+                icon: const Icon(Icons.play_arrow_rounded),
+                label: const Text('Play all', maxLines: 1),
               ),
-      ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: isShuffleEnabled
+                  ? FilledButton.tonalIcon(
+                      key: const ValueKey<String>('playlist-shuffle-button'),
+                      onPressed: canPlay
+                          ? () => unawaited(onToggleShuffle())
+                          : null,
+                      style: FilledButton.styleFrom(
+                        minimumSize: const Size.fromHeight(48),
+                        shape: RoundedRectangleBorder(borderRadius: radius),
+                      ),
+                      icon: const Icon(Icons.shuffle_on_rounded),
+                      label: const Text('Shuffle on', maxLines: 1),
+                    )
+                  : OutlinedButton.icon(
+                      key: const ValueKey<String>('playlist-shuffle-button'),
+                      onPressed: canPlay
+                          ? () => unawaited(onToggleShuffle())
+                          : null,
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size.fromHeight(48),
+                        foregroundColor: colors.textPrimary,
+                        side: BorderSide(color: colors.border),
+                        shape: RoundedRectangleBorder(borderRadius: radius),
+                      ),
+                      icon: const Icon(Icons.shuffle_rounded),
+                      label: const Text('Shuffle', maxLines: 1),
+                    ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 }
@@ -474,23 +610,31 @@ class _PlaylistTrackTile extends StatelessWidget {
     super.key,
     required this.entry,
     required this.index,
+    required this.count,
     required this.isPlayable,
+    required this.tileColor,
     required this.onPlay,
     required this.onPlayNext,
     required this.onAddToQueue,
     required this.onRemove,
+    required this.onMove,
     required this.onGoToAlbum,
     required this.onGoToArtist,
   });
 
   final PlaylistTrack entry;
   final int index;
+  final int count;
   final bool isPlayable;
+  final Color tileColor;
 
   final Future<void> Function() onPlay;
   final Future<void> Function() onPlayNext;
   final Future<void> Function() onAddToQueue;
   final Future<void> Function() onRemove;
+
+  /// Moves the song by one place; -1 is up, 1 is down.
+  final Future<void> Function(int offset) onMove;
 
   final VoidCallback onGoToAlbum;
   final VoidCallback onGoToArtist;
@@ -499,217 +643,135 @@ class _PlaylistTrackTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final track = entry.track;
     final theme = Theme.of(context);
+    final colors = SonusTheme.of(context).colors;
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 3),
-      child: Material(
-        color: isPlayable
-            ? theme.colorScheme.surfaceContainerLow
-            : theme.colorScheme.surfaceContainerLow.withValues(alpha: 0.6),
-        borderRadius: BorderRadius.circular(16),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          key: ValueKey<String>('playlist-track-${entry.item.id}'),
-          onTap: isPlayable ? () => unawaited(onPlay()) : null,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(8, 7, 2, 7),
-            child: Row(
-              children: [
-                _TrackArtwork(track: track, isPlayable: isPlayable),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _TrackMetadata(track: track, isPlayable: isPlayable),
-                ),
-                PopupMenuButton<_TrackAction>(
-                  tooltip: 'Song options',
-                  onSelected: (action) {
-                    switch (action) {
-                      case _TrackAction.playNext:
-                        unawaited(onPlayNext());
-                      case _TrackAction.addToQueue:
-                        unawaited(onAddToQueue());
-                      case _TrackAction.goToAlbum:
-                        onGoToAlbum();
-                      case _TrackAction.goToArtist:
-                        onGoToArtist();
-                      case _TrackAction.remove:
-                        unawaited(onRemove());
-                    }
-                  },
-                  itemBuilder: (_) => [
-                    PopupMenuItem(
-                      value: _TrackAction.playNext,
-                      enabled: isPlayable,
-                      child: const ListTile(
-                        leading: Icon(Icons.skip_next_rounded),
-                        title: Text('Play next'),
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                    ),
-                    PopupMenuItem(
-                      value: _TrackAction.addToQueue,
-                      enabled: isPlayable,
-                      child: const ListTile(
-                        leading: Icon(Icons.queue_music_rounded),
-                        title: Text('Add to queue'),
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                    ),
-                    const PopupMenuDivider(),
-                    const PopupMenuItem(
-                      value: _TrackAction.goToAlbum,
-                      child: ListTile(
-                        leading: Icon(Icons.album_outlined),
-                        title: Text('Go to album'),
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                    ),
-                    const PopupMenuItem(
-                      value: _TrackAction.goToArtist,
-                      child: ListTile(
-                        leading: Icon(Icons.person_outline_rounded),
-                        title: Text('Go to artist'),
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                    ),
-                    const PopupMenuDivider(),
-                    const PopupMenuItem(
-                      value: _TrackAction.remove,
-                      child: ListTile(
-                        leading: Icon(Icons.playlist_remove_rounded),
-                        title: Text('Remove from playlist'),
-                        contentPadding: EdgeInsets.zero,
-                      ),
-                    ),
-                  ],
-                ),
-                ReorderableDragStartListener(
-                  index: index,
-                  child: const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 8),
-                    child: Icon(Icons.drag_handle_rounded),
-                  ),
-                ),
-              ],
+    return SonusTrackTile(
+      inkKey: ValueKey<String>('playlist-track-${entry.item.id}'),
+      leadingNumber: '${index + 1}',
+      title: track.title,
+      subtitle: track.artistName,
+      artworkPath: track.artworkPath,
+      duration: sonusFormatDuration(track.durationSeconds),
+      enabled: isPlayable,
+      tileColor: tileColor,
+      onTap: () => unawaited(onPlay()),
+      status: isPlayable
+          ? null
+          : Text(
+              track.isBlocked ? 'Blacklisted' : 'Unavailable',
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.error,
+                fontWeight: FontWeight.w700,
+              ),
             ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _TrackArtwork extends StatelessWidget {
-  const _TrackArtwork({required this.track, required this.isPlayable});
-
-  final LibraryTrack track;
-  final bool isPlayable;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final path = track.artworkPath?.trim();
-
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(10),
-      child: SizedBox.square(
-        dimension: 52,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            if (path != null && path.isNotEmpty)
-              Image.file(
-                File(path),
-                fit: BoxFit.cover,
-                errorBuilder: (_, _, _) =>
-                    _ArtworkFallback(isPlayable: isPlayable),
-              )
-            else
-              _ArtworkFallback(isPlayable: isPlayable),
-            if (!isPlayable)
-              ColoredBox(
-                color: colors.surface.withValues(alpha: 0.58),
-                child: Center(
-                  child: Icon(
-                    track.isBlocked
-                        ? Icons.block_rounded
-                        : Icons.cloud_off_rounded,
-                    size: 20,
-                    color: colors.onSurfaceVariant,
-                  ),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          PopupMenuButton<_TrackAction>(
+            tooltip: 'Song options',
+            onSelected: (action) {
+              switch (action) {
+                case _TrackAction.playNext:
+                  unawaited(onPlayNext());
+                case _TrackAction.addToQueue:
+                  unawaited(onAddToQueue());
+                case _TrackAction.moveUp:
+                  unawaited(onMove(-1));
+                case _TrackAction.moveDown:
+                  unawaited(onMove(1));
+                case _TrackAction.goToAlbum:
+                  onGoToAlbum();
+                case _TrackAction.goToArtist:
+                  onGoToArtist();
+                case _TrackAction.remove:
+                  unawaited(onRemove());
+              }
+            },
+            itemBuilder: (_) => [
+              PopupMenuItem(
+                value: _TrackAction.playNext,
+                enabled: isPlayable,
+                child: const ListTile(
+                  leading: Icon(Icons.skip_next_rounded),
+                  title: Text('Play next'),
+                  contentPadding: EdgeInsets.zero,
                 ),
               ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ArtworkFallback extends StatelessWidget {
-  const _ArtworkFallback({required this.isPlayable});
-
-  final bool isPlayable;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-
-    return ColoredBox(
-      color: colors.surfaceContainerHighest,
-      child: Icon(
-        Icons.music_note_rounded,
-        color: colors.onSurfaceVariant.withValues(alpha: isPlayable ? 1 : 0.6),
-      ),
-    );
-  }
-}
-
-class _TrackMetadata extends StatelessWidget {
-  const _TrackMetadata({required this.track, required this.isPlayable});
-
-  final LibraryTrack track;
-  final bool isPlayable;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colors = theme.colorScheme;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          track.title,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: theme.textTheme.bodyLarge?.copyWith(
-            fontWeight: FontWeight.w700,
-            color: isPlayable
-                ? colors.onSurface
-                : colors.onSurface.withValues(alpha: 0.58),
+              PopupMenuItem(
+                value: _TrackAction.addToQueue,
+                enabled: isPlayable,
+                child: const ListTile(
+                  leading: Icon(Icons.queue_music_rounded),
+                  title: Text('Add to queue'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+              const PopupMenuDivider(),
+              // Reordering without dragging, for keyboards and screen
+              // readers; uses the same reorder as the drag handle.
+              PopupMenuItem(
+                key: ValueKey<String>('playlist-move-up-${entry.item.id}'),
+                value: _TrackAction.moveUp,
+                enabled: index > 0,
+                child: const ListTile(
+                  leading: Icon(Icons.arrow_upward_rounded),
+                  title: Text('Move up'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+              PopupMenuItem(
+                key: ValueKey<String>('playlist-move-down-${entry.item.id}'),
+                value: _TrackAction.moveDown,
+                enabled: index < count - 1,
+                child: const ListTile(
+                  leading: Icon(Icons.arrow_downward_rounded),
+                  title: Text('Move down'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+              const PopupMenuDivider(),
+              const PopupMenuItem(
+                value: _TrackAction.goToAlbum,
+                child: ListTile(
+                  leading: Icon(Icons.album_outlined),
+                  title: Text('Go to album'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+              const PopupMenuItem(
+                value: _TrackAction.goToArtist,
+                child: ListTile(
+                  leading: Icon(Icons.person_outline_rounded),
+                  title: Text('Go to artist'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+              const PopupMenuDivider(),
+              const PopupMenuItem(
+                value: _TrackAction.remove,
+                child: ListTile(
+                  leading: Icon(Icons.playlist_remove_rounded),
+                  title: Text('Remove from playlist'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+            ],
           ),
-        ),
-        const SizedBox(height: 2),
-        Text(
-          track.artistName,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: theme.textTheme.bodyMedium?.copyWith(
-            color: colors.onSurfaceVariant,
-          ),
-        ),
-        if (!isPlayable) ...[
-          const SizedBox(height: 3),
-          Text(
-            track.isBlocked ? 'Blacklisted' : 'Unavailable',
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: colors.error,
-              fontWeight: FontWeight.w700,
+          ReorderableDragStartListener(
+            index: index,
+            child: Semantics(
+              label: 'Drag to reorder',
+              child: SizedBox.square(
+                dimension: 48,
+                child: Icon(
+                  Icons.drag_handle_rounded,
+                  color: colors.textSecondary,
+                ),
+              ),
             ),
           ),
         ],
-      ],
+      ),
     );
   }
 }
@@ -719,34 +781,10 @@ class _EmptyPlaylistDetail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return ListView(
-      physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.fromLTRB(32, 40, 32, 120),
-      children: [
-        Icon(
-          Icons.playlist_add_rounded,
-          size: 56,
-          color: theme.colorScheme.onSurfaceVariant,
-        ),
-        const SizedBox(height: 18),
-        Text(
-          'This playlist is empty',
-          textAlign: TextAlign.center,
-          style: theme.textTheme.titleLarge?.copyWith(
-            fontWeight: FontWeight.w800,
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          'Add songs from Sonus track menus.',
-          textAlign: TextAlign.center,
-          style: theme.textTheme.bodyMedium?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-        ),
-      ],
+    return const SonusStateView(
+      icon: Icons.playlist_add_rounded,
+      title: 'This playlist is empty',
+      message: 'Add songs from Sonus track menus.',
     );
   }
 }
@@ -756,14 +794,9 @@ class _PlaylistNotFound extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Center(
-      child: Padding(
-        padding: EdgeInsets.all(24),
-        child: Text(
-          'This playlist no longer exists.',
-          textAlign: TextAlign.center,
-        ),
-      ),
+    return const SonusStateView(
+      icon: Icons.playlist_remove_rounded,
+      title: 'This playlist no longer exists.',
     );
   }
 }
@@ -775,8 +808,11 @@ class _DetailError extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: FilledButton.tonalIcon(
+    return SonusStateView(
+      icon: Icons.error_outline_rounded,
+      isError: true,
+      title: 'Could not load this playlist.',
+      action: FilledButton.tonalIcon(
         onPressed: () {
           unawaited(onRetry());
         },
@@ -794,27 +830,44 @@ class _DetailErrorBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
+    final tokens = SonusTheme.of(context);
+    final scheme = Theme.of(context).colorScheme;
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-      child: Material(
-        color: colors.errorContainer,
-        borderRadius: BorderRadius.circular(12),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: Row(
-            children: [
-              const Icon(Icons.error_outline_rounded),
-              const SizedBox(width: 8),
-              const Expanded(child: Text('Playlist could not refresh.')),
-              TextButton(
-                onPressed: () {
-                  unawaited(onRetry());
-                },
-                child: const Text('Retry'),
-              ),
-            ],
+      padding: EdgeInsets.fromLTRB(
+        tokens.metrics.pageGutter,
+        0,
+        tokens.metrics.pageGutter,
+        8,
+      ),
+      child: Semantics(
+        liveRegion: true,
+        child: Material(
+          color: scheme.errorContainer,
+          borderRadius: BorderRadius.circular(tokens.metrics.cardRadius),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.error_outline_rounded,
+                  color: scheme.onErrorContainer,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Playlist could not refresh.',
+                    style: TextStyle(color: scheme.onErrorContainer),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () {
+                    unawaited(onRetry());
+                  },
+                  child: const Text('Retry'),
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -848,9 +901,11 @@ class _RenamePlaylistDialogState extends State<_RenamePlaylistDialog> {
     return AlertDialog(
       title: const Text('Rename playlist'),
       content: TextField(
+        key: const ValueKey<String>('playlist-rename-field'),
         controller: _controller,
         autofocus: true,
         maxLength: 120,
+        decoration: const InputDecoration(labelText: 'Playlist name'),
         onChanged: (_) => setState(() {}),
       ),
       actions: [
@@ -877,7 +932,15 @@ class _RenamePlaylistDialogState extends State<_RenamePlaylistDialog> {
 
 enum _DetailAction { rename, delete }
 
-enum _TrackAction { playNext, addToQueue, goToAlbum, goToArtist, remove }
+enum _TrackAction {
+  playNext,
+  addToQueue,
+  moveUp,
+  moveDown,
+  goToAlbum,
+  goToArtist,
+  remove,
+}
 
 class _NoopListenable extends ChangeNotifier {
   _NoopListenable._();

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sonus_next/core/design/sonus_theme_factory.dart';
+import 'package:sonus_next/core/design/sonus_theme_id.dart';
 import 'package:provider/provider.dart';
 
 import 'package:sonus_next/features/account/application/controllers/account_controller.dart';
@@ -167,12 +169,48 @@ void main() {
     expect(find.text('No blacklisted songs'), findsOneWidget);
     expect(find.text('Removed from blacklist.'), findsOneWidget);
   });
+
+  // SN-48K2: Blacklisted Songs presentation.
+  for (final id in SonusThemeId.values) {
+    testWidgets('${id.label} fits 320dp at 2x text', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(320, 1600));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        _buildSubject(
+          repository: _FakeLibraryQueryRepository(
+            tracks: [
+              _track(
+                songId: 'blocked-long',
+                title: 'An Exceptionally Long Blacklisted Fixture Title',
+                isSongBlocked: true,
+              ),
+              _track(
+                songId: 'blocked-missing',
+                title: 'Missing Fixture',
+                isSongBlocked: true,
+                isAvailable: false,
+                filePath: null,
+              ),
+            ],
+          ),
+          theme: SonusThemeFactory.build(SonusAppearanceSpec(themeId: id)),
+          textScale: 2,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(find.textContaining('Unavailable'), findsOneWidget);
+    });
+  }
 }
 
 Widget _buildSubject({
   required LibraryQueryRepository repository,
   SongBlockService? songBlockService,
   AccountController? accountController,
+  ThemeData? theme,
+  double textScale = 1,
 }) {
   return MultiProvider(
     providers: [
@@ -182,7 +220,16 @@ Widget _buildSubject({
         value: accountController,
       ),
     ],
-    child: const MaterialApp(home: BlacklistedSongsPage()),
+    child: MaterialApp(
+      theme: theme,
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(
+          context,
+        ).copyWith(textScaler: TextScaler.linear(textScale)),
+        child: child!,
+      ),
+      home: const BlacklistedSongsPage(),
+    ),
   );
 }
 

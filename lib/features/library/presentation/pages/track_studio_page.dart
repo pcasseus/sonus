@@ -3,6 +3,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../../../core/design/sonus_theme.dart';
+import '../../../../core/design/widgets/sonus_artwork_image.dart';
+import '../../../../core/design/widgets/sonus_form_section.dart';
+import '../../../../core/design/widgets/sonus_track_tile.dart';
 import '../../application/models/external_metadata_search_query.dart';
 import '../../application/models/library_album.dart';
 import '../../application/models/library_artist.dart';
@@ -49,6 +53,56 @@ class TrackStudioPage extends StatefulWidget {
 
   @override
   State<TrackStudioPage> createState() => _TrackStudioPageState();
+}
+
+/// Artwork, title and credit of the song being edited.
+class _TrackStudioSummary extends StatelessWidget {
+  const _TrackStudioSummary({required this.track});
+
+  final LibraryTrack track;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = SonusTheme.of(context).colors;
+    final theme = Theme.of(context);
+
+    return MergeSemantics(
+      child: Row(
+        children: [
+          SonusArtworkImage(path: track.artworkPath, size: 64),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  track.title,
+                  key: const ValueKey<String>('track-studio-heading'),
+                  maxLines: 3,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    color: colors.textPrimary,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+                Text(
+                  [
+                    track.artistName,
+                    if (track.albumTitle.trim().isNotEmpty) track.albumTitle,
+                  ].join(' • '),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: colors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 class _TrackStudioPageState extends State<TrackStudioPage> {
@@ -122,392 +176,414 @@ class _TrackStudioPageState extends State<TrackStudioPage> {
       (album) => album.albumId == _albumId,
     );
 
+    final tokens = SonusTheme.of(context);
+    final colors = tokens.colors;
+    final gutter = tokens.metrics.pageGutter;
+    final canSearchMusicBrainz =
+        widget.canEditDetails &&
+        widget.metadataProvider != null &&
+        widget.externalMetadataApplicationService != null &&
+        widget.externalMetadataProposalService != null &&
+        widget.onMetadataApplied != null &&
+        !_isApplyingMusicBrainz;
+    // Number fields side by side only when both labels fit.
+    final stackNumbers =
+        MediaQuery.textScalerOf(context).scale(1) > sonusLargeTextScale ||
+        MediaQuery.sizeOf(context).width < 360;
+
+    final trackNumberField = TextFormField(
+      key: const ValueKey<String>('track-number-field'),
+      controller: _trackNumberController,
+      keyboardType: TextInputType.number,
+      textInputAction: TextInputAction.next,
+      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+      decoration: const InputDecoration(labelText: 'Track number'),
+      validator: (value) {
+        final number = int.tryParse(value?.trim() ?? '');
+
+        if (number == null || number < 0) {
+          return 'Enter a valid track number.';
+        }
+
+        return null;
+      },
+    );
+    final discNumberField = TextFormField(
+      key: const ValueKey<String>('track-disc-number-field'),
+      controller: _discNumberController,
+      keyboardType: TextInputType.number,
+      textInputAction: TextInputAction.next,
+      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+      decoration: const InputDecoration(labelText: 'Disc number'),
+      validator: (value) {
+        final number = int.tryParse(value?.trim() ?? '');
+
+        if (number == null || number < 0) {
+          return 'Enter a valid disc number.';
+        }
+
+        return null;
+      },
+    );
+
     return Scaffold(
       key: const ValueKey<String>('track-studio-page'),
+      backgroundColor: colors.background,
       appBar: AppBar(
         title: const Text('Track Studio'),
+        backgroundColor: colors.background,
+        surfaceTintColor: Colors.transparent,
         actions: [
-          TextButton(
-            key: const ValueKey<String>('track-studio-save-button'),
-            onPressed: widget.canEditDetails ? _submit : null,
-            child: const Text('Save'),
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: FilledButton(
+              key: const ValueKey<String>('track-studio-save-button'),
+              onPressed: widget.canEditDetails ? _submit : null,
+              style: FilledButton.styleFrom(
+                backgroundColor: colors.accentPrimary,
+                foregroundColor: colors.onAccentPrimary,
+                minimumSize: const Size(64, 40),
+              ),
+              child: const Text('Save'),
+            ),
           ),
-          const SizedBox(width: 8),
         ],
       ),
       body: SafeArea(
         child: Form(
           key: _formKey,
           child: ListView(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+            // Dragging the form hides the keyboard, so fields stay visible.
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+            padding: EdgeInsets.fromLTRB(gutter, 8, gutter, 32),
             children: [
-              Text(
-                widget.track.title,
-                key: const ValueKey<String>('track-studio-heading'),
-                style: Theme.of(context).textTheme.headlineSmall,
-              ),
-              const SizedBox(height: 20),
-
-              Card(
-                child: ListTile(
-                  key: const ValueKey<String>(
-                    'track-studio-search-musicbrainz',
-                  ),
-                  leading: const Icon(Icons.travel_explore_rounded),
-                  title: const Text('Search MusicBrainz'),
-                  subtitle: const Text(
-                    'Match this recording and apply allowed metadata.',
-                  ),
-                  enabled:
-                      widget.canEditDetails &&
-                      widget.metadataProvider != null &&
-                      widget.externalMetadataApplicationService != null &&
-                      widget.externalMetadataProposalService != null &&
-                      widget.onMetadataApplied != null &&
-                      !_isApplyingMusicBrainz,
-                  onTap:
-                      widget.canEditDetails &&
-                          widget.metadataProvider != null &&
-                          widget.externalMetadataApplicationService != null &&
-                          widget.externalMetadataProposalService != null &&
-                          widget.onMetadataApplied != null &&
-                          !_isApplyingMusicBrainz
-                      ? () => unawaited(_searchMusicBrainz())
-                      : null,
-                ),
-              ),
-              const SizedBox(height: 20),
-
-              Text('Details', style: Theme.of(context).textTheme.titleMedium),
-              const SizedBox(height: 12),
-
-              TextFormField(
-                key: const ValueKey<String>('track-title-field'),
-                controller: _titleController,
-                textInputAction: TextInputAction.next,
-                decoration: const InputDecoration(labelText: 'Song title'),
-                validator: (value) {
-                  if (value == null || value.trim().isEmpty) {
-                    return 'Song title cannot be blank.';
-                  }
-
-                  return null;
-                },
-              ),
-              const SizedBox(height: 12),
-
-              if (canSelectArtist) ...[
-                DropdownButtonFormField<String>(
-                  key: const ValueKey<String>('track-primary-artist-field'),
-                  isExpanded: true,
-                  initialValue: _artistId,
-                  decoration: const InputDecoration(
-                    labelText: 'Primary artist',
-                  ),
-                  items: [
-                    for (final artist in _artists)
-                      DropdownMenuItem(
-                        value: artist.artistId,
-                        child: Text(
-                          artist.name,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                  ],
-                  onChanged: (value) {
-                    if (value == null) {
-                      return;
-                    }
-
-                    setState(() {
-                      _artistId = value;
-                    });
-                  },
-                ),
-                const SizedBox(height: 12),
-              ],
-
-              if (widget.onCreateArtist != null) ...[
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: TextButton.icon(
+              _TrackStudioSummary(track: widget.track),
+              const SizedBox(height: 16),
+              SonusFormSection(
+                title: 'Metadata and artwork',
+                icon: Icons.image_outlined,
+                padding: const EdgeInsets.only(bottom: 6),
+                children: [
+                  ListTile(
                     key: const ValueKey<String>(
-                      'track-add-primary-artist-button',
+                      'track-studio-search-musicbrainz',
                     ),
-                    onPressed: _createArtist,
-                    icon: const Icon(Icons.person_add_alt_1_rounded),
-                    label: const Text('Add new artist...'),
+                    leading: const Icon(Icons.travel_explore_rounded),
+                    title: const Text('Search MusicBrainz'),
+                    subtitle: const Text(
+                      'Match this recording and apply allowed metadata.',
+                    ),
+                    enabled: canSearchMusicBrainz,
+                    onTap: canSearchMusicBrainz
+                        ? () => unawaited(_searchMusicBrainz())
+                        : null,
                   ),
-                ),
-                const SizedBox(height: 12),
-              ],
+                  ListTile(
+                    key: const ValueKey<String>('track-studio-change-artwork'),
+                    leading: const Icon(Icons.image_rounded),
+                    title: const Text('Change artwork'),
+                    enabled: widget.onChangeArtwork != null,
+                    onTap: widget.onChangeArtwork == null
+                        ? null
+                        : () {
+                            widget.onChangeArtwork!();
+                          },
+                  ),
+                  ListTile(
+                    key: const ValueKey<String>('track-studio-clear-artwork'),
+                    leading: const Icon(Icons.hide_image_rounded),
+                    title: const Text('Clear artwork'),
+                    enabled: widget.onClearArtwork != null,
+                    onTap: widget.onClearArtwork == null
+                        ? null
+                        : () {
+                            widget.onClearArtwork!();
+                          },
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
 
-              if (canSelectAlbum) ...[
-                DropdownButtonFormField<String>(
-                  key: const ValueKey<String>('track-album-field'),
-                  isExpanded: true,
-                  initialValue: _albumId,
-                  decoration: const InputDecoration(labelText: 'Album'),
-                  items: [
-                    for (final album in availableAlbums)
+              SonusFormSection(
+                title: 'Details',
+                icon: Icons.edit_outlined,
+                children: [
+                  TextFormField(
+                    key: const ValueKey<String>('track-title-field'),
+                    controller: _titleController,
+                    textInputAction: TextInputAction.next,
+                    decoration: const InputDecoration(labelText: 'Song title'),
+                    validator: (value) {
+                      if (value == null || value.trim().isEmpty) {
+                        return 'Song title cannot be blank.';
+                      }
+
+                      return null;
+                    },
+                  ),
+                  const SizedBox(height: 12),
+
+                  if (canSelectArtist) ...[
+                    DropdownButtonFormField<String>(
+                      key: const ValueKey<String>('track-primary-artist-field'),
+                      isExpanded: true,
+                      initialValue: _artistId,
+                      decoration: const InputDecoration(
+                        labelText: 'Primary artist',
+                      ),
+                      items: [
+                        for (final artist in _artists)
+                          DropdownMenuItem(
+                            value: artist.artistId,
+                            child: Text(
+                              artist.name,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                      ],
+                      onChanged: (value) {
+                        if (value == null) {
+                          return;
+                        }
+
+                        setState(() {
+                          _artistId = value;
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 4),
+                  ],
+
+                  if (widget.onCreateArtist != null) ...[
+                    Align(
+                      alignment: AlignmentDirectional.centerStart,
+                      child: TextButton.icon(
+                        key: const ValueKey<String>(
+                          'track-add-primary-artist-button',
+                        ),
+                        onPressed: _createArtist,
+                        icon: const Icon(Icons.person_add_alt_1_rounded),
+                        label: const Text('Add new artist...'),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+
+                  if (canSelectAlbum) ...[
+                    DropdownButtonFormField<String>(
+                      key: const ValueKey<String>('track-album-field'),
+                      isExpanded: true,
+                      initialValue: _albumId,
+                      decoration: const InputDecoration(labelText: 'Album'),
+                      items: [
+                        for (final album in availableAlbums)
+                          DropdownMenuItem(
+                            value: album.albumId,
+                            child: Text(
+                              '${album.title} — ${album.artistName}',
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                      ],
+                      onChanged: (value) {
+                        if (value == null) {
+                          return;
+                        }
+
+                        setState(() {
+                          _albumId = value;
+                        });
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                  ],
+
+                  if (stackNumbers) ...[
+                    trackNumberField,
+                    const SizedBox(height: 12),
+                    discNumberField,
+                  ] else
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(child: trackNumberField),
+                        const SizedBox(width: 12),
+                        Expanded(child: discNumberField),
+                      ],
+                    ),
+                ],
+              ),
+              const SizedBox(height: 16),
+
+              SonusFormSection(
+                title: 'Version',
+                icon: Icons.tune_rounded,
+                children: [
+                  TextFormField(
+                    key: const ValueKey<String>('track-version-label-field'),
+                    controller: _versionLabelController,
+                    decoration: const InputDecoration(
+                      labelText: 'Version label',
+                      hintText: 'Live, Remix, 2024 Remaster...',
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      for (final characteristic
+                          in SongVersionCharacteristic.values)
+                        FilterChip(
+                          key: ValueKey<String>(
+                            'track-version-${characteristic.name}',
+                          ),
+                          label: Text(
+                            _versionCharacteristicLabel(characteristic),
+                          ),
+                          selected: _versionCharacteristics.contains(
+                            characteristic,
+                          ),
+                          onSelected: (selected) {
+                            setState(() {
+                              if (selected) {
+                                _versionCharacteristics.add(characteristic);
+                              } else {
+                                _versionCharacteristics.remove(characteristic);
+                              }
+                            });
+                          },
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+
+                  DropdownButtonFormField<SongReleaseStatus>(
+                    key: const ValueKey<String>('track-release-status-field'),
+                    isExpanded: true,
+                    initialValue: _releaseStatus,
+                    decoration: const InputDecoration(
+                      labelText: 'Release status',
+                    ),
+                    items: const [
                       DropdownMenuItem(
-                        value: album.albumId,
-                        child: Text(
-                          '${album.title} — ${album.artistName}',
-                          overflow: TextOverflow.ellipsis,
-                        ),
+                        value: SongReleaseStatus.released,
+                        child: Text('Released'),
                       ),
-                  ],
-                  onChanged: (value) {
-                    if (value == null) {
-                      return;
-                    }
+                      DropdownMenuItem(
+                        value: SongReleaseStatus.unreleased,
+                        child: Text('Unreleased'),
+                      ),
+                    ],
+                    onChanged: (value) {
+                      if (value == null) {
+                        return;
+                      }
 
-                    setState(() {
-                      _albumId = value;
-                    });
-                  },
-                ),
-                const SizedBox(height: 12),
-              ],
+                      setState(() {
+                        _releaseStatus = value;
+                      });
+                    },
+                  ),
 
-              Row(
+                  SwitchListTile(
+                    key: const ValueKey<String>('track-leak-toggle'),
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Leak'),
+                    subtitle: const Text('Mark this track as leaked material.'),
+                    value: _isLeak,
+                    onChanged: (value) {
+                      setState(() {
+                        _isLeak = value;
+                      });
+                    },
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+
+              SonusFormSection(
+                title: 'Credits',
+                icon: Icons.people_alt_outlined,
                 children: [
-                  Expanded(
-                    child: TextFormField(
-                      key: const ValueKey<String>('track-number-field'),
-                      controller: _trackNumberController,
-                      keyboardType: TextInputType.number,
-                      textInputAction: TextInputAction.next,
-                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                      decoration: const InputDecoration(
-                        labelText: 'Track number',
+                  if (_additionalCredits.isEmpty)
+                    Text(
+                      'No additional artist credits.',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: colors.textSecondary,
                       ),
-                      validator: (value) {
-                        final number = int.tryParse(value?.trim() ?? '');
-
-                        if (number == null || number < 0) {
-                          return 'Enter a valid track number.';
-                        }
-
-                        return null;
-                      },
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: TextFormField(
-                      key: const ValueKey<String>('track-disc-number-field'),
-                      controller: _discNumberController,
-                      keyboardType: TextInputType.number,
-                      textInputAction: TextInputAction.next,
-                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-                      decoration: const InputDecoration(
-                        labelText: 'Disc number',
-                      ),
-                      validator: (value) {
-                        final number = int.tryParse(value?.trim() ?? '');
-
-                        if (number == null || number < 0) {
-                          return 'Enter a valid disc number.';
-                        }
-
-                        return null;
-                      },
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 24),
-
-              Text('Version', style: Theme.of(context).textTheme.titleMedium),
-              const SizedBox(height: 12),
-
-              TextFormField(
-                key: const ValueKey<String>('track-version-label-field'),
-                controller: _versionLabelController,
-                decoration: const InputDecoration(
-                  labelText: 'Version label',
-                  hintText: 'Live, Remix, 2024 Remaster...',
-                ),
-              ),
-              const SizedBox(height: 12),
-
-              Align(
-                alignment: Alignment.centerLeft,
-                child: Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final characteristic
-                        in SongVersionCharacteristic.values)
-                      FilterChip(
-                        key: ValueKey<String>(
-                          'track-version-${characteristic.name}',
-                        ),
-                        label: Text(
-                          _versionCharacteristicLabel(characteristic),
-                        ),
-                        selected: _versionCharacteristics.contains(
-                          characteristic,
-                        ),
-                        onSelected: (selected) {
-                          setState(() {
-                            if (selected) {
-                              _versionCharacteristics.add(characteristic);
-                            } else {
-                              _versionCharacteristics.remove(characteristic);
-                            }
-                          });
-                        },
-                      ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 12),
-
-              DropdownButtonFormField<SongReleaseStatus>(
-                key: const ValueKey<String>('track-release-status-field'),
-                initialValue: _releaseStatus,
-                decoration: const InputDecoration(labelText: 'Release status'),
-                items: const [
-                  DropdownMenuItem(
-                    value: SongReleaseStatus.released,
-                    child: Text('Released'),
-                  ),
-                  DropdownMenuItem(
-                    value: SongReleaseStatus.unreleased,
-                    child: Text('Unreleased'),
-                  ),
-                ],
-                onChanged: (value) {
-                  if (value == null) {
-                    return;
-                  }
-
-                  setState(() {
-                    _releaseStatus = value;
-                  });
-                },
-              ),
-
-              SwitchListTile(
-                key: const ValueKey<String>('track-leak-toggle'),
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Leak'),
-                subtitle: const Text('Mark this track as leaked material.'),
-                value: _isLeak,
-                onChanged: (value) {
-                  setState(() {
-                    _isLeak = value;
-                  });
-                },
-              ),
-
-              const SizedBox(height: 24),
-
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Credits',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                  ),
-                  TextButton.icon(
-                    key: const ValueKey<String>('track-add-credit-button'),
-                    onPressed: _addCredit,
-                    icon: const Icon(Icons.add_rounded),
-                    label: const Text('Add credit'),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-
-              if (_additionalCredits.isEmpty)
-                const Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text('No additional artist credits.'),
-                )
-              else
-                for (var index = 0; index < _additionalCredits.length; index++)
-                  Card(
-                    key: ValueKey<String>('track-credit-row-$index'),
-                    margin: const EdgeInsets.only(bottom: 8),
-                    child: ListTile(
-                      title: Text(_additionalCredits[index].creditedName),
-                      subtitle: Text(
-                        _creditRoleLabel(_additionalCredits[index].role),
-                      ),
-                      trailing: Wrap(
-                        spacing: 4,
-                        children: [
-                          IconButton(
-                            key: ValueKey<String>('track-edit-credit-$index'),
-                            tooltip: 'Edit credit',
-                            onPressed: () => _editCredit(index),
-                            icon: const Icon(Icons.edit_rounded),
+                    )
+                  else
+                    for (
+                      var index = 0;
+                      index < _additionalCredits.length;
+                      index++
+                    )
+                      Padding(
+                        key: ValueKey<String>('track-credit-row-$index'),
+                        padding: const EdgeInsets.only(bottom: 6),
+                        child: Material(
+                          color: colors.raisedSurface,
+                          borderRadius: BorderRadius.circular(
+                            tokens.metrics.controlRadius,
                           ),
-                          IconButton(
-                            key: ValueKey<String>('track-remove-credit-$index'),
-                            tooltip: 'Remove credit',
-                            onPressed: () => _removeCredit(index),
-                            icon: const Icon(Icons.delete_outline_rounded),
+                          child: ListTile(
+                            title: Text(_additionalCredits[index].creditedName),
+                            subtitle: Text(
+                              _creditRoleLabel(_additionalCredits[index].role),
+                            ),
+                            contentPadding: const EdgeInsets.only(
+                              left: 14,
+                              right: 4,
+                            ),
+                            trailing: Wrap(
+                              spacing: 4,
+                              children: [
+                                IconButton(
+                                  key: ValueKey<String>(
+                                    'track-edit-credit-$index',
+                                  ),
+                                  tooltip: 'Edit credit',
+                                  onPressed: () => _editCredit(index),
+                                  icon: const Icon(Icons.edit_rounded),
+                                ),
+                                IconButton(
+                                  key: ValueKey<String>(
+                                    'track-remove-credit-$index',
+                                  ),
+                                  tooltip: 'Remove credit',
+                                  onPressed: () => _removeCredit(index),
+                                  icon: const Icon(
+                                    Icons.delete_outline_rounded,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
-                        ],
+                        ),
                       ),
+                  Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: TextButton.icon(
+                      key: const ValueKey<String>('track-add-credit-button'),
+                      onPressed: _addCredit,
+                      icon: const Icon(Icons.add_rounded),
+                      label: const Text('Add credit'),
                     ),
                   ),
-
-              const SizedBox(height: 8),
-
-              SwitchListTile(
-                key: const ValueKey<String>('track-single-toggle'),
-                contentPadding: EdgeInsets.zero,
-                title: const Text('Single'),
-                value: _isSingle,
-                onChanged: (value) {
-                  setState(() {
-                    _isSingle = value;
-                  });
-                },
-              ),
-
-              const SizedBox(height: 24),
-              Text('Artwork', style: Theme.of(context).textTheme.titleMedium),
-              const SizedBox(height: 8),
-
-              Card(
-                margin: EdgeInsets.zero,
-                child: Column(
-                  children: [
-                    ListTile(
-                      key: const ValueKey<String>(
-                        'track-studio-change-artwork',
-                      ),
-                      leading: const Icon(Icons.image_rounded),
-                      title: const Text('Change artwork'),
-                      enabled: widget.onChangeArtwork != null,
-                      onTap: widget.onChangeArtwork == null
-                          ? null
-                          : () {
-                              widget.onChangeArtwork!();
-                            },
-                    ),
-                    const Divider(height: 1),
-                    ListTile(
-                      key: const ValueKey<String>('track-studio-clear-artwork'),
-                      leading: const Icon(Icons.hide_image_rounded),
-                      title: const Text('Clear artwork'),
-                      enabled: widget.onClearArtwork != null,
-                      onTap: widget.onClearArtwork == null
-                          ? null
-                          : () {
-                              widget.onClearArtwork!();
-                            },
-                    ),
-                  ],
-                ),
+                  SwitchListTile(
+                    key: const ValueKey<String>('track-single-toggle'),
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Single'),
+                    value: _isSingle,
+                    onChanged: (value) {
+                      setState(() {
+                        _isSingle = value;
+                      });
+                    },
+                  ),
+                ],
               ),
             ],
           ),

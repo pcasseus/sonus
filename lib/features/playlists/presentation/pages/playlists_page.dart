@@ -3,9 +3,13 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../../core/design/sonus_theme.dart';
+import '../../../../core/design/widgets/sonus_page_header.dart';
+import '../../../../core/design/widgets/sonus_state_view.dart';
 import '../../application/models/playlist_summary.dart';
 import '../../application/services/playlist_service.dart';
 import '../controllers/playlists_controller.dart';
+import '../widgets/playlist_cover.dart';
 import 'playlist_detail_page.dart';
 
 class PlaylistsPage extends StatefulWidget {
@@ -61,12 +65,14 @@ class _PlaylistsPageState extends State<PlaylistsPage> {
         animation: controller,
         builder: (context, _) {
           if (controller.isLoading && controller.playlists.isEmpty) {
-            return const Center(child: CircularProgressIndicator());
+            return const SonusStateView.loading();
           }
 
           if (controller.hasError && controller.playlists.isEmpty) {
             return _PlaylistsLoadError(onRetry: controller.load);
           }
+
+          final gutter = SonusTheme.of(context).metrics.pageGutter;
 
           return RefreshIndicator(
             onRefresh: controller.refresh,
@@ -92,19 +98,67 @@ class _PlaylistsPageState extends State<PlaylistsPage> {
                   )
                 else
                   SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 120),
-                    sliver: SliverList.separated(
-                      itemCount: controller.playlists.length,
-                      separatorBuilder: (_, _) => const SizedBox(height: 8),
-                      itemBuilder: (context, index) {
-                        final summary = controller.playlists[index];
+                    padding: EdgeInsets.fromLTRB(
+                      gutter,
+                      4,
+                      gutter,
+                      120 + MediaQuery.paddingOf(context).bottom,
+                    ),
+                    sliver: SliverLayoutBuilder(
+                      builder: (context, constraints) {
+                        // One card per row on phones; wide screens place
+                        // cards side by side instead of stretching them.
+                        // Cards sharing a row take the tallest card's
+                        // height, so no text size can overflow them.
+                        final columns = (constraints.crossAxisExtent / 360)
+                            .floor()
+                            .clamp(1, 3);
+                        final playlists = controller.playlists;
+                        final rows = (playlists.length / columns).ceil();
 
-                        return _PlaylistCard(
-                          summary: summary,
-                          isBusy: controller.isMutating,
-                          onOpen: () => _openPlaylist(controller, summary),
-                          onRename: () => _renamePlaylist(controller, summary),
-                          onDelete: () => _deletePlaylist(controller, summary),
+                        Widget card(int index) {
+                          final summary = playlists[index];
+
+                          return _PlaylistCard(
+                            summary: summary,
+                            isBusy: controller.isMutating,
+                            onOpen: () => _openPlaylist(controller, summary),
+                            onRename: () =>
+                                _renamePlaylist(controller, summary),
+                            onDelete: () =>
+                                _deletePlaylist(controller, summary),
+                          );
+                        }
+
+                        return SliverList.builder(
+                          itemCount: rows,
+                          itemBuilder: (context, row) {
+                            final first = row * columns;
+
+                            return Padding(
+                              padding: const EdgeInsets.only(bottom: 10),
+                              child: columns == 1
+                                  ? card(first)
+                                  : IntrinsicHeight(
+                                      child: Row(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.stretch,
+                                        children: [
+                                          for (var c = 0; c < columns; c++) ...[
+                                            if (c > 0)
+                                              const SizedBox(width: 10),
+                                            Expanded(
+                                              child:
+                                                  first + c < playlists.length
+                                                  ? card(first + c)
+                                                  : const SizedBox.shrink(),
+                                            ),
+                                          ],
+                                        ],
+                                      ),
+                                    ),
+                            );
+                          },
                         );
                       },
                     ),
@@ -187,6 +241,11 @@ class _PlaylistsPageState extends State<PlaylistsPage> {
               child: const Text('Cancel'),
             ),
             FilledButton(
+              key: const ValueKey<String>('playlist-delete-confirm-button'),
+              style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(dialogContext).colorScheme.error,
+                foregroundColor: Theme.of(dialogContext).colorScheme.onError,
+              ),
               onPressed: () => Navigator.of(dialogContext).pop(true),
               child: const Text('Delete'),
             ),
@@ -254,45 +313,26 @@ class _PlaylistsHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final tokens = SonusTheme.of(context);
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Playlists',
-                  key: const ValueKey<String>('playlists-page-title'),
-                  style: theme.textTheme.headlineMedium?.copyWith(
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: -0.8,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  playlistCount == 1
-                      ? '1 playlist'
-                      : '$playlistCount playlists',
-                  key: const ValueKey<String>('playlists-count-label'),
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
-            ),
+    return SonusPageHeader(
+      title: 'Playlists',
+      titleKey: const ValueKey<String>('playlists-page-title'),
+      subtitle: playlistCount == 1 ? '1 playlist' : '$playlistCount playlists',
+      subtitleKey: const ValueKey<String>('playlists-count-label'),
+      trailing: FilledButton.icon(
+        key: const ValueKey<String>('playlists-create-button'),
+        onPressed: isBusy ? null : onCreate,
+        style: FilledButton.styleFrom(
+          backgroundColor: tokens.colors.accentPrimary,
+          foregroundColor: tokens.colors.onAccentPrimary,
+          minimumSize: const Size(48, 48),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(tokens.metrics.controlRadius),
           ),
-          FilledButton.icon(
-            key: const ValueKey<String>('playlists-create-button'),
-            onPressed: isBusy ? null : onCreate,
-            icon: const Icon(Icons.add_rounded),
-            label: const Text('New'),
-          ),
-        ],
+        ),
+        icon: const Icon(Icons.add_rounded),
+        label: const Text('New'),
       ),
     );
   }
@@ -315,21 +355,26 @@ class _PlaylistCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = SonusTheme.of(context);
+    final colors = tokens.colors;
     final theme = Theme.of(context);
     final playlist = summary.playlist;
 
     return Material(
-      color: theme.colorScheme.surfaceContainerLow,
-      borderRadius: BorderRadius.circular(18),
+      color: colors.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(tokens.metrics.cardRadius),
+        side: BorderSide(color: colors.divider),
+      ),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         key: ValueKey<String>('playlist-card-${playlist.id}'),
         onTap: onOpen,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(10, 10, 4, 10),
+          padding: const EdgeInsets.fromLTRB(10, 10, 2, 10),
           child: Row(
             children: [
-              const _PlaylistCover(size: 62),
+              const PlaylistCover(size: 64),
               const SizedBox(width: 14),
               Expanded(
                 child: Column(
@@ -337,9 +382,10 @@ class _PlaylistCard extends StatelessWidget {
                   children: [
                     Text(
                       playlist.name,
-                      maxLines: 1,
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.titleMedium?.copyWith(
+                        color: colors.textPrimary,
                         fontWeight: FontWeight.w800,
                       ),
                     ),
@@ -349,7 +395,8 @@ class _PlaylistCard extends StatelessWidget {
                           ? '1 song'
                           : '${summary.trackCount} songs',
                       style: theme.textTheme.bodyMedium?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
+                        color: colors.textSecondary,
+                        fontFeatures: const [FontFeature.tabularFigures()],
                       ),
                     ),
                   ],
@@ -394,79 +441,15 @@ class _PlaylistCard extends StatelessWidget {
   }
 }
 
-class _PlaylistCover extends StatelessWidget {
-  const _PlaylistCover({required this.size});
-
-  final double size;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(14),
-        gradient: LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [colors.primaryContainer, colors.secondaryContainer],
-        ),
-      ),
-      child: Icon(
-        Icons.queue_music_rounded,
-        size: size * 0.46,
-        color: colors.onPrimaryContainer,
-      ),
-    );
-  }
-}
-
 class _EmptyPlaylistsState extends StatelessWidget {
   const _EmptyPlaylistsState();
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(32, 24, 32, 96),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              width: 88,
-              height: 88,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: theme.colorScheme.surfaceContainerHighest,
-              ),
-              child: Icon(
-                Icons.playlist_add_rounded,
-                size: 42,
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-            const SizedBox(height: 20),
-            Text(
-              'No playlists yet',
-              style: theme.textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Create a playlist to organize songs your way.',
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ],
-        ),
-      ),
+    return const SonusStateView(
+      icon: Icons.playlist_add_rounded,
+      title: 'No playlists yet',
+      message: 'Create a playlist to organize songs your way.',
     );
   }
 }
@@ -478,25 +461,16 @@ class _PlaylistsLoadError extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.error_outline_rounded, size: 48),
-            const SizedBox(height: 16),
-            const Text('Could not load your playlists.'),
-            const SizedBox(height: 16),
-            FilledButton.tonalIcon(
-              onPressed: () {
-                unawaited(onRetry());
-              },
-              icon: const Icon(Icons.refresh_rounded),
-              label: const Text('Try again'),
-            ),
-          ],
-        ),
+    return SonusStateView(
+      icon: Icons.error_outline_rounded,
+      isError: true,
+      title: 'Could not load your playlists.',
+      action: FilledButton.tonalIcon(
+        onPressed: () {
+          unawaited(onRetry());
+        },
+        icon: const Icon(Icons.refresh_rounded),
+        label: const Text('Try again'),
       ),
     );
   }
@@ -509,32 +483,44 @@ class _RefreshErrorBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
+    final tokens = SonusTheme.of(context);
+    final scheme = Theme.of(context).colorScheme;
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-      child: Material(
-        color: colors.errorContainer,
-        borderRadius: BorderRadius.circular(14),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
-          child: Row(
-            children: [
-              Icon(Icons.error_outline_rounded, color: colors.onErrorContainer),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
-                  'Playlists could not refresh.',
-                  style: TextStyle(color: colors.onErrorContainer),
+      padding: EdgeInsets.fromLTRB(
+        tokens.metrics.pageGutter,
+        0,
+        tokens.metrics.pageGutter,
+        12,
+      ),
+      child: Semantics(
+        liveRegion: true,
+        child: Material(
+          color: scheme.errorContainer,
+          borderRadius: BorderRadius.circular(tokens.metrics.cardRadius),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 6, 8, 6),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.error_outline_rounded,
+                  color: scheme.onErrorContainer,
                 ),
-              ),
-              TextButton(
-                onPressed: () {
-                  unawaited(onRetry());
-                },
-                child: const Text('Retry'),
-              ),
-            ],
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Playlists could not refresh.',
+                    style: TextStyle(color: scheme.onErrorContainer),
+                  ),
+                ),
+                TextButton(
+                  onPressed: () {
+                    unawaited(onRetry());
+                  },
+                  child: const Text('Retry'),
+                ),
+              ],
+            ),
           ),
         ),
       ),

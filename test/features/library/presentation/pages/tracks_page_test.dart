@@ -1030,6 +1030,7 @@ void main() {
         const ValueKey<String>('track-edit-credit-0'),
       );
       await tester.ensureVisible(editFirst);
+      await tester.pumpAndSettle();
       await tester.tap(editFirst);
       await tester.pumpAndSettle();
 
@@ -1048,6 +1049,7 @@ void main() {
         const ValueKey<String>('track-edit-credit-1'),
       );
       await tester.ensureVisible(editSecond);
+      await tester.pumpAndSettle();
       await tester.tap(editSecond);
       await tester.pumpAndSettle();
 
@@ -1068,6 +1070,7 @@ void main() {
         const ValueKey<String>('track-add-credit-button'),
       );
       await tester.ensureVisible(addCredit);
+      await tester.pumpAndSettle();
       await tester.tap(addCredit);
       await tester.pumpAndSettle();
 
@@ -1085,6 +1088,7 @@ void main() {
         const ValueKey<String>('track-remove-credit-2'),
       );
       await tester.ensureVisible(removeThird);
+      await tester.pumpAndSettle();
       await tester.tap(removeThird);
       await tester.pumpAndSettle();
 
@@ -1262,6 +1266,8 @@ Widget buildSubject({
   MetadataProvider? metadataProvider,
   ExternalMetadataApplicationService? externalMetadataApplicationService,
   ExternalMetadataProposalService? externalMetadataProposalService,
+  ThemeData? theme,
+  TransitionBuilder? appBuilder,
 }) {
   final playbackEngine = engine ?? NoOpPlaybackEngine();
 
@@ -1289,7 +1295,11 @@ Widget buildSubject({
         value: externalMetadataProposalService,
       ),
     ],
-    child: const MaterialApp(home: Scaffold(body: TracksPage())),
+    child: MaterialApp(
+      theme: theme,
+      builder: appBuilder,
+      home: const Scaffold(body: TracksPage()),
+    ),
   );
 }
 

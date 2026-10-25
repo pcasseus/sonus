@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../application/controllers/metadata_intelligence_settings_controller.dart';
+import '../widgets/settings/settings_section.dart';
 
 class MetadataIntelligenceSettingsPage extends StatelessWidget {
   const MetadataIntelligenceSettingsPage({super.key});
@@ -29,106 +30,83 @@ class MetadataIntelligenceSettingsPage extends StatelessWidget {
               ),
             )
           : ListView(
-              padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+              padding: const EdgeInsets.fromLTRB(16, 20, 16, 32),
               children: [
-                Text(
-                  'Online metadata',
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                const SizedBox(height: 8),
-                Card(
-                  child: Column(
-                    children: [
-                      SwitchListTile(
-                        key: const ValueKey<String>(
-                          'metadata-intelligence-online-lookup',
-                        ),
-                        secondary: const Icon(Icons.public_rounded),
-                        title: const Text('Online metadata lookup'),
-                        subtitle: const Text(
-                          'Allow Sonus to search MusicBrainz for metadata matches.',
-                        ),
-                        value: controller.onlineMetadataLookupEnabled,
-                        onChanged: (enabled) {
-                          unawaited(
-                            controller.setOnlineMetadataLookupEnabled(enabled),
-                          );
-                        },
+                SettingsSection(
+                  title: 'Online metadata',
+                  children: [
+                    SwitchListTile(
+                      key: const ValueKey<String>(
+                        'metadata-intelligence-online-lookup',
                       ),
-                      const Divider(height: 1),
-                      SwitchListTile(
-                        key: const ValueKey<String>(
-                          'metadata-intelligence-cover-art-suggestions',
-                        ),
-                        secondary: const Icon(Icons.image_search_rounded),
-                        title: const Text('Cover Art Archive suggestions'),
-                        subtitle: Text(
-                          controller.onlineMetadataLookupEnabled
-                              ? 'Allow Sonus to search for album artwork suggestions.'
-                              : 'Enable online metadata lookup to use artwork suggestions.',
-                        ),
-                        value: controller.coverArtSuggestionsEnabled,
-                        onChanged: controller.onlineMetadataLookupEnabled
-                            ? (enabled) {
-                                unawaited(
-                                  controller.setCoverArtSuggestionsEnabled(
-                                    enabled,
-                                  ),
-                                );
-                              }
-                            : null,
+                      secondary: const Icon(Icons.public_rounded),
+                      title: const Text('Online metadata lookup'),
+                      subtitle: const Text(
+                        'Allow Sonus to search MusicBrainz for metadata matches.',
                       ),
-                    ],
-                  ),
+                      value: controller.onlineMetadataLookupEnabled,
+                      onChanged: (enabled) {
+                        unawaited(
+                          controller.setOnlineMetadataLookupEnabled(enabled),
+                        );
+                      },
+                    ),
+                    SwitchListTile(
+                      key: const ValueKey<String>(
+                        'metadata-intelligence-cover-art-suggestions',
+                      ),
+                      secondary: const Icon(Icons.image_search_rounded),
+                      title: const Text('Cover Art Archive suggestions'),
+                      subtitle: Text(
+                        controller.onlineMetadataLookupEnabled
+                            ? 'Allow Sonus to search for album artwork suggestions.'
+                            : 'Enable online metadata lookup to use artwork suggestions.',
+                      ),
+                      value: controller.coverArtSuggestionsEnabled,
+                      onChanged: controller.onlineMetadataLookupEnabled
+                          ? (enabled) {
+                              unawaited(
+                                controller.setCoverArtSuggestionsEnabled(
+                                  enabled,
+                                ),
+                              );
+                            }
+                          : null,
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 24),
-                Text('Safety', style: Theme.of(context).textTheme.titleMedium),
-                const SizedBox(height: 8),
-                const Card(
-                  child: Column(
-                    children: [
-                      ListTile(
-                        leading: Icon(Icons.verified_user_outlined),
-                        title: Text('Manual metadata stays protected'),
-                        subtitle: Text(
+                const SettingsSection(
+                  title: 'Safety',
+                  children: [
+                    SettingsInfoTile(
+                      icon: Icons.verified_user_outlined,
+                      title: 'Manual metadata stays protected',
+                      body:
                           'External metadata cannot automatically overwrite fields you manually edited or explicitly confirmed.',
-                        ),
-                      ),
-                      Divider(height: 1),
-                      ListTile(
-                        leading: Icon(Icons.fact_check_outlined),
-                        title: Text('Unknown metadata requires review'),
-                        subtitle: Text(
+                    ),
+                    SettingsInfoTile(
+                      icon: Icons.fact_check_outlined,
+                      title: 'Unknown metadata requires review',
+                      body:
                           'Fields without known authority must be explicitly reviewed before external metadata can change them.',
-                        ),
-                      ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 24),
-                Text(
-                  'Providers',
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                const SizedBox(height: 8),
-                const Card(
-                  child: Column(
-                    children: [
-                      ListTile(
-                        leading: Icon(Icons.library_music_outlined),
-                        title: Text('MusicBrainz'),
-                        subtitle: Text(
+                const SettingsSection(
+                  title: 'Providers',
+                  children: [
+                    SettingsInfoTile(
+                      icon: Icons.library_music_outlined,
+                      title: 'MusicBrainz',
+                      body:
                           'Used for artist, album, and track metadata searches.',
-                        ),
-                      ),
-                      Divider(height: 1),
-                      ListTile(
-                        leading: Icon(Icons.photo_library_outlined),
-                        title: Text('Cover Art Archive'),
-                        subtitle: Text('Used for album artwork suggestions.'),
-                      ),
-                    ],
-                  ),
+                    ),
+                    SettingsInfoTile(
+                      icon: Icons.photo_library_outlined,
+                      title: 'Cover Art Archive',
+                      body: 'Used for album artwork suggestions.',
+                    ),
+                  ],
                 ),
               ],
             ),

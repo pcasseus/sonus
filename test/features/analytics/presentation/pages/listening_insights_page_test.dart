@@ -49,4 +49,27 @@ void main() {
       findsOneWidget,
     );
   });
+
+  // Characterization (SN-48K1): both views stay mounted, so switching never
+  // discards the other view's state.
+  testWidgets('keeps Monthly mounted while Year is shown', (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(home: Scaffold(body: ListeningInsightsPage())),
+    );
+
+    await tester.tap(find.text('Year'));
+    await tester.pump();
+
+    expect(
+      find.byKey(
+        const ValueKey<String>('monthly-insights-initializing'),
+        skipOffstage: false,
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('monthly-insights-initializing')),
+      findsNothing,
+    );
+  });
 }
