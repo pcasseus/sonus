@@ -103,7 +103,7 @@ void main() {
         isSingle: false,
         artistId: 'artist-a',
         albumId: 'album-a',
-        albumEditionId: 'edition-a',
+        placementEditionId: 'edition-a',
       );
     }
 

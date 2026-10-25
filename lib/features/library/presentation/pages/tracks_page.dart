@@ -270,7 +270,8 @@ class _TracksPageState extends State<TracksPage> {
         isLeak: draft.isLeak,
         artistId: draft.artistId,
         albumId: draft.albumId,
-        albumEditionId: draft.albumEditionId,
+        albumEditionId: draft.moveToEditionId,
+        placementEditionId: draft.placementEditionId,
       );
 
       if (!mounted || !changed) {

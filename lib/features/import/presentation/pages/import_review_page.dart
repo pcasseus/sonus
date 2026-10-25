@@ -504,7 +504,8 @@ class _ImportReviewPageState extends State<ImportReviewPage> {
       isSingle: draft.isSingle,
       artistId: draft.artistId,
       albumId: draft.albumId,
-      albumEditionId: draft.albumEditionId,
+      moveToEditionId: draft.moveToEditionId,
+      placementEditionId: draft.placementEditionId,
     );
 
     if (!mounted || saved) {

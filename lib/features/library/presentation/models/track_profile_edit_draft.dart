@@ -34,7 +34,8 @@ class TrackProfileEditDraft {
     this.isLeak = false,
     required this.artistId,
     required this.albumId,
-    required this.albumEditionId,
+    this.moveToEditionId,
+    this.placementEditionId,
   });
 
   final String title;
@@ -50,5 +51,13 @@ class TrackProfileEditDraft {
   final bool isLeak;
   final String artistId;
   final String albumId;
-  final String albumEditionId;
+
+  /// The edition a track moves into. Set only when the user chose another
+  /// album; an ordinary save leaves it null, so no edition membership
+  /// changes.
+  final String? moveToEditionId;
+
+  /// The edition listing the editor was opened from. Disc and track number
+  /// edits apply to that listing only.
+  final String? placementEditionId;
 }

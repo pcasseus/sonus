@@ -2355,6 +2355,7 @@ class FakeTrackProfileEditingService extends TrackProfileEditingService {
     String? artistId,
     String? albumId,
     String? albumEditionId,
+    String? placementEditionId,
     DateTime? now,
   }) async {
     updateCallCount++;
@@ -2406,6 +2407,7 @@ class FakeTrackProfileEditingService extends TrackProfileEditingService {
     String? artistId,
     String? albumId,
     String? albumEditionId,
+    String? placementEditionId,
     DateTime? now,
   }) async {
     structuredUpdateCallCount++;

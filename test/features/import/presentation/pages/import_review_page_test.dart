@@ -924,6 +924,7 @@ class _FakeEditingService extends TrackProfileEditingService {
     String? artistId,
     String? albumId,
     String? albumEditionId,
+    String? placementEditionId,
     DateTime? now,
   }) async {
     updateCallCount++;

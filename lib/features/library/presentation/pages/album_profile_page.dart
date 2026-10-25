@@ -468,7 +468,8 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
         isLeak: draft.isLeak,
         artistId: draft.artistId,
         albumId: draft.albumId,
-        albumEditionId: draft.albumEditionId,
+        albumEditionId: draft.moveToEditionId,
+        placementEditionId: draft.placementEditionId,
       );
 
       if (!mounted || !changed) {

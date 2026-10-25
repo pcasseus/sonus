@@ -97,7 +97,8 @@ class ImportReviewService {
     required bool isSingle,
     required String artistId,
     required String albumId,
-    required String albumEditionId,
+    String? moveToEditionId,
+    String? placementEditionId,
     DateTime? now,
   }) async {
     final normalizedUserId = userId?.trim();
@@ -134,7 +135,9 @@ class ImportReviewService {
       isSingle: isSingle,
       artistId: artistId,
       albumId: albumId,
-      albumEditionId: albumEditionId,
+      // Only an album change moves the song between editions.
+      albumEditionId: moveToEditionId,
+      placementEditionId: placementEditionId,
       now: timestamp,
     );
 
