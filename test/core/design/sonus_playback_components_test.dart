@@ -114,7 +114,7 @@ void main() {
 
       final node = tester.getSemantics(find.byType(SonusPlaybackProgress));
       expect(node.flagsCollection.isSlider, isTrue);
-      expect(node.value, '1 minutes 0 seconds of 4 minutes 0 seconds');
+      expect(node.value, '1 minute 0 seconds of 4 minutes 0 seconds');
 
       tester.semantics.decrease(find.semantics.byLabel('Playback position'));
       expect(sought, const Duration(seconds: 55));

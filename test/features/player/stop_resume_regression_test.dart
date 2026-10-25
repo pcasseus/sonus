@@ -3,6 +3,7 @@
 // no progress and a disabled seek bar, and a later restart restored 0:00.
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sonus_next/core/design/widgets/playback/sonus_playback_progress.dart';
 import 'package:provider/provider.dart';
 import 'package:sonus_next/features/library/application/models/library_track.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
@@ -156,16 +157,12 @@ void main() {
             .data,
         '1:14',
       );
-      final slider = tester.widget<Slider>(
+      final progress = tester.widget<SonusPlaybackProgress>(
         find.byKey(const ValueKey<String>('now-playing-seek')),
       );
-      expect(slider.value, closeTo(74000, 1));
-      expect(slider.max, 180000);
-      expect(
-        slider.onChanged,
-        isNotNull,
-        reason: 'seeking must stay available',
-      );
+      expect(progress.position.inMilliseconds, closeTo(74000, 1));
+      expect(progress.duration, const Duration(minutes: 3));
+      expect(progress.onSeek, isNotNull, reason: 'seeking must stay available');
     },
   );
 

@@ -28,10 +28,29 @@ class SonusLyricsView extends StatefulWidget {
     required this.position,
     this.onSeek,
     this.accentColor,
+    this.activeIndex,
+    this.scrollKey,
+    this.lineKeyPrefix,
+    this.plainTextKey,
   });
 
   final List<SonusLyricLine> lines;
   final Duration position;
+
+  /// The current line as the player defines it, when it has its own rule;
+  /// otherwise the last line whose start has passed [position].
+  final int? activeIndex;
+
+  /// Key of the scroll view.
+  final Key? scrollKey;
+
+  /// Keys line `i` as `<prefix>-line-i` (tap target) and
+  /// `<prefix>-line-container-i`, and the current line's text as
+  /// `<prefix>-active-line`.
+  final String? lineKeyPrefix;
+
+  /// Key of the text of unsynchronised lyrics.
+  final Key? plainTextKey;
 
   /// Tapping a synchronised line seeks to it, when given.
   final ValueChanged<Duration>? onSeek;
@@ -53,6 +72,8 @@ class _SonusLyricsViewState extends State<SonusLyricsView> {
   /// The last line whose start has passed, or -1 before the first line.
   int get _active {
     if (!_synced) return -1;
+    final given = widget.activeIndex;
+    if (given != null) return given;
     var active = -1;
     for (var i = 0; i < widget.lines.length; i++) {
       if (widget.lines[i].start! <= widget.position) {
@@ -89,6 +110,13 @@ class _SonusLyricsViewState extends State<SonusLyricsView> {
       setState(() => _following = false);
     }
     return false;
+  }
+
+  @override
+  void didUpdateWidget(covariant SonusLyricsView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Another song: follow its current line even at the same index.
+    if (!identical(oldWidget.lines, widget.lines)) _shownActive = -1;
   }
 
   void _resume() {
@@ -130,7 +158,9 @@ class _SonusLyricsViewState extends State<SonusLyricsView> {
     final list = NotificationListener<UserScrollNotification>(
       onNotification: _onScroll,
       child: SingleChildScrollView(
-        key: const PageStorageKey<String>('sonus-lyrics-scroll'),
+        key:
+            widget.scrollKey ??
+            const PageStorageKey<String>('sonus-lyrics-scroll'),
         controller: _scrollController,
         padding: EdgeInsets.fromLTRB(
           tokens.metrics.pageGutter,
@@ -144,6 +174,9 @@ class _SonusLyricsViewState extends State<SonusLyricsView> {
             for (var i = 0; i < widget.lines.length; i++)
               _LyricLine(
                 key: _keyFor(i),
+                index: i,
+                keyPrefix: widget.lineKeyPrefix,
+                plainTextKey: widget.plainTextKey,
                 text: widget.lines[i].text,
                 state: !_synced
                     ? _LineState.plain
@@ -165,7 +198,7 @@ class _SonusLyricsViewState extends State<SonusLyricsView> {
 
     return Stack(
       children: [
-        Positioned.fill(child: list),
+        Positioned.fill(child: _synced ? list : SelectionArea(child: list)),
         if (_synced && !_following)
           Positioned(
             left: 0,
@@ -190,6 +223,9 @@ enum _LineState { plain, past, active, upcoming }
 class _LyricLine extends StatelessWidget {
   const _LyricLine({
     super.key,
+    required this.index,
+    required this.keyPrefix,
+    required this.plainTextKey,
     required this.text,
     required this.state,
     required this.style,
@@ -197,6 +233,9 @@ class _LyricLine extends StatelessWidget {
     required this.onTap,
   });
 
+  final int index;
+  final String? keyPrefix;
+  final Key? plainTextKey;
   final String text;
   final _LineState state;
   final TextStyle? style;
@@ -214,16 +253,30 @@ class _LyricLine extends StatelessWidget {
     };
     final isActive = state == _LineState.active;
     final display = text.trim().isEmpty ? '♪' : text;
+    final prefix = keyPrefix;
+    final Key? textKey = state == _LineState.plain
+        ? plainTextKey
+        : isActive && prefix != null
+        ? ValueKey<String>('$prefix-active-line')
+        : null;
 
     return Semantics(
       selected: isActive,
+      button: onTap != null,
+      label: isActive ? 'Current lyric: $display' : null,
+      excludeSemantics: isActive,
       child: InkWell(
+        key: prefix == null ? null : ValueKey<String>('$prefix-line-$index'),
         onTap: onTap,
         borderRadius: BorderRadius.circular(8),
         child: Padding(
+          key: prefix == null
+              ? null
+              : ValueKey<String>('$prefix-line-container-$index'),
           padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
           child: Text(
             display,
+            key: textKey,
             style: style?.copyWith(
               color: color,
               fontWeight: isActive ? FontWeight.w900 : FontWeight.w700,

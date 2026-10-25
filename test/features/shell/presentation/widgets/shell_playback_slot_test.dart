@@ -796,34 +796,44 @@ void main() {
     final seekBar = find.byKey(const ValueKey<String>('now-playing-seek'));
     final elapsed = find.byKey(const ValueKey<String>('now-playing-elapsed'));
 
+    // The drawn track, without the time labels below it.
+    Rect track(WidgetTester tester) => tester.getRect(
+      find.descendant(of: seekBar, matching: find.byType(CustomPaint)).first,
+    );
+
+    Offset at(Rect rect, double fraction) =>
+        Offset(rect.left + rect.width * fraction, rect.center.dy);
+
     testWidgets('a completed drag seeks once, to where it ended', (
       tester,
     ) async {
       final engine = await openNowPlaying(tester);
-      final slider = tester.widget<Slider>(seekBar);
+      final rect = track(tester);
 
-      slider.onChangeStart!(60000);
-      for (final ms in [70000, 80000, 90000]) {
-        tester.widget<Slider>(seekBar).onChanged!(ms.toDouble());
+      final gesture = await tester.startGesture(at(rect, 1 / 3));
+      for (final fraction in [0.4, 0.45, 0.5]) {
+        await gesture.moveTo(at(rect, fraction));
         await tester.pump();
       }
 
       expect(engine.seekCount, 0, reason: 'no seek while dragging');
 
-      tester.widget<Slider>(seekBar).onChangeEnd!(90000);
+      await gesture.up();
       await tester.pump();
 
       expect(engine.seekCount, 1);
-      expect(engine.lastSeekPosition, const Duration(seconds: 90));
+      expect(engine.lastSeekPosition!.inSeconds, closeTo(90, 1));
     });
 
     testWidgets('the bar and time follow the drag, not playback', (
       tester,
     ) async {
       final engine = await openNowPlaying(tester);
+      final rect = track(tester);
 
-      tester.widget<Slider>(seekBar).onChangeStart!(60000);
-      tester.widget<Slider>(seekBar).onChanged!(150000);
+      final gesture = await tester.startGesture(at(rect, 1 / 3));
+      await gesture.moveTo(at(rect, 0.6));
+      await gesture.moveTo(at(rect, 2.5 / 3));
       await tester.pump();
 
       // Playback keeps reporting progress while the finger is down.
@@ -831,9 +841,36 @@ void main() {
         engine.currentState.copyWith(position: const Duration(seconds: 61)),
       );
       await tester.pump();
+      await tester.pump();
 
-      expect(tester.widget<Slider>(seekBar).value, 150000);
       expect(tester.widget<Text>(elapsed).data, '2:30');
+      expect(engine.seekCount, 0);
+
+      await gesture.up();
+      await tester.pump();
+      expect(engine.seekCount, 1);
+    });
+
+    testWidgets('an unknown length disables seeking', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(430, 932));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final engine = FakePlaybackEngine(
+        initialState: const PlaybackState(
+          queue: PlaybackQueue(tracks: [track1], currentIndex: 0),
+          status: PlaybackStatus.playing,
+          position: Duration(seconds: 20),
+        ),
+      );
+      addTearDown(engine.dispose);
+      await tester.pumpWidget(buildSubject(engine));
+      await tester.tap(find.byKey(const ValueKey<String>('mini-player-open')));
+      await tester.pumpAndSettle();
+
+      await tester.tap(seekBar);
+      await tester.pump();
+
+      expect(engine.seekCount, 0);
+      expect(find.text('--:--'), findsOneWidget);
     });
 
     testWidgets('a tap on the bar seeks once', (tester) async {
@@ -1189,11 +1226,10 @@ void main() {
 
         expect(tester.takeException(), isNull);
 
-        final container = tester.widget<Container>(
+        final bar = tester.widget<Material>(
           find.byKey(const ValueKey<String>('mini-player')),
         );
-        final decoration = container.decoration! as BoxDecoration;
-        expect(decoration.color, colors.raisedSurface);
+        expect(bar.color, colors.raisedSurface);
 
         final progress = tester.widget<LinearProgressIndicator>(
           find.descendant(
@@ -1207,10 +1243,7 @@ void main() {
         final playPause = tester.widget<IconButton>(
           find.byKey(const ValueKey<String>('mini-player-play-pause')),
         );
-        expect(
-          playPause.style!.backgroundColor!.resolve(<WidgetState>{}),
-          colors.playbackControl,
-        );
+        expect(playPause.color, colors.playbackControl);
         expect(
           find.byKey(const ValueKey<String>('mini-player-artwork-fallback')),
           findsOneWidget,

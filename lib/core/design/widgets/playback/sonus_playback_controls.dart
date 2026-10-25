@@ -24,6 +24,7 @@ class SonusPlaybackControls extends StatelessWidget {
     this.onCycleRepeat,
     this.accentColor,
     this.onAccentColor,
+    this.keyPrefix,
   });
 
   final bool isPlaying;
@@ -43,6 +44,15 @@ class SonusPlaybackControls extends StatelessWidget {
   final Color? accentColor;
   final Color? onAccentColor;
 
+  /// Keys the buttons `<prefix>-shuffle`, `-previous`, `-play-pause`,
+  /// `-next` and `-repeat`, for players with their own tests.
+  final String? keyPrefix;
+
+  Key? _key(String name) {
+    final prefix = keyPrefix;
+    return prefix == null ? null : ValueKey<String>('$prefix-$name');
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = SonusTheme.of(context).colors;
@@ -50,12 +60,14 @@ class SonusPlaybackControls extends StatelessWidget {
     final onAccent = onAccentColor ?? colors.onPlaybackControl;
 
     Widget toggle({
+      required Key? key,
       required IconData icon,
       required String tooltip,
       required bool selected,
       required VoidCallback? onPressed,
     }) {
       return IconButton(
+        key: key,
         tooltip: tooltip,
         isSelected: selected,
         onPressed: onPressed,
@@ -76,6 +88,7 @@ class SonusPlaybackControls extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             toggle(
+              key: _key('shuffle'),
               icon: shuffleEnabled
                   ? Icons.shuffle_on_rounded
                   : Icons.shuffle_rounded,
@@ -84,6 +97,7 @@ class SonusPlaybackControls extends StatelessWidget {
               onPressed: onToggleShuffle,
             ),
             IconButton(
+              key: _key('previous'),
               tooltip: 'Previous',
               onPressed: onPrevious,
               iconSize: 34,
@@ -94,7 +108,9 @@ class SonusPlaybackControls extends StatelessWidget {
             SizedBox.square(
               dimension: playSize,
               child: IconButton.filled(
-                key: const ValueKey<String>('sonus-play-pause-button'),
+                key:
+                    _key('play-pause') ??
+                    const ValueKey<String>('sonus-play-pause-button'),
                 tooltip: isPlaying ? 'Pause' : 'Play',
                 onPressed: isLoading ? null : onPlayPause,
                 style: IconButton.styleFrom(
@@ -119,6 +135,7 @@ class SonusPlaybackControls extends StatelessWidget {
               ),
             ),
             IconButton(
+              key: _key('next'),
               tooltip: 'Next',
               onPressed: onNext,
               iconSize: 34,
@@ -127,6 +144,7 @@ class SonusPlaybackControls extends StatelessWidget {
               icon: const Icon(Icons.skip_next_rounded),
             ),
             toggle(
+              key: _key('repeat'),
               icon: repeat == SonusRepeatDisplay.one
                   ? Icons.repeat_one_rounded
                   : Icons.repeat_rounded,
