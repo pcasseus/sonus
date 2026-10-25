@@ -42,7 +42,7 @@ class PlaybackCoordinator {
 
     final requestedTrack = tracks[startIndex];
 
-    final playableTracks = tracks.where(_isPlayable).toList(growable: false);
+    final playableTracks = tracks.where(isPlayable).toList(growable: false);
 
     if (playableTracks.isEmpty) {
       throw StateError('No playable tracks are available.');
@@ -198,7 +198,9 @@ class PlaybackCoordinator {
     }
   }
 
-  bool _isPlayable(LibraryTrack track) {
+  /// Whether [track] can be queued: not blacklisted, with an available
+  /// audio file. The single definition used by every queue entry point.
+  static bool isPlayable(LibraryTrack track) {
     return !track.isBlocked &&
         track.isAvailable &&
         track.filePath != null &&
@@ -206,7 +208,7 @@ class PlaybackCoordinator {
   }
 
   LibraryTrack _requirePlayableTrack(LibraryTrack track) {
-    if (!_isPlayable(track)) {
+    if (!isPlayable(track)) {
       throw StateError('Track ${track.songId} is unavailable for playback.');
     }
 

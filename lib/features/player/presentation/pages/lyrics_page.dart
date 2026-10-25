@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../../core/design/sonus_theme.dart';
 import '../../application/controllers/playback_coordinator.dart';
 import '../../domain/models/lyric_line.dart';
 import '../../domain/models/track_lyrics.dart';
@@ -10,8 +11,28 @@ import '../controllers/lyrics_controller.dart';
 import '../controllers/lyrics_state.dart';
 import '../controllers/playback_state_controller.dart';
 
-class LyricsPage extends StatelessWidget {
+class LyricsPage extends StatefulWidget {
   const LyricsPage({super.key});
+
+  @override
+  State<LyricsPage> createState() => _LyricsPageState();
+}
+
+class _LyricsPageState extends State<LyricsPage> {
+  @override
+  void initState() {
+    super.initState();
+    // Lyrics can be imported or changed while a song plays; opening the
+    // page reads them again (unless a read is already under way).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final controller = context.read<LyricsController?>();
+      if (controller != null &&
+          controller.state.status != LyricsStatus.loading) {
+        unawaited(controller.reload());
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -83,11 +104,18 @@ class _LyricsBody extends StatelessWidget {
         );
 
       case LyricsStatus.failed:
-        return const _LyricsMessage(
-          key: ValueKey<String>('lyrics-error'),
+        return _LyricsMessage(
+          key: const ValueKey<String>('lyrics-error'),
           icon: Icons.error_outline_rounded,
           title: 'Lyrics unavailable',
           message: 'The saved lyrics could not be loaded.',
+          action: TextButton(
+            key: const ValueKey<String>('lyrics-retry'),
+            onPressed: () {
+              unawaited(context.read<LyricsController?>()?.reload());
+            },
+            child: const Text('Try again'),
+          ),
         );
 
       case LyricsStatus.loaded:
@@ -128,9 +156,9 @@ class _SyncedLyricsView extends StatefulWidget {
 }
 
 class _SyncedLyricsViewState extends State<_SyncedLyricsView> {
-  static const double _estimatedLineExtent = 76;
-
-  final ScrollController _scrollController = ScrollController();
+  // Marks the active line so it can be centred by its real layout. Lines
+  // wrap to different heights, so positions cannot be estimated.
+  final GlobalKey _activeLineKey = GlobalKey();
 
   int? _activeIndex;
 
@@ -167,25 +195,21 @@ class _SyncedLyricsViewState extends State<_SyncedLyricsView> {
 
   void _scheduleFollow() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_scrollController.hasClients || _activeIndex == null) {
+      final activeContext = _activeLineKey.currentContext;
+
+      if (!mounted || activeContext == null) {
         return;
       }
 
-      final viewport = _scrollController.position.viewportDimension;
-      final target =
-          (_activeIndex! * _estimatedLineExtent) -
-          (viewport / 2) +
-          (_estimatedLineExtent / 2);
+      final reduced = SonusTheme.of(context).motion.reduced;
 
-      final clamped = target.clamp(
-        _scrollController.position.minScrollExtent,
-        _scrollController.position.maxScrollExtent,
-      );
-
-      _scrollController.animateTo(
-        clamped.toDouble(),
-        duration: const Duration(milliseconds: 320),
-        curve: Curves.easeOutCubic,
+      unawaited(
+        Scrollable.ensureVisible(
+          activeContext,
+          alignment: 0.5,
+          duration: reduced ? Duration.zero : const Duration(milliseconds: 320),
+          curve: Curves.easeOutCubic,
+        ),
       );
     });
   }
@@ -195,36 +219,30 @@ class _SyncedLyricsViewState extends State<_SyncedLyricsView> {
     final lines = widget.lyrics.syncedLines;
     final coordinator = context.read<PlaybackCoordinator>();
 
-    return ListView.builder(
+    return SingleChildScrollView(
       key: const ValueKey<String>('synced-lyrics-list'),
-      controller: _scrollController,
       padding: const EdgeInsets.fromLTRB(24, 32, 24, 48),
-      itemCount: lines.length,
-      itemBuilder: (context, index) {
-        final line = lines[index];
-        final isActive = index == _activeIndex;
-
-        return _SyncedLyricLine(
-          line: line,
-          index: index,
-          isActive: isActive,
-          onTap: () {
-            unawaited(coordinator.seek(line.timestamp));
-          },
-        );
-      },
+      child: Column(
+        children: [
+          for (var index = 0; index < lines.length; index++)
+            _SyncedLyricLine(
+              key: index == _activeIndex ? _activeLineKey : null,
+              line: lines[index],
+              index: index,
+              isActive: index == _activeIndex,
+              onTap: () {
+                unawaited(coordinator.seek(lines[index].timestamp));
+              },
+            ),
+        ],
+      ),
     );
-  }
-
-  @override
-  void dispose() {
-    _scrollController.dispose();
-    super.dispose();
   }
 }
 
 class _SyncedLyricLine extends StatelessWidget {
   const _SyncedLyricLine({
+    super.key,
     required this.line,
     required this.index,
     required this.isActive,
@@ -251,7 +269,9 @@ class _SyncedLyricLine extends StatelessWidget {
         onTap: onTap,
         child: AnimatedContainer(
           key: ValueKey<String>('lyrics-line-container-$index'),
-          duration: const Duration(milliseconds: 180),
+          duration: SonusTheme.of(context).motion.reduced
+              ? Duration.zero
+              : const Duration(milliseconds: 180),
           curve: Curves.easeOut,
           width: double.infinity,
           constraints: const BoxConstraints(minHeight: 68),
@@ -327,11 +347,13 @@ class _LyricsMessage extends StatelessWidget {
     required this.icon,
     required this.title,
     required this.message,
+    this.action,
   });
 
   final IconData icon;
   final String title;
   final String message;
+  final Widget? action;
 
   @override
   Widget build(BuildContext context) {
@@ -360,6 +382,7 @@ class _LyricsMessage extends StatelessWidget {
                 color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
+            if (action != null) ...[const SizedBox(height: 16), action!],
           ],
         ),
       ),

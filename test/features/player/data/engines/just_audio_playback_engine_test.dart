@@ -5,8 +5,12 @@ import 'package:just_audio/just_audio.dart';
 
 import 'package:sonus_next/features/player/data/engines/just_audio_playback_engine.dart';
 import 'package:sonus_next/features/player/data/engines/support/playback_audio_player.dart';
+import 'package:sonus_next/features/player/domain/models/playback_repeat_mode.dart';
+import 'package:sonus_next/features/player/domain/models/playback_state.dart';
 import 'package:sonus_next/features/player/domain/models/playback_track.dart';
 import 'package:sonus_next/features/player/domain/models/playback_transition_cause.dart';
+
+import 'simulated_just_audio_player.dart';
 
 class FakePlaybackAudioPlayer implements PlaybackAudioPlayer {
   final StreamController<Duration> _positions =
@@ -48,6 +52,9 @@ class FakePlaybackAudioPlayer implements PlaybackAudioPlayer {
 
   @override
   bool get hasNext => hasNextValue;
+
+  @override
+  bool get playing => false;
 
   @override
   Future<Duration?> setAudioSources(
@@ -408,4 +415,210 @@ void main() {
       await engine.dispose();
     },
   );
+
+  group('status while replacing the queue (SN-44)', () {
+    late SimulatedJustAudioPlayer player;
+    late JustAudioPlaybackEngine engine;
+
+    setUp(() {
+      player = SimulatedJustAudioPlayer();
+      engine = JustAudioPlaybackEngine(
+        audioPlayer: player,
+        configureAudioSession: () async {},
+      );
+    });
+
+    tearDown(() => engine.dispose());
+
+    Future<void> settle() => Future<void>.delayed(Duration.zero);
+
+    test('a fresh queue plays, pauses and resumes truthfully', () async {
+      await engine.loadQueue([track('song-1')], autoPlay: true);
+      await settle();
+      expect(engine.currentState.status, PlaybackStatus.playing);
+      expect(player.audible, isTrue);
+
+      await engine.pause();
+      await settle();
+      expect(engine.currentState.status, PlaybackStatus.paused);
+      expect(player.audible, isFalse);
+
+      await engine.play();
+      await settle();
+      expect(engine.currentState.status, PlaybackStatus.playing);
+      expect(player.audible, isTrue);
+    });
+
+    test('a new queue loaded while playing is reported as playing', () async {
+      await engine.loadQueue([track('song-1')], autoPlay: true);
+      await settle();
+
+      await engine.loadQueue([track('song-2')], autoPlay: true);
+      await settle();
+
+      expect(player.audible, isTrue);
+      expect(engine.currentState.queue.currentTrack?.songId, 'song-2');
+      expect(engine.currentState.status, PlaybackStatus.playing);
+    });
+
+    test('a new queue loaded while playing can then be paused', () async {
+      await engine.loadQueue([track('song-1')], autoPlay: true);
+      await settle();
+      await engine.loadQueue([track('song-2')], autoPlay: true);
+      await settle();
+
+      await engine.pause();
+      await settle();
+
+      expect(player.audible, isFalse);
+      expect(engine.currentState.status, PlaybackStatus.paused);
+    });
+
+    test('a new queue after a completed one is reported as playing', () async {
+      await engine.loadQueue([track('song-1')], autoPlay: true);
+      await settle();
+      player.complete();
+      await settle();
+      expect(engine.currentState.status, PlaybackStatus.completed);
+
+      await engine.loadQueue([track('song-2')], autoPlay: true);
+      await settle();
+
+      expect(player.audible, isTrue);
+      expect(engine.currentState.status, PlaybackStatus.playing);
+    });
+
+    test(
+      'loading without autoplay while playing does not start audio',
+      () async {
+        await engine.loadQueue([track('song-1')], autoPlay: true);
+        await settle();
+
+        await engine.loadQueue([track('song-2')]);
+        await settle();
+
+        expect(player.audible, isFalse);
+        expect(engine.currentState.queue.currentTrack?.songId, 'song-2');
+        expect(engine.currentState.status, isNot(PlaybackStatus.playing));
+      },
+    );
+
+    test(
+      'loading without autoplay after completion does not start audio',
+      () async {
+        await engine.loadQueue([track('song-1')], autoPlay: true);
+        await settle();
+        player.complete();
+        await settle();
+
+        await engine.loadQueue([track('song-2')]);
+        await settle();
+
+        expect(player.audible, isFalse);
+        expect(engine.currentState.status, isNot(PlaybackStatus.playing));
+      },
+    );
+
+    test('loading without autoplay from idle stays ready', () async {
+      await engine.loadQueue([track('song-1')]);
+      await settle();
+
+      expect(player.audible, isFalse);
+      expect(engine.currentState.status, PlaybackStatus.ready);
+    });
+
+    test('Next and Previous availability comes from the player', () async {
+      await engine.loadQueue(
+        [track('song-1'), track('song-2')],
+        startIndex: 1,
+        autoPlay: true,
+      );
+      await settle();
+
+      expect(engine.currentState.canSkipNext, isFalse);
+      expect(engine.currentState.canSkipPrevious, isTrue);
+
+      // Repeat all: the player wraps from the last song to the first.
+      await engine.setRepeatMode(PlaybackRepeatMode.all);
+      await settle();
+
+      expect(engine.currentState.canSkipNext, isTrue);
+    });
+
+    for (final errorFirst in [true, false]) {
+      test('an unreadable song stays a visible failure '
+          '(error ${errorFirst ? 'before' : 'after'} idle)', () async {
+        await engine.loadQueue([
+          track('song-1'),
+          track('song-2'),
+        ], autoPlay: true);
+        await settle();
+
+        player.failSource(errorFirst: errorFirst);
+        await settle();
+
+        expect(engine.currentState.status, PlaybackStatus.failed);
+        expect(engine.currentState.errorMessage, isNotNull);
+        expect(engine.currentState.queue.currentTrack?.songId, 'song-1');
+      });
+    }
+
+    test('Stop after a failure still ends playback', () async {
+      await engine.loadQueue([track('song-1')], autoPlay: true);
+      await settle();
+      player.failSource();
+      await settle();
+
+      await engine.stop();
+      await settle();
+
+      expect(engine.currentState.status, PlaybackStatus.idle);
+      expect(engine.currentState.errorMessage, isNull);
+    });
+
+    test('a new queue after a failure plays normally', () async {
+      await engine.loadQueue([track('song-1')], autoPlay: true);
+      await settle();
+      player.failSource();
+      await settle();
+
+      await engine.loadQueue([track('song-2')], autoPlay: true);
+      await settle();
+
+      expect(engine.currentState.status, PlaybackStatus.playing);
+      expect(engine.currentState.errorMessage, isNull);
+    });
+
+    test('Play while playing and Pause while paused change nothing', () async {
+      await engine.loadQueue([track('song-1')], autoPlay: true);
+      await settle();
+
+      await engine.play();
+      await settle();
+      expect(engine.currentState.status, PlaybackStatus.playing);
+      expect(player.audible, isTrue);
+
+      await engine.pause();
+      await settle();
+      await engine.pause();
+      await settle();
+      expect(engine.currentState.status, PlaybackStatus.paused);
+      expect(player.audible, isFalse);
+    });
+
+    test('skipping within a playing queue stays playing', () async {
+      await engine.loadQueue([
+        track('song-1'),
+        track('song-2'),
+      ], autoPlay: true);
+      await settle();
+
+      await engine.skipNext();
+      await settle();
+
+      expect(engine.currentState.queue.currentTrack?.songId, 'song-2');
+      expect(engine.currentState.status, PlaybackStatus.playing);
+      expect(player.audible, isTrue);
+    });
+  });
 }

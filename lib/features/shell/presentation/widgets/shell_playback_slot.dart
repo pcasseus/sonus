@@ -13,6 +13,7 @@ import '../../../player/domain/models/playback_track.dart';
 import '../../../player/presentation/controllers/playback_state_controller.dart';
 import '../../../player/presentation/pages/now_playing_page.dart';
 import '../../../player/presentation/pages/playback_queue_page.dart';
+import '../../../player/presentation/widgets/playback_error_notice.dart';
 
 class ShellPlaybackSlot extends StatelessWidget {
   const ShellPlaybackSlot({super.key, this.child});
@@ -96,7 +97,12 @@ class _MiniPlayer extends StatelessWidget {
                             child: _MiniPlayerArtwork(track: track),
                           ),
                           const SizedBox(width: 12),
-                          Expanded(child: _MiniPlayerMetadata(track: track)),
+                          Expanded(
+                            child: _MiniPlayerMetadata(
+                              track: track,
+                              failed: state.hasError,
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -104,7 +110,7 @@ class _MiniPlayer extends StatelessWidget {
                   IconButton(
                     key: const ValueKey<String>('mini-player-previous'),
                     tooltip: 'Previous',
-                    onPressed: state.queue.hasPrevious
+                    onPressed: state.canSkipPrevious
                         ? () {
                             unawaited(coordinator.skipPrevious());
                           }
@@ -118,7 +124,7 @@ class _MiniPlayer extends StatelessWidget {
                   IconButton(
                     key: const ValueKey<String>('mini-player-next'),
                     tooltip: 'Next',
-                    onPressed: state.queue.hasNext
+                    onPressed: state.canSkipNext
                         ? () {
                             unawaited(coordinator.skipNext());
                           }
@@ -239,9 +245,10 @@ class _MiniPlayerArtworkFallback extends StatelessWidget {
 }
 
 class _MiniPlayerMetadata extends StatelessWidget {
-  const _MiniPlayerMetadata({required this.track});
+  const _MiniPlayerMetadata({required this.track, required this.failed});
 
   final PlaybackTrack track;
+  final bool failed;
 
   @override
   Widget build(BuildContext context) {
@@ -264,16 +271,23 @@ class _MiniPlayerMetadata extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 2),
-        Text(
-          track.artistName,
-          key: const ValueKey<String>('mini-player-artist'),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: theme.textTheme.bodyMedium?.copyWith(
-            color: colors.textSecondary,
-            fontWeight: FontWeight.w500,
+        if (failed)
+          const PlaybackErrorNotice(
+            key: ValueKey<String>('mini-player-error'),
+            message: PlaybackErrorNotice.shortMessage,
+            compact: true,
+          )
+        else
+          Text(
+            track.artistName,
+            key: const ValueKey<String>('mini-player-artist'),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: colors.textSecondary,
+              fontWeight: FontWeight.w500,
+            ),
           ),
-        ),
       ],
     );
   }

@@ -12,6 +12,7 @@ import '../features/charts/presentation/scopes/charts_scope.dart';
 import '../features/home/presentation/scopes/home_scope.dart';
 import '../features/import/presentation/scopes/import_scope.dart';
 import '../features/library/presentation/scopes/library_query_scope.dart';
+import '../features/player/application/services/media_session/sonus_audio_handler.dart';
 import '../features/player/presentation/scopes/playback_scope.dart';
 import '../features/playlists/presentation/scopes/playlists_scope.dart';
 import '../features/recovery/application/services/recovery_service.dart';
@@ -35,6 +36,7 @@ class SonusApp extends StatefulWidget {
     this.recoverySyncGate,
     this.recoveryService,
     this.appearanceController,
+    this.mediaSession,
   });
 
   final PlaybackEngineFactory? playbackEngineFactory;
@@ -50,6 +52,10 @@ class SonusApp extends StatefulWidget {
   /// Overrides the appearance controller (tests). When null the app loads
   /// the device's stored appearance preferences.
   final AppearanceController? appearanceController;
+
+  /// Android's media session (notification, lock screen, Bluetooth).
+  /// Null where the platform has none; playback works either way.
+  final SonusAudioHandler? mediaSession;
 
   @override
   State<SonusApp> createState() => _SonusAppState();
@@ -90,6 +96,7 @@ class _SonusAppState extends State<SonusApp> {
             child: PlaylistsScope(
               child: PlaybackScope(
                 engineFactory: widget.playbackEngineFactory,
+                mediaSession: widget.mediaSession,
                 child: AccountScope(
                   repository: widget.accountRepository,
                   child: SyncScope(

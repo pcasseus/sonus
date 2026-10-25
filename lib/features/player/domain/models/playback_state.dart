@@ -14,6 +14,8 @@ class PlaybackState {
     this.shuffleEnabled = false,
     this.transitionCause,
     this.errorMessage,
+    this.nextAvailable,
+    this.previousAvailable,
   });
 
   final PlaybackQueue queue;
@@ -24,6 +26,16 @@ class PlaybackState {
   final bool shuffleEnabled;
   final PlaybackTransitionCause? transitionCause;
   final String? errorMessage;
+
+  /// Whether the player has a next or previous song. The player follows
+  /// the shuffle order and wraps with repeat all, which the queue's list
+  /// order cannot show. Null when the engine does not report it.
+  final bool? nextAvailable;
+  final bool? previousAvailable;
+
+  bool get canSkipNext => nextAvailable ?? queue.hasNext;
+
+  bool get canSkipPrevious => previousAvailable ?? queue.hasPrevious;
 
   bool get hasTrack => queue.currentTrack != null;
 
@@ -50,6 +62,8 @@ class PlaybackState {
     bool clearTransitionCause = false,
     String? errorMessage,
     bool clearError = false,
+    bool? nextAvailable,
+    bool? previousAvailable,
   }) {
     return PlaybackState(
       queue: queue ?? this.queue,
@@ -62,6 +76,8 @@ class PlaybackState {
           ? null
           : transitionCause ?? this.transitionCause,
       errorMessage: clearError ? null : errorMessage ?? this.errorMessage,
+      nextAvailable: nextAvailable ?? this.nextAvailable,
+      previousAvailable: previousAvailable ?? this.previousAvailable,
     );
   }
 }
