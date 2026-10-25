@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+import '../../../../core/design/sonus_count_label.dart';
 import '../../../../core/design/sonus_theme.dart';
 import '../../../../core/design/widgets/sonus_artwork_frame.dart';
 import '../../../../core/design/widgets/sonus_decorations.dart';
@@ -35,6 +36,8 @@ class ChartEntryCard extends StatefulWidget {
     required this.artworkPath,
     this.onTap,
     this.status,
+    this.isAllTime = false,
+    this.weeklyPeakRank,
   });
 
   /// Displayed artwork size. Images are decoded at this size so a 200-row
@@ -58,12 +61,23 @@ class ChartEntryCard extends StatefulWidget {
   final VoidCallback? onTap;
   final ChartEntryStatus? status;
 
-  /// Visible text for last week's position. Only the official rank counts;
-  /// without one the line shows a neutral dash.
-  static String lastWeekText(ChartEntry entry) {
-    final previous = entry.previousFinalRank;
+  /// Whether the entry is on the permanent all-time chart. There, streams
+  /// are lifetime totals, the comparison is the all-time rank at the start
+  /// of this week, and there are no chart weeks to count.
+  final bool isAllTime;
 
-    return previous == null ? 'Last week —' : 'Last week #$previous';
+  /// On the all-time chart, the best position reached on a finalized weekly
+  /// chart, shown apart from the all-time peak.
+  final int? weeklyPeakRank;
+
+  /// Visible text for the position being compared with: last week's official
+  /// rank on a weekly chart, or the all-time rank at the start of this week.
+  /// Without one the line shows a neutral dash.
+  static String lastWeekText(ChartEntry entry, {bool isAllTime = false}) {
+    final previous = entry.previousFinalRank;
+    final label = isAllTime ? 'Start of week' : 'Last week';
+
+    return previous == null ? '$label —' : '$label #$previous';
   }
 
   /// The single label a screen reader announces for the whole card.
@@ -71,6 +85,8 @@ class ChartEntryCard extends StatefulWidget {
     ChartEntry entry, {
     required String subtitle,
     ChartEntryStatus? status,
+    bool isAllTime = false,
+    int? weeklyPeakRank,
   }) {
     final previous = entry.previousFinalRank;
     final weeks = entry.weeksOnChart;
@@ -81,12 +97,23 @@ class ChartEntryCard extends StatefulWidget {
       ChartMovementIndicator.semanticLabelFor(entry),
       entry.entity.title,
       subtitle,
-      '${entry.qualifiedStreamCount} streams',
-      'peak number ${entry.peakRank}',
-      previous == null
-          ? 'no official position last week'
-          : 'last week number $previous',
-      '$weeks ${weeks == 1 ? 'week' : 'weeks'} on chart',
+      isAllTime
+          ? '${entry.qualifiedStreamCount} lifetime ${sonusCountNoun(entry.qualifiedStreamCount, 'stream')}'
+          : '${entry.qualifiedStreamCount} ${sonusCountNoun(entry.qualifiedStreamCount, 'stream')}',
+      isAllTime
+          ? 'all-time peak number ${entry.peakRank}'
+          : 'peak number ${entry.peakRank}',
+      if (isAllTime && weeklyPeakRank != null)
+        'weekly chart peak number $weeklyPeakRank',
+      if (isAllTime)
+        previous == null
+            ? 'not ranked at the start of this week'
+            : 'number $previous at the start of this week'
+      else
+        previous == null
+            ? 'no official position last week'
+            : 'last week number $previous',
+      if (!isAllTime) '$weeks ${weeks == 1 ? 'week' : 'weeks'} on chart',
       if (status != null) status.spokenLabel,
     ].join(', ');
   }
@@ -135,6 +162,8 @@ class _ChartEntryCardState extends State<ChartEntryCard> {
       entry: entry,
       subtitle: subtitle,
       status: widget.status,
+      isAllTime: widget.isAllTime,
+      weeklyPeakRank: widget.weeklyPeakRank,
     );
     final rank = _RankColumn(entry: entry, isTopThree: isTopThree);
     final artwork = _ChartArtwork(
@@ -184,6 +213,8 @@ class _ChartEntryCardState extends State<ChartEntryCard> {
                 entry,
                 subtitle: subtitle,
                 status: widget.status,
+                isAllTime: widget.isAllTime,
+                weeklyPeakRank: widget.weeklyPeakRank,
               ),
               excludeSemantics: true,
               child: Stack(
@@ -341,11 +372,15 @@ class _EntryDetails extends StatelessWidget {
     required this.entry,
     required this.subtitle,
     required this.status,
+    required this.isAllTime,
+    required this.weeklyPeakRank,
   });
 
   final ChartEntry entry;
   final String subtitle;
   final ChartEntryStatus? status;
+  final bool isAllTime;
+  final int? weeklyPeakRank;
 
   @override
   Widget build(BuildContext context) {
@@ -387,21 +422,29 @@ class _EntryDetails extends StatelessWidget {
           crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             Text(
-              '${entry.qualifiedStreamCount} streams',
+              '${entry.qualifiedStreamCount} ${sonusCountNoun(entry.qualifiedStreamCount, 'stream')}',
               style: statStyle?.copyWith(
                 color: colors.textPrimary,
                 fontWeight: FontWeight.w700,
               ),
             ),
-            Text('Peak #${entry.peakRank}', style: statStyle),
             Text(
-              ChartEntryCard.lastWeekText(entry),
+              isAllTime
+                  ? 'All-time peak #${entry.peakRank}'
+                  : 'Peak #${entry.peakRank}',
+              style: statStyle,
+            ),
+            if (isAllTime && weeklyPeakRank != null)
+              Text('Weekly peak #$weeklyPeakRank', style: statStyle),
+            Text(
+              ChartEntryCard.lastWeekText(entry, isAllTime: isAllTime),
               key: ValueKey<String>(
                 'charts-last-week-${entry.entity.entityId}',
               ),
               style: statStyle,
             ),
-            Text('$weeks ${weeks == 1 ? 'week' : 'weeks'}', style: statStyle),
+            if (!isAllTime)
+              Text('$weeks ${weeks == 1 ? 'week' : 'weeks'}', style: statStyle),
             if (entry.isOffChartStanding)
               _Badge(
                 key: ValueKey<String>(

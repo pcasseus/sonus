@@ -938,7 +938,10 @@ void main() {
       expect(editingService.lastIsSingle, isFalse);
       expect(editingService.lastArtistId, 'artist-1');
       expect(editingService.lastAlbumId, 'album-1');
-      expect(editingService.lastAlbumEditionId, 'edition-1');
+      // Same album: no edition operation; the numbers belong to the listing
+      // the editor showed (SN-48J J2).
+      expect(editingService.lastAlbumEditionId, isNull);
+      expect(editingService.lastPlacementEditionId, 'edition-1');
 
       expect(
         find.byKey(const ValueKey<String>('track-studio-page')),
@@ -1673,6 +1676,7 @@ class FakeTrackStudioEditingService extends TrackProfileEditingService {
   String? lastArtistId;
   String? lastAlbumId;
   String? lastAlbumEditionId;
+  String? lastPlacementEditionId;
 
   @override
   Future<TrackProfileEditResult> updateTrackWithCredits({
@@ -1691,6 +1695,7 @@ class FakeTrackStudioEditingService extends TrackProfileEditingService {
     String? artistId,
     String? albumId,
     String? albumEditionId,
+    String? placementEditionId,
     DateTime? now,
   }) async {
     structuredUpdateCallCount++;
@@ -1712,6 +1717,7 @@ class FakeTrackStudioEditingService extends TrackProfileEditingService {
       artistId: artistId,
       albumId: albumId,
       albumEditionId: albumEditionId,
+      placementEditionId: placementEditionId,
       now: now,
     );
   }
@@ -1728,6 +1734,7 @@ class FakeTrackStudioEditingService extends TrackProfileEditingService {
     String? artistId,
     String? albumId,
     String? albumEditionId,
+    String? placementEditionId,
     DateTime? now,
   }) async {
     updateCallCount++;
@@ -1742,6 +1749,7 @@ class FakeTrackStudioEditingService extends TrackProfileEditingService {
     lastArtistId = artistId;
     lastAlbumId = albumId;
     lastAlbumEditionId = albumEditionId;
+    lastPlacementEditionId = placementEditionId;
 
     final timestamp = now ?? DateTime.utc(2026, 10, 2);
 

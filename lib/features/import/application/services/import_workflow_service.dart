@@ -1,5 +1,6 @@
 import '../../../../core/identity/entity_id.dart';
 import '../../../../core/identity/text_normalizer.dart';
+import '../../../../core/events/library_change_signal.dart';
 import '../../domain/entities/import_source.dart';
 import '../../domain/models/import_candidate.dart';
 import '../../domain/repositories/import_source_repository.dart';
@@ -26,6 +27,7 @@ class ImportWorkflowService {
     this.sourceReconciliationService,
     this.batchIdFactory = EntityId.importBatch,
     this.sourceIdFactory = EntityId.importSource,
+    this.changes,
   });
 
   final ImportCandidateDiscovery candidateDiscovery;
@@ -36,6 +38,9 @@ class ImportWorkflowService {
   final ImportSourceReconciliationService? sourceReconciliationService;
   final ImportBatchIdFactory batchIdFactory;
   final ImportSourceIdFactory sourceIdFactory;
+
+  /// Told when an import finishes; [LibraryChangeSignal.shared] if null.
+  final LibraryChangeSignal? changes;
 
   Future<ImportExecutionSummary> importSingleSong(
     String filePath, {
@@ -275,7 +280,7 @@ class ImportWorkflowService {
     DateTime? startedAt,
     DateTime? completedAt,
     ImportBatchProgressCallback? onProgress,
-  }) {
+  }) async {
     final batch = ImportBatch(
       id: batchIdFactory(),
       items: List.unmodifiable(
@@ -284,11 +289,17 @@ class ImportWorkflowService {
       createdAt: createdAt,
     );
 
-    return batchRunner.execute(
+    final summary = await batchRunner.execute(
       batch,
       startedAt: startedAt,
       completedAt: completedAt,
       onProgress: onProgress,
     );
+
+    (changes ?? LibraryChangeSignal.shared).notify(
+      LibraryChangeKind.importCompleted,
+    );
+
+    return summary;
   }
 }

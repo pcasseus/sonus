@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/widgets.dart';
 import 'package:provider/provider.dart';
 
+import '../../../../core/events/library_change_signal.dart';
+
 import '../../../analytics/application/services/analytics_artist_listening_duration_service.dart';
 import '../../../analytics/application/services/analytics_entity_ranking_service.dart';
 import '../../../analytics/domain/repositories/playback_listening_segment_repository.dart';
@@ -13,9 +15,12 @@ import '../../application/services/home_data_service.dart';
 import '../controllers/home_controller.dart';
 
 class HomeScope extends StatefulWidget {
-  const HomeScope({super.key, required this.child, this.now});
+  const HomeScope({super.key, required this.child, this.now, this.changes});
 
   final Widget child;
+
+  /// Reloads after library or listening changes; the shared signal if null.
+  final LibraryChangeSignal? changes;
   final HomeControllerNow? now;
 
   @override
@@ -29,6 +34,7 @@ class _HomeScopeState extends State<HomeScope> {
   PlaybackListeningSegmentRepository? _listeningSegments;
 
   HomeController? _controller;
+  LibraryChangeRefresher? _refresher;
 
   @override
   void didChangeDependencies() {
@@ -68,6 +74,8 @@ class _HomeScopeState extends State<HomeScope> {
     final previousController = _controller;
     _controller = null;
 
+    _refresher?.dispose();
+    _refresher = null;
     previousController?.dispose();
 
     final library = _library;
@@ -96,6 +104,15 @@ class _HomeScopeState extends State<HomeScope> {
     final controller = HomeController(service: service, now: widget.now);
 
     _controller = controller;
+    _refresher = LibraryChangeRefresher(
+      signal: widget.changes ?? LibraryChangeSignal.shared,
+      kinds: {
+        LibraryChangeKind.libraryEdited,
+        LibraryChangeKind.importCompleted,
+        LibraryChangeKind.listeningRecorded,
+      },
+      onChange: () => unawaited(controller.refresh()),
+    );
 
     unawaited(controller.load());
   }
@@ -110,6 +127,7 @@ class _HomeScopeState extends State<HomeScope> {
 
   @override
   void dispose() {
+    _refresher?.dispose();
     _controller?.dispose();
     super.dispose();
   }

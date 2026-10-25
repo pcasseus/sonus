@@ -44,8 +44,30 @@ class LyricsController extends ChangeNotifier {
     unawaited(_load(songId, _requestGeneration));
   }
 
-  Future<void> _load(String songId, int generation) async {
-    _setState(LyricsState(songId: songId, status: LyricsStatus.loading));
+  /// Reads the current song's lyrics again: they may have been imported or
+  /// changed while it played, or the last read may have failed. Lyrics
+  /// already on screen stay visible until the new result arrives.
+  Future<void> reload() {
+    final songId = _state.songId;
+
+    if (_disposed || songId == null) {
+      return Future<void>.value();
+    }
+
+    _requestGeneration++;
+    final keepShowing = _state.status == LyricsStatus.loaded;
+
+    return _load(songId, _requestGeneration, showLoading: !keepShowing);
+  }
+
+  Future<void> _load(
+    String songId,
+    int generation, {
+    bool showLoading = true,
+  }) async {
+    if (showLoading) {
+      _setState(LyricsState(songId: songId, status: LyricsStatus.loading));
+    }
 
     try {
       final lyrics = await _repository.getBySongId(songId);

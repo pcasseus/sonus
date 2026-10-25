@@ -12,6 +12,7 @@ import '../../../import/presentation/pages/import_review_page.dart';
 import '../../../import/presentation/pages/imports_page.dart';
 import '../../../library/application/repositories/library_query_repository.dart';
 import '../../../library/application/services/album_profile_editing_service.dart';
+import '../../../library/presentation/pages/library_health_page.dart';
 import '../../application/controllers/library_overview_controller.dart';
 import '../../application/services/library_overview_service.dart';
 import '../widgets/settings/settings_section.dart';
@@ -172,6 +173,15 @@ class _LibrarySettingsPageState extends State<LibrarySettingsPage> {
                   : () => _openAndRefresh(
                       UnavailableSongsPage(songs: unavailable),
                     ),
+            ),
+            SettingsNavTile(
+              key: const ValueKey<String>('library-settings-verify'),
+              icon: Icons.health_and_safety_outlined,
+              title: 'Verify Library',
+              subtitle:
+                  'Check albums, editions, credits and files. Nothing is '
+                  'changed unless you choose to.',
+              onTap: () => _openAndRefresh(const LibraryHealthPage()),
             ),
             SettingsNavTile(
               key: const ValueKey<String>('settings-blacklisted-songs'),

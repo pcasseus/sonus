@@ -71,7 +71,12 @@ void main() {
     final contents = await verifiedFixtureContents(
       directory: root,
       seed: (db) async {
-        await seedConnectedLibrary(db, key: 'a', userId: 'user-1', artworkPath: cover.path);
+        await seedConnectedLibrary(
+          db,
+          key: 'a',
+          userId: 'user-1',
+          artworkPath: cover.path,
+        );
         await seedConnectedLibrary(db, key: 'b', week: 1);
       },
     );
@@ -99,8 +104,9 @@ void main() {
     expect(artwork['file_path'], devicePaths(contents)['artwork-a']);
     expect(artwork['file_path'], isNot(cover.path));
 
-    final play = (await db.query(DatabaseTables.qualifiedPlays))
-        .firstWhere((row) => row['id'] == 'play-a');
+    final play = (await db.query(
+      DatabaseTables.qualifiedPlays,
+    )).firstWhere((row) => row['id'] == 'play-a');
     expect(play['user_id'], 'user-1');
     expect(play['playback_session_id'], 'session-a');
   });
@@ -136,6 +142,59 @@ void main() {
     expect(songs.map((row) => row['id']), ['song-a', 'song-b']);
     expect(songs.first['title'], 'Song');
   });
+
+  // Migration 34: organization preferences are device-local. A restore
+  // keeps those of artists and albums it keeps, and drops the rest with
+  // their artist or album; it never writes them.
+  test(
+    'keeps organization preferences of surviving artists and albums only',
+    () async {
+      final db = await target.database;
+      final at = DateTime.utc(2026, 10, 25).toIso8601String();
+
+      await seedConnectedLibrary(db, key: 'a');
+      await seedConnectedLibrary(db, key: 'c', week: 2);
+      for (final key in ['a', 'c']) {
+        await db.insert(DatabaseTables.albumReleaseClassifications, {
+          'album_id': 'album-$key',
+          'kind': 'soundtrack',
+          'authority': 'manual',
+          'created_at': at,
+          'updated_at': at,
+        });
+        await db.insert(DatabaseTables.artistProjectAssignments, {
+          'artist_id': 'artist-$key',
+          'album_id': 'album-$key',
+          'mode': 'grouped',
+          'created_at': at,
+          'updated_at': at,
+        });
+      }
+
+      final contents = await verifiedFixtureContents(
+        directory: root,
+        seed: (db) async {
+          await seedConnectedLibrary(db, key: 'a');
+          await seedConnectedLibrary(db, key: 'b', week: 1);
+        },
+      );
+
+      expect(
+        contents.backup.payload.tables.keys,
+        isNot(contains(DatabaseTables.artistProjectAssignments)),
+      );
+
+      await apply(contents);
+
+      final kinds = await db.query(DatabaseTables.albumReleaseClassifications);
+      expect(kinds.map((row) => row['album_id']), ['album-a']);
+      final assignments = await db.query(
+        DatabaseTables.artistProjectAssignments,
+      );
+      expect(assignments.map((row) => row['artist_id']), ['artist-a']);
+      expect(assignments.single['album_id'], 'album-a');
+    },
+  );
 
   test('never writes sync or account tables', () async {
     final db = await target.database;
@@ -187,7 +246,12 @@ void main() {
       final cover = File(path.join(root.path, 'local.jpg'));
       await cover.writeAsBytes([4, 4, 4]);
 
-      await seedConnectedLibrary(db, key: 'a', songTitle: 'Local', artworkPath: cover.path);
+      await seedConnectedLibrary(
+        db,
+        key: 'a',
+        songTitle: 'Local',
+        artworkPath: cover.path,
+      );
       await seedConnectedLibrary(db, key: 'c', week: 2);
       await seedMediaBinding(db, key: 'c');
       await seedImportReview(db, key: 'c');

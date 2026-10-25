@@ -306,12 +306,18 @@ void main() {
       expect(find.text('Song bonus'), findsOneWidget);
     });
 
-    testWidgets('no "Sort by disc & track" control before it works', (
+    // J3's ordering service now exists, so the control is offered (its
+    // behaviour is covered in album_studio_editions_test.dart).
+    testWidgets('"Sort by disc & track" sits with the track order', (
       tester,
     ) async {
       await pump(tester);
 
-      expect(find.textContaining('Sort by'), findsNothing);
+      final sort = find.byKey(
+        const ValueKey<String>('album-studio-sort-disc-track'),
+      );
+      expect(sort, findsOneWidget);
+      expect(tester.widget<OutlinedButton>(sort).onPressed, isNotNull);
     });
   });
 

@@ -5,15 +5,22 @@ import android.os.StatFs
 import android.system.ErrnoException
 import android.system.Os
 import android.system.OsConstants
-import io.flutter.embedding.android.FlutterActivity
+import com.ryanheise.audioservice.AudioServiceActivity
+import com.ryanheise.audioservice.SonusForegroundRelease
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
-class MainActivity : FlutterActivity() {
+// SN-44: AudioServiceActivity provides the Flutter engine that audio_service
+// keeps alive with its media service, so playback, the coordinator and
+// listening analytics continue when this activity is destroyed in the
+// background. Channels below are re-registered on each new activity.
+class MainActivity : AudioServiceActivity() {
     private val publicationChannel =
         "com.sonus.sonus_next/backup_publication"
 
     private val storageChannel = "com.sonus.sonus_next/storage"
+
+    private val mediaSessionChannel = "com.sonus.sonus_next/media_session"
 
     private var backupDocuments: BackupDocumentChannel? = null
 
@@ -34,6 +41,20 @@ class MainActivity : FlutterActivity() {
         )
 
         AppInfoChannel(this, flutterEngine.dartExecutor.binaryMessenger)
+
+        // Uses no activity, so it is deliberately left registered in
+        // cleanUpFlutterEngine: a session can end while no activity exists.
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            mediaSessionChannel
+        ).setMethodCallHandler { call, result ->
+            if (call.method != "releaseForeground") {
+                result.notImplemented()
+                return@setMethodCallHandler
+            }
+
+            result.success(SonusForegroundRelease.release())
+        }
 
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
@@ -110,5 +131,27 @@ class MainActivity : FlutterActivity() {
                 )
             }
         }
+    }
+
+    // With audio_service the Flutter engine outlives this activity. Detach
+    // every channel that depends on it, so a call made while no activity
+    // exists fails (MissingPluginException) instead of reaching a destroyed
+    // activity. Before SN-44 such calls could not happen at all, because
+    // the engine was destroyed with the activity. The next activity
+    // registers the channels again in configureFlutterEngine.
+    override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        val messenger = flutterEngine.dartExecutor.binaryMessenger
+
+        for (channel in listOf(
+            publicationChannel,
+            storageChannel,
+            BackupDocumentChannel.CHANNEL,
+            AppInfoChannel.CHANNEL
+        )) {
+            MethodChannel(messenger, channel).setMethodCallHandler(null)
+        }
+
+        backupDocuments = null
+        super.cleanUpFlutterEngine(flutterEngine)
     }
 }

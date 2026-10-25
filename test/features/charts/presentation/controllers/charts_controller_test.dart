@@ -9,7 +9,8 @@ import 'package:sonus_next/features/library/application/models/library_track.dar
 import 'package:sonus_next/features/library/application/models/library_track_order.dart';
 import 'package:sonus_next/features/library/application/repositories/library_query_repository.dart';
 import 'package:sonus_next/features/charts/application/services/chart_finalization_service.dart';
-import 'package:sonus_next/features/charts/application/services/live_chart_service.dart';
+import 'package:sonus_next/features/charts/application/services/all_time_chart_service.dart';
+import 'package:sonus_next/features/charts/domain/entities/all_time_chart.dart';
 import 'package:sonus_next/features/charts/domain/entities/chart_entry.dart';
 import 'package:sonus_next/features/charts/domain/entities/chart_snapshot.dart';
 import 'package:sonus_next/features/charts/domain/models/chart_entity_snapshot.dart';
@@ -25,10 +26,12 @@ import 'package:sonus_next/features/charts/domain/moments/chart_moment_event_typ
 import 'package:sonus_next/features/charts/domain/moments/chart_moment_scope.dart';
 import 'package:sonus_next/features/charts/domain/repositories/chart_moment_repository.dart';
 
+import '../../support/all_time_chart_fakes.dart' as support;
+
 void main() {
   final referenceLocal = DateTime(2026, 9, 28, 12);
 
-  test('loads live songs chart and finalized history', () async {
+  test('loads the all-time songs chart and finalized history', () async {
     final live = _snapshot(
       id: 'live-songs',
       chartType: ChartType.songs,
@@ -44,14 +47,14 @@ void main() {
       ),
     ];
 
-    final liveCharts = _FakeLiveChartService(snapshot: live);
+    final allTimeCharts = _FakeAllTimeChartService(snapshot: live);
     final finalization = _FakeChartFinalizationService();
     final charts = _FakeChartRepository(
       historyByType: {ChartType.songs: history},
     );
 
     final controller = ChartsController(
-      liveCharts: liveCharts,
+      allTimeCharts: allTimeCharts,
       finalization: finalization,
       charts: charts,
       library: _FakeLibraryQueryRepository(),
@@ -62,24 +65,26 @@ void main() {
 
     expect(controller.chartType, ChartType.songs);
     expect(controller.viewSize, ChartViewSize.top100);
-    expect(controller.snapshot, same(live));
+    expect(controller.allTimeChart?.entries, same(live.entries));
+    expect(controller.entries, same(live.entries));
+    expect(controller.snapshot, isNull);
     expect(controller.history, history);
-    expect(controller.isViewingLive, isTrue);
+    expect(controller.isViewingAllTime, isTrue);
     expect(controller.isLoading, isFalse);
     expect(controller.hasError, isFalse);
 
     expect(finalization.callCount, 1);
     expect(finalization.lastReferenceLocal, referenceLocal);
 
-    expect(liveCharts.callCount, 1);
-    expect(liveCharts.lastChartType, ChartType.songs);
-    expect(liveCharts.lastViewSize, ChartViewSize.top100);
+    expect(allTimeCharts.callCount, 1);
+    expect(allTimeCharts.lastChartType, ChartType.songs);
+    expect(allTimeCharts.lastViewSize, ChartViewSize.top100);
   });
 
   test(
     'switching to albums reloads albums data without finalizing again',
     () async {
-      final liveCharts = _FakeLiveChartService(
+      final allTimeCharts = _FakeAllTimeChartService(
         snapshot: _snapshot(
           id: 'live-songs',
           chartType: ChartType.songs,
@@ -110,7 +115,7 @@ void main() {
       );
 
       final controller = ChartsController(
-        liveCharts: liveCharts,
+        allTimeCharts: allTimeCharts,
         finalization: finalization,
         charts: charts,
         library: _FakeLibraryQueryRepository(),
@@ -121,87 +126,93 @@ void main() {
       await controller.selectChartType(ChartType.albums);
 
       expect(controller.chartType, ChartType.albums);
-      expect(controller.snapshot?.chartType, ChartType.albums);
+      expect(controller.allTimeChart?.chartType, ChartType.albums);
       expect(controller.history.single.chartType, ChartType.albums);
 
       expect(finalization.callCount, 1);
-      expect(liveCharts.callCount, 2);
+      expect(allTimeCharts.callCount, 2);
     },
   );
 
-  test('view size reloads live chart with the selected limit', () async {
-    final liveCharts = _FakeLiveChartService(
-      snapshot: _snapshot(
-        id: 'live',
-        chartType: ChartType.songs,
-        weekStartUtc: DateTime.utc(2026, 9, 27),
-      ),
-    );
-
-    final controller = ChartsController(
-      liveCharts: liveCharts,
-      finalization: _FakeChartFinalizationService(),
-      charts: _FakeChartRepository(),
-      library: _FakeLibraryQueryRepository(),
-      now: () => referenceLocal,
-    );
-
-    await controller.load();
-    await controller.selectViewSize(ChartViewSize.top25);
-
-    expect(controller.viewSize, ChartViewSize.top25);
-    expect(liveCharts.lastViewSize, ChartViewSize.top25);
-    expect(liveCharts.callCount, 2);
-  });
-
-  test('history navigation moves from live to older weeks and back', () async {
-    final history = [
-      _snapshot(
-        id: 'week-1',
-        chartType: ChartType.songs,
-        weekStartUtc: DateTime.utc(2026, 9, 20),
-        finalized: true,
-      ),
-      _snapshot(
-        id: 'week-2',
-        chartType: ChartType.songs,
-        weekStartUtc: DateTime.utc(2026, 9, 13),
-        finalized: true,
-      ),
-    ];
-
-    final controller = ChartsController(
-      liveCharts: _FakeLiveChartService(
+  test(
+    'view size reloads the all-time chart with the selected limit',
+    () async {
+      final allTimeCharts = _FakeAllTimeChartService(
         snapshot: _snapshot(
           id: 'live',
           chartType: ChartType.songs,
           weekStartUtc: DateTime.utc(2026, 9, 27),
         ),
-      ),
-      finalization: _FakeChartFinalizationService(),
-      charts: _FakeChartRepository(historyByType: {ChartType.songs: history}),
-      library: _FakeLibraryQueryRepository(),
-      now: () => referenceLocal,
-    );
+      );
 
-    await controller.load();
+      final controller = ChartsController(
+        allTimeCharts: allTimeCharts,
+        finalization: _FakeChartFinalizationService(),
+        charts: _FakeChartRepository(),
+        library: _FakeLibraryQueryRepository(),
+        now: () => referenceLocal,
+      );
 
-    controller.showOlderWeek();
+      await controller.load();
+      await controller.selectViewSize(ChartViewSize.top25);
 
-    expect(controller.selectedHistoricalSnapshot?.id, 'week-1');
+      expect(controller.viewSize, ChartViewSize.top25);
+      expect(allTimeCharts.lastViewSize, ChartViewSize.top25);
+      expect(allTimeCharts.callCount, 2);
+    },
+  );
 
-    controller.showOlderWeek();
+  test(
+    'history navigation moves from all time to older weeks and back',
+    () async {
+      final history = [
+        _snapshot(
+          id: 'week-1',
+          chartType: ChartType.songs,
+          weekStartUtc: DateTime.utc(2026, 9, 20),
+          finalized: true,
+        ),
+        _snapshot(
+          id: 'week-2',
+          chartType: ChartType.songs,
+          weekStartUtc: DateTime.utc(2026, 9, 13),
+          finalized: true,
+        ),
+      ];
 
-    expect(controller.selectedHistoricalSnapshot?.id, 'week-2');
+      final controller = ChartsController(
+        allTimeCharts: _FakeAllTimeChartService(
+          snapshot: _snapshot(
+            id: 'live',
+            chartType: ChartType.songs,
+            weekStartUtc: DateTime.utc(2026, 9, 27),
+          ),
+        ),
+        finalization: _FakeChartFinalizationService(),
+        charts: _FakeChartRepository(historyByType: {ChartType.songs: history}),
+        library: _FakeLibraryQueryRepository(),
+        now: () => referenceLocal,
+      );
 
-    controller.showNewerWeek();
+      await controller.load();
 
-    expect(controller.selectedHistoricalSnapshot?.id, 'week-1');
+      controller.showOlderWeek();
 
-    controller.showNewerWeek();
+      expect(controller.selectedHistoricalSnapshot?.id, 'week-1');
 
-    expect(controller.isViewingLive, isTrue);
-  });
+      controller.showOlderWeek();
+
+      expect(controller.selectedHistoricalSnapshot?.id, 'week-2');
+
+      controller.showNewerWeek();
+
+      expect(controller.selectedHistoricalSnapshot?.id, 'week-1');
+
+      controller.showNewerWeek();
+
+      expect(controller.isViewingAllTime, isTrue);
+    },
+  );
 
   test('selectHistoricalWeek jumps directly to an available week', () async {
     final target = _snapshot(
@@ -212,7 +223,7 @@ void main() {
     );
 
     final controller = ChartsController(
-      liveCharts: _FakeLiveChartService(
+      allTimeCharts: _FakeAllTimeChartService(
         snapshot: _snapshot(
           id: 'live',
           chartType: ChartType.songs,
@@ -257,7 +268,7 @@ void main() {
     );
 
     final controller = ChartsController(
-      liveCharts: _FakeLiveChartService(
+      allTimeCharts: _FakeAllTimeChartService(
         snapshot: _snapshot(
           id: 'live',
           chartType: ChartType.songs,
@@ -311,7 +322,7 @@ void main() {
     );
 
     final controller = ChartsController(
-      liveCharts: _FakeLiveChartService(
+      allTimeCharts: _FakeAllTimeChartService(
         snapshot: _snapshot(
           id: 'live',
           chartType: ChartType.songs,
@@ -344,7 +355,7 @@ void main() {
     final moments = _FakeChartMomentRepository();
 
     final controller = ChartsController(
-      liveCharts: _FakeLiveChartService(
+      allTimeCharts: _FakeAllTimeChartService(
         snapshot: _snapshot(
           id: 'live',
           chartType: ChartType.songs,
@@ -376,7 +387,7 @@ void main() {
     );
 
     final controller = ChartsController(
-      liveCharts: _FakeLiveChartService(snapshot: live),
+      allTimeCharts: _FakeAllTimeChartService(snapshot: live),
       finalization: _FakeChartFinalizationService(),
       charts: _FakeChartRepository(),
       library: _FakeLibraryQueryRepository(),
@@ -386,7 +397,7 @@ void main() {
 
     await controller.load();
 
-    expect(controller.snapshot, same(live));
+    expect(controller.allTimeChart?.entries, same(live.entries));
 
     expect(controller.hasError, isFalse);
     expect(controller.isLoading, isFalse);
@@ -398,7 +409,7 @@ void main() {
   test(
     'presentation mode defaults to charts and switches without reloading',
     () async {
-      final liveCharts = _FakeLiveChartService(
+      final allTimeCharts = _FakeAllTimeChartService(
         snapshot: _snapshot(
           id: 'live',
           chartType: ChartType.songs,
@@ -407,7 +418,7 @@ void main() {
       );
 
       final controller = ChartsController(
-        liveCharts: liveCharts,
+        allTimeCharts: allTimeCharts,
         finalization: _FakeChartFinalizationService(),
         charts: _FakeChartRepository(),
         library: _FakeLibraryQueryRepository(),
@@ -420,21 +431,21 @@ void main() {
       expect(controller.isShowingCharts, isTrue);
       expect(controller.isShowingMoments, isFalse);
 
-      final chartLoadCount = liveCharts.callCount;
+      final chartLoadCount = allTimeCharts.callCount;
 
       controller.selectPresentationMode(ChartsPresentationMode.moments);
 
       expect(controller.presentationMode, ChartsPresentationMode.moments);
       expect(controller.isShowingCharts, isFalse);
       expect(controller.isShowingMoments, isTrue);
-      expect(liveCharts.callCount, chartLoadCount);
+      expect(allTimeCharts.callCount, chartLoadCount);
 
       controller.selectPresentationMode(ChartsPresentationMode.charts);
 
       expect(controller.presentationMode, ChartsPresentationMode.charts);
       expect(controller.isShowingCharts, isTrue);
       expect(controller.isShowingMoments, isFalse);
-      expect(liveCharts.callCount, chartLoadCount);
+      expect(allTimeCharts.callCount, chartLoadCount);
     },
   );
 
@@ -475,7 +486,7 @@ void main() {
     );
 
     final controller = ChartsController(
-      liveCharts: _FakeLiveChartService(
+      allTimeCharts: _FakeAllTimeChartService(
         snapshot: _snapshot(
           id: 'live',
           chartType: ChartType.songs,
@@ -565,7 +576,7 @@ void main() {
     );
 
     final controller = ChartsController(
-      liveCharts: _FakeLiveChartService(
+      allTimeCharts: _FakeAllTimeChartService(
         snapshot: _snapshot(
           id: 'live',
           chartType: ChartType.songs,
@@ -596,7 +607,7 @@ void main() {
   });
   test('captures loading failures', () async {
     final controller = ChartsController(
-      liveCharts: _FakeLiveChartService(
+      allTimeCharts: _FakeAllTimeChartService(
         snapshot: _snapshot(
           id: 'unused',
           chartType: ChartType.songs,
@@ -617,14 +628,138 @@ void main() {
     expect(controller.isLoading, isFalse);
   });
 
+  group('permanent Hot 100', () {
+    // Regression: the Hot 100 was the live weekly chart, so last week's #1
+    // vanished at the week boundary until it was played again.
+    final lastWeek = DateTime(2026, 9, 21, 12).toUtc();
+    final plays = [
+      ...support.qualifiedPlays('angel', 'album-angel', 43, lastWeek),
+      ...support.qualifiedPlays('bitter', 'album-bitter', 36, lastWeek),
+    ];
+    final library = support.FakeChartLibrary(
+      tracks: [
+        support.libraryTrack('angel', 'album-angel'),
+        support.libraryTrack('bitter', 'album-bitter'),
+      ],
+      albums: [
+        support.libraryAlbum('album-angel'),
+        support.libraryAlbum('album-bitter'),
+      ],
+    );
+
+    ChartsController controllerWith({List<ChartSnapshot> history = const []}) {
+      return ChartsController(
+        allTimeCharts: AllTimeChartService(
+          qualifiedPlays: support.FakeQualifiedPlayRepository(plays),
+          library: library,
+        ),
+        finalization: _FakeChartFinalizationService(),
+        charts: _FakeChartRepository(historyByType: {ChartType.songs: history}),
+        library: _FakeLibraryQueryRepository(),
+        now: () => referenceLocal,
+      );
+    }
+
+    test("last week's #1 is still #1 with no listening this week", () async {
+      final controller = controllerWith();
+
+      await controller.load();
+
+      expect(controller.isViewingAllTime, isTrue);
+      expect(controller.entries.map((e) => e.entity.entityId), [
+        'angel',
+        'bitter',
+      ]);
+      expect(controller.entries.first.qualifiedStreamCount, 43);
+    });
+
+    test('albums use the same lifetime totals', () async {
+      final controller = controllerWith();
+
+      await controller.load();
+      await controller.selectChartType(ChartType.albums);
+
+      expect(controller.entries.map((e) => e.entity.entityId), [
+        'album-angel',
+        'album-bitter',
+      ]);
+    });
+
+    test('finalized weekly charts stay browsable as history', () async {
+      final finalized = _snapshot(
+        id: 'week',
+        chartType: ChartType.songs,
+        weekStartUtc: DateTime.utc(2026, 9, 20),
+        finalized: true,
+      );
+      final controller = controllerWith(history: [finalized]);
+
+      await controller.load();
+      controller.showOlderWeek();
+
+      expect(controller.isViewingAllTime, isFalse);
+      expect(controller.snapshot?.id, 'week');
+      expect(controller.entries, same(finalized.entries));
+
+      controller.showNewerWeek();
+
+      expect(controller.isViewingAllTime, isTrue);
+      expect(controller.entries.first.entity.entityId, 'angel');
+    });
+
+    test('weekly chart peaks come from finalized weeks only', () async {
+      ChartSnapshot week(DateTime start, String id, int rank) => _snapshot(
+        id: id,
+        chartType: ChartType.songs,
+        weekStartUtc: start,
+        finalized: true,
+        entries: [
+          ChartEntry(
+            entity: ChartEntitySnapshot(
+              entityId: 'angel',
+              title: 'Angel',
+              artistName: 'A',
+            ),
+            rank: rank,
+            qualifiedStreamCount: 5,
+            lastQualifiedAt: start,
+            peakRank: rank,
+            peakAchievedAt: start,
+            weeksOnChart: 1,
+            movement: ChartMovement.newEntry,
+          ),
+        ],
+      );
+      final controller = controllerWith(
+        history: [
+          week(DateTime.utc(2026, 9, 20), 'w2', 4),
+          week(DateTime.utc(2026, 9, 13), 'w1', 2),
+          // An extended standing is not a weekly chart position.
+          week(DateTime.utc(2026, 9, 6), 'w0', 150),
+        ],
+      );
+
+      await controller.load();
+
+      final angel = controller.entries.firstWhere(
+        (e) => e.entity.entityId == 'angel',
+      );
+      final bitter = controller.entries.firstWhere(
+        (e) => e.entity.entityId == 'bitter',
+      );
+      expect(controller.weeklyPeakFor(angel), 2);
+      expect(controller.weeklyPeakFor(bitter), isNull);
+    });
+  });
+
   group('load lifecycle', () {
     late _FakeChartFinalizationService finalization;
-    late _FakeLiveChartService liveCharts;
+    late _FakeAllTimeChartService allTimeCharts;
     late ChartsController controller;
 
     setUp(() {
       finalization = _FakeChartFinalizationService();
-      liveCharts = _FakeLiveChartService(
+      allTimeCharts = _FakeAllTimeChartService(
         snapshot: _snapshot(
           id: 'live',
           chartType: ChartType.songs,
@@ -632,7 +767,7 @@ void main() {
         ),
       );
       controller = ChartsController(
-        liveCharts: liveCharts,
+        allTimeCharts: allTimeCharts,
         finalization: finalization,
         charts: _FakeChartRepository(),
         library: _FakeLibraryQueryRepository(),
@@ -656,7 +791,7 @@ void main() {
 
         expect(finalization.callCount, 1);
         expect(finalization.maxConcurrent, 1);
-        expect(controller.snapshot?.id, 'live');
+        expect(controller.allTimeChart, isNotNull);
         expect(controller.isLoading, isFalse);
       },
     );
@@ -699,7 +834,7 @@ void main() {
       await Future.wait([first, second]);
 
       expect(finalization.callCount, 1);
-      expect(controller.snapshot?.id, 'live');
+      expect(controller.allTimeChart, isNotNull);
     });
 
     // Regression: a load still in flight when the controller was disposed
@@ -717,7 +852,7 @@ void main() {
       await loading;
 
       expect(notifications, notificationsBeforeDispose);
-      expect(liveCharts.callCount, 0);
+      expect(allTimeCharts.callCount, 0);
     });
 
     test('calls after dispose do nothing and do not throw', () async {
@@ -730,10 +865,10 @@ void main() {
       controller.selectPresentationMode(ChartsPresentationMode.moments);
       controller.showOlderWeek();
       controller.showNewerWeek();
-      controller.showLive();
+      controller.showAllTime();
 
       expect(finalization.callCount, 0);
-      expect(liveCharts.callCount, 0);
+      expect(allTimeCharts.callCount, 0);
     });
   });
 }
@@ -836,8 +971,9 @@ LibraryAlbum _libraryAlbum({required String albumId, String? artworkPath}) {
   );
 }
 
-class _FakeLiveChartService implements LiveChartService {
-  _FakeLiveChartService({
+/// Serves each given snapshot's entries as the all-time chart.
+class _FakeAllTimeChartService implements AllTimeChartService {
+  _FakeAllTimeChartService({
     required this.snapshot,
     this.snapshotsByType = const {},
     this.error,
@@ -853,7 +989,7 @@ class _FakeLiveChartService implements LiveChartService {
   DateTime? lastReferenceLocal;
 
   @override
-  Future<ChartSnapshot> load({
+  Future<AllTimeChart> load({
     required ChartType chartType,
     required DateTime referenceLocal,
     ChartViewSize viewSize = ChartViewSize.top100,
@@ -869,7 +1005,13 @@ class _FakeLiveChartService implements LiveChartService {
       throw error;
     }
 
-    return snapshotsByType[chartType] ?? snapshot;
+    final source = snapshotsByType[chartType] ?? snapshot;
+
+    return AllTimeChart(
+      chartType: source.chartType,
+      comparisonStartUtc: source.weekStartUtc,
+      entries: source.entries,
+    );
   }
 }
 

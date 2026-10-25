@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  audio_service loads the notification icon ("drawable/ic_stat_sonus") and
+  its own control icons ("drawable/audio_service_*") by name at runtime,
+  so release resource shrinking cannot see the references. Without the
+  control icons every playback state update throws "You must specify an
+  icon resource id to build a CustomAction" and release builds show no
+  notification at all. Keep them explicitly (SN-44).
+-->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@drawable/ic_stat_sonus,@drawable/audio_service_*" />

@@ -14,6 +14,7 @@ import '../../../player/application/controllers/playback_coordinator.dart';
 import '../../application/models/library_album.dart';
 import '../../application/models/library_artist.dart';
 import '../../application/models/library_track.dart';
+import '../../application/models/project_collaborator.dart';
 import '../../application/repositories/library_query_repository.dart';
 import '../../application/services/artist_profile_editing_service.dart';
 import '../../application/services/song_block_service.dart';
@@ -247,6 +248,7 @@ class ArtistProfileController extends ChangeNotifier {
     String? artistId,
     String? albumId,
     String? albumEditionId,
+    String? placementEditionId,
   }) async {
     final service = _trackProfileEditingService;
 
@@ -270,6 +272,7 @@ class ArtistProfileController extends ChangeNotifier {
       artistId: artistId,
       albumId: albumId,
       albumEditionId: albumEditionId,
+      placementEditionId: placementEditionId,
     );
 
     await refresh();
@@ -426,7 +429,11 @@ class ArtistProfileController extends ChangeNotifier {
           )
           .toList(growable: false);
 
-      final artistsById = projectTracks.isEmpty
+      // Structured credits (any role) when the repository has them; the
+      // songs' lead artists otherwise.
+      final credits = await _projectCredits(ownedAlbumIds);
+
+      final artistsById = projectTracks.isEmpty && (credits?.isEmpty ?? true)
           ? const <String, LibraryArtist>{}
           : {
               for (final candidate in await _repository.getArtists())
@@ -444,11 +451,18 @@ class ArtistProfileController extends ChangeNotifier {
         featuredTracks: featuredTracks,
         ownedAlbumIds: ownedAlbumIds,
       );
-      _collaborators = ArtistProfileSections.collaborators(
-        projectArtistId: _artistId,
-        projectTracks: projectTracks,
-        artistsById: artistsById,
-      );
+      _collaborators = credits == null
+          ? ArtistProfileSections.collaborators(
+              projectArtistId: _artistId,
+              projectTracks: projectTracks,
+              artistsById: artistsById,
+            )
+          : ArtistProfileSections.structuredCollaborators(
+              projectArtistId: _artistId,
+              credits: credits,
+              projectTracks: projectTracks,
+              artistsById: artistsById,
+            );
       _topTracks = await _rankTopTracks();
     } catch (error) {
       _error = error;
@@ -459,6 +473,33 @@ class ArtistProfileController extends ChangeNotifier {
   }
 
   Future<void> refresh() => load();
+
+  /// Credited performers of the artist's own albums, or null when the
+  /// repository has no structured credit query (or it fails, in which
+  /// case the lead-artist list is shown instead).
+  Future<List<ProjectCollaborator>?> _projectCredits(
+    Set<String> ownedAlbumIds,
+  ) async {
+    final Object repository = _repository;
+    if (repository is! ProjectCollaboratorQueryRepository) return null;
+    if (ownedAlbumIds.isEmpty) return const [];
+
+    try {
+      return [
+        for (final albumId in ownedAlbumIds)
+          ...await repository.getProjectCollaborators(albumId: albumId),
+      ];
+    } catch (error, stackTrace) {
+      developer.log(
+        'Project credits could not be read (${error.runtimeType})',
+        name: 'sonus.library.artist_profile',
+        level: 900,
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return null;
+    }
+  }
 
   /// Re-reads the all-time ranking only, for example after returning from
   /// another page where songs may have been played.

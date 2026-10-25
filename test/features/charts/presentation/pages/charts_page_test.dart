@@ -13,7 +13,8 @@ import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/presentation/pages/album_profile_page.dart';
 import 'package:provider/provider.dart';
 import 'package:sonus_next/features/charts/application/services/chart_finalization_service.dart';
-import 'package:sonus_next/features/charts/application/services/live_chart_service.dart';
+import 'package:sonus_next/features/charts/application/services/all_time_chart_service.dart';
+import 'package:sonus_next/features/charts/domain/entities/all_time_chart.dart';
 import 'package:sonus_next/features/charts/domain/entities/chart_entry.dart';
 import 'package:sonus_next/features/charts/domain/entities/chart_snapshot.dart';
 import 'package:sonus_next/features/charts/domain/models/chart_entity_snapshot.dart';
@@ -30,7 +31,7 @@ import 'package:sonus_next/features/charts/presentation/controllers/charts_contr
 import 'package:sonus_next/features/charts/presentation/pages/charts_page.dart';
 
 void main() {
-  testWidgets('renders branded Hot 100 controls and live chart', (
+  testWidgets('renders branded Hot 100 controls and the all-time chart', (
     tester,
   ) async {
     final controller = await _controller();
@@ -50,11 +51,15 @@ void main() {
     expect(find.text('Top 100'), findsOneWidget);
     expect(find.text('Top 200'), findsOneWidget);
 
-    expect(find.text('LIVE'), findsOneWidget);
+    expect(find.text('ALL TIME'), findsOneWidget);
+    expect(find.text('All time'), findsOneWidget);
+    expect(find.text('LIVE'), findsNothing);
+    expect(find.textContaining('Last week'), findsNothing);
+    expect(find.textContaining('Start of week'), findsOneWidget);
     expect(find.text('Song 1'), findsOneWidget);
     expect(find.text('Artist 1 • Album 1'), findsOneWidget);
     expect(find.text('12 streams'), findsOneWidget);
-    expect(find.text('Peak #1'), findsOneWidget);
+    expect(find.text('All-time peak #1'), findsOneWidget);
   });
 
   testWidgets('older week control shows finalized chart', (tester) async {
@@ -75,6 +80,7 @@ void main() {
     await tester.pump();
 
     expect(find.text('FINAL'), findsOneWidget);
+    expect(find.text('ALL TIME'), findsNothing);
   });
 
   testWidgets('album segment switches chart type', (tester) async {
@@ -615,14 +621,59 @@ void main() {
     );
 
     expect(find.text('Song 1 reaches a new peak of #3'), findsOneWidget);
-    expect(
-      find.text('Song 1 earns a new official peak of #3.'),
-      findsOneWidget,
-    );
+    expect(find.text('Song 1 earns a new weekly peak of #3.'), findsOneWidget);
     expect(find.text('FINAL'), findsOneWidget);
     expect(find.text('SONG'), findsOneWidget);
     expect(
       find.text('Chart week September 27 – October 3, 2026'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('Moments open Sonus News with the same Moments', (tester) async {
+    final controller = await _controller(
+      moments: [
+        _momentEvent(
+          id: 'final-peak',
+          scope: ChartMomentScope.finalized,
+          type: ChartMomentEventType.newPeak,
+          currentRank: 3,
+          currentPeakRank: 3,
+        ),
+      ],
+    );
+
+    await _pumpPage(tester, controller);
+    await tester.tap(find.text('Moments'));
+    await tester.pump();
+
+    expect(
+      find.byKey(const ValueKey<String>('charts-news-entry')),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const ValueKey<String>('charts-open-news')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey<String>('charts-news-page')),
+      findsOneWidget,
+    );
+    // Both editions are offered, and the story is the real Moment, with
+    // the shared copy (weekly scope, never all-time).
+    expect(
+      find.byKey(const ValueKey<String>('sonus-news-edition-sonusDaily')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('sonus-news-edition-pulsePop')),
+      findsOneWidget,
+    );
+    expect(find.text('Song 1 reaches a new peak of #3'), findsOneWidget);
+
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey<String>('charts-moments-feed')),
       findsOneWidget,
     );
   });
@@ -648,7 +699,7 @@ void main() {
 
     expect(find.text('Song 1 reaches a new peak of #3'), findsOneWidget);
     expect(
-      find.text('Song 1 rises to #3 on the live Sonus Hot 100.'),
+      find.text('Song 1 rises to #3 on this week’s Sonus Hot 100.'),
       findsOneWidget,
     );
     expect(find.text('LIVE'), findsOneWidget);
@@ -746,7 +797,7 @@ Future<ChartsController> _controller({
       live ?? _snapshot(id: 'live', start: DateTime.utc(2026, 9, 27));
 
   final controller = ChartsController(
-    liveCharts: _FakeLiveChartService(
+    allTimeCharts: _FakeAllTimeChartService(
       songs: resolvedLive,
       albums: _snapshot(
         id: 'albums',
@@ -978,19 +1029,26 @@ class _FakeChartMomentRepository implements ChartMomentRepository {
   }
 }
 
-class _FakeLiveChartService implements LiveChartService {
-  _FakeLiveChartService({required this.songs, required this.albums});
+/// Serves the given snapshots' entries as the all-time charts.
+class _FakeAllTimeChartService implements AllTimeChartService {
+  _FakeAllTimeChartService({required this.songs, required this.albums});
 
   final ChartSnapshot songs;
   final ChartSnapshot albums;
 
   @override
-  Future<ChartSnapshot> load({
+  Future<AllTimeChart> load({
     required ChartType chartType,
     required DateTime referenceLocal,
     ChartViewSize viewSize = ChartViewSize.top100,
   }) async {
-    return chartType == ChartType.songs ? songs : albums;
+    final source = chartType == ChartType.songs ? songs : albums;
+
+    return AllTimeChart(
+      chartType: source.chartType,
+      comparisonStartUtc: source.weekStartUtc,
+      entries: source.entries,
+    );
   }
 }
 

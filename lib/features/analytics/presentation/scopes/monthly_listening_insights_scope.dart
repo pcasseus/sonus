@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/widgets.dart';
 import 'package:provider/provider.dart';
 
+import '../../../../core/events/library_change_signal.dart';
+
 import '../../../library/application/repositories/library_query_repository.dart';
 import '../../application/services/analytics_behavior_metrics_service.dart';
 import '../../application/services/analytics_entity_ranking_service.dart';
@@ -22,9 +24,13 @@ class MonthlyListeningInsightsScope extends StatefulWidget {
     super.key,
     required this.child,
     this.now,
+    this.changes,
   });
 
   final Widget child;
+
+  /// Reloads after library or listening changes; the shared signal if null.
+  final LibraryChangeSignal? changes;
   final MonthlyListeningInsightsNow? now;
 
   @override
@@ -40,6 +46,7 @@ class _MonthlyListeningInsightsScopeState
   PlaybackListeningSegmentRepository? _listeningSegments;
 
   MonthlyListeningInsightsController? _controller;
+  LibraryChangeRefresher? _refresher;
 
   @override
   void didChangeDependencies() {
@@ -79,6 +86,8 @@ class _MonthlyListeningInsightsScopeState
     final previousController = _controller;
     _controller = null;
 
+    _refresher?.dispose();
+    _refresher = null;
     previousController?.dispose();
 
     final library = _library;
@@ -123,6 +132,14 @@ class _MonthlyListeningInsightsScopeState
     );
 
     _controller = controller;
+    _refresher = LibraryChangeRefresher(
+      signal: widget.changes ?? LibraryChangeSignal.shared,
+      kinds: {
+        LibraryChangeKind.libraryEdited,
+        LibraryChangeKind.listeningRecorded,
+      },
+      onChange: () => unawaited(controller.refresh()),
+    );
 
     unawaited(controller.load());
   }
@@ -137,6 +154,7 @@ class _MonthlyListeningInsightsScopeState
 
   @override
   void dispose() {
+    _refresher?.dispose();
     _controller?.dispose();
     super.dispose();
   }

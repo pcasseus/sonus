@@ -2,6 +2,7 @@ import '../../../../core/identity/text_normalizer.dart';
 import '../../../sync/application/services/sync_mutation_runner.dart';
 import '../../../sync/domain/models/sync_data_contract.dart';
 import '../../domain/entities/album_edition_track.dart';
+import '../../domain/repositories/album_edition_repository.dart';
 import '../../domain/repositories/album_edition_track_repository.dart';
 import '../../domain/entities/song.dart';
 import '../../domain/entities/song_artist_credit.dart';
@@ -50,6 +51,7 @@ class TrackProfileEditingService {
     String? artistId,
     String? albumId,
     String? albumEditionId,
+    String? placementEditionId,
     DateTime? now,
   }) {
     return updateTrackWithCredits(
@@ -69,10 +71,24 @@ class TrackProfileEditingService {
       artistId: artistId,
       albumId: albumId,
       albumEditionId: albumEditionId,
+      placementEditionId: placementEditionId,
       now: now,
     );
   }
 
+  /// Saves a track's metadata.
+  ///
+  /// Edition memberships change only through an explicit [albumEditionId]:
+  /// - same album: the song is added to that edition (existing listings are
+  ///   kept) and it becomes the song's compatibility edition;
+  /// - another album ([albumId] differs): the song moves there, and every
+  ///   listing it had in the old album's editions is removed.
+  ///
+  /// Without [albumEditionId] every membership is kept. [placementEditionId]
+  /// names the edition listing the disc and track numbers belong to (the
+  /// listing the editor was opened from); it defaults to the song's
+  /// compatibility edition. Numbers edited for another listing change only
+  /// that listing, never the song's own numbers or the other listings.
   Future<TrackProfileEditResult> updateTrackWithCredits({
     required String? userId,
     required String songId,
@@ -89,6 +105,7 @@ class TrackProfileEditingService {
     String? artistId,
     String? albumId,
     String? albumEditionId,
+    String? placementEditionId,
     DateTime? now,
   }) {
     final normalizedUserId = userId?.trim();
@@ -98,6 +115,7 @@ class TrackProfileEditingService {
     final normalizedArtistId = artistId?.trim();
     final normalizedAlbumId = albumId?.trim();
     final normalizedAlbumEditionId = albumEditionId?.trim();
+    final normalizedPlacementEditionId = placementEditionId?.trim();
     final normalizedVersionLabel = versionLabel?.trim();
     if (normalizedSongId.isEmpty) {
       throw ArgumentError.value(songId, 'songId', 'Song id must not be blank.');
@@ -148,6 +166,14 @@ class TrackProfileEditingService {
         albumEditionId,
         'albumEditionId',
         'Album edition id must not be blank.',
+      );
+    }
+
+    if (placementEditionId != null && normalizedPlacementEditionId!.isEmpty) {
+      throw ArgumentError.value(
+        placementEditionId,
+        'placementEditionId',
+        'Placement edition id must not be blank.',
       );
     }
 
@@ -213,6 +239,46 @@ class TrackProfileEditingService {
         );
       }
 
+      // Which listing the edited disc and track numbers belong to. An
+      // explicit edition operation places the song in its target edition;
+      // otherwise the numbers belong to the listing the editor showed.
+      final explicitEditionOperation =
+          targetEditionId != song.albumEditionId ||
+          targetAlbumId != song.albumId;
+      final placementEdition = explicitEditionOperation
+          ? targetEditionId
+          : normalizedPlacementEditionId ?? song.albumEditionId;
+      final numbersFollowSong = placementEdition == targetEditionId;
+
+      AlbumEditionTrack? placementMembership;
+
+      if (!numbersFollowSong) {
+        for (final membership
+            in await context.albumEditionTrackRepository.getBySongId(song.id)) {
+          if (membership.albumEditionId == placementEdition) {
+            placementMembership = membership;
+            break;
+          }
+        }
+
+        if (placementMembership == null) {
+          throw StateError(
+            'Song ${song.id} is not listed in album edition '
+            '$placementEdition',
+          );
+        }
+      }
+
+      // The song's own numbers follow its compatibility listing only.
+      final songTrackNumber = numbersFollowSong
+          ? trackNumber
+          : song.trackNumber;
+      final songDiscNumber = numbersFollowSong ? discNumber : song.discNumber;
+      final placementChanged =
+          placementMembership != null &&
+          (placementMembership.trackNumber != trackNumber ||
+              placementMembership.discNumber != discNumber);
+
       final canonicalTitle = TextNormalizer.canonicalize(trimmedTitle);
 
       final existingStructuredCredits = await context.songArtistCreditRepository
@@ -232,8 +298,8 @@ class TrackProfileEditingService {
         if (song.albumEditionId != targetEditionId)
           MetadataFields.songAlbumEdition,
         if (song.title != trimmedTitle) MetadataFields.songTitle,
-        if (song.trackNumber != trackNumber) MetadataFields.songTrackNumber,
-        if (song.discNumber != discNumber) MetadataFields.songDiscNumber,
+        if (song.trackNumber != songTrackNumber) MetadataFields.songTrackNumber,
+        if (song.discNumber != songDiscNumber) MetadataFields.songDiscNumber,
         if (song.isSingle != isSingle) MetadataFields.songIsSingle,
         if (song.versionLabel != targetVersionLabel)
           MetadataFields.songVersionLabel,
@@ -254,8 +320,8 @@ class TrackProfileEditingService {
           song.albumEditionId != targetEditionId ||
           song.title != trimmedTitle ||
           song.canonicalTitle != canonicalTitle ||
-          song.trackNumber != trackNumber ||
-          song.discNumber != discNumber ||
+          song.trackNumber != songTrackNumber ||
+          song.discNumber != songDiscNumber ||
           song.isSingle != isSingle ||
           song.versionLabel != targetVersionLabel ||
           !(song.versionCharacteristics.length ==
@@ -269,8 +335,24 @@ class TrackProfileEditingService {
           !_listsEqual(song.featuredArtists, projectedFeaturedArtists) ||
           structuredCreditsChanged;
 
-      if (!changed) {
+      if (!changed && !placementChanged) {
         return TrackProfileEditResult(song: song, changed: false);
+      }
+
+      if (placementChanged) {
+        await _savePlacement(
+          membershipRepository: context.albumEditionTrackRepository,
+          membership: placementMembership,
+          discNumber: discNumber,
+          trackNumber: trackNumber,
+          now: timestamp,
+        );
+      }
+
+      if (!changed) {
+        // Only another edition's listing changed. Listings are local data
+        // (not synced), so there is no song mutation to record.
+        return TrackProfileEditResult(song: song, changed: true);
       }
 
       final updated = song.copyWith(
@@ -279,8 +361,8 @@ class TrackProfileEditingService {
         albumEditionId: targetEditionId,
         title: trimmedTitle,
         canonicalTitle: canonicalTitle,
-        trackNumber: trackNumber,
-        discNumber: discNumber,
+        trackNumber: songTrackNumber,
+        discNumber: songDiscNumber,
         isSingle: isSingle,
         versionLabel: targetVersionLabel,
         versionCharacteristics: targetVersionCharacteristics,
@@ -313,6 +395,7 @@ class TrackProfileEditingService {
       final membershipRepository = context.albumEditionTrackRepository;
       await _persistCompatibilityMembership(
         membershipRepository: membershipRepository,
+        editionRepository: context.albumEditionRepository,
         originalSong: song,
         persistedSong: persisted,
         now: timestamp,
@@ -347,8 +430,27 @@ class TrackProfileEditingService {
     });
   }
 
+  /// Writes edited numbers to one edition listing, marking them manual.
+  Future<void> _savePlacement({
+    required AlbumEditionTrackRepository membershipRepository,
+    required AlbumEditionTrack membership,
+    required int discNumber,
+    required int trackNumber,
+    required DateTime now,
+  }) {
+    return membershipRepository.save(
+      membership.copyWith(
+        discNumber: discNumber,
+        trackNumber: trackNumber,
+        numberingAuthority: AlbumEditionTrackAuthority.manual,
+        updatedAt: now,
+      ),
+    );
+  }
+
   Future<void> _persistCompatibilityMembership({
     required AlbumEditionTrackRepository membershipRepository,
+    required AlbumEditionRepository editionRepository,
     required Song originalSong,
     required Song persistedSong,
     required DateTime now,
@@ -475,11 +577,26 @@ class TrackProfileEditingService {
     }
     final albumChanged = originalSong.albumId != persistedSong.albumId;
 
-    if (albumChanged && originalCompatibilityMembership != null) {
-      await membershipRepository.delete(
-        editionId: originalCompatibilityMembership.albumEditionId,
-        songId: persistedSong.id,
-      );
+    if (!albumChanged) {
+      return;
+    }
+
+    // A song moved to another album leaves every listing it had in the old
+    // album's editions, not only its compatibility listing.
+    final oldEditionIds = {
+      for (final edition in await editionRepository.getByAlbumId(
+        originalSong.albumId,
+      ))
+        edition.id,
+    };
+
+    for (final membership in existingMemberships) {
+      if (oldEditionIds.contains(membership.albumEditionId)) {
+        await membershipRepository.delete(
+          editionId: membership.albumEditionId,
+          songId: persistedSong.id,
+        );
+      }
     }
   }
 

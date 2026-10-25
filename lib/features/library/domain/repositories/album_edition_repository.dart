@@ -11,3 +11,10 @@ abstract interface class AlbumEditionRepository {
 
   Future<List<AlbumEdition>> getByAlbumId(String albumId);
 }
+
+/// Deletion of an album edition. Separate from [AlbumEditionRepository]
+/// because only edition management needs it, and only for editions that
+/// hold no tracks.
+abstract interface class AlbumEditionDeletionRepository {
+  Future<void> delete(String id);
+}

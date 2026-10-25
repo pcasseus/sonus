@@ -10,6 +10,7 @@ import '../../../../core/design/sonus_theme.dart';
 import '../../../../core/design/sonus_tokens.dart';
 import '../../../../core/design/widgets/sonus_artwork_frame.dart';
 import '../../../../core/design/widgets/sonus_segmented_selector.dart';
+import '../../../../core/events/library_change_signal.dart';
 import '../../domain/repositories/song_artist_credit_repository.dart';
 import '../../../account/application/controllers/account_controller.dart';
 import '../../../artwork/application/services/artwork_assignment_service.dart';
@@ -29,6 +30,8 @@ import '../../application/services/metadata_provider.dart';
 import '../../application/services/album_edition_track_ordering_service.dart';
 import '../../application/services/song_block_service.dart';
 import '../../application/services/song_artist_credit_service.dart';
+import '../../application/services/album_edition_management_service.dart';
+import '../../application/services/library_organization_service.dart';
 import '../../domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/application/services/track_profile_editing_service.dart';
 import '../controllers/album_profile_controller.dart';
@@ -43,6 +46,7 @@ class AlbumProfilePage extends StatefulWidget {
     required this.albumId,
     this.initialAlbumTitle,
     this.artworkPalette,
+    this.changes,
   });
 
   final String albumId;
@@ -51,11 +55,16 @@ class AlbumProfilePage extends StatefulWidget {
   /// Where artwork colours come from; the app-wide cache by default.
   final SonusArtworkPalette? artworkPalette;
 
+  /// Reloads after library edits, imports and recorded listening; the
+  /// shared signal if null.
+  final LibraryChangeSignal? changes;
+
   @override
   State<AlbumProfilePage> createState() => _AlbumProfilePageState();
 }
 
 class _AlbumProfilePageState extends State<AlbumProfilePage> {
+  LibraryChangeRefresher? _refresher;
   AlbumProfileController? _controller;
   LibraryQueryRepository? _repository;
 
@@ -112,6 +121,7 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
     }
 
     _controller?.removeListener(_onControllerChanged);
+    _refresher?.dispose();
     _controller?.dispose();
 
     _repository = repository;
@@ -132,7 +142,13 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
     // The artwork can change without this State rebuilding: when the album
     // loads or another edition is selected.
     _controller!.addListener(_onControllerChanged);
-    unawaited(_controller!.load());
+    final controller = _controller!;
+    _refresher = LibraryChangeRefresher(
+      signal: widget.changes ?? LibraryChangeSignal.shared,
+      kinds: LibraryChangeKind.values.toSet(),
+      onChange: () => unawaited(controller.refresh()),
+    );
+    unawaited(controller.load());
   }
 
   @override
@@ -376,6 +392,9 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
             externalMetadataApplicationService:
                 externalMetadataApplicationService,
             externalMetadataProposalService: externalMetadataProposalService,
+            editionManagement: context.read<AlbumEditionManagementService?>(),
+            organization: context.read<LibraryOrganizationService?>(),
+            library: context.read<LibraryQueryRepository?>(),
             onEditDetails: controller.canEditAlbumProfile(userId)
                 ? () => _editAlbumProfile(controller, userId)
                 : null,
@@ -580,7 +599,8 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
         isLeak: draft.isLeak,
         artistId: draft.artistId,
         albumId: draft.albumId,
-        albumEditionId: draft.albumEditionId,
+        albumEditionId: draft.moveToEditionId,
+        placementEditionId: draft.placementEditionId,
       );
 
       if (!mounted || !changed) {
@@ -693,6 +713,7 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
   @override
   void dispose() {
     _controller?.removeListener(_onControllerChanged);
+    _refresher?.dispose();
     _controller?.dispose();
     super.dispose();
   }

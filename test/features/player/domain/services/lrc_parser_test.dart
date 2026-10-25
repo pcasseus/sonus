@@ -76,6 +76,100 @@ Untimed lyric
     expect(lines.single.text, 'Valid');
   });
 
+  group('offset tag (SN-44)', () {
+    test('a positive offset shows every line earlier', () {
+      final lines = LrcParser.parse('[offset:+500]\n[00:10.00]Line\n');
+
+      expect(
+        lines.single.timestamp,
+        const Duration(seconds: 9, milliseconds: 500),
+      );
+    });
+
+    test('a negative offset shows every line later', () {
+      final lines = LrcParser.parse('[00:10.00]Line\n[offset:-250]\n');
+
+      expect(
+        lines.single.timestamp,
+        const Duration(seconds: 10, milliseconds: 250),
+      );
+    });
+
+    test('an offset never moves a line before the start', () {
+      final lines = LrcParser.parse('[OFFSET: 2000]\n[00:01.00]Intro\n');
+
+      expect(lines.single.timestamp, Duration.zero);
+    });
+
+    test('a malformed offset is ignored', () {
+      final lines = LrcParser.parse('[offset:soon]\n[00:10.00]Line\n');
+
+      expect(lines.single.timestamp, const Duration(seconds: 10));
+    });
+  });
+
+  test('lines sharing a timestamp keep their file order (SN-44)', () {
+    final source = [
+      for (var i = 0; i < 40; i++)
+        '[00:${(i % 4).toString().padLeft(2, '0')}.00]Line $i',
+    ].join('\n');
+
+    final lines = LrcParser.parse(source);
+
+    for (var second = 0; second < 4; second++) {
+      final texts = lines
+          .where((line) => line.timestamp == Duration(seconds: second))
+          .map((line) => line.text)
+          .toList();
+      expect(texts, [for (var i = second; i < 40; i += 4) 'Line $i']);
+    }
+  });
+
+  group('untimed lines in timed lyrics (SN-44)', () {
+    test('continue the timed line above them', () {
+      final lines = LrcParser.parse(
+        '[ar:Artist]\n'
+        '[00:01.00]First line\n'
+        'and its second half\n'
+        '\n'
+        '[00:05.00]Next line\n',
+      );
+
+      expect(lines.map((line) => line.text), [
+        'First line\nand its second half',
+        'Next line',
+      ]);
+    });
+
+    test('continue every copy of a multi-timestamp line', () {
+      final lines = LrcParser.parse(
+        '[00:01.00][00:09.00]Chorus\nsung twice\n[00:05.00]Verse\n',
+      );
+
+      expect(lines.map((line) => line.text), [
+        'Chorus\nsung twice',
+        'Verse',
+        'Chorus\nsung twice',
+      ]);
+    });
+
+    test('a blank line ends the lyric above', () {
+      final lines = LrcParser.parse(
+        '[00:01.00]Last line\n\nWritten by someone\n',
+      );
+
+      expect(lines.map((line) => line.text), ['Last line']);
+    });
+
+    test('text before the first timestamp and tags stay ignored', () {
+      final lines = LrcParser.parse(
+        'Credits: someone\n[ti:Title]\n[00:02.00]Only line\n[length:03:00]\n',
+      );
+
+      expect(lines.map((line) => line.text), ['Only line']);
+    });
+  });
+
   test('returns immutable parsed results', () {
     final lines = LrcParser.parse('[00:01.00]Line');
 

@@ -6,6 +6,7 @@ import '../../sonus_theme.dart';
 import '../sonus_artwork_frame.dart';
 import '../sonus_artwork_image.dart';
 import '../sonus_artwork_atmosphere_builder.dart';
+import '../sonus_word_fit_text.dart';
 import 'sonus_playback_controls.dart';
 import 'sonus_playback_progress.dart';
 
@@ -40,6 +41,7 @@ class SonusNowPlayingView extends StatelessWidget {
     this.onOpenLyrics,
     this.onOpenArtist,
     this.notice,
+    this.keyPrefix,
   });
 
   final String title;
@@ -67,8 +69,18 @@ class SonusNowPlayingView extends StatelessWidget {
   /// Makes the artist line a link, when the player can open the profile.
   final VoidCallback? onOpenArtist;
 
-  /// For example a playback error, shown above the controls.
+  /// For example a playback error, shown directly under the song so it is
+  /// seen without scrolling.
   final Widget? notice;
+
+  /// Keys the parts `<prefix>-artwork`, `-title`, `-artist`, `-album`,
+  /// `-seek`, `-elapsed`, `-queue`, `-lyrics` and the controls (see
+  /// [SonusPlaybackControls.keyPrefix]). Without it the view uses its own
+  /// `sonus-now-playing-*` keys.
+  final String? keyPrefix;
+
+  ValueKey<String> _key(String name) =>
+      ValueKey<String>('${keyPrefix ?? 'sonus-now-playing'}-$name');
 
   /// Width from which artwork sits beside the controls (landscape, tablets).
   static const double wideLayoutWidth = 720;
@@ -94,17 +106,27 @@ class SonusNowPlayingView extends StatelessWidget {
           builder: (context, constraints) {
             final gutter = SonusTheme.of(context).metrics.pageGutter;
             final wide = constraints.maxWidth >= wideLayoutWidth;
+            // System bars, or an app bar drawn over the atmosphere.
+            final insets = MediaQuery.paddingOf(context);
 
             if (wide) {
-              final artSize = (constraints.maxHeight - gutter * 2).clamp(
-                160.0,
-                constraints.maxWidth * 0.42,
-              );
+              final artSize =
+                  (constraints.maxHeight -
+                          gutter * 2 -
+                          insets.top -
+                          insets.bottom)
+                      .clamp(160.0, constraints.maxWidth * 0.42);
               return Padding(
-                padding: EdgeInsets.all(gutter),
+                padding: EdgeInsets.fromLTRB(
+                  gutter + insets.left,
+                  gutter + insets.top,
+                  gutter + insets.right,
+                  gutter + insets.bottom,
+                ),
                 child: Row(
                   children: [
                     _Artwork(
+                      key: _key('artwork'),
                       path: artworkPath,
                       size: artSize,
                       atmosphere: atmosphere,
@@ -122,17 +144,23 @@ class SonusNowPlayingView extends StatelessWidget {
 
             final artSize = [
               constraints.maxWidth - gutter * 2,
-              constraints.maxHeight * 0.46,
+              (constraints.maxHeight - insets.top) * 0.46,
               420.0,
             ].reduce((a, b) => a < b ? a : b).clamp(120.0, 420.0);
 
             // Scrolls rather than clips when text is large or the screen
             // short.
             return SingleChildScrollView(
-              padding: EdgeInsets.fromLTRB(gutter, 12, gutter, 24),
+              padding: EdgeInsets.fromLTRB(
+                gutter,
+                12 + insets.top,
+                gutter,
+                24 + insets.bottom,
+              ),
               child: Column(
                 children: [
                   _Artwork(
+                    key: _key('artwork'),
                     path: artworkPath,
                     size: artSize,
                     atmosphere: atmosphere,
@@ -157,6 +185,7 @@ class SonusNowPlayingView extends StatelessWidget {
 
     final artistText = Text(
       artist,
+      key: _key('artist'),
       maxLines: 2,
       overflow: TextOverflow.ellipsis,
       style: theme.textTheme.titleMedium?.copyWith(
@@ -170,9 +199,10 @@ class SonusNowPlayingView extends StatelessWidget {
       children: [
         Semantics(
           header: true,
-          child: Text(
+          // A long single word shrinks to fit instead of breaking.
+          child: SonusWordFitText(
             title,
-            key: const ValueKey<String>('sonus-now-playing-title'),
+            textKey: _key('title'),
             maxLines: 3,
             overflow: TextOverflow.ellipsis,
             style: theme.textTheme.headlineSmall?.copyWith(
@@ -202,20 +232,23 @@ class SonusNowPlayingView extends StatelessWidget {
         if (album != null && album.trim().isNotEmpty)
           Text(
             album,
+            key: _key('album'),
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
             style: theme.textTheme.bodyMedium?.copyWith(
               color: colors.textSecondary,
             ),
           ),
+        if (notice != null) ...[const SizedBox(height: 12), notice],
         const SizedBox(height: 18),
         SonusPlaybackProgress(
+          key: _key('seek'),
+          elapsedKey: _key('elapsed'),
           position: position,
           duration: duration,
           onSeek: onSeek,
           accentColor: atmosphere.isTinted ? atmosphere.accent : null,
         ),
-        if (notice != null) ...[const SizedBox(height: 8), notice],
         const SizedBox(height: 12),
         SonusPlaybackControls(
           isPlaying: isPlaying,
@@ -229,6 +262,7 @@ class SonusNowPlayingView extends StatelessWidget {
           onCycleRepeat: onCycleRepeat,
           accentColor: atmosphere.isTinted ? atmosphere.accent : null,
           onAccentColor: atmosphere.isTinted ? atmosphere.onAccent : null,
+          keyPrefix: keyPrefix,
         ),
         const SizedBox(height: 16),
         Wrap(
@@ -237,13 +271,13 @@ class SonusNowPlayingView extends StatelessWidget {
           runSpacing: 8,
           children: [
             TextButton.icon(
-              key: const ValueKey<String>('sonus-now-playing-queue'),
+              key: _key('queue'),
               onPressed: onOpenQueue,
               icon: const Icon(Icons.queue_music_rounded),
               label: const Text('Queue'),
             ),
             TextButton.icon(
-              key: const ValueKey<String>('sonus-now-playing-lyrics'),
+              key: _key('lyrics'),
               onPressed: onOpenLyrics,
               icon: const Icon(Icons.lyrics_outlined),
               label: const Text('Lyrics'),
@@ -257,6 +291,7 @@ class SonusNowPlayingView extends StatelessWidget {
 
 class _Artwork extends StatelessWidget {
   const _Artwork({
+    super.key,
     required this.path,
     required this.size,
     required this.atmosphere,

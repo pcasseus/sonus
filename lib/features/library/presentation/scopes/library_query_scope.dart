@@ -4,6 +4,7 @@ import 'package:flutter/widgets.dart';
 import 'package:provider/provider.dart';
 
 import '../../../../core/database/app_database.dart';
+import '../../../../core/privacy/online_lookup_consent.dart';
 import '../../../artwork/application/services/artwork_assignment_service.dart';
 import '../../../artwork/application/services/artwork_file_picker.dart';
 import '../../../artwork/application/services/cover_art_candidate_discovery_service.dart';
@@ -22,6 +23,7 @@ import '../../../search/application/repositories/library_search_repository.dart'
 import '../../../sync/data/repositories/sync_mutation_transaction_runner.dart';
 import '../../../settings/application/controllers/metadata_intelligence_settings_controller.dart';
 import '../../application/repositories/library_query_repository.dart';
+import '../../application/services/album_edition_management_service.dart';
 import '../../application/services/album_edition_track_ordering_service.dart';
 import '../../application/services/album_profile_editing_service.dart';
 import '../../application/services/artist_creation_service.dart';
@@ -29,6 +31,7 @@ import '../../application/services/artist_merge_service.dart';
 import '../../application/services/artist_profile_editing_service.dart';
 import '../../application/services/external_metadata_application_service.dart';
 import '../../application/services/external_metadata_proposal_service.dart';
+import '../../application/services/library_organization_service.dart';
 import '../../data/daos/album_dao.dart';
 import '../../data/daos/metadata_field_state_dao.dart';
 import '../../data/repositories/sqlite_album_repository.dart';
@@ -43,6 +46,7 @@ import '../../data/daos/song_artist_credit_dao.dart';
 import '../../data/daos/song_dao.dart';
 import '../../data/repositories/sqlite_album_edition_repository.dart';
 import '../../data/repositories/sqlite_artist_repository.dart';
+import '../../data/repositories/sqlite_library_organization_repository.dart';
 import '../../data/repositories/sqlite_library_query_repository.dart';
 import '../../data/repositories/sqlite_song_artist_credit_repository.dart';
 import '../../data/repositories/sqlite_song_repository.dart';
@@ -70,6 +74,8 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
   ArtworkAssignmentService? _artworkAssignmentService;
   AlbumProfileEditingService? _albumProfileEditingService;
   AlbumEditionTrackOrderingService? _albumEditionTrackOrderingService;
+  AlbumEditionManagementService? _albumEditionManagementService;
+  LibraryOrganizationService? _libraryOrganizationService;
   ArtistCreationService? _artistCreationService;
   ArtistMergeService? _artistMergeService;
   ArtistProfileEditingService? _artistProfileEditingService;
@@ -133,6 +139,18 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
       mutationRunner: SyncMutationTransactionRunner(appDatabase: _database),
     );
 
+    final albumEditionManagementService = AlbumEditionManagementService(
+      mutationRunner: SyncMutationTransactionRunner(appDatabase: _database),
+    );
+
+    // Device-local organization: soundtrack grouping, "Assign to Project"
+    // and release classification.
+    final libraryOrganizationService = LibraryOrganizationService(
+      library: libraryQueryRepository,
+      collaborators: libraryQueryRepository,
+      organization: SqliteLibraryOrganizationRepository(_database),
+    );
+
     final artistCreationService = ArtistCreationService(
       mutationRunner: SyncMutationTransactionRunner(appDatabase: _database),
     );
@@ -192,6 +210,7 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
     final externalMetadataApplicationService =
         ExternalMetadataApplicationService(
           mutationRunner: SyncMutationTransactionRunner(appDatabase: _database),
+          organization: SqliteLibraryOrganizationRepository(_database),
         );
 
     final externalMetadataProposalService = ExternalMetadataProposalService(
@@ -215,6 +234,8 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
       _artworkAssignmentService = artworkAssignmentService;
       _albumProfileEditingService = albumProfileEditingService;
       _albumEditionTrackOrderingService = albumEditionTrackOrderingService;
+      _albumEditionManagementService = albumEditionManagementService;
+      _libraryOrganizationService = libraryOrganizationService;
       _artistCreationService = artistCreationService;
       _artistProfileEditingService = artistProfileEditingService;
       _artistMergeService = artistMergeService;
@@ -256,6 +277,12 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
         Provider<AlbumEditionTrackOrderingService?>.value(
           value: _albumEditionTrackOrderingService,
         ),
+        Provider<AlbumEditionManagementService?>.value(
+          value: _albumEditionManagementService,
+        ),
+        Provider<LibraryOrganizationService?>.value(
+          value: _libraryOrganizationService,
+        ),
         Provider<ArtistCreationService?>.value(value: _artistCreationService),
         Provider<ArtistProfileEditingService?>.value(
           value: _artistProfileEditingService,
@@ -281,6 +308,11 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
                   .effectiveCoverArtSuggestionsEnabled
               ? _coverArtAlbumEditionImportService
               : null,
+        ),
+        Provider<OnlineLookupConsent?>.value(
+          value: _SettingsOnlineLookupConsent(
+            _metadataIntelligenceSettingsController,
+          ),
         ),
         Provider<MetadataProvider?>.value(
           value:
@@ -318,4 +350,18 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
 
     super.dispose();
   }
+}
+
+/// Exposes the settings' online lookup consent without exposing the
+/// settings controller itself, which is a ChangeNotifier.
+class _SettingsOnlineLookupConsent implements OnlineLookupConsent {
+  const _SettingsOnlineLookupConsent(this._settings);
+
+  final OnlineLookupConsent _settings;
+
+  @override
+  bool get isOnlineLookupAccepted => _settings.isOnlineLookupAccepted;
+
+  @override
+  Future<void> acceptOnlineLookup() => _settings.acceptOnlineLookup();
 }

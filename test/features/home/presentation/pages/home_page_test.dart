@@ -12,6 +12,7 @@ import 'package:sonus_next/features/home/application/models/home_snapshot.dart';
 import 'package:sonus_next/features/home/application/models/home_top_artist.dart';
 import 'package:sonus_next/features/home/application/services/home_data_service.dart';
 import 'package:sonus_next/features/home/presentation/controllers/home_controller.dart';
+import 'package:sonus_next/features/home/application/models/home_ranking_week.dart';
 import 'package:sonus_next/features/home/presentation/pages/home_page.dart';
 import 'package:sonus_next/features/library/application/models/library_album.dart';
 import 'package:sonus_next/features/library/application/models/library_artist.dart';
@@ -20,13 +21,70 @@ import 'package:sonus_next/features/library/presentation/pages/artist_profile_pa
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
 
 void main() {
+  group('ranking weeks', () {
+    testWidgets('last week’s rankings are labelled as last week', (
+      tester,
+    ) async {
+      final controller = await _loadedController(
+        _snapshot(
+          popularTracksWeek: HomeRankingWeek.lastWeek,
+          topArtistsWeek: HomeRankingWeek.lastWeek,
+        ),
+      );
+
+      await _pumpHome(tester, controller);
+
+      expect(find.text('Popular Last Week'), findsOneWidget);
+      expect(find.text('Your most-played tracks last week'), findsOneWidget);
+      expect(find.text('Top Artists Last Week'), findsOneWidget);
+      expect(find.textContaining('This Week'), findsNothing);
+    });
+
+    testWidgets('each section is labelled with its own week', (tester) async {
+      final controller = await _loadedController(
+        _snapshot(topArtistsWeek: HomeRankingWeek.lastWeek),
+      );
+
+      await _pumpHome(tester, controller);
+
+      expect(find.text('Popular This Week'), findsOneWidget);
+      expect(find.text('Top Artists Last Week'), findsOneWidget);
+    });
+
+    testWidgets('with no rankings in either week, says what will appear', (
+      tester,
+    ) async {
+      final controller = await _loadedController(
+        HomeSnapshot(
+          recentlyAddedTracks: [_track(id: 'song_recent', title: 'Recent')],
+          recentlyAddedAlbums: const [],
+          weeklyPopularTracks: const [],
+          weeklyTopArtists: const [],
+        ),
+      );
+
+      await _pumpHome(tester, controller);
+
+      expect(
+        find.byKey(const ValueKey<String>('home-popular-empty')),
+        findsOneWidget,
+      );
+      expect(
+        find.text('Play music to see your most-played tracks here.'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Top Artists'), findsNothing);
+      expect(find.text('Recently Added'), findsOneWidget);
+    });
+  });
+
   testWidgets('renders populated Home sections', (tester) async {
     final controller = await _loadedController(_snapshot());
 
     await _pumpHome(tester, controller);
 
     expect(find.text('Popular This Week'), findsOneWidget);
-    expect(find.text('Top Artists'), findsOneWidget);
+    expect(find.text('Top Artists This Week'), findsOneWidget);
     expect(find.text('Recently Added'), findsOneWidget);
     expect(find.text('New Albums'), findsOneWidget);
 
@@ -656,7 +714,7 @@ void _themeTests() {
       expect(tester.takeException(), isNull);
       for (final title in [
         'Popular This Week',
-        'Top Artists',
+        'Top Artists This Week',
         'Recently Added',
         'New Albums',
       ]) {
@@ -725,8 +783,8 @@ void _themeTests() {
     );
 
     expect(
-      tester.getSemantics(find.text('Top Artists')),
-      matchesSemantics(label: 'Top Artists', isHeader: true),
+      tester.getSemantics(find.text('Top Artists This Week')),
+      matchesSemantics(label: 'Top Artists This Week', isHeader: true),
     );
     semantics.dispose();
   });
@@ -851,6 +909,8 @@ HomeSnapshot _snapshot({
   LibraryTrack? recentTrack,
   LibraryArtist? artist,
   LibraryAlbum? album,
+  HomeRankingWeek popularTracksWeek = HomeRankingWeek.thisWeek,
+  HomeRankingWeek topArtistsWeek = HomeRankingWeek.thisWeek,
 }) {
   final popularTrack = _track(id: 'song_popular', title: 'Popular Song');
 
@@ -874,6 +934,8 @@ HomeSnapshot _snapshot({
         weeklyListeningDuration: const Duration(hours: 2, minutes: 15),
       ),
     ],
+    popularTracksWeek: popularTracksWeek,
+    topArtistsWeek: topArtistsWeek,
   );
 }
 

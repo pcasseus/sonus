@@ -12,6 +12,7 @@ import '../features/charts/presentation/scopes/charts_scope.dart';
 import '../features/home/presentation/scopes/home_scope.dart';
 import '../features/import/presentation/scopes/import_scope.dart';
 import '../features/library/presentation/scopes/library_query_scope.dart';
+import '../features/player/application/services/media_session/sonus_audio_handler.dart';
 import '../features/player/presentation/scopes/playback_scope.dart';
 import '../features/playlists/presentation/scopes/playlists_scope.dart';
 import '../features/recovery/application/services/recovery_service.dart';
@@ -20,6 +21,7 @@ import '../features/recovery/presentation/scopes/recovery_scope.dart';
 import '../features/settings/application/controllers/appearance_controller.dart';
 import '../features/settings/presentation/scopes/appearance_scope.dart';
 import '../features/shell/presentation/pages/app_shell_page.dart';
+import '../features/shell/presentation/widgets/playback_host.dart';
 import '../features/sync/application/services/sync_run_guard.dart';
 import '../features/sync/presentation/scopes/sync_scope.dart';
 import 'account_analytics_bridge.dart';
@@ -35,6 +37,7 @@ class SonusApp extends StatefulWidget {
     this.recoverySyncGate,
     this.recoveryService,
     this.appearanceController,
+    this.mediaSession,
   });
 
   final PlaybackEngineFactory? playbackEngineFactory;
@@ -51,6 +54,10 @@ class SonusApp extends StatefulWidget {
   /// the device's stored appearance preferences.
   final AppearanceController? appearanceController;
 
+  /// Android's media session (notification, lock screen, Bluetooth).
+  /// Null where the platform has none; playback works either way.
+  final SonusAudioHandler? mediaSession;
+
   @override
   State<SonusApp> createState() => _SonusAppState();
 }
@@ -61,6 +68,8 @@ class _SonusAppState extends State<SonusApp> {
   // rebuilds them without closing the database underneath them.
   late final AppDatabase _database = widget.libraryDatabase ?? AppDatabase();
   late final bool _ownsDatabase = widget.libraryDatabase == null;
+  final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
+  final PlaybackHostRouteObserver _playbackRoutes = PlaybackHostRouteObserver();
 
   @override
   void dispose() {
@@ -90,6 +99,7 @@ class _SonusAppState extends State<SonusApp> {
             child: PlaylistsScope(
               child: PlaybackScope(
                 engineFactory: widget.playbackEngineFactory,
+                mediaSession: widget.mediaSession,
                 child: AccountScope(
                   repository: widget.accountRepository,
                   child: SyncScope(
@@ -112,6 +122,15 @@ class _SonusAppState extends State<SonusApp> {
                                           title: 'Sonus',
                                           theme: theme,
                                           themeAnimationDuration: duration,
+                                          navigatorKey: _navigatorKey,
+                                          navigatorObservers: [_playbackRoutes],
+                                          // One mini-player for every route.
+                                          builder: (context, navigator) =>
+                                              PlaybackHost(
+                                                navigatorKey: _navigatorKey,
+                                                routes: _playbackRoutes,
+                                                child: navigator!,
+                                              ),
                                           home: const AppShellPage(),
                                         );
                                       },

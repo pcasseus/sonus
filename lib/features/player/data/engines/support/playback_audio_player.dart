@@ -10,6 +10,10 @@ abstract interface class PlaybackAudioPlayer {
   bool get hasPrevious;
   bool get hasNext;
 
+  /// Whether the player intends to play. Like just_audio, this survives
+  /// source changes and completion until [pause] or [stop].
+  bool get playing;
+
   Future<Duration?> setAudioSources(
     List<AudioSource> sources, {
     required int initialIndex,
@@ -62,6 +66,9 @@ class JustAudioPlayerAdapter implements PlaybackAudioPlayer {
 
   @override
   bool get hasNext => _audioPlayer.hasNext;
+
+  @override
+  bool get playing => _audioPlayer.playing;
 
   @override
   Future<Duration?> setAudioSources(

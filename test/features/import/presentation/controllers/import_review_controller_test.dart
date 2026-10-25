@@ -235,7 +235,7 @@ void main() {
         isSingle: false,
         artistId: 'artist-song-2',
         albumId: 'album-song-2',
-        albumEditionId: 'edition-song-2',
+        placementEditionId: 'edition-song-2',
       );
 
       expect(result, isTrue);
@@ -273,7 +273,7 @@ void main() {
       isSingle: false,
       artistId: 'artist-song-2',
       albumId: 'album-song-2',
-      albumEditionId: 'edition-song-2',
+      placementEditionId: 'edition-song-2',
     );
 
     expect(result, isFalse);
@@ -319,7 +319,7 @@ void main() {
       isSingle: false,
       artistId: 'artist-song-1',
       albumId: 'album-song-1',
-      albumEditionId: 'edition-song-1',
+      placementEditionId: 'edition-song-1',
     );
 
     expect(result, isTrue);
@@ -348,7 +348,7 @@ void main() {
       isSingle: false,
       artistId: 'artist-song-1',
       albumId: 'album-song-1',
-      albumEditionId: 'edition-song-1',
+      placementEditionId: 'edition-song-1',
     );
 
     expect(result, isTrue);
@@ -376,7 +376,7 @@ void main() {
       isSingle: false,
       artistId: 'artist-song-1',
       albumId: 'album-song-1',
-      albumEditionId: 'edition-song-1',
+      placementEditionId: 'edition-song-1',
     );
 
     expect(result, isFalse);
@@ -411,7 +411,7 @@ void main() {
         isSingle: true,
         artistId: 'artist-song-1',
         albumId: 'album-song-1',
-        albumEditionId: 'edition-song-1',
+        placementEditionId: 'edition-song-1',
       );
 
       expect(result, isFalse);
@@ -816,7 +816,7 @@ void main() {
       isSingle: false,
       artistId: 'artist-song-1',
       albumId: 'album-song-1',
-      albumEditionId: 'edition-song-1',
+      placementEditionId: 'edition-song-1',
     );
 
     expect(result, isTrue);
@@ -981,6 +981,7 @@ class _FakeEditingService extends TrackProfileEditingService {
     String? artistId,
     String? albumId,
     String? albumEditionId,
+    String? placementEditionId,
     DateTime? now,
   }) async {
     final failure = error;

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../../core/design/sonus_count_label.dart';
 import '../../../../core/design/sonus_theme.dart';
 import '../../../../core/design/widgets/sonus_artwork_frame.dart';
 import '../../../../core/design/widgets/sonus_decorations.dart';
@@ -415,7 +416,7 @@ class _Highlights extends StatelessWidget {
                   : _monthName(activeMonth.month.month),
               detail: activeMonth == null
                   ? 'No qualified streams'
-                  : '${_formatInt(activeMonth.streams)} streams',
+                  : '${_formatInt(activeMonth.streams)} ${sonusCountNoun(activeMonth.streams, 'stream')}',
             ),
             _HighlightCard(
               icon: Icons.local_fire_department_rounded,
@@ -445,7 +446,7 @@ class _Highlights extends StatelessWidget {
                   : _formatShortDate(peakDay.localDate),
               detail: peakDay == null
                   ? 'No qualified streams'
-                  : '${_formatInt(peakDay.qualifiedStreamCount)} streams',
+                  : '${_formatInt(peakDay.qualifiedStreamCount)} ${sonusCountNoun(peakDay.qualifiedStreamCount, 'stream')}',
             ),
             _HighlightCard(
               icon: Icons.today_rounded,
@@ -617,7 +618,8 @@ class _TopThree extends StatelessWidget {
             icon: Icons.person_rounded,
             label: '#1 ARTIST',
             title: artist.name,
-            subtitle: '${_formatInt(artist.streams)} streams',
+            subtitle:
+                '${_formatInt(artist.streams)} ${sonusCountNoun(artist.streams, 'stream')}',
             artworkPath: artist.artworkPath,
             circularArtwork: true,
             onTap: artist.hasCurrentLibraryEntity
@@ -631,7 +633,7 @@ class _TopThree extends StatelessWidget {
             label: '#1 TRACK',
             title: track.title,
             subtitle:
-                '${track.artistName} • ${_formatInt(track.streams)} streams',
+                '${track.artistName} • ${_formatInt(track.streams)} ${sonusCountNoun(track.streams, 'stream')}',
             artworkPath: track.artworkPath,
             onTap: track.canPlay ? () => _playTrack(context, track) : null,
           ),
@@ -642,7 +644,7 @@ class _TopThree extends StatelessWidget {
             label: '#1 ALBUM',
             title: album.title,
             subtitle:
-                '${album.artistName} • ${_formatInt(album.streams)} streams',
+                '${album.artistName} • ${_formatInt(album.streams)} ${sonusCountNoun(album.streams, 'stream')}',
             artworkPath: album.artworkPath,
             onTap: album.hasCurrentLibraryEntity
                 ? () => _openAlbum(context, album)
@@ -968,7 +970,8 @@ class _ArtistRankings extends StatelessWidget {
           _RankingTile(
             rank: row.rank,
             title: row.name,
-            subtitle: '${_formatInt(row.streams)} streams',
+            subtitle:
+                '${_formatInt(row.streams)} ${sonusCountNoun(row.streams, 'stream')}',
             artworkPath: row.artworkPath,
             fallbackIcon: Icons.person_rounded,
             circularArtwork: true,
@@ -996,7 +999,8 @@ class _TrackRankings extends StatelessWidget {
           _RankingTile(
             rank: row.rank,
             title: row.title,
-            subtitle: '${row.artistName} • ${_formatInt(row.streams)} streams',
+            subtitle:
+                '${row.artistName} • ${_formatInt(row.streams)} ${sonusCountNoun(row.streams, 'stream')}',
             artworkPath: row.artworkPath,
             fallbackIcon: Icons.music_note_rounded,
             onTap: row.canPlay ? () => _playTrack(context, row) : null,
@@ -1029,7 +1033,8 @@ class _AlbumRankings extends StatelessWidget {
           _RankingTile(
             rank: row.rank,
             title: row.title,
-            subtitle: '${row.artistName} • ${_formatInt(row.streams)} streams',
+            subtitle:
+                '${row.artistName} • ${_formatInt(row.streams)} ${sonusCountNoun(row.streams, 'stream')}',
             artworkPath: row.artworkPath,
             fallbackIcon: Icons.album_rounded,
             onTap: row.hasCurrentLibraryEntity

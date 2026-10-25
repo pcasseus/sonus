@@ -3,6 +3,9 @@ import 'package:path/path.dart' as path;
 import 'package:provider/provider.dart';
 
 import '../../../../app/app_restart_scope.dart';
+import '../../../../core/design/sonus_theme.dart';
+import '../../../../core/design/widgets/sonus_form_section.dart';
+import '../../../../core/design/widgets/sonus_notice_card.dart';
 import '../../application/controllers/backup_restore_controller.dart';
 import '../../application/models/recovery_overview.dart';
 import '../../application/models/recovery_sync_hold.dart';
@@ -37,12 +40,24 @@ class BackupRestorePage extends StatelessWidget {
       return _RestoringView(stage: controller.restoreStage);
     }
 
+    final tokens = SonusTheme.of(context);
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Backup & Restore')),
+      backgroundColor: tokens.colors.background,
+      appBar: AppBar(
+        title: const Text('Backup & Restore'),
+        backgroundColor: tokens.colors.background,
+        surfaceTintColor: Colors.transparent,
+      ),
       body: RefreshIndicator(
         onRefresh: controller.refresh,
         child: ListView(
-          padding: const EdgeInsets.all(16),
+          padding: EdgeInsets.fromLTRB(
+            tokens.metrics.pageGutter,
+            8,
+            tokens.metrics.pageGutter,
+            32,
+          ),
           children: [
             if (controller.operation == RecoveryOperation.checkingRecovery)
               const LinearProgressIndicator(
@@ -83,8 +98,6 @@ class _SyncHoldCard extends StatelessWidget {
       return const SizedBox.shrink();
     }
 
-    final scheme = Theme.of(context).colorScheme;
-
     final reasons = <String>[
       if (startupFailed || hold.startupCheckFailed)
         'Sonus could not finish checking for an interrupted restore, so it '
@@ -97,77 +110,54 @@ class _SyncHoldCard extends StatelessWidget {
         'A restore failed and Sonus could not confirm the cleanup.',
       for (final finding in hold.findings) RecoveryMessages.finding(finding),
     ];
+    final textStyle = Theme.of(context).textTheme.bodyMedium;
 
-    return Card(
-      key: const ValueKey<String>('recovery-sync-hold'),
-      color: scheme.errorContainer,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(Icons.cloud_off_rounded, color: scheme.onErrorContainer),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    'Cloud sync is paused',
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      color: scheme.onErrorContainer,
-                    ),
-                  ),
-                ),
-              ],
+    return _Spaced(
+      child: SonusNoticeCard(
+        key: const ValueKey<String>('recovery-sync-hold'),
+        tone: SonusNoticeTone.warning,
+        title: 'Cloud sync is paused',
+        message:
+            'Sonus paused cloud sync to protect your restored library and '
+            'your cloud account from overwriting each other. Your library, '
+            'playback, charts, and other offline features keep working.',
+        actions: [
+          OutlinedButton.icon(
+            key: const ValueKey<String>('recovery-sync-hold-recheck'),
+            onPressed: controller.isBusy ? null : controller.recheckSyncHold,
+            icon: const Icon(Icons.refresh_rounded),
+            label: const Text('Check again'),
+          ),
+        ],
+        children: [
+          Text(
+            'Needs attention before sync can resume:',
+            style: textStyle?.copyWith(fontWeight: FontWeight.w600),
+          ),
+          for (final (index, reason) in reasons.indexed)
+            Padding(
+              key: ValueKey<String>('recovery-sync-hold-reason-$index'),
+              padding: const EdgeInsets.only(top: 4),
+              child: Text('• $reason', style: textStyle),
             ),
-            const SizedBox(height: 8),
-            Text(
-              'Sonus paused cloud sync to protect your restored library and '
-              'your cloud account from overwriting each other. Your library, '
-              'playback, charts, and other offline features keep working.',
-              style: TextStyle(color: scheme.onErrorContainer),
-            ),
-            const SizedBox(height: 12),
-            Text(
-              'Needs attention before sync can resume:',
-              style: TextStyle(
-                color: scheme.onErrorContainer,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 4),
-            for (final (index, reason) in reasons.indexed)
-              Padding(
-                key: ValueKey<String>('recovery-sync-hold-reason-$index'),
-                padding: const EdgeInsets.only(top: 4),
-                child: Text(
-                  '• $reason',
-                  style: TextStyle(color: scheme.onErrorContainer),
-                ),
-              ),
-            if (hold.divergedTables.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Text(
+          if (hold.divergedTables.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
                 'Changed: ${hold.divergedTables.map(RecoveryMessages.tableName).join(', ')}',
                 key: const ValueKey<String>('recovery-sync-hold-tables'),
-                style: TextStyle(color: scheme.onErrorContainer),
+                style: textStyle,
               ),
-            ],
-            const SizedBox(height: 12),
-            Text(
+            ),
+          Padding(
+            padding: const EdgeInsets.only(top: 12),
+            child: Text(
               'Sync resumes automatically once Sonus can prove your library '
               'and cloud account are consistent. It cannot be overridden here.',
-              style: TextStyle(color: scheme.onErrorContainer),
+              style: textStyle,
             ),
-            const SizedBox(height: 12),
-            OutlinedButton.icon(
-              key: const ValueKey<String>('recovery-sync-hold-recheck'),
-              onPressed: controller.isBusy ? null : controller.recheckSyncHold,
-              icon: const Icon(Icons.refresh_rounded),
-              label: const Text('Check again'),
-            ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -784,26 +774,31 @@ class _SectionCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Icon(icon),
-                const SizedBox(width: 12),
-                Text(title, style: Theme.of(context).textTheme.titleMedium),
-              ],
-            ),
-            const SizedBox(height: 12),
-            ...children,
-          ],
-        ),
+    return _Spaced(
+      child: SonusFormSection(
+        title: title,
+        icon: icon,
+        children: [
+          // Start-aligned as before, so buttons keep their own width.
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: children,
+          ),
+        ],
       ),
     );
   }
+}
+
+/// The gap between the page's sections.
+class _Spaced extends StatelessWidget {
+  const _Spaced({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) =>
+      Padding(padding: const EdgeInsets.only(bottom: 12), child: child);
 }
 
 class _PlanRow extends StatelessWidget {
@@ -847,18 +842,18 @@ class _MessageCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-
-    return Card(
-      color: isError ? scheme.errorContainer : null,
-      child: ListTile(
-        leading: Icon(icon),
-        title: Text(text),
-        trailing: IconButton(
-          key: const ValueKey<String>('recovery-dismiss-message'),
-          icon: const Icon(Icons.close_rounded),
-          onPressed: onDismiss,
-        ),
+    return _Spaced(
+      child: SonusNoticeCard(
+        tone: isError ? SonusNoticeTone.error : SonusNoticeTone.info,
+        title: text,
+        actions: [
+          TextButton.icon(
+            key: const ValueKey<String>('recovery-dismiss-message'),
+            onPressed: onDismiss,
+            icon: const Icon(Icons.close_rounded),
+            label: const Text('Dismiss'),
+          ),
+        ],
       ),
     );
   }

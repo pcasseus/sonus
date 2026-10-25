@@ -15,6 +15,8 @@ class LibraryIdentityMatch {
     required this.albumAmbiguous,
     required this.editionAmbiguous,
     required this.songAmbiguous,
+    this.alternateRecordingOf,
+    this.newEditionType,
   });
 
   /// Track artist.
@@ -32,6 +34,16 @@ class LibraryIdentityMatch {
   final bool albumAmbiguous;
   final bool editionAmbiguous;
   final bool songAmbiguous;
+
+  /// Set when the file matched an existing song by artist, title, version
+  /// and album, but evidence shows a different recording. [song] is then
+  /// null and the file becomes its own song, flagged for review.
+  final Song? alternateRecordingOf;
+
+  /// Set when [album] matched but none of its editions is the file's
+  /// edition: the importer creates an edition of this type, titled with the
+  /// file's album title.
+  final AlbumEditionType? newEditionType;
 
   bool get hasAmbiguity =>
       artistAmbiguous ||

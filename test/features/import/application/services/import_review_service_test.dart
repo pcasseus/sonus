@@ -224,7 +224,7 @@ void main() {
       isSingle: true,
       artistId: 'artist-corrected',
       albumId: 'album-corrected',
-      albumEditionId: 'edition-corrected',
+      moveToEditionId: 'edition-corrected',
     );
 
     expect(result.changed, isTrue);
@@ -288,7 +288,7 @@ void main() {
         isSingle: false,
         artistId: 'artist-1',
         albumId: 'album-1',
-        albumEditionId: 'edition-1',
+        placementEditionId: 'edition-1',
       ),
       throwsA(isA<StateError>()),
     );
@@ -341,7 +341,7 @@ void main() {
           isSingle: false,
           artistId: 'artist-1',
           albumId: 'album-1',
-          albumEditionId: 'edition-1',
+          placementEditionId: 'edition-1',
         ),
         throwsA(isA<StateError>()),
       );
@@ -384,7 +384,7 @@ void main() {
       isSingle: false,
       artistId: 'artist-1',
       albumId: 'album-1',
-      albumEditionId: 'edition-1',
+      placementEditionId: 'edition-1',
     );
 
     expect(result.changed, isTrue);
@@ -426,7 +426,7 @@ void main() {
         isSingle: false,
         artistId: 'artist-1',
         albumId: 'album-1',
-        albumEditionId: 'edition-1',
+        placementEditionId: 'edition-1',
       ),
       throwsA(
         isA<StateError>().having(
@@ -590,6 +590,7 @@ class _FakeTrackProfileEditingService extends TrackProfileEditingService {
     String? artistId,
     String? albumId,
     String? albumEditionId,
+    String? placementEditionId,
     DateTime? now,
   }) async {
     updateCallCount++;

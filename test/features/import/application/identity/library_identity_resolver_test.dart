@@ -395,7 +395,8 @@ void main() {
         title: 'Song Name',
         canonicalTitle: 'song name',
         trackNumber: 2,
-        durationSeconds: 210,
+        durationSeconds:
+            200, // Same recording length: these tests are about labels.
         isSingle: false,
         featuredArtists: const [],
         versionLabel: 'Live',
@@ -431,7 +432,8 @@ void main() {
       title: 'Song Name',
       canonicalTitle: 'song name',
       trackNumber: 2,
-      durationSeconds: 210,
+      durationSeconds:
+          200, // Same recording length: these tests are about labels.
       isSingle: false,
       featuredArtists: const [],
       versionLabel: 'Live',
@@ -458,7 +460,8 @@ void main() {
       title: 'Song Name',
       canonicalTitle: 'song name',
       trackNumber: 2,
-      durationSeconds: 210,
+      durationSeconds:
+          200, // Same recording length: these tests are about labels.
       isSingle: false,
       featuredArtists: const [],
       versionLabel: 'Live Remix',

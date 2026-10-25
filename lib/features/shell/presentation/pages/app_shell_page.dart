@@ -14,7 +14,6 @@ import '../../../search/presentation/pages/search_page.dart';
 import '../../../settings/presentation/pages/settings_page.dart';
 import '../../application/controllers/app_shell_controller.dart';
 import '../../domain/models/app_destination.dart';
-import '../widgets/shell_playback_slot.dart';
 
 class AppShellPage extends StatefulWidget {
   const AppShellPage({super.key});
@@ -89,10 +88,7 @@ class _AppShellPageState extends State<AppShellPage>
   void _openSearch() {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => const Scaffold(
-          body: SearchPage(),
-          bottomNavigationBar: ShellPlaybackSlot(),
-        ),
+        builder: (_) => const Scaffold(body: SearchPage()),
       ),
     );
   }
@@ -175,7 +171,6 @@ class _AppShellPageState extends State<AppShellPage>
               _buildDestinationPage(destination),
           ],
         ),
-        bottomNavigationBar: const ShellPlaybackSlot(),
       ),
     );
   }

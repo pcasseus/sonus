@@ -6,21 +6,28 @@ import 'package:provider/provider.dart';
 import '../../../../core/design/sonus_theme.dart';
 import '../../../../core/design/widgets/sonus_page_header.dart';
 import '../../../../core/design/widgets/sonus_state_view.dart';
+import '../../../../core/events/library_change_signal.dart';
 import '../../application/models/library_artist.dart';
 import '../../application/models/library_track.dart';
 import '../../application/repositories/library_query_repository.dart';
+import '../../application/services/library_organization_service.dart';
 import '../controllers/library_artists_controller.dart';
 import '../widgets/library_artist_card.dart';
 import 'artist_profile_page.dart';
 
 class LibraryPage extends StatefulWidget {
-  const LibraryPage({super.key});
+  const LibraryPage({super.key, this.changes});
+
+  /// Reloads after library edits, imports and recorded listening; the
+  /// shared signal if null.
+  final LibraryChangeSignal? changes;
 
   @override
   State<LibraryPage> createState() => _LibraryPageState();
 }
 
 class _LibraryPageState extends State<LibraryPage> {
+  LibraryChangeRefresher? _refresher;
   LibraryArtistsController? _controller;
   LibraryQueryRepository? _repository;
 
@@ -34,12 +41,22 @@ class _LibraryPageState extends State<LibraryPage> {
       return;
     }
 
+    _refresher?.dispose();
     _controller?.dispose();
 
     _repository = repository;
-    _controller = LibraryArtistsController(repository: repository);
+    _controller = LibraryArtistsController(
+      repository: repository,
+      organization: context.read<LibraryOrganizationService?>(),
+    );
 
-    unawaited(_controller!.load());
+    final controller = _controller!;
+    _refresher = LibraryChangeRefresher(
+      signal: widget.changes ?? LibraryChangeSignal.shared,
+      kinds: LibraryChangeKind.values.toSet(),
+      onChange: () => unawaited(controller.refresh()),
+    );
+    unawaited(controller.load());
   }
 
   void _openArtist(LibraryArtist artist) {
@@ -82,7 +99,7 @@ class _LibraryPageState extends State<LibraryPage> {
               album.albumId: album.artistId,
           };
 
-          final visibleArtists = controller.artists
+          final listedArtists = controller.artists
               .where(
                 (artist) => controller.tracks.any(
                   (track) =>
@@ -92,6 +109,10 @@ class _LibraryPageState extends State<LibraryPage> {
                 ),
               )
               .toList(growable: false);
+          final visibleArtists = listedArtists
+              .where((artist) => controller.isShownInLibrary(artist.artistId))
+              .toList(growable: false);
+          final groupedCount = listedArtists.length - visibleArtists.length;
 
           final gutter = SonusTheme.of(context).metrics.pageGutter;
 
@@ -102,7 +123,10 @@ class _LibraryPageState extends State<LibraryPage> {
               physics: const AlwaysScrollableScrollPhysics(),
               slivers: [
                 SliverToBoxAdapter(
-                  child: _LibraryHeader(artistCount: visibleArtists.length),
+                  child: _LibraryHeader(
+                    artistCount: visibleArtists.length,
+                    groupedCount: groupedCount,
+                  ),
                 ),
                 if (visibleArtists.isEmpty)
                   const SliverFillRemaining(
@@ -167,6 +191,7 @@ class _LibraryPageState extends State<LibraryPage> {
 
   @override
   void dispose() {
+    _refresher?.dispose();
     _controller?.dispose();
     super.dispose();
   }
@@ -179,17 +204,26 @@ bool _hasAvailableMedia(LibraryTrack track) {
 }
 
 class _LibraryHeader extends StatelessWidget {
-  const _LibraryHeader({required this.artistCount});
+  const _LibraryHeader({required this.artistCount, required this.groupedCount});
 
   final int artistCount;
 
+  /// Performers listed under a project's collaborators instead.
+  final int groupedCount;
+
   @override
   Widget build(BuildContext context) {
+    final artists = artistCount == 1
+        ? '1 artist in your library'
+        : '$artistCount artists in your library';
+
     return SonusPageHeader(
       title: 'Library',
-      subtitle: artistCount == 1
-          ? '1 artist in your library'
-          : '$artistCount artists in your library',
+      subtitleKey: const ValueKey<String>('library-artist-count'),
+      subtitle: groupedCount == 0
+          ? artists
+          : '$artists \u00b7 ${groupedCount == 1 ? '1 more is' : '$groupedCount more are'} '
+                'listed under a project',
     );
   }
 }

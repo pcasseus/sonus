@@ -29,6 +29,7 @@ class SonusPlaybackProgress extends StatefulWidget {
     this.keyboardStep = const Duration(seconds: 5),
     this.showTimes = true,
     this.accentColor,
+    this.elapsedKey,
   });
 
   final Duration position;
@@ -45,6 +46,9 @@ class SonusPlaybackProgress extends StatefulWidget {
   /// The played colour; the theme accent by default (artwork atmosphere
   /// pages pass their accent).
   final Color? accentColor;
+
+  /// Key of the elapsed-time label, for players that test it.
+  final Key? elapsedKey;
 
   @override
   State<SonusPlaybackProgress> createState() => _SonusPlaybackProgressState();
@@ -209,7 +213,11 @@ class _SonusPlaybackProgressState extends State<SonusPlaybackProgress> {
               if (widget.showTimes)
                 Row(
                   children: [
-                    Text(_clock(shownPosition), style: timeStyle),
+                    Text(
+                      _clock(shownPosition),
+                      key: widget.elapsedKey,
+                      style: timeStyle,
+                    ),
                     const Spacer(),
                     Text(
                       duration == null
@@ -235,18 +243,25 @@ class _SonusPlaybackProgressState extends State<SonusPlaybackProgress> {
 
   static String _clock(Duration value) {
     final safe = value.isNegative ? Duration.zero : value;
-    final minutes = safe.inMinutes;
+    final hours = safe.inHours;
+    final minutes = safe.inMinutes % 60;
     final seconds = (safe.inSeconds % 60).toString().padLeft(2, '0');
-    return '$minutes:$seconds';
+    return hours > 0
+        ? '$hours:${minutes.toString().padLeft(2, '0')}:$seconds'
+        : '$minutes:$seconds';
   }
 
   static String _spoken(Duration value) {
     final safe = value.isNegative ? Duration.zero : value;
-    final minutes = safe.inMinutes;
-    final seconds = safe.inSeconds % 60;
-    return minutes == 0
-        ? '$seconds seconds'
-        : '$minutes minutes $seconds seconds';
+    String unit(int count, String name) =>
+        '$count $name${count == 1 ? '' : 's'}';
+    final hours = safe.inHours;
+    final minutes = safe.inMinutes % 60;
+    final seconds = unit(safe.inSeconds % 60, 'second');
+    if (hours > 0) {
+      return '${unit(hours, 'hour')} ${unit(minutes, 'minute')} $seconds';
+    }
+    return minutes == 0 ? seconds : '${unit(minutes, 'minute')} $seconds';
   }
 }
 

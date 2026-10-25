@@ -61,6 +61,7 @@ class LibraryImportService {
                 : ImportResultStatus.relinked,
             filePath: candidate.filePath,
             songId: existingBinding.songId,
+            skipReason: wasAvailable ? ImportSkipReason.knownFile : null,
           );
         }
       } on LibraryMutationUnavailable {
@@ -122,7 +123,9 @@ class LibraryImportService {
         lyricsPath.isEmpty ||
         songId == null ||
         songId.isEmpty ||
-        result.failed) {
+        result.failed ||
+        // A copy's sidecar belongs to the copy, not to the song it duplicates.
+        result.skipReason == ImportSkipReason.duplicateRecording) {
       return result;
     }
 

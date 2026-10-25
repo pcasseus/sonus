@@ -134,20 +134,20 @@ class ChartMomentFeedCopyFormatter {
     if (item.isLive) {
       return ChartMomentFeedCopy(
         headline: '$title rises to #1',
-        body: '$title reaches #1 on the live Sonus Hot 100.',
+        body: '$title reaches #1 on this week’s Sonus Hot 100.',
       );
     }
 
     if (returning) {
       return ChartMomentFeedCopy(
         headline: '$title returns to #1',
-        body: '$title returns to the top of the Sonus Hot 100.',
+        body: '$title returns to the top of the weekly Sonus Hot 100.',
       );
     }
 
     return ChartMomentFeedCopy(
       headline: first ? '$title earns its first #1' : '$title reaches #1',
-      body: '$title is officially #1 on the Sonus Hot 100.',
+      body: '$title is officially #1 on the weekly Sonus Hot 100.',
     );
   }
 
@@ -161,8 +161,8 @@ class ChartMomentFeedCopyFormatter {
     return ChartMomentFeedCopy(
       headline: '$artist returns to #1',
       body: gap != null && gap > 0
-          ? '$artist returns to the top after $gap ${_plural(gap, 'week')}.'
-          : '$artist returns to the top of the Sonus Hot 100.',
+          ? '$artist returns to the top of the weekly chart after $gap ${_plural(gap, 'week')}.'
+          : '$artist returns to the top of the weekly Sonus Hot 100.',
     );
   }
 
@@ -198,7 +198,7 @@ class ChartMomentFeedCopyFormatter {
     if (rank == null) {
       return ChartMomentFeedCopy(
         headline: '${item.entity.title} reaches a new peak',
-        body: '${item.entity.title} sets a new Sonus Hot 100 high.',
+        body: '${item.entity.title} sets a new weekly Sonus Hot 100 high.',
       );
     }
 
@@ -209,8 +209,8 @@ class ChartMomentFeedCopyFormatter {
       body:
           companion ??
           (item.isLive
-              ? '${item.entity.title} rises to #$rank on the live Sonus Hot 100.'
-              : '${item.entity.title} earns a new official peak of #$rank.'),
+              ? '${item.entity.title} rises to #$rank on this week’s Sonus Hot 100.'
+              : '${item.entity.title} earns a new weekly peak of #$rank.'),
     );
   }
 
@@ -237,8 +237,8 @@ class ChartMomentFeedCopyFormatter {
       headline:
           '${item.entity.title} debuts${rank == null ? '' : ' at #$rank'}',
       body: item.isLive
-          ? '${item.entity.title} enters the live Sonus Hot 100.'
-          : '${item.entity.title} makes its Sonus Hot 100 debut.',
+          ? '${item.entity.title} enters this week’s Sonus Hot 100.'
+          : '${item.entity.title} makes its weekly Sonus Hot 100 debut.',
     );
   }
 
@@ -251,7 +251,7 @@ class ChartMomentFeedCopyFormatter {
     return ChartMomentFeedCopy(
       headline:
           '${item.entity.title} re-enters${rank == null ? '' : ' at #$rank'}',
-      body: '${item.entity.title} returns to the Sonus Hot 100.',
+      body: '${item.entity.title} returns to the weekly Sonus Hot 100.',
     );
   }
 
@@ -266,13 +266,13 @@ class ChartMomentFeedCopyFormatter {
         headline: '${item.entity.title} rises to #$current',
         body: distance > 0
             ? '${item.entity.title} climbs $distance ${_plural(distance, 'spot')}.'
-            : '${item.entity.title} moves up the Sonus Hot 100.',
+            : '${item.entity.title} moves up the weekly Sonus Hot 100.',
       );
     }
 
     return ChartMomentFeedCopy(
       headline: '${item.entity.title} moves up',
-      body: '${item.entity.title} rises on the Sonus Hot 100.',
+      body: '${item.entity.title} rises on the weekly Sonus Hot 100.',
     );
   }
 
@@ -287,13 +287,13 @@ class ChartMomentFeedCopyFormatter {
         headline: '${item.entity.title} falls to #$current',
         body: distance > 0
             ? '${item.entity.title} drops $distance ${_plural(distance, 'spot')}.'
-            : '${item.entity.title} moves down the Sonus Hot 100.',
+            : '${item.entity.title} moves down the weekly Sonus Hot 100.',
       );
     }
 
     return ChartMomentFeedCopy(
       headline: '${item.entity.title} moves down',
-      body: '${item.entity.title} falls on the Sonus Hot 100.',
+      body: '${item.entity.title} falls on the weekly Sonus Hot 100.',
     );
   }
 
@@ -303,7 +303,7 @@ class ChartMomentFeedCopyFormatter {
     return ChartMomentFeedCopy(
       headline:
           '${item.entity.title} holds${rank == null ? ' steady' : ' at #$rank'}',
-      body: '${item.entity.title} remains steady on the Sonus Hot 100.',
+      body: '${item.entity.title} remains steady on the weekly Sonus Hot 100.',
     );
   }
 
@@ -319,7 +319,8 @@ class ChartMomentFeedCopyFormatter {
         headline: returning
             ? '${item.entity.title} returns to chart territory'
             : '${item.entity.title} reaches new chart territory',
-        body: '${item.entity.title} marks another Sonus Hot 100 milestone.',
+        body:
+            '${item.entity.title} marks another weekly Sonus Hot 100 milestone.',
       );
     }
 
@@ -346,7 +347,8 @@ class ChartMomentFeedCopyFormatter {
     if (threshold == null) {
       return ChartMomentFeedCopy(
         headline: '$artist adds another chart achievement',
-        body: '${item.entity.title} adds to $artist’s Sonus Hot 100 history.',
+        body:
+            '${item.entity.title} adds to $artist’s weekly Sonus Hot 100 history.',
       );
     }
 
@@ -413,7 +415,7 @@ class ChartMomentFeedCopyFormatter {
           : '${item.entity.title} reaches $count ${consecutive ? 'straight ' : ''}${_plural(count, 'week')} on chart',
       body: count == null
           ? '${item.entity.title} adds another longevity milestone.'
-          : '${item.entity.title} has spent $count ${consecutive ? 'consecutive ' : ''}${_plural(count, 'week')} on the Sonus Hot 100.',
+          : '${item.entity.title} has spent $count ${consecutive ? 'consecutive ' : ''}${_plural(count, 'week')} on the weekly Sonus Hot 100.',
     );
   }
 
@@ -428,7 +430,8 @@ class ChartMomentFeedCopyFormatter {
     if (count == null || threshold == null) {
       return ChartMomentFeedCopy(
         headline: '${item.entity.title} reaches a chart longevity milestone',
-        body: '${item.entity.title} adds another Sonus Hot 100 achievement.',
+        body:
+            '${item.entity.title} adds another weekly Sonus Hot 100 achievement.',
       );
     }
 
@@ -450,7 +453,8 @@ class ChartMomentFeedCopyFormatter {
       headline: rank == null
           ? '${item.entity.title} matches its peak'
           : '${item.entity.title} matches its #$rank peak',
-      body: '${item.entity.title} returns to its career-best chart position.',
+      body:
+          '${item.entity.title} returns to its career-best weekly chart position.',
     );
   }
 
@@ -460,7 +464,8 @@ class ChartMomentFeedCopyFormatter {
   ) {
     return ChartMomentFeedCopy(
       headline: '${item.entity.title} leaves #1',
-      body: '${item.entity.title} gives up the top spot on the Sonus Hot 100.',
+      body:
+          '${item.entity.title} gives up the top spot on the weekly Sonus Hot 100.',
     );
   }
 
@@ -486,7 +491,8 @@ class ChartMomentFeedCopyFormatter {
   ) {
     return ChartMomentFeedCopy(
       headline: '${item.entity.title} exits the chart',
-      body: '${item.entity.title} moves outside the Sonus Hot 100 standings.',
+      body:
+          '${item.entity.title} moves outside the weekly Sonus Hot 100 standings.',
     );
   }
 

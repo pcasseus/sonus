@@ -101,7 +101,7 @@ void main() {
     final copy = formatter.format(item(dominant: dominant));
 
     expect(copy.headline, 'Song A rises to #1');
-    expect(copy.body, 'Song A reaches #1 on the live Sonus Hot 100.');
+    expect(copy.body, 'Song A reaches #1 on this week’s Sonus Hot 100.');
   });
 
   test('FINAL #1 wording is official', () {
@@ -115,7 +115,7 @@ void main() {
     final copy = formatter.format(item(dominant: dominant));
 
     expect(copy.headline, 'Song A earns its first #1');
-    expect(copy.body, 'Song A is officially #1 on the Sonus Hot 100.');
+    expect(copy.body, 'Song A is officially #1 on the weekly Sonus Hot 100.');
   });
 
   test('LIVE new peak wording stays provisional', () {
@@ -131,7 +131,7 @@ void main() {
     final copy = formatter.format(item(dominant: dominant));
 
     expect(copy.headline, 'Song A reaches a new peak of #3');
-    expect(copy.body, 'Song A rises to #3 on the live Sonus Hot 100.');
+    expect(copy.body, 'Song A rises to #3 on this week’s Sonus Hot 100.');
   });
 
   test('FINAL new peak wording is official', () {
@@ -146,7 +146,7 @@ void main() {
     final copy = formatter.format(item(dominant: dominant));
 
     expect(copy.headline, 'Song A reaches a new peak of #3');
-    expect(copy.body, 'Song A earns a new official peak of #3.');
+    expect(copy.body, 'Song A earns a new weekly peak of #3.');
   });
 
   test('new peak includes related artist career-best fact', () {
@@ -192,7 +192,10 @@ void main() {
     final copy = formatter.format(item(dominant: dominant));
 
     expect(copy.headline, 'Artist A returns to #1');
-    expect(copy.body, 'Artist A returns to the top after 6 weeks.');
+    expect(
+      copy.body,
+      'Artist A returns to the top of the weekly chart after 6 weeks.',
+    );
   });
 
   test('simultaneous threshold wording uses occupancy count', () {
@@ -258,5 +261,39 @@ void main() {
 
     expect(copy.headline, 'Song A rises to #3');
     expect(copy.body, 'Song A climbs 12 spots.');
+  });
+
+  // Moments come from weekly charts. Since the main Hot 100 became an
+  // all-time leaderboard, no Moment may read as an all-time achievement.
+  test('every Moment names the weekly chart it came from', () {
+    for (final scope in ChartMomentScope.values) {
+      for (final type in ChartMomentEventType.values) {
+        for (final values in [(null, null), (3, 2)]) {
+          final dominant = event(
+            id: '${scope.name}-${type.name}-${values.$1}',
+            type: type,
+            entity: song(),
+            scope: scope,
+            previousRank: values.$1,
+            currentRank: values.$2,
+            currentPeakRank: values.$2,
+            threshold: values.$1 == null ? null : 10,
+            milestoneValue: values.$1 == null ? null : 2,
+          );
+          final copy = formatter.format(item(dominant: dominant));
+          final text = '${copy.headline} ${copy.body}';
+
+          for (final mention in RegExp(
+            r'(\S+ )?Sonus Hot 100',
+          ).allMatches(text)) {
+            expect(
+              mention.group(1),
+              anyOf('weekly ', 'week’s '),
+              reason: '${scope.name} ${type.name}: $text',
+            );
+          }
+        }
+      }
+    }
   });
 }

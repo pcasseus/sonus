@@ -14,6 +14,39 @@ class ExternalMetadataArtistCredit {
   final String joinPhrase;
 }
 
+/// One specific release a candidate appears on: a Standard, a Deluxe, a
+/// regional or a compilation release, with the track's place on it when the
+/// provider reports one.
+class ExternalMetadataReleaseOption {
+  const ExternalMetadataReleaseOption({
+    required this.releaseId,
+    required this.title,
+    this.releaseGroupId,
+    this.releaseDate,
+    this.country,
+    this.status,
+    this.mediumPosition,
+    this.trackNumber,
+    this.trackCount,
+  });
+
+  final String releaseId;
+  final String title;
+  final String? releaseGroupId;
+  final DateTime? releaseDate;
+  final String? country;
+  final String? status;
+
+  /// Disc (medium) the track is on, when known.
+  final int? mediumPosition;
+
+  /// The track's number on that medium, when known.
+  final int? trackNumber;
+
+  /// Tracks on the release, when known.
+  final int? trackCount;
+}
+
 class ExternalMetadataCandidate {
   const ExternalMetadataCandidate({
     required this.provider,
@@ -29,6 +62,7 @@ class ExternalMetadataCandidate {
     this.primaryType,
     this.secondaryTypes = const [],
     this.externalIds = const {},
+    this.releaseOptions = const [],
   });
 
   final ExternalMetadataProviderKind provider;
@@ -43,9 +77,17 @@ class ExternalMetadataCandidate {
   final String displayName;
   final List<ExternalMetadataArtistCredit> artistCredits;
 
+  /// The release, only when the provider's answer names exactly one.
+  /// A recording or release group usually spans several releases; choosing
+  /// one is [releaseOptions]' job, never "the first".
   final String? releaseTitle;
   final String? releaseId;
+
+  /// Set when every release shares one release group.
   final String? releaseGroupId;
+
+  /// Every release the provider listed, in its order.
+  final List<ExternalMetadataReleaseOption> releaseOptions;
 
   final int? durationSeconds;
   final DateTime? releaseDate;

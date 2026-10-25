@@ -4,12 +4,16 @@ import 'package:flutter/widgets.dart';
 import 'package:provider/provider.dart';
 
 import '../../../../core/database/app_database.dart';
+import '../../../library/application/repositories/library_query_repository.dart';
 import '../../application/controllers/playback_coordinator.dart';
 import '../../application/controllers/playback_preferences_controller.dart';
+import '../../application/controllers/playback_restoration_controller.dart';
+import '../../application/services/media_session/sonus_audio_handler.dart';
 import '../../data/daos/track_lyrics_dao.dart';
 import '../../data/engines/just_audio_playback_engine.dart';
 import '../../data/repositories/sqlite_track_lyrics_repository.dart';
 import '../../data/services/playback_preferences_store.dart';
+import '../../data/services/playback_session_store.dart';
 import '../../domain/repositories/track_lyrics_repository.dart';
 import '../../domain/services/playback_engine.dart';
 import '../controllers/lyrics_controller.dart';
@@ -23,6 +27,8 @@ class PlaybackScope extends StatefulWidget {
     required this.child,
     this.engineFactory,
     this.preferencesStore,
+    this.mediaSession,
+    this.sessionStore,
   });
 
   final Widget child;
@@ -31,15 +37,27 @@ class PlaybackScope extends StatefulWidget {
   /// Overrides the device preference store (tests).
   final PlaybackPreferencesStore? preferencesStore;
 
+  /// Android's media session, when available. It is bound to this
+  /// scope's coordinator so notification, lock-screen and Bluetooth
+  /// commands use the same playback authority as the app.
+  final SonusAudioHandler? mediaSession;
+
+  /// Overrides the device store for the restorable session (tests).
+  final PlaybackSessionStore? sessionStore;
+
   @override
   State<PlaybackScope> createState() => _PlaybackScopeState();
 }
 
-class _PlaybackScopeState extends State<PlaybackScope> {
+class _PlaybackScopeState extends State<PlaybackScope>
+    with WidgetsBindingObserver {
   late final PlaybackEngine _engine;
   late final PlaybackCoordinator _coordinator;
   late final PlaybackStateController _stateController;
   late final PlaybackPreferencesController _preferencesController;
+  late final PlaybackRestorationController _restoration;
+  late final Future<void> _preferencesLoaded;
+  bool _restoreRequested = false;
 
   AppDatabase? _database;
   TrackLyricsRepository? _lyricsRepository;
@@ -57,12 +75,43 @@ class _PlaybackScopeState extends State<PlaybackScope> {
       store: widget.preferencesStore ?? PlaybackPreferencesStore(),
       coordinator: _coordinator,
     );
-    unawaited(_preferencesController.load());
+    _preferencesLoaded = _preferencesController.load();
+    _restoration = PlaybackRestorationController(
+      store: widget.sessionStore ?? PlaybackSessionStore(),
+      coordinator: _coordinator,
+    );
+    WidgetsBinding.instance.addObserver(this);
+    widget.mediaSession?.attach(_coordinator);
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // The process may be killed without warning once Sonus is in the
+    // background, so the position is saved as it leaves the screen.
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.detached) {
+      unawaited(_restoration.saveNow());
+    }
+  }
+
+  /// Restores the last queue, paused, once the library can be read and
+  /// the saved shuffle and repeat modes have been applied.
+  Future<void> _restoreSession(LibraryQueryRepository library) async {
+    await _preferencesLoaded;
+    if (!mounted) return;
+    await _restoration.restore(library.getTracks);
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+
+    final library = context.watch<LibraryQueryRepository?>();
+    if (library != null && !_restoreRequested) {
+      _restoreRequested = true;
+      unawaited(_restoreSession(library));
+    }
 
     final database = context.watch<AppDatabase>();
 
@@ -133,6 +182,11 @@ class _PlaybackScopeState extends State<PlaybackScope> {
   void dispose() {
     _initializationVersion++;
     _lyricsController?.dispose();
+    // Only unbinds if no newer scope has attached (restore reloads mount
+    // the new scope first).
+    widget.mediaSession?.detach(_coordinator);
+    WidgetsBinding.instance.removeObserver(this);
+    _restoration.dispose();
     _preferencesController.dispose();
     _stateController.dispose();
     unawaited(_engine.dispose());

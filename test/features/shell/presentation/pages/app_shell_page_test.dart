@@ -9,18 +9,24 @@ import 'package:sonus_next/core/design/sonus_tokens.dart';
 import 'package:sonus_next/core/design/widgets/sonus_brand_mark.dart';
 
 import 'package:sonus_next/features/player/application/controllers/playback_coordinator.dart';
+import 'package:sonus_next/features/player/domain/models/playback_queue.dart';
 import 'package:sonus_next/features/player/domain/models/playback_repeat_mode.dart';
 import 'package:sonus_next/features/player/domain/models/playback_state.dart';
 import 'package:sonus_next/features/player/domain/models/playback_track.dart';
 import 'package:sonus_next/features/player/domain/services/playback_engine.dart';
 import 'package:sonus_next/features/player/presentation/controllers/playback_state_controller.dart';
 import 'package:sonus_next/features/shell/presentation/pages/app_shell_page.dart';
+import 'package:sonus_next/features/shell/presentation/widgets/playback_host.dart';
 
 void main() {
+  /// The shell as the app hosts it: the playback slot is the app-level
+  /// playback host's, below every route, with a song queued.
   Widget buildSubject({ThemeData? theme}) {
     final engine = _FakePlaybackEngine();
     final coordinator = PlaybackCoordinator(engine: engine);
     final stateController = PlaybackStateController(coordinator: coordinator);
+    final navigatorKey = GlobalKey<NavigatorState>();
+    final routes = PlaybackHostRouteObserver();
 
     return MultiProvider(
       providers: [
@@ -29,7 +35,17 @@ void main() {
           value: stateController,
         ),
       ],
-      child: MaterialApp(theme: theme, home: const AppShellPage()),
+      child: MaterialApp(
+        theme: theme,
+        navigatorKey: navigatorKey,
+        navigatorObservers: [routes],
+        builder: (context, navigator) => PlaybackHost(
+          navigatorKey: navigatorKey,
+          routes: routes,
+          child: navigator!,
+        ),
+        home: const AppShellPage(),
+      ),
     );
   }
 
@@ -375,7 +391,23 @@ class _FakePlaybackEngine implements PlaybackEngine {
   final StreamController<PlaybackState> _states =
       StreamController<PlaybackState>.broadcast();
 
-  final PlaybackState _state = const PlaybackState();
+  final PlaybackState _state = const PlaybackState(
+    queue: PlaybackQueue(
+      tracks: [
+        PlaybackTrack(
+          songId: 'song-1',
+          title: 'Song',
+          artistId: 'artist',
+          artistName: 'Artist',
+          albumId: 'album',
+          albumTitle: 'Album',
+          filePath: '/music/song.mp3',
+          duration: Duration(minutes: 3),
+        ),
+      ],
+      currentIndex: 0,
+    ),
+  );
 
   @override
   Stream<PlaybackState> get states => _states.stream;

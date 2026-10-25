@@ -3,15 +3,37 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../../core/design/widgets/playback/sonus_lyrics_view.dart';
+import '../../../../core/design/widgets/sonus_artwork_atmosphere_builder.dart';
+import '../../../../core/design/widgets/sonus_state_view.dart';
 import '../../application/controllers/playback_coordinator.dart';
-import '../../domain/models/lyric_line.dart';
 import '../../domain/models/track_lyrics.dart';
 import '../controllers/lyrics_controller.dart';
 import '../controllers/lyrics_state.dart';
 import '../controllers/playback_state_controller.dart';
 
-class LyricsPage extends StatelessWidget {
+class LyricsPage extends StatefulWidget {
   const LyricsPage({super.key});
+
+  @override
+  State<LyricsPage> createState() => _LyricsPageState();
+}
+
+class _LyricsPageState extends State<LyricsPage> {
+  @override
+  void initState() {
+    super.initState();
+    // Lyrics can be imported or changed while a song plays; opening the
+    // page reads them again (unless a read is already under way).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final controller = context.read<LyricsController?>();
+      if (controller != null &&
+          controller.state.status != LyricsStatus.loading) {
+        unawaited(controller.reload());
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -45,324 +67,147 @@ class LyricsPage extends StatelessWidget {
         centerTitle: true,
       ),
       body: track == null
-          ? const _LyricsMessage(
+          ? const SonusStateView(
               key: ValueKey<String>('lyrics-no-track'),
               icon: Icons.music_note_rounded,
               title: 'Nothing is playing',
               message: 'Play a song to view its lyrics.',
             )
           : lyricsController == null
-          ? const _LyricsLoading(key: ValueKey<String>('lyrics-initializing'))
-          : _LyricsBody(
-              state: lyricsController.state,
-              playbackPosition: playbackState.position,
+          ? const SonusStateView.loading(
+              key: ValueKey<String>('lyrics-initializing'),
+            )
+          : SonusArtworkAtmosphereBuilder(
+              artworkPath: track.artworkPath,
+              builder: (context, atmosphere) => _LyricsBody(
+                state: lyricsController.state,
+                playbackPosition: playbackState.position,
+                accentColor: atmosphere.isTinted ? atmosphere.accent : null,
+              ),
             ),
     );
   }
 }
 
 class _LyricsBody extends StatelessWidget {
-  const _LyricsBody({required this.state, required this.playbackPosition});
+  const _LyricsBody({
+    required this.state,
+    required this.playbackPosition,
+    required this.accentColor,
+  });
 
   final LyricsState state;
   final Duration playbackPosition;
+  final Color? accentColor;
+
+  static const _empty = SonusStateView(
+    key: ValueKey<String>('lyrics-empty'),
+    icon: Icons.lyrics_outlined,
+    title: 'No lyrics available',
+    message: 'Lyrics have not been saved for this song yet.',
+  );
 
   @override
   Widget build(BuildContext context) {
     switch (state.status) {
       case LyricsStatus.idle:
       case LyricsStatus.loading:
-        return const _LyricsLoading(key: ValueKey<String>('lyrics-loading'));
-
-      case LyricsStatus.empty:
-        return const _LyricsMessage(
-          key: ValueKey<String>('lyrics-empty'),
-          icon: Icons.lyrics_outlined,
-          title: 'No lyrics available',
-          message: 'Lyrics have not been saved for this song yet.',
+        return const SonusStateView.loading(
+          key: ValueKey<String>('lyrics-loading'),
         );
 
+      case LyricsStatus.empty:
+        return _empty;
+
       case LyricsStatus.failed:
-        return const _LyricsMessage(
-          key: ValueKey<String>('lyrics-error'),
+        return SonusStateView(
+          key: const ValueKey<String>('lyrics-error'),
           icon: Icons.error_outline_rounded,
           title: 'Lyrics unavailable',
           message: 'The saved lyrics could not be loaded.',
+          isError: true,
+          action: TextButton(
+            key: const ValueKey<String>('lyrics-retry'),
+            onPressed: () {
+              unawaited(context.read<LyricsController?>()?.reload());
+            },
+            child: const Text('Try again'),
+          ),
         );
 
       case LyricsStatus.loaded:
         final lyrics = state.lyrics;
 
-        if (lyrics == null || !lyrics.hasLyrics) {
-          return const _LyricsMessage(
-            key: ValueKey<String>('lyrics-empty'),
-            icon: Icons.lyrics_outlined,
-            title: 'No lyrics available',
-            message: 'Lyrics have not been saved for this song yet.',
-          );
-        }
+        if (lyrics == null || !lyrics.hasLyrics) return _empty;
 
-        if (lyrics.hasSyncedLyrics) {
-          return _SyncedLyricsView(
-            lyrics: lyrics,
-            playbackPosition: playbackPosition,
-          );
-        }
-
-        return _PlainLyricsView(lyrics: lyrics);
+        return _LyricsLines(
+          lyrics: lyrics,
+          playbackPosition: playbackPosition,
+          accentColor: accentColor,
+        );
     }
   }
 }
 
-class _SyncedLyricsView extends StatefulWidget {
-  const _SyncedLyricsView({
+/// Maps saved lyrics onto the Sonus lyrics view. Timings are passed through
+/// unchanged, and the current line is the one [TrackLyrics.activeLineAt]
+/// chooses, as before.
+class _LyricsLines extends StatefulWidget {
+  const _LyricsLines({
     required this.lyrics,
     required this.playbackPosition,
+    required this.accentColor,
   });
 
   final TrackLyrics lyrics;
   final Duration playbackPosition;
+  final Color? accentColor;
 
   @override
-  State<_SyncedLyricsView> createState() => _SyncedLyricsViewState();
+  State<_LyricsLines> createState() => _LyricsLinesState();
 }
 
-class _SyncedLyricsViewState extends State<_SyncedLyricsView> {
-  static const double _estimatedLineExtent = 76;
+class _LyricsLinesState extends State<_LyricsLines> {
+  TrackLyrics? _mappedFrom;
+  List<SonusLyricLine> _lines = const [];
 
-  final ScrollController _scrollController = ScrollController();
-
-  int? _activeIndex;
-
-  @override
-  void initState() {
-    super.initState();
-    _activeIndex = _findActiveIndex();
-    _scheduleFollow();
-  }
-
-  @override
-  void didUpdateWidget(covariant _SyncedLyricsView oldWidget) {
-    super.didUpdateWidget(oldWidget);
-
-    final nextActiveIndex = _findActiveIndex();
-
-    if (nextActiveIndex != _activeIndex ||
-        oldWidget.lyrics.songId != widget.lyrics.songId) {
-      _activeIndex = nextActiveIndex;
-      _scheduleFollow();
+  /// Mapped once per lyrics, not on every position update, so the view
+  /// only re-follows when the song's lines really change.
+  List<SonusLyricLine> _linesFor(TrackLyrics lyrics) {
+    if (!identical(lyrics, _mappedFrom)) {
+      _mappedFrom = lyrics;
+      _lines = lyrics.hasSyncedLyrics
+          ? [
+              for (final line in lyrics.syncedLines)
+                SonusLyricLine(text: line.text, start: line.timestamp),
+            ]
+          : [SonusLyricLine(text: lyrics.plainText!.trim())];
     }
-  }
-
-  int? _findActiveIndex() {
-    final activeLine = widget.lyrics.activeLineAt(widget.playbackPosition);
-
-    if (activeLine == null) {
-      return null;
-    }
-
-    final index = widget.lyrics.syncedLines.indexOf(activeLine);
-    return index < 0 ? null : index;
-  }
-
-  void _scheduleFollow() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_scrollController.hasClients || _activeIndex == null) {
-        return;
-      }
-
-      final viewport = _scrollController.position.viewportDimension;
-      final target =
-          (_activeIndex! * _estimatedLineExtent) -
-          (viewport / 2) +
-          (_estimatedLineExtent / 2);
-
-      final clamped = target.clamp(
-        _scrollController.position.minScrollExtent,
-        _scrollController.position.maxScrollExtent,
-      );
-
-      _scrollController.animateTo(
-        clamped.toDouble(),
-        duration: const Duration(milliseconds: 320),
-        curve: Curves.easeOutCubic,
-      );
-    });
+    return _lines;
   }
 
   @override
   Widget build(BuildContext context) {
-    final lines = widget.lyrics.syncedLines;
+    final lyrics = widget.lyrics;
+    final synced = lyrics.hasSyncedLyrics;
     final coordinator = context.read<PlaybackCoordinator>();
+    final active = synced ? lyrics.activeLineAt(widget.playbackPosition) : null;
 
-    return ListView.builder(
-      key: const ValueKey<String>('synced-lyrics-list'),
-      controller: _scrollController,
-      padding: const EdgeInsets.fromLTRB(24, 32, 24, 48),
-      itemCount: lines.length,
-      itemBuilder: (context, index) {
-        final line = lines[index];
-        final isActive = index == _activeIndex;
-
-        return _SyncedLyricLine(
-          line: line,
-          index: index,
-          isActive: isActive,
-          onTap: () {
-            unawaited(coordinator.seek(line.timestamp));
-          },
-        );
+    return SonusLyricsView(
+      lines: _linesFor(lyrics),
+      position: widget.playbackPosition,
+      activeIndex: synced
+          ? (active == null ? -1 : lyrics.syncedLines.indexOf(active))
+          : null,
+      accentColor: widget.accentColor,
+      scrollKey: ValueKey<String>(
+        synced ? 'synced-lyrics-list' : 'plain-lyrics-scroll',
+      ),
+      lineKeyPrefix: 'lyrics',
+      plainTextKey: const ValueKey<String>('plain-lyrics-text'),
+      onSeek: (position) {
+        unawaited(coordinator.seek(position));
       },
-    );
-  }
-
-  @override
-  void dispose() {
-    _scrollController.dispose();
-    super.dispose();
-  }
-}
-
-class _SyncedLyricLine extends StatelessWidget {
-  const _SyncedLyricLine({
-    required this.line,
-    required this.index,
-    required this.isActive,
-    required this.onTap,
-  });
-
-  final LyricLine line;
-  final int index;
-  final bool isActive;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-
-    return Semantics(
-      button: true,
-      selected: isActive,
-      label: isActive ? 'Current lyric: ${line.text}' : line.text,
-      child: InkWell(
-        key: ValueKey<String>('lyrics-line-$index'),
-        borderRadius: BorderRadius.circular(16),
-        onTap: onTap,
-        child: AnimatedContainer(
-          key: ValueKey<String>('lyrics-line-container-$index'),
-          duration: const Duration(milliseconds: 180),
-          curve: Curves.easeOut,
-          width: double.infinity,
-          constraints: const BoxConstraints(minHeight: 68),
-          margin: const EdgeInsets.symmetric(vertical: 4),
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-          decoration: BoxDecoration(
-            color: isActive ? colorScheme.primaryContainer : Colors.transparent,
-            borderRadius: BorderRadius.circular(16),
-          ),
-          child: Text(
-            line.text,
-            key: isActive ? const ValueKey<String>('lyrics-active-line') : null,
-            textAlign: TextAlign.center,
-            style: theme.textTheme.titleMedium?.copyWith(
-              color: isActive
-                  ? colorScheme.onPrimaryContainer
-                  : colorScheme.onSurfaceVariant,
-              fontWeight: isActive ? FontWeight.w800 : FontWeight.w500,
-              height: 1.35,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _PlainLyricsView extends StatelessWidget {
-  const _PlainLyricsView({required this.lyrics});
-
-  final TrackLyrics lyrics;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return SingleChildScrollView(
-      key: const ValueKey<String>('plain-lyrics-scroll'),
-      padding: const EdgeInsets.fromLTRB(28, 32, 28, 48),
-      child: SelectionArea(
-        child: Text(
-          lyrics.plainText!.trim(),
-          key: const ValueKey<String>('plain-lyrics-text'),
-          textAlign: TextAlign.center,
-          style: theme.textTheme.titleMedium?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
-            height: 1.7,
-            fontWeight: FontWeight.w500,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _LyricsLoading extends StatelessWidget {
-  const _LyricsLoading({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return const Center(
-      child: SizedBox.square(
-        dimension: 32,
-        child: CircularProgressIndicator(strokeWidth: 3),
-      ),
-    );
-  }
-}
-
-class _LyricsMessage extends StatelessWidget {
-  const _LyricsMessage({
-    super.key,
-    required this.icon,
-    required this.title,
-    required this.message,
-  });
-
-  final IconData icon;
-  final String title;
-  final String message;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 64, color: theme.colorScheme.onSurfaceVariant),
-            const SizedBox(height: 16),
-            Text(
-              title,
-              textAlign: TextAlign.center,
-              style: theme.textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              message,
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

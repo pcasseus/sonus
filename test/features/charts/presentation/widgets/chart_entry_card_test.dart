@@ -20,6 +20,7 @@ void main() {
     ThemeData? theme,
     VoidCallback? onTap,
     ChartEntryStatus? status,
+    bool isAllTime = false,
     double width = 400,
     double textScale = 1,
   }) async {
@@ -41,6 +42,7 @@ void main() {
                   artworkPath: null,
                   onTap: onTap,
                   status: status,
+                  isAllTime: isAllTime,
                 ),
               ),
             ),
@@ -147,6 +149,94 @@ void main() {
       ),
     );
     semantics.dispose();
+  });
+
+  group('on the all-time chart', () {
+    testWidgets('compares with the start of the week, not last week', (
+      tester,
+    ) async {
+      await pump(
+        tester,
+        _entry(rank: 7, previousFinalRank: 9, weeksOnChart: 0),
+        isAllTime: true,
+      );
+
+      expect(find.text('Start of week #9'), findsOneWidget);
+      expect(find.textContaining('Last week'), findsNothing);
+      expect(find.text('12 streams'), findsOneWidget);
+      expect(find.text('All-time peak #2'), findsOneWidget);
+      expect(find.textContaining('Weekly peak'), findsNothing);
+    });
+
+    testWidgets('shows a weekly chart peak apart from the all-time peak', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: SonusThemeFactory.build(const SonusAppearanceSpec()),
+          home: Scaffold(
+            body: ChartEntryCard(
+              key: card,
+              entry: _entry(rank: 7, previousFinalRank: 9, weeksOnChart: 0),
+              chartType: ChartType.songs,
+              artworkPath: null,
+              isAllTime: true,
+              weeklyPeakRank: 1,
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('All-time peak #2'), findsOneWidget);
+      expect(find.text('Weekly peak #1'), findsOneWidget);
+    });
+
+    testWidgets('shows no chart-week count', (tester) async {
+      await pump(
+        tester,
+        _entry(rank: 7, previousFinalRank: 9, weeksOnChart: 0),
+        isAllTime: true,
+      );
+
+      expect(find.textContaining('week'), findsOneWidget);
+      expect(find.text('0 weeks'), findsNothing);
+    });
+
+    testWidgets('a new entry has a neutral start-of-week line', (tester) async {
+      await pump(
+        tester,
+        _entry(rank: 7, movement: ChartMovement.newEntry, weeksOnChart: 0),
+        isAllTime: true,
+      );
+
+      expect(find.text('Start of week —'), findsOneWidget);
+    });
+
+    testWidgets('screen readers hear lifetime terms', (tester) async {
+      final semantics = tester.ensureSemantics();
+
+      await pump(
+        tester,
+        _entry(rank: 7, previousFinalRank: 9, weeksOnChart: 0),
+        isAllTime: true,
+        onTap: () {},
+      );
+
+      expect(
+        tester.getSemantics(find.byKey(card)),
+        matchesSemantics(
+          label:
+              'Number 7, Up 2 places, Song 7, Artist 7 • Album 7, '
+              '12 lifetime streams, all-time peak number 2, '
+              'number 9 at the start of this week',
+          isButton: true,
+          hasTapAction: true,
+          isFocusable: true,
+          hasFocusAction: true,
+        ),
+      );
+      semantics.dispose();
+    });
   });
 
   testWidgets('extended standings are flat, labelled and announced', (
@@ -329,6 +419,7 @@ ChartEntry _entry({
   int? previousFinalRank,
   ChartMovement movement = ChartMovement.up,
   String? title,
+  int weeksOnChart = 4,
 }) {
   return ChartEntry(
     entity: ChartEntitySnapshot(
@@ -343,7 +434,7 @@ ChartEntry _entry({
     previousFinalRank: previousFinalRank,
     peakRank: 2,
     peakAchievedAt: DateTime.utc(2026, 9, 20),
-    weeksOnChart: 4,
+    weeksOnChart: weeksOnChart,
     movement: movement,
   );
 }

@@ -323,6 +323,7 @@ class _FakeEditingService extends TrackProfileEditingService {
     String? artistId,
     String? albumId,
     String? albumEditionId,
+    String? placementEditionId,
     DateTime? now,
   }) async {
     final timestamp = now ?? DateTime.utc(2026, 9, 17, 13);

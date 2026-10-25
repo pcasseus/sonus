@@ -66,6 +66,10 @@ abstract final class SettingsDataCoverage {
     DatabaseTables.importBatches: 'Import history and music folders',
     DatabaseTables.importSources: 'Import history and music folders',
     DatabaseTables.songImportReviews: 'Pending import reviews',
+    DatabaseTables.albumReleaseClassifications:
+        'Soundtrack and collaborator organization',
+    DatabaseTables.artistProjectAssignments:
+        'Soundtrack and collaborator organization',
   };
 
   static List<String> _labelsFor(BackupTablePolicy policy) {

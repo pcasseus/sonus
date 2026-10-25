@@ -13,6 +13,7 @@ import 'schema/library_schema.dart';
 import 'schema/lyrics_schema.dart';
 import 'schema/playlist_schema.dart';
 import 'schema/sync_schema.dart';
+import 'schema/organization_schema.dart';
 
 abstract final class DatabaseMigrations {
   static Future<void> migrate(
@@ -436,6 +437,12 @@ abstract final class DatabaseMigrations {
       case 33:
         await SyncSchema.rebuildInboundDeferredRecords(db);
         await SyncSchema.createOutboundConflicts(db);
+        return;
+
+      case 34:
+        // Two new device-local tables; no existing row is touched.
+        await OrganizationSchema.createAlbumReleaseClassifications(db);
+        await OrganizationSchema.createArtistProjectAssignments(db);
         return;
 
       default:

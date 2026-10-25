@@ -1,4 +1,5 @@
-﻿import 'dart:async';
+import 'dart:async';
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -32,6 +33,7 @@ class FakePlaybackEngine implements PlaybackEngine {
   int nextCalls = 0;
 
   Duration? lastSeekPosition;
+  int seekCount = 0;
   bool? lastShuffleEnabled;
   PlaybackRepeatMode? lastRepeatMode;
 
@@ -80,6 +82,7 @@ class FakePlaybackEngine implements PlaybackEngine {
 
   @override
   Future<void> seek(Duration position) async {
+    seekCount++;
     lastSeekPosition = position;
   }
 
@@ -389,6 +392,236 @@ void main() {
     await engine.dispose();
   });
 
+  testWidgets('an unreadable song is explained in the app (SN-44)', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(430, 932));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final engine = FakePlaybackEngine(
+      initialState: const PlaybackState(
+        queue: PlaybackQueue(tracks: [track1, track2], currentIndex: 0),
+        status: PlaybackStatus.playing,
+        duration: Duration(minutes: 3),
+      ),
+    );
+    addTearDown(engine.dispose);
+    await tester.pumpWidget(buildSubject(engine));
+
+    const failed = PlaybackState(
+      queue: PlaybackQueue(tracks: [track1, track2], currentIndex: 0),
+      status: PlaybackStatus.failed,
+      duration: Duration(minutes: 3),
+      errorMessage: '(0) Source error',
+    );
+    engine.emit(failed);
+    await tester.pump();
+    await tester.pump();
+
+    expect(
+      find.byKey(const ValueKey<String>('mini-player-error')),
+      findsOneWidget,
+    );
+    expect(find.text('Song unavailable'), findsOneWidget);
+    // Recoverable: the listener can still move on.
+    expect(
+      tester
+          .widget<IconButton>(
+            find.byKey(const ValueKey<String>('mini-player-next')),
+          )
+          .onPressed,
+      isNotNull,
+    );
+
+    await tester.tap(find.byKey(const ValueKey<String>('mini-player-open')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey<String>('now-playing-error')),
+      findsOneWidget,
+    );
+    expect(
+      find.textContaining('may have been moved or deleted'),
+      findsOneWidget,
+    );
+    // Engine error text is technical and may contain file paths.
+    expect(find.textContaining('Source error'), findsNothing);
+
+    engine.emit(
+      const PlaybackState(
+        queue: PlaybackQueue(tracks: [track1, track2], currentIndex: 1),
+        status: PlaybackStatus.playing,
+        duration: Duration(minutes: 3),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(
+      find.byKey(const ValueKey<String>('now-playing-error')),
+      findsNothing,
+    );
+    expect(find.text('Second Song'), findsWidgets);
+  });
+
+  testWidgets('repeat button announces the current mode (SN-44)', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(430, 932));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final semantics = tester.ensureSemantics();
+    final engine = FakePlaybackEngine(
+      initialState: const PlaybackState(
+        queue: PlaybackQueue(tracks: [track1], currentIndex: 0),
+        status: PlaybackStatus.playing,
+        duration: Duration(minutes: 3),
+      ),
+    );
+    addTearDown(engine.dispose);
+    await tester.pumpWidget(buildSubject(engine));
+    await tester.tap(find.byKey(const ValueKey<String>('mini-player-open')));
+    await tester.pumpAndSettle();
+
+    String announced() {
+      final data = tester
+          .getSemantics(
+            find.byKey(const ValueKey<String>('now-playing-repeat')),
+          )
+          .getSemanticsData();
+      return [data.label, data.tooltip].where((s) => s.isNotEmpty).join(' ');
+    }
+
+    for (final (mode, expected) in [
+      (PlaybackRepeatMode.off, 'Repeat off'),
+      (PlaybackRepeatMode.all, 'Repeat all'),
+      (PlaybackRepeatMode.one, 'Repeat one'),
+      (PlaybackRepeatMode.off, 'Repeat off'),
+    ]) {
+      engine.emit(
+        PlaybackState(
+          queue: const PlaybackQueue(tracks: [track1], currentIndex: 0),
+          status: PlaybackStatus.playing,
+          duration: const Duration(minutes: 3),
+          repeatMode: mode,
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(announced(), expected, reason: 'mode $mode');
+    }
+
+    semantics.dispose();
+  });
+
+  group('follows the playback authority (SN-44)', () {
+    testWidgets('position updates refresh progress with no interaction', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(430, 932));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final engine = FakePlaybackEngine(
+        initialState: const PlaybackState(
+          queue: PlaybackQueue(tracks: [track1], currentIndex: 0),
+          status: PlaybackStatus.playing,
+          duration: Duration(minutes: 3),
+        ),
+      );
+      addTearDown(engine.dispose);
+      await tester.pumpWidget(buildSubject(engine));
+
+      double miniProgress() => tester
+          .widget<LinearProgressIndicator>(
+            find.descendant(
+              of: find.byKey(const ValueKey<String>('mini-player-progress')),
+              matching: find.byType(LinearProgressIndicator),
+            ),
+          )
+          .value!;
+
+      engine.emit(
+        const PlaybackState(
+          queue: PlaybackQueue(tracks: [track1], currentIndex: 0),
+          status: PlaybackStatus.playing,
+          position: Duration(seconds: 90),
+          duration: Duration(minutes: 3),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+      expect(miniProgress(), closeTo(0.5, 0.001));
+
+      await tester.tap(find.byKey(const ValueKey<String>('mini-player-open')));
+      await tester.pumpAndSettle();
+      engine.emit(
+        const PlaybackState(
+          queue: PlaybackQueue(tracks: [track1], currentIndex: 0),
+          status: PlaybackStatus.playing,
+          position: Duration(seconds: 125),
+          duration: Duration(minutes: 3),
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(
+        tester
+            .widget<Text>(
+              find.byKey(const ValueKey<String>('now-playing-elapsed')),
+            )
+            .data,
+        '2:05',
+      );
+    });
+
+    testWidgets('Next follows the player across shuffle and repeat', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(430, 932));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      // Last in list order, but the player (shuffle or repeat all) still
+      // has a next song.
+      final engine = FakePlaybackEngine(
+        initialState: const PlaybackState(
+          queue: PlaybackQueue(tracks: [track1, track2], currentIndex: 1),
+          status: PlaybackStatus.playing,
+          duration: Duration(minutes: 3),
+          nextAvailable: true,
+          previousAvailable: false,
+        ),
+      );
+      addTearDown(engine.dispose);
+      await tester.pumpWidget(buildSubject(engine));
+
+      bool enabled(String key) =>
+          tester
+              .widget<IconButton>(find.byKey(ValueKey<String>(key)))
+              .onPressed !=
+          null;
+
+      expect(enabled('mini-player-next'), isTrue);
+      expect(enabled('mini-player-previous'), isFalse);
+
+      await tester.tap(find.byKey(const ValueKey<String>('mini-player-open')));
+      await tester.pumpAndSettle();
+      expect(enabled('now-playing-next'), isTrue);
+      expect(enabled('now-playing-previous'), isFalse);
+
+      // First in list order, but the shuffle order is exhausted.
+      engine.emit(
+        const PlaybackState(
+          queue: PlaybackQueue(tracks: [track1, track2], currentIndex: 0),
+          status: PlaybackStatus.playing,
+          duration: Duration(minutes: 3),
+          nextAvailable: false,
+          previousAvailable: true,
+        ),
+      );
+      await tester.pump();
+      await tester.pump();
+      expect(enabled('now-playing-next'), isFalse);
+      expect(enabled('now-playing-previous'), isTrue);
+    });
+  });
+
   testWidgets('mini player opens full now playing page', (tester) async {
     await tester.binding.setSurfaceSize(const Size(430, 932));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -539,33 +772,131 @@ void main() {
     await engine.dispose();
   });
 
-  testWidgets('now playing seek delegates selected position', (tester) async {
-    await tester.binding.setSurfaceSize(const Size(430, 932));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-    final engine = FakePlaybackEngine(
-      initialState: const PlaybackState(
-        queue: PlaybackQueue(tracks: [track1], currentIndex: 0),
-        status: PlaybackStatus.playing,
-        position: Duration(minutes: 1),
-        duration: Duration(minutes: 3),
-      ),
+  group('now playing seek', () {
+    Future<FakePlaybackEngine> openNowPlaying(WidgetTester tester) async {
+      await tester.binding.setSurfaceSize(const Size(430, 932));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final engine = FakePlaybackEngine(
+        initialState: const PlaybackState(
+          queue: PlaybackQueue(tracks: [track1], currentIndex: 0),
+          status: PlaybackStatus.playing,
+          position: Duration(minutes: 1),
+          duration: Duration(minutes: 3),
+        ),
+      );
+      addTearDown(engine.dispose);
+
+      await tester.pumpWidget(buildSubject(engine));
+      await tester.tap(find.byKey(const ValueKey<String>('mini-player-open')));
+      await tester.pumpAndSettle();
+
+      return engine;
+    }
+
+    final seekBar = find.byKey(const ValueKey<String>('now-playing-seek'));
+    final elapsed = find.byKey(const ValueKey<String>('now-playing-elapsed'));
+
+    // The drawn track, without the time labels below it.
+    Rect track(WidgetTester tester) => tester.getRect(
+      find.descendant(of: seekBar, matching: find.byType(CustomPaint)).first,
     );
 
-    await tester.pumpWidget(buildSubject(engine));
+    Offset at(Rect rect, double fraction) =>
+        Offset(rect.left + rect.width * fraction, rect.center.dy);
 
-    await tester.tap(find.byKey(const ValueKey<String>('mini-player-open')));
-    await tester.pumpAndSettle();
+    testWidgets('a completed drag seeks once, to where it ended', (
+      tester,
+    ) async {
+      final engine = await openNowPlaying(tester);
+      final rect = track(tester);
 
-    final slider = tester.widget<Slider>(
-      find.byKey(const ValueKey<String>('now-playing-seek')),
-    );
+      final gesture = await tester.startGesture(at(rect, 1 / 3));
+      for (final fraction in [0.4, 0.45, 0.5]) {
+        await gesture.moveTo(at(rect, fraction));
+        await tester.pump();
+      }
 
-    slider.onChanged!(90000);
-    await tester.pump();
+      expect(engine.seekCount, 0, reason: 'no seek while dragging');
 
-    expect(engine.lastSeekPosition, const Duration(seconds: 90));
+      await gesture.up();
+      await tester.pump();
 
-    await engine.dispose();
+      expect(engine.seekCount, 1);
+      expect(engine.lastSeekPosition!.inSeconds, closeTo(90, 1));
+    });
+
+    testWidgets('the bar and time follow the drag, not playback', (
+      tester,
+    ) async {
+      final engine = await openNowPlaying(tester);
+      final rect = track(tester);
+
+      final gesture = await tester.startGesture(at(rect, 1 / 3));
+      await gesture.moveTo(at(rect, 0.6));
+      await gesture.moveTo(at(rect, 2.5 / 3));
+      await tester.pump();
+
+      // Playback keeps reporting progress while the finger is down.
+      engine.emit(
+        engine.currentState.copyWith(position: const Duration(seconds: 61)),
+      );
+      await tester.pump();
+      await tester.pump();
+
+      expect(tester.widget<Text>(elapsed).data, '2:30');
+      expect(engine.seekCount, 0);
+
+      await gesture.up();
+      await tester.pump();
+      expect(engine.seekCount, 1);
+    });
+
+    testWidgets('an unknown length disables seeking', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(430, 932));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final engine = FakePlaybackEngine(
+        initialState: const PlaybackState(
+          queue: PlaybackQueue(tracks: [track1], currentIndex: 0),
+          status: PlaybackStatus.playing,
+          position: Duration(seconds: 20),
+        ),
+      );
+      addTearDown(engine.dispose);
+      await tester.pumpWidget(buildSubject(engine));
+      await tester.tap(find.byKey(const ValueKey<String>('mini-player-open')));
+      await tester.pumpAndSettle();
+
+      await tester.tap(seekBar);
+      await tester.pump();
+
+      expect(engine.seekCount, 0);
+      expect(find.text('--:--'), findsOneWidget);
+    });
+
+    testWidgets('a tap on the bar seeks once', (tester) async {
+      final engine = await openNowPlaying(tester);
+
+      await tester.tap(seekBar);
+      await tester.pump();
+
+      expect(engine.seekCount, 1);
+      expect(engine.lastSeekPosition!.inSeconds, closeTo(90, 2));
+    });
+
+    testWidgets('a screen-reader step seeks once', (tester) async {
+      final semantics = tester.ensureSemantics();
+      final engine = await openNowPlaying(tester);
+
+      tester.semantics.performAction(
+        find.semantics.byFlag(SemanticsFlag.isSlider),
+        SemanticsAction.increase,
+      );
+      await tester.pump();
+
+      expect(engine.seekCount, 1);
+      expect(engine.lastSeekPosition!, greaterThan(const Duration(minutes: 1)));
+      semantics.dispose();
+    });
   });
 
   testWidgets('now playing reflects live track and playback state', (
@@ -895,11 +1226,10 @@ void main() {
 
         expect(tester.takeException(), isNull);
 
-        final container = tester.widget<Container>(
+        final bar = tester.widget<Material>(
           find.byKey(const ValueKey<String>('mini-player')),
         );
-        final decoration = container.decoration! as BoxDecoration;
-        expect(decoration.color, colors.raisedSurface);
+        expect(bar.color, colors.raisedSurface);
 
         final progress = tester.widget<LinearProgressIndicator>(
           find.descendant(
@@ -913,10 +1243,7 @@ void main() {
         final playPause = tester.widget<IconButton>(
           find.byKey(const ValueKey<String>('mini-player-play-pause')),
         );
-        expect(
-          playPause.style!.backgroundColor!.resolve(<WidgetState>{}),
-          colors.playbackControl,
-        );
+        expect(playPause.color, colors.playbackControl);
         expect(
           find.byKey(const ValueKey<String>('mini-player-artwork-fallback')),
           findsOneWidget,

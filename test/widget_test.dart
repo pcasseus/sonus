@@ -14,6 +14,7 @@ import 'package:sonus_next/core/design/sonus_theme_id.dart';
 import 'package:sonus_next/core/design/sonus_tokens.dart';
 import 'package:sonus_next/core/database/app_database.dart';
 import 'package:sonus_next/features/player/application/controllers/playback_coordinator.dart';
+import 'package:sonus_next/features/player/application/services/media_session/sonus_audio_handler.dart';
 import 'package:sonus_next/features/player/domain/models/playback_repeat_mode.dart';
 import 'package:sonus_next/features/player/domain/models/playback_state.dart';
 import 'package:sonus_next/features/player/domain/models/playback_track.dart';
@@ -316,6 +317,87 @@ void main() {
       ),
       same(appearance),
     );
+  });
+
+  testWidgets('the media session binds to the app playback authority', (
+    tester,
+  ) async {
+    final fixture = await createTestDatabaseFor(tester);
+    addDatabaseTearDown(tester, fixture);
+    final mediaSession = SonusAudioHandler(artworkExists: (_) => false);
+
+    await tester.pumpWidget(
+      SonusApp(
+        libraryDatabase: fixture.database,
+        playbackEngineFactory: FakePlaybackEngine.new,
+        mediaSession: mediaSession,
+      ),
+    );
+    await tester.pump();
+
+    final coordinator = Provider.of<PlaybackCoordinator>(
+      tester.element(find.text('Sonus')),
+      listen: false,
+    );
+    expect(mediaSession.coordinator, same(coordinator));
+  });
+
+  testWidgets('the media session rebinds after a restore reload', (
+    tester,
+  ) async {
+    final fixture = await createTestDatabaseFor(tester);
+    addDatabaseTearDown(tester, fixture);
+    final engines = <FakePlaybackEngine>[];
+    final mediaSession = SonusAudioHandler(artworkExists: (_) => false);
+
+    await tester.pumpWidget(
+      SonusApp(
+        libraryDatabase: fixture.database,
+        playbackEngineFactory: () {
+          final engine = FakePlaybackEngine();
+          engines.add(engine);
+          return engine;
+        },
+        mediaSession: mediaSession,
+      ),
+    );
+    await tester.pump();
+    final before = mediaSession.coordinator;
+
+    // SN-42: a restore reloads everything below AppRestartScope, which
+    // recreates the playback engine and coordinator.
+    AppRestartScope.restart(tester.element(find.text('Sonus')));
+    await tester.pump();
+    await tester.pump();
+
+    final after = Provider.of<PlaybackCoordinator>(
+      tester.element(find.text('Sonus')),
+      listen: false,
+    );
+    expect(engines, hasLength(2));
+    expect(engines.first.disposeCalls, 1);
+    expect(after, isNot(same(before)));
+    expect(mediaSession.coordinator, same(after));
+  });
+
+  testWidgets('the media session is released when the app is torn down', (
+    tester,
+  ) async {
+    final fixture = await createTestDatabaseFor(tester);
+    addDatabaseTearDown(tester, fixture);
+    final mediaSession = SonusAudioHandler(artworkExists: (_) => false);
+
+    await tester.pumpWidget(
+      SonusApp(
+        libraryDatabase: fixture.database,
+        playbackEngineFactory: FakePlaybackEngine.new,
+        mediaSession: mediaSession,
+      ),
+    );
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pump();
+
+    expect(mediaSession.coordinator, isNull);
   });
 
   testWidgets('playback engine is disposed with app scope', (tester) async {

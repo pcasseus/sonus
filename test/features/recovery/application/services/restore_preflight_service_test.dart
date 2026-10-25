@@ -127,7 +127,7 @@ void main() {
   });
 
   test('supports exactly the reviewed backup database versions', () {
-    expect(BackupCompatibility.restorableDatabaseVersions, {31, 32, 33});
+    expect(BackupCompatibility.restorableDatabaseVersions, {31, 32, 33, 34});
     expect(
       BackupCompatibility.restorableDatabaseVersions,
       contains(AppDatabase.databaseVersion),
@@ -188,7 +188,9 @@ void main() {
       seed: (db) => seedConnectedLibrary(db, key: 'a'),
     );
     final db = await target.database;
-    await db.execute('PRAGMA user_version = ${AppDatabase.databaseVersion - 1}');
+    await db.execute(
+      'PRAGMA user_version = ${AppDatabase.databaseVersion - 1}',
+    );
 
     try {
       final result = await service.assess(contents);

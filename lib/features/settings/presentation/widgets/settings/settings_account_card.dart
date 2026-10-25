@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../../../core/design/widgets/sonus_surface_card.dart';
 import '../../../../account/application/controllers/account_controller.dart';
 
 /// The Google account card: sign-in, identity and sign-out.
@@ -13,7 +14,8 @@ class SettingsAccountCard extends StatelessWidget {
     final controller = this.controller;
 
     if (controller == null) {
-      return const Card(
+      return const SonusSurfaceCard(
+        padding: EdgeInsets.zero,
         child: ListTile(
           key: ValueKey<String>('settings-account-unavailable'),
           leading: Icon(Icons.account_circle_outlined),
@@ -43,54 +45,52 @@ class _SignedOutAccountCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
+    return SonusSurfaceCard(
       key: const ValueKey<String>('settings-account-signed-out'),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                const Icon(Icons.account_circle_outlined),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    'Google account',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.account_circle_outlined),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  'Google account',
+                  style: Theme.of(context).textTheme.titleMedium,
                 ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            const Text('Sign in to connect your Sonus account.'),
-            if (controller.hasError) ...[
-              const SizedBox(height: 12),
-              Text(
-                'Sign-in failed. Please try again.',
-                key: const ValueKey<String>('settings-account-error'),
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
             ],
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              key: const ValueKey<String>('settings-google-sign-in-button'),
-              onPressed: controller.isLoading
-                  ? null
-                  : controller.signInWithGoogle,
-              icon: controller.isLoading
-                  ? const SizedBox(
-                      width: 18,
-                      height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.login_rounded),
-              label: Text(
-                controller.isLoading ? 'Signing in...' : 'Sign in with Google',
-              ),
+          ),
+          const SizedBox(height: 12),
+          const Text('Sign in to connect your Sonus account.'),
+          if (controller.hasError) ...[
+            const SizedBox(height: 12),
+            Text(
+              'Sign-in failed. Please try again.',
+              key: const ValueKey<String>('settings-account-error'),
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
             ),
           ],
-        ),
+          const SizedBox(height: 16),
+          FilledButton.icon(
+            key: const ValueKey<String>('settings-google-sign-in-button'),
+            onPressed: controller.isLoading
+                ? null
+                : controller.signInWithGoogle,
+            icon: controller.isLoading
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.login_rounded),
+            label: Text(
+              controller.isLoading ? 'Signing in...' : 'Sign in with Google',
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -110,70 +110,66 @@ class _SignedInAccountCard extends StatelessWidget {
         ? user.email
         : null;
 
-    return Card(
+    return SonusSurfaceCard(
       key: const ValueKey<String>('settings-account-signed-in'),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            Row(
-              children: [
-                _AccountAvatar(avatarUrl: user.avatarUrl),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        displayName,
-                        key: const ValueKey<String>(
-                          'settings-account-display-name',
-                        ),
-                        style: Theme.of(context).textTheme.titleMedium,
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              _AccountAvatar(avatarUrl: user.avatarUrl),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      displayName,
+                      key: const ValueKey<String>(
+                        'settings-account-display-name',
                       ),
-                      if (secondaryText != null) ...[
-                        const SizedBox(height: 2),
-                        Text(
-                          secondaryText,
-                          key: const ValueKey<String>('settings-account-email'),
-                        ),
-                      ],
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                    if (secondaryText != null) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        secondaryText,
+                        key: const ValueKey<String>('settings-account-email'),
+                      ),
                     ],
-                  ),
-                ),
-              ],
-            ),
-            if (controller.hasError) ...[
-              const SizedBox(height: 12),
-              Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  'Account action failed. Please try again.',
-                  key: const ValueKey<String>('settings-account-error'),
-                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                  ],
                 ),
               ),
             ],
-            const SizedBox(height: 16),
+          ),
+          if (controller.hasError) ...[
+            const SizedBox(height: 12),
             Align(
               alignment: Alignment.centerLeft,
-              child: OutlinedButton.icon(
-                key: const ValueKey<String>('settings-sign-out-button'),
-                onPressed: controller.isLoading ? null : controller.signOut,
-                icon: controller.isLoading
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.logout_rounded),
-                label: Text(
-                  controller.isLoading ? 'Signing out...' : 'Sign out',
-                ),
+              child: Text(
+                'Account action failed. Please try again.',
+                key: const ValueKey<String>('settings-account-error'),
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
             ),
           ],
-        ),
+          const SizedBox(height: 16),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: OutlinedButton.icon(
+              key: const ValueKey<String>('settings-sign-out-button'),
+              onPressed: controller.isLoading ? null : controller.signOut,
+              icon: controller.isLoading
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.logout_rounded),
+              label: Text(controller.isLoading ? 'Signing out...' : 'Sign out'),
+            ),
+          ),
+        ],
       ),
     );
   }

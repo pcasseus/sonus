@@ -18,7 +18,9 @@ import 'package:sonus_next/features/import/domain/models/import_result.dart';
 import 'package:sonus_next/features/import/domain/models/resolved_metadata.dart';
 import 'package:sonus_next/features/library/data/daos/album_dao.dart';
 import 'package:sonus_next/features/library/data/daos/album_edition_dao.dart';
+import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition_track.dart';
+import 'package:sonus_next/features/library/domain/services/edition_title_parser.dart';
 import 'package:sonus_next/features/library/data/repositories/sqlite_album_edition_track_repository.dart';
 import 'package:sonus_next/features/library/data/daos/album_edition_track_dao.dart';
 import 'package:sonus_next/features/library/data/daos/artist_dao.dart';
@@ -115,6 +117,7 @@ class AtomicLibraryImporter {
               status: ImportResultStatus.skipped,
               filePath: candidate.filePath,
               songId: existingPathBinding.songId,
+              skipReason: ImportSkipReason.knownFile,
             );
           }
 
@@ -211,6 +214,7 @@ class AtomicLibraryImporter {
           return ImportResult(
             status: ImportResultStatus.skipped,
             filePath: candidate.filePath,
+            skipReason: ImportSkipReason.notInLibrary,
           );
         }
 
@@ -287,12 +291,16 @@ class AtomicLibraryImporter {
           }
         }
 
+        // "locket (Deluxe)" names the album "locket"; the edition keeps the
+        // full title.
+        final qualifiedAlbum = EditionTitleParser.parse(metadata.albumTitle);
+
         var album = match.album;
 
         if (album == null) {
           album = EntityFactory.createAlbum(
             artistId: albumArtist.id,
-            title: metadata.albumTitle,
+            title: qualifiedAlbum?.baseTitle ?? metadata.albumTitle,
             now: timestamp,
           );
 
@@ -329,10 +337,20 @@ class AtomicLibraryImporter {
         var edition = match.edition;
 
         if (edition == null) {
+          // The album's first edition is its primary one; a later edition
+          // (a Deluxe joining its Standard) never takes that over.
+          final albumHasEditions = (await editionRepository.getByAlbumId(
+            album.id,
+          )).isNotEmpty;
+
           edition = EntityFactory.createAlbumEdition(
             albumId: album.id,
             title: effectiveMetadata.albumTitle,
-            isPrimary: true,
+            type:
+                match.newEditionType ??
+                qualifiedAlbum?.type ??
+                AlbumEditionType.standard,
+            isPrimary: !albumHasEditions,
             releaseDate: metadata.releaseDate,
             genre: metadata.genre,
             now: timestamp,
@@ -601,6 +619,7 @@ class AtomicLibraryImporter {
             metadata: metadata,
             metadataSource: metadataSource,
             ambiguousArtistCredit: ambiguousArtistCredit,
+            alternateRecording: match.alternateRecordingOf != null,
           );
 
           if (reviewReasons.isNotEmpty) {
@@ -646,6 +665,38 @@ class AtomicLibraryImporter {
           );
         }
 
+        // The recording is already in the library. If this file's edition
+        // doesn't list it yet (a Standard track on the Deluxe), it does now,
+        // at the file's disc and track position.
+        final songMemberships = await albumEditionTrackRepository.getBySongId(
+          song.id,
+        );
+        final sharedWithEdition = !songMemberships.any(
+          (membership) => membership.albumEditionId == edition!.id,
+        );
+
+        if (sharedWithEdition) {
+          final editionMemberships = await albumEditionTrackRepository
+              .getByEditionId(edition.id);
+
+          await albumEditionTrackRepository.create(
+            AlbumEditionTrack(
+              albumEditionId: edition.id,
+              songId: song.id,
+              discNumber: metadata.discNumber,
+              trackNumber: metadata.trackNumber,
+              sortPosition: editionMemberships.isEmpty
+                  ? 0
+                  : editionMemberships
+                            .map((membership) => membership.sortPosition)
+                            .reduce((a, b) => a > b ? a : b) +
+                        1,
+              createdAt: timestamp,
+              updatedAt: timestamp,
+            ),
+          );
+        }
+
         final existingSongBindings = await bindingRepository.getBySongId(
           song.id,
         );
@@ -655,10 +706,15 @@ class AtomicLibraryImporter {
             .toList(growable: false);
 
         if (availableBindings.isNotEmpty) {
+          // Another file already plays this recording. Nothing is written for
+          // the copy; the result says which song it duplicates.
           return ImportResult(
             status: ImportResultStatus.skipped,
             filePath: candidate.filePath,
             songId: song.id,
+            skipReason: sharedWithEdition
+                ? ImportSkipReason.sharedWithEdition
+                : ImportSkipReason.duplicateRecording,
           );
         }
 
@@ -792,6 +848,7 @@ class AtomicLibraryImporter {
     required AudioMetadata metadata,
     required MetadataSource metadataSource,
     required String? ambiguousArtistCredit,
+    required bool alternateRecording,
   }) {
     final reasons = <ImportReviewReason>[];
 
@@ -821,6 +878,10 @@ class AtomicLibraryImporter {
 
     if (ambiguousArtistCredit != null) {
       reasons.add(ImportReviewReason.ambiguousArtistCredit);
+    }
+
+    if (alternateRecording) {
+      reasons.add(ImportReviewReason.alternateRecording);
     }
 
     return reasons;

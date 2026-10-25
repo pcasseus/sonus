@@ -4,14 +4,15 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../../../../../core/design/sonus_theme.dart';
+import '../../../../../core/design/sonus_count_label.dart';
 import '../../../../../core/design/widgets/sonus_artwork_frame.dart';
+import '../../../domain/entities/song_artist_credit.dart';
 import '../../models/artist_profile_sections.dart';
 import 'artist_profile_header.dart';
 
-/// The lead (primary) artists of the tracks on this artist's albums, such as
-/// a soundtrack or cast album, each once: open their profile, or play their
-/// songs here. Featured and co-primary credits are not listed yet; that
-/// needs a bulk credit query (SN-48I report, section 7).
+/// Everyone credited on this artist's albums, such as a soundtrack or cast
+/// album, each once with their role: open their profile, or play the songs
+/// they lead here.
 class ArtistProfileCollaborators extends StatelessWidget {
   const ArtistProfileCollaborators({
     super.key,
@@ -65,7 +66,15 @@ class _CollaboratorTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final tokens = SonusTheme.of(context);
-    final count = collaborator.tracks.length;
+    final count = collaborator.displaySongCount;
+    final role = switch (collaborator.leadRole) {
+      null => null,
+      SongArtistCreditRole.primary => 'Lead',
+      SongArtistCreditRole.coPrimary => 'Co-lead',
+      SongArtistCreditRole.featured => 'Featured',
+      SongArtistCreditRole.guest => 'Guest',
+    };
+    final songs = sonusCount(count, 'song');
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
@@ -88,7 +97,7 @@ class _CollaboratorTile extends StatelessWidget {
           ),
         ),
         subtitle: Text(
-          count == 1 ? '1 song' : '$count songs',
+          role == null ? songs : '$role · $songs',
           style: theme.textTheme.bodySmall?.copyWith(
             color: tokens.colors.textSecondary,
             fontFeatures: const [FontFeature.tabularFigures()],

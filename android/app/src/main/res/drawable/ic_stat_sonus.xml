@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Sonus Waveform S, monochrome, for the playback notification and status
+  bar (SN-44). Android tints status-bar icons, so only the alpha channel
+  matters: white strokes on transparency. Same geometry as
+  SonusBrandMarkPainter's waveformS: an S spine with two echoes scaled
+  0.62x and 1.34x about the centre and trimmed to 12-88%. Strokes are
+  slightly heavier than in-app so they stay legible at 24dp.
+  This is not the launcher icon (SN-48L).
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+
+    <!-- Inner echo (0.62x). -->
+    <path
+        android:pathData="M15.2736,8.1312 C13.7856,6.3456 9.024,6.3456 9.024,9.3216 C9.024,11.7024 14.976,11.4048 14.976,14.3808 C14.976,17.6544 10.2144,17.6544 8.7264,15.8688"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:trimPathStart="0.12"
+        android:trimPathEnd="0.88" />
+
+    <!-- Outer echo (1.34x). -->
+    <path
+        android:pathData="M19.0752,3.6384 C15.8592,-0.2208 5.568,-0.2208 5.568,6.2112 C5.568,11.3568 18.432,10.7136 18.432,17.1456 C18.432,24.2208 8.1408,24.2208 4.9248,20.3616"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="1.2"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:trimPathStart="0.12"
+        android:trimPathEnd="0.88" />
+
+    <!-- S spine. -->
+    <path
+        android:pathData="M17.28,5.76 C14.88,2.88 7.2,2.88 7.2,7.68 C7.2,11.52 16.8,11.04 16.8,15.84 C16.8,21.12 9.12,21.12 6.72,18.24"
+        android:strokeColor="#FFFFFFFF"
+        android:strokeWidth="2.6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>
