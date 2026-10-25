@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../../core/design/sonus_artwork_palette.dart';
+import '../../../../core/design/sonus_atmosphere_colors.dart';
 import '../../../../core/design/sonus_theme.dart';
 import '../../../../core/design/sonus_tokens.dart';
 import '../../../../core/design/widgets/sonus_artwork_frame.dart';
@@ -158,8 +159,8 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
 
     // Eases between theme and artwork colours instead of flashing; jumps
     // straight there with reduced motion.
-    return TweenAnimationBuilder<_AtmosphereColors>(
-      tween: _AtmosphereColorsTween(end: _AtmosphereColors.of(target)),
+    return TweenAnimationBuilder<SonusAtmosphereColors>(
+      tween: SonusAtmosphereColorsTween(end: SonusAtmosphereColors.of(target)),
       duration: reduceMotion ? Duration.zero : tokens.motion.baseMedium,
       curve: tokens.motion.curve,
       builder: (context, atmosphere, _) =>
@@ -171,7 +172,7 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
     BuildContext context,
     AlbumProfileController? controller,
     String? userId,
-    _AtmosphereColors atmosphere,
+    SonusAtmosphereColors atmosphere,
   ) {
     return Scaffold(
       key: const ValueKey<String>('album-profile-page'),
@@ -707,70 +708,6 @@ bool _hasAvailableMedia(LibraryTrack track) {
       track.filePath!.trim().isNotEmpty;
 }
 
-/// The colours the page paints with: theme colours, nudged by artwork.
-@immutable
-class _AtmosphereColors {
-  const _AtmosphereColors({
-    required this.background,
-    required this.surface,
-    required this.accent,
-    required this.onAccent,
-    required this.isTinted,
-  });
-
-  factory _AtmosphereColors.of(SonusArtworkAtmosphere atmosphere) {
-    return _AtmosphereColors(
-      background: atmosphere.background,
-      surface: atmosphere.surface,
-      accent: atmosphere.accent,
-      onAccent: atmosphere.onAccent,
-      isTinted: atmosphere.isTinted,
-    );
-  }
-
-  final Color background;
-  final Color surface;
-  final Color accent;
-  final Color onAccent;
-  final bool isTinted;
-
-  static _AtmosphereColors lerp(
-    _AtmosphereColors a,
-    _AtmosphereColors b,
-    double t,
-  ) {
-    return _AtmosphereColors(
-      background: Color.lerp(a.background, b.background, t)!,
-      surface: Color.lerp(a.surface, b.surface, t)!,
-      accent: Color.lerp(a.accent, b.accent, t)!,
-      // The text colour on the accent switches rather than blends, so it
-      // never passes through a low-contrast midpoint.
-      onAccent: t < 0.5 ? a.onAccent : b.onAccent,
-      isTinted: t < 0.5 ? a.isTinted : b.isTinted,
-    );
-  }
-
-  @override
-  bool operator ==(Object other) =>
-      other is _AtmosphereColors &&
-      other.background == background &&
-      other.surface == surface &&
-      other.accent == accent &&
-      other.onAccent == onAccent &&
-      other.isTinted == isTinted;
-
-  @override
-  int get hashCode =>
-      Object.hash(background, surface, accent, onAccent, isTinted);
-}
-
-class _AtmosphereColorsTween extends Tween<_AtmosphereColors> {
-  _AtmosphereColorsTween({super.end});
-
-  @override
-  _AtmosphereColors lerp(double t) => _AtmosphereColors.lerp(begin!, end!, t);
-}
-
 /// Artwork, title, artist, edition and release details, on a background
 /// that flows from the artwork's tint into the page.
 class _AlbumHero extends StatelessWidget {
@@ -784,7 +721,7 @@ class _AlbumHero extends StatelessWidget {
   final LibraryAlbum album;
   final AlbumProfileController controller;
   final String? artworkPath;
-  final _AtmosphereColors atmosphere;
+  final SonusAtmosphereColors atmosphere;
 
   /// Page width from which the artwork sits beside the details
   /// (landscape and tablets), keeping the track list in view.
@@ -1024,7 +961,7 @@ class _EditionBadge extends StatelessWidget {
   const _EditionBadge({required this.label, required this.atmosphere});
 
   final String label;
-  final _AtmosphereColors atmosphere;
+  final SonusAtmosphereColors atmosphere;
 
   @override
   Widget build(BuildContext context) {
@@ -1145,7 +1082,7 @@ class _EditionSelector extends StatelessWidget {
   const _EditionSelector({required this.controller, required this.atmosphere});
 
   final AlbumProfileController controller;
-  final _AtmosphereColors atmosphere;
+  final SonusAtmosphereColors atmosphere;
 
   @override
   Widget build(BuildContext context) {
@@ -1256,7 +1193,7 @@ class _EditionChoices extends StatelessWidget {
   final List<String> labels;
   final String selectedId;
   final double maxWidth;
-  final _AtmosphereColors atmosphere;
+  final SonusAtmosphereColors atmosphere;
   final ValueChanged<String> onSelected;
 
   @override
@@ -1376,7 +1313,7 @@ class _PlaybackControls extends StatelessWidget {
   const _PlaybackControls({required this.controller, required this.atmosphere});
 
   final AlbumProfileController controller;
-  final _AtmosphereColors atmosphere;
+  final SonusAtmosphereColors atmosphere;
 
   @override
   Widget build(BuildContext context) {
@@ -1447,7 +1384,7 @@ class _TracksSection extends StatelessWidget {
     required this.child,
   });
 
-  final _AtmosphereColors atmosphere;
+  final SonusAtmosphereColors atmosphere;
   final int count;
   final Widget child;
 
