@@ -8,6 +8,8 @@ import 'package:sonus_next/features/analytics/domain/repositories/playback_sessi
 import 'package:sonus_next/features/analytics/application/services/analytics_entity_ranking_service.dart';
 import 'package:sonus_next/features/analytics/domain/entities/qualified_play.dart';
 import 'package:sonus_next/features/analytics/domain/repositories/qualified_play_repository.dart';
+import 'package:sonus_next/features/home/application/models/home_ranking_week.dart';
+import 'package:sonus_next/features/home/application/models/home_snapshot.dart';
 import 'package:sonus_next/features/home/application/services/home_data_service.dart';
 import 'package:sonus_next/features/library/application/models/library_album.dart';
 import 'package:sonus_next/features/library/application/models/library_artist.dart';
@@ -574,6 +576,202 @@ void main() {
       const Duration(minutes: 4),
     );
   });
+  group('week continuity', () {
+    // Monday 5 October: this week began Sunday 4 October, last week ran
+    // 27 September to 3 October.
+    final monday = DateTime(2026, 10, 5, 12);
+    final lastWeek = DateTime(2026, 9, 29, 9);
+    final thisWeek = DateTime(2026, 10, 4, 9);
+
+    final artists = [
+      for (final n in [1, 2, 3, 4, 5]) _artist(id: 'artist_$n', name: 'A$n'),
+    ];
+    final tracks = [
+      for (final n in [1, 2, 3, 4, 5])
+        _track(id: 'song_$n', title: 'Song $n', artistId: 'artist_$n'),
+      _track(id: 'song_1b', title: 'Song 1b', artistId: 'artist_1'),
+      _track(id: 'song_1c', title: 'Song 1c', artistId: 'artist_1'),
+    ];
+
+    /// One play of each song, a minute apart from [from].
+    List<QualifiedPlay> played(List<String> songIds, DateTime from) => [
+      for (var i = 0; i < songIds.length; i++)
+        _play(
+          id: '${songIds[i]}_${from.toIso8601String()}_$i',
+          songId: songIds[i],
+          artistId: tracks
+              .firstWhere((track) => track.songId == songIds[i])
+              .artistId,
+          qualifiedAt: from.add(Duration(minutes: i)),
+        ),
+    ];
+
+    Future<HomeSnapshot> load(List<QualifiedPlay> plays) {
+      return HomeDataService(
+        library: _FakeLibraryQueryRepository(tracks: tracks, artists: artists),
+        artistListeningDurations: _emptyArtistListeningDurations(),
+        analyticsRankings: AnalyticsEntityRankingService(
+          qualifiedPlays: _FakeQualifiedPlayRepository(plays),
+        ),
+      ).load(referenceLocal: monday);
+    }
+
+    final lastWeekPlays = played([
+      'song_1',
+      'song_1',
+      'song_2',
+      'song_3',
+      'song_4',
+    ], lastWeek);
+
+    test('a new week with no listening shows last week, labelled', () async {
+      final snapshot = await load(lastWeekPlays);
+
+      expect(snapshot.popularTracksWeek, HomeRankingWeek.lastWeek);
+      // Equal counts keep analytics' order: most recently played first.
+      expect(snapshot.weeklyPopularTracks.map((e) => e.track.songId), [
+        'song_1',
+        'song_4',
+        'song_3',
+        'song_2',
+      ]);
+      expect(snapshot.weeklyPopularTracks.first.qualifiedStreamCount, 2);
+      expect(snapshot.topArtistsWeek, HomeRankingWeek.lastWeek);
+      expect(snapshot.weeklyTopArtists.first.artist.artistId, 'artist_1');
+    });
+
+    test('one play does not replace last week', () async {
+      final snapshot = await load([
+        ...lastWeekPlays,
+        ...played(['song_5'], thisWeek),
+      ]);
+
+      expect(snapshot.popularTracksWeek, HomeRankingWeek.lastWeek);
+      expect(snapshot.weeklyPopularTracks.first.track.songId, 'song_1');
+      expect(snapshot.topArtistsWeek, HomeRankingWeek.lastWeek);
+    });
+
+    test('this week takes over once it has three entries', () async {
+      final two = await load([
+        ...lastWeekPlays,
+        ...played(['song_5', 'song_4'], thisWeek),
+      ]);
+      expect(two.popularTracksWeek, HomeRankingWeek.lastWeek);
+
+      final three = await load([
+        ...lastWeekPlays,
+        ...played(['song_5', 'song_4', 'song_3'], thisWeek),
+      ]);
+      expect(three.popularTracksWeek, HomeRankingWeek.thisWeek);
+      expect(
+        three.weeklyPopularTracks.map((e) => e.track.songId),
+        unorderedEquals(['song_5', 'song_4', 'song_3']),
+      );
+    });
+
+    test(
+      'a short last week needs only as many entries, but never one',
+      () async {
+        final shortLastWeek = played(['song_1', 'song_2'], lastWeek);
+
+        final one = await load([
+          ...shortLastWeek,
+          ...played(['song_5'], thisWeek),
+        ]);
+        expect(one.popularTracksWeek, HomeRankingWeek.lastWeek);
+
+        final two = await load([
+          ...shortLastWeek,
+          ...played(['song_5', 'song_4'], thisWeek),
+        ]);
+        expect(two.popularTracksWeek, HomeRankingWeek.thisWeek);
+      },
+    );
+
+    test('each section decides on its own', () async {
+      // Three songs, all by one artist: songs are ready, artists are not.
+      final snapshot = await load([
+        ...lastWeekPlays,
+        ...played(['song_1', 'song_1b', 'song_1c'], thisWeek),
+      ]);
+
+      expect(snapshot.popularTracksWeek, HomeRankingWeek.thisWeek);
+      expect(snapshot.topArtistsWeek, HomeRankingWeek.lastWeek);
+      expect(snapshot.weeklyTopArtists, hasLength(4));
+    });
+
+    test(
+      'with nothing last week, this week shows from the first play',
+      () async {
+        final snapshot = await load(played(['song_5'], thisWeek));
+
+        expect(snapshot.popularTracksWeek, HomeRankingWeek.thisWeek);
+        expect(snapshot.weeklyPopularTracks.single.track.songId, 'song_5');
+      },
+    );
+
+    test('older listening never stands in for this week', () async {
+      final snapshot = await load(
+        played(['song_1', 'song_2', 'song_3'], DateTime(2026, 9, 22, 9)),
+      );
+
+      expect(snapshot.weeklyPopularTracks, isEmpty);
+      expect(snapshot.weeklyTopArtists, isEmpty);
+      expect(snapshot.popularTracksWeek, HomeRankingWeek.thisWeek);
+      expect(snapshot.topArtistsWeek, HomeRankingWeek.thisWeek);
+    });
+
+    test("last week's artists carry last week's listening time", () async {
+      final startedAt = lastWeek.toUtc();
+      final endedAt = startedAt.add(const Duration(minutes: 3));
+      final session = PlaybackSession(
+        id: 'session_last',
+        songId: 'song_1',
+        artistId: 'artist_1',
+        albumId: 'album_1',
+        albumEditionId: 'edition_album_1',
+        songTitle: 'Song 1',
+        artistName: 'A1',
+        albumTitle: 'Album',
+        albumEditionTitle: 'Standard',
+        startedAt: startedAt,
+        endedAt: endedAt,
+        listenedDuration: const Duration(minutes: 3),
+        trackDuration: const Duration(minutes: 3),
+        finalPosition: const Duration(minutes: 3),
+        endReason: PlaybackSessionEndReason.completed,
+        createdAt: startedAt,
+        updatedAt: endedAt,
+      );
+      final segment = PlaybackListeningSegment(
+        id: 'segment_last',
+        playbackSessionId: session.id,
+        startedAt: startedAt,
+        endedAt: endedAt,
+        listenedDuration: const Duration(minutes: 3),
+        createdAt: startedAt,
+        updatedAt: endedAt,
+      );
+
+      final snapshot = await HomeDataService(
+        library: _FakeLibraryQueryRepository(tracks: tracks, artists: artists),
+        artistListeningDurations: AnalyticsArtistListeningDurationService(
+          playbackSessions: _FakePlaybackSessionRepository([session]),
+          listeningSegments: _FakePlaybackListeningSegmentRepository([segment]),
+        ),
+        analyticsRankings: AnalyticsEntityRankingService(
+          qualifiedPlays: _FakeQualifiedPlayRepository(lastWeekPlays),
+        ),
+      ).load(referenceLocal: monday);
+
+      expect(snapshot.topArtistsWeek, HomeRankingWeek.lastWeek);
+      expect(
+        snapshot.weeklyTopArtists.first.weeklyListeningDuration,
+        const Duration(minutes: 3),
+      );
+    });
+  });
+
   test('rejects a non-positive section limit', () async {
     final service = HomeDataService(
       library: _FakeLibraryQueryRepository(),

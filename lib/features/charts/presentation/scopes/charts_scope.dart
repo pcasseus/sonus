@@ -7,9 +7,9 @@ import '../../../../core/database/app_database.dart';
 import '../../../analytics/domain/repositories/playback_session_repository.dart';
 import '../../../analytics/domain/repositories/qualified_play_repository.dart';
 import '../../../library/application/repositories/library_query_repository.dart';
+import '../../application/services/all_time_chart_service.dart';
 import '../../application/services/chart_finalization_service.dart';
 import '../../application/services/chart_snapshot_builder_service.dart';
-import '../../application/services/live_chart_service.dart';
 import '../../data/repositories/sqlite_chart_moment_repository.dart';
 import '../../data/repositories/sqlite_chart_repository.dart';
 import '../controllers/charts_controller.dart';
@@ -93,7 +93,10 @@ class _ChartsScopeState extends State<ChartsScope> {
       playbackSessions: playbackSessions,
     );
 
-    final liveCharts = LiveChartService(builder: builder);
+    final allTimeCharts = AllTimeChartService(
+      qualifiedPlays: qualifiedPlays,
+      library: library,
+    );
     final finalization = ChartFinalizationService(
       builder: builder,
       charts: charts,
@@ -105,7 +108,7 @@ class _ChartsScopeState extends State<ChartsScope> {
     );
 
     final controller = ChartsController(
-      liveCharts: liveCharts,
+      allTimeCharts: allTimeCharts,
       finalization: finalization,
       charts: charts,
       library: library,

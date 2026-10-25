@@ -39,16 +39,16 @@ class ChartsPage extends StatelessWidget {
       );
     }
 
-    final snapshot = controller.snapshot;
+    final hasChart = controller.hasChart;
 
-    if (controller.isLoading && snapshot == null) {
+    if (controller.isLoading && !hasChart) {
       return const Center(
         key: ValueKey<String>('charts-loading'),
         child: CircularProgressIndicator(),
       );
     }
 
-    if (controller.hasError && snapshot == null) {
+    if (controller.hasError && !hasChart) {
       return _ChartsError(
         key: const ValueKey<String>('charts-error'),
         onRetry: controller.load,
@@ -56,7 +56,7 @@ class ChartsPage extends StatelessWidget {
     }
 
     final entries = controller.isShowingCharts
-        ? snapshot?.entries ?? const <ChartEntry>[]
+        ? controller.entries
         : const <ChartEntry>[];
 
     // Entries are built lazily: a Top 200 chart only builds the cards that
@@ -95,21 +95,24 @@ class ChartsPage extends StatelessWidget {
 
                   const SizedBox(height: 22),
 
-                  if (controller.hasError && snapshot != null) ...[
+                  if (controller.hasError && hasChart) ...[
                     _RefreshErrorBanner(onRetry: controller.refresh),
                     const SizedBox(height: 16),
                   ],
 
-                  if (snapshot == null || snapshot.entries.isEmpty)
+                  if (entries.isEmpty)
                     const _ChartsMessage(
                       key: ValueKey<String>('charts-empty'),
                       icon: Icons.leaderboard_outlined,
                       title: 'No chart entries yet',
                       message:
-                          'Qualified listening this week will build your Sonus Hot 100.',
+                          'Every qualified listen counts toward your all-time Sonus Hot 100.',
                     )
                   else ...[
-                    _SnapshotSummary(snapshot: snapshot),
+                    _ChartSummary(
+                      chartType: controller.chartType,
+                      positionCount: entries.length,
+                    ),
                     const SizedBox(height: 14),
                   ],
                 ] else
@@ -281,7 +284,7 @@ class _MomentsFeed extends StatelessWidget {
         icon: Icons.auto_awesome_outlined,
         title: 'No Moments yet',
         message:
-            'As your Sonus Hot 100 changes, chart milestones and movement will appear here.',
+            'As your weekly Sonus Hot 100 changes, chart milestones and movement will appear here.',
       );
     }
 
@@ -572,7 +575,7 @@ class _WeekNavigator extends StatelessWidget {
   Widget build(BuildContext context) {
     final snapshot = controller.snapshot;
 
-    if (snapshot == null) {
+    if (!controller.hasChart) {
       return const SizedBox.shrink();
     }
 
@@ -591,7 +594,7 @@ class _WeekNavigator extends StatelessWidget {
           child: Column(
             children: [
               Text(
-                _formatChartWeek(snapshot),
+                snapshot == null ? 'All time' : _formatChartWeek(snapshot),
                 key: const ValueKey<String>('charts-week-label'),
                 textAlign: TextAlign.center,
                 style: Theme.of(
@@ -599,7 +602,7 @@ class _WeekNavigator extends StatelessWidget {
                 ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
               ),
               const SizedBox(height: 6),
-              _SnapshotStatusBadge(snapshot: snapshot),
+              _ChartStatusBadge(isAllTime: snapshot == null),
             ],
           ),
         ),
@@ -624,32 +627,32 @@ class _WeekNavigator extends StatelessWidget {
   }
 }
 
-class _SnapshotStatusBadge extends StatelessWidget {
-  const _SnapshotStatusBadge({required this.snapshot});
+/// ALL TIME for the permanent chart; FINAL for a finalized weekly chart.
+class _ChartStatusBadge extends StatelessWidget {
+  const _ChartStatusBadge({required this.isAllTime});
 
-  final ChartSnapshot snapshot;
+  final bool isAllTime;
 
   @override
   Widget build(BuildContext context) {
     final colors = SonusTheme.of(context).colors;
-    final isLive = snapshot.isLive;
 
-    // LIVE is filled with the accent and FINAL is outlined, so the two read
-    // differently by shape as well as colour.
+    // ALL TIME is filled with the accent and FINAL is outlined, so the two
+    // read differently by shape as well as colour.
     return Container(
       key: const ValueKey<String>('charts-snapshot-status'),
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
       decoration: BoxDecoration(
-        color: isLive ? colors.accentPrimary : Colors.transparent,
-        border: isLive ? null : Border.all(color: colors.border),
+        color: isAllTime ? colors.accentPrimary : Colors.transparent,
+        border: isAllTime ? null : Border.all(color: colors.border),
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(
-        isLive ? 'LIVE' : 'FINAL',
+        isAllTime ? 'ALL TIME' : 'FINAL',
         style: Theme.of(context).textTheme.labelSmall?.copyWith(
           fontWeight: FontWeight.w900,
           letterSpacing: 1.2,
-          color: isLive ? colors.onAccentPrimary : colors.textSecondary,
+          color: isAllTime ? colors.onAccentPrimary : colors.textSecondary,
         ),
       ),
     );
@@ -751,10 +754,11 @@ class _ExtendedChartNotice extends StatelessWidget {
   }
 }
 
-class _SnapshotSummary extends StatelessWidget {
-  const _SnapshotSummary({required this.snapshot});
+class _ChartSummary extends StatelessWidget {
+  const _ChartSummary({required this.chartType, required this.positionCount});
 
-  final ChartSnapshot snapshot;
+  final ChartType chartType;
+  final int positionCount;
 
   @override
   Widget build(BuildContext context) {
@@ -773,7 +777,7 @@ class _SnapshotSummary extends StatelessWidget {
         Semantics(
           header: true,
           child: Text(
-            snapshot.chartType == ChartType.songs ? 'Songs' : 'Albums',
+            chartType == ChartType.songs ? 'Songs' : 'Albums',
             style: theme.textTheme.titleLarge?.copyWith(
               color: colors.textPrimary,
               fontWeight: FontWeight.w800,
@@ -781,7 +785,7 @@ class _SnapshotSummary extends StatelessWidget {
           ),
         ),
         Text(
-          '${snapshot.entries.length} positions',
+          '$positionCount positions',
           style: theme.textTheme.bodyMedium?.copyWith(
             color: colors.textSecondary,
             fontFeatures: const [FontFeature.tabularFigures()],
@@ -817,7 +821,7 @@ class _ChartEntryItem extends StatelessWidget {
     };
 
     final unavailableLiveTrack =
-        controller.isViewingLive &&
+        controller.isViewingAllTime &&
         chartType == ChartType.songs &&
         track != null &&
         !controller.isTrackInteractive(entry);
@@ -841,6 +845,10 @@ class _ChartEntryItem extends StatelessWidget {
       chartType: chartType,
       artworkPath: artworkPath,
       status: status,
+      isAllTime: controller.isViewingAllTime,
+      weeklyPeakRank: controller.isViewingAllTime
+          ? controller.weeklyPeakFor(entry)
+          : null,
       onTap: canInteract
           ? () {
               if (chartType == ChartType.songs && track != null) {
