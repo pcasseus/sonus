@@ -636,6 +636,7 @@ void main() {
       await tester.tap(find.text('Album Studio'));
       await tester.pumpAndSettle();
 
+      await expandAlbumTools(tester);
       await tester.tap(
         find.byKey(const ValueKey<String>('album-studio-edit-details')),
       );
@@ -738,6 +739,7 @@ void main() {
       await tester.tap(find.text('Album Studio'));
       await tester.pumpAndSettle();
 
+      await expandAlbumTools(tester);
       await tester.tap(
         find.byKey(const ValueKey<String>('album-studio-edit-details')),
       );
@@ -789,6 +791,7 @@ void main() {
       await tester.tap(find.text('Album Studio'));
       await tester.pumpAndSettle();
 
+      await expandAlbumTools(tester);
       await tester.tap(
         find.byKey(const ValueKey<String>('album-studio-edit-details')),
       );
@@ -844,6 +847,7 @@ void main() {
       await tester.tap(find.text('Album Studio'));
       await tester.pumpAndSettle();
 
+      await expandAlbumTools(tester);
       await tester.tap(
         find.byKey(const ValueKey<String>('album-studio-edit-details')),
       );
@@ -901,6 +905,7 @@ void main() {
       await tester.tap(find.text('Album Studio'));
       await tester.pumpAndSettle();
 
+      await expandAlbumTools(tester);
       await tester.tap(
         find.byKey(const ValueKey<String>('album-studio-edit-details')),
       );
@@ -1355,6 +1360,7 @@ void main() {
         );
         await tester.pumpAndSettle();
 
+        await expandAlbumTools(tester);
         final changeArtwork = find.byKey(
           const ValueKey<String>('album-studio-change-artwork'),
         );
@@ -1467,6 +1473,7 @@ void main() {
 
       await tester.pumpAndSettle();
 
+      await expandAlbumTools(tester);
       final searchTile = find.byKey(
         const ValueKey<String>('album-studio-search-cover-art'),
       );
@@ -1617,6 +1624,7 @@ void main() {
 
         await tester.pumpAndSettle();
 
+        await expandAlbumTools(tester);
         final searchTile = find.byKey(
           const ValueKey<String>('album-studio-search-cover-art'),
         );
@@ -1762,6 +1770,7 @@ void main() {
 
       await tester.pumpAndSettle();
 
+      await expandAlbumTools(tester);
       final searchTile = find.byKey(
         const ValueKey<String>('album-studio-search-cover-art'),
       );
@@ -1904,6 +1913,7 @@ void main() {
 
       await tester.pumpAndSettle();
 
+      await expandAlbumTools(tester);
       final searchTile = find.byKey(
         const ValueKey<String>('album-studio-search-cover-art'),
       );
@@ -2045,6 +2055,7 @@ void main() {
 
       await tester.pumpAndSettle();
 
+      await expandAlbumTools(tester);
       final searchTile = find.byKey(
         const ValueKey<String>('album-studio-search-cover-art'),
       );
@@ -2186,6 +2197,7 @@ void main() {
 
       await tester.pumpAndSettle();
 
+      await expandAlbumTools(tester);
       final searchTile = find.byKey(
         const ValueKey<String>('album-studio-search-cover-art'),
       );
@@ -2325,6 +2337,7 @@ void main() {
 
       await tester.pumpAndSettle();
 
+      await expandAlbumTools(tester);
       final searchTile = find.byKey(
         const ValueKey<String>('album-studio-search-cover-art'),
       );
@@ -2439,6 +2452,7 @@ void main() {
 
       await tester.pumpAndSettle();
 
+      await expandAlbumTools(tester);
       final searchTile = find.byKey(
         const ValueKey<String>('album-studio-search-cover-art'),
       );
@@ -2559,6 +2573,7 @@ void main() {
 
       await tester.pumpAndSettle();
 
+      await expandAlbumTools(tester);
       final searchTile = find.byKey(
         const ValueKey<String>('album-studio-search-cover-art'),
       );
@@ -2613,6 +2628,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      await expandAlbumTools(tester);
       final tile = tester.widget<ListTile>(
         find.byKey(const ValueKey<String>('album-studio-search-musicbrainz')),
       );
@@ -2662,6 +2678,7 @@ void main() {
 
       await tester.pumpAndSettle();
 
+      await expandAlbumTools(tester);
       final finder = find.byKey(
         const ValueKey<String>('album-studio-search-musicbrainz'),
       );
@@ -2757,6 +2774,7 @@ void main() {
         await tester.tap(find.text('Album Studio'));
         await tester.pumpAndSettle();
 
+        await expandAlbumTools(tester);
         final musicBrainzTile = find.byKey(
           const ValueKey<String>('album-studio-search-musicbrainz'),
         );
@@ -3059,6 +3077,19 @@ void main() {
       expect(provider.lastQuery?.title, 'Studio Song');
     });
   });
+}
+
+/// Album Studio opens with its tools collapsed; expand them to use one.
+Future<void> expandAlbumTools(WidgetTester tester) async {
+  if (tester.any(
+    find.byKey(const ValueKey<String>('album-studio-edit-details')),
+  )) {
+    return;
+  }
+  await tester.tap(
+    find.byKey(const ValueKey<String>('album-studio-tools-toggle')),
+  );
+  await tester.pumpAndSettle();
 }
 
 Widget buildSubject({
