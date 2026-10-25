@@ -1,3 +1,4 @@
+import 'playback/sonus_playing_indicator.dart';
 import 'package:flutter/material.dart';
 
 import '../sonus_theme.dart';
@@ -26,6 +27,7 @@ class SonusTrackTile extends StatelessWidget {
     this.onTap,
     this.enabled = true,
     this.isCurrent = false,
+    this.isPlaying = true,
     this.tileColor,
     this.titleKey,
     this.inkKey,
@@ -53,6 +55,9 @@ class SonusTrackTile extends StatelessWidget {
   /// The song now playing: an accent marker and a "Now playing" label for
   /// screen readers.
   final bool isCurrent;
+
+  /// Whether the current song is playing (moving bars) or paused.
+  final bool isPlaying;
   final Color? tileColor;
   final Key? titleKey;
 
@@ -86,13 +91,11 @@ class SonusTrackTile extends StatelessWidget {
 
     final leading = [
       if (isCurrent)
-        Padding(
-          padding: const EdgeInsets.only(right: 8),
-          child: Icon(
-            Icons.graphic_eq_rounded,
-            size: 18,
-            color: colors.accentPrimary,
-            semanticLabel: 'Now playing',
+        SizedBox(
+          width: 28,
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: SonusPlayingIndicator(isPlaying: isPlaying),
           ),
         )
       else if (number != null)

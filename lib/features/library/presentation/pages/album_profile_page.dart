@@ -1,3 +1,5 @@
+import '../../../../core/design/widgets/playback/sonus_playing_indicator.dart';
+import '../../../player/presentation/models/now_playing_mark.dart';
 import '../../../artwork/presentation/pages/artwork_crop_editor_page.dart';
 import '../../../artwork/domain/entities/artwork_crop.dart';
 import '../../../artwork/application/services/artwork_crop_service.dart';
@@ -1596,7 +1598,26 @@ class _TracksList extends StatelessWidget {
     // follow the list's existing order; nothing is re-sorted here.
     final multiDisc =
         tracks.map((track) => track.discNumber).toSet().length > 1;
+    final coordinator = context.read<PlaybackCoordinator?>();
 
+    return StreamBuilder<NowPlayingMark>(
+      stream: coordinator == null ? null : NowPlayingMark.changes(coordinator),
+      initialData: coordinator == null
+          ? const NowPlayingMark()
+          : NowPlayingMark.of(coordinator.currentState),
+      builder: (context, snapshot) {
+        final mark = snapshot.data ?? const NowPlayingMark();
+        return _rows(context, tracks, multiDisc, mark);
+      },
+    );
+  }
+
+  Widget _rows(
+    BuildContext context,
+    List<LibraryTrack> tracks,
+    bool multiDisc,
+    NowPlayingMark mark,
+  ) {
     return Column(
       key: const ValueKey<String>('album-profile-tracks-list'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1607,6 +1628,8 @@ class _TracksList extends StatelessWidget {
             _DiscHeading(disc: track.discNumber, index: index),
           _TrackTile(
             track: track,
+            isCurrent: mark.marks(track.songId),
+            isNowPlaying: mark.isPlaying,
             selectedEditionTitle: controller.selectedEdition?.title,
             isPlayable: controller.isTrackPlayable(track),
             canEditArtwork: controller.canEditTrackArtwork,
@@ -1661,6 +1684,8 @@ class _DiscHeading extends StatelessWidget {
 class _TrackTile extends StatelessWidget {
   const _TrackTile({
     required this.track,
+    this.isCurrent = false,
+    this.isNowPlaying = false,
     this.selectedEditionTitle,
     required this.isPlayable,
     required this.canEditArtwork,
@@ -1677,6 +1702,8 @@ class _TrackTile extends StatelessWidget {
   });
 
   final LibraryTrack track;
+  final bool isCurrent;
+  final bool isNowPlaying;
 
   /// The edition on screen; a row names its edition only when it differs.
   final String? selectedEditionTitle;
@@ -1717,23 +1744,34 @@ class _TrackTile extends StatelessWidget {
         constraints: BoxConstraints(
           minWidth: MediaQuery.textScalerOf(context).scale(28),
         ),
-        child: Text(
-          '${track.trackNumber}',
-          textAlign: TextAlign.center,
-          maxLines: 1,
-          softWrap: false,
-          style: theme.textTheme.titleSmall?.copyWith(
-            color: colors.textSecondary,
-            fontWeight: FontWeight.w700,
-            fontFeatures: tabular,
-          ),
-        ),
+        child: isCurrent
+            ? SizedBox(
+                key: ValueKey<String>('album-track-playing-${track.songId}'),
+                width: MediaQuery.textScalerOf(context).scale(28),
+                child: Center(
+                  child: SonusPlayingIndicator(isPlaying: isNowPlaying),
+                ),
+              )
+            : Text(
+                '${track.trackNumber}',
+                textAlign: TextAlign.center,
+                maxLines: 1,
+                softWrap: false,
+                style: theme.textTheme.titleSmall?.copyWith(
+                  color: colors.textSecondary,
+                  fontWeight: FontWeight.w700,
+                  fontFeatures: tabular,
+                ),
+              ),
       ),
       title: Text(
         track.title,
         maxLines: largeText ? 3 : 2,
         overflow: TextOverflow.ellipsis,
-        style: theme.textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
+        style: theme.textTheme.bodyLarge?.copyWith(
+          fontWeight: isCurrent ? FontWeight.w800 : FontWeight.w600,
+          color: isCurrent ? colors.accentPrimary : null,
+        ),
       ),
       subtitle: _subtitle(track, colors, duration: largeText ? duration : null),
       trailing: Row(

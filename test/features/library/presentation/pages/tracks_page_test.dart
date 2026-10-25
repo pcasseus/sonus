@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
@@ -1256,6 +1257,136 @@ void main() {
         );
       },
     );
+  });
+
+  group('SN-45 A–Z rail', () {
+    final rail = find.byKey(const ValueKey<String>('alphabet-rail'));
+
+    /// [perLetter] songs for each of A, B, M and Z, already in title order.
+    List<LibraryTrack> library({int perLetter = 30}) => [
+      for (final letter in ['A', 'B', 'M', 'Z'])
+        for (var i = 0; i < perLetter; i++)
+          createTrack(
+            songId: '$letter-$i',
+            title: '$letter song ${i.toString().padLeft(2, '0')}',
+          ),
+    ];
+
+    Future<void> pumpTracks(
+      WidgetTester tester, {
+      List<LibraryTrack>? tracks,
+      Size size = const Size(411, 900),
+      double textScale = 1,
+    }) async {
+      await tester.binding.setSurfaceSize(size);
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        buildSubject(
+          repository: FakeLibraryQueryRepository(tracks: tracks ?? library()),
+          appBuilder: (context, child) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: TextScaler.linear(textScale)),
+            child: child!,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('shown for alphabetical sorting', (tester) async {
+      await pumpTracks(tester);
+
+      expect(rail, findsOneWidget);
+    });
+
+    testWidgets('a single letter gets no rail', (tester) async {
+      await pumpTracks(
+        tester,
+        tracks: [
+          createTrack(songId: 'a', title: 'Alpha'),
+          createTrack(songId: 'b', title: 'Another'),
+        ],
+      );
+
+      expect(rail, findsNothing);
+    });
+
+    testWidgets('no misleading letters when sorted by date added', (
+      tester,
+    ) async {
+      await pumpTracks(tester);
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('tracks-order-dropdown')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Date added').last);
+      await tester.pumpAndSettle();
+
+      expect(rail, findsNothing);
+    });
+
+    testWidgets('a letter lands on its first song, at the top', (tester) async {
+      await pumpTracks(tester);
+      final mTop = find.byKey(const ValueKey<String>('track-M-0'));
+      expect(mTop, findsNothing, reason: 'far down a long list');
+
+      await tester.tap(find.byKey(const ValueKey<String>('alphabet-rail-M')));
+      await tester.pumpAndSettle();
+
+      expect(mTop, findsOneWidget);
+      final listTop = tester.getTopLeft(find.byType(CustomScrollView)).dy;
+      expect(tester.getTopLeft(mTop).dy, closeTo(listTop, 12));
+
+      // Dragging through the letters keeps landing on sections.
+      await tester.drag(
+        find.byKey(const ValueKey<String>('alphabet-rail-M')),
+        const Offset(0, 300),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey<String>('track-Z-0')), findsOneWidget);
+    });
+
+    testWidgets('a letter with no songs goes to the next one', (tester) async {
+      await pumpTracks(tester);
+
+      await tester.tap(find.byKey(const ValueKey<String>('alphabet-rail-K')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey<String>('track-M-0')), findsOneWidget);
+    });
+
+    testWidgets('row menus stay clear of the rail', (tester) async {
+      await pumpTracks(tester);
+
+      final railLeft = tester.getTopLeft(rail).dx;
+      final row = find.byKey(const ValueKey<String>('track-A-0'));
+      expect(tester.getTopRight(row).dx, lessThanOrEqualTo(railLeft));
+    });
+
+    testWidgets('screen readers step through the letters', (tester) async {
+      final semantics = tester.ensureSemantics();
+      await pumpTracks(tester);
+
+      final node = tester.getSemantics(rail);
+      expect(node.label, 'Jump to letter');
+      tester.binding.rootPipelineOwner.semanticsOwner!.performAction(
+        node.id,
+        SemanticsAction.increase,
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey<String>('track-A-0')), findsOneWidget);
+      semantics.dispose();
+    });
+
+    testWidgets('fits 320dp at 2x text', (tester) async {
+      await pumpTracks(tester, size: const Size(320, 640), textScale: 2);
+
+      expect(tester.takeException(), isNull);
+      expect(rail, findsOneWidget);
+    });
   });
 }
 
