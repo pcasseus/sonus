@@ -21,6 +21,7 @@ import '../features/recovery/presentation/scopes/recovery_scope.dart';
 import '../features/settings/application/controllers/appearance_controller.dart';
 import '../features/settings/presentation/scopes/appearance_scope.dart';
 import '../features/shell/presentation/pages/app_shell_page.dart';
+import '../features/shell/presentation/widgets/playback_host.dart';
 import '../features/sync/application/services/sync_run_guard.dart';
 import '../features/sync/presentation/scopes/sync_scope.dart';
 import 'account_analytics_bridge.dart';
@@ -67,6 +68,8 @@ class _SonusAppState extends State<SonusApp> {
   // rebuilds them without closing the database underneath them.
   late final AppDatabase _database = widget.libraryDatabase ?? AppDatabase();
   late final bool _ownsDatabase = widget.libraryDatabase == null;
+  final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
+  final PlaybackHostRouteObserver _playbackRoutes = PlaybackHostRouteObserver();
 
   @override
   void dispose() {
@@ -119,6 +122,15 @@ class _SonusAppState extends State<SonusApp> {
                                           title: 'Sonus',
                                           theme: theme,
                                           themeAnimationDuration: duration,
+                                          navigatorKey: _navigatorKey,
+                                          navigatorObservers: [_playbackRoutes],
+                                          // One mini-player for every route.
+                                          builder: (context, navigator) =>
+                                              PlaybackHost(
+                                                navigatorKey: _navigatorKey,
+                                                routes: _playbackRoutes,
+                                                child: navigator!,
+                                              ),
                                           home: const AppShellPage(),
                                         );
                                       },

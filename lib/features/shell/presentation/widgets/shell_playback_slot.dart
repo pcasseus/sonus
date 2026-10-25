@@ -14,6 +14,7 @@ import '../../../player/presentation/controllers/playback_state_controller.dart'
 import '../../../player/presentation/pages/now_playing_page.dart';
 import '../../../player/presentation/pages/playback_queue_page.dart';
 import '../../../player/presentation/widgets/playback_error_notice.dart';
+import 'playback_host.dart';
 
 class ShellPlaybackSlot extends StatelessWidget {
   const ShellPlaybackSlot({super.key, this.child});
@@ -50,6 +51,11 @@ class ShellPlaybackSlot extends StatelessWidget {
     );
   }
 }
+
+/// The root navigator when the bar is in the playback host (outside any
+/// route), otherwise the nearest one.
+NavigatorState _navigator(BuildContext context) =>
+    PlaybackHost.navigatorOf(context) ?? Navigator.of(context);
 
 class _MiniPlayer extends StatelessWidget {
   const _MiniPlayer({
@@ -135,7 +141,7 @@ class _MiniPlayer extends StatelessWidget {
                     key: const ValueKey<String>('mini-player-queue'),
                     tooltip: 'Queue',
                     onPressed: () {
-                      Navigator.of(context).push(
+                      _navigator(context).push(
                         MaterialPageRoute<void>(
                           builder: (_) => const PlaybackQueuePage(),
                         ),
@@ -155,8 +161,9 @@ class _MiniPlayer extends StatelessWidget {
   void _openNowPlaying(BuildContext context) {
     final reducedMotion = SonusTheme.of(context).motion.reduced;
 
-    Navigator.of(context).push(
+    _navigator(context).push(
       PageRouteBuilder<void>(
+        settings: const RouteSettings(name: NowPlayingPage.routeName),
         transitionDuration: reducedMotion
             ? Duration.zero
             : const Duration(milliseconds: 300),
