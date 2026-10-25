@@ -4,6 +4,14 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../../core/design/sonus_theme.dart';
+import '../../../../core/design/widgets/sonus_artwork_frame.dart';
+import '../../../../core/design/widgets/sonus_bar_strip.dart';
+import '../../../../core/design/widgets/sonus_comparison_indicator.dart';
+import '../../../../core/design/widgets/sonus_decorations.dart';
+import '../../../../core/design/widgets/sonus_heat_grid.dart';
+import '../../../../core/design/widgets/sonus_metric_tile.dart';
+import '../../../../core/design/widgets/sonus_numeric_table.dart';
 import '../../application/models/monthly_insights/monthly_album_insight_row.dart';
 import '../../application/models/monthly_insights/monthly_artist_insight_row.dart';
 import '../../application/models/monthly_insights/monthly_daily_listening.dart';
@@ -66,17 +74,19 @@ class MonthlyListeningInsightsPage extends StatelessWidget {
       );
     }
 
+    final gutter = SonusTheme.of(context).metrics.pageGutter;
+
     return RefreshIndicator(
       onRefresh: controller.refresh,
       child: ListView(
         key: const PageStorageKey<String>('monthly-insights-scroll'),
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(20, 22, 20, 40),
+        padding: EdgeInsets.fromLTRB(gutter, 22, gutter, 40),
         children: [
           const _InsightsHeader(),
-          const SizedBox(height: 18),
+          const SizedBox(height: 14),
           _MonthNavigator(controller: controller),
-          const SizedBox(height: 22),
+          const SizedBox(height: 20),
 
           if (controller.hasError) ...[
             _RefreshErrorBanner(onRetry: controller.refresh),
@@ -87,11 +97,11 @@ class MonthlyListeningInsightsPage extends StatelessWidget {
             const _EmptyMonth()
           else ...[
             _HeadlineMetrics(insights: insights),
-            const SizedBox(height: 24),
+            const SizedBox(height: 30),
             _ActivitySection(insights: insights),
-            const SizedBox(height: 26),
-            _DailyTimeline(insights: insights),
-            const SizedBox(height: 26),
+            const SizedBox(height: 30),
+            _DailySection(insights: insights),
+            const SizedBox(height: 30),
             _RankingTables(data: controller.presentationData),
           ],
         ],
@@ -105,28 +115,43 @@ class _InsightsHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = SonusTheme.of(context);
     final theme = Theme.of(context);
 
-    return Column(
-      key: const ValueKey<String>('monthly-insights-header'),
-      crossAxisAlignment: CrossAxisAlignment.start,
+    // The page's featured header carries the theme texture and motif.
+    return Stack(
       children: [
-        Text(
-          'SONUS',
-          style: theme.textTheme.labelLarge?.copyWith(
-            letterSpacing: 2.4,
-            fontWeight: FontWeight.w800,
-            color: theme.colorScheme.primary,
-          ),
-        ),
-        const SizedBox(height: 3),
-        Text(
-          'Monthly Insights',
-          key: const ValueKey<String>('monthly-insights-title'),
-          style: theme.textTheme.displaySmall?.copyWith(
-            fontWeight: FontWeight.w900,
-            height: 1,
-          ),
+        const Positioned.fill(child: SonusSurfaceTexture()),
+        Column(
+          key: const ValueKey<String>('monthly-insights-header'),
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'SONUS',
+              style: theme.textTheme.labelLarge?.copyWith(
+                letterSpacing: 2.4,
+                fontWeight: FontWeight.w800,
+                color: tokens.colors.textSecondary,
+              ),
+            ),
+            const SizedBox(height: 3),
+            Semantics(
+              header: true,
+              child: Text(
+                'Monthly Insights',
+                key: const ValueKey<String>('monthly-insights-title'),
+                style: tokens.text.pageTitle.copyWith(
+                  color: tokens.colors.textPrimary,
+                  fontWeight: FontWeight.w900,
+                  height: 1.05,
+                ),
+              ),
+            ),
+            if (tokens.decoration.showMarks) ...[
+              SizedBox(height: tokens.metrics.spaceSm),
+              const SonusMotifMark(),
+            ],
+          ],
         ),
       ],
     );
@@ -140,6 +165,8 @@ class _MonthNavigator extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = SonusTheme.of(context);
+
     return Row(
       key: const ValueKey<String>('monthly-insights-month-navigation'),
       children: [
@@ -156,9 +183,11 @@ class _MonthNavigator extends StatelessWidget {
             _formatMonth(controller.selectedMonth),
             key: const ValueKey<String>('monthly-insights-month-label'),
             textAlign: TextAlign.center,
-            style: Theme.of(
-              context,
-            ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+              color: tokens.colors.textPrimary,
+              fontWeight: FontWeight.w800,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
           ),
         ),
         IconButton(
@@ -176,6 +205,99 @@ class _MonthNavigator extends StatelessWidget {
   }
 }
 
+/// A major section title with the theme motif and an optional caption.
+class _SectionTitle extends StatelessWidget {
+  const _SectionTitle({required this.title, this.detail, this.caption});
+
+  final String title;
+
+  /// Short trailing text, e.g. "Top 25 of 26".
+  final String? detail;
+  final String? caption;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = SonusTheme.of(context);
+    final theme = Theme.of(context);
+    final detail = this.detail;
+    final caption = this.caption;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          alignment: WrapAlignment.spaceBetween,
+          crossAxisAlignment: WrapCrossAlignment.end,
+          spacing: 12,
+          runSpacing: 4,
+          children: [
+            SonusSectionHeading(title: title),
+            if (detail != null)
+              Text(
+                detail,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: tokens.colors.textSecondary,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
+          ],
+        ),
+        if (caption != null) ...[
+          const SizedBox(height: 4),
+          Text(
+            caption,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: tokens.colors.textSecondary,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+/// Monthly comparison for a metric, worded exactly as before.
+SonusComparison _comparison(
+  double? percentChange, {
+  required bool increased,
+  required bool decreased,
+  required String suffix,
+}) {
+  final text = '${_formatPercentChange(percentChange)} $suffix';
+
+  if (percentChange == null) {
+    return SonusComparison(
+      direction: SonusComparisonDirection.isNew,
+      text: text,
+      spokenLabel: 'New this month',
+    );
+  }
+
+  final percent = (percentChange * 100).abs().toStringAsFixed(1);
+
+  if (increased) {
+    return SonusComparison(
+      direction: SonusComparisonDirection.up,
+      text: text,
+      spokenLabel: 'Up $percent percent on the previous month',
+    );
+  }
+
+  if (decreased) {
+    return SonusComparison(
+      direction: SonusComparisonDirection.down,
+      text: text,
+      spokenLabel: 'Down $percent percent on the previous month',
+    );
+  }
+
+  return SonusComparison(
+    direction: SonusComparisonDirection.unchanged,
+    text: text,
+    spokenLabel: 'No change on the previous month',
+  );
+}
+
 class _HeadlineMetrics extends StatelessWidget {
   const _HeadlineMetrics({required this.insights});
 
@@ -183,174 +305,126 @@ class _HeadlineMetrics extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final current = insights.currentSummary;
+    final previous = insights.previousSummary;
+    final previousMonth = _shortMonthName(insights.previousMonth.month);
+
+    final featured = [
+      SonusMetricTile(
+        label: 'Streams',
+        value: '${current.qualifiedStreamCount}',
+        previousLabel: '$previousMonth: ${previous.qualifiedStreamCount}',
+        featured: true,
+        comparison: _comparison(
+          insights.streamChange.percentChange,
+          increased: insights.streamChange.increased,
+          decreased: insights.streamChange.decreased,
+          suffix: 'vs previous month',
+        ),
+      ),
+      SonusMetricTile(
+        label: 'Listening',
+        value: _formatDuration(insights.currentAudibleListeningDuration),
+        previousLabel:
+            '$previousMonth: '
+            '${_formatDuration(insights.previousAudibleListeningDuration)}',
+        featured: true,
+        comparison: _comparison(
+          insights.listeningTimeChange.percentChange,
+          increased: insights.listeningTimeChange.increased,
+          decreased: insights.listeningTimeChange.decreased,
+          suffix: 'vs previous month',
+        ),
+      ),
+    ];
+
+    final compact = [
+      for (final (label, value, previousValue, change) in [
+        (
+          'Tracks',
+          current.distinctSongCount,
+          previous.distinctSongCount,
+          insights.trackCountChange,
+        ),
+        (
+          'Artists',
+          current.distinctArtistCount,
+          previous.distinctArtistCount,
+          insights.artistCountChange,
+        ),
+        (
+          'Albums',
+          current.distinctAlbumCount,
+          previous.distinctAlbumCount,
+          insights.albumCountChange,
+        ),
+      ])
+        SonusMetricTile(
+          label: label,
+          value: '$value',
+          previousLabel: '$previousMonth: $previousValue',
+          comparison: _comparison(
+            change.percentChange,
+            increased: change.increased,
+            decreased: change.decreased,
+            suffix: 'vs prev',
+          ),
+        ),
+    ];
+
     return Column(
       key: const ValueKey<String>('monthly-insights-headline-metrics'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: _PrimaryMetric(
-                label: 'STREAMS',
-                value: '${insights.currentSummary.qualifiedStreamCount}',
-                comparison: _formatPercentChange(
-                  insights.streamChange.percentChange,
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _PrimaryMetric(
-                label: 'LISTENING',
-                value: _formatDuration(
-                  insights.currentAudibleListeningDuration,
-                ),
-                comparison: _formatPercentChange(
-                  insights.listeningTimeChange.percentChange,
-                ),
-              ),
-            ),
-          ],
+        const _SectionTitle(
+          title: 'This month',
+          caption: 'Compared with the previous month.',
         ),
         const SizedBox(height: 12),
-        Row(
-          children: [
-            Expanded(
-              child: _CompactMetric(
-                label: 'TRACKS',
-                value: insights.currentSummary.distinctSongCount,
-                comparison: _formatPercentChange(
-                  insights.trackCountChange.percentChange,
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: _CompactMetric(
-                label: 'ARTISTS',
-                value: insights.currentSummary.distinctArtistCount,
-                comparison: _formatPercentChange(
-                  insights.artistCountChange.percentChange,
-                ),
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: _CompactMetric(
-                label: 'ALBUMS',
-                value: insights.currentSummary.distinctAlbumCount,
-                comparison: _formatPercentChange(
-                  insights.albumCountChange.percentChange,
-                ),
-              ),
-            ),
-          ],
-        ),
+        _TileGrid(tiles: featured, columnsAtWidth: _featuredColumns),
+        const SizedBox(height: 10),
+        _TileGrid(tiles: compact, columnsAtWidth: _compactColumns),
       ],
     );
   }
+
+  /// Columns for the large tiles at an effective (text-scaled) width.
+  static int _featuredColumns(double effectiveWidth) =>
+      effectiveWidth >= 300 ? 2 : 1;
+
+  static int _compactColumns(double effectiveWidth) => effectiveWidth >= 360
+      ? 3
+      : effectiveWidth >= 240
+      ? 2
+      : 1;
 }
 
-class _PrimaryMetric extends StatelessWidget {
-  const _PrimaryMetric({
-    required this.label,
-    required this.value,
-    required this.comparison,
-  });
+/// Lays tiles out in equal columns; the column count follows the width
+/// divided by the text scale, so large text gets fewer, wider tiles.
+class _TileGrid extends StatelessWidget {
+  const _TileGrid({required this.tiles, required this.columnsAtWidth});
 
-  final String label;
-  final String value;
-  final String comparison;
+  final List<Widget> tiles;
+  final int Function(double effectiveWidth) columnsAtWidth;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    const gap = 10.0;
 
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(18),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: theme.textTheme.labelSmall?.copyWith(
-              letterSpacing: 1,
-              fontWeight: FontWeight.w800,
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-          const SizedBox(height: 7),
-          Text(
-            value,
-            style: theme.textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-          const SizedBox(height: 5),
-          Text(
-            '$comparison vs previous month',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final scale = MediaQuery.textScalerOf(context).scale(1);
+        final columns = columnsAtWidth(constraints.maxWidth / scale);
+        final width = (constraints.maxWidth - gap * (columns - 1)) / columns;
 
-class _CompactMetric extends StatelessWidget {
-  const _CompactMetric({
-    required this.label,
-    required this.value,
-    required this.comparison,
-  });
-
-  final String label;
-  final int value;
-  final String comparison;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 13),
-      decoration: BoxDecoration(
-        border: Border.all(color: theme.colorScheme.outlineVariant),
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Column(
-        children: [
-          Text(
-            '$value',
-            style: theme.textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-          const SizedBox(height: 3),
-          Text(
-            label,
-            style: theme.textTheme.labelSmall?.copyWith(
-              letterSpacing: 0.7,
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '$comparison vs prev',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ],
-      ),
+        return Wrap(
+          spacing: gap,
+          runSpacing: gap,
+          children: [
+            for (final tile in tiles) SizedBox(width: width, child: tile),
+          ],
+        );
+      },
     );
   }
 }
@@ -366,112 +440,243 @@ class _ActivitySection extends StatelessWidget {
     final busiestDay = distribution.busiestDay;
     final mostActiveHour = distribution.mostActiveHour;
 
+    final rows = [
+      (
+        'Busiest day',
+        busiestDay == null
+            ? '—'
+            : '${_shortMonthName(busiestDay.localDate.month)} '
+                  '${busiestDay.localDate.day} · '
+                  '${busiestDay.streams} streams',
+      ),
+      (
+        'Most active hour',
+        mostActiveHour == null
+            ? '—'
+            : '${_formatHour(mostActiveHour.hour)} · '
+                  '${_formatDuration(mostActiveHour.listeningDuration)}',
+      ),
+      (
+        'Active days',
+        '${insights.behavior.activeQualifiedDayCount} / '
+            '${insights.distribution.days.length}',
+      ),
+      (
+        'Average streams / active day',
+        insights.behavior.activeQualifiedDayCount == 0
+            ? '0'
+            : insights.behavior.averageQualifiedStreamsPerActiveDay
+                  .toStringAsFixed(1),
+      ),
+      ('Completion rate', _formatRate(insights.behavior.completionRate)),
+      ('Skip rate', _formatRate(insights.behavior.skipRate)),
+    ];
+
     return Column(
       key: const ValueKey<String>('monthly-insights-activity'),
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(
-          'Listening activity',
-          style: Theme.of(
-            context,
-          ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
-        ),
+        const _SectionTitle(title: 'Listening activity'),
         const SizedBox(height: 12),
-        _ActivityRow(
-          label: 'Busiest day',
-          value: busiestDay == null
-              ? '—'
-              : '${_shortMonthName(busiestDay.localDate.month)} '
-                    '${busiestDay.localDate.day} · '
-                    '${busiestDay.streams} streams',
-        ),
-        const Divider(height: 1),
-        _ActivityRow(
-          label: 'Most active hour',
-          value: mostActiveHour == null
-              ? '—'
-              : '${_formatHour(mostActiveHour.hour)} · '
-                    '${_formatDuration(mostActiveHour.listeningDuration)}',
-        ),
-        const Divider(height: 1),
-        _ActivityRow(
-          label: 'Active days',
-          value:
-              '${insights.behavior.activeQualifiedDayCount} / '
-              '${insights.distribution.days.length}',
-        ),
-        const Divider(height: 1),
-        _ActivityRow(
-          label: 'Average streams / active day',
-          value: insights.behavior.activeQualifiedDayCount == 0
-              ? '0'
-              : insights.behavior.averageQualifiedStreamsPerActiveDay
-                    .toStringAsFixed(1),
-        ),
-        const Divider(height: 1),
-        _ActivityRow(
-          label: 'Completion rate',
-          value: _formatRate(insights.behavior.completionRate),
-        ),
-        const Divider(height: 1),
-        _ActivityRow(
-          label: 'Skip rate',
-          value: _formatRate(insights.behavior.skipRate),
-        ),
+        _Ledger(rows: rows),
+        if (distribution.hours.isNotEmpty) ...[
+          const SizedBox(height: 20),
+          _HourlyActivity(insights: insights),
+        ],
       ],
     );
   }
 }
 
-class _ActivityRow extends StatelessWidget {
-  const _ActivityRow({required this.label, required this.value});
+/// Label–value rows in a bordered ledger, values in tabular figures.
+class _Ledger extends StatelessWidget {
+  const _Ledger({required this.rows});
 
-  final String label;
-  final String value;
+  final List<(String, String)> rows;
 
   @override
   Widget build(BuildContext context) {
+    final tokens = SonusTheme.of(context);
+    final colors = tokens.colors;
     final theme = Theme.of(context);
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 13),
-      child: Row(
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: colors.surface,
+        border: Border.all(color: colors.divider),
+        borderRadius: BorderRadius.circular(tokens.metrics.cardRadius),
+      ),
+      child: Column(
         children: [
-          Expanded(
-            child: Text(
-              label,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
+          for (final (index, (label, value)) in rows.indexed) ...[
+            if (index > 0) Divider(height: 1, color: colors.divider),
+            // One node per row, so the label is read with its value.
+            Semantics(
+              container: true,
+              child: MergeSemantics(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 12,
+                  ),
+                  child: Wrap(
+                    alignment: WrapAlignment.spaceBetween,
+                    spacing: 16,
+                    runSpacing: 4,
+                    children: [
+                      Text(
+                        label,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: colors.textSecondary,
+                        ),
+                      ),
+                      Text(
+                        value,
+                        textAlign: TextAlign.end,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: colors.textPrimary,
+                          fontWeight: FontWeight.w800,
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ),
-          ),
-          const SizedBox(width: 18),
-          Text(
-            value,
-            textAlign: TextAlign.end,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              fontWeight: FontWeight.w700,
-            ),
-          ),
+          ],
         ],
       ),
     );
   }
 }
 
-class _DailyTimeline extends StatelessWidget {
-  const _DailyTimeline({required this.insights});
+/// Listening time across the 24 hours of the day, most active hour
+/// highlighted.
+class _HourlyActivity extends StatelessWidget {
+  const _HourlyActivity({required this.insights});
 
   final MonthlyListeningInsights insights;
 
+  static const _axis = {0: '12a', 6: '6a', 12: '12p', 18: '6p'};
+
   @override
   Widget build(BuildContext context) {
-    final days = insights.distribution.days;
+    final byHour = {
+      for (final hour in insights.distribution.hours) hour.hour % 24: hour,
+    };
+    final peak = insights.distribution.mostActiveHour;
 
-    if (days.isEmpty) {
-      return const SizedBox.shrink();
-    }
+    return Column(
+      key: const ValueKey<String>('monthly-insights-hourly'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          'Listening by hour of day',
+          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+            color: SonusTheme.of(context).colors.textPrimary,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        const SizedBox(height: 10),
+        SonusBarStrip(
+          highlightIndex: peak == null ? null : peak.hour % 24,
+          highlightLabel: 'most active hour',
+          bars: [
+            for (var hour = 0; hour < 24; hour++)
+              SonusBar(
+                // Listening time, the same measure that picks the most
+                // active hour, so the highlighted bar is always the tallest.
+                value: (byHour[hour]?.listeningDuration.inSeconds ?? 0)
+                    .toDouble(),
+                axisLabel: _axis[hour],
+                spokenLabel: byHour[hour] == null
+                    ? '${_formatHour(hour)}, no listening'
+                    : '${_formatHour(hour)}, '
+                          '${_formatDuration(byHour[hour]!.listeningDuration)} '
+                          'listening, ${byHour[hour]!.streams} streams',
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+}
 
+class _DailySection extends StatelessWidget {
+  const _DailySection({required this.insights});
+
+  final MonthlyListeningInsights insights;
+
+  static const _weekdays = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+
+  @override
+  Widget build(BuildContext context) {
+    final month = insights.selectedMonth;
+    final daysInMonth = DateTime(month.year, month.month + 1, 0).day;
+    final byDay = {
+      for (final day in insights.distribution.days)
+        if (day.localDate.year == month.year &&
+            day.localDate.month == month.month)
+          day.localDate.day: day,
+    };
+    // Monday-first calendar.
+    final leadingBlanks = DateTime(month.year, month.month).weekday - 1;
+    final monthName = _monthName(month.month);
+
+    return Column(
+      key: const ValueKey<String>('monthly-insights-daily-timeline'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const _SectionTitle(
+          title: 'Daily listening',
+          caption:
+              'Taller, deeper fills mean more streams. Every day is also '
+              'listed below.',
+        ),
+        const SizedBox(height: 12),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 480),
+            child: SonusHeatGrid(
+              leadingBlanks: leadingBlanks,
+              columnLabels: _weekdays,
+              cells: [
+                for (var day = 1; day <= daysInMonth; day++)
+                  SonusHeatCell(
+                    key: ValueKey<String>(
+                      'monthly-insights-heat-${month.year}-${month.month}-$day',
+                    ),
+                    label: '$day',
+                    value: (byDay[day]?.streams ?? 0).toDouble(),
+                    spokenLabel: byDay[day] == null
+                        ? '$monthName $day, no listening'
+                        : '$monthName $day, ${byDay[day]!.streams} streams, '
+                              '${_formatDuration(byDay[day]!.listeningDuration)} '
+                              'listening',
+                  ),
+              ],
+            ),
+          ),
+        ),
+        if (insights.distribution.days.isNotEmpty) ...[
+          const SizedBox(height: 18),
+          _DayByDay(days: insights.distribution.days),
+        ],
+      ],
+    );
+  }
+}
+
+/// Every active day with its streams and audible listening time.
+class _DayByDay extends StatelessWidget {
+  const _DayByDay({required this.days});
+
+  final List<MonthlyDailyListening> days;
+
+  @override
+  Widget build(BuildContext context) {
     var maxStreams = 0;
     var maxListeningMinutes = 0;
 
@@ -485,36 +690,27 @@ class _DailyTimeline extends StatelessWidget {
       }
     }
 
-    final theme = Theme.of(context);
-
     return Column(
-      key: const ValueKey<String>('monthly-insights-daily-timeline'),
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Daily timeline',
-          style: theme.textTheme.titleLarge?.copyWith(
+          'Day by day',
+          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+            color: SonusTheme.of(context).colors.textPrimary,
             fontWeight: FontWeight.w800,
           ),
         ),
-        const SizedBox(height: 4),
-        Text(
-          'Streams and audible listening time by day',
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-        ),
-        const SizedBox(height: 14),
+        const SizedBox(height: 10),
         SingleChildScrollView(
-          // Its own PageStorage slot: without it the timeline shares the
-          // page's slot and reopens at the page's vertical offset.
+          // Its own PageStorage slot: without it the rail shares the page's
+          // slot and reopens at the page's vertical offset.
           key: const PageStorageKey<String>('monthly-insights-timeline-scroll'),
           scrollDirection: Axis.horizontal,
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               for (final day in days) ...[
-                _DailyTimelineCell(
+                _DayCell(
                   day: day,
                   maxStreams: maxStreams,
                   maxListeningMinutes: maxListeningMinutes,
@@ -529,8 +725,8 @@ class _DailyTimeline extends StatelessWidget {
   }
 }
 
-class _DailyTimelineCell extends StatelessWidget {
-  const _DailyTimelineCell({
+class _DayCell extends StatelessWidget {
+  const _DayCell({
     required this.day,
     required this.maxStreams,
     required this.maxListeningMinutes,
@@ -542,13 +738,18 @@ class _DailyTimelineCell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = SonusTheme.of(context);
+    final colors = tokens.colors;
     final theme = Theme.of(context);
-
+    final scale = MediaQuery.textScalerOf(context).scale(1);
     final streamFraction = maxStreams == 0 ? 0.0 : day.streams / maxStreams;
-
     final listeningFraction = maxListeningMinutes == 0
         ? 0.0
         : day.listeningDuration.inMinutes / maxListeningMinutes;
+    final numberStyle = theme.textTheme.bodySmall?.copyWith(
+      color: colors.textPrimary,
+      fontFeatures: const [FontFeature.tabularFigures()],
+    );
 
     return Container(
       key: ValueKey<String>(
@@ -557,101 +758,63 @@ class _DailyTimelineCell extends StatelessWidget {
         '${day.localDate.month}-'
         '${day.localDate.day}',
       ),
-      width: 86,
-      padding: const EdgeInsets.fromLTRB(10, 12, 10, 10),
+      width: 88 * scale,
+      padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerLow,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: theme.colorScheme.outlineVariant),
+        color: colors.surface,
+        border: Border.all(color: colors.divider),
+        borderRadius: BorderRadius.circular(tokens.metrics.cardRadius),
       ),
       child: Column(
-        mainAxisSize: MainAxisSize.min,
         children: [
           Text(
-            '${_shortMonthName(day.localDate.month)} '
-            '${day.localDate.day}',
+            '${_shortMonthName(day.localDate.month)} ${day.localDate.day}',
             style: theme.textTheme.labelMedium?.copyWith(
+              color: colors.textPrimary,
               fontWeight: FontWeight.w800,
             ),
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
           SizedBox(
-            height: 70,
+            height: 48,
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.end,
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                _TimelineBar(
-                  fraction: streamFraction,
-                  icon: Icons.play_arrow_rounded,
-                ),
-                const SizedBox(width: 7),
-                _TimelineBar(
+                _MiniBar(fraction: streamFraction, color: colors.accentPrimary),
+                const SizedBox(width: 6),
+                _MiniBar(
                   fraction: listeningFraction,
-                  icon: Icons.schedule_rounded,
+                  color: colors.accentSecondary,
                 ),
               ],
             ),
           ),
           const SizedBox(height: 8),
-          Text(
-            '${day.streams} streams',
-            maxLines: 1,
-            style: theme.textTheme.labelSmall,
-          ),
-          const SizedBox(height: 2),
-          Text(
-            _formatDuration(day.listeningDuration),
-            maxLines: 1,
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
+          Text('${day.streams} streams', style: numberStyle),
+          Text(_formatDuration(day.listeningDuration), style: numberStyle),
         ],
       ),
     );
   }
 }
 
-class _TimelineBar extends StatelessWidget {
-  const _TimelineBar({required this.fraction, required this.icon});
+class _MiniBar extends StatelessWidget {
+  const _MiniBar({required this.fraction, required this.color});
 
   final double fraction;
-  final IconData icon;
+  final Color color;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    final normalized = fraction.clamp(0.0, 1.0);
-
-    return SizedBox(
-      width: 22,
-      height: 70,
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.end,
-        children: [
-          Expanded(
-            child: Align(
-              alignment: Alignment.bottomCenter,
-              child: FractionallySizedBox(
-                heightFactor: normalized,
-                child: Container(
-                  width: 18,
-                  constraints: normalized > 0
-                      ? const BoxConstraints(minHeight: 4)
-                      : null,
-                  decoration: BoxDecoration(
-                    color: theme.colorScheme.primaryContainer,
-                    borderRadius: BorderRadius.circular(5),
-                  ),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 4),
-          Icon(icon, size: 13, color: theme.colorScheme.onSurfaceVariant),
-        ],
+    return ExcludeSemantics(
+      child: Container(
+        width: 12,
+        height: 48 * fraction.clamp(0.06, 1.0),
+        decoration: BoxDecoration(
+          color: color,
+          borderRadius: BorderRadius.circular(3),
+        ),
       ),
     );
   }
@@ -691,7 +854,11 @@ class _RankingTables extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 10),
-          _TrackTable(rows: tracks),
+          _InsightTable(
+            storageId: 'monthly-tracks',
+            identityLabel: 'TRACK',
+            rows: [for (final row in tracks) _trackRow(context, row)],
+          ),
         ],
         if (tracks.isNotEmpty && artists.isNotEmpty) const SizedBox(height: 28),
         if (artists.isNotEmpty) ...[
@@ -703,7 +870,11 @@ class _RankingTables extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 10),
-          _ArtistTable(rows: artists),
+          _InsightTable(
+            storageId: 'monthly-artists',
+            identityLabel: 'ARTIST',
+            rows: [for (final row in artists) _artistRow(context, row)],
+          ),
         ],
         if (artists.isNotEmpty && albums.isNotEmpty) const SizedBox(height: 28),
         if (albums.isNotEmpty) ...[
@@ -715,299 +886,83 @@ class _RankingTables extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 10),
-          _AlbumTable(rows: albums),
-        ],
-      ],
-    );
-  }
-}
-
-class _SectionTitle extends StatelessWidget {
-  const _SectionTitle({required this.title, required this.detail});
-
-  final String title;
-  final String detail;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Row(
-      children: [
-        Expanded(
-          child: Text(
-            title,
-            style: theme.textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-        ),
-        Text(
-          detail,
-          style: theme.textTheme.bodySmall?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _TrackTable extends StatelessWidget {
-  const _TrackTable({required this.rows});
-
-  final List<MonthlyTrackInsightRow> rows;
-
-  @override
-  Widget build(BuildContext context) {
-    return _HorizontalInsightTable(
-      storageId: 'tracks',
-      minWidth: 940,
-      header: const _TableHeader(entityLabel: 'TRACK'),
-      rows: [
-        for (final row in rows)
-          _TrackInsightTableRow(
-            key: ValueKey<String>('monthly-insights-track-${row.entityId}'),
-            row: row,
-          ),
-      ],
-    );
-  }
-}
-
-class _ArtistTable extends StatelessWidget {
-  const _ArtistTable({required this.rows});
-
-  final List<MonthlyArtistInsightRow> rows;
-
-  @override
-  Widget build(BuildContext context) {
-    return _HorizontalInsightTable(
-      storageId: 'artists',
-      minWidth: 900,
-      header: const _TableHeader(entityLabel: 'ARTIST'),
-      rows: [
-        for (final row in rows)
-          _ArtistInsightTableRow(
-            key: ValueKey<String>('monthly-insights-artist-${row.entityId}'),
-            row: row,
-          ),
-      ],
-    );
-  }
-}
-
-class _AlbumTable extends StatelessWidget {
-  const _AlbumTable({required this.rows});
-
-  final List<MonthlyAlbumInsightRow> rows;
-
-  @override
-  Widget build(BuildContext context) {
-    return _HorizontalInsightTable(
-      storageId: 'albums',
-      minWidth: 920,
-      header: const _TableHeader(entityLabel: 'ALBUM'),
-      rows: [
-        for (final row in rows)
-          _AlbumInsightTableRow(
-            key: ValueKey<String>('monthly-insights-album-${row.entityId}'),
-            row: row,
-          ),
-      ],
-    );
-  }
-}
-
-class _HorizontalInsightTable extends StatelessWidget {
-  const _HorizontalInsightTable({
-    required this.storageId,
-    required this.minWidth,
-    required this.header,
-    required this.rows,
-  });
-
-  /// Gives the table its own PageStorage slot. Without it every table shares
-  /// the page's slot and reopens at the page's vertical offset, scrolling
-  /// the rank, artwork and title columns off screen.
-  final String storageId;
-  final double minWidth;
-  final Widget header;
-  final List<Widget> rows;
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(16),
-      child: DecoratedBox(
-        decoration: BoxDecoration(
-          border: Border.all(color: colorScheme.outlineVariant),
-          borderRadius: BorderRadius.circular(16),
-        ),
-        child: SingleChildScrollView(
-          key: PageStorageKey<String>('monthly-insights-table-$storageId'),
-          scrollDirection: Axis.horizontal,
-          child: SizedBox(
-            width: minWidth,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                header,
-                for (final row in rows) ...[const Divider(height: 1), row],
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _TableHeader extends StatelessWidget {
-  const _TableHeader({required this.entityLabel});
-
-  final String entityLabel;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    final style = theme.textTheme.labelSmall?.copyWith(
-      fontWeight: FontWeight.w800,
-      letterSpacing: 0.6,
-      color: theme.colorScheme.onSurfaceVariant,
-    );
-
-    return Container(
-      color: theme.colorScheme.surfaceContainerLow,
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 11),
-      child: Row(
-        children: [
-          _HeaderCell(
-            width: 42,
-            text: '#',
-            style: style,
-            alignment: Alignment.center,
-          ),
-          _HeaderCell(width: 330, text: entityLabel, style: style),
-          _HeaderCell(
-            width: 84,
-            text: 'STREAMS',
-            style: style,
-            alignment: Alignment.centerRight,
-          ),
-          _HeaderCell(
-            width: 72,
-            text: 'CHANGE',
-            style: style,
-            alignment: Alignment.centerRight,
-          ),
-          _HeaderCell(
-            width: 72,
-            text: '%',
-            style: style,
-            alignment: Alignment.centerRight,
-          ),
-          _HeaderCell(
-            width: 120,
-            text: 'LISTENING',
-            style: style,
-            alignment: Alignment.centerRight,
-          ),
-          _HeaderCell(
-            width: 110,
-            text: 'LIFETIME',
-            style: style,
-            alignment: Alignment.centerRight,
+          _InsightTable(
+            storageId: 'monthly-albums',
+            identityLabel: 'ALBUM',
+            rows: [for (final row in albums) _albumRow(context, row)],
           ),
         ],
-      ),
+      ],
     );
   }
-}
 
-class _HeaderCell extends StatelessWidget {
-  const _HeaderCell({
-    required this.width,
-    required this.text,
-    required this.style,
-    this.alignment = Alignment.centerLeft,
-  });
-
-  final double width;
-  final String text;
-  final TextStyle? style;
-  final Alignment alignment;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: width,
-      child: Align(
-        alignment: alignment,
-        child: Text(text, maxLines: 1, style: style),
-      ),
-    );
-  }
-}
-
-class _TrackInsightTableRow extends StatelessWidget {
-  const _TrackInsightTableRow({super.key, required this.row});
-
-  final MonthlyTrackInsightRow row;
-
-  @override
-  Widget build(BuildContext context) {
+  SonusTableRow _trackRow(BuildContext context, MonthlyTrackInsightRow row) {
     final track = row.track;
+    final badge = !row.hasCurrentLibraryEntity
+        ? 'HISTORICAL'
+        : row.isBlocked
+        ? 'BLACKLISTED'
+        : !row.isAvailable
+        ? 'UNAVAILABLE'
+        : null;
 
-    return InkWell(
+    return _tableRow(
+      key: ValueKey<String>('monthly-insights-track-${row.entityId}'),
+      identity: _IdentityCell(
+        rank: row.rank,
+        movement: row.rankMovement,
+        isNew: row.isNew,
+        artworkPath: row.artworkPath,
+        fallbackIcon: Icons.music_note_rounded,
+        title: row.title,
+        subtitle: row.artistName,
+        badge: badge,
+      ),
+      rank: row.rank,
+      title: row.title,
+      subtitle: row.artistName,
+      badge: badge,
+      streams: row.streams,
+      change: row.streamChange,
+      percentChange: row.streamPercentChange,
+      isNew: row.isNew,
+      listeningDuration: row.listeningDuration,
+      lifetimeStreams: row.lifetimeStreams,
       onTap: track == null
           ? null
           : () {
               unawaited(_showInsightTrackContext(context, track));
             },
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-        child: _DataRowLayout(
-          rank: row.rank,
-          entity: _EntityCell(
-            artworkPath: row.artworkPath,
-            fallbackIcon: Icons.music_note_rounded,
-            title: row.title,
-            subtitle: row.artistName,
-            badge: !row.hasCurrentLibraryEntity
-                ? 'HISTORICAL'
-                : row.isBlocked
-                ? 'BLACKLISTED'
-                : !row.isAvailable
-                ? 'UNAVAILABLE'
-                : null,
-          ),
-          streams: row.streams,
-          change: row.streamChange,
-          percentChange: row.streamPercentChange,
-          isNew: row.isNew,
-          listeningDuration: row.listeningDuration,
-          lifetimeStreams: row.lifetimeStreams,
-          movement: row.rankMovement,
-        ),
-      ),
     );
   }
-}
 
-class _ArtistInsightTableRow extends StatelessWidget {
-  const _ArtistInsightTableRow({super.key, required this.row});
-
-  final MonthlyArtistInsightRow row;
-
-  @override
-  Widget build(BuildContext context) {
+  SonusTableRow _artistRow(BuildContext context, MonthlyArtistInsightRow row) {
     final artist = row.artist;
+    final badge = row.hasCurrentLibraryEntity ? null : 'HISTORICAL';
 
-    return InkWell(
+    return _tableRow(
+      key: ValueKey<String>('monthly-insights-artist-${row.entityId}'),
+      identity: _IdentityCell(
+        rank: row.rank,
+        movement: row.rankMovement,
+        isNew: row.isNew,
+        artworkPath: row.artworkPath,
+        fallbackIcon: Icons.person_rounded,
+        title: row.name,
+        subtitle: row.subtitle,
+        badge: badge,
+        circularArtwork: true,
+      ),
+      rank: row.rank,
+      title: row.name,
+      subtitle: row.subtitle,
+      badge: badge,
+      streams: row.streams,
+      change: row.streamChange,
+      percentChange: row.streamPercentChange,
+      isNew: row.isNew,
+      listeningDuration: row.listeningDuration,
+      lifetimeStreams: row.lifetimeStreams,
       onTap: artist == null
           ? null
           : () {
@@ -1020,41 +975,35 @@ class _ArtistInsightTableRow extends StatelessWidget {
                 ),
               );
             },
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-        child: _DataRowLayout(
-          rank: row.rank,
-          entity: _EntityCell(
-            artworkPath: row.artworkPath,
-            fallbackIcon: Icons.person_rounded,
-            title: row.name,
-            subtitle: row.subtitle,
-            badge: row.hasCurrentLibraryEntity ? null : 'HISTORICAL',
-            circularArtwork: true,
-          ),
-          streams: row.streams,
-          change: row.streamChange,
-          percentChange: row.streamPercentChange,
-          isNew: row.isNew,
-          listeningDuration: row.listeningDuration,
-          lifetimeStreams: row.lifetimeStreams,
-          movement: row.rankMovement,
-        ),
-      ),
     );
   }
-}
 
-class _AlbumInsightTableRow extends StatelessWidget {
-  const _AlbumInsightTableRow({super.key, required this.row});
-
-  final MonthlyAlbumInsightRow row;
-
-  @override
-  Widget build(BuildContext context) {
+  SonusTableRow _albumRow(BuildContext context, MonthlyAlbumInsightRow row) {
     final album = row.album;
+    final badge = row.hasCurrentLibraryEntity ? null : 'HISTORICAL';
 
-    return InkWell(
+    return _tableRow(
+      key: ValueKey<String>('monthly-insights-album-${row.entityId}'),
+      identity: _IdentityCell(
+        rank: row.rank,
+        movement: row.rankMovement,
+        isNew: row.isNew,
+        artworkPath: row.artworkPath,
+        fallbackIcon: Icons.album_rounded,
+        title: row.title,
+        subtitle: row.artistName,
+        badge: badge,
+      ),
+      rank: row.rank,
+      title: row.title,
+      subtitle: row.artistName,
+      badge: badge,
+      streams: row.streams,
+      change: row.streamChange,
+      percentChange: row.streamPercentChange,
+      isNew: row.isNew,
+      listeningDuration: row.listeningDuration,
+      lifetimeStreams: row.lifetimeStreams,
       onTap: album == null
           ? null
           : () {
@@ -1067,94 +1016,116 @@ class _AlbumInsightTableRow extends StatelessWidget {
                 ),
               );
             },
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
-        child: _DataRowLayout(
-          rank: row.rank,
-          entity: _EntityCell(
-            artworkPath: row.artworkPath,
-            fallbackIcon: Icons.album_rounded,
-            title: row.title,
-            subtitle: row.artistName,
-            badge: row.hasCurrentLibraryEntity ? null : 'HISTORICAL',
-          ),
-          streams: row.streams,
-          change: row.streamChange,
-          percentChange: row.streamPercentChange,
-          isNew: row.isNew,
-          listeningDuration: row.listeningDuration,
-          lifetimeStreams: row.lifetimeStreams,
-          movement: row.rankMovement,
-        ),
+    );
+  }
+}
+
+SonusTableRow _tableRow({
+  required Key key,
+  required Widget identity,
+  required int rank,
+  required String title,
+  required String subtitle,
+  required String? badge,
+  required int streams,
+  required int change,
+  required double? percentChange,
+  required bool isNew,
+  required Duration listeningDuration,
+  required int lifetimeStreams,
+  required VoidCallback? onTap,
+}) {
+  final changeText = isNew ? 'NEW' : _signedInteger(change);
+  final changeSpoken = isNew
+      ? 'new this month'
+      : change == 0
+      ? 'no change in streams'
+      : change > 0
+      ? '$change more streams than last month'
+      : '${change.abs()} fewer streams than last month';
+
+  return SonusTableRow(
+    key: key,
+    identity: identity,
+    onTap: onTap,
+    spokenLabel: [
+      'Rank $rank',
+      title,
+      subtitle,
+      '$streams streams',
+      changeSpoken,
+      '${_formatDuration(listeningDuration)} listening',
+      '$lifetimeStreams lifetime streams',
+      ?badge?.toLowerCase(),
+    ].join(', '),
+    cells: [
+      _NumericCell('$streams', strong: true),
+      _NumericCell(changeText, strong: isNew || change != 0),
+      _NumericCell(_tablePercent(percentChange, isNew: isNew)),
+      _NumericCell(_formatDuration(listeningDuration)),
+      _NumericCell('$lifetimeStreams'),
+    ],
+  );
+}
+
+class _InsightTable extends StatelessWidget {
+  const _InsightTable({
+    required this.storageId,
+    required this.identityLabel,
+    required this.rows,
+  });
+
+  final String storageId;
+  final String identityLabel;
+  final List<SonusTableRow> rows;
+
+  @override
+  Widget build(BuildContext context) {
+    return SonusNumericTable(
+      storageId: storageId,
+      identityLabel: identityLabel,
+      identityWidth: 230,
+      // Room for title, subtitle and a status badge.
+      rowHeight: 72,
+      columns: const [
+        SonusTableColumn(label: 'STREAMS', width: 84),
+        SonusTableColumn(label: 'CHANGE', width: 76),
+        SonusTableColumn(label: '%', width: 76),
+        SonusTableColumn(label: 'LISTENING', width: 100),
+        SonusTableColumn(label: 'LIFETIME', width: 92),
+      ],
+      rows: rows,
+    );
+  }
+}
+
+class _NumericCell extends StatelessWidget {
+  const _NumericCell(this.value, {this.strong = false});
+
+  final String value;
+  final bool strong;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      value,
+      textAlign: TextAlign.right,
+      maxLines: 1,
+      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+        color: SonusTheme.of(context).colors.textPrimary,
+        fontWeight: strong ? FontWeight.w800 : FontWeight.w500,
+        fontFeatures: const [FontFeature.tabularFigures()],
       ),
     );
   }
 }
 
-class _DataRowLayout extends StatelessWidget {
-  const _DataRowLayout({
+/// The frozen identifying cell: rank and movement, artwork, title.
+class _IdentityCell extends StatelessWidget {
+  const _IdentityCell({
     required this.rank,
-    required this.entity,
-    required this.streams,
-    required this.change,
-    required this.percentChange,
-    required this.isNew,
-    required this.listeningDuration,
-    required this.lifetimeStreams,
     required this.movement,
-  });
-
-  final int rank;
-  final Widget entity;
-  final int streams;
-  final int change;
-  final double? percentChange;
-  final bool isNew;
-  final Duration listeningDuration;
-  final int lifetimeStreams;
-  final int? movement;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Row(
-      children: [
-        SizedBox(
-          width: 42,
-          child: Column(
-            children: [
-              Text(
-                '$rank',
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-              const SizedBox(height: 2),
-              _RankMovementLabel(movement: movement, isNew: isNew),
-            ],
-          ),
-        ),
-        SizedBox(width: 330, child: entity),
-        _NumericCell(width: 84, value: '$streams'),
-        _NumericCell(
-          width: 72,
-          value: isNew ? 'NEW' : _signedInteger(change),
-          emphasized: isNew || change != 0,
-        ),
-        _NumericCell(
-          width: 72,
-          value: _tablePercent(percentChange, isNew: isNew),
-        ),
-        _NumericCell(width: 120, value: _formatDuration(listeningDuration)),
-        _NumericCell(width: 110, value: '$lifetimeStreams'),
-      ],
-    );
-  }
-}
-
-class _EntityCell extends StatelessWidget {
-  const _EntityCell({
+    required this.isNew,
     required this.artworkPath,
     required this.fallbackIcon,
     required this.title,
@@ -1163,6 +1134,9 @@ class _EntityCell extends StatelessWidget {
     this.circularArtwork = false,
   });
 
+  final int rank;
+  final int? movement;
+  final bool isNew;
   final String? artworkPath;
   final IconData fallbackIcon;
   final String title;
@@ -1172,18 +1146,46 @@ class _EntityCell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = SonusTheme.of(context);
+    final colors = tokens.colors;
     final theme = Theme.of(context);
+    final badge = this.badge;
 
     return Row(
       children: [
-        _SmallArtwork(
+        // At least 32px, scaled with the text, and wider when a rank needs
+        // it, so "10" or "100" never wraps at large text sizes.
+        ConstrainedBox(
+          constraints: BoxConstraints(
+            minWidth: MediaQuery.textScalerOf(context).scale(32),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '$rank',
+                maxLines: 1,
+                softWrap: false,
+                style: theme.textTheme.titleMedium?.copyWith(
+                  color: colors.textPrimary,
+                  fontWeight: FontWeight.w900,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
+              _RankMovementLabel(movement: movement, isNew: isNew),
+            ],
+          ),
+        ),
+        const SizedBox(width: 8),
+        _Thumbnail(
           path: artworkPath,
           fallbackIcon: fallbackIcon,
           circular: circularArtwork,
         ),
-        const SizedBox(width: 11),
+        const SizedBox(width: 10),
         Expanded(
           child: Column(
+            mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
@@ -1191,116 +1193,31 @@ class _EntityCell extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: theme.textTheme.bodyMedium?.copyWith(
+                  color: colors.textPrimary,
                   fontWeight: FontWeight.w800,
                 ),
               ),
-              const SizedBox(height: 2),
               Text(
                 subtitle,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
+                  color: colors.textSecondary,
                 ),
               ),
-              if (badge != null) ...[
-                const SizedBox(height: 3),
+              if (badge != null)
                 Text(
-                  badge!,
+                  badge,
                   style: theme.textTheme.labelSmall?.copyWith(
+                    color: colors.textPrimary,
                     fontWeight: FontWeight.w800,
-                    color: theme.colorScheme.error,
+                    letterSpacing: 0.6,
                   ),
                 ),
-              ],
             ],
           ),
         ),
       ],
-    );
-  }
-}
-
-class _SmallArtwork extends StatelessWidget {
-  const _SmallArtwork({
-    required this.path,
-    required this.fallbackIcon,
-    this.circular = false,
-  });
-
-  final String? path;
-  final IconData fallbackIcon;
-  final bool circular;
-
-  @override
-  Widget build(BuildContext context) {
-    final normalizedPath = path?.trim();
-
-    final child = SizedBox.square(
-      dimension: 46,
-      child: normalizedPath == null || normalizedPath.isEmpty
-          ? _SmallArtworkFallback(icon: fallbackIcon)
-          : Image.file(
-              File(normalizedPath),
-              fit: BoxFit.cover,
-              errorBuilder: (_, _, _) =>
-                  _SmallArtworkFallback(icon: fallbackIcon),
-            ),
-    );
-
-    if (circular) {
-      return ClipOval(child: child);
-    }
-
-    return ClipRRect(borderRadius: BorderRadius.circular(9), child: child);
-  }
-}
-
-class _SmallArtworkFallback extends StatelessWidget {
-  const _SmallArtworkFallback({required this.icon});
-
-  final IconData icon;
-
-  @override
-  Widget build(BuildContext context) {
-    return ColoredBox(
-      color: Theme.of(context).colorScheme.surfaceContainerHighest,
-      child: Center(
-        child: Icon(
-          icon,
-          size: 22,
-          color: Theme.of(context).colorScheme.onSurfaceVariant,
-        ),
-      ),
-    );
-  }
-}
-
-class _NumericCell extends StatelessWidget {
-  const _NumericCell({
-    required this.width,
-    required this.value,
-    this.emphasized = false,
-  });
-
-  final double width;
-  final String value;
-  final bool emphasized;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return SizedBox(
-      width: width,
-      child: Text(
-        value,
-        textAlign: TextAlign.right,
-        maxLines: 1,
-        style: theme.textTheme.bodySmall?.copyWith(
-          fontWeight: emphasized ? FontWeight.w800 : FontWeight.w600,
-        ),
-      ),
     );
   }
 }
@@ -1313,8 +1230,6 @@ class _RankMovementLabel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
     final label = isNew
         ? 'NEW'
         : movement == null || movement == 0
@@ -1325,11 +1240,148 @@ class _RankMovementLabel extends StatelessWidget {
 
     return Text(
       label,
-      style: theme.textTheme.labelSmall?.copyWith(
+      maxLines: 1,
+      softWrap: false,
+      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+        color: SonusTheme.of(context).colors.textSecondary,
         fontWeight: FontWeight.w800,
-        color: isNew
-            ? theme.colorScheme.primary
-            : theme.colorScheme.onSurfaceVariant,
+        fontFeatures: const [FontFeature.tabularFigures()],
+      ),
+    );
+  }
+}
+
+/// Artwork thumbnail decoded at its display size, so a full-resolution
+/// cover never occupies the image cache for a 40px tile.
+class _Thumbnail extends StatelessWidget {
+  const _Thumbnail({
+    required this.path,
+    required this.fallbackIcon,
+    this.circular = false,
+  });
+
+  static const double size = 40;
+
+  final String? path;
+  final IconData fallbackIcon;
+  final bool circular;
+
+  @override
+  Widget build(BuildContext context) {
+    final normalizedPath = path?.trim();
+    final fallback = SonusArtworkPlaceholder(icon: fallbackIcon, iconSize: 20);
+    final decodeSize = (size * MediaQuery.devicePixelRatioOf(context)).round();
+
+    return SonusArtworkFrame(
+      size: size,
+      circular: circular,
+      child: normalizedPath == null || normalizedPath.isEmpty
+          ? fallback
+          : Image.file(
+              File(normalizedPath),
+              fit: BoxFit.cover,
+              cacheWidth: decodeSize,
+              errorBuilder: (_, _, _) => fallback,
+            ),
+    );
+  }
+}
+
+class _EmptyMonth extends StatelessWidget {
+  const _EmptyMonth();
+
+  @override
+  Widget build(BuildContext context) {
+    return const _InsightsMessage(
+      key: ValueKey<String>('monthly-insights-empty'),
+      icon: Icons.query_stats_rounded,
+      title: 'No listening this month',
+      message:
+          'Qualified streams and listening time will appear here as you listen.',
+    );
+  }
+}
+
+class _RefreshErrorBanner extends StatelessWidget {
+  const _RefreshErrorBanner({required this.onRetry});
+
+  final Future<void> Function() onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = SonusTheme.of(context);
+    final scheme = Theme.of(context).colorScheme;
+
+    return Material(
+      key: const ValueKey<String>('monthly-insights-refresh-error'),
+      color: scheme.errorContainer,
+      borderRadius: BorderRadius.circular(tokens.metrics.cardRadius),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          children: [
+            Icon(Icons.error_outline_rounded, color: scheme.onErrorContainer),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                'Insights could not refresh. Showing the last available data.',
+                style: TextStyle(color: scheme.onErrorContainer),
+              ),
+            ),
+            TextButton(onPressed: onRetry, child: const Text('Retry')),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _InsightsMessage extends StatelessWidget {
+  const _InsightsMessage({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.message,
+    this.action,
+  });
+
+  final IconData icon;
+  final String title;
+  final String message;
+  final Widget? action;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = SonusTheme.of(context).colors;
+    final theme = Theme.of(context);
+
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 48, color: colors.textSecondary),
+            const SizedBox(height: 14),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.titleLarge?.copyWith(
+                color: colors.textPrimary,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              message,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: colors.textSecondary,
+              ),
+            ),
+            if (action != null) ...[const SizedBox(height: 18), action!],
+          ],
+        ),
       ),
     );
   }
@@ -1479,100 +1531,6 @@ Future<void> _showInsightTrackContext(
       );
     },
   );
-}
-
-class _EmptyMonth extends StatelessWidget {
-  const _EmptyMonth();
-
-  @override
-  Widget build(BuildContext context) {
-    return const _InsightsMessage(
-      key: ValueKey<String>('monthly-insights-empty'),
-      icon: Icons.query_stats_rounded,
-      title: 'No listening this month',
-      message:
-          'Qualified streams and listening time will appear here as you listen.',
-    );
-  }
-}
-
-class _RefreshErrorBanner extends StatelessWidget {
-  const _RefreshErrorBanner({required this.onRetry});
-
-  final Future<void> Function() onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      key: const ValueKey<String>('monthly-insights-refresh-error'),
-      color: Theme.of(context).colorScheme.errorContainer,
-      borderRadius: BorderRadius.circular(14),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Row(
-          children: [
-            const Icon(Icons.error_outline_rounded),
-            const SizedBox(width: 10),
-            const Expanded(
-              child: Text(
-                'Insights could not refresh. Showing the last available data.',
-              ),
-            ),
-            TextButton(onPressed: onRetry, child: const Text('Retry')),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _InsightsMessage extends StatelessWidget {
-  const _InsightsMessage({
-    super.key,
-    required this.icon,
-    required this.title,
-    required this.message,
-    this.action,
-  });
-
-  final IconData icon;
-  final String title;
-  final String message;
-  final Widget? action;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 48, color: theme.colorScheme.onSurfaceVariant),
-            const SizedBox(height: 14),
-            Text(
-              title,
-              textAlign: TextAlign.center,
-              style: theme.textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              message,
-              textAlign: TextAlign.center,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-            if (action != null) ...[const SizedBox(height: 18), action!],
-          ],
-        ),
-      ),
-    );
-  }
 }
 
 String _formatMonth(DateTime month) {

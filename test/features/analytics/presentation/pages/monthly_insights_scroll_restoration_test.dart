@@ -91,48 +91,29 @@ void main() {
   });
 
   testWidgets('each area keeps its own horizontal position', (tester) async {
+    // Each table's scrolling part is found by its own storage key; the row
+    // keys sit in the frozen identity column, outside the scrolling part.
+    ScrollableState table(String id) => tester.state<ScrollableState>(
+      find
+          .descendant(
+            of: find.byKey(PageStorageKey<String>('sonus-table-$id')),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+
     await _pump(tester);
     await scrollPageToEnd(tester);
 
-    final trackRow = find.byKey(
-      const ValueKey<String>('monthly-insights-track-t1'),
-    );
-    final tracksTable = find
-        .ancestor(of: trackRow, matching: horizontalScrollables())
-        .first;
-    tester.state<ScrollableState>(tracksTable).position.jumpTo(120);
+    table('monthly-tracks').position.jumpTo(120);
     await tester.pumpAndSettle();
 
     // Scroll away so the tables are disposed, then back so they rebuild.
     await scrollPageTo(tester, 0);
     await scrollPageToEnd(tester);
 
-    expect(
-      tester
-          .state<ScrollableState>(
-            find
-                .ancestor(of: trackRow, matching: horizontalScrollables())
-                .first,
-          )
-          .position
-          .pixels,
-      120,
-    );
-
-    final albumRow = find.byKey(
-      const ValueKey<String>('monthly-insights-album-al1'),
-    );
-    expect(
-      tester
-          .state<ScrollableState>(
-            find
-                .ancestor(of: albumRow, matching: horizontalScrollables())
-                .first,
-          )
-          .position
-          .pixels,
-      0,
-    );
+    expect(table('monthly-tracks').position.pixels, 120);
+    expect(table('monthly-albums').position.pixels, 0);
   });
 }
 
