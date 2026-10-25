@@ -33,7 +33,15 @@ class NowPlayingPage extends StatelessWidget {
       // The artwork atmosphere runs behind a transparent app bar.
       extendBodyBehindAppBar: track != null,
       appBar: AppBar(
-        backgroundColor: track == null ? null : Colors.transparent,
+        // Clear over the atmosphere at rest; solid once content scrolls
+        // under it, so the title and Close never sit on the artwork.
+        backgroundColor: track == null
+            ? null
+            : WidgetStateColor.resolveWith(
+                (states) => states.contains(WidgetState.scrolledUnder)
+                    ? SonusTheme.of(context).colors.background
+                    : Colors.transparent,
+              ),
         surfaceTintColor: Colors.transparent,
         scrolledUnderElevation: 0,
         leading: IconButton(
