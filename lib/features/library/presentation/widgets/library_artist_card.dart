@@ -62,26 +62,32 @@ class LibraryArtistCard extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 9),
-                    Row(
-                      children: [
-                        _ArtistStat(
-                          key: ValueKey<String>(
-                            'artist-album-count-${artist.artistId}',
+                    // Large counts at large text sizes scale down to the
+                    // card's width instead of overflowing it.
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: AlignmentDirectional.centerStart,
+                      child: Row(
+                        children: [
+                          _ArtistStat(
+                            key: ValueKey<String>(
+                              'artist-album-count-${artist.artistId}',
+                            ),
+                            icon: Icons.album_outlined,
+                            value: '${artist.albumCount}',
+                            semanticsLabel: _albumLabel,
                           ),
-                          icon: Icons.album_outlined,
-                          value: '${artist.albumCount}',
-                          semanticsLabel: _albumLabel,
-                        ),
-                        const SizedBox(width: 12),
-                        _ArtistStat(
-                          key: ValueKey<String>(
-                            'artist-song-count-${artist.artistId}',
+                          const SizedBox(width: 12),
+                          _ArtistStat(
+                            key: ValueKey<String>(
+                              'artist-song-count-${artist.artistId}',
+                            ),
+                            icon: Icons.music_note_rounded,
+                            value: '${artist.songCount}',
+                            semanticsLabel: _songLabel,
                           ),
-                          icon: Icons.music_note_rounded,
-                          value: '${artist.songCount}',
-                          semanticsLabel: _songLabel,
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ],
                 ),

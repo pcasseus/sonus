@@ -254,6 +254,87 @@ void main() {
       },
     );
 
+    // SN-48I: nothing in the data marks an album as a soundtrack, cast or
+    // group project, so performers on someone else's multi-artist album are
+    // never hidden from the grid.
+    testWidgets('keeps every performer on a multi-artist album visible', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(800, 2400));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final repository = FakeLibraryQueryRepository(
+        artists: [
+          createArtist(artistId: 'cast', name: 'Fixture Cast'),
+          createArtist(artistId: 'lead', name: 'Fixture Lead'),
+          createArtist(artistId: 'rival', name: 'Fixture Rival'),
+          createArtist(artistId: 'guest', name: 'Fixture Guest'),
+        ],
+        albums: [createAlbum(albumId: 'soundtrack', artistId: 'cast')],
+        tracks: [
+          createTrack(songId: 't1', artistId: 'lead', albumId: 'soundtrack'),
+          createTrack(songId: 't2', artistId: 'rival', albumId: 'soundtrack'),
+          createTrack(songId: 't3', artistId: 'guest', albumId: 'soundtrack'),
+          createTrack(songId: 't4', artistId: 'cast', albumId: 'soundtrack'),
+        ],
+      );
+
+      await tester.pumpWidget(buildSubject(repository: repository));
+      await tester.pumpAndSettle();
+
+      for (final name in [
+        'Fixture Cast',
+        'Fixture Lead',
+        'Fixture Rival',
+        'Fixture Guest',
+      ]) {
+        expect(find.text(name), findsOneWidget, reason: name);
+      }
+      expect(find.text('4 artists in your library'), findsOneWidget);
+    });
+
+    // Regression (SN-48I emulator QA): large counts overflowed the card's
+    // stats row at 320dp with 2x text.
+    testWidgets('artist cards fit 320dp at 2x text with large counts', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(320, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final repository = FakeLibraryQueryRepository(
+        artists: [
+          createArtist(
+            artistId: 'artist-1',
+            name: 'The Extraordinarily Long Fixture Ensemble',
+            albumCount: 12,
+            songCount: 148,
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        Provider<LibraryQueryRepository?>.value(
+          value: repository,
+          child: MaterialApp(
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(
+                context,
+              ).copyWith(textScaler: const TextScaler.linear(2)),
+              child: child!,
+            ),
+            home: const Scaffold(body: LibraryPage()),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(
+        find.byKey(const ValueKey<String>('artist-song-count-artist-1')),
+        findsOneWidget,
+      );
+    });
+
     testWidgets('tapping an artist opens the artist profile', (tester) async {
       final repository = FakeLibraryQueryRepository(
         artists: [
