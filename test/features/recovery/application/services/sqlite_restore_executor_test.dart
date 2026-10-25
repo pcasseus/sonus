@@ -111,6 +111,100 @@ void main() {
     expect(play['playback_session_id'], 'session-a');
   });
 
+  test(
+    'SN-45 data survives: editions, the portrait and all-time Moments',
+    () async {
+      final cover = File(path.join(root.path, 'cover.jpg'));
+      await cover.writeAsBytes([1, 2, 3]);
+
+      final contents = await verifiedFixtureContents(
+        directory: root,
+        seed: (db) async {
+          await seedConnectedLibrary(db, key: 'a', artworkPath: cover.path);
+          await db.update(
+            DatabaseTables.artists,
+            {'top_artists_artwork_id': 'artwork-a'},
+            where: 'id = ?',
+            whereArgs: ['artist-a'],
+          );
+          // Deluxe inherits Standard's song and adds one of its own.
+          await db.insert(DatabaseTables.albumEditions, {
+            'id': 'edition-a-deluxe',
+            'album_id': 'album-a',
+            'title': 'Deluxe',
+            'type': 'deluxe',
+            'is_primary': 0,
+            'created_at': fixtureTimestamp,
+            'updated_at': fixtureTimestamp,
+          });
+          await db.insert(DatabaseTables.songs, {
+            'id': 'song-a-bonus',
+            'artist_id': 'artist-a',
+            'album_id': 'album-a',
+            'album_edition_id': 'edition-a-deluxe',
+            'title': 'Bonus',
+            'canonical_title': 'bonus',
+            'track_number': 2,
+            'duration_seconds': 180,
+            'created_at': fixtureTimestamp,
+            'updated_at': fixtureTimestamp,
+          });
+          for (final (index, song) in ['song-a', 'song-a-bonus'].indexed) {
+            await db.insert(DatabaseTables.albumEditionTracks, {
+              'album_edition_id': 'edition-a-deluxe',
+              'song_id': song,
+              'sort_position': index,
+              'created_at': fixtureTimestamp,
+              'updated_at': fixtureTimestamp,
+            });
+          }
+          await db.insert(DatabaseTables.chartMomentEvents, {
+            'id': 'alltime|songs|numberOne|song-a|',
+            'deduplication_key': 'alltime|songs|numberOne|song-a|',
+            'source_id': 'play-a',
+            'chart_type': 'songs',
+            'scope': 'allTime',
+            'event_type': 'firstNumberOne',
+            'entity_id': 'song-a',
+            'entity_title': 'Song',
+            'entity_artist_name': 'Artist a',
+            'week_start_utc': '2026-01-05T00:00:00.000Z',
+            'week_end_utc': '2026-01-12T00:00:00.000Z',
+            'occurred_at': fixtureTimestamp,
+            'created_at': fixtureTimestamp,
+            'current_rank': 1,
+            'threshold': 1,
+            'qualified_stream_count': 1,
+          });
+        },
+      );
+
+      await apply(contents);
+      final db = await target.database;
+
+      final deluxe = await db.query(
+        DatabaseTables.albumEditionTracks,
+        where: 'album_edition_id = ?',
+        whereArgs: ['edition-a-deluxe'],
+        orderBy: 'sort_position',
+      );
+      expect(deluxe.map((row) => row['song_id']), ['song-a', 'song-a-bonus']);
+
+      final artist = (await db.query(DatabaseTables.artists)).single;
+      expect(artist['top_artists_artwork_id'], 'artwork-a');
+      expect(artist['header_artwork_id'], 'artwork-a');
+
+      final scopes = {
+        for (final row in await db.query(DatabaseTables.chartMomentEvents))
+          row['id']: row['scope'],
+      };
+      expect(scopes, {
+        'moment-a': 'finalized',
+        'alltime|songs|numberOne|song-a|': 'allTime',
+      });
+    },
+  );
+
   test('keeps device-local data of surviving songs only', () async {
     final db = await target.database;
 
