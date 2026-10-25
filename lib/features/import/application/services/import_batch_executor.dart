@@ -1,3 +1,4 @@
+import '../../../../core/identity/text_normalizer.dart';
 import '../models/import_batch.dart';
 import '../models/import_batch_item.dart';
 import '../models/import_execution_summary.dart';
@@ -37,12 +38,22 @@ class ImportBatchExecutor implements ImportBatchRunner {
     await batchRepository.save(_recordFromBatch(currentBatch));
     onProgress?.call(currentBatch);
 
+    // SN-45: a folder's songs stay together as one album, so the batch's
+    // folders are planned before any file is imported.
+    final prepared = await libraryImportService.prepareFolders([
+      for (final item in currentBatch.items) item.candidate,
+    ]);
+
     for (var index = 0; index < currentBatch.items.length; index++) {
       final currentItem = currentBatch.items[index];
 
       final result = await libraryImportService.importCandidate(
         currentItem.candidate,
         now: executionStartedAt,
+        prepared:
+            prepared[TextNormalizer.normalizePath(
+              currentItem.candidate.filePath,
+            )],
       );
 
       final updatedItems = List<ImportBatchItem>.of(currentBatch.items);

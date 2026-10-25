@@ -1,5 +1,7 @@
 import 'package:sonus_next/core/identity/text_normalizer.dart';
 import 'package:sonus_next/features/import/domain/models/audio_metadata.dart';
+import 'package:sonus_next/features/library/domain/entities/album.dart';
+import 'package:sonus_next/features/library/domain/entities/artist.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/domain/entities/song.dart';
 import 'package:sonus_next/features/library/domain/repositories/album_edition_repository.dart';
@@ -10,6 +12,35 @@ import 'package:sonus_next/features/library/domain/services/edition_title_parser
 
 import 'library_identity_match.dart';
 import 'recording_evidence.dart';
+
+/// Which album a file joins (SN-45 folder rule).
+sealed class AlbumPlacement {
+  const AlbumPlacement();
+
+  /// By album artist and title tags, as before SN-45.
+  static const AlbumPlacement automatic = _AutomaticPlacement();
+
+  /// A new album, even if an album with the same title and artist exists:
+  /// the file's folder is a different project.
+  static const AlbumPlacement separate = _SeparatePlacement();
+}
+
+class _AutomaticPlacement extends AlbumPlacement {
+  const _AutomaticPlacement();
+}
+
+class _SeparatePlacement extends AlbumPlacement {
+  const _SeparatePlacement();
+}
+
+/// The album the file's folder already belongs to; [edition] when the
+/// folder's songs are on one edition of it.
+class WithinAlbumPlacement extends AlbumPlacement {
+  const WithinAlbumPlacement(this.album, {this.edition});
+
+  final Album album;
+  final AlbumEdition? edition;
+}
 
 class LibraryIdentityResolver {
   const LibraryIdentityResolver({
@@ -28,6 +59,7 @@ class LibraryIdentityResolver {
     AudioMetadata metadata, {
     String? versionLabel,
     List<SongVersionCharacteristic> versionCharacteristics = const [],
+    AlbumPlacement placement = AlbumPlacement.automatic,
   }) async {
     final canonicalTrackArtist = TextNormalizer.canonicalize(
       metadata.artistName,
@@ -51,6 +83,23 @@ class LibraryIdentityResolver {
               .toList(growable: false);
 
     final trackArtistAmbiguous = trackArtistMatches.length > 1;
+
+    // SN-45: a file joining its folder's album needs only its performer; the
+    // album, its owner and edition are already known.
+    if (placement is WithinAlbumPlacement) {
+      return _resolveWithin(
+        placement,
+        metadata: metadata,
+        trackArtist: trackArtistMatches.length == 1
+            ? trackArtistMatches.single
+            : null,
+        trackArtistAmbiguous: trackArtistAmbiguous,
+        canonicalSong: canonicalSong,
+        versionLabel: versionLabel,
+        versionCharacteristics: versionCharacteristics,
+      );
+    }
+
     final albumArtistAmbiguous = albumArtistMatches.length > 1;
 
     final trackArtist = trackArtistMatches.length == 1
@@ -80,6 +129,20 @@ class LibraryIdentityResolver {
       return LibraryIdentityMatch(
         artist: trackArtist,
         albumArtist: null,
+        album: null,
+        edition: null,
+        song: null,
+        artistAmbiguous: false,
+        albumAmbiguous: false,
+        editionAmbiguous: false,
+        songAmbiguous: false,
+      );
+    }
+
+    if (placement is _SeparatePlacement) {
+      return LibraryIdentityMatch(
+        artist: trackArtist,
+        albumArtist: albumArtist,
         album: null,
         edition: null,
         song: null,
@@ -202,6 +265,97 @@ class LibraryIdentityResolver {
           ? songMatches.first
           : null,
       newEditionType: editionResolution.newEditionType,
+    );
+  }
+
+  Future<LibraryIdentityMatch> _resolveWithin(
+    WithinAlbumPlacement placement, {
+    required AudioMetadata metadata,
+    required Artist? trackArtist,
+    required bool trackArtistAmbiguous,
+    required String canonicalSong,
+    required String? versionLabel,
+    required List<SongVersionCharacteristic> versionCharacteristics,
+  }) async {
+    final album = placement.album;
+    final owner = await artistRepository.getById(album.artistId);
+
+    if (trackArtistAmbiguous || owner == null) {
+      return LibraryIdentityMatch(
+        artist: null,
+        albumArtist: owner,
+        album: album,
+        edition: null,
+        song: null,
+        artistAmbiguous: trackArtistAmbiguous,
+        albumAmbiguous: owner == null,
+        editionAmbiguous: false,
+        songAmbiguous: false,
+      );
+    }
+
+    var edition = placement.edition;
+    AlbumEditionType? newEditionType;
+
+    if (edition == null) {
+      final editions = await albumEditionRepository.getByAlbumId(album.id);
+      final resolution = _resolveEdition(
+        editions,
+        fileAlbumTitle: TextNormalizer.canonicalize(metadata.albumTitle),
+        qualified: EditionTitleParser.parse(metadata.albumTitle),
+      );
+      edition = resolution.ambiguous
+          ? editions.where((e) => e.isPrimary).firstOrNull
+          : resolution.edition;
+      newEditionType = edition == null ? resolution.newEditionType : null;
+    }
+
+    if (trackArtist == null) {
+      return LibraryIdentityMatch(
+        artist: null,
+        albumArtist: owner,
+        album: album,
+        edition: edition,
+        song: null,
+        artistAmbiguous: false,
+        albumAmbiguous: false,
+        editionAmbiguous: false,
+        songAmbiguous: false,
+        newEditionType: newEditionType,
+      );
+    }
+
+    final songs = await songRepository.getByAlbumId(album.id);
+    final songMatches = songs
+        .where(
+          (song) =>
+              song.artistId == trackArtist.id &&
+              song.canonicalTitle == canonicalSong &&
+              _sameVersionIdentity(
+                song: song,
+                versionLabel: versionLabel,
+                versionCharacteristics: versionCharacteristics,
+              ),
+        )
+        .toList(growable: false);
+    final sameRecording = songMatches
+        .where((song) => !RecordingEvidence.distinguishes(song, metadata))
+        .toList(growable: false);
+
+    return LibraryIdentityMatch(
+      artist: trackArtist,
+      albumArtist: owner,
+      album: album,
+      edition: edition,
+      song: sameRecording.length == 1 ? sameRecording.single : null,
+      artistAmbiguous: false,
+      albumAmbiguous: false,
+      editionAmbiguous: false,
+      songAmbiguous: sameRecording.length > 1,
+      alternateRecordingOf: sameRecording.isEmpty && songMatches.isNotEmpty
+          ? songMatches.first
+          : null,
+      newEditionType: newEditionType,
     );
   }
 

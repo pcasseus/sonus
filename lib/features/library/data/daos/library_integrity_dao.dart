@@ -166,6 +166,27 @@ class LibraryIntegrityDao {
     WHERE authority IN ('manual', 'confirmed')
   ''');
 
+  /// Every audio file with its song's album, for the split-folder check.
+  Future<List<({String filePath, String albumId, String title, String owner})>>
+  filesWithAlbums() async {
+    final rows = await db.rawQuery('''
+      SELECT b.file_path, al.id AS album_id, al.title, ar.name AS owner
+      FROM ${DatabaseTables.mediaFileBindings} b
+      JOIN ${DatabaseTables.songs} s ON s.id = b.song_id
+      JOIN ${DatabaseTables.albums} al ON al.id = s.album_id
+      JOIN ${DatabaseTables.artists} ar ON ar.id = al.artist_id
+    ''');
+    return [
+      for (final row in rows)
+        (
+          filePath: row['file_path']! as String,
+          albumId: row['album_id']! as String,
+          title: row['title']! as String,
+          owner: row['owner']! as String,
+        ),
+    ];
+  }
+
   Future<int> classifiedProjects() => _count(
     'SELECT COUNT(*) FROM ${DatabaseTables.albumReleaseClassifications}',
   );

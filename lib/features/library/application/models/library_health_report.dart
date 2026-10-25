@@ -20,6 +20,10 @@ enum HealthCheck {
   importReviews,
   userCorrections,
   soundtrackOrganization,
+
+  /// SN-45: one music folder whose songs an earlier import split into
+  /// several albums.
+  splitFolders,
 }
 
 /// A deterministic, low-risk correction. Never applied without the user.
@@ -44,6 +48,33 @@ class ListOnHomeEdition extends SafeCorrection {
   final String editionId;
 }
 
+/// An album one music folder's songs ended up on.
+class FolderSplitAlbum {
+  const FolderSplitAlbum({
+    required this.albumId,
+    required this.title,
+    required this.owner,
+    required this.songCount,
+  });
+
+  final String albumId;
+  final String title;
+  final String owner;
+  final int songCount;
+}
+
+/// A music folder whose songs are spread over several albums, as an
+/// import before SN-45 filed them by each file's artist tag. Shown as a
+/// preview only; nothing is merged automatically.
+class FolderSplit {
+  const FolderSplit({required this.folderName, required this.albums});
+
+  final String folderName;
+
+  /// Largest first.
+  final List<FolderSplitAlbum> albums;
+}
+
 class HealthFinding {
   const HealthFinding({
     required this.check,
@@ -51,6 +82,7 @@ class HealthFinding {
     required this.summary,
     this.entityIds = const [],
     this.corrections = const [],
+    this.folderSplits = const [],
   });
 
   final HealthCheck check;
@@ -64,6 +96,9 @@ class HealthFinding {
 
   /// Offered when [severity] is safeCorrection.
   final List<SafeCorrection> corrections;
+
+  /// The split folders, for [HealthCheck.splitFolders].
+  final List<FolderSplit> folderSplits;
 }
 
 /// Counts from the import that triggered the check, when there was one.

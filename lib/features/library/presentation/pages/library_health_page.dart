@@ -259,7 +259,19 @@ class _FindingTile extends StatelessWidget {
         finding.summary,
         style: theme.textTheme.bodyMedium?.copyWith(color: colors.textPrimary),
       ),
-      trailing: finding.corrections.isEmpty
+      trailing: finding.folderSplits.isNotEmpty
+          ? TextButton(
+              key: const ValueKey<String>('library-health-preview-folders'),
+              onPressed: () => showModalBottomSheet<void>(
+                context: context,
+                isScrollControlled: true,
+                showDragHandle: true,
+                builder: (_) =>
+                    _FolderSplitPreview(splits: finding.folderSplits),
+              ),
+              child: const Text('Preview'),
+            )
+          : finding.corrections.isEmpty
           ? null
           : TextButton(
               key: ValueKey<String>(
@@ -268,6 +280,72 @@ class _FindingTile extends StatelessWidget {
               onPressed: busy ? null : onApply,
               child: const Text('Apply'),
             ),
+    );
+  }
+}
+
+/// SN-45 reconciliation preview: which albums each split folder was filed
+/// under. Read-only.
+class _FolderSplitPreview extends StatelessWidget {
+  const _FolderSplitPreview({required this.splits});
+
+  final List<FolderSplit> splits;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = SonusTheme.of(context).colors;
+    final theme = Theme.of(context);
+
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.7,
+      minChildSize: 0.4,
+      maxChildSize: 0.95,
+      builder: (context, controller) => ListView(
+        key: const ValueKey<String>('library-health-folder-preview'),
+        controller: controller,
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),
+        children: [
+          Semantics(
+            header: true,
+            child: Text(
+              'Folders split into several albums',
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'New imports keep each folder together as one album. These '
+            'folders were imported earlier, when each song was filed by its '
+            "own artist tag. They are listed for review only: Sonus doesn't "
+            'merge albums by itself, and your songs, streams and playlists '
+            'are unchanged.',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: colors.textSecondary,
+            ),
+          ),
+          for (final split in splits) ...[
+            const SizedBox(height: 20),
+            Text(
+              split.folderName,
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            for (final album in split.albums)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.album_outlined),
+                title: Text(album.title),
+                subtitle: Text(
+                  '${album.owner} · ${sonusCount(album.songCount, 'song')}',
+                ),
+              ),
+          ],
+        ],
+      ),
     );
   }
 }
