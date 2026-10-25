@@ -1,8 +1,11 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+
+import '../../../../core/design/sonus_theme.dart';
+import '../../../../core/design/widgets/sonus_state_view.dart';
+import '../../../../core/design/widgets/sonus_track_tile.dart';
 
 import '../../../account/application/controllers/account_controller.dart';
 import '../../../library/application/models/library_track.dart';
@@ -143,9 +146,16 @@ class _BlacklistedSongsPageState extends State<BlacklistedSongsPage> {
 
     final service = context.read<SongBlockService?>();
 
+    final colors = SonusTheme.of(context).colors;
+
     return Scaffold(
       key: const ValueKey<String>('blacklisted-songs-page'),
-      appBar: AppBar(title: const Text('Blacklisted songs')),
+      backgroundColor: colors.background,
+      appBar: AppBar(
+        title: const Text('Blacklisted songs'),
+        backgroundColor: colors.background,
+        surfaceTintColor: Colors.transparent,
+      ),
       body: _buildBody(userId: userId, service: service),
     );
   }
@@ -173,10 +183,14 @@ class _BlacklistedSongsPageState extends State<BlacklistedSongsPage> {
     if (_tracks.isEmpty) {
       return RefreshIndicator(
         onRefresh: _load,
-        child: ListView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.all(32),
-          children: const [_BlacklistedSongsEmpty()],
+        child: const CustomScrollView(
+          physics: AlwaysScrollableScrollPhysics(),
+          slivers: [
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: _BlacklistedSongsEmpty(),
+            ),
+          ],
         ),
       );
     }
@@ -185,12 +199,16 @@ class _BlacklistedSongsPageState extends State<BlacklistedSongsPage> {
 
     return RefreshIndicator(
       onRefresh: _load,
-      child: ListView.separated(
+      child: ListView.builder(
         key: const ValueKey<String>('blacklisted-songs-list'),
         physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+        padding: EdgeInsets.fromLTRB(
+          SonusTheme.of(context).metrics.pageGutter - 6,
+          8,
+          SonusTheme.of(context).metrics.pageGutter - 6,
+          32 + MediaQuery.paddingOf(context).bottom,
+        ),
         itemCount: _tracks.length,
-        separatorBuilder: (_, _) => const SizedBox(height: 8),
         itemBuilder: (context, index) {
           final track = _tracks[index];
           final isRemoving = _removingSongIds.contains(track.songId);
@@ -224,125 +242,46 @@ class _BlacklistedSongTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-
-    return Card(
-      key: ValueKey<String>('blacklisted-song-${track.songId}'),
-      child: Opacity(
-        opacity: 0.72,
-        child: ListTile(
-          enabled: false,
-          leading: _BlacklistedSongArtwork(track: track),
-          title: Text(
-            track.title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-          subtitle: Text(
-            _subtitle(track),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-          ),
-          trailing: isRemoving
-              ? const SizedBox.square(
-                  dimension: 24,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : IconButton(
-                  key: ValueKey<String>(
-                    'remove-blacklisted-song-${track.songId}',
-                  ),
-                  tooltip: 'Remove from blacklist',
-                  onPressed: canRemove
-                      ? () {
-                          final callback = onRemove;
-
-                          if (callback != null) {
-                            unawaited(callback());
-                          }
-                        }
-                      : null,
-                  icon: const Icon(Icons.remove_circle_outline_rounded),
-                ),
-          textColor: colorScheme.onSurface,
-        ),
-      ),
-    );
-  }
-
-  String _subtitle(LibraryTrack track) {
-    final parts = <String>[track.artistName, track.albumTitle];
-
-    if (!track.isAvailable ||
+    final unavailable =
+        !track.isAvailable ||
         track.filePath == null ||
-        track.filePath!.trim().isEmpty) {
-      parts.add('Unavailable');
-    }
+        track.filePath!.trim().isEmpty;
 
-    return parts.join(' • ');
-  }
-}
+    // Blacklisted songs never play from here, so the row has no tap action;
+    // removing them from the blacklist is the one action.
+    return SonusTrackTile(
+      key: ValueKey<String>('blacklisted-song-${track.songId}'),
+      title: track.title,
+      subtitle: track.artistName,
+      detail: [
+        track.albumTitle,
+        if (unavailable) 'Unavailable',
+      ].where((part) => part.trim().isNotEmpty).join(' • '),
+      artworkPath: track.artworkPath,
+      enabled: false,
+      tileColor: SonusTheme.of(context).colors.surface,
+      trailing: isRemoving
+          ? const SizedBox.square(
+              dimension: 48,
+              child: Padding(
+                padding: EdgeInsets.all(12),
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+            )
+          : IconButton(
+              key: ValueKey<String>('remove-blacklisted-song-${track.songId}'),
+              tooltip: 'Remove from blacklist',
+              onPressed: canRemove
+                  ? () {
+                      final callback = onRemove;
 
-class _BlacklistedSongArtwork extends StatelessWidget {
-  const _BlacklistedSongArtwork({required this.track});
-
-  final LibraryTrack track;
-
-  @override
-  Widget build(BuildContext context) {
-    const size = 52.0;
-    final path = track.artworkPath?.trim();
-
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(10),
-      child: SizedBox.square(
-        dimension: size,
-        child: path == null || path.isEmpty
-            ? const _ArtworkFallback()
-            : _ArtworkImage(path: path),
-      ),
-    );
-  }
-}
-
-class _ArtworkImage extends StatelessWidget {
-  const _ArtworkImage({required this.path});
-
-  final String path;
-
-  @override
-  Widget build(BuildContext context) {
-    final file = File(path);
-
-    if (file.existsSync()) {
-      return Image.file(
-        file,
-        fit: BoxFit.cover,
-        cacheWidth: 160,
-        cacheHeight: 160,
-        errorBuilder: (_, _, _) => const _ArtworkFallback(),
-      );
-    }
-
-    return Image.asset(
-      path,
-      fit: BoxFit.cover,
-      cacheWidth: 160,
-      cacheHeight: 160,
-      errorBuilder: (_, _, _) => const _ArtworkFallback(),
-    );
-  }
-}
-
-class _ArtworkFallback extends StatelessWidget {
-  const _ArtworkFallback();
-
-  @override
-  Widget build(BuildContext context) {
-    return ColoredBox(
-      color: Theme.of(context).colorScheme.surfaceContainerHighest,
-      child: const Center(child: Icon(Icons.music_note_rounded)),
+                      if (callback != null) {
+                        unawaited(callback());
+                      }
+                    }
+                  : null,
+              icon: const Icon(Icons.remove_circle_outline_rounded),
+            ),
     );
   }
 }
@@ -352,22 +291,11 @@ class _BlacklistedSongsEmpty extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      key: const ValueKey<String>('blacklisted-songs-empty'),
-      children: [
-        const Icon(Icons.check_circle_outline_rounded, size: 52),
-        const SizedBox(height: 16),
-        Text(
-          'No blacklisted songs',
-          style: Theme.of(context).textTheme.titleLarge,
-          textAlign: TextAlign.center,
-        ),
-        const SizedBox(height: 8),
-        const Text(
-          'Songs you blacklist will appear here.',
-          textAlign: TextAlign.center,
-        ),
-      ],
+    return const SonusStateView(
+      key: ValueKey<String>('blacklisted-songs-empty'),
+      icon: Icons.check_circle_outline_rounded,
+      title: 'No blacklisted songs',
+      message: 'Songs you blacklist will appear here.',
     );
   }
 }
@@ -379,29 +307,17 @@ class _BlacklistedSongsError extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
+    return SonusStateView(
       key: const ValueKey<String>('blacklisted-songs-error'),
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.error_outline_rounded, size: 48),
-            const SizedBox(height: 16),
-            const Text(
-              'Could not load blacklisted songs.',
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 16),
-            FilledButton.tonalIcon(
-              onPressed: () {
-                unawaited(onRetry());
-              },
-              icon: const Icon(Icons.refresh_rounded),
-              label: const Text('Try again'),
-            ),
-          ],
-        ),
+      icon: Icons.error_outline_rounded,
+      isError: true,
+      title: 'Could not load blacklisted songs.',
+      action: FilledButton.tonalIcon(
+        onPressed: () {
+          unawaited(onRetry());
+        },
+        icon: const Icon(Icons.refresh_rounded),
+        label: const Text('Try again'),
       ),
     );
   }
@@ -412,15 +328,10 @@ class _BlacklistedSongsUnavailable extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Center(
+    return const SonusStateView(
       key: ValueKey<String>('blacklisted-songs-unavailable'),
-      child: Padding(
-        padding: EdgeInsets.all(32),
-        child: Text(
-          'Your library is not available yet.',
-          textAlign: TextAlign.center,
-        ),
-      ),
+      icon: Icons.library_music_outlined,
+      title: 'Your library is not available yet.',
     );
   }
 }

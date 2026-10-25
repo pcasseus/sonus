@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../../core/design/sonus_theme.dart';
+import '../../../../core/design/widgets/sonus_page_header.dart';
 import '../../../account/application/controllers/account_controller.dart';
 import '../../../player/application/controllers/playback_preferences_controller.dart';
 import '../../../recovery/application/controllers/backup_restore_controller.dart';
@@ -26,21 +28,23 @@ class SettingsPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = SonusTheme.of(context);
+    final gutter = tokens.metrics.pageGutter;
+
     return ColoredBox(
-      color: Theme.of(context).colorScheme.surface,
+      color: tokens.colors.background,
       child: ListView(
         key: const ValueKey<String>('settings-landing'),
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
+        padding: EdgeInsets.fromLTRB(
+          gutter,
+          0,
+          gutter,
+          32 + MediaQuery.paddingOf(context).bottom,
+        ),
         children: [
-          Padding(
-            padding: const EdgeInsets.only(bottom: 24),
-            child: Semantics(
-              header: true,
-              child: Text(
-                'Settings',
-                style: Theme.of(context).textTheme.headlineMedium,
-              ),
-            ),
+          const SonusPageHeader(
+            title: 'Settings',
+            padding: EdgeInsets.fromLTRB(0, 20, 0, 18),
           ),
           SettingsSection(
             title: 'Account',

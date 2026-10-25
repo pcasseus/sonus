@@ -23,6 +23,7 @@ import 'package:sonus_next/features/settings/presentation/pages/account_cloud_se
 import 'package:sonus_next/features/settings/presentation/pages/data_privacy_page.dart';
 import 'package:sonus_next/features/settings/presentation/pages/library_settings_page.dart';
 import 'package:sonus_next/features/settings/presentation/pages/listening_settings_page.dart';
+import 'package:sonus_next/features/settings/presentation/pages/metadata_intelligence_settings_page.dart';
 import 'package:sonus_next/features/settings/presentation/pages/playback_settings_page.dart';
 import 'package:sonus_next/features/settings/presentation/pages/settings_page.dart';
 import 'package:sonus_next/features/settings/presentation/widgets/settings/settings_section.dart';
@@ -649,5 +650,36 @@ void main() {
     stubAppInfoChannel(tester, {'versionName': 1});
 
     expect(await const AppInfoService().load(), isNull);
+  });
+
+  // SN-48K2: the landing page and Metadata Intelligence in every theme.
+  group('design', () {
+    for (final id in SonusThemeId.values) {
+      testWidgets('${id.label} fits 320dp at 2x text', (tester) async {
+        await tester.binding.setSurfaceSize(const Size(320, 4000));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+        final harness = await _Harness.create();
+
+        await tester.pumpWidget(
+          harness.app(const SettingsPage(), theme: id, textScale: 2),
+        );
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+
+        await tester.pumpWidget(
+          harness.app(
+            const MetadataIntelligenceSettingsPage(),
+            theme: id,
+            textScale: 2,
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        expect(
+          find.byKey(_key('metadata-intelligence-online-lookup')),
+          findsOneWidget,
+        );
+      });
+    }
   });
 }
