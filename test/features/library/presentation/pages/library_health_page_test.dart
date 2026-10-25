@@ -64,12 +64,16 @@ void main() {
     });
   }
 
-  Future<void> settle(WidgetTester tester) async {
-    for (var i = 0; i < 5; i++) {
+  /// Lets the real database work finish. With [until], keeps going (up to
+  /// about 5s of real time) until it is on screen, so a slow, loaded run
+  /// doesn't tap before the report has arrived.
+  Future<void> settle(WidgetTester tester, {Finder? until}) async {
+    for (var i = 0; i < 250; i++) {
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 20)),
       );
       await tester.pump();
+      if (i >= 4 && (until == null || until.evaluate().isNotEmpty)) return;
     }
   }
 
@@ -89,7 +93,12 @@ void main() {
         ),
       ),
     );
-    await settle(tester);
+    await settle(
+      tester,
+      until: find.byKey(
+        const ValueKey<String>('library-health-apply-primaryEdition'),
+      ),
+    );
 
     expect(find.text('Import Health Report'), findsOneWidget);
     expect(find.text('Safe corrections'), findsOneWidget);
@@ -107,16 +116,15 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(home: LibraryHealthPage(service: service)),
     );
-    await settle(tester);
-
     final apply = find.byKey(
       const ValueKey<String>('library-health-apply-primaryEdition'),
     );
+    await settle(tester, until: apply);
 
     await tester.tap(apply);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Cancel'));
-    await settle(tester);
+    await settle(tester, until: apply);
 
     final db = await tester.runAsync(() => appDatabase.database);
     final stillNone = await tester.runAsync(
@@ -135,7 +143,8 @@ void main() {
       () => db!.query(DatabaseTables.albumEditions, where: 'is_primary = 1'),
     );
     expect(primary, hasLength(1));
-    await settle(tester);
-    expect(find.text('Nothing needs your attention.'), findsOneWidget);
+    final healthy = find.text('Nothing needs your attention.');
+    await settle(tester, until: healthy);
+    expect(healthy, findsOneWidget);
   });
 }
