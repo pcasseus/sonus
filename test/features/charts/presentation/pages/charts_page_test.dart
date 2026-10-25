@@ -676,6 +676,13 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
     expect(find.byType(AlbumProfilePage), findsOneWidget);
+    // The song's own edition opens, not whichever edition is primary.
+    expect(
+      tester
+          .widget<AlbumProfilePage>(find.byType(AlbumProfilePage))
+          .initialEditionId,
+      'edition_1',
+    );
   });
 
   testWidgets('a post only links to what exists in the library', (

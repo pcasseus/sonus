@@ -313,6 +313,91 @@ void main() {
       controller.dispose();
     });
 
+    group('opening on a known edition', () {
+      FakeEditionAwareLibraryQueryRepository twoEditions() =>
+          FakeEditionAwareLibraryQueryRepository(
+            album: createAlbum(
+              primaryEditionId: 'edition-deluxe',
+              primaryEditionTitle: 'Deluxe',
+              primaryEditionType: AlbumEditionType.deluxe,
+            ),
+            editions: [
+              createLibraryEdition(
+                editionId: 'edition-deluxe',
+                title: 'Deluxe',
+                type: AlbumEditionType.deluxe,
+                isPrimary: true,
+              ),
+              createLibraryEdition(
+                editionId: 'edition-standard',
+                title: 'Standard',
+                type: AlbumEditionType.standard,
+              ),
+            ],
+            editionTracks: {
+              'edition-deluxe': [
+                createTrack(
+                  songId: 'deluxe-1',
+                  albumEditionId: 'edition-deluxe',
+                  albumEditionTitle: 'Deluxe',
+                  albumEditionType: AlbumEditionType.deluxe,
+                ),
+              ],
+              'edition-standard': [
+                createTrack(
+                  songId: 'standard-1',
+                  albumEditionId: 'edition-standard',
+                  albumEditionTitle: 'Standard',
+                ),
+              ],
+            },
+          );
+
+      test('opens on the linked song edition, not the primary', () async {
+        final repository = twoEditions();
+        final controller = AlbumProfileController(
+          repository: repository,
+          albumId: 'album-1',
+          initialEditionId: 'edition-standard',
+        );
+
+        await controller.load();
+
+        expect(controller.selectedEdition?.editionId, 'edition-standard');
+        expect(controller.tracks.map((track) => track.songId), ['standard-1']);
+        expect(repository.requestedTrackEditionIds, ['edition-standard']);
+        controller.dispose();
+      });
+
+      test('an edition from elsewhere falls back to the primary', () async {
+        final controller = AlbumProfileController(
+          repository: twoEditions(),
+          albumId: 'album-1',
+          initialEditionId: 'edition-of-another-album',
+        );
+
+        await controller.load();
+
+        expect(controller.selectedEdition?.editionId, 'edition-deluxe');
+        controller.dispose();
+      });
+
+      test('a later choice survives reloads', () async {
+        final controller = AlbumProfileController(
+          repository: twoEditions(),
+          albumId: 'album-1',
+          initialEditionId: 'edition-standard',
+        );
+
+        await controller.load();
+        await controller.selectEdition('edition-deluxe');
+        await controller.load();
+
+        expect(controller.selectedEdition?.editionId, 'edition-deluxe');
+        controller.dispose();
+      });
+    });
+
     test('selectEdition swaps the complete playback context', () async {
       final repository = FakeEditionAwareLibraryQueryRepository(
         album: createAlbum(

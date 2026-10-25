@@ -1519,6 +1519,7 @@ Future<void> _showInsightTrackContext(
                       builder: (_) => AlbumProfilePage(
                         albumId: track.albumId,
                         initialAlbumTitle: track.albumTitle,
+                        initialEditionId: track.albumEditionId,
                       ),
                     ),
                   );

@@ -162,6 +162,7 @@ class _SearchPageState extends State<SearchPage> {
         builder: (_) => AlbumProfilePage(
           albumId: track.albumId,
           initialAlbumTitle: track.albumTitle,
+          initialEditionId: track.albumEditionId,
         ),
       ),
     );

@@ -25,6 +25,7 @@ class AlbumProfileController extends ChangeNotifier {
   AlbumProfileController({
     required LibraryQueryRepository repository,
     required String albumId,
+    String? initialEditionId,
     PlaybackCoordinator? playbackCoordinator,
     AlbumProfileEditingService? albumProfileEditingService,
     AlbumEditionTrackOrderingService? albumEditionTrackOrderingService,
@@ -48,6 +49,7 @@ class AlbumProfileController extends ChangeNotifier {
          artworkFilePicker,
          artworkCropService,
          random ?? Random(),
+         initialEditionId,
        );
 
   AlbumProfileController._(
@@ -63,6 +65,7 @@ class AlbumProfileController extends ChangeNotifier {
     this._artworkFilePicker,
     this._artworkCropService,
     this._random,
+    this._initialEditionId,
   );
 
   final LibraryQueryRepository _repository;
@@ -77,6 +80,10 @@ class AlbumProfileController extends ChangeNotifier {
   final ArtworkFilePicker? _artworkFilePicker;
   final ArtworkCropService? _artworkCropService;
   final Random _random;
+
+  /// The edition to open on, such as the one a linked song is on. If it is
+  /// not one of this album's editions, the primary edition opens instead.
+  final String? _initialEditionId;
 
   LibraryAlbum? _album;
   List<LibraryAlbumEdition> _editions = const [];
@@ -693,7 +700,7 @@ class AlbumProfileController extends ChangeNotifier {
   }
 
   Future<void> load() async {
-    final preferredEditionId = _selectedEdition?.editionId;
+    final preferredEditionId = _selectedEdition?.editionId ?? _initialEditionId;
 
     _isLoading = true;
     _error = null;

@@ -360,7 +360,9 @@ class _MomentPost extends StatelessWidget {
       onOpenSong: playable
           ? () => unawaited(_showChartTrackContext(context, track, [track]))
           : null,
-      onOpenAlbum: album == null ? null : () => _openAlbum(context, album),
+      onOpenAlbum: album == null
+          ? null
+          : () => _openAlbum(context, album, editionId: track?.albumEditionId),
       onOpenArtist: artist == null
           ? null
           : () => Navigator.of(context).push(
@@ -997,6 +999,7 @@ Future<void> _showChartTrackContext(
                       builder: (_) => AlbumProfilePage(
                         albumId: track.albumId,
                         initialAlbumTitle: track.albumTitle,
+                        initialEditionId: track.albumEditionId,
                       ),
                     ),
                   );
@@ -1026,12 +1029,13 @@ Future<void> _showChartTrackContext(
   );
 }
 
-void _openAlbum(BuildContext context, LibraryAlbum album) {
+void _openAlbum(BuildContext context, LibraryAlbum album, {String? editionId}) {
   Navigator.of(context).push(
     MaterialPageRoute<void>(
       builder: (_) => AlbumProfilePage(
         albumId: album.albumId,
         initialAlbumTitle: album.title,
+        initialEditionId: editionId,
       ),
     ),
   );

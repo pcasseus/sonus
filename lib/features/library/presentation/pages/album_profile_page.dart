@@ -50,12 +50,17 @@ class AlbumProfilePage extends StatefulWidget {
     super.key,
     required this.albumId,
     this.initialAlbumTitle,
+    this.initialEditionId,
     this.artworkPalette,
     this.changes,
   });
 
   final String albumId;
   final String? initialAlbumTitle;
+
+  /// Opens on this edition when it belongs to the album, for example the
+  /// edition a linked song is on.
+  final String? initialEditionId;
 
   /// Where artwork colours come from; the app-wide cache by default.
   final SonusArtworkPalette? artworkPalette;
@@ -133,6 +138,7 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
     _controller = AlbumProfileController(
       repository: repository,
       albumId: widget.albumId,
+      initialEditionId: widget.initialEditionId,
       playbackCoordinator: context.read<PlaybackCoordinator?>(),
       albumProfileEditingService: context.read<AlbumProfileEditingService?>(),
       albumEditionTrackOrderingService: context
