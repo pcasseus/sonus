@@ -149,25 +149,30 @@ class SonusNowPlayingView extends StatelessWidget {
             ].reduce((a, b) => a < b ? a : b).clamp(120.0, 420.0);
 
             // Scrolls rather than clips when text is large or the screen
-            // short.
-            return SingleChildScrollView(
-              padding: EdgeInsets.fromLTRB(
-                gutter,
-                12 + insets.top,
-                gutter,
-                24 + insets.bottom,
-              ),
-              child: Column(
-                children: [
-                  _Artwork(
-                    key: _key('artwork'),
-                    path: artworkPath,
-                    size: artSize,
-                    atmosphere: atmosphere,
-                  ),
-                  const SizedBox(height: 24),
-                  _details(context, atmosphere),
-                ],
+            // short. Content fades out as it scrolls under the app bar,
+            // instead of meeting a solid slab there.
+            return _TopFade(
+              key: _key('top-fade'),
+              fadeStart: insets.top,
+              child: SingleChildScrollView(
+                padding: EdgeInsets.fromLTRB(
+                  gutter,
+                  12 + insets.top,
+                  gutter,
+                  24 + insets.bottom,
+                ),
+                child: Column(
+                  children: [
+                    _Artwork(
+                      key: _key('artwork'),
+                      path: artworkPath,
+                      size: artSize,
+                      atmosphere: atmosphere,
+                    ),
+                    const SizedBox(height: 24),
+                    _details(context, atmosphere),
+                  ],
+                ),
               ),
             );
           },
@@ -332,6 +337,47 @@ class _Artwork extends StatelessWidget {
               ),
             )
           : SonusArtworkImage(path: path, size: size),
+    );
+  }
+}
+
+/// Fades content out as it scrolls up past [fadeStart] (the app bar's lower
+/// edge), so it dissolves under a transparent app bar. Nothing is faded at
+/// rest, because the content starts below that edge.
+class _TopFade extends StatelessWidget {
+  const _TopFade({super.key, required this.fadeStart, required this.child});
+
+  final double fadeStart;
+  final Widget child;
+
+  static const double _fadeLength = 28;
+
+  @override
+  Widget build(BuildContext context) {
+    if (fadeStart <= 0) return child;
+
+    return ShaderMask(
+      blendMode: BlendMode.dstIn,
+      shaderCallback: (bounds) {
+        final height = bounds.height <= 0 ? 1.0 : bounds.height;
+        // Fully faded a little above the bar's edge, fully shown from the
+        // edge down, so content at rest (which starts below it) is never
+        // touched.
+        final end = (fadeStart / height).clamp(0.0, 1.0);
+        final start = ((fadeStart - _fadeLength) / height).clamp(0.0, end);
+        return LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          stops: [0, start, end, 1],
+          colors: const [
+            Color(0x00000000),
+            Color(0x00000000),
+            Color(0xFF000000),
+            Color(0xFF000000),
+          ],
+        ).createShader(bounds);
+      },
+      child: child,
     );
   }
 }

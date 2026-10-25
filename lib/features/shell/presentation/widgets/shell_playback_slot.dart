@@ -125,45 +125,71 @@ class _MiniPlayer extends StatelessWidget {
             MaterialPageRoute<void>(builder: (_) => const PlaybackQueuePage()),
           );
         },
-        onOpen: () => _openNowPlaying(context),
+        onOpen: () => openNowPlaying(context),
+        onSwipeUp: () => openNowPlaying(context),
+        // A sideways swipe closes the player only while paused, so music
+        // that is playing can never be stopped by accident.
+        onDismiss: state.isPlaying || state.status == PlaybackStatus.loading
+            ? null
+            : () {
+                unawaited(coordinator.dismissPausedSession());
+              },
       ),
     );
   }
+}
 
-  void _openNowPlaying(BuildContext context) {
-    final reducedMotion = SonusTheme.of(context).motion.reduced;
+/// Opens Now Playing from the mini-player (tap or swipe up).
+///
+/// There is only ever one: a second tap, or a tap and a swipe together,
+/// while it is opening or open does nothing. Now Playing rises from the
+/// bar while the bar folds away underneath (see PlaybackHost), so there is
+/// no second player surface and the page behind never jumps. With reduced
+/// motion it simply appears.
+void openNowPlaying(BuildContext context) {
+  final routes = PlaybackHost.routesOf(context);
 
-    _navigator(context).push(
-      PageRouteBuilder<void>(
-        settings: const RouteSettings(name: NowPlayingPage.routeName),
-        transitionDuration: reducedMotion
-            ? Duration.zero
-            : const Duration(milliseconds: 300),
-        reverseTransitionDuration: reducedMotion
-            ? Duration.zero
-            : const Duration(milliseconds: 300),
-        pageBuilder: (context, animation, secondaryAnimation) {
-          return const NowPlayingPage();
-        },
-        transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          final curved = CurvedAnimation(
-            parent: animation,
-            curve: Curves.easeOutCubic,
-            reverseCurve: Curves.easeInCubic,
-          );
+  if (routes != null && routes.hasNowPlaying) {
+    return;
+  }
 
-          return FadeTransition(
-            opacity: curved,
-            child: SlideTransition(
-              position: Tween<Offset>(
-                begin: const Offset(0, 0.06),
-                end: Offset.zero,
-              ).animate(curved),
-              child: child,
+  final tokens = SonusTheme.of(context);
+  final reducedMotion =
+      tokens.motion.reduced || MediaQuery.disableAnimationsOf(context);
+  const duration = Duration(milliseconds: 320);
+
+  _navigator(context).push(
+    PageRouteBuilder<void>(
+      settings: const RouteSettings(name: NowPlayingPage.routeName),
+      transitionDuration: reducedMotion ? Duration.zero : duration,
+      reverseTransitionDuration: reducedMotion ? Duration.zero : duration,
+      pageBuilder: (context, animation, secondaryAnimation) {
+        return const NowPlayingPage();
+      },
+      transitionsBuilder: (context, animation, secondaryAnimation, child) {
+        final curved = CurvedAnimation(
+          parent: animation,
+          curve: Curves.easeOutCubic,
+          reverseCurve: Curves.easeInCubic,
+        );
+
+        // Rises from where the bar is; the fade only covers the first
+        // part, so the page is opaque well before it settles and no band
+        // of the page behind shows through.
+        return SlideTransition(
+          position: Tween<Offset>(
+            begin: const Offset(0, 0.35),
+            end: Offset.zero,
+          ).animate(curved),
+          child: FadeTransition(
+            opacity: CurvedAnimation(
+              parent: animation,
+              curve: const Interval(0, 0.45, curve: Curves.easeOut),
             ),
-          );
-        },
-      ),
-    );
-  }
+            child: child,
+          ),
+        );
+      },
+    ),
+  );
 }

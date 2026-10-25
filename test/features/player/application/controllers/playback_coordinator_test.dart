@@ -237,6 +237,35 @@ void main() {
     });
   });
 
+  group('dismissPausedSession (SN-45 mini-player swipe)', () {
+    test('a paused session empties the queue', () async {
+      final engine = FakePlaybackEngine()
+        ..state = PlaybackState(
+          queue: PlaybackQueue(tracks: [playbackTrack('a')], currentIndex: 0),
+          status: PlaybackStatus.paused,
+        );
+      final coordinator = PlaybackCoordinator(engine: engine);
+
+      expect(await coordinator.dismissPausedSession(), isTrue);
+      expect(engine.loadedTracks, isEmpty);
+    });
+
+    test('playing or loading music is never dismissed', () async {
+      for (final status in [PlaybackStatus.playing, PlaybackStatus.loading]) {
+        final engine = FakePlaybackEngine()
+          ..state = PlaybackState(
+            queue: PlaybackQueue(tracks: [playbackTrack('a')], currentIndex: 0),
+            status: status,
+          );
+        final coordinator = PlaybackCoordinator(engine: engine);
+
+        expect(await coordinator.dismissPausedSession(), isFalse);
+        expect(engine.loadedTracks, isNull, reason: '$status');
+        expect(engine.stopCalls, 0);
+      }
+    });
+  });
+
   test('rejects unavailable single track', () async {
     final engine = FakePlaybackEngine();
     final coordinator = PlaybackCoordinator(engine: engine);

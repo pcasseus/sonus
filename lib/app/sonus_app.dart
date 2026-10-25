@@ -22,6 +22,7 @@ import '../features/settings/application/controllers/appearance_controller.dart'
 import '../features/settings/presentation/scopes/appearance_scope.dart';
 import '../features/shell/presentation/pages/app_shell_page.dart';
 import '../features/shell/presentation/widgets/playback_host.dart';
+import '../features/shell/presentation/widgets/sonus_system_bars.dart';
 import '../features/sync/application/services/sync_run_guard.dart';
 import '../features/sync/presentation/scopes/sync_scope.dart';
 import 'account_analytics_bridge.dart';
@@ -126,10 +127,12 @@ class _SonusAppState extends State<SonusApp> {
                                           navigatorObservers: [_playbackRoutes],
                                           // One mini-player for every route.
                                           builder: (context, navigator) =>
-                                              PlaybackHost(
-                                                navigatorKey: _navigatorKey,
-                                                routes: _playbackRoutes,
-                                                child: navigator!,
+                                              SonusSystemBars(
+                                                child: PlaybackHost(
+                                                  navigatorKey: _navigatorKey,
+                                                  routes: _playbackRoutes,
+                                                  child: navigator!,
+                                                ),
                                               ),
                                           home: const AppShellPage(),
                                         );

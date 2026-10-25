@@ -1229,7 +1229,8 @@ void main() {
         final bar = tester.widget<Material>(
           find.byKey(const ValueKey<String>('mini-player')),
         );
-        expect(bar.color, colors.raisedSurface);
+        // SN-45: a light theme surface, not a raised slab (no artwork).
+        expect(bar.color, colors.surface);
 
         final progress = tester.widget<LinearProgressIndicator>(
           find.descendant(

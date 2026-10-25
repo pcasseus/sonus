@@ -171,6 +171,21 @@ class PlaybackCoordinator {
 
   Future<void> stop() => _engine.stop();
 
+  /// Ends the paused session from the mini-player (SN-45): playback stops
+  /// and the queue empties, so the bar, notification and saved session go
+  /// away. Only allowed while paused, so a stray swipe can never stop
+  /// music. Listening history, playlists and the library are untouched.
+  Future<bool> dismissPausedSession() async {
+    final state = currentState;
+
+    if (state.isPlaying || state.status == PlaybackStatus.loading) {
+      return false;
+    }
+
+    await _engine.loadQueue(const []);
+    return true;
+  }
+
   Future<void> _removeQueuedTracksWhere(
     bool Function(PlaybackTrack track) shouldRemove,
   ) async {
