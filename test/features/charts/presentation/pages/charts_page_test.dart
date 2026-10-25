@@ -630,6 +630,54 @@ void main() {
     );
   });
 
+  testWidgets('Moments open Sonus News with the same Moments', (tester) async {
+    final controller = await _controller(
+      moments: [
+        _momentEvent(
+          id: 'final-peak',
+          scope: ChartMomentScope.finalized,
+          type: ChartMomentEventType.newPeak,
+          currentRank: 3,
+          currentPeakRank: 3,
+        ),
+      ],
+    );
+
+    await _pumpPage(tester, controller);
+    await tester.tap(find.text('Moments'));
+    await tester.pump();
+
+    expect(
+      find.byKey(const ValueKey<String>('charts-news-entry')),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const ValueKey<String>('charts-open-news')));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(const ValueKey<String>('charts-news-page')),
+      findsOneWidget,
+    );
+    // Both editions are offered, and the story is the real Moment, with
+    // the shared copy (weekly scope, never all-time).
+    expect(
+      find.byKey(const ValueKey<String>('sonus-news-edition-sonusDaily')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('sonus-news-edition-pulsePop')),
+      findsOneWidget,
+    );
+    expect(find.text('Song 1 reaches a new peak of #3'), findsOneWidget);
+
+    await tester.tap(find.byType(BackButton));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey<String>('charts-moments-feed')),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('LIVE Moment uses provisional presentation', (tester) async {
     final controller = await _controller(
       moments: [

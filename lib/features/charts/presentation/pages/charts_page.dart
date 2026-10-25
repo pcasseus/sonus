@@ -20,6 +20,7 @@ import '../../domain/models/chart_view_size.dart';
 import '../formatters/chart_moment_feed_copy_formatter.dart';
 import '../models/charts_presentation_mode.dart';
 import '../controllers/charts_controller.dart';
+import '../news/charts_news_page.dart';
 import '../widgets/chart_entry_card.dart';
 import '../widgets/chart_extended_divider.dart';
 
@@ -292,6 +293,8 @@ class _MomentsFeed extends StatelessWidget {
       key: const ValueKey<String>('charts-moments-feed'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        _NewsEntryCard(controller: controller),
+        const SizedBox(height: 14),
         if (controller.hasMomentFeedError) ...[
           _MomentsRefreshErrorBanner(onRetry: controller.refresh),
           const SizedBox(height: 14),
@@ -310,6 +313,69 @@ class _MomentsFeed extends StatelessWidget {
             const SizedBox(height: 14),
         ],
       ],
+    );
+  }
+}
+
+/// Opens Sonus News: the same Moments, written up as Sonus Daily (chart
+/// news) and PulsePop (artist milestones).
+class _NewsEntryCard extends StatelessWidget {
+  const _NewsEntryCard({required this.controller});
+
+  final ChartsController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = SonusTheme.of(context);
+    final colors = tokens.colors;
+    final theme = Theme.of(context);
+
+    return Material(
+      key: const ValueKey<String>('charts-news-entry'),
+      color: colors.raisedSurface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(tokens.metrics.cardRadius),
+        side: BorderSide(color: colors.border),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Semantics(
+              header: true,
+              child: Text(
+                'Sonus News',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  color: colors.textPrimary,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Your Moments as Sonus Daily chart stories and PulsePop '
+              'artist milestones.',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: colors.textSecondary,
+              ),
+            ),
+            const SizedBox(height: 12),
+            FilledButton.tonalIcon(
+              key: const ValueKey<String>('charts-open-news'),
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => ChartsNewsPage(controller: controller),
+                  ),
+                );
+              },
+              icon: const Icon(Icons.newspaper_rounded),
+              label: const Text('Read Sonus News'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
