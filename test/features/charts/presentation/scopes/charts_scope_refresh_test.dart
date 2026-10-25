@@ -87,13 +87,19 @@ void main() {
     await settle(tester);
 
     expect(find.text('Title s1'), findsOneWidget);
-    expect(find.text('3 streams'), findsOneWidget);
+    expect(
+      find.bySemanticsLabel(RegExp('3 lifetime streams,')),
+      findsOneWidget,
+    );
 
     plays.addAll(qualifiedPlays('s1', 'a1', 2, thisWeek.add(_hour)));
     signal.notify(LibraryChangeKind.listeningRecorded);
     await settle(tester);
 
-    expect(find.text('5 streams'), findsOneWidget);
+    expect(
+      find.bySemanticsLabel(RegExp('5 lifetime streams,')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('a burst of changes reloads once, and nothing after dispose', (
@@ -110,7 +116,7 @@ void main() {
 
     final perLoad = afterOpening;
     expect(playRepository.getAllCalls, afterOpening + perLoad);
-    expect(find.text('1 stream'), findsOneWidget);
+    expect(find.bySemanticsLabel(RegExp('1 lifetime stream,')), findsOneWidget);
 
     await tester.pumpWidget(const SizedBox());
     final afterDispose = playRepository.getAllCalls;

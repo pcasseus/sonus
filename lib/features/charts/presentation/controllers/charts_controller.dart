@@ -3,12 +3,14 @@
 import 'package:flutter/foundation.dart';
 
 import '../../../library/application/models/library_album.dart';
+import '../../../library/application/models/library_artist.dart';
 import '../../../library/application/models/library_track.dart';
 import '../../../library/application/repositories/library_query_repository.dart';
 import '../../application/models/chart_moment_feed_item.dart';
 import '../../application/services/chart_finalization_service.dart';
 import '../../application/services/chart_moment_feed_aggregator.dart';
 import '../../application/services/all_time_chart_service.dart';
+import '../../application/services/all_time_moment_service.dart';
 import '../../domain/entities/all_time_chart.dart';
 import '../../domain/entities/chart_entry.dart';
 import '../../domain/entities/chart_snapshot.dart';
@@ -27,6 +29,7 @@ class ChartsController extends ChangeNotifier {
     required ChartRepository charts,
     required LibraryQueryRepository library,
     ChartMomentRepository? moments,
+    AllTimeMomentService? allTimeMoments,
     ChartMomentFeedAggregator momentFeedAggregator =
         const ChartMomentFeedAggregator(),
     ChartsControllerNow? now,
@@ -35,6 +38,7 @@ class ChartsController extends ChangeNotifier {
        _charts = charts,
        _library = library,
        _moments = moments,
+       _allTimeMoments = allTimeMoments,
        _momentFeedAggregator = momentFeedAggregator,
        _now = now ?? DateTime.now;
 
@@ -43,6 +47,7 @@ class ChartsController extends ChangeNotifier {
   final ChartRepository _charts;
   final LibraryQueryRepository _library;
   final ChartMomentRepository? _moments;
+  final AllTimeMomentService? _allTimeMoments;
   final ChartMomentFeedAggregator _momentFeedAggregator;
   final ChartsControllerNow _now;
 
@@ -60,6 +65,7 @@ class ChartsController extends ChangeNotifier {
 
   Map<String, LibraryTrack> _tracksById = const {};
   Map<String, LibraryAlbum> _albumsById = const {};
+  Map<String, LibraryArtist> _artistsById = const {};
 
   int? _historyIndex;
 
@@ -222,6 +228,33 @@ class ChartsController extends ChangeNotifier {
       ChartType.songs => _tracksById[item.entity.entityId]?.artworkPath,
       ChartType.albums => _albumsById[item.entity.entityId]?.artworkPath,
     };
+  }
+
+  /// The controller's clock, for relative times in the Moments feed.
+  DateTime currentTime() => _now();
+
+  /// The library song a Moment is about, if it is a song story.
+  LibraryTrack? trackForMoment(ChartMomentFeedItem item) =>
+      item.chartType == ChartType.songs
+      ? _tracksById[item.entity.entityId]
+      : null;
+
+  /// The album a Moment is about, or the album of its song.
+  LibraryAlbum? albumForMoment(ChartMomentFeedItem item) =>
+      switch (item.chartType) {
+        ChartType.songs => _albumsById[trackForMoment(item)?.albumId],
+        ChartType.albums => _albumsById[item.entity.entityId],
+      };
+
+  LibraryArtist? artistForMoment(ChartMomentFeedItem item) {
+    final artistId = item.artistId ?? item.entity.artistId;
+    return artistId == null ? null : _artistsById[artistId];
+  }
+
+  /// The artist's portrait, or their banner when there is no portrait.
+  String? artistPortraitPathForMoment(ChartMomentFeedItem item) {
+    final artist = artistForMoment(item);
+    return artist?.topArtistsArtworkPath ?? artist?.headerArtworkPath;
   }
 
   String? relatedArtworkPathForMoment(ChartMomentFeedItem item) {
@@ -406,6 +439,21 @@ class ChartsController extends ChangeNotifier {
         }
       }
 
+      Object? allTimeMomentsError;
+      final allTimeMoments = _allTimeMoments;
+
+      if (finalizeCompletedWeeks && allTimeMoments != null) {
+        try {
+          await allTimeMoments.record(referenceLocal: referenceLocal);
+        } catch (error) {
+          allTimeMomentsError = error;
+        }
+
+        if (isStale()) {
+          return;
+        }
+      }
+
       final allTime = await _allTimeCharts.load(
         chartType: _chartType,
         referenceLocal: referenceLocal,
@@ -420,9 +468,10 @@ class ChartsController extends ChangeNotifier {
 
       final tracks = await _library.getTracks();
       final albums = await _library.getAlbums();
+      final artists = await _library.getArtists();
 
       var momentFeedItems = _momentFeedItems;
-      Object? momentFeedError;
+      Object? momentFeedError = allTimeMomentsError;
 
       final moments = _moments;
 
@@ -447,6 +496,8 @@ class ChartsController extends ChangeNotifier {
       _tracksById = {for (final track in tracks) track.songId: track};
 
       _albumsById = {for (final album in albums) album.albumId: album};
+
+      _artistsById = {for (final artist in artists) artist.artistId: artist};
 
       _momentFeedItems = List<ChartMomentFeedItem>.unmodifiable(
         momentFeedItems,

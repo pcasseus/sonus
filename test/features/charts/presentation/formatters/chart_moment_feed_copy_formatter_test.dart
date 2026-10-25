@@ -265,7 +265,27 @@ void main() {
 
   // Moments come from weekly charts. Since the main Hot 100 became an
   // all-time leaderboard, no Moment may read as an all-time achievement.
-  test('every Moment names the weekly chart it came from', () {
+  test('an all-time peak at #2 is not called the Top 2', () {
+    final copy = formatter.format(
+      item(
+        dominant: event(
+          id: 'peak-2',
+          type: ChartMomentEventType.newPeak,
+          entity: song(),
+          scope: ChartMomentScope.allTime,
+          previousRank: 4,
+          currentRank: 2,
+          currentPeakRank: 2,
+          threshold: 2,
+        ),
+      ),
+    );
+
+    expect(copy.headline, endsWith('rises to #2 all-time'));
+    expect(copy.headline, isNot(contains('Top 2')));
+  });
+
+  test('every Moment names the chart it came from: weekly or all-time', () {
     for (final scope in ChartMomentScope.values) {
       for (final type in ChartMomentEventType.values) {
         for (final values in [(null, null), (3, 2)]) {
@@ -288,7 +308,9 @@ void main() {
           ).allMatches(text)) {
             expect(
               mention.group(1),
-              anyOf('weekly ', 'week’s '),
+              scope == ChartMomentScope.allTime
+                  ? 'all-time '
+                  : anyOf('weekly ', 'week’s '),
               reason: '${scope.name} ${type.name}: $text',
             );
           }

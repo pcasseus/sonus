@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -18,9 +17,11 @@ import '../../domain/entities/chart_snapshot.dart';
 import '../../domain/models/chart_type.dart';
 import '../../domain/models/chart_view_size.dart';
 import '../formatters/chart_moment_feed_copy_formatter.dart';
+import '../news/moment_post_card.dart';
+import '../news/sonus_news_story.dart';
 import '../models/charts_presentation_mode.dart';
 import '../controllers/charts_controller.dart';
-import '../news/charts_news_page.dart';
+import '../widgets/all_time_chart_cards.dart';
 import '../widgets/chart_entry_card.dart';
 import '../widgets/chart_extended_divider.dart';
 
@@ -114,6 +115,10 @@ class ChartsPage extends StatelessWidget {
                       chartType: controller.chartType,
                       positionCount: entries.length,
                     ),
+                    if (controller.isViewingAllTime) ...[
+                      const SizedBox(height: 8),
+                      const AllTimeMovementLegend(),
+                    ],
                     const SizedBox(height: 14),
                   ],
                 ] else
@@ -262,6 +267,8 @@ class _MomentsFeed extends StatelessWidget {
 
   final ChartsController controller;
 
+  static const _formatter = ChartMomentFeedCopyFormatter();
+
   @override
   Widget build(BuildContext context) {
     if (controller.hasMomentFeedError && !controller.hasMomentFeedItems) {
@@ -285,251 +292,85 @@ class _MomentsFeed extends StatelessWidget {
         icon: Icons.auto_awesome_outlined,
         title: 'No Moments yet',
         message:
-            'As your weekly Sonus Hot 100 changes, chart milestones and movement will appear here.',
+            'Debuts, new peaks and number ones on your Sonus Hot 100 will appear here as they happen.',
       );
     }
+
+    final items = controller.momentFeedItems;
+    final stories = SonusNewsDesk(
+      copyFor: _formatter.format,
+      artworkFor: (item) =>
+          controller.albumForMoment(item)?.artworkPath ??
+          controller.artworkPathForMoment(item),
+    ).stories(items);
+    final now = controller.currentTime();
 
     return Column(
       key: const ValueKey<String>('charts-moments-feed'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        _NewsEntryCard(controller: controller),
-        const SizedBox(height: 14),
         if (controller.hasMomentFeedError) ...[
           _MomentsRefreshErrorBanner(onRetry: controller.refresh),
           const SizedBox(height: 14),
         ],
-
-        for (
-          var index = 0;
-          index < controller.momentFeedItems.length;
-          index++
-        ) ...[
-          _MomentCard(
-            item: controller.momentFeedItems[index],
+        for (var index = 0; index < items.length; index++) ...[
+          _MomentPost(
+            item: items[index],
+            story: stories[index],
+            now: now,
             controller: controller,
           ),
-          if (index != controller.momentFeedItems.length - 1)
-            const SizedBox(height: 14),
+          if (index != items.length - 1) const SizedBox(height: 16),
         ],
       ],
     );
   }
 }
 
-/// Opens Sonus News: the same Moments, written up as Sonus Daily (chart
-/// news) and PulsePop (artist milestones).
-class _NewsEntryCard extends StatelessWidget {
-  const _NewsEntryCard({required this.controller});
+class _MomentPost extends StatelessWidget {
+  const _MomentPost({
+    required this.item,
+    required this.story,
+    required this.now,
+    required this.controller,
+  });
 
+  final ChartMomentFeedItem item;
+  final SonusNewsStory story;
+  final DateTime now;
   final ChartsController controller;
 
   @override
   Widget build(BuildContext context) {
-    final tokens = SonusTheme.of(context);
-    final colors = tokens.colors;
-    final theme = Theme.of(context);
+    final track = controller.trackForMoment(item);
+    final album = controller.albumForMoment(item);
+    final artist = controller.artistForMoment(item);
+    final playable =
+        track != null &&
+        !track.isBlocked &&
+        track.isAvailable &&
+        (track.filePath?.trim().isNotEmpty ?? false);
 
-    return Material(
-      key: const ValueKey<String>('charts-news-entry'),
-      color: colors.raisedSurface,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(tokens.metrics.cardRadius),
-        side: BorderSide(color: colors.border),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Semantics(
-              header: true,
-              child: Text(
-                'Sonus News',
-                style: theme.textTheme.titleMedium?.copyWith(
-                  color: colors.textPrimary,
-                  fontWeight: FontWeight.w900,
+    return MomentPostCard(
+      key: ValueKey<String>('charts-moment-${item.id}'),
+      story: story,
+      badges: MomentPostBadges.of(item),
+      now: now,
+      artistPortraitPath: controller.artistPortraitPathForMoment(item),
+      onOpenSong: playable
+          ? () => unawaited(_showChartTrackContext(context, track, [track]))
+          : null,
+      onOpenAlbum: album == null ? null : () => _openAlbum(context, album),
+      onOpenArtist: artist == null
+          ? null
+          : () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => ArtistProfilePage(
+                  artistId: artist.artistId,
+                  initialArtistName: artist.name,
                 ),
               ),
             ),
-            const SizedBox(height: 4),
-            Text(
-              'Your Moments as Sonus Daily chart stories and PulsePop '
-              'artist milestones.',
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: colors.textSecondary,
-              ),
-            ),
-            const SizedBox(height: 12),
-            FilledButton.tonalIcon(
-              key: const ValueKey<String>('charts-open-news'),
-              onPressed: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => ChartsNewsPage(controller: controller),
-                  ),
-                );
-              },
-              icon: const Icon(Icons.newspaper_rounded),
-              label: const Text('Read Sonus News'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _MomentCard extends StatelessWidget {
-  const _MomentCard({required this.item, required this.controller});
-
-  static const _formatter = ChartMomentFeedCopyFormatter();
-
-  final ChartMomentFeedItem item;
-  final ChartsController controller;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
-    final copy = _formatter.format(item);
-
-    final artworkPath = controller.artworkPathForMoment(item);
-
-    final fallbackIcon = item.chartType == ChartType.songs
-        ? Icons.music_note_rounded
-        : Icons.album_rounded;
-
-    final subjectLabel = switch (item.subjectType) {
-      ChartMomentFeedSubjectType.entity =>
-        item.chartType == ChartType.songs ? 'SONG' : 'ALBUM',
-      ChartMomentFeedSubjectType.artist =>
-        item.chartType == ChartType.songs
-            ? 'ARTIST \u2022 SONGS'
-            : 'ARTIST \u2022 ALBUMS',
-    };
-
-    return Material(
-      key: ValueKey<String>('charts-moment-${item.id}'),
-      color: colorScheme.surfaceContainerLow,
-      borderRadius: BorderRadius.circular(20),
-      clipBehavior: Clip.antiAlias,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _ChartArtwork(
-              key: ValueKey<String>('charts-moment-artwork-${item.id}'),
-              path: artworkPath,
-              fallbackIcon: fallbackIcon,
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Wrap(
-                    spacing: 7,
-                    runSpacing: 7,
-                    crossAxisAlignment: WrapCrossAlignment.center,
-                    children: [
-                      _MomentScopeBadge(item: item),
-                      _MomentTypeBadge(label: subjectLabel),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  Text(
-                    copy.headline,
-                    key: ValueKey<String>('charts-moment-headline-${item.id}'),
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w900,
-                      height: 1.15,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    copy.body,
-                    key: ValueKey<String>('charts-moment-body-${item.id}'),
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
-                      height: 1.35,
-                    ),
-                  ),
-                  const SizedBox(height: 10),
-                  Text(
-                    _formatMomentContext(item),
-                    key: ValueKey<String>('charts-moment-context-${item.id}'),
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _MomentScopeBadge extends StatelessWidget {
-  const _MomentScopeBadge({required this.item});
-
-  final ChartMomentFeedItem item;
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-
-    return Container(
-      key: ValueKey<String>('charts-moment-scope-${item.id}'),
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-      decoration: BoxDecoration(
-        color: item.isLive
-            ? colorScheme.primaryContainer
-            : colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        item.isLive ? 'LIVE' : 'FINAL',
-        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-          fontWeight: FontWeight.w900,
-          letterSpacing: 1,
-          color: item.isLive
-              ? colorScheme.onPrimaryContainer
-              : colorScheme.onSurfaceVariant,
-        ),
-      ),
-    );
-  }
-}
-
-class _MomentTypeBadge extends StatelessWidget {
-  const _MomentTypeBadge({required this.label});
-
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-      decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        label,
-        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-          fontWeight: FontWeight.w800,
-          letterSpacing: 0.7,
-          color: colorScheme.onSurfaceVariant,
-        ),
-      ),
     );
   }
 }
@@ -562,40 +403,6 @@ class _MomentsRefreshErrorBanner extends StatelessWidget {
       ),
     );
   }
-}
-
-String _formatMomentContext(ChartMomentFeedItem item) {
-  if (item.isLive) {
-    final date = item.occurredAt.toLocal();
-
-    return '${_monthName(date.month)} ${date.day}, ${date.year}';
-  }
-
-  return 'Chart week ${_formatMomentWeek(item.weekStartUtc, item.weekEndUtc)}';
-}
-
-String _formatMomentWeek(DateTime weekStartUtc, DateTime weekEndUtc) {
-  final start = weekStartUtc.toUtc();
-  final inclusiveEnd = weekEndUtc.toUtc().subtract(const Duration(days: 1));
-
-  final sameMonth =
-      start.year == inclusiveEnd.year && start.month == inclusiveEnd.month;
-
-  if (sameMonth) {
-    return '${_monthName(start.month)} '
-        '${start.day}\u2013${inclusiveEnd.day}, '
-        '${start.year}';
-  }
-
-  if (start.year == inclusiveEnd.year) {
-    return '${_monthName(start.month)} ${start.day} \u2013 '
-        '${_monthName(inclusiveEnd.month)} ${inclusiveEnd.day}, '
-        '${start.year}';
-  }
-
-  return '${_monthName(start.month)} ${start.day}, ${start.year} \u2013 '
-      '${_monthName(inclusiveEnd.month)} '
-      '${inclusiveEnd.day}, ${inclusiveEnd.year}';
 }
 
 class _ChartTypeSelector extends StatelessWidget {
@@ -905,83 +712,57 @@ class _ChartEntryItem extends StatelessWidget {
         ? ChartEntryStatus.historical
         : null;
 
+    final VoidCallback? onTap = canInteract
+        ? () {
+            if (chartType == ChartType.songs && track != null) {
+              unawaited(
+                _showChartTrackContext(context, track, controller.entryTracks),
+              );
+              return;
+            }
+
+            if (chartType == ChartType.albums && album != null) {
+              _openAlbum(context, album);
+            }
+          }
+        : null;
+
+    final allTime = controller.allTimeChart;
+    if (controller.isViewingAllTime && allTime != null) {
+      final key = ValueKey<String>('charts-entry-${entry.entity.entityId}');
+      final stats = allTime.statsFor(entry);
+      final weeklyPeak = controller.weeklyPeakFor(entry);
+
+      return entry.rank == 1
+          ? AllTimeSpotlightCard(
+              key: key,
+              entry: entry,
+              chartType: chartType,
+              stats: stats,
+              artworkPath: artworkPath,
+              status: status,
+              weeklyPeakRank: weeklyPeak,
+              onTap: onTap,
+            )
+          : AllTimeEntryCard(
+              key: key,
+              entry: entry,
+              chartType: chartType,
+              stats: stats,
+              artworkPath: artworkPath,
+              status: status,
+              weeklyPeakRank: weeklyPeak,
+              onTap: onTap,
+            );
+    }
+
     return ChartEntryCard(
       key: ValueKey<String>('charts-entry-${entry.entity.entityId}'),
       entry: entry,
       chartType: chartType,
       artworkPath: artworkPath,
       status: status,
-      isAllTime: controller.isViewingAllTime,
-      weeklyPeakRank: controller.isViewingAllTime
-          ? controller.weeklyPeakFor(entry)
-          : null,
-      onTap: canInteract
-          ? () {
-              if (chartType == ChartType.songs && track != null) {
-                unawaited(
-                  _showChartTrackContext(
-                    context,
-                    track,
-                    controller.entryTracks,
-                  ),
-                );
-                return;
-              }
-
-              if (chartType == ChartType.albums && album != null) {
-                _openAlbum(context, album);
-              }
-            }
-          : null,
-    );
-  }
-}
-
-class _ChartArtwork extends StatelessWidget {
-  const _ChartArtwork({
-    super.key,
-    required this.path,
-    required this.fallbackIcon,
-  });
-
-  final String? path;
-  final IconData fallbackIcon;
-
-  @override
-  Widget build(BuildContext context) {
-    final normalizedPath = path?.trim();
-
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(12),
-      child: SizedBox.square(
-        dimension: 64,
-        child: normalizedPath != null && normalizedPath.isNotEmpty
-            ? Image.file(
-                File(normalizedPath),
-                fit: BoxFit.cover,
-                errorBuilder: (_, _, _) =>
-                    _ChartArtworkFallback(icon: fallbackIcon),
-              )
-            : _ChartArtworkFallback(icon: fallbackIcon),
-      ),
-    );
-  }
-}
-
-class _ChartArtworkFallback extends StatelessWidget {
-  const _ChartArtworkFallback({required this.icon});
-
-  final IconData icon;
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-
-    return ColoredBox(
-      color: colorScheme.surfaceContainerHighest,
-      child: Center(
-        child: Icon(icon, size: 30, color: colorScheme.onSurfaceVariant),
-      ),
+      onTap: onTap,
     );
   }
 }

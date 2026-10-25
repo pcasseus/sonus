@@ -1,3 +1,4 @@
+import '../models/all_time_entry_stats.dart';
 import '../models/chart_type.dart';
 import 'chart_entry.dart';
 
@@ -11,6 +12,7 @@ class AllTimeChart {
     required this.chartType,
     required this.comparisonStartUtc,
     required this.entries,
+    this.stats = const {},
   });
 
   final ChartType chartType;
@@ -19,4 +21,10 @@ class AllTimeChart {
   final DateTime comparisonStartUtc;
 
   final List<ChartEntry> entries;
+
+  /// Weekly change and weeks in zones, by entity id.
+  final Map<String, AllTimeEntryStats> stats;
+
+  AllTimeEntryStats statsFor(ChartEntry entry) =>
+      stats[entry.entity.entityId] ?? const AllTimeEntryStats();
 }

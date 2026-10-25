@@ -113,12 +113,19 @@ class SonusNewsDesk {
         : SonusNewsEdition.sonusDaily;
   }
 
-  /// Names the weekly chart and its state, so historical weekly Moments are
-  /// never mistaken for the all-time leaderboard.
+  /// Names the chart and, for weekly charts, its state, so weekly Moments
+  /// are never mistaken for the all-time leaderboard or the reverse.
   static String kickerFor(ChartMomentFeedItem item) {
     if (item.dominantEventType ==
         ChartMomentEventType.lifetimeStreamMilestone) {
       return 'Listening milestone';
+    }
+
+    if (item.isAllTime) {
+      return switch (item.chartType) {
+        ChartType.songs => 'All-time Hot 100',
+        ChartType.albums => 'All-time Top 200 Albums',
+      };
     }
 
     final chart = switch (item.chartType) {

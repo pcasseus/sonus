@@ -51,9 +51,9 @@ void main() {
     'updated_at': stamp,
   };
 
-  test('fresh databases have the table at version 35', () async {
+  test('fresh databases have the table', () async {
     final version = await db.rawQuery('PRAGMA user_version');
-    expect(version.single['user_version'], 35);
+    expect(version.single['user_version'], 36);
     await db.insert(DatabaseTables.artworkCrops, row());
     expect(await db.query(DatabaseTables.artworkCrops), hasLength(1));
   });

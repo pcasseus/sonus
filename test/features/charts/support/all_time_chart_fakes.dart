@@ -152,7 +152,7 @@ class FakeChartLibrary implements LibraryQueryRepository {
       throw UnimplementedError();
 
   @override
-  Future<List<LibraryArtist>> getArtists() => throw UnimplementedError();
+  Future<List<LibraryArtist>> getArtists() async => const [];
 
   @override
   Future<List<LibraryAlbum>> getRecentlyAddedAlbums(int limit) =>

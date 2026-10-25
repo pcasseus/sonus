@@ -53,4 +53,6 @@ class ChartMomentFeedItem {
   bool get isLive => scope == ChartMomentScope.live;
 
   bool get isFinalized => scope == ChartMomentScope.finalized;
+
+  bool get isAllTime => scope == ChartMomentScope.allTime;
 }

@@ -12,6 +12,10 @@ class ChartMomentFeedCopyFormatter {
       (event) => event.eventType == item.dominantEventType,
     );
 
+    if (item.isAllTime) {
+      return _allTime(item, dominant);
+    }
+
     return switch (item.dominantEventType) {
       ChartMomentEventType.firstNumberOne => _numberOne(
         item,
@@ -513,6 +517,82 @@ class ChartMomentFeedCopyFormatter {
 
     return null;
   }
+
+  /// All-time stories rank lifetime streams, so they never borrow the
+  /// weekly wording.
+  ChartMomentFeedCopy _allTime(
+    ChartMomentFeedItem item,
+    ChartMomentEvent event,
+  ) {
+    final title = item.entity.title;
+    final chart = allTimeChartName(item.chartType);
+    final rank = event.currentRank;
+    final streams = event.qualifiedStreamCount;
+    final withStreams = streams == null || streams <= 0
+        ? ''
+        : ' with $streams lifetime ${_plural(streams, 'stream')}';
+
+    return switch (event.eventType) {
+      ChartMomentEventType.firstNumberOne => ChartMomentFeedCopy(
+        headline: '$title takes #1 all-time',
+        body: '$title tops the $chart for the first time$withStreams.',
+      ),
+      ChartMomentEventType.returnToNumberOne => ChartMomentFeedCopy(
+        headline: '$title is back at #1 all-time',
+        body: '$title retakes the top of the $chart$withStreams.',
+      ),
+      ChartMomentEventType.newPeak when event.threshold == 2 =>
+        ChartMomentFeedCopy(
+          headline: '$title rises to #2 all-time',
+          body: '$title climbs to #2 on the $chart, its best ever.',
+        ),
+      ChartMomentEventType.newPeak when event.threshold != null =>
+        ChartMomentFeedCopy(
+          headline: '$title reaches the all-time Top ${event.threshold}',
+          body: rank == null
+              ? '$title sets a new high on the $chart.'
+              : '$title climbs to #$rank on the $chart, its best ever.',
+        ),
+      ChartMomentEventType.firstThresholdEntry => ChartMomentFeedCopy(
+        headline: '$title enters the all-time Top ${event.threshold ?? 100}',
+        body: rank == null
+            ? '$title breaks into the $chart Top ${event.threshold ?? 100}.'
+            : '$title moves up to #$rank on the $chart$withStreams.',
+      ),
+      ChartMomentEventType.debut => ChartMomentFeedCopy(
+        headline: rank == null
+            ? '$title debuts on the all-time chart'
+            : '$title debuts at #$rank all-time',
+        body: '$title enters the $chart$withStreams.',
+      ),
+      ChartMomentEventType.reentry => ChartMomentFeedCopy(
+        headline: '$title returns to the all-time chart',
+        body: rank == null
+            ? '$title is back on the $chart.'
+            : '$title is back on the $chart at #$rank.',
+      ),
+      ChartMomentEventType.rankRise
+          when rank != null && event.previousRank != null =>
+        ChartMomentFeedCopy(
+          headline:
+              '$title jumps ${event.previousRank! - rank} places all-time',
+          body:
+              '$title climbs from #${event.previousRank} to #$rank on the $chart.',
+        ),
+      _ => ChartMomentFeedCopy(
+        headline: '$title moves on the all-time chart',
+        body: rank == null
+            ? '$title moves on the $chart.'
+            : '$title is now #$rank on the $chart.',
+      ),
+    };
+  }
+
+  /// For example "all-time Sonus Hot 100".
+  static String allTimeChartName(ChartType type) => switch (type) {
+    ChartType.songs => 'all-time Sonus Hot 100',
+    ChartType.albums => 'all-time Sonus Top 200 Albums',
+  };
 
   String _entityNoun(ChartType type) {
     return type == ChartType.songs ? 'song' : 'album';

@@ -97,9 +97,12 @@ abstract final class ChartSchema {
     ''');
   }
 
-  static Future<void> createChartMomentEvents(DatabaseExecutor db) async {
+  static Future<void> createChartMomentEvents(
+    DatabaseExecutor db, {
+    String table = DatabaseTables.chartMomentEvents,
+  }) async {
     await db.execute('''
-      CREATE TABLE IF NOT EXISTS ${DatabaseTables.chartMomentEvents} (
+      CREATE TABLE IF NOT EXISTS $table (
         id TEXT PRIMARY KEY NOT NULL,
 
         deduplication_key TEXT NOT NULL UNIQUE,
@@ -111,7 +114,7 @@ abstract final class ChartSchema {
           CHECK (chart_type IN ('songs', 'albums')),
 
         scope TEXT NOT NULL
-          CHECK (scope IN ('live', 'finalized')),
+          CHECK (scope IN ('live', 'finalized', 'allTime')),
 
         event_type TEXT NOT NULL
           CHECK (length(event_type) > 0),
@@ -194,6 +197,32 @@ abstract final class ChartSchema {
         )
       )
     ''');
+  }
+
+  /// Migration 36: the scope check gains 'allTime'. Columns, rows and
+  /// indexes are unchanged.
+  static Future<void> rebuildChartMomentEvents(DatabaseExecutor db) async {
+    const table = DatabaseTables.chartMomentEvents;
+    const staging = '${table}_rebuild';
+
+    final columns = [
+      for (final row in await db.rawQuery('PRAGMA table_info($table)'))
+        row['name']! as String,
+    ].join(', ');
+
+    if (columns.isEmpty) {
+      await createChartMomentEvents(db);
+      await createChartMomentIndexes(db);
+      return;
+    }
+
+    await createChartMomentEvents(db, table: staging);
+    await db.execute(
+      'INSERT INTO $staging ($columns) SELECT $columns FROM $table',
+    );
+    await db.execute('DROP TABLE $table');
+    await db.execute('ALTER TABLE $staging RENAME TO $table');
+    await createChartMomentIndexes(db);
   }
 
   static Future<void> createIndexes(DatabaseExecutor db) async {

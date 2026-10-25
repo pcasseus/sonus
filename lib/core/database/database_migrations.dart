@@ -451,6 +451,10 @@ abstract final class DatabaseMigrations {
         await ArtworkCropSchema.create(db);
         return;
 
+      case 36:
+        await ChartSchema.rebuildChartMomentEvents(db);
+        return;
+
       default:
         throw UnsupportedError(
           'No Sonus database migration exists for version $targetVersion.',

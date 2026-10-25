@@ -75,8 +75,9 @@ void main() {
       33,
       34,
       35,
+      36,
     });
-    expect(AppDatabase.databaseVersion, 35);
+    expect(AppDatabase.databaseVersion, 36);
   });
 
   test('the fixture is a real version 31 database', () async {
@@ -98,9 +99,10 @@ void main() {
     final v32 = await migrateTo(await copyOfV31('v32.db'), 32);
     final v33 = await migrateTo(await copyOfV31('v33.db'), 33);
     final v34 = await migrateTo(await copyOfV31('v34.db'), 34);
-    final v35 = AppDatabase(
+    final v35 = await migrateTo(await copyOfV31('v35.db'), 35);
+    final v36 = AppDatabase(
       databaseFactory: databaseFactoryFfi,
-      databasePath: await copyOfV31('v35.db'),
+      databasePath: await copyOfV31('v36.db'),
     );
     final fresh = AppDatabase(
       databaseFactory: databaseFactoryFfi,
@@ -113,18 +115,21 @@ void main() {
       expect(await userVersion(v32), 32);
       expect(await userVersion(v33), 33);
       expect(await userVersion(v34), 34);
-      expect(await userVersion(await v35.database), 35);
+      expect(await userVersion(v35), 35);
+      expect(await userVersion(await v36.database), 36);
       expect(await _portableSchema(v31), reference);
       expect(await _portableSchema(v32), reference);
       expect(await _portableSchema(v33), reference);
       expect(await _portableSchema(v34), reference);
-      expect(await _portableSchema(await v35.database), reference);
+      expect(await _portableSchema(v35), reference);
+      expect(await _portableSchema(await v36.database), reference);
     } finally {
       await v31.close();
       await v32.close();
       await v33.close();
       await v34.close();
       await v35.close();
+      await v36.close();
       await fresh.close();
     }
   });
@@ -149,7 +154,7 @@ void main() {
       final db = await upgraded.database;
       final rowsAfter = await _allRows(db);
 
-      expect(await userVersion(db), 35);
+      expect(await userVersion(db), 36);
       expect(
         rowsAfter[DatabaseTables.artworkCrops],
         isEmpty,

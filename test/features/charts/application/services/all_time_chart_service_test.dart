@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sonus_next/features/analytics/domain/entities/qualified_play.dart';
 import 'package:sonus_next/features/charts/application/services/all_time_chart_service.dart';
 import 'package:sonus_next/features/charts/application/services/chart_snapshot_builder_service.dart';
 import 'package:sonus_next/features/charts/domain/models/chart_movement.dart';
@@ -13,6 +14,7 @@ import '../../support/all_time_chart_fakes.dart';
 final lastWeek = DateTime(2026, 10, 5, 12).toUtc();
 final thisWeek = DateTime(2026, 10, 12, 12).toUtc();
 final reference = DateTime(2026, 10, 13, 9);
+final lateLastWeek = DateTime(2026, 10, 9, 12).toUtc();
 
 void main() {
   AllTimeChartService service({
@@ -61,6 +63,8 @@ void main() {
       expect(snapshot.entries, isEmpty);
     },
   );
+
+  _statsTests(service, history);
 
   test('a #1 stays #1 after a week boundary with no new listening', () async {
     final chart = await service(
@@ -220,6 +224,57 @@ void main() {
     ).load(chartType: ChartType.songs, referenceLocal: reference);
 
     expect(chart.entries, isEmpty);
+  });
+}
+
+void _statsTests(
+  AllTimeChartService Function({required FakeQualifiedPlayRepository plays})
+  service,
+  List<QualifiedPlay> history,
+) {
+  group('weekly change', () {
+    test('compares this week so far with the same time last week', () async {
+      final chart = await service(
+        plays: FakeQualifiedPlayRepository([
+          ...history,
+          // Later last week than now is into this week: not compared.
+          ...qualifiedPlays('bitter', 'album-bitter', 5, lateLastWeek),
+          ...qualifiedPlays('angel', 'album-angel', 10, thisWeek),
+          ...qualifiedPlays('fresh', 'album-fresh', 2, thisWeek),
+        ]),
+      ).load(chartType: ChartType.songs, referenceLocal: reference);
+
+      final byId = {
+        for (final entry in chart.entries)
+          entry.entity.entityId: chart.statsFor(entry),
+      };
+
+      expect(byId['angel']!.streamsThisWeek, 10);
+      expect(byId['angel']!.streamsSameTimeLastWeek, 43);
+      expect(byId['angel']!.weeklyChangePercent, closeTo(-76.74, 0.01));
+
+      expect(byId['bitter']!.streamsSameTimeLastWeek, 36);
+      expect(byId['bitter']!.streamsThisWeek, 0);
+      expect(byId['bitter']!.weeklyChangePercent, -100);
+
+      expect(byId['fresh']!.weeklyChangePercent, isNull);
+      expect(byId['fresh']!.isNewActivity, isTrue);
+    });
+  });
+
+  test('weeks in zones count each completed week once', () async {
+    final chart = await service(
+      plays: FakeQualifiedPlayRepository(history),
+    ).load(chartType: ChartType.songs, referenceLocal: reference);
+
+    final angel = chart.statsFor(chart.entries[0]).zones;
+    final bitter = chart.statsFor(chart.entries[1]).zones;
+
+    // One completed week (4–10 October); the current week never counts.
+    expect(angel.weeksIn(3), 1);
+    expect(angel.weeksIn(200), 1);
+    expect(bitter.weeksIn(3), 1);
+    expect(bitter.bestZone, 3);
   });
 }
 
