@@ -1,4 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sonus_next/features/charts/presentation/models/chart_moment_feed_copy.dart';
+import 'package:sonus_next/features/charts/presentation/news/sonus_news_story.dart';
 
 import 'package:sonus_next/features/charts/application/models/chart_moment_feed_item.dart';
 import 'package:sonus_next/features/charts/domain/models/chart_entity_snapshot.dart';
@@ -317,5 +319,117 @@ void main() {
         }
       }
     }
+  });
+
+  group('all-time copy adopted from the legacy editorial desk', () {
+    ChartMomentFeedCopy allTime(
+      ChartMomentEventType type, {
+      int? previousRank,
+      int? currentRank,
+      int? threshold,
+    }) => formatter.format(
+      item(
+        dominant: event(
+          id: 'all-time-${type.name}-$threshold-$previousRank',
+          type: type,
+          entity: song(),
+          scope: ChartMomentScope.allTime,
+          previousRank: previousRank,
+          currentRank: currentRank,
+          threshold: threshold,
+        ),
+      ),
+    );
+
+    test('headlines carry the "Title by Artist" byline', () {
+      expect(
+        allTime(ChartMomentEventType.firstNumberOne, currentRank: 1).headline,
+        'Song A by Artist A takes #1 all-time',
+      );
+      expect(
+        allTime(ChartMomentEventType.debut, currentRank: 7).headline,
+        'Song A by Artist A debuts at #7 all-time',
+      );
+    });
+
+    test('breakthrough verbs scale with the zone', () {
+      String zone(int threshold) => allTime(
+        ChartMomentEventType.newPeak,
+        currentRank: threshold,
+        threshold: threshold,
+      ).headline;
+
+      expect(zone(10), 'Song A by Artist A breaks into the all-time Top 10');
+      expect(zone(25), 'Song A by Artist A enters the all-time Top 25');
+      expect(zone(50), 'Song A by Artist A reaches the all-time Top 50');
+      expect(zone(5), 'Song A by Artist A climbs into the all-time Top 5');
+      expect(zone(2), 'Song A by Artist A rises to #2 all-time');
+    });
+
+    test('climb verbs scale with the move', () {
+      expect(
+        allTime(
+          ChartMomentEventType.rankRise,
+          previousRank: 60,
+          currentRank: 20,
+        ).headline,
+        'Song A by Artist A surges 40 places all-time',
+      );
+      expect(
+        allTime(
+          ChartMomentEventType.rankRise,
+          previousRank: 40,
+          currentRank: 20,
+        ).headline,
+        'Song A by Artist A jumps 20 places all-time',
+      );
+    });
+
+    test('decks: a new leader, a fresh entry, the highest position so far', () {
+      expect(
+        allTime(ChartMomentEventType.firstNumberOne, currentRank: 1).body,
+        startsWith('A new leader takes over the all-time Sonus Hot 100'),
+      );
+      expect(
+        allTime(ChartMomentEventType.debut, currentRank: 7).body,
+        startsWith('A fresh entry'),
+      );
+      expect(
+        allTime(
+          ChartMomentEventType.newPeak,
+          currentRank: 9,
+          threshold: 10,
+        ).body,
+        endsWith('its highest position so far.'),
+      );
+    });
+
+    test('no chart-cycle or weekly-reset wording reaches all-time stories', () {
+      for (final type in ChartMomentEventType.values) {
+        final copy = allTime(
+          type,
+          previousRank: 40,
+          currentRank: 3,
+          threshold: 3,
+        );
+        final text = '${copy.headline} ${copy.body}'.toLowerCase();
+        for (final banned in [
+          'weekly',
+          'this week',
+          'chart cycle',
+          'another day',
+          'last charting',
+        ]) {
+          expect(text, isNot(contains(banned)), reason: '${type.name}: $text');
+        }
+      }
+    });
+
+    test('only Sonus Daily and PulsePop publish; retired desks never do', () {
+      expect(SonusNewsEdition.values.map((e) => e.label), [
+        'Sonus Daily',
+        'PulsePop',
+      ]);
+    });
   });
 }

@@ -6,10 +6,11 @@ import '../models/chart_moment_feed_copy.dart';
 
 /// The two Sonus News editions.
 enum SonusNewsEdition {
-  /// Chart news: debuts, movement, peaks and number ones on the weekly charts.
+  /// Chart news: debuts, re-entries, peaks, number ones and exits.
   sonusDaily('Sonus Daily'),
 
-  /// Artist accomplishments and personal listening milestones.
+  /// Momentum (climbs), artist accomplishments and personal listening
+  /// milestones.
   pulsePop('PulsePop');
 
   const SonusNewsEdition(this.label);
@@ -162,6 +163,8 @@ class SonusNewsDesk {
   };
 
   static const Set<ChartMomentEventType> _pulsePopTypes = {
+    // Momentum, as the legacy PulsePop desk covered it.
+    ChartMomentEventType.rankRise,
     ChartMomentEventType.lifetimeStreamMilestone,
     ChartMomentEventType.consecutiveWeeksMilestone,
     ChartMomentEventType.totalWeeksMilestone,

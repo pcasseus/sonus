@@ -734,10 +734,11 @@ void main() {
     await tester.tap(find.text('Moments'));
     await tester.pump();
 
-    expect(find.text('Song 1 takes #1 all-time'), findsOneWidget);
+    expect(find.text('Song 1 by Artist 1 takes #1 all-time'), findsOneWidget);
     expect(
       find.text(
-        'Song 1 tops the all-time Sonus Hot 100 for the first time with 42 lifetime streams.',
+        'A new leader takes over the all-time Sonus Hot 100: Song 1 is #1 '
+        'for the first time with 42 lifetime streams.',
       ),
       findsOneWidget,
     );
