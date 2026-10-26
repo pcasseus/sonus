@@ -457,6 +457,7 @@ class _ImportReviewPageState extends State<ImportReviewPage> {
         editionTitle: draft.editionTitle,
         editionType: draft.editionType,
         releaseDate: draft.releaseDate,
+        releaseDatePrecision: draft.releaseDatePrecision,
         genre: draft.genre,
       );
 

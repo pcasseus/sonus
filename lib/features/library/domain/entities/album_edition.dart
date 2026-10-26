@@ -1,3 +1,5 @@
+import 'release_date.dart';
+
 enum AlbumEditionType {
   standard,
   deluxe,
@@ -19,6 +21,7 @@ class AlbumEdition {
     required this.createdAt,
     required this.updatedAt,
     this.releaseDate,
+    this.releaseDatePrecision,
     this.genre,
     this.artworkId,
   });
@@ -29,6 +32,10 @@ class AlbumEdition {
   final AlbumEditionType type;
   final bool isPrimary;
   final DateTime? releaseDate;
+
+  /// How much of [releaseDate] is known; null for a date saved before
+  /// precision was recorded, which is shown as the exact day it holds.
+  final ReleaseDatePrecision? releaseDatePrecision;
   final String? genre;
   final String? artworkId;
   final DateTime createdAt;
@@ -41,6 +48,7 @@ class AlbumEdition {
     AlbumEditionType? type,
     bool? isPrimary,
     Object? releaseDate = _unset,
+    Object? releaseDatePrecision = _unset,
     Object? genre = _unset,
     Object? artworkId = _unset,
     DateTime? createdAt,
@@ -55,6 +63,9 @@ class AlbumEdition {
       releaseDate: identical(releaseDate, _unset)
           ? this.releaseDate
           : releaseDate as DateTime?,
+      releaseDatePrecision: identical(releaseDatePrecision, _unset)
+          ? this.releaseDatePrecision
+          : releaseDatePrecision as ReleaseDatePrecision?,
       genre: identical(genre, _unset) ? this.genre : genre as String?,
       artworkId: identical(artworkId, _unset)
           ? this.artworkId
@@ -63,6 +74,19 @@ class AlbumEdition {
       updatedAt: updatedAt ?? this.updatedAt,
     );
   }
+
+  /// The release date as far as it is known.
+  ReleaseDate? get releaseDateValue => releaseDate == null
+      ? null
+      : ReleaseDate.fromStored(releaseDate!, releaseDatePrecision);
+
+  /// A copy dated [date], with its precision.
+  AlbumEdition withReleaseDate(ReleaseDate? date, {DateTime? updatedAt}) =>
+      copyWith(
+        releaseDate: date?.instant,
+        releaseDatePrecision: date?.precision,
+        updatedAt: updatedAt,
+      );
 
   @override
   bool operator ==(Object other) {

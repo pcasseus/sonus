@@ -40,6 +40,8 @@ abstract final class BackupCoverageContract {
     BackupTableCoverage(
       table: DatabaseTables.albumEditions,
       policy: BackupTablePolicy.portableData,
+      // How much of the release date is known (database version 39).
+      columnsAddedLater: {'release_date_precision'},
     ),
     BackupTableCoverage(
       table: DatabaseTables.albumEditionTracks,

@@ -39,6 +39,7 @@ import 'package:sonus_next/features/library/application/models/library_track.dar
 import 'package:sonus_next/features/library/application/models/library_track_order.dart';
 import 'package:sonus_next/features/library/application/repositories/library_query_repository.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
+import 'package:sonus_next/features/library/domain/entities/release_date.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition_track.dart';
 import 'package:sonus_next/features/library/domain/entities/song.dart';
 import 'package:sonus_next/features/library/presentation/controllers/album_profile_controller.dart';
@@ -641,7 +642,7 @@ void main() {
 
       // Each field shows its value and has one way to change it.
       expect(find.text('Test Album'), findsWidgets);
-      expect(find.text('2024-05-17'), findsOneWidget);
+      expect(find.text('May 17, 2024'), findsOneWidget);
       expect(find.text('Pop'), findsOneWidget);
 
       Future<void> edit(String row, String field, String value) async {
@@ -672,11 +673,27 @@ void main() {
 
       await edit('date', 'date', '2025-06-20');
       expect(editingService.lastReleaseDate, DateTime.utc(2025, 6, 20));
+      expect(editingService.lastReleaseDatePrecision, ReleaseDatePrecision.day);
       expect(editingService.lastTitle, 'Renamed Album');
 
       await edit('genre', 'genre', 'Alternative');
       expect(editingService.lastGenre, 'Alternative');
       expect(editingService.updateCallCount, 3);
+
+      // A year alone is saved as a year, after confirming the day is lost.
+      await edit('date', 'date', '2025');
+      expect(find.text('Use a less exact date?'), findsOneWidget);
+      expect(editingService.updateCallCount, 3);
+      await tester.tap(
+        find.byKey(const ValueKey<String>('release-date-confirm-less-precise')),
+      );
+      await tester.pumpAndSettle();
+      expect(editingService.updateCallCount, 4);
+      expect(editingService.lastReleaseDate, DateTime.utc(2025));
+      expect(
+        editingService.lastReleaseDatePrecision,
+        ReleaseDatePrecision.year,
+      );
 
       await tester.pageBack();
       await tester.pumpAndSettle();
@@ -922,7 +939,12 @@ void main() {
         find.byKey(const ValueKey<String>('release-studio-save-date')),
       );
       await tester.pump();
-      expect(find.text('Use a real date, such as 2024-06-21.'), findsOneWidget);
+      expect(
+        find.text(
+          'Use 2026, 2026-04 or 2026-04-17, with a real month and day.',
+        ),
+        findsOneWidget,
+      );
 
       expect(editingService.updateCallCount, 0);
     });
@@ -3622,6 +3644,7 @@ class FakeAlbumProfileEditingService extends AlbumProfileEditingService {
   final FakeAlbumProfileUpdateCallback? onUpdate;
 
   int updateCallCount = 0;
+  ReleaseDatePrecision? lastReleaseDatePrecision;
 
   int confirmOwnerCount = 0;
 
@@ -3650,10 +3673,12 @@ class FakeAlbumProfileEditingService extends AlbumProfileEditingService {
     required AlbumEditionType editionType,
     required DateTime? releaseDate,
     required String? genre,
+    ReleaseDatePrecision? releaseDatePrecision,
     String? artistId,
     DateTime? now,
   }) async {
     updateCallCount++;
+    lastReleaseDatePrecision = releaseDatePrecision;
 
     lastUserId = userId;
     lastAlbumId = albumId;

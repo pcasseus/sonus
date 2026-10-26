@@ -249,6 +249,8 @@ class InboundCloudRecordApplier {
     CloudAlbumEditionRecord record,
     SyncMutationContext context,
   ) async {
+    final existing = await context.albumEditionRepository.getById(record.id);
+
     final entity = AlbumEdition(
       id: record.id,
       albumId: record.albumId,
@@ -256,13 +258,20 @@ class InboundCloudRecordApplier {
       type: _albumEditionType(record.type),
       isPrimary: record.isPrimary,
       releaseDate: record.releaseDate,
+      // The cloud record has no precision yet (SN-49): an unchanged date
+      // keeps this device's, and a changed one is shown as it is stored.
+      releaseDatePrecision:
+          existing != null &&
+              record.releaseDate != null &&
+              existing.releaseDate?.isAtSameMomentAs(record.releaseDate!) ==
+                  true
+          ? existing.releaseDatePrecision
+          : null,
       genre: record.genre,
       artworkId: record.artworkId,
       createdAt: record.createdAt,
       updatedAt: record.updatedAt,
     );
-
-    final existing = await context.albumEditionRepository.getById(record.id);
 
     if (existing == null) {
       await context.albumEditionRepository.create(entity);

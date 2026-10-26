@@ -149,11 +149,13 @@ abstract final class ArtistProfileSections {
     return List.unmodifiable(result);
   }
 
-  /// Releases newest first by release date; undated releases last. Ties
-  /// fall back to title, then ID, so the order never shifts.
+  /// Releases newest first by release date; undated releases last. A
+  /// partial date sorts by its start (`2026` with `2026-01-01`), the less
+  /// exact one after. Ties fall back to title, then ID, so the order never
+  /// shifts.
   static int compareReleases(LibraryAlbum a, LibraryAlbum b) {
-    final aDate = a.releaseDate;
-    final bDate = b.releaseDate;
+    final aDate = a.releaseDateValue;
+    final bDate = b.releaseDateValue;
     if (aDate != null && bDate != null) {
       final byDate = bDate.compareTo(aDate);
       if (byDate != 0) return byDate;

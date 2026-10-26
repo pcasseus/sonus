@@ -26,6 +26,7 @@ import 'package:sonus_next/features/library/domain/entities/album.dart';
 import 'package:sonus_next/features/library/domain/entities/song.dart';
 import 'package:sonus_next/features/sync/application/services/sync_mutation_runner.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
+import 'package:sonus_next/features/library/domain/entities/release_date.dart';
 import 'package:sonus_next/features/library/presentation/controllers/album_profile_controller.dart';
 import 'package:sonus_next/features/player/application/controllers/playback_coordinator.dart';
 import 'package:sonus_next/features/player/domain/models/playback_queue.dart';
@@ -2734,6 +2735,7 @@ class FakeAlbumProfileEditingService extends AlbumProfileEditingService {
     : super(mutationRunner: UnusedSyncMutationRunner());
 
   int updateCallCount = 0;
+  ReleaseDatePrecision? lastReleaseDatePrecision;
 
   String? lastUserId;
   String? lastAlbumId;
@@ -2755,10 +2757,12 @@ class FakeAlbumProfileEditingService extends AlbumProfileEditingService {
     required AlbumEditionType editionType,
     required DateTime? releaseDate,
     required String? genre,
+    ReleaseDatePrecision? releaseDatePrecision,
     String? artistId,
     DateTime? now,
   }) async {
     updateCallCount++;
+    lastReleaseDatePrecision = releaseDatePrecision;
     lastUserId = userId;
     lastAlbumId = albumId;
     lastPrimaryEditionId = primaryEditionId;

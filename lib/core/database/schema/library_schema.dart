@@ -74,6 +74,13 @@ abstract final class LibrarySchema {
       artwork_id TEXT,
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL,
+      -- SN-49 (version 39): how much of release_date is known. Last, as
+      -- ALTER TABLE adds it on upgraded databases.
+      release_date_precision TEXT
+        CHECK (
+          release_date_precision IS NULL OR
+          release_date_precision IN ('year', 'month', 'day')
+        ),
 
       FOREIGN KEY (album_id)
         REFERENCES ${DatabaseTables.albums}(id)

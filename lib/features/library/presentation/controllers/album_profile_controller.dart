@@ -20,6 +20,7 @@ import '../../domain/entities/song_artist_credit.dart';
 import '../../domain/entities/song.dart';
 import '../../domain/repositories/song_artist_credit_repository.dart';
 import '../../domain/entities/album_edition.dart';
+import '../../domain/entities/release_date.dart';
 
 class AlbumProfileController extends ChangeNotifier {
   AlbumProfileController({
@@ -179,6 +180,7 @@ class AlbumProfileController extends ChangeNotifier {
     required AlbumEditionType editionType,
     required DateTime? releaseDate,
     required String? genre,
+    ReleaseDatePrecision? releaseDatePrecision,
     String? artistId,
   }) async {
     final service = _albumProfileEditingService;
@@ -200,6 +202,7 @@ class AlbumProfileController extends ChangeNotifier {
       editionTitle: editionTitle,
       editionType: editionType,
       releaseDate: releaseDate,
+      releaseDatePrecision: releaseDatePrecision,
       genre: genre,
       artistId: artistId,
     );

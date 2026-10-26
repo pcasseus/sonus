@@ -7,6 +7,7 @@ import '../../../library/application/models/library_album.dart';
 import '../../../library/application/models/library_artist.dart';
 import '../../../library/application/services/album_profile_editing_service.dart';
 import '../../../library/domain/entities/album_edition.dart';
+import '../../../library/domain/entities/release_date.dart';
 import '../../application/models/import_review_queue_item.dart';
 import '../../application/services/import_review_service.dart';
 
@@ -361,6 +362,7 @@ class ImportReviewController extends ChangeNotifier {
     required AlbumEditionType editionType,
     required DateTime? releaseDate,
     required String? genre,
+    ReleaseDatePrecision? releaseDatePrecision,
   }) async {
     final album = currentAlbum;
     final service = _albumProfileEditingService;
@@ -387,6 +389,7 @@ class ImportReviewController extends ChangeNotifier {
         editionTitle: editionTitle,
         editionType: editionType,
         releaseDate: releaseDate,
+        releaseDatePrecision: releaseDatePrecision,
         genre: genre,
         artistId: artistId,
       );

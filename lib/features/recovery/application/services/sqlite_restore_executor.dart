@@ -2,6 +2,7 @@ import 'package:sqflite/sqflite.dart';
 
 import '../../../../core/database/app_database.dart';
 import '../../../../core/database/database_tables.dart';
+import '../../../../core/database/schema/release_date_precision_backfill.dart';
 import '../../../../core/identity/text_normalizer.dart';
 import '../models/backup_table_coverage.dart';
 import 'backup_json_codec.dart';
@@ -85,7 +86,7 @@ class SqliteRestoreExecutor {
   }) async {
     _assertCoverage();
 
-    final tables = backup.payload.tables;
+    final tables = _withLaterColumns(backup.payload.tables);
     final keys = <String, List<String>>{
       for (final coverage in BackupCoverageContract.portableTables)
         coverage.table: await RestorePlanner.primaryKeyColumns(
@@ -168,6 +169,10 @@ class SqliteRestoreExecutor {
     }
     await afterPhase?.call(RestorePhase.insertDependentTables);
 
+    // Dates restored from a backup made before their precision was
+    // recorded are marked year-only where their provenance shows it.
+    await ReleaseDatePrecisionBackfill.run(transaction);
+
     // 6. Verify before the transaction may commit.
     await _verify(transaction, backup, artworkRows);
     await afterPhase?.call(RestorePhase.verifyIntegrity);
@@ -238,6 +243,31 @@ class SqliteRestoreExecutor {
       );
     }
   }
+
+  /// Rows from older backups lack columns added since. They are restored
+  /// as null rather than left out: an anchor row is updated in place, and
+  /// a column it does not name would otherwise keep this device's value
+  /// beside the backup's (for example a release date's precision beside a
+  /// different date).
+  static Map<String, List<Map<String, Object?>>> _withLaterColumns(
+    Map<String, List<Map<String, Object?>>> tables,
+  ) => {
+    for (final MapEntry(key: table, value: rows) in tables.entries)
+      table: switch (BackupCoverageContract.tables
+          .where((coverage) => coverage.table == table)
+          .firstOrNull
+          ?.columnsAddedLater) {
+        final later? when later.isNotEmpty => [
+          for (final row in rows)
+            {
+              for (final column in later)
+                if (!row.containsKey(column)) column: null,
+              ...row,
+            },
+        ],
+        _ => rows,
+      },
+  };
 
   Future<List<List<Object?>>> _missingKeys(
     Transaction transaction,

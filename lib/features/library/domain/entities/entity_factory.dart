@@ -2,6 +2,7 @@ import 'package:sonus_next/core/identity/entity_id.dart';
 import 'package:sonus_next/core/identity/text_normalizer.dart';
 import 'package:sonus_next/features/library/domain/entities/album.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
+import 'package:sonus_next/features/library/domain/entities/release_date.dart';
 import 'package:sonus_next/features/library/domain/entities/artist.dart';
 import 'package:sonus_next/features/library/domain/entities/song.dart';
 
@@ -41,6 +42,7 @@ abstract final class EntityFactory {
     AlbumEditionType type = AlbumEditionType.standard,
     bool isPrimary = false,
     DateTime? releaseDate,
+    ReleaseDatePrecision? releaseDatePrecision,
     String? genre,
     DateTime? now,
   }) {
@@ -53,6 +55,7 @@ abstract final class EntityFactory {
       type: type,
       isPrimary: isPrimary,
       releaseDate: releaseDate,
+      releaseDatePrecision: releaseDate == null ? null : releaseDatePrecision,
       genre: genre?.trim(),
       createdAt: timestamp,
       updatedAt: timestamp,

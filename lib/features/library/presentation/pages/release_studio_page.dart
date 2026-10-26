@@ -24,9 +24,11 @@ import '../../application/services/library_organization_service.dart';
 import '../../application/services/metadata_provider.dart';
 import '../../data/services/edition_follow_up_dismissals.dart';
 import '../../domain/entities/album_edition.dart';
+import '../../domain/entities/release_date.dart';
 import '../controllers/album_profile_controller.dart';
 import '../widgets/album_studio/album_studio_editions_section.dart';
 import '../widgets/album_studio/album_studio_release_type.dart';
+import '../widgets/album_studio/release_date_editor.dart';
 import '../widgets/album_studio/release_studio_format.dart';
 import '../widgets/cover_art_album_search_dialog.dart';
 import '../widgets/cover_art_image_selection_dialog.dart';
@@ -189,7 +191,8 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
     final album = controller.album;
     final canEdit = controller.canEditAlbumProfile(widget.userId);
     final organization = widget.organization;
-    final releaseDate = album?.releaseDate;
+    final releaseDate = album?.releaseDateValue;
+    final canEditDate = canEdit && !_isSavingDetails;
 
     return ListView(
       key: const ValueKey<String>('release-studio-details'),
@@ -216,8 +219,18 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
             _DetailRow(
               key: const ValueKey<String>('release-studio-date'),
               label: 'Release date',
-              value: releaseDate == null ? 'Not set' : _formatDate(releaseDate),
-              onEdit: canEdit && !_isSavingDetails ? _editReleaseDate : null,
+              value: releaseDate == null ? 'Not set' : releaseDate.label,
+              onEdit: canEditDate ? _editReleaseDate : null,
+              action: canEditDate
+                  ? IconButton(
+                      key: const ValueKey<String>(
+                        'release-studio-date-calendar',
+                      ),
+                      tooltip: 'Choose the release day on a calendar',
+                      icon: const Icon(Icons.calendar_month_rounded),
+                      onPressed: _pickReleaseDay,
+                    )
+                  : null,
             ),
             _DetailRow(
               key: const ValueKey<String>('release-studio-genre'),
@@ -289,6 +302,9 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
     Object? genre = _unchanged,
     required String message,
   }) async {
+    final release = identical(releaseDate, _unchanged)
+        ? controller.album?.releaseDateValue
+        : releaseDate as ReleaseDate?;
     final album = controller.album;
     if (album == null) return;
 
@@ -304,7 +320,10 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
         editionType: album.primaryEditionType ?? AlbumEditionType.standard,
         releaseDate: identical(releaseDate, _unchanged)
             ? album.releaseDate
-            : releaseDate as DateTime?,
+            : release?.instant,
+        releaseDatePrecision: identical(releaseDate, _unchanged)
+            ? album.releaseDatePrecision
+            : release?.precision,
         genre: identical(genre, _unchanged) ? album.genre : genre as String?,
       );
       if (changed) {
@@ -359,20 +378,48 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
     final album = controller.album;
     if (album == null) return;
 
-    final text = await _askForText(
-      title: 'Release date',
-      label: 'Date (YYYY-MM-DD)',
-      initial: album.releaseDate == null ? '' : _formatDate(album.releaseDate!),
-      fieldKey: 'release-studio-date-field',
-      saveKey: 'release-studio-save-date',
-      validator: (value) => value.isEmpty || _parseDate(value) != null
-          ? null
-          : 'Use a real date, such as 2024-06-21.',
+    final edit = await showReleaseDateEditor(
+      context,
+      current: album.releaseDateValue,
     );
-    if (text == null) return;
+    switch (edit) {
+      case null:
+        return;
+      case ReleaseDateCleared():
+        await _saveDetails(releaseDate: null, message: 'Release date cleared.');
+      case ReleaseDateSet(:final date):
+        await _saveDetails(
+          releaseDate: date,
+          message: 'Release date saved: ${date.label}.',
+        );
+    }
+  }
+
+  /// The calendar beside the release date: opens at the saved date.
+  Future<void> _pickReleaseDay() async {
+    final current = controller.album?.releaseDateValue;
+    final now = DateTime.now();
+    final last = DateTime(now.year + 5, 12, 31);
+    var start = current == null
+        ? now
+        : DateTime(current.year, current.month ?? 1, current.day ?? 1);
+    if (start.isAfter(last)) start = last;
+
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: start,
+      firstDate: DateTime(1900),
+      lastDate: last,
+      initialDatePickerMode: current?.day == null
+          ? DatePickerMode.year
+          : DatePickerMode.day,
+      helpText: 'Release day',
+    );
+    if (picked == null || !mounted) return;
+    final date = ReleaseDate.of(picked.year, picked.month, picked.day)!;
     await _saveDetails(
-      releaseDate: text.isEmpty ? null : _parseDate(text),
-      message: text.isEmpty ? 'Release date cleared.' : 'Release date saved.',
+      releaseDate: date,
+      message: 'Release date saved: ${date.label}.',
     );
   }
 
@@ -507,23 +554,6 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
         },
       ),
     );
-  }
-
-  static String _formatDate(DateTime date) =>
-      '${date.year.toString().padLeft(4, '0')}-'
-      '${date.month.toString().padLeft(2, '0')}-'
-      '${date.day.toString().padLeft(2, '0')}';
-
-  static DateTime? _parseDate(String value) {
-    final match = RegExp(r'^(\d{4})-(\d{2})-(\d{2})$').firstMatch(value);
-    if (match == null) return null;
-    final year = int.parse(match.group(1)!);
-    final month = int.parse(match.group(2)!);
-    final day = int.parse(match.group(3)!);
-    final date = DateTime.utc(year, month, day);
-    return date.year == year && date.month == month && date.day == day
-        ? date
-        : null;
   }
 
   // Artwork ---------------------------------------------------------------
@@ -1679,11 +1709,15 @@ class _DetailRow extends StatelessWidget {
     required this.label,
     required this.value,
     required this.onEdit,
+    this.action,
   });
 
   final String label;
   final String value;
   final VoidCallback? onEdit;
+
+  /// A second action beside the edit icon, such as a calendar.
+  final Widget? action;
 
   @override
   Widget build(BuildContext context) {
@@ -1711,7 +1745,18 @@ class _DetailRow extends StatelessWidget {
       ),
       trailing: onEdit == null
           ? null
-          : Icon(Icons.edit_outlined, color: colors.textSecondary),
+          : action == null
+          ? Icon(Icons.edit_outlined, color: colors.textSecondary)
+          : Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconTheme.merge(
+                  data: IconThemeData(color: colors.textSecondary),
+                  child: action!,
+                ),
+                Icon(Icons.edit_outlined, color: colors.textSecondary),
+              ],
+            ),
     );
   }
 }

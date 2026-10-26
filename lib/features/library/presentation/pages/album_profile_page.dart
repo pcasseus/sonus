@@ -943,10 +943,11 @@ class _AlbumHero extends StatelessWidget {
     final parts = <String>[];
     final selectedEdition = controller.selectedEdition;
 
-    final releaseDate = selectedEdition?.releaseDate ?? album.releaseDate;
+    final releaseDate =
+        selectedEdition?.releaseDateValue ?? album.releaseDateValue;
 
     if (releaseDate != null) {
-      parts.add(_formatDate(releaseDate));
+      parts.add(releaseDate.label);
     }
 
     final genre = (selectedEdition?.genre ?? album.genre)?.trim();
@@ -991,26 +992,6 @@ class _AlbumHero extends StatelessWidget {
     }
 
     return '$hours hr $minutes min';
-  }
-
-  String _formatDate(DateTime date) {
-    const months = [
-      'January',
-      'February',
-      'March',
-      'April',
-      'May',
-      'June',
-      'July',
-      'August',
-      'September',
-      'October',
-      'November',
-      'December',
-    ];
-
-    return '${months[date.month - 1]} '
-        '${date.day}, ${date.year}';
   }
 }
 

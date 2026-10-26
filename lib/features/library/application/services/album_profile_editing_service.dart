@@ -3,6 +3,7 @@ import '../../../sync/application/services/sync_mutation_runner.dart';
 import '../../../sync/domain/models/sync_data_contract.dart';
 import '../../domain/entities/album.dart';
 import '../../domain/entities/album_edition.dart';
+import '../../domain/entities/release_date.dart';
 import '../../domain/metadata/metadata_field_state.dart';
 import '../../domain/metadata/metadata_fields.dart';
 import '../../domain/services/metadata_field_state_service.dart';
@@ -61,6 +62,7 @@ class AlbumProfileEditingService {
     required AlbumEditionType editionType,
     required DateTime? releaseDate,
     required String? genre,
+    ReleaseDatePrecision? releaseDatePrecision,
     String? artistId,
     DateTime? now,
   }) {
@@ -157,6 +159,18 @@ class AlbumProfileEditingService {
 
       final canonicalTitle = TextNormalizer.canonicalize(trimmedTitle);
 
+      // A caller that does not state the precision keeps an unchanged
+      // date's precision; a newly entered full date is an exact day.
+      final precision = releaseDate == null
+          ? null
+          : releaseDatePrecision ??
+                (releaseDate == edition.releaseDate
+                    ? edition.releaseDatePrecision
+                    : ReleaseDatePrecision.day);
+      final releaseDateChanged =
+          edition.releaseDate != releaseDate ||
+          edition.releaseDatePrecision != precision;
+
       final changedAlbumMetadataFields = <String>{
         if (album.artistId != targetArtistId) MetadataFields.albumArtist,
         if (album.title != trimmedTitle) MetadataFields.albumTitle,
@@ -165,8 +179,7 @@ class AlbumProfileEditingService {
       final changedEditionMetadataFields = <String>{
         if (edition.title != trimmedEditionTitle) MetadataFields.editionTitle,
         if (edition.type != editionType) MetadataFields.editionType,
-        if (edition.releaseDate != releaseDate)
-          MetadataFields.editionReleaseDate,
+        if (releaseDateChanged) MetadataFields.editionReleaseDate,
         if (edition.genre != normalizedGenre) MetadataFields.editionGenre,
       };
 
@@ -178,7 +191,7 @@ class AlbumProfileEditingService {
       final editionChanged =
           edition.title != trimmedEditionTitle ||
           edition.type != editionType ||
-          edition.releaseDate != releaseDate ||
+          releaseDateChanged ||
           edition.genre != normalizedGenre;
 
       final updatedAlbum = albumChanged
@@ -195,6 +208,7 @@ class AlbumProfileEditingService {
               title: trimmedEditionTitle,
               type: editionType,
               releaseDate: releaseDate,
+              releaseDatePrecision: precision,
               genre: normalizedGenre,
               updatedAt: timestamp,
             )

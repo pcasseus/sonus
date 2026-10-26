@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../application/models/library_album.dart';
 import '../../application/models/library_artist.dart';
 import '../../domain/entities/album_edition.dart';
+import '../../domain/entities/release_date.dart';
 
 class AlbumProfileEditDraft {
   const AlbumProfileEditDraft({
@@ -12,6 +13,7 @@ class AlbumProfileEditDraft {
     required this.editionType,
     required this.releaseDate,
     required this.genre,
+    this.releaseDatePrecision,
   });
 
   final String title;
@@ -19,6 +21,9 @@ class AlbumProfileEditDraft {
   final String editionTitle;
   final AlbumEditionType editionType;
   final DateTime? releaseDate;
+
+  /// How much of [releaseDate] was entered.
+  final ReleaseDatePrecision? releaseDatePrecision;
   final String? genre;
 }
 
@@ -62,7 +67,7 @@ class _AlbumProfileEditDialogState extends State<AlbumProfileEditDialog> {
     );
 
     _releaseDateController = TextEditingController(
-      text: _formatInputDate(widget.album.releaseDate),
+      text: widget.album.releaseDateValue?.iso ?? '',
     );
 
     _genreController = TextEditingController(text: widget.album.genre ?? '');
@@ -181,7 +186,7 @@ class _AlbumProfileEditDialogState extends State<AlbumProfileEditDialog> {
                 textInputAction: TextInputAction.next,
                 decoration: const InputDecoration(
                   labelText: 'Release date',
-                  hintText: 'YYYY-MM-DD',
+                  hintText: 'YYYY, YYYY-MM or YYYY-MM-DD',
                 ),
                 validator: (value) {
                   final trimmed = value?.trim() ?? '';
@@ -190,8 +195,8 @@ class _AlbumProfileEditDialogState extends State<AlbumProfileEditDialog> {
                     return null;
                   }
 
-                  if (_parseInputDate(trimmed) == null) {
-                    return 'Use YYYY-MM-DD.';
+                  if (ReleaseDate.tryParse(trimmed) == null) {
+                    return 'Use YYYY, YYYY-MM or YYYY-MM-DD.';
                   }
 
                   return null;
@@ -229,6 +234,7 @@ class _AlbumProfileEditDialogState extends State<AlbumProfileEditDialog> {
     }
 
     final genre = _genreController.text.trim();
+    final releaseDate = ReleaseDate.tryParse(_releaseDateController.text);
 
     Navigator.of(context).pop(
       AlbumProfileEditDraft(
@@ -236,7 +242,8 @@ class _AlbumProfileEditDialogState extends State<AlbumProfileEditDialog> {
         artistId: _artistId,
         editionTitle: _editionTitleController.text.trim(),
         editionType: _editionType,
-        releaseDate: _parseInputDate(_releaseDateController.text),
+        releaseDate: releaseDate?.instant,
+        releaseDatePrecision: releaseDate?.precision,
         genre: genre.isEmpty ? null : genre,
       ),
     );
@@ -251,46 +258,5 @@ class _AlbumProfileEditDialogState extends State<AlbumProfileEditDialog> {
       AlbumEditionType.remaster => 'Remaster',
       AlbumEditionType.other => 'Other',
     };
-  }
-
-  String _formatInputDate(DateTime? date) {
-    if (date == null) {
-      return '';
-    }
-
-    final month = date.month.toString().padLeft(2, '0');
-    final day = date.day.toString().padLeft(2, '0');
-
-    return '${date.year.toString().padLeft(4, '0')}-$month-$day';
-  }
-
-  DateTime? _parseInputDate(String value) {
-    final trimmed = value.trim();
-
-    if (trimmed.isEmpty) {
-      return null;
-    }
-
-    final match = RegExp(r'^(\d{4})-(\d{2})-(\d{2})$').firstMatch(trimmed);
-
-    if (match == null) {
-      return null;
-    }
-
-    final year = int.parse(match.group(1)!);
-    final month = int.parse(match.group(2)!);
-    final day = int.parse(match.group(3)!);
-
-    if (month < 1 || month > 12 || day < 1 || day > 31) {
-      return null;
-    }
-
-    final parsed = DateTime(year, month, day);
-
-    if (parsed.year != year || parsed.month != month || parsed.day != day) {
-      return null;
-    }
-
-    return parsed;
   }
 }

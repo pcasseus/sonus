@@ -24,6 +24,7 @@ import 'package:sonus_next/features/library/data/daos/album_dao.dart';
 import 'package:sonus_next/features/library/data/daos/album_edition_dao.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition_track.dart';
+import 'package:sonus_next/features/library/domain/entities/release_date.dart';
 import 'package:sonus_next/features/library/domain/services/edition_title_parser.dart';
 import 'package:sonus_next/features/library/data/repositories/sqlite_album_edition_track_repository.dart';
 import 'package:sonus_next/features/library/data/daos/album_edition_track_dao.dart';
@@ -404,6 +405,8 @@ class AtomicLibraryImporter {
                 AlbumEditionType.standard,
             isPrimary: !albumHasEditions,
             releaseDate: metadata.releaseDate,
+            // File tags hold a year alone; it is never shown as a day.
+            releaseDatePrecision: ReleaseDatePrecision.year,
             genre: metadata.genre,
             now: timestamp,
           );

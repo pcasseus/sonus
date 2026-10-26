@@ -1,4 +1,5 @@
 import '../../domain/entities/album_edition.dart';
+import '../../domain/entities/release_date.dart';
 
 class LibraryAlbum {
   const LibraryAlbum({
@@ -12,6 +13,7 @@ class LibraryAlbum {
     this.primaryEditionTitle,
     this.primaryEditionType,
     this.releaseDate,
+    this.releaseDatePrecision,
     this.genre,
     this.artworkId,
     this.artworkPath,
@@ -28,7 +30,15 @@ class LibraryAlbum {
   final AlbumEditionType? primaryEditionType;
 
   final DateTime? releaseDate;
+
+  /// How much of [releaseDate] is known; see [ReleaseDatePrecision].
+  final ReleaseDatePrecision? releaseDatePrecision;
   final String? genre;
+
+  /// The release date as far as it is known.
+  ReleaseDate? get releaseDateValue => releaseDate == null
+      ? null
+      : ReleaseDate.fromStored(releaseDate!, releaseDatePrecision);
 
   final String? artworkId;
   final String? artworkPath;
