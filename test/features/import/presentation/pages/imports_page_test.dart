@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:sonus_next/features/account/application/controllers/account_controller.dart';
+import 'package:sonus_next/features/import/application/services/device_music_access.dart';
 import 'package:sonus_next/features/import/application/services/import_review_service.dart';
 import 'package:sonus_next/features/import/application/models/import_batch.dart';
 import 'package:sonus_next/features/import/application/models/import_execution_summary.dart';
@@ -199,6 +200,100 @@ void main() {
       );
     });
 
+    testWidgets('on Android, a folder chosen in Sonus is imported by path', (
+      tester,
+    ) async {
+      final discovery = _FakeCandidateDiscovery();
+      var systemPickerUsed = false;
+
+      await tester.pumpWidget(
+        _buildApp(
+          candidateDiscovery: discovery,
+          sourcePicker: _FakeImportSourcePicker(
+            onPickStructuredFolder: () async {
+              systemPickerUsed = true;
+              return null;
+            },
+          ),
+          deviceMusicAccess: _GrantedMusicAccess(),
+        ),
+      );
+
+      await tester.ensureVisible(find.text('Choose folder'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Choose folder'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey<String>('device-music-folder-page')),
+        findsOneWidget,
+      );
+      await tester.tap(find.text('Download'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Music'));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey<String>('device-music-import')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(discovery.lastFolderPath, '/storage/emulated/0/Download/Music');
+      expect(systemPickerUsed, isFalse);
+      expect(find.text('Import complete'), findsOneWidget);
+    });
+
+    testWidgets("on Android, Android's own picker is still available", (
+      tester,
+    ) async {
+      final discovery = _FakeCandidateDiscovery();
+
+      await tester.pumpWidget(
+        _buildApp(
+          candidateDiscovery: discovery,
+          sourcePicker: _FakeImportSourcePicker(
+            onPickStructuredFolder: () async =>
+                'content://com.android.externalstorage.documents/tree/x',
+          ),
+          deviceMusicAccess: _GrantedMusicAccess(),
+        ),
+      );
+
+      await tester.ensureVisible(find.text('Choose folder'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Choose folder'));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey<String>('device-music-system-picker')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        discovery.lastFolderPath,
+        'content://com.android.externalstorage.documents/tree/x',
+      );
+    });
+
+    testWidgets('closing the folder browser imports nothing', (tester) async {
+      final discovery = _FakeCandidateDiscovery();
+
+      await tester.pumpWidget(
+        _buildApp(
+          candidateDiscovery: discovery,
+          deviceMusicAccess: _GrantedMusicAccess(),
+        ),
+      );
+
+      await tester.ensureVisible(find.text('Choose folder'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Choose folder'));
+      await tester.pumpAndSettle();
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+
+      expect(discovery.lastFolderPath, isNull);
+      expect(find.text('Choose folder'), findsOneWidget);
+    });
+
     testWidgets('can reset after a completed import', (tester) async {
       await tester.pumpWidget(
         _buildApp(
@@ -230,6 +325,7 @@ Widget _buildApp({
   ImportSourcePicker? sourcePicker,
   ImportCandidateDiscovery? candidateDiscovery,
   ImportBatchRunner? batchRunner,
+  DeviceMusicAccess? deviceMusicAccess,
 }) {
   final discovery = candidateDiscovery ?? _FakeCandidateDiscovery();
 
@@ -262,9 +358,34 @@ Widget _buildApp({
       Provider<ImportSourcePicker>.value(
         value: sourcePicker ?? const _FakeImportSourcePicker(),
       ),
+      Provider<DeviceMusicAccess?>.value(value: deviceMusicAccess),
     ],
     child: const MaterialApp(home: ImportsPage()),
   );
+}
+
+class _GrantedMusicAccess implements DeviceMusicAccess {
+  @override
+  Future<DeviceMusicPermission> status() async => DeviceMusicPermission.granted;
+
+  @override
+  Future<DeviceMusicPermission> request() async =>
+      DeviceMusicPermission.granted;
+
+  @override
+  Future<void> openSettings() async {}
+
+  @override
+  Future<List<DeviceAudioFolder>> audioFolders() async => const [
+    DeviceAudioFolder(
+      path: '/storage/emulated/0/Download/Music/FLO/Access All Areas',
+      audioCount: 6,
+    ),
+    DeviceAudioFolder(
+      path: '/storage/emulated/0/Download/Music/Victorious',
+      audioCount: 18,
+    ),
+  ];
 }
 
 class _FakeImportSourcePicker implements ImportSourcePicker {

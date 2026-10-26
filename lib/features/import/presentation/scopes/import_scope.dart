@@ -23,6 +23,7 @@ import '../../../player/data/daos/track_lyrics_dao.dart';
 import '../../../player/data/repositories/sqlite_track_lyrics_repository.dart';
 import '../../../sync/data/repositories/sync_mutation_transaction_runner.dart';
 import '../../application/services/atomic_library_importer.dart';
+import '../../application/services/device_music_access.dart';
 import '../../application/services/import_batch_executor.dart';
 import '../../application/services/import_duration_repair_service.dart';
 import '../../application/services/import_review_cleanup_service.dart';
@@ -34,6 +35,7 @@ import '../../application/services/library_import_service.dart';
 import '../../application/services/lyrics_ingestion_service.dart';
 import '../../application/services/metadata_resolver.dart';
 import '../../data/daos/import_batch_dao.dart';
+import '../../data/services/method_channel_device_music_access.dart';
 import '../../data/daos/import_source_dao.dart';
 import '../../data/daos/media_file_binding_dao.dart';
 import '../../data/daos/song_import_review_dao.dart';
@@ -367,6 +369,11 @@ class _ImportScopeState extends State<ImportScope> {
         Provider<ImportReviewService?>.value(value: _reviewService),
         Provider<ImportSourcePicker>.value(
           value: FilePickerImportSourcePicker(saf: _saf),
+        ),
+        Provider<DeviceMusicAccess?>.value(
+          value: Platform.isAndroid
+              ? const MethodChannelDeviceMusicAccess()
+              : null,
         ),
       ],
       child: widget.child,
