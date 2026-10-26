@@ -22,6 +22,8 @@ abstract final class OrganizationSchema {
   ///   compilation). Null means unclassified.
   /// - `format` (SN-45): Single, EP or Album. Null means not stated, which
   ///   counts as an Album; it is never inferred from track counts.
+  /// - `live` (SN-49): 1 for a live recording, 0 for the user's "not
+  ///   live". Null means not stated.
   ///
   /// Each has its own authority, so a manual choice of one never hides the
   /// other. A row exists only while at least one of them is set.
@@ -52,11 +54,44 @@ abstract final class OrganizationSchema {
         format_source_reference TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
+        live INTEGER CHECK (live IS NULL OR live IN (0, 1)),
+        live_authority TEXT
+          CHECK (
+            live_authority IS NULL OR
+            live_authority IN ('external', 'manual')
+          ),
+        live_source_reference TEXT,
         CHECK ((kind IS NULL) = (authority IS NULL)),
         CHECK ((format IS NULL) = (format_authority IS NULL)),
-        CHECK (kind IS NOT NULL OR format IS NOT NULL)
+        CHECK ((live IS NULL) = (live_authority IS NULL)),
+        CHECK (kind IS NOT NULL OR format IS NOT NULL OR live IS NOT NULL)
       )
     ''');
+  }
+
+  /// SN-49: adds Live beside the classification and the format. Every
+  /// existing row is copied unchanged.
+  static Future<void> addLiveClassification(DatabaseExecutor db) async {
+    const table = DatabaseTables.albumReleaseClassifications;
+    const staging = '${table}_rebuild';
+    const copied =
+        'album_id, kind, authority, source_reference, format, '
+        'format_authority, format_source_reference, created_at, updated_at';
+
+    final existing = await db.rawQuery('SELECT COUNT(*) AS count FROM $table');
+    if (existing.single['count'] == 0) {
+      // Nothing to copy: replace the empty table directly.
+      await db.execute('DROP TABLE $table');
+      await createAlbumReleaseClassifications(db);
+      return;
+    }
+
+    await createAlbumReleaseClassifications(db, table: staging);
+    await db.execute(
+      'INSERT INTO $staging ($copied) SELECT $copied FROM $table',
+    );
+    await db.execute('DROP TABLE $table');
+    await db.execute('ALTER TABLE $staging RENAME TO $table');
   }
 
   /// SN-45: adds the release format beside the classification. Every

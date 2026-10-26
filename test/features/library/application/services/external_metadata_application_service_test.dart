@@ -977,6 +977,73 @@ void main() {
       expect(classification.sourceReference, contains('rg-1'));
     });
 
+    test('SN-49: a Live soundtrack EP keeps all three facts', () async {
+      final graph = await createGraph();
+
+      await classifying.applyAlbumCandidate(
+        userId: null,
+        albumId: graph.album.id,
+        candidate: ExternalMetadataCandidate(
+          provider: ExternalMetadataProviderKind.musicBrainz,
+          entityKind: ExternalMetadataEntityKind.album,
+          providerEntityId: 'rg-1',
+          displayName: 'Old Album',
+          primaryType: 'EP',
+          secondaryTypes: const ['Soundtrack', 'Live'],
+        ),
+        now: mutationTime,
+      );
+
+      final live = (await organization.getLiveClassifications()).single;
+      expect(live.isLive, isTrue);
+      expect(live.authority, ReleaseClassificationAuthority.external);
+      expect(live.sourceReference, contains('rg-1'));
+      expect(
+        (await organization.getClassifications()).single.kind,
+        ReleaseKind.soundtrack,
+      );
+      expect((await organization.getFormats()).single.format, ReleaseFormat.ep);
+    });
+
+    test(
+      "SN-49: the user's \"not live\" is kept; no type is no guess",
+      () async {
+        final graph = await createGraph();
+
+        await classifying.applyAlbumCandidate(
+          userId: null,
+          albumId: graph.album.id,
+          candidate: releaseGroup(const []),
+          now: mutationTime,
+        );
+        expect(
+          await organization.getLiveClassifications(),
+          isEmpty,
+          reason: 'only a Live type suggests Live; nothing is inferred',
+        );
+
+        await organization.saveLiveClassification(
+          AlbumLiveClassification(
+            albumId: graph.album.id,
+            isLive: false,
+            authority: ReleaseClassificationAuthority.manual,
+            createdAt: originalTime,
+            updatedAt: originalTime,
+          ),
+        );
+        await classifying.applyAlbumCandidate(
+          userId: null,
+          albumId: graph.album.id,
+          candidate: releaseGroup(const ['Live']),
+          now: mutationTime,
+        );
+
+        final live = (await organization.getLiveClassifications()).single;
+        expect(live.isLive, isFalse);
+        expect(live.authority, ReleaseClassificationAuthority.manual);
+      },
+    );
+
     test('a plain album release group classifies nothing', () async {
       final graph = await createGraph();
 

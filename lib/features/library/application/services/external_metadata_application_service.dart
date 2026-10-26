@@ -89,6 +89,13 @@ class ExternalMetadataApplicationService {
       timestamp: timestamp,
     );
 
+    await _recordLive(
+      repository,
+      albumId: albumId,
+      candidate: candidate,
+      timestamp: timestamp,
+    );
+
     final kind = ReleaseKind.fromMusicBrainz(candidate.secondaryTypes);
 
     if (kind == null) {
@@ -136,6 +143,34 @@ class ExternalMetadataApplicationService {
       AlbumReleaseFormat(
         albumId: albumId,
         format: format,
+        authority: ReleaseClassificationAuthority.external,
+        sourceReference: candidate.sourceReference,
+        createdAt: existing?.createdAt ?? timestamp,
+        updatedAt: timestamp,
+      ),
+    );
+  }
+
+  /// A release group MusicBrainz types as Live is suggested as live,
+  /// unless the user answered. A group without that type changes nothing:
+  /// it is never taken as "not live".
+  Future<void> _recordLive(
+    LibraryOrganizationRepository repository, {
+    required String albumId,
+    required ExternalMetadataCandidate candidate,
+    required DateTime timestamp,
+  }) async {
+    if (!LiveRelease.fromMusicBrainz(candidate.secondaryTypes)) return;
+
+    final existing = (await repository.getLiveClassifications())
+        .where((saved) => saved.albumId == albumId)
+        .firstOrNull;
+    if (existing?.authority == ReleaseClassificationAuthority.manual) return;
+
+    await repository.saveLiveClassification(
+      AlbumLiveClassification(
+        albumId: albumId,
+        isLive: true,
         authority: ReleaseClassificationAuthority.external,
         sourceReference: candidate.sourceReference,
         createdAt: existing?.createdAt ?? timestamp,

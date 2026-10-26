@@ -10,9 +10,11 @@ abstract final class BackupCompatibility {
   /// 36 only widened a check on chart Moments, 37 only added an internal
   /// sync table, 38 only added nullable release-format columns to the
   /// optional classification table (older rows restore with no format)
-  /// and 39 only added the nullable release-date precision to editions
+  /// 39 only added the nullable release-date precision to editions
   /// (older rows restore without one, then imported year-only dates are
-  /// marked again from their provenance), so backups from 31 onward
+  /// marked again from their provenance) and 40 only added nullable Live
+  /// columns to the optional classification table (older rows restore as
+  /// not stated), so backups from 31 onward
   /// restore unchanged. Each entry must be proven by a migration test
   /// before it is added; the schema validator still checks every payload
   /// against the local columns. Listed explicitly so a schema bump fails
@@ -27,6 +29,7 @@ abstract final class BackupCompatibility {
     37,
     38,
     39,
+    40,
   };
 
   static bool canRestore(BackupManifest manifest) =>

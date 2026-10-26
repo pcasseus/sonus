@@ -21,6 +21,17 @@ enum ReleaseKind {
   }
 }
 
+/// SN-49: whether a release is a live recording. Live sits beside the
+/// format and the kind, so a release can be a Live EP, or a Live
+/// Soundtrack album, without either fact replacing the other.
+abstract final class LiveRelease {
+  /// Whether a MusicBrainz release group's secondary types say "Live".
+  /// Without that, nothing is inferred (not from titles, not from track
+  /// counts).
+  static bool fromMusicBrainz(Iterable<String> secondaryTypes) =>
+      secondaryTypes.any((type) => type.trim().toLowerCase() == 'live');
+}
+
 /// Where a classification came from: an external source such as a
 /// MusicBrainz release-group type, or the user.
 enum ReleaseClassificationAuthority { external, manual }
@@ -99,6 +110,29 @@ class AlbumReleaseClassification {
   /// they never group anyone automatically.
   bool get groupsPerformers =>
       kind == ReleaseKind.soundtrack || kind == ReleaseKind.castRecording;
+}
+
+/// Whether a release is live, and who said so. The user's "not live" is
+/// kept too, so a later MusicBrainz refresh cannot overrule it.
+class AlbumLiveClassification {
+  const AlbumLiveClassification({
+    required this.albumId,
+    required this.isLive,
+    required this.authority,
+    required this.createdAt,
+    required this.updatedAt,
+    this.sourceReference,
+  });
+
+  final String albumId;
+  final bool isLive;
+  final ReleaseClassificationAuthority authority;
+
+  /// For external classifications, e.g. `musicbrainz:release-group:<id>`.
+  final String? sourceReference;
+
+  final DateTime createdAt;
+  final DateTime updatedAt;
 }
 
 /// A user's choice of where an artist appears in the Library.

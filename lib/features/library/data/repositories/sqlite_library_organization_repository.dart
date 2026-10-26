@@ -69,11 +69,12 @@ class SqliteLibraryOrganizationRepository
   @override
   Future<void> deleteClassification(String albumId) {
     return _write(
-      (transaction) => _clear(transaction, albumId, const [
-        'kind',
-        'authority',
-        'source_reference',
-      ], other: 'format'),
+      (transaction) => _clear(
+        transaction,
+        albumId,
+        const ['kind', 'authority', 'source_reference'],
+        others: const ['format', 'live'],
+      ),
     );
   }
 
@@ -121,11 +122,65 @@ class SqliteLibraryOrganizationRepository
   @override
   Future<void> deleteFormat(String albumId) {
     return _write(
-      (transaction) => _clear(transaction, albumId, const [
-        'format',
-        'format_authority',
-        'format_source_reference',
-      ], other: 'kind'),
+      (transaction) => _clear(
+        transaction,
+        albumId,
+        const ['format', 'format_authority', 'format_source_reference'],
+        others: const ['kind', 'live'],
+      ),
+    );
+  }
+
+  @override
+  Future<List<AlbumLiveClassification>> getLiveClassifications() async {
+    final db = await appDatabase.database;
+    final rows = await db.query(
+      DatabaseTables.albumReleaseClassifications,
+      where: 'live IS NOT NULL',
+      orderBy: 'album_id ASC',
+    );
+
+    return [
+      for (final row in rows)
+        AlbumLiveClassification(
+          albumId: row['album_id']! as String,
+          isLive: row['live'] == 1,
+          authority: ReleaseClassificationAuthority.values.byName(
+            row['live_authority']! as String,
+          ),
+          sourceReference: row['live_source_reference'] as String?,
+          createdAt: DateTime.parse(row['created_at']! as String),
+          updatedAt: DateTime.parse(row['updated_at']! as String),
+        ),
+    ];
+  }
+
+  @override
+  Future<void> saveLiveClassification(AlbumLiveClassification live) {
+    return _write(
+      (transaction) => _upsert(
+        transaction,
+        albumId: live.albumId,
+        values: {
+          'live': live.isLive ? 1 : 0,
+          'live_authority': live.authority.name,
+          'live_source_reference': live.sourceReference,
+        },
+        createdAt: live.createdAt,
+        updatedAt: live.updatedAt,
+      ),
+    );
+  }
+
+  @override
+  Future<void> deleteLiveClassification(String albumId) {
+    return _write(
+      (transaction) => _clear(
+        transaction,
+        albumId,
+        const ['live', 'live_authority', 'live_source_reference'],
+        others: const ['kind', 'format'],
+      ),
     );
   }
 
@@ -153,16 +208,19 @@ class SqliteLibraryOrganizationRepository
     });
   }
 
-  /// Clears one fact; the row goes once [other] is not set either.
+  /// Clears one fact; the row goes once none of [others] is set either.
   Future<void> _clear(
     Transaction transaction,
     String albumId,
     List<String> columns, {
-    required String other,
+    required List<String> others,
   }) async {
     await transaction.delete(
       DatabaseTables.albumReleaseClassifications,
-      where: 'album_id = ? AND $other IS NULL',
+      where: [
+        'album_id = ?',
+        for (final other in others) '$other IS NULL',
+      ].join(' AND '),
       whereArgs: [albumId],
     );
     await transaction.update(

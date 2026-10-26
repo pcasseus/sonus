@@ -59,6 +59,20 @@ class _Organization implements LibraryOrganizationRepository {
   @override
   Future<List<ArtistProjectAssignment>> getAssignments() async => const [];
 
+  final Map<String, AlbumLiveClassification> lives = {};
+
+  @override
+  Future<List<AlbumLiveClassification>> getLiveClassifications() async =>
+      lives.values.toList();
+
+  @override
+  Future<void> saveLiveClassification(AlbumLiveClassification live) async =>
+      lives[live.albumId] = live;
+
+  @override
+  Future<void> deleteLiveClassification(String albumId) async =>
+      lives.remove(albumId);
+
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

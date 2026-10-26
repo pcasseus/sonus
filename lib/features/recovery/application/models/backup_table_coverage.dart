@@ -129,11 +129,14 @@ abstract final class BackupCoverageContract {
       table: DatabaseTables.albumReleaseClassifications,
       policy: BackupTablePolicy.portableData,
       requiredInEveryBackup: false,
-      // Release formats (database version 38).
+      // Release formats (database version 38) and Live (version 40).
       columnsAddedLater: {
         'format',
         'format_authority',
         'format_source_reference',
+        'live',
+        'live_authority',
+        'live_source_reference',
       },
     ),
     BackupTableCoverage(

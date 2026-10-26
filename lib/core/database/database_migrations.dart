@@ -484,6 +484,12 @@ abstract final class DatabaseMigrations {
         await ReleaseDatePrecisionBackfill.run(db);
         return;
 
+      case 40:
+        // SN-49: Live beside the format and the kind. Every classification
+        // row is kept as it was.
+        await OrganizationSchema.addLiveClassification(db);
+        return;
+
       default:
         throw UnsupportedError(
           'No Sonus database migration exists for version $targetVersion.',

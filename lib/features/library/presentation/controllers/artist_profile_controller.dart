@@ -208,6 +208,9 @@ class ArtistProfileController extends ChangeNotifier {
         : organization.formatOf(albumId);
   }
 
+  /// Whether the release is a live recording (SN-49).
+  bool isLive(String albumId) => _organization?.isLive(albumId) ?? false;
+
   /// The wide banner photo, exactly as saved.
   String? get bannerPath => _nonEmpty(_artist?.headerArtworkPath);
 

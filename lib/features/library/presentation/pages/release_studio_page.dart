@@ -30,6 +30,7 @@ import '../widgets/album_studio/album_studio_editions_section.dart';
 import '../widgets/album_studio/album_studio_release_type.dart';
 import '../widgets/album_studio/release_date_editor.dart';
 import '../widgets/album_studio/release_studio_format.dart';
+import '../widgets/album_studio/release_studio_live.dart';
 import '../widgets/cover_art_album_search_dialog.dart';
 import '../widgets/cover_art_image_selection_dialog.dart';
 import '../widgets/musicbrainz_search_dialog.dart';
@@ -252,6 +253,12 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
           const SizedBox(height: 16),
           ReleaseStudioFormat(
             key: ValueKey<String>('release-studio-format-$_detailsVersion'),
+            albumId: album.albumId,
+            service: organization,
+          ),
+          const SizedBox(height: 16),
+          ReleaseStudioLive(
+            key: ValueKey<String>('release-studio-live-$_detailsVersion'),
             albumId: album.albumId,
             service: organization,
           ),

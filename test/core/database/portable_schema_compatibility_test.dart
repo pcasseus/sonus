@@ -79,8 +79,9 @@ void main() {
       37,
       38,
       39,
+      40,
     });
-    expect(AppDatabase.databaseVersion, 39);
+    expect(AppDatabase.databaseVersion, 40);
   });
 
   test('the fixture is a real version 31 database', () async {
@@ -106,9 +107,10 @@ void main() {
     final v36 = await migrateTo(await copyOfV31('v36.db'), 36);
     final v37 = await migrateTo(await copyOfV31('v37.db'), 37);
     final v38 = await migrateTo(await copyOfV31('v38.db'), 38);
-    final v39 = AppDatabase(
+    final v39 = await migrateTo(await copyOfV31('v39.db'), 39);
+    final v40 = AppDatabase(
       databaseFactory: databaseFactoryFfi,
-      databasePath: await copyOfV31('v39.db'),
+      databasePath: await copyOfV31('v40.db'),
     );
     final fresh = AppDatabase(
       databaseFactory: databaseFactoryFfi,
@@ -125,7 +127,8 @@ void main() {
       expect(await userVersion(v36), 36);
       expect(await userVersion(v37), 37);
       expect(await userVersion(v38), 38);
-      expect(await userVersion(await v39.database), 39);
+      expect(await userVersion(v39), 39);
+      expect(await userVersion(await v40.database), 40);
       // Required tables are identical everywhere; an optional table is
       // identical wherever the version has it, apart from nullable columns
       // added later, which older backups may lack.
@@ -151,7 +154,8 @@ void main() {
       expectCompatible(await _portableSchema(v36));
       expectCompatible(await _portableSchema(v37));
       expectCompatible(await _portableSchema(v38));
-      expect(await _portableSchema(await v39.database), reference);
+      expectCompatible(await _portableSchema(v39));
+      expect(await _portableSchema(await v40.database), reference);
     } finally {
       await v31.close();
       await v32.close();
@@ -162,6 +166,7 @@ void main() {
       await v37.close();
       await v38.close();
       await v39.close();
+      await v40.close();
       await fresh.close();
     }
   });
@@ -186,7 +191,7 @@ void main() {
       final db = await upgraded.database;
       final rowsAfter = await _allRows(db);
 
-      expect(await userVersion(db), 39);
+      expect(await userVersion(db), 40);
       expect(
         rowsAfter[DatabaseTables.artworkCrops],
         isEmpty,

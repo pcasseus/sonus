@@ -69,6 +69,20 @@ class _Organization implements LibraryOrganizationRepository {
   @override
   Future<List<ArtistProjectAssignment>> getAssignments() async => const [];
 
+  final Map<String, AlbumLiveClassification> lives = {};
+
+  @override
+  Future<List<AlbumLiveClassification>> getLiveClassifications() async =>
+      lives.values.toList();
+
+  @override
+  Future<void> saveLiveClassification(AlbumLiveClassification live) async =>
+      lives[live.albumId] = live;
+
+  @override
+  Future<void> deleteLiveClassification(String albumId) async =>
+      lives.remove(albumId);
+
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
@@ -113,6 +127,7 @@ void main() {
     required List<LibraryAlbum> libraryAlbums,
     List<ProjectCollaborator> credits = const [],
     Map<String, ReleaseFormat> formats = const {},
+    Set<String> live = const {},
     String artistId = 'artist-1',
     String? projectArtistId,
     Size size = const Size(411, 2400),
@@ -123,7 +138,17 @@ void main() {
     final organization = LibraryOrganizationService(
       library: _AlbumsOnly(libraryAlbums),
       collaborators: _Credits(libraryAlbums, credits),
-      organization: _Organization(formats),
+      organization: _Organization(formats)
+        ..lives.addAll({
+          for (final albumId in live)
+            albumId: AlbumLiveClassification(
+              albumId: albumId,
+              isLive: true,
+              authority: ReleaseClassificationAuthority.manual,
+              createdAt: DateTime(2026),
+              updatedAt: DateTime(2026),
+            ),
+        }),
     );
     await tester.pumpWidget(
       Provider<LibraryOrganizationService?>.value(
@@ -210,6 +235,77 @@ void main() {
         matching: find.text('15 Minutes'),
       ),
       findsNothing,
+    );
+  });
+
+  testWidgets('SN-49: live releases have one Live section, each labelled '
+      'with its format, and are counted once', (tester) async {
+    final releases = [
+      _release('studio', 'Studio Album', released: DateTime(2024)),
+      _release('concert', 'Live at the Arena', released: DateTime(2025)),
+      _release(
+        'session',
+        'Acoustic Session',
+        released: DateTime(2023),
+        trackCount: 3,
+      ),
+      _release('tv', 'One Song Live', released: DateTime(2022), trackCount: 1),
+    ];
+    await pump(
+      tester,
+      repository: _Repo(
+        library: releases,
+        artist: base.createArtist(albumCount: 4, songCount: 15),
+        albums: releases,
+        tracks: [
+          for (final r in releases)
+            base.createTrack(songId: 'song-${r.albumId}', albumId: r.albumId),
+        ],
+      ),
+      libraryAlbums: releases,
+      formats: {'session': ReleaseFormat.ep, 'tv': ReleaseFormat.single},
+      live: {'concert', 'session', 'tv'},
+    );
+
+    expect(key('artist-profile-live'), findsOneWidget);
+    expect(key('artist-profile-eps'), findsNothing);
+    expect(key('artist-profile-singles'), findsNothing);
+    for (final title in ['Live at the Arena', 'Acoustic Session']) {
+      expect(find.text(title), findsOneWidget, reason: 'listed once');
+      expect(
+        find.descendant(
+          of: key('artist-profile-live'),
+          matching: find.text(title),
+        ),
+        findsOneWidget,
+      );
+    }
+    expect(
+      find.descendant(
+        of: key('artist-profile-albums'),
+        matching: find.text('Studio Album'),
+      ),
+      findsOneWidget,
+    );
+    for (final label in [
+      'Album · 10 tracks',
+      'EP · 3 tracks',
+      'Single · 1 track',
+    ]) {
+      expect(
+        find.descendant(
+          of: key('artist-profile-live'),
+          matching: find.text(label),
+        ),
+        findsOneWidget,
+      );
+    }
+    expect(find.text('1 album • 3 live releases • 15 songs'), findsOneWidget);
+    // Live comes after the formats.
+    expect(
+      tester.getTopLeft(key('artist-profile-albums')).dy <
+          tester.getTopLeft(key('artist-profile-live')).dy,
+      isTrue,
     );
   });
 

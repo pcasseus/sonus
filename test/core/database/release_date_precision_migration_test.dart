@@ -120,7 +120,7 @@ void main() {
       final db = await database.database;
       expect(
         (await db.rawQuery('PRAGMA user_version')).single['user_version'],
-        39,
+        40,
       );
       expect(await dates(db), {
         'edition-v31a': ('2019-01-01T05:00:00.000Z', 'year'),

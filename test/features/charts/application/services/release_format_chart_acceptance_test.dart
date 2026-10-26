@@ -296,4 +296,88 @@ void main() {
       expect(org.needsFormatReview(id), isFalse);
     },
   );
+
+  group('SN-49 Live', () {
+    test(
+      'a live release charts once, as its format, with no extra streams',
+      () async {
+        final lifeSupport = await fixtureAlbumId(database, 'Life Support');
+        await organization.setReleaseLive(albumId: lifeSupport, live: true);
+        await organization.setReleaseFormat(
+          albumId: await singleId(),
+          format: ReleaseFormat.single,
+        );
+        await organization.setReleaseLive(
+          albumId: await singleId(),
+          live: true,
+        );
+
+        final albums = await charts().load(
+          chartType: ChartType.albums,
+          referenceLocal: _today,
+        );
+        expect(
+          [
+            for (final e in albums.entries)
+              (e.entity.title, e.rank, e.qualifiedStreamCount),
+          ],
+          [('Life Support', 1, 2), ('Think Later', 2, 1)],
+          reason: 'a live album charts once; a live Single never as a release',
+        );
+
+        final songs = await charts().load(
+          chartType: ChartType.songs,
+          referenceLocal: _today,
+        );
+        expect(songs.entries.first.entity.title, '15 Minutes');
+        expect(songs.entries.first.qualifiedStreamCount, 5);
+        expect(
+          songs.entries.map((e) => e.entity.title).toList(),
+          hasLength(songs.entries.map((e) => e.entity.entityId).toSet().length),
+        );
+        expect(plays.all, hasLength(8));
+      },
+    );
+
+    test(
+      'Live sits beside the kind and the format; each clears alone',
+      () async {
+        final id = await fixtureAlbumId(database, 'Life Support');
+        await organization.classifyRelease(
+          albumId: id,
+          kind: ReleaseKind.soundtrack,
+        );
+        await organization.setReleaseLive(albumId: id, live: true);
+
+        var org = await organization.load();
+        expect(org.isLive(id), isTrue);
+        expect(org.classifications[id]!.kind, ReleaseKind.soundtrack);
+        expect(org.formatOf(id), ReleaseFormat.album);
+
+        await organization.clearReleaseClassification(id);
+        await organization.clearReleaseFormat(id);
+        org = await organization.load();
+        expect(org.isLive(id), isTrue);
+        expect(org.classifications[id], isNull);
+
+        await organization.clearReleaseLive(id);
+        org = await organization.load();
+        expect(org.isLive(id), isFalse);
+        expect(org.lives[id], isNull);
+      },
+    );
+
+    test("the user's answer outlasts a MusicBrainz suggestion", () async {
+      final id = await fixtureAlbumId(database, 'Think Later');
+
+      expect(await organization.suggestReleaseLive(albumId: id), isTrue);
+      expect((await organization.load()).isLive(id), isTrue);
+
+      await organization.setReleaseLive(albumId: id, live: false);
+      expect(await organization.suggestReleaseLive(albumId: id), isFalse);
+      final org = await organization.load();
+      expect(org.isLive(id), isFalse);
+      expect(org.lives[id]!.authority, ReleaseClassificationAuthority.manual);
+    });
+  });
 }

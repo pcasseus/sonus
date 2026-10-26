@@ -470,7 +470,12 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
                     .where((album) => visibleAlbumIds.contains(album.albumId))
                     .toList(growable: false);
                 // Newest first within each format (the controller's order).
-                // Null holds releases whose format is not chosen yet.
+                // Null holds releases whose format is not chosen yet. Live
+                // releases have their own section and appear only there.
+                final liveReleases = [
+                  for (final album in visibleAlbums)
+                    if (controller.isLive(album.albumId)) album,
+                ];
                 final releasesByFormat = <ReleaseFormat?, List<LibraryAlbum>>{
                   for (final format in <ReleaseFormat?>[
                     ...ReleaseFormat.values,
@@ -478,7 +483,9 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
                   ])
                     format: [
                       for (final album in visibleAlbums)
-                        if (controller.formatOf(album.albumId) == format) album,
+                        if (!controller.isLive(album.albumId) &&
+                            controller.formatOf(album.albumId) == format)
+                          album,
                     ],
                 };
                 final visibleCollaborators = controller.collaborators
@@ -531,6 +538,7 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
                           atmosphere: atmosphere,
                           summary: _catalogSummary(
                             releasesByFormat,
+                            liveCount: liveReleases.length,
                             songCount: artist.songCount,
                           ),
                         ),
@@ -569,29 +577,52 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
                               ),
                             ],
                           ),
-                        for (final format in const [
-                          ReleaseFormat.album,
-                          ReleaseFormat.ep,
-                          ReleaseFormat.single,
-                          null,
+                        for (final shelf in [
+                          for (final format in const [
+                            ReleaseFormat.album,
+                            ReleaseFormat.ep,
+                            ReleaseFormat.single,
+                          ])
+                            (
+                              key: _sectionKey(format),
+                              title: _sectionTitle(format),
+                              albums: releasesByFormat[format]!,
+                              live: false,
+                            ),
+                          (
+                            key: 'live',
+                            title: 'Live',
+                            albums: liveReleases,
+                            live: true,
+                          ),
+                          (
+                            key: _sectionKey(null),
+                            title: _sectionTitle(null),
+                            albums: releasesByFormat[null]!,
+                            live: false,
+                          ),
                         ])
-                          if (releasesByFormat[format]!.isNotEmpty)
+                          if (shelf.albums.isNotEmpty)
                             section(
-                              ValueKey<String>(
-                                'artist-profile-${_sectionKey(format)}',
-                              ),
+                              ValueKey<String>('artist-profile-${shelf.key}'),
                               [
                                 ArtistProfileSectionHeading(
-                                  title: _sectionTitle(format),
-                                  subtitle: format == null
+                                  title: shelf.title,
+                                  subtitle: shelf.key == _sectionKey(null)
                                       ? 'Choose Single, EP or Album in '
                                             'Edit Release'
                                       : null,
-                                  count: releasesByFormat[format]!.length,
+                                  count: shelf.albums.length,
                                 ),
                                 const SizedBox(height: 12),
                                 ArtistProfileAlbumsGrid(
-                                  albums: releasesByFormat[format]!,
+                                  albums: shelf.albums,
+                                  // Live releases say what they are.
+                                  labelOf: shelf.live
+                                      ? (album) => controller
+                                            .formatOf(album.albumId)
+                                            ?.label
+                                      : null,
                                   onAlbumTap: (album) {
                                     unawaited(
                                       _pushAndRefresh(
@@ -680,10 +711,12 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
     );
   }
 
-  /// "3 albums • 1 EP • 2 singles • 44 songs": accurate catalog counts,
-  /// leaving out formats the artist has none of.
+  /// "3 albums • 1 EP • 2 singles • 1 live release • 44 songs": accurate
+  /// catalog counts, leaving out formats the artist has none of. Live
+  /// releases are counted once, as live.
   static String _catalogSummary(
     Map<ReleaseFormat?, List<Object>> releasesByFormat, {
+    required int liveCount,
     required int songCount,
   }) {
     final albums = releasesByFormat[ReleaseFormat.album]!.length;
@@ -691,10 +724,12 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
     final singles = releasesByFormat[ReleaseFormat.single]!.length;
     final others = releasesByFormat[null]!.length;
     return [
-      if (albums > 0 || (eps == 0 && singles == 0 && others == 0))
+      if (albums > 0 ||
+          (eps == 0 && singles == 0 && others == 0 && liveCount == 0))
         sonusCount(albums, 'album'),
       if (eps > 0) eps == 1 ? '1 EP' : '$eps EPs',
       if (singles > 0) sonusCount(singles, 'single'),
+      if (liveCount > 0) sonusCount(liveCount, 'live release'),
       if (others > 0) sonusCount(others, 'other release'),
       sonusCount(songCount, 'song'),
     ].join(' • ');

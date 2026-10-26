@@ -66,6 +66,7 @@ class ArtistLibraryOrganization {
     this.catalogOwners,
     this.formats = const {},
     this.formatReviews = const {},
+    this.lives = const {},
   });
 
   /// A release with no stated format and at most this many songs might be
@@ -116,6 +117,13 @@ class ArtistLibraryOrganization {
 
   /// Whether the release might be a Single and has no stated format.
   bool needsFormatReview(String albumId) => formatReviews.contains(albumId);
+
+  /// Stated Live classifications by album id, including the user's "not
+  /// live".
+  final Map<String, AlbumLiveClassification> lives;
+
+  /// Whether the release is a live recording. Unstated means not live.
+  bool isLive(String albumId) => lives[albumId]?.isLive ?? false;
 
   ArtistLibraryPlacement placementOf(String artistId) {
     final placement = placements[artistId];
@@ -224,6 +232,9 @@ class LibraryOrganizationService {
     final formats = {
       for (final f in await organization.getFormats()) f.albumId: f,
     };
+    final lives = {
+      for (final l in await organization.getLiveClassifications()) l.albumId: l,
+    };
 
     final ownerOf = {
       for (final album in albums)
@@ -292,6 +303,7 @@ class LibraryOrganizationService {
       formatReviews: Set.unmodifiable(
         ArtistLibraryOrganization.formatReviewsOf(albums, formats.keys.toSet()),
       ),
+      lives: Map.unmodifiable(lives),
     );
   }
 
@@ -480,6 +492,55 @@ class LibraryOrganizationService {
   /// otherwise later.
   Future<void> clearReleaseFormat(String albumId) =>
       organization.deleteFormat(albumId);
+
+  /// The user's answer to "is this a live recording?". Both answers are
+  /// kept, so a MusicBrainz refresh never overrules either.
+  Future<void> setReleaseLive({required String albumId, required bool live}) {
+    final timestamp = _now();
+
+    return organization.saveLiveClassification(
+      AlbumLiveClassification(
+        albumId: albumId,
+        isLive: live,
+        authority: ReleaseClassificationAuthority.manual,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      ),
+    );
+  }
+
+  /// MusicBrainz says the release is live. Ignored when the user has
+  /// answered. Returns whether it was saved.
+  Future<bool> suggestReleaseLive({
+    required String albumId,
+    String? sourceReference,
+  }) async {
+    final existing = [
+      for (final l in await organization.getLiveClassifications())
+        if (l.albumId == albumId) l,
+    ];
+    if (existing.any(
+      (l) => l.authority == ReleaseClassificationAuthority.manual,
+    )) {
+      return false;
+    }
+    final timestamp = _now();
+    await organization.saveLiveClassification(
+      AlbumLiveClassification(
+        albumId: albumId,
+        isLive: true,
+        authority: ReleaseClassificationAuthority.external,
+        sourceReference: sourceReference,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      ),
+    );
+    return true;
+  }
+
+  /// Forgets the user's answer; a MusicBrainz suggestion may apply later.
+  Future<void> clearReleaseLive(String albumId) =>
+      organization.deleteLiveClassification(albumId);
 
   Future<void> _save(
     String artistId,

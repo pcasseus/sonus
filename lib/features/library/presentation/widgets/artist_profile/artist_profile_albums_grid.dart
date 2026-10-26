@@ -10,10 +10,15 @@ class ArtistProfileAlbumsGrid extends StatelessWidget {
     super.key,
     required this.albums,
     required this.onAlbumTap,
+    this.labelOf,
   });
 
   final List<LibraryAlbum> albums;
   final ValueChanged<LibraryAlbum> onAlbumTap;
+
+  /// A word shown before the track count, such as a live release's
+  /// format ("EP · 3 tracks"). Null shows the count alone.
+  final String? Function(LibraryAlbum album)? labelOf;
 
   /// Narrowest a cover gets before the grid drops a column.
   static const double _minTileWidth = 140;
@@ -54,6 +59,7 @@ class ArtistProfileAlbumsGrid extends StatelessWidget {
             return _AlbumCard(
               key: ValueKey<String>('artist-album-${album.albumId}'),
               album: album,
+              label: labelOf?.call(album),
               artworkSize: tileWidth,
               onTap: () => onAlbumTap(album),
             );
@@ -70,9 +76,11 @@ class _AlbumCard extends StatelessWidget {
     required this.album,
     required this.artworkSize,
     required this.onTap,
+    this.label,
   });
 
   final LibraryAlbum album;
+  final String? label;
   final double artworkSize;
   final VoidCallback onTap;
 
@@ -124,7 +132,8 @@ class _AlbumCard extends StatelessWidget {
 
   String _albumSummary(LibraryAlbum album) {
     final trackLabel = album.trackCount == 1 ? 'track' : 'tracks';
-    return '${album.trackCount} $trackLabel';
+    final count = '${album.trackCount} $trackLabel';
+    return label == null ? count : '$label · $count';
   }
 }
 

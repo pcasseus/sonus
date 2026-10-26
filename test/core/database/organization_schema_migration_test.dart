@@ -133,6 +133,9 @@ void main() {
             'format': null,
             'format_authority': null,
             'format_source_reference': null,
+            'live': null,
+            'live_authority': null,
+            'live_source_reference': null,
           },
         ]);
         expect(await db.rawQuery('PRAGMA foreign_key_check'), isEmpty);
@@ -141,6 +144,84 @@ void main() {
       }
     },
   );
+
+  test('SN-49: version 40 keeps every kind and format and adds Live', () async {
+    final file = path.join(root.path, 'v39.db');
+    await _v31Fixture.copy(file);
+
+    final at39 = await databaseFactoryFfi.openDatabase(
+      file,
+      options: OpenDatabaseOptions(
+        version: 39,
+        onConfigure: (db) => db.execute('PRAGMA foreign_keys = ON'),
+        onUpgrade: (db, oldVersion, newVersion) => DatabaseMigrations.migrate(
+          db,
+          oldVersion: oldVersion,
+          newVersion: newVersion,
+        ),
+      ),
+    );
+    final albumIds = [
+      for (final row in await at39.query(DatabaseTables.albums))
+        row['id']! as String,
+    ];
+    final rows = [
+      {
+        'album_id': albumIds[0],
+        'kind': 'soundtrack',
+        'authority': 'manual',
+        'source_reference': null,
+        'format': 'ep',
+        'format_authority': 'external',
+        'format_source_reference': 'musicbrainz:release-group:abc',
+        'created_at': at,
+        'updated_at': at,
+      },
+      {
+        'album_id': albumIds[1],
+        'kind': null,
+        'authority': null,
+        'source_reference': null,
+        'format': 'single',
+        'format_authority': 'manual',
+        'format_source_reference': null,
+        'created_at': at,
+        'updated_at': at,
+      },
+    ];
+    for (final row in rows) {
+      await at39.insert(DatabaseTables.albumReleaseClassifications, row);
+    }
+    await at39.close();
+
+    final upgraded = AppDatabase(
+      databaseFactory: databaseFactoryFfi,
+      databasePath: file,
+    );
+    try {
+      final db = await upgraded.database;
+      expect(
+        await db.query(
+          DatabaseTables.albumReleaseClassifications,
+          orderBy: 'album_id',
+        ),
+        [
+          for (final row in [
+            ...rows,
+          ]..sort((a, b) => a['album_id']!.compareTo(b['album_id']!)))
+            {
+              ...row,
+              'live': null,
+              'live_authority': null,
+              'live_source_reference': null,
+            },
+        ],
+      );
+      expect(await db.rawQuery('PRAGMA foreign_key_check'), isEmpty);
+    } finally {
+      await upgraded.close();
+    }
+  });
 
   group('constraints', () {
     late AppDatabase app;
@@ -192,6 +273,33 @@ void main() {
         'format_authority': 'manual',
       });
     });
+
+    test(
+      'SN-49: Live is yes or no, with an authority, beside a kind',
+      () async {
+        await expectLater(
+          classify({
+            'album_id': 'album-a',
+            'live': 2,
+            'live_authority': 'manual',
+          }),
+          throwsA(isA<DatabaseException>()),
+        );
+        await expectLater(
+          classify({'album_id': 'album-a', 'live': 1}),
+          throwsA(isA<DatabaseException>()),
+          reason: 'Live needs an authority',
+        );
+        // A live soundtrack: neither fact replaces the other.
+        await classify({
+          'album_id': 'album-a',
+          'kind': 'soundtrack',
+          'authority': 'manual',
+          'live': 1,
+          'live_authority': 'manual',
+        });
+      },
+    );
 
     test('a grouped artist needs a project', () async {
       await expectLater(
