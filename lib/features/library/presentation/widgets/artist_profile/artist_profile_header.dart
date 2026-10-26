@@ -42,6 +42,30 @@ class ArtistProfileHeader extends StatelessWidget {
 
   static const double _portraitSize = 88;
 
+  /// The photo's height: the banner's shape at this width, but never more
+  /// than about half the screen, so the catalog starts on the first screen.
+  static double imageHeightFor(BuildContext context, double width) {
+    final screen = MediaQuery.sizeOf(context).height;
+    final cap = screen <= 0 ? 440.0 : (screen * 0.46).clamp(220.0, 440.0);
+    return (width / bannerAspectRatio).clamp(220.0, cap);
+  }
+
+  /// How far the page scrolls before the hero's name has gone under the
+  /// toolbar, so the toolbar may show a compact title instead.
+  static double collapseOffset(
+    BuildContext context, {
+    required double width,
+    required bool hasBanner,
+  }) {
+    final imageHeight = hasBanner
+        ? imageHeightFor(context, width)
+        : MediaQuery.paddingOf(context).top + 168.0;
+    return imageHeight -
+        MediaQuery.paddingOf(context).top -
+        kToolbarHeight +
+        _portraitSize / 2;
+  }
+
   @override
   Widget build(BuildContext context) {
     final tokens = SonusTheme.of(context);
@@ -54,7 +78,7 @@ class ArtistProfileHeader extends StatelessWidget {
       builder: (context, constraints) {
         final width = constraints.maxWidth;
         final imageHeight = hasBanner
-            ? (width / bannerAspectRatio).clamp(240.0, 480.0)
+            ? imageHeightFor(context, width)
             : topInset + 168.0;
 
         return Stack(
