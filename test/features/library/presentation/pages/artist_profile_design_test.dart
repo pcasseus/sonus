@@ -993,8 +993,7 @@ class _FakeListening implements PlaybackSessionRepository {
 
   @override
   Future<List<PlaybackSession>> getByIds(Iterable<String> ids) async => [
-    for (final id in ids)
-      if (_sessions[id] case final session?) session,
+    for (final id in ids) ?_sessions[id],
   ];
 
   @override
