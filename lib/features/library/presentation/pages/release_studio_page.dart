@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -16,6 +17,7 @@ import '../../application/models/library_artist.dart';
 import '../../application/models/library_track.dart';
 import '../../application/repositories/library_query_repository.dart';
 import '../../application/services/album_edition_management_service.dart';
+import '../../application/services/artist_creation_service.dart';
 import '../../application/services/external_metadata_application_service.dart';
 import '../../application/services/external_metadata_proposal_service.dart';
 import '../../application/services/library_organization_service.dart';
@@ -62,6 +64,7 @@ class ReleaseStudioPage extends StatefulWidget {
     this.editionFollowUpDismissals,
     this.organization,
     this.library,
+    this.artistCreation,
     this.initialSection = ReleaseStudioSection.details,
   });
 
@@ -92,6 +95,10 @@ class ReleaseStudioPage extends StatefulWidget {
 
   /// Artists for the owner field, and the album's songs for the tracklist.
   final LibraryQueryRepository? library;
+
+  /// Creates (or reuses, by name) a new owner, such as a soundtrack's own
+  /// project; without it only existing artists can own the release.
+  final ArtistCreationService? artistCreation;
 
   final ReleaseStudioSection initialSection;
 
@@ -388,13 +395,65 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
 
     final artistId = await showDialog<String>(
       context: context,
-      builder: (context) =>
-          _OwnerDialog(artists: artists, currentArtistId: album.artistId),
+      builder: (context) => _OwnerDialog(
+        artists: artists,
+        currentArtistId: album.artistId,
+        canCreate: widget.artistCreation != null,
+      ),
     );
+    if (artistId == _OwnerDialog.newOwner) {
+      await _createOwner();
+      return;
+    }
     if (artistId == null || artistId == album.artistId) return;
     await _saveDetails(
       artistId: artistId,
       message: 'The release now belongs to its new artist.',
+    );
+  }
+
+  /// Names a new artist or project (the release title, such as a
+  /// soundtrack's, is suggested) and makes it the owner. An existing artist
+  /// with that name is reused, never duplicated.
+  Future<void> _createOwner() async {
+    final album = controller.album;
+    final creation = widget.artistCreation;
+    if (album == null || creation == null) return;
+
+    final name = await _askForText(
+      title: 'New artist or project',
+      label: 'Name',
+      initial: album.title,
+      fieldKey: 'release-studio-new-owner-field',
+      saveKey: 'release-studio-new-owner-save',
+      required: true,
+    );
+    if (name == null || name.isEmpty || !mounted) return;
+
+    final String artistId;
+    try {
+      artistId = (await creation.createOrReuse(
+        userId: widget.userId,
+        name: name,
+      )).id;
+    } catch (error, stackTrace) {
+      developer.log(
+        'Could not create the release owner (${error.runtimeType})',
+        name: 'sonus.library.release_studio',
+        level: 900,
+        error: error,
+        stackTrace: stackTrace,
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('The new owner could not be created.')),
+      );
+      return;
+    }
+    if (!mounted || artistId == album.artistId) return;
+    await _saveDetails(
+      artistId: artistId,
+      message: 'The release now belongs to $name.',
     );
   }
 
@@ -1813,10 +1872,18 @@ class _TextFieldDialogState extends State<_TextFieldDialog> {
 
 /// Picks the artist or project that owns the release.
 class _OwnerDialog extends StatefulWidget {
-  const _OwnerDialog({required this.artists, required this.currentArtistId});
+  const _OwnerDialog({
+    required this.artists,
+    required this.currentArtistId,
+    this.canCreate = false,
+  });
+
+  /// Returned when a new artist or project should own the release.
+  static const String newOwner = ':new-owner';
 
   final List<LibraryArtist> artists;
   final String currentArtistId;
+  final bool canCreate;
 
   @override
   State<_OwnerDialog> createState() => _OwnerDialogState();
@@ -1859,6 +1926,18 @@ class _OwnerDialogState extends State<_OwnerDialog> {
             Expanded(
               child: ListView(
                 children: [
+                  if (widget.canCreate)
+                    ListTile(
+                      key: const ValueKey<String>('release-studio-owner-new'),
+                      minTileHeight: 48,
+                      leading: const Icon(Icons.add_rounded),
+                      title: const Text('New artist or project…'),
+                      subtitle: const Text(
+                        'For example, a soundtrack that owns itself',
+                      ),
+                      onTap: () =>
+                          Navigator.of(context).pop(_OwnerDialog.newOwner),
+                    ),
                   for (final artist in matches)
                     ListTile(
                       key: ValueKey<String>(

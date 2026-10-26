@@ -23,6 +23,8 @@ import 'package:sonus_next/features/library/domain/metadata/metadata_field_state
 import 'package:sonus_next/features/library/domain/metadata/metadata_fields.dart';
 import 'package:sonus_next/features/library/application/models/external_metadata_search_query.dart';
 import 'package:sonus_next/features/library/application/services/album_profile_editing_service.dart';
+import 'package:sonus_next/features/library/application/services/artist_creation_service.dart';
+import 'package:sonus_next/features/library/domain/entities/artist.dart';
 import 'package:sonus_next/features/library/application/services/external_metadata_application_service.dart';
 import 'package:sonus_next/features/library/application/services/metadata_provider.dart';
 import 'package:sonus_next/features/library/application/services/album_edition_track_ordering_service.dart';
@@ -731,6 +733,98 @@ void main() {
 
       expect(editingService.updateCallCount, 1);
       expect(editingService.lastArtistId, 'artist-2');
+    });
+
+    testWidgets('a soundtrack can be given a new project of its own', (
+      tester,
+    ) async {
+      final editingService = FakeAlbumProfileEditingService();
+      final creation = _FakeArtistCreationService();
+
+      await tester.pumpWidget(
+        buildSubject(
+          repository: FakeLibraryQueryRepository(
+            album: createAlbum(
+              title: 'Starstruck',
+              artistId: 'artist-1',
+              artistName: 'Sterling Knight',
+              primaryEditionTitle: 'Standard',
+            ),
+          ),
+          accountRepository: FakeAccountRepository(
+            currentUser: const AccountUser(id: 'user-1'),
+          ),
+          albumProfileEditingService: editingService,
+          artistCreationService: creation,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('album-profile-artwork-menu')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Edit Release'));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey<String>('release-studio-owner')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey<String>('release-studio-owner-new')),
+      );
+      await tester.pumpAndSettle();
+
+      // The release title is suggested as the project's name.
+      final field = tester.widget<TextField>(
+        find.byKey(const ValueKey<String>('release-studio-new-owner-field')),
+      );
+      expect(field.controller!.text, 'Starstruck');
+      await tester.tap(
+        find.byKey(const ValueKey<String>('release-studio-new-owner-save')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(creation.names, ['Starstruck']);
+      expect(creation.userIds, ['user-1']);
+      expect(editingService.updateCallCount, 1);
+      expect(editingService.lastArtistId, 'artist-new');
+      expect(
+        find.text('The release now belongs to Starstruck.'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('without artist creation, only existing artists are offered', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        buildSubject(
+          repository: FakeLibraryQueryRepository(
+            album: createAlbum(primaryEditionTitle: 'Standard'),
+          ),
+          accountRepository: FakeAccountRepository(
+            currentUser: const AccountUser(id: 'user-1'),
+          ),
+          albumProfileEditingService: FakeAlbumProfileEditingService(),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey<String>('album-profile-artwork-menu')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Edit Release'));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey<String>('release-studio-owner')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey<String>('release-studio-owner-new')),
+        findsNothing,
+      );
     });
 
     testWidgets('a blank name and an impossible date are refused', (
@@ -3070,6 +3164,7 @@ Widget buildSubject({
   MetadataProvider? metadataProvider,
   ExternalMetadataApplicationService? externalMetadataApplicationService,
   ExternalMetadataProposalService? externalMetadataProposalService,
+  ArtistCreationService? artistCreationService,
   ThemeData? theme,
   SonusArtworkPalette? artworkPalette,
   TransitionBuilder? appBuilder,
@@ -3095,6 +3190,7 @@ Widget buildSubject({
       Provider<TrackProfileEditingService?>.value(
         value: trackProfileEditingService,
       ),
+      Provider<ArtistCreationService?>.value(value: artistCreationService),
     ],
     child: AccountScope(
       repository: accountRepository,
@@ -3822,4 +3918,30 @@ class FakePlaybackEngine implements PlaybackEngine {
   Future<void> dispose() async {
     await _statesController.close();
   }
+}
+
+class _FakeArtistCreationService implements ArtistCreationService {
+  final List<String> names = [];
+  final List<String?> userIds = [];
+
+  @override
+  Future<Artist> createOrReuse({
+    required String? userId,
+    required String name,
+    DateTime? now,
+  }) async {
+    names.add(name);
+    userIds.add(userId);
+    final at = DateTime.utc(2026, 10, 26);
+    return Artist(
+      id: 'artist-new',
+      name: name,
+      canonicalName: name.toLowerCase(),
+      createdAt: at,
+      updatedAt: at,
+    );
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
