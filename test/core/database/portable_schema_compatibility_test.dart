@@ -117,11 +117,21 @@ void main() {
       expect(await userVersion(v34), 34);
       expect(await userVersion(v35), 35);
       expect(await userVersion(await v36.database), 36);
-      expect(await _portableSchema(v31), reference);
-      expect(await _portableSchema(v32), reference);
-      expect(await _portableSchema(v33), reference);
-      expect(await _portableSchema(v34), reference);
-      expect(await _portableSchema(v35), reference);
+      // Required tables are identical everywhere; an optional table is
+      // identical wherever the version has it.
+      void expectCompatible(Map<String, Object> schema) {
+        expect(
+          schema.keys,
+          containsAll(BackupCoverageContract.requiredPortableTableNames),
+        );
+        expect(schema, {for (final t in schema.keys) t: reference[t]});
+      }
+
+      expectCompatible(await _portableSchema(v31));
+      expectCompatible(await _portableSchema(v32));
+      expectCompatible(await _portableSchema(v33));
+      expectCompatible(await _portableSchema(v34));
+      expectCompatible(await _portableSchema(v35));
       expect(await _portableSchema(await v36.database), reference);
     } finally {
       await v31.close();
@@ -204,6 +214,11 @@ Future<Map<String, Object>> _portableSchema(DatabaseExecutor db) async {
   for (final coverage in BackupCoverageContract.portableTables) {
     // Table names come from the backup coverage contract.
     final table = coverage.table;
+    final columns = await db.rawQuery('PRAGMA table_info("$table")');
+
+    // Optional portable tables may predate this version.
+    if (columns.isEmpty && !coverage.requiredInEveryBackup) continue;
+
     final indexes = <Object>[];
 
     for (final index in await db.rawQuery('PRAGMA index_list("$table")')) {
@@ -219,7 +234,7 @@ Future<Map<String, Object>> _portableSchema(DatabaseExecutor db) async {
     indexes.sort((a, b) => '$a'.compareTo('$b'));
 
     schema[table] = {
-      'columns': await db.rawQuery('PRAGMA table_info("$table")'),
+      'columns': columns,
       'foreignKeys': await db.rawQuery('PRAGMA foreign_key_list("$table")'),
       'indexes': indexes,
     };

@@ -30,11 +30,10 @@ class RestorePlanner {
     // Table names originate from the trusted coverage contract.
     final columns = await executor.rawQuery('PRAGMA table_info("$table")');
 
-    final keyed =
-        [
-          for (final column in columns)
-            if ((column['pk'] as int) > 0) column,
-        ]..sort((a, b) => (a['pk'] as int).compareTo(b['pk'] as int));
+    final keyed = [
+      for (final column in columns)
+        if ((column['pk'] as int) > 0) column,
+    ]..sort((a, b) => (a['pk'] as int).compareTo(b['pk'] as int));
 
     if (keyed.isEmpty) {
       throw FormatException('Portable table $table has no primary key.');
@@ -56,6 +55,10 @@ class RestorePlanner {
 
       for (final coverage in BackupCoverageContract.portableTables) {
         final table = coverage.table;
+
+        // An older backup without an optional table leaves it unchanged.
+        if (!payload.tables.containsKey(table)) continue;
+
         final keyColumns = await primaryKeyColumns(transaction, table);
         final local = await transaction.query(table);
         localRows += local.length;
@@ -97,7 +100,9 @@ class RestorePlanner {
             added: added,
             updated: updated,
             unchanged: unchanged,
-            removed: localByKey.keys.where((k) => !backupKeys.contains(k)).length,
+            removed: localByKey.keys
+                .where((k) => !backupKeys.contains(k))
+                .length,
           ),
         );
       }

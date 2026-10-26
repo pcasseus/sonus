@@ -654,7 +654,11 @@ void main() {
       );
 
       // Every portable row matches what the version 31 build stored.
-      expect(await portableRows(db), await v31PortableRows());
+      final expected = await v31PortableRows();
+      final restored = await portableRows(db);
+      expect({
+        for (final table in expected.keys) table: restored[table],
+      }, expected);
 
       final songs = await db.query(DatabaseTables.songs, orderBy: 'id');
       expect(songs.map((row) => row['title']), ['First Light', 'Second Wind']);
@@ -692,7 +696,11 @@ void main() {
       final result = await orchestrator().restore(await v31Backup());
 
       expect(await syncTables(), syncBefore);
-      expect(await portableRows(db), await v31PortableRows());
+      final expected = await v31PortableRows();
+      final restored = await portableRows(db);
+      expect({
+        for (final table in expected.keys) table: restored[table],
+      }, expected);
       expect(result.syncHeld, isTrue);
       expect(await syncAllowed(), isFalse);
     });
@@ -1266,12 +1274,22 @@ void main() {
 }
 
 /// Portable rows ordered by identity, without device-local artwork paths.
+/// Tables a database predates (an older version's optional tables) are
+/// left out.
 Future<Map<String, List<Map<String, Object?>>>> portableRows(
   DatabaseExecutor db,
 ) async {
+  final present = {
+    for (final row in await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type = 'table'",
+    ))
+      row['name']! as String,
+  };
+
   return {
     for (final coverage in BackupCoverageContract.portableTables)
-      coverage.table: [
+      if (present.contains(coverage.table))
+        coverage.table: [
         // Table names come from the backup coverage contract.
         for (final row in await db.rawQuery(
           'SELECT * FROM "${coverage.table}" ORDER BY rowid',

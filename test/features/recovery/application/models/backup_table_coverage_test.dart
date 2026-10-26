@@ -19,7 +19,7 @@ void main() {
         .map((entry) => entry.table)
         .toSet();
 
-    expect(names.length, 17);
+    expect(names.length, 20);
 
     expect(
       names,
@@ -41,7 +41,48 @@ void main() {
         DatabaseTables.chartMomentEvents,
         DatabaseTables.playlists,
         DatabaseTables.playlistItems,
+        // User-made organization and crop positions (post-SN-45).
+        DatabaseTables.albumReleaseClassifications,
+        DatabaseTables.artistProjectAssignments,
+        DatabaseTables.artworkCrops,
       ]),
+    );
+  });
+
+  test('only the newest portable tables may be missing from a backup', () {
+    expect(
+      BackupCoverageContract.portableTableNames.difference(
+        BackupCoverageContract.requiredPortableTableNames,
+      ),
+      {
+        DatabaseTables.albumReleaseClassifications,
+        DatabaseTables.artistProjectAssignments,
+        DatabaseTables.artworkCrops,
+      },
+    );
+    expect(
+      BackupCoverageContract.isValidBackupTableSet(
+        BackupCoverageContract.requiredPortableTableNames,
+      ),
+      isTrue,
+      reason: 'an older backup',
+    );
+    expect(
+      BackupCoverageContract.isValidBackupTableSet({
+        ...BackupCoverageContract.portableTableNames,
+        DatabaseTables.syncOutbox,
+      }),
+      isFalse,
+      reason: 'never a sync table',
+    );
+    expect(
+      BackupCoverageContract.isValidBackupTableSet(
+        BackupCoverageContract.requiredPortableTableNames.difference({
+          DatabaseTables.songs,
+        }),
+      ),
+      isFalse,
+      reason: 'never without a required table',
     );
   });
 
@@ -51,16 +92,12 @@ void main() {
         .map((entry) => entry.table)
         .toSet();
 
-    expect(local.length, 7);
-    expect(local, contains(DatabaseTables.mediaFileBindings));
-    expect(local, contains(DatabaseTables.importSources));
-    expect(local, contains(DatabaseTables.importBatches));
-    expect(local, contains(DatabaseTables.songImportReviews));
-    expect(local, contains(DatabaseTables.albumReleaseClassifications));
-    expect(local, contains(DatabaseTables.artistProjectAssignments));
-    // SN-45: crop positions stay on the device; the cropped artwork itself
-    // is a portable artwork asset.
-    expect(local, contains(DatabaseTables.artworkCrops));
+    expect(local, {
+      DatabaseTables.mediaFileBindings,
+      DatabaseTables.importSources,
+      DatabaseTables.importBatches,
+      DatabaseTables.songImportReviews,
+    });
   });
 
   test('protects sync and ownership state from direct restoration', () {

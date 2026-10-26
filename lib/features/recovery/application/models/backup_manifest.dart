@@ -39,14 +39,10 @@ class BackupManifest {
       throw FormatException('Backup timestamp must be UTC.');
     }
 
-    final expectedTables = BackupCoverageContract.portableTables
-        .map((entry) => entry.table)
-        .toSet();
-
-    if (rowCounts.keys.toSet().length != expectedTables.length ||
-        !rowCounts.keys.toSet().containsAll(expectedTables)) {
+    if (!BackupCoverageContract.isValidBackupTableSet(rowCounts.keys.toSet())) {
       throw FormatException(
-        'Backup manifest must describe every portable table.',
+        'Backup manifest must describe every required portable table, and '
+        'only portable tables.',
       );
     }
 

@@ -29,10 +29,10 @@ void main() {
     await appDatabase.close();
   });
 
-  test('exports all 17 portable tables from an empty database', () async {
+  test('exports all 20 portable tables from an empty database', () async {
     final result = await exporter.export();
 
-    expect(result.payload.tables.length, 17);
+    expect(result.payload.tables.length, 20);
     expect(result.payload.totalRows, 0);
     expect(result.manifest.totalRows, 0);
     expect(result.manifest.backupId, 'backup-test');
