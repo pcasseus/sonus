@@ -92,7 +92,7 @@ class ChartsPage extends StatelessWidget {
 
                   if (controller.viewSize == ChartViewSize.top200) ...[
                     const SizedBox(height: 10),
-                    const _ExtendedChartNotice(),
+                    _ExtendedChartNotice(chartType: controller.chartType),
                   ],
 
                   const SizedBox(height: 22),
@@ -132,7 +132,7 @@ class ChartsPage extends StatelessWidget {
               itemCount: rowCount,
               itemBuilder: (context, index) {
                 if (index == extendedStart) {
-                  return const ChartExtendedDivider();
+                  return ChartExtendedDivider(chartType: controller.chartType);
                 }
 
                 final entryIndex = extendedStart >= 0 && index > extendedStart
@@ -425,7 +425,7 @@ class _ChartTypeSelector extends StatelessWidget {
         ),
         ButtonSegment<ChartType>(
           value: ChartType.albums,
-          label: Text('Albums'),
+          label: Text('Albums & EPs'),
           icon: _segmentIcon(context, Icons.album_rounded),
         ),
       ],
@@ -592,7 +592,9 @@ class _ViewSizeSelector extends StatelessWidget {
 }
 
 class _ExtendedChartNotice extends StatelessWidget {
-  const _ExtendedChartNotice();
+  const _ExtendedChartNotice({required this.chartType});
+
+  final ChartType chartType;
 
   @override
   Widget build(BuildContext context) {
@@ -617,7 +619,15 @@ class _ExtendedChartNotice extends StatelessWidget {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              'Top 100 is the official chart. Positions 101\u2013200 are extended standings.',
+              switch (chartType) {
+                ChartType.songs =>
+                  'Positions #1\u2013100 are the Sonus Hot 100. '
+                      '#101\u2013200 are Sonus Bubbling Under, shown at their '
+                      'real positions.',
+                ChartType.albums =>
+                  'Positions #101\u2013200 follow the Top 100 at their real '
+                      'positions.',
+              },
               style: theme.textTheme.bodySmall?.copyWith(
                 color: tokens.colors.textSecondary,
               ),
@@ -652,7 +662,7 @@ class _ChartSummary extends StatelessWidget {
         Semantics(
           header: true,
           child: Text(
-            chartType == ChartType.songs ? 'Songs' : 'Albums',
+            ChartZoneNames.chart(chartType),
             style: theme.textTheme.titleLarge?.copyWith(
               color: colors.textPrimary,
               fontWeight: FontWeight.w800,

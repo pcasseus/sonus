@@ -43,7 +43,7 @@ void main() {
     expect(find.text('Hot 100'), findsOneWidget);
 
     expect(find.text('Songs'), findsWidgets);
-    expect(find.text('Albums'), findsOneWidget);
+    expect(find.text('Albums & EPs'), findsOneWidget);
 
     expect(find.text('Top 10'), findsOneWidget);
     expect(find.text('Top 25'), findsOneWidget);
@@ -62,7 +62,7 @@ void main() {
       find.byKey(const ValueKey<String>('charts-spotlight-songs_1')),
       findsOneWidget,
     );
-    expect(find.text('LIFETIME STREAMS'), findsOneWidget);
+    expect(find.text('TOTAL STREAMS'), findsOneWidget);
     expect(find.text('12'), findsOneWidget);
     expect(find.text('ALL-TIME PEAK'), findsOneWidget);
     expect(find.text('#1'), findsWidgets);
@@ -100,7 +100,7 @@ void main() {
 
     await _pumpPage(tester, controller);
 
-    await tester.tap(find.text('Albums'));
+    await tester.tap(find.text('Albums & EPs'));
     await tester.pumpAndSettle();
 
     expect(controller.chartType, ChartType.albums);
@@ -289,7 +289,9 @@ void main() {
 
     expect(find.byType(AlbumProfilePage), findsOneWidget);
   });
-  testWidgets('Top 200 explains extended standings', (tester) async {
+  testWidgets('the full 200 explains Hot 100 and Bubbling Under', (
+    tester,
+  ) async {
     final controller = await _controller();
 
     await _pumpPage(tester, controller);
@@ -305,7 +307,9 @@ void main() {
 
     expect(
       find.text(
-        'Top 100 is the official chart. Positions 101\u2013200 are extended standings.',
+        'Positions #1\u2013100 are the Sonus Hot 100. '
+        '#101\u2013200 are Sonus Bubbling Under, shown at their real '
+        'positions.',
       ),
       findsOneWidget,
     );
@@ -426,7 +430,7 @@ void main() {
       await _pumpPage(tester, controller);
 
       const divider = ValueKey<String>('charts-extended-divider');
-      expect(find.text('Extended standings · 101–200'), findsOneWidget);
+      expect(find.text('Sonus Bubbling Under · #101–200'), findsOneWidget);
 
       final dividerTop = tester.getTopLeft(find.byKey(divider)).dy;
       final official = find.byKey(
@@ -438,6 +442,20 @@ void main() {
 
       expect(tester.getBottomLeft(official).dy, lessThanOrEqualTo(dividerTop));
       expect(tester.getTopLeft(extended).dy, greaterThan(dividerTop));
+
+      // Bubbling Under keeps the real Top 200 position: #101, never #1.
+      expect(
+        find.descendant(of: extended, matching: find.text('101')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: extended, matching: find.text('1')),
+        findsNothing,
+      );
+      expect(
+        find.descendant(of: extended, matching: find.text('BUBBLING UNDER')),
+        findsOneWidget,
+      );
 
       // Official entries are never badged as extended, and extended ones are.
       expect(

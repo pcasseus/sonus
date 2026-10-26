@@ -256,7 +256,7 @@ void main() {
       find.byKey(const ValueKey<String>('charts-extended-song_150')),
       findsOneWidget,
     );
-    expect(find.text('EXTENDED'), findsOneWidget);
+    expect(find.text('BUBBLING UNDER'), findsOneWidget);
     expect(
       tester
           .widget<Material>(
@@ -276,7 +276,7 @@ void main() {
     );
     expect(
       tester.getSemantics(find.byKey(card)).label,
-      startsWith('Number 150, extended standing,'),
+      startsWith('Number 150, Bubbling Under,'),
     );
     semantics.dispose();
   });
