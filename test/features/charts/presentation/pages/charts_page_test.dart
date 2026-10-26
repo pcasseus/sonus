@@ -650,13 +650,15 @@ void main() {
       findsNothing,
     );
 
-    expect(find.text('Song 1 reaches a new peak of #3'), findsOneWidget);
-    expect(find.text('Song 1 earns a new weekly peak of #3.'), findsOneWidget);
-    expect(find.text('WEEKLY HOT 100 · FINAL'), findsOneWidget);
-    expect(find.text('Sonus Daily'), findsOneWidget);
+    final story = controller.momentStories.single;
+    expect(find.text(story.headline), findsOneWidget);
+    expect(story.headline, contains('#3'));
+    expect(story.headline, contains('"Song 1"'));
+    expect(find.text('WEEKLY SONUS HOT 100'), findsOneWidget);
+    expect(find.text(story.publisher.label), findsOneWidget);
     expect(find.text('NEW PEAK'), findsOneWidget);
     expect(find.text('#3'), findsOneWidget);
-    expect(find.text('HOT 100 #3'), findsOneWidget);
+    expect(find.text('WEEKLY HOT 100 #3'), findsOneWidget);
   });
 
   testWidgets('a Moment post links to its song, album and artist', (
@@ -681,7 +683,7 @@ void main() {
     await tester.tap(find.text('Moments'));
     await tester.pump();
 
-    expect(_postPart('portrait'), findsOneWidget);
+    expect(_postPart('image-right'), findsOneWidget);
     for (final link in ['song', 'album', 'artist']) {
       expect(_postPart(link), findsOneWidget);
     }
@@ -725,14 +727,19 @@ void main() {
 
     expect(_postPart('song'), findsNothing);
     expect(_postPart('artist'), findsNothing);
+    // The artist has no portrait: a placeholder, never someone else's.
     expect(
-      _postPart('portrait'),
+      find.descendant(
+        of: _postPart('image-right'),
+        matching: find.byType(Image),
+      ),
       findsNothing,
-      reason: 'without a portrait the artwork fills the collage',
     );
   });
 
-  testWidgets('an all-time Moment says all-time, never weekly', (tester) async {
+  testWidgets('a #1 on the permanent chart says #1 and names the Hot 100', (
+    tester,
+  ) async {
     final controller = await _controller(
       moments: [
         _momentEvent(
@@ -752,19 +759,17 @@ void main() {
     await tester.tap(find.text('Moments'));
     await tester.pump();
 
-    expect(find.text('Song 1 by Artist 1 takes #1 all-time'), findsOneWidget);
-    expect(
-      find.text(
-        'A new leader takes over the all-time Sonus Hot 100: Song 1 is #1 '
-        'for the first time with 42 lifetime streams.',
-      ),
-      findsOneWidget,
-    );
-    expect(find.text('ALL-TIME HOT 100'), findsOneWidget);
-    expect(find.text('ALL-TIME #1'), findsOneWidget);
+    final story = controller.momentStories.single;
+    expect(find.text(story.headline), findsOneWidget);
+    expect(story.headline, contains('#1'));
+    for (final banned in ['lifetime', 'summit', 'all-time', 'weekly']) {
+      expect(story.headline.toLowerCase(), isNot(contains(banned)));
+      expect((story.body ?? '').toLowerCase(), isNot(contains(banned)));
+    }
+    expect(find.text('SONUS HOT 100'), findsOneWidget);
+    expect(find.text('HOT 100 #1'), findsOneWidget);
     expect(find.text('NUMBER ONE'), findsOneWidget);
-    expect(find.text('@sonusdaily · 3h'), findsOneWidget);
-    expect(find.textContaining('weekly'), findsNothing);
+    expect(find.text('${story.publisher.handle} · 3h'), findsOneWidget);
   });
 
   testWidgets('Moment posts fit a 320 px screen at large text', (tester) async {
@@ -801,7 +806,9 @@ void main() {
     }
   });
 
-  testWidgets('LIVE Moment uses provisional presentation', (tester) async {
+  testWidgets('provisional live facts are not published as news', (
+    tester,
+  ) async {
     final controller = await _controller(
       moments: [
         _momentEvent(
@@ -820,13 +827,13 @@ void main() {
     await tester.tap(find.text('Moments'));
     await tester.pump();
 
-    expect(find.text('Song 1 reaches a new peak of #3'), findsOneWidget);
+    // The permanent chart tells this as it happens; a provisional weekly
+    // fact would only repeat it.
+    expect(controller.momentStories, isEmpty);
     expect(
-      find.text('Song 1 rises to #3 on this week’s Sonus Hot 100.'),
+      find.byKey(const ValueKey<String>('charts-moments-empty')),
       findsOneWidget,
     );
-    expect(find.text('WEEKLY HOT 100 · THIS WEEK'), findsOneWidget);
-    expect(find.text('HOT 100 #3'), findsOneWidget);
   });
 
   testWidgets('empty Moments feed has its own empty state', (tester) async {

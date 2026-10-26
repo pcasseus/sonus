@@ -4,100 +4,28 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/design/sonus_theme.dart';
 import '../../../../core/design/widgets/sonus_decorations.dart';
-import '../../application/models/chart_moment_feed_item.dart';
 import '../../domain/models/chart_type.dart';
-import '../../domain/moments/chart_moment_event_type.dart';
-import 'sonus_news_story.dart';
+import '../editorial/moment_editorial_desk.dart';
+import '../editorial/moment_publisher.dart';
+import '../editorial/moment_visuals.dart';
 
-/// The badges on a Moment post, all read from the Moment itself.
-class MomentPostBadges {
-  const MomentPostBadges({required this.status, required this.tag, this.rank});
-
-  factory MomentPostBadges.of(ChartMomentFeedItem item) {
-    final dominant = item.events.firstWhere(
-      (event) => event.eventType == item.dominantEventType,
-    );
-    final rank = dominant.currentRank;
-    final threshold = dominant.threshold;
-
-    final status = switch (item.dominantEventType) {
-      ChartMomentEventType.firstNumberOne ||
-      ChartMomentEventType.returnToNumberOne ||
-      ChartMomentEventType.artistFirstNumberOneSong ||
-      ChartMomentEventType.artistFirstNumberOneAlbum ||
-      ChartMomentEventType.artistNthNumberOneSong ||
-      ChartMomentEventType.artistNthNumberOneAlbum ||
-      ChartMomentEventType.artistReturnsToNumberOneSong ||
-      ChartMomentEventType.artistReturnsToNumberOneAlbum => 'NUMBER ONE',
-      ChartMomentEventType.newPeak ||
-      ChartMomentEventType.artistHighestChartingSong ||
-      ChartMomentEventType.artistHighestChartingAlbum => 'NEW PEAK',
-      ChartMomentEventType.peakMatch => 'PEAK MATCH',
-      ChartMomentEventType.debut => 'DEBUT',
-      ChartMomentEventType.reentry => 'RE-ENTRY',
-      ChartMomentEventType.rankRise => 'CLIMBING',
-      ChartMomentEventType.rankFall => 'FALLING',
-      ChartMomentEventType.rankSame => 'STABLE',
-      ChartMomentEventType.firstThresholdEntry ||
-      ChartMomentEventType.thresholdReturn ||
-      ChartMomentEventType.artistFirstThresholdSong ||
-      ChartMomentEventType.artistFirstThresholdAlbum ||
-      ChartMomentEventType.artistNthThresholdSong ||
-      ChartMomentEventType.artistNthThresholdAlbum =>
-        threshold == null ? 'BREAKTHROUGH' : 'TOP $threshold',
-      ChartMomentEventType.artistSimultaneousThresholdSongs ||
-      ChartMomentEventType.artistSimultaneousThresholdAlbums => 'RECORD',
-      ChartMomentEventType.lifetimeStreamMilestone => 'MILESTONE',
-      ChartMomentEventType.consecutiveWeeksMilestone ||
-      ChartMomentEventType.totalWeeksMilestone ||
-      ChartMomentEventType.consecutiveThresholdWeeksMilestone ||
-      ChartMomentEventType.totalThresholdWeeksMilestone => 'LONGEVITY',
-      ChartMomentEventType.losesNumberOne => 'LOSES #1',
-      ChartMomentEventType.thresholdExit ||
-      ChartMomentEventType.chartExit => 'EXIT',
-    };
-
-    final chart = item.isAllTime
-        ? 'ALL-TIME'
-        : switch (item.chartType) {
-            ChartType.songs => 'HOT 100',
-            ChartType.albums => 'TOP 200',
-          };
-
-    return MomentPostBadges(
-      rank: rank,
-      status: status,
-      tag: rank == null ? chart : '$chart #$rank',
-    );
-  }
-
-  final int? rank;
-  final String status;
-
-  /// For example "HOT 100 #11" or "ALL-TIME #3".
-  final String tag;
-}
-
-/// One Moment as a social editorial post (SN-45): the edition as author,
-/// the Moment's own copy, a collage of the artwork and the artist, real
-/// chart badges, and links to the song, album and artist. There are no
-/// likes, reposts or replies: Sonus never invents engagement.
+/// One Moment as a social editorial post (SN-45): the publisher as author,
+/// the story's headline and, when it adds a verified fact, a second
+/// paragraph; pictures of exactly what the headline is about; real chart
+/// badges; and links to the song, release and artist. There are no likes,
+/// reposts, replies or view counts: Sonus never invents engagement.
 class MomentPostCard extends StatelessWidget {
   const MomentPostCard({
     super.key,
     required this.story,
-    required this.badges,
     required this.now,
-    this.artistPortraitPath,
     this.onOpenSong,
     this.onOpenAlbum,
     this.onOpenArtist,
   });
 
-  final SonusNewsStory story;
-  final MomentPostBadges badges;
+  final MomentStory story;
   final DateTime now;
-  final String? artistPortraitPath;
   final VoidCallback? onOpenSong;
   final VoidCallback? onOpenAlbum;
   final VoidCallback? onOpenArtist;
@@ -107,6 +35,8 @@ class MomentPostCard extends StatelessWidget {
     final tokens = SonusTheme.of(context);
     final colors = tokens.colors;
     final theme = Theme.of(context);
+    final body = story.body;
+    final tag = story.tag;
     final hasLinks =
         onOpenSong != null || onOpenAlbum != null || onOpenArtist != null;
 
@@ -124,7 +54,7 @@ class MomentPostCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             _Byline(
-              edition: story.edition,
+              publisher: story.publisher,
               occurredAt: story.occurredAt,
               now: now,
             ),
@@ -135,30 +65,28 @@ class MomentPostCard extends StatelessWidget {
               style: theme.textTheme.titleMedium?.copyWith(
                 color: colors.textPrimary,
                 fontWeight: FontWeight.w800,
-                height: 1.2,
+                height: 1.25,
               ),
             ),
-            const SizedBox(height: 6),
-            Text(
-              story.body,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: colors.textSecondary,
-                height: 1.35,
+            if (body != null) ...[
+              const SizedBox(height: 6),
+              Text(
+                body,
+                key: ValueKey<String>('moment-post-body-${story.id}'),
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: colors.textSecondary,
+                  height: 1.35,
+                ),
               ),
-            ),
+            ],
             const SizedBox(height: 14),
-            _Collage(
-              storyId: story.id,
-              artworkPath: story.artworkPath,
-              portraitPath: artistPortraitPath,
-              kicker: story.kicker,
-              badges: badges,
-            ),
-            if (hasLinks) ...[
+            _Collage(story: story),
+            if (hasLinks || tag != null) ...[
               const SizedBox(height: 12),
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
+                crossAxisAlignment: WrapCrossAlignment.center,
                 children: [
                   if (onOpenSong != null)
                     _LinkChip(
@@ -171,7 +99,9 @@ class MomentPostCard extends StatelessWidget {
                     _LinkChip(
                       key: ValueKey<String>('moment-post-album-${story.id}'),
                       icon: Icons.album_rounded,
-                      label: 'Album',
+                      label: story.facts.chartType == ChartType.albums
+                          ? story.facts.format?.label ?? 'Album'
+                          : 'Album',
                       onPressed: onOpenAlbum!,
                     ),
                   if (onOpenArtist != null)
@@ -181,19 +111,16 @@ class MomentPostCard extends StatelessWidget {
                       label: 'Artist',
                       onPressed: onOpenArtist!,
                     ),
+                  if (tag != null)
+                    _Pill(
+                      key: ValueKey<String>('moment-post-tag-${story.id}'),
+                      label: tag,
+                      background: colors.accentPrimary.withValues(alpha: 0.14),
+                      foreground: colors.textPrimary,
+                    ),
                 ],
               ),
             ],
-            const SizedBox(height: 12),
-            Align(
-              alignment: AlignmentDirectional.centerEnd,
-              child: _Pill(
-                key: ValueKey<String>('moment-post-tag-${story.id}'),
-                label: badges.tag,
-                background: colors.accentPrimary.withValues(alpha: 0.14),
-                foreground: colors.textPrimary,
-              ),
-            ),
           ],
         ),
       ),
@@ -203,12 +130,12 @@ class MomentPostCard extends StatelessWidget {
 
 class _Byline extends StatelessWidget {
   const _Byline({
-    required this.edition,
+    required this.publisher,
     required this.occurredAt,
     required this.now,
   });
 
-  final SonusNewsEdition edition;
+  final MomentPublisher publisher;
   final DateTime occurredAt;
   final DateTime now;
 
@@ -216,10 +143,7 @@ class _Byline extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = SonusTheme.of(context).colors;
     final theme = Theme.of(context);
-    final handle = switch (edition) {
-      SonusNewsEdition.sonusDaily => '@sonusdaily',
-      SonusNewsEdition.pulsePop => '@pulsepop',
-    };
+    final handle = publisher.handle;
 
     return Row(
       children: [
@@ -231,9 +155,9 @@ class _Byline extends StatelessWidget {
             borderRadius: BorderRadius.circular(14),
             border: Border.all(color: colors.border),
           ),
-          child: Icon(switch (edition) {
-            SonusNewsEdition.sonusDaily => Icons.newspaper_rounded,
-            SonusNewsEdition.pulsePop => Icons.bolt_rounded,
+          child: Icon(switch (publisher) {
+            MomentPublisher.sonusDaily => Icons.newspaper_rounded,
+            MomentPublisher.pulsePop => Icons.bolt_rounded,
           }, color: colors.accentPrimary),
         ),
         const SizedBox(width: 12),
@@ -242,7 +166,7 @@ class _Byline extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                edition.label,
+                publisher.label,
                 style: theme.textTheme.titleSmall?.copyWith(
                   color: colors.textPrimary,
                   fontWeight: FontWeight.w800,
@@ -291,29 +215,26 @@ String momentAgeLabel(DateTime occurredAt, DateTime now, {bool long = false}) {
 }
 
 class _Collage extends StatelessWidget {
-  const _Collage({
-    required this.storyId,
-    required this.artworkPath,
-    required this.portraitPath,
-    required this.kicker,
-    required this.badges,
-  });
+  const _Collage({required this.story});
 
-  final String storyId;
-  final String? artworkPath;
-  final String? portraitPath;
-  final String kicker;
-  final MomentPostBadges badges;
+  final MomentStory story;
 
   @override
   Widget build(BuildContext context) {
     final colors = SonusTheme.of(context).colors;
-    final hasPortrait = portraitPath?.trim().isNotEmpty ?? false;
+    final visual = story.visual;
+    final right = visual.right;
+    final id = story.id;
+
+    IconData iconFor(MomentImage image) => switch (image.kind) {
+      MomentImageKind.cover => Icons.album_rounded,
+      MomentImageKind.portrait => Icons.person_rounded,
+    };
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(18),
       child: AspectRatio(
-        aspectRatio: hasPortrait ? 1.25 : 1.6,
+        aspectRatio: right == null ? 1.6 : 1.25,
         child: Stack(
           fit: StackFit.expand,
           children: [
@@ -322,21 +243,21 @@ class _Collage extends StatelessWidget {
               children: [
                 Expanded(
                   child: _CollageImage(
-                    key: ValueKey<String>('moment-post-artwork-$storyId'),
-                    path: artworkPath,
-                    icon: Icons.album_rounded,
+                    key: ValueKey<String>('moment-post-image-left-$id'),
+                    path: visual.left.path,
+                    icon: iconFor(visual.left),
                   ),
                 ),
-                if (hasPortrait) ...[
+                if (right != null) ...[
                   ColoredBox(
                     color: colors.raisedSurface,
                     child: const SizedBox(width: 3),
                   ),
                   Expanded(
                     child: _CollageImage(
-                      key: ValueKey<String>('moment-post-portrait-$storyId'),
-                      path: portraitPath,
-                      icon: Icons.person_rounded,
+                      key: ValueKey<String>('moment-post-image-right-$id'),
+                      path: right.path,
+                      icon: iconFor(right),
                     ),
                   ),
                 ],
@@ -349,7 +270,7 @@ class _Collage extends StatelessWidget {
               child: Align(
                 alignment: AlignmentDirectional.centerStart,
                 child: _Pill(
-                  label: kicker.toUpperCase(),
+                  label: story.kicker.toUpperCase(),
                   icon: Icons.auto_awesome_rounded,
                   maxLines: 2,
                   background: colors.artworkScrim,
@@ -357,18 +278,18 @@ class _Collage extends StatelessWidget {
                 ),
               ),
             ),
-            if (badges.rank != null)
+            if (story.rank != null)
               PositionedDirectional(
                 bottom: 10,
                 start: 10,
-                child: _RankBadge(rank: badges.rank!),
+                child: _RankBadge(rank: story.rank!),
               ),
             PositionedDirectional(
               bottom: 10,
               end: 10,
               child: _Pill(
-                key: ValueKey<String>('moment-post-status-$storyId'),
-                label: badges.status,
+                key: ValueKey<String>('moment-post-status-$id'),
+                label: story.status,
                 background: colors.artworkScrim,
                 foreground: colors.onArtworkScrim,
               ),

@@ -11,14 +11,12 @@ import '../../../library/presentation/pages/artist_profile_page.dart';
 import '../../../player/application/controllers/playback_coordinator.dart';
 import '../../../playlists/presentation/widgets/add_to_playlist_sheet.dart';
 
-import '../../application/models/chart_moment_feed_item.dart';
 import '../../domain/entities/chart_entry.dart';
 import '../../domain/entities/chart_snapshot.dart';
 import '../../domain/models/chart_type.dart';
 import '../../domain/models/chart_view_size.dart';
-import '../formatters/chart_moment_feed_copy_formatter.dart';
 import '../news/moment_post_card.dart';
-import '../news/sonus_news_story.dart';
+import '../editorial/moment_editorial_desk.dart';
 import '../models/charts_presentation_mode.dart';
 import '../controllers/charts_controller.dart';
 import '../widgets/all_time_chart_cards.dart';
@@ -267,8 +265,6 @@ class _MomentsFeed extends StatelessWidget {
 
   final ChartsController controller;
 
-  static const _formatter = ChartMomentFeedCopyFormatter();
-
   @override
   Widget build(BuildContext context) {
     if (controller.hasMomentFeedError && !controller.hasMomentFeedItems) {
@@ -286,7 +282,9 @@ class _MomentsFeed extends StatelessWidget {
       );
     }
 
-    if (!controller.hasMomentFeedItems) {
+    final stories = controller.momentStories;
+
+    if (stories.isEmpty) {
       return const _ChartsMessage(
         key: ValueKey<String>('charts-moments-empty'),
         icon: Icons.auto_awesome_outlined,
@@ -296,13 +294,6 @@ class _MomentsFeed extends StatelessWidget {
       );
     }
 
-    final items = controller.momentFeedItems;
-    final stories = SonusNewsDesk(
-      copyFor: _formatter.format,
-      artworkFor: (item) =>
-          controller.albumForMoment(item)?.artworkPath ??
-          controller.artworkPathForMoment(item),
-    ).stories(items);
     final now = controller.currentTime();
 
     return Column(
@@ -313,14 +304,9 @@ class _MomentsFeed extends StatelessWidget {
           _MomentsRefreshErrorBanner(onRetry: controller.refresh),
           const SizedBox(height: 14),
         ],
-        for (var index = 0; index < items.length; index++) ...[
-          _MomentPost(
-            item: items[index],
-            story: stories[index],
-            now: now,
-            controller: controller,
-          ),
-          if (index != items.length - 1) const SizedBox(height: 16),
+        for (var index = 0; index < stories.length; index++) ...[
+          _MomentPost(story: stories[index], now: now, controller: controller),
+          if (index != stories.length - 1) const SizedBox(height: 16),
         ],
       ],
     );
@@ -329,19 +315,18 @@ class _MomentsFeed extends StatelessWidget {
 
 class _MomentPost extends StatelessWidget {
   const _MomentPost({
-    required this.item,
     required this.story,
     required this.now,
     required this.controller,
   });
 
-  final ChartMomentFeedItem item;
-  final SonusNewsStory story;
+  final MomentStory story;
   final DateTime now;
   final ChartsController controller;
 
   @override
   Widget build(BuildContext context) {
+    final item = story.item;
     final track = controller.trackForMoment(item);
     final album = controller.albumForMoment(item);
     final artist = controller.artistForMoment(item);
@@ -354,9 +339,7 @@ class _MomentPost extends StatelessWidget {
     return MomentPostCard(
       key: ValueKey<String>('charts-moment-${item.id}'),
       story: story,
-      badges: MomentPostBadges.of(item),
       now: now,
-      artistPortraitPath: controller.artistPortraitPathForMoment(item),
       onOpenSong: playable
           ? () => unawaited(_showChartTrackContext(context, track, [track]))
           : null,

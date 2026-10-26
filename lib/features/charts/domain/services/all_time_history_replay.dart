@@ -26,6 +26,20 @@ enum AllTimeAchievementType {
   /// A climb of at least [AllTimeHistoryReplay.bigClimbPlaces] places into
   /// the Top 100 with one play.
   bigClimb,
+
+  /// The entity's qualified plays reached [AllTimeAchievement.milestone]
+  /// (one of the replay's stream milestones).
+  streamMilestone,
+
+  /// The entity's group (its artist) gained a #1: [AllTimeAchievement.
+  /// milestone] is how many of the group's entities have now been #1.
+  careerNumberOne,
+
+  /// The group's [AllTimeAchievement.milestone]th entity in the Top 10.
+  careerTop10,
+
+  /// The group's [AllTimeAchievement.milestone]th entity in the Top 100.
+  careerTop100,
 }
 
 /// One achievement, at the play that caused it.
@@ -40,6 +54,9 @@ class AllTimeAchievement {
     this.previousRank,
     this.previousPeakRank,
     this.zone,
+    this.milestone,
+    this.displacedEntityId,
+    this.groupId,
   });
 
   final AllTimeAchievementType type;
@@ -58,6 +75,16 @@ class AllTimeAchievement {
   /// For [AllTimeAchievementType.newPeak]: the zone it reached.
   final int? zone;
 
+  /// For stream milestones, the milestone; for career achievements, the
+  /// ordinal (1 for a first).
+  final int? milestone;
+
+  /// For a #1: the entity that was #1 immediately before this play.
+  final String? displacedEntityId;
+
+  /// For career achievements: the group (artist) they count for.
+  final String? groupId;
+
   /// Identical for the same achievement however often the history is
   /// replayed, so saving it twice is harmless.
   String deduplicationKey(String chartType) {
@@ -69,6 +96,10 @@ class AllTimeAchievement {
       AllTimeAchievementType.reentry ||
       AllTimeAchievementType.returnsToNumberOne ||
       AllTimeAchievementType.bigClimb => playId,
+      AllTimeAchievementType.streamMilestone => '$milestone',
+      AllTimeAchievementType.careerNumberOne ||
+      AllTimeAchievementType.careerTop10 ||
+      AllTimeAchievementType.careerTop100 => '',
     };
     return 'alltime|$chartType|${type.name}|$entityId|$discriminator';
   }
@@ -150,11 +181,20 @@ class AllTimeHistoryReplay {
   /// at the bottom of the standings, not a re-entry story.
   static const Duration reentryAbsence = Duration(days: 7);
 
+  /// Replays [events] and returns the standings' history.
+  ///
+  /// With [streamMilestones], reaching each of them is an achievement. With
+  /// [groupOf] (an entity's artist), an entity's first #1, first Top 10 and
+  /// first Top 100 also count for its group, with the group's ordinal: its
+  /// first, second, … #1. Groups are counted over the whole history, also
+  /// before [achievementsFromUtc]; entities without a group never count.
   AllTimeReplayResult run({
     required Iterable<ChartRankingEvent> events,
     required DateTime referenceLocal,
     DateTime? achievementsFromUtc,
     bool collectAchievements = true,
+    List<int> streamMilestones = const [],
+    String? Function(String entityId)? groupOf,
   }) {
     final ordered = events.toList(growable: false)
       ..sort((a, b) {
@@ -168,6 +208,10 @@ class AllTimeHistoryReplay {
     final achievements = <AllTimeAchievement>[];
     final from = achievementsFromUtc?.toUtc();
     final currentWeekStart = _weeks.resolve(referenceLocal).startUtc;
+    final milestones = streamMilestones.toSet();
+    final groupNumberOnes = <String, int>{};
+    final groupTop10 = <String, int>{};
+    final groupTop100 = <String, int>{};
 
     ChartWeek? week;
     DateTime? observedFrom;
@@ -201,6 +245,7 @@ class AllTimeHistoryReplay {
       );
       final previousIndex = state.inTop ? top.indexOf(state) : -1;
       final previousRank = previousIndex == -1 ? null : previousIndex + 1;
+      final previousLeader = top.isEmpty ? null : top.first.entityId;
 
       if (previousIndex != -1) top.removeAt(previousIndex);
       state
@@ -222,24 +267,87 @@ class AllTimeHistoryReplay {
         state.inTop = false;
       }
 
+      final playId = event.sourceEventId ?? '${event.entityId}@$at';
+      final collecting =
+          collectAchievements && (from == null || !at.isBefore(from));
+
+      AllTimeAchievement extra(
+        AllTimeAchievementType type,
+        int milestone, {
+        String? groupId,
+      }) => AllTimeAchievement(
+        type: type,
+        entityId: state.entityId,
+        playId: playId,
+        occurredAt: at,
+        // 0 when outside the standings (a stream milestone can be).
+        rank: rank ?? 0,
+        streams: state.count,
+        previousRank: previousRank,
+        previousPeakRank: state.bestRank,
+        milestone: milestone,
+        groupId: groupId,
+      );
+
       if (rank != null) {
-        if (collectAchievements && (from == null || !at.isBefore(from))) {
+        if (collecting) {
           final achievement = _achievementFor(
             state,
             rank: rank,
             previousRank: previousRank,
-            playId: event.sourceEventId ?? '${event.entityId}@$at',
+            playId: playId,
             at: at,
+            previousLeader: previousLeader,
           );
           if (achievement != null) achievements.add(achievement);
         }
+
+        // Career ordinals count the whole history, stories or not.
+        final group = groupOf?.call(state.entityId);
+        if (group != null) {
+          for (final (zone, reached, counts, type) in [
+            (
+              1,
+              state.everNumberOne,
+              groupNumberOnes,
+              AllTimeAchievementType.careerNumberOne,
+            ),
+            (
+              10,
+              state.everTop10,
+              groupTop10,
+              AllTimeAchievementType.careerTop10,
+            ),
+            (
+              hot100,
+              state.everTop100,
+              groupTop100,
+              AllTimeAchievementType.careerTop100,
+            ),
+          ]) {
+            if (rank > zone || reached) continue;
+            final ordinal = (counts[group] ?? 0) + 1;
+            counts[group] = ordinal;
+            if (collecting) {
+              achievements.add(extra(type, ordinal, groupId: group));
+            }
+          }
+        }
+
         state
           ..everInTop = true
           ..everTop100 = state.everTop100 || rank <= hot100
+          ..everTop10 = state.everTop10 || rank <= 10
           ..everNumberOne = state.everNumberOne || rank == 1
           ..bestRank = state.bestRank == null || rank < state.bestRank!
               ? rank
               : state.bestRank;
+      }
+
+      if (collecting && milestones.contains(state.count)) {
+        achievements.add(
+          extra(AllTimeAchievementType.streamMilestone, state.count),
+        );
       }
     }
 
@@ -262,25 +370,31 @@ class AllTimeHistoryReplay {
     required int? previousRank,
     required String playId,
     required DateTime at,
+    String? previousLeader,
   }) {
-    AllTimeAchievement make(AllTimeAchievementType type, {int? zone}) =>
-        AllTimeAchievement(
-          type: type,
-          entityId: state.entityId,
-          playId: playId,
-          occurredAt: at,
-          rank: rank,
-          streams: state.count,
-          previousRank: previousRank,
-          previousPeakRank: state.bestRank,
-          zone: zone,
-        );
+    AllTimeAchievement make(
+      AllTimeAchievementType type, {
+      int? zone,
+      String? displaced,
+    }) => AllTimeAchievement(
+      type: type,
+      entityId: state.entityId,
+      playId: playId,
+      occurredAt: at,
+      rank: rank,
+      streams: state.count,
+      previousRank: previousRank,
+      previousPeakRank: state.bestRank,
+      zone: zone,
+      displacedEntityId: displaced,
+    );
 
     if (rank == 1 && previousRank != 1) {
       return make(
         state.everNumberOne
             ? AllTimeAchievementType.returnsToNumberOne
             : AllTimeAchievementType.numberOne,
+        displaced: previousLeader == state.entityId ? null : previousLeader,
       );
     }
 
@@ -353,6 +467,7 @@ class _State {
   bool inTop = false;
   bool everInTop = false;
   bool everTop100 = false;
+  bool everTop10 = false;
   bool everNumberOne = false;
   int? bestRank;
   DateTime? leftTopAt;

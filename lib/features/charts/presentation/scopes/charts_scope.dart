@@ -17,6 +17,7 @@ import '../../data/repositories/sqlite_chart_repository.dart';
 import '../controllers/charts_controller.dart';
 import '../../../library/application/services/library_organization_service.dart';
 import '../../application/services/library_release_chart_eligibility.dart';
+import '../../../analytics/presentation/scopes/listening_artist_attribution_lookup.dart';
 
 class ChartsScope extends StatefulWidget {
   const ChartsScope({super.key, required this.child, this.now, this.changes});
@@ -140,6 +141,7 @@ class _ChartsScopeState extends State<ChartsScope> {
       activationUtc: DateTime(2026, 10, 25).toUtc(),
       restoreGeneration: () => database.mutationCoordinator.restoreGeneration,
       releaseEligibility: releaseEligibility,
+      artistAttribution: listeningArtistAttributionOf(context),
     );
 
     final controller = ChartsController(
@@ -150,6 +152,7 @@ class _ChartsScopeState extends State<ChartsScope> {
       moments: moments,
       allTimeMoments: allTimeMoments,
       now: widget.now,
+      releaseFormats: organization?.releaseFormats,
     );
 
     _controller = controller;

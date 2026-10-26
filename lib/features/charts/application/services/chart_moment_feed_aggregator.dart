@@ -94,6 +94,14 @@ class ChartMomentFeedAggregator {
 
     final sourceId = event.sourceId?.trim();
 
+    // Everything one play achieved on one chart is one story: the song's
+    // achievement, its artist's career fact, the artist ranking.
+    if (event.scope == ChartMomentScope.allTime &&
+        sourceId != null &&
+        sourceId.isNotEmpty) {
+      return '${base}source:$sourceId';
+    }
+
     final transitionKey = sourceId != null && sourceId.isNotEmpty
         ? 'source:$sourceId'
         : 'occurred:${event.occurredAt.toUtc().microsecondsSinceEpoch}';
@@ -149,6 +157,7 @@ class ChartMomentFeedAggregator {
       ChartMomentEventType.artistNthNumberOneSong ||
       ChartMomentEventType.artistNthNumberOneAlbum => 960,
 
+      ChartMomentEventType.artistBecomesTopArtist => 920,
       ChartMomentEventType.newPeak => 900,
       ChartMomentEventType.artistHighestChartingSong ||
       ChartMomentEventType.artistHighestChartingAlbum => 890,
@@ -172,6 +181,7 @@ class ChartMomentFeedAggregator {
       ChartMomentEventType.artistSimultaneousThresholdAlbums => 700,
 
       ChartMomentEventType.lifetimeStreamMilestone => 650,
+      ChartMomentEventType.artistStreamMilestone => 645,
       ChartMomentEventType.consecutiveWeeksMilestone => 640,
       ChartMomentEventType.totalWeeksMilestone => 630,
       ChartMomentEventType.consecutiveThresholdWeeksMilestone => 620,
