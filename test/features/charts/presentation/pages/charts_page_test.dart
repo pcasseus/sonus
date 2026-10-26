@@ -69,8 +69,10 @@ void main() {
     expect(find.text('#1'), findsWidgets);
     expect(find.text('WEEKLY CHANGE'), findsOneWidget);
     expect(find.text('WEEKS IN TOP 3'), findsOneWidget);
+    // SN-49: the explanation is one tap away, not a paragraph on the page.
+    expect(find.textContaining('RE-ENTRY: back'), findsNothing);
     expect(
-      find.byKey(const ValueKey<String>('charts-movement-legend')),
+      find.byKey(const ValueKey<String>('charts-info-button')),
       findsOneWidget,
     );
   });
@@ -290,30 +292,60 @@ void main() {
 
     expect(find.byType(AlbumProfilePage), findsOneWidget);
   });
-  testWidgets('the full 200 explains Hot 100 and Bubbling Under', (
-    tester,
-  ) async {
+  testWidgets('the information sheet explains the chart', (tester) async {
+    final semantics = tester.ensureSemantics();
     final controller = await _controller();
 
     await _pumpPage(tester, controller);
-
     await tester.tap(find.byKey(const ValueKey<String>('charts-size-200')));
+    await tester.pumpAndSettle();
+    // The Top 200 no longer adds a notice above the chart.
+    expect(find.textContaining('are Sonus Bubbling Under'), findsNothing);
 
+    expect(find.byTooltip('About the Sonus Hot 100'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey<String>('charts-info-button')));
     await tester.pumpAndSettle();
 
-    expect(
-      find.byKey(const ValueKey<String>('charts-extended-notice')),
-      findsOneWidget,
-    );
+    final sheet = find.byKey(const ValueKey<String>('charts-info-sheet'));
+    expect(sheet, findsOneWidget);
+    for (final heading in [
+      'About the Sonus Hot 100',
+      'Positions',
+      'Streams',
+      'All time and weekly charts',
+      'NEW and RE-ENTRY',
+      'Movement',
+      'Percentage change',
+      'Weeks in a zone',
+    ]) {
+      await tester.scrollUntilVisible(
+        find.text(heading),
+        200,
+        scrollable: find.descendant(
+          of: sheet,
+          matching: find.byType(Scrollable),
+        ),
+      );
+      expect(
+        tester.getSemantics(find.text(heading)),
+        matchesSemantics(label: heading, isHeader: true),
+      );
+    }
+    expect(find.textContaining('Sonus Bubbling Under, shown at'), findsOne);
+    semantics.dispose();
+  });
 
-    expect(
-      find.text(
-        'Positions #1\u2013100 are the Sonus Hot 100. '
-        '#101\u2013200 are Sonus Bubbling Under, shown at their real '
-        'positions.',
-      ),
-      findsOneWidget,
-    );
+  testWidgets('the release chart has its own explanation', (tester) async {
+    final controller = await _controller();
+
+    await _pumpPage(tester, controller);
+    await tester.tap(find.text('Albums & EPs'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('charts-info-button')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('About the Sonus Albums & EPs'), findsOneWidget);
+    expect(find.textContaining('Singles chart only through'), findsOneWidget);
   });
 
   group('long charts', () {

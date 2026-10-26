@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../../../core/design/sonus_count_label.dart';
 import '../../../../core/design/sonus_theme.dart';
 import '../../../../core/design/widgets/sonus_decorations.dart';
 import '../../../library/application/models/library_album.dart';
@@ -22,6 +23,7 @@ import '../controllers/charts_controller.dart';
 import '../widgets/all_time_chart_cards.dart';
 import '../widgets/chart_entry_card.dart';
 import '../widgets/chart_extended_divider.dart';
+import '../widgets/chart_info_sheet.dart';
 
 class ChartsPage extends StatelessWidget {
   const ChartsPage({super.key});
@@ -88,11 +90,6 @@ class ChartsPage extends StatelessWidget {
                   const SizedBox(height: 18),
                   _ViewSizeSelector(controller: controller),
 
-                  if (controller.viewSize == ChartViewSize.top200) ...[
-                    const SizedBox(height: 10),
-                    _ExtendedChartNotice(chartType: controller.chartType),
-                  ],
-
                   const SizedBox(height: 22),
 
                   if (controller.hasError && hasChart) ...[
@@ -113,10 +110,6 @@ class ChartsPage extends StatelessWidget {
                       chartType: controller.chartType,
                       positionCount: entries.length,
                     ),
-                    if (controller.isViewingAllTime) ...[
-                      const SizedBox(height: 8),
-                      const AllTimeMovementLegend(),
-                    ],
                     const SizedBox(height: 14),
                   ],
                 ] else
@@ -574,54 +567,6 @@ class _ViewSizeSelector extends StatelessWidget {
   }
 }
 
-class _ExtendedChartNotice extends StatelessWidget {
-  const _ExtendedChartNotice({required this.chartType});
-
-  final ChartType chartType;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final tokens = SonusTheme.of(context);
-
-    return Container(
-      key: const ValueKey<String>('charts-extended-notice'),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
-      decoration: BoxDecoration(
-        color: tokens.colors.surface,
-        border: Border.all(color: tokens.colors.divider),
-        borderRadius: BorderRadius.circular(tokens.metrics.cardRadius),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            Icons.info_outline_rounded,
-            size: 18,
-            color: tokens.colors.textSecondary,
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              switch (chartType) {
-                ChartType.songs =>
-                  'Positions #1\u2013100 are the Sonus Hot 100. '
-                      '#101\u2013200 are Sonus Bubbling Under, shown at their '
-                      'real positions.',
-                ChartType.albums =>
-                  'Positions #101\u2013200 follow the Top 100 at their real '
-                      'positions.',
-              },
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: tokens.colors.textSecondary,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 class _ChartSummary extends StatelessWidget {
   const _ChartSummary({required this.chartType, required this.positionCount});
 
@@ -633,31 +578,45 @@ class _ChartSummary extends StatelessWidget {
     final theme = Theme.of(context);
     final colors = SonusTheme.of(context).colors;
 
-    // A Wrap, so the count moves under the title with large text instead of
-    // overflowing.
-    return Wrap(
+    final name = ChartZoneNames.chart(chartType);
+
+    // The name and count wrap under each other with large text instead of
+    // overflowing; the information button stays at the end of the row.
+    return Row(
       key: const ValueKey<String>('charts-snapshot-summary'),
-      alignment: WrapAlignment.spaceBetween,
-      crossAxisAlignment: WrapCrossAlignment.center,
-      spacing: 12,
-      runSpacing: 4,
       children: [
-        Semantics(
-          header: true,
-          child: Text(
-            ChartZoneNames.chart(chartType),
-            style: theme.textTheme.titleLarge?.copyWith(
-              color: colors.textPrimary,
-              fontWeight: FontWeight.w800,
-            ),
+        Expanded(
+          child: Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            spacing: 12,
+            runSpacing: 4,
+            children: [
+              Semantics(
+                header: true,
+                child: Text(
+                  name,
+                  style: theme.textTheme.titleLarge?.copyWith(
+                    color: colors.textPrimary,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              Text(
+                sonusCount(positionCount, 'position'),
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: colors.textSecondary,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
+            ],
           ),
         ),
-        Text(
-          '$positionCount positions',
-          style: theme.textTheme.bodyMedium?.copyWith(
-            color: colors.textSecondary,
-            fontFeatures: const [FontFeature.tabularFigures()],
-          ),
+        IconButton(
+          key: const ValueKey<String>('charts-info-button'),
+          tooltip: 'About the $name',
+          icon: Icon(Icons.info_outline_rounded, color: colors.textSecondary),
+          onPressed: () => showChartInfoSheet(context, chartType),
         ),
       ],
     );

@@ -134,26 +134,6 @@ Future<void> showZoneWeeksSheet(
   );
 }
 
-/// What NEW and RE-ENTRY mean on the all-time chart.
-class AllTimeMovementLegend extends StatelessWidget {
-  const AllTimeMovementLegend({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = SonusTheme.of(context).colors;
-
-    return Text(
-      'NEW: in the standings for the first time this week. '
-      'RE-ENTRY: back after dropping out. Arrows compare with the start of '
-      'the week; change compares streams with the same time last week.',
-      key: const ValueKey<String>('charts-movement-legend'),
-      style: Theme.of(
-        context,
-      ).textTheme.bodySmall?.copyWith(color: colors.textSecondary),
-    );
-  }
-}
-
 String _summary(
   ChartEntry entry,
   ChartType chartType,
