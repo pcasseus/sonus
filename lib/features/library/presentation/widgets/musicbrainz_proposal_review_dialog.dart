@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../application/models/external_metadata_proposal.dart';
+import '../../domain/entities/release_date.dart';
 import '../../domain/metadata/metadata_fields.dart';
 
 class MusicBrainzProposalReviewDecision {
@@ -161,6 +162,9 @@ class _ProposalFieldRow extends StatelessWidget {
     if (fieldName == MetadataFields.albumTitle) {
       return 'Title';
     }
+    if (fieldName == MetadataFields.editionReleaseDate) {
+      return 'Release date';
+    }
     return fieldName;
   }
 
@@ -181,6 +185,10 @@ class _ProposalFieldRow extends StatelessWidget {
 
     if (value is String && value.trim().isEmpty) {
       return 'Not available';
+    }
+
+    if (value is ReleaseDate) {
+      return value.label;
     }
 
     return value.toString();

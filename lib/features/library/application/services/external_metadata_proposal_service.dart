@@ -1,5 +1,7 @@
+import '../../domain/entities/album_edition.dart';
 import '../../domain/metadata/metadata_field_state.dart';
 import '../../domain/metadata/metadata_fields.dart';
+import '../../domain/repositories/album_edition_repository.dart';
 import '../../domain/repositories/album_repository.dart';
 import '../../domain/repositories/artist_repository.dart';
 import '../../domain/repositories/metadata_field_state_repository.dart';
@@ -13,12 +15,14 @@ class ExternalMetadataProposalService {
   const ExternalMetadataProposalService({
     required this.artistRepository,
     required this.albumRepository,
+    required this.albumEditionRepository,
     required this.songRepository,
     required this.metadataFieldStateRepository,
   });
 
   final ArtistRepository artistRepository;
   final AlbumRepository albumRepository;
+  final AlbumEditionRepository albumEditionRepository;
   final SongRepository songRepository;
   final MetadataFieldStateRepository metadataFieldStateRepository;
 
@@ -78,11 +82,53 @@ class ExternalMetadataProposalService {
       sourceReference: candidate.sourceReference,
     );
 
+    final edition = (await albumEditionRepository.getByAlbumId(
+      album.id,
+    )).where((edition) => edition.isPrimary).firstOrNull;
+
     return ExternalMetadataProposal(
       entityType: MetadataEntityType.album,
       entityId: album.id,
       candidate: candidate,
-      fields: List.unmodifiable([field]),
+      fields: List.unmodifiable([
+        field,
+        if (edition != null) await _previewReleaseDate(edition, candidate),
+      ]),
+    );
+  }
+
+  /// The primary edition's release date. A less exact form of the saved
+  /// date (`2019` over `2019-03-15`) is never proposed.
+  Future<ExternalMetadataProposalField> _previewReleaseDate(
+    AlbumEdition edition,
+    ExternalMetadataCandidate candidate,
+  ) {
+    final current = edition.releaseDateValue;
+    final proposed = candidate.releaseDate;
+
+    if (current != null &&
+        proposed != null &&
+        proposed != current &&
+        proposed.isRefinedBy(current)) {
+      return Future.value(
+        ExternalMetadataProposalField(
+          fieldName: MetadataFields.editionReleaseDate,
+          currentValue: current,
+          proposedValue: proposed,
+          status: ExternalMetadataProposalFieldStatus.unchanged,
+        ),
+      );
+    }
+
+    return _previewField(
+      entityType: MetadataEntityType.albumEdition,
+      entityId: edition.id,
+      fieldName: MetadataFields.editionReleaseDate,
+      currentValue: current,
+      proposedValue: proposed,
+      currentValuePresent: current != null,
+      proposedValuePresent: proposed != null,
+      sourceReference: candidate.sourceReference,
     );
   }
 
@@ -135,7 +181,7 @@ class ExternalMetadataProposalService {
     required MetadataEntityType entityType,
     required String entityId,
     required String fieldName,
-    required Object currentValue,
+    required Object? currentValue,
     required Object? proposedValue,
     required bool currentValuePresent,
     required bool proposedValuePresent,

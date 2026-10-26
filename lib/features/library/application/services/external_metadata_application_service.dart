@@ -1,6 +1,8 @@
 import '../../../../core/identity/text_normalizer.dart';
+import '../../../sync/application/services/sync_mutation_context.dart';
 import '../../../sync/application/services/sync_mutation_runner.dart';
 import '../../../sync/domain/models/sync_data_contract.dart';
+import '../../domain/entities/album_edition.dart';
 import '../../domain/metadata/metadata_field_state.dart';
 import '../../domain/metadata/metadata_fields.dart';
 import '../../domain/entities/library_organization.dart';
@@ -351,13 +353,27 @@ class ExternalMetadataApplicationService {
           await context.albumRepository.save(updatedAlbum);
         }
 
-        if (albumChanged || provenanceFields.isNotEmpty) {
+        if (albumChanged ||
+            provenanceFields.contains(MetadataFields.albumTitle)) {
           await context.localSyncRepository.recordUpsert(
             userId: userId?.trim(),
             entityType: CloudDataEntity.album,
             entityId: album.id,
           );
         }
+
+        await _applyReleaseDate(
+          context,
+          repository: metadataRepository,
+          albumId: album.id,
+          candidate: candidate,
+          userId: userId,
+          timestamp: timestamp,
+          changedFields: changedFields,
+          provenanceFields: provenanceFields,
+          protectedFields: protectedFields,
+          reviewFields: reviewFields,
+        );
 
         return ExternalMetadataApplicationResult(
           changedFields: Set.unmodifiable(changedFields),
@@ -667,8 +683,35 @@ class ExternalMetadataApplicationService {
           );
         }
 
+        final changedFields = <String>{};
+        final provenanceFields = <String>{};
+
+        if (confirmedFields.contains(MetadataFields.editionReleaseDate)) {
+          await _confirmReleaseDate(
+            context,
+            repository: metadataRepository,
+            albumId: album.id,
+            candidate: candidate,
+            userId: userId,
+            timestamp: timestamp,
+            changedFields: changedFields,
+            provenanceFields: provenanceFields,
+          );
+        }
+
+        ExternalMetadataApplicationResult withDate([
+          Set<String> title = const {},
+          Set<String> titleProvenance = const {},
+        ]) => ExternalMetadataApplicationResult(
+          changedFields: Set.unmodifiable({...title, ...changedFields}),
+          provenanceUpdatedFields: Set.unmodifiable({
+            ...titleProvenance,
+            ...provenanceFields,
+          }),
+        );
+
         if (!confirmedFields.contains(MetadataFields.albumTitle)) {
-          return const ExternalMetadataApplicationResult();
+          return withDate();
         }
 
         final existingState = await metadataRepository.get(
@@ -686,7 +729,7 @@ class ExternalMetadataApplicationService {
         final targetTitle = candidate.displayName.trim();
 
         if (targetTitle.isEmpty) {
-          return const ExternalMetadataApplicationResult();
+          return withDate();
         }
 
         final changed = album.title != targetTitle;
@@ -717,14 +760,165 @@ class ExternalMetadataApplicationService {
           entityId: album.id,
         );
 
-        return ExternalMetadataApplicationResult(
-          changedFields: changed ? const {MetadataFields.albumTitle} : const {},
-          provenanceUpdatedFields: changed
-              ? const {}
-              : const {MetadataFields.albumTitle},
+        return withDate(
+          changed ? const {MetadataFields.albumTitle} : const {},
+          changed ? const {} : const {MetadataFields.albumTitle},
         );
       }),
     );
+  }
+
+  static Future<AlbumEdition?> _primaryEdition(
+    SyncMutationContext context,
+    String albumId,
+  ) async => (await context.albumEditionRepository.getByAlbumId(
+    albumId,
+  )).where((edition) => edition.isPrimary).firstOrNull;
+
+  /// MusicBrainz's first release date on the album's primary edition, under
+  /// the same authority rules as the title. A less exact form of the saved
+  /// date (`2019` over `2019-03-15`) is never applied.
+  static Future<void> _applyReleaseDate(
+    SyncMutationContext context, {
+    required MetadataFieldStateRepository repository,
+    required String albumId,
+    required ExternalMetadataCandidate candidate,
+    required String? userId,
+    required DateTime timestamp,
+    required Set<String> changedFields,
+    required Set<String> provenanceFields,
+    required Set<String> protectedFields,
+    required Set<String> reviewFields,
+  }) async {
+    const field = MetadataFields.editionReleaseDate;
+    final proposed = candidate.releaseDate;
+    if (proposed == null) return;
+
+    final edition = await _primaryEdition(context, albumId);
+    if (edition == null) return;
+
+    final current = edition.releaseDateValue;
+    if (current != null &&
+        current != proposed &&
+        proposed.isRefinedBy(current)) {
+      return;
+    }
+
+    final decision = await _evaluate(
+      repository: repository,
+      entityType: MetadataEntityType.albumEdition,
+      entityId: edition.id,
+      fieldName: field,
+      existingValuePresent: current != null,
+    );
+
+    if (decision != MetadataReplacementDecision.accept) {
+      _collectRejection(
+        fieldName: field,
+        decision: decision,
+        protectedFields: protectedFields,
+        reviewFields: reviewFields,
+      );
+      return;
+    }
+
+    final changed = current != proposed;
+
+    if (changed) {
+      await context.albumEditionRepository.save(
+        edition.withReleaseDate(proposed, updatedAt: timestamp),
+      );
+      changedFields.add(field);
+    } else if (await _needsMusicBrainzProvenanceUpdate(
+      repository: repository,
+      entityType: MetadataEntityType.albumEdition,
+      entityId: edition.id,
+      fieldName: field,
+      sourceReference: candidate.sourceReference,
+    )) {
+      provenanceFields.add(field);
+    } else {
+      return;
+    }
+
+    await MetadataFieldStateService(repository: repository).record(
+      entityType: MetadataEntityType.albumEdition,
+      entityId: edition.id,
+      fieldName: field,
+      authority: MetadataAuthority.external,
+      source: MetadataProvenanceSource.musicBrainz,
+      sourceReference: candidate.sourceReference,
+      updatedAt: timestamp,
+    );
+
+    await context.localSyncRepository.recordUpsert(
+      userId: userId?.trim(),
+      entityType: CloudDataEntity.albumEdition,
+      entityId: edition.id,
+    );
+  }
+
+  /// A reviewed release date (one saved without a recorded source) that
+  /// the user confirmed should take MusicBrainz's value.
+  static Future<void> _confirmReleaseDate(
+    SyncMutationContext context, {
+    required MetadataFieldStateRepository repository,
+    required String albumId,
+    required ExternalMetadataCandidate candidate,
+    required String? userId,
+    required DateTime timestamp,
+    required Set<String> changedFields,
+    required Set<String> provenanceFields,
+  }) async {
+    const field = MetadataFields.editionReleaseDate;
+    final proposed = candidate.releaseDate;
+    final edition = await _primaryEdition(context, albumId);
+    if (proposed == null || edition == null) return;
+
+    final existingState = await repository.get(
+      entityType: MetadataEntityType.albumEdition,
+      entityId: edition.id,
+      fieldName: field,
+    );
+
+    if (existingState != null) {
+      throw StateError(
+        'Release date no longer has unknown metadata authority.',
+      );
+    }
+
+    final current = edition.releaseDateValue;
+    if (current != null &&
+        current != proposed &&
+        proposed.isRefinedBy(current)) {
+      return;
+    }
+
+    final changed = current != proposed;
+
+    if (changed) {
+      await context.albumEditionRepository.save(
+        edition.withReleaseDate(proposed, updatedAt: timestamp),
+      );
+    }
+
+    await MetadataFieldStateService(repository: repository).record(
+      entityType: MetadataEntityType.albumEdition,
+      entityId: edition.id,
+      fieldName: field,
+      authority: MetadataAuthority.confirmed,
+      source: MetadataProvenanceSource.review,
+      sourceReference: candidate.sourceReference,
+      updatedAt: timestamp,
+    );
+
+    await context.localSyncRepository.recordUpsert(
+      userId: userId?.trim(),
+      entityType: CloudDataEntity.albumEdition,
+      entityId: edition.id,
+    );
+
+    (changed ? changedFields : provenanceFields).add(field);
   }
 
   Future<ExternalMetadataApplicationResult> confirmReviewedTrackCandidate({

@@ -14,6 +14,7 @@ import 'package:sonus_next/features/library/data/daos/metadata_field_state_dao.d
 import 'package:sonus_next/features/library/data/daos/song_dao.dart';
 import 'package:sonus_next/features/library/domain/entities/album.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
+import 'package:sonus_next/features/library/domain/entities/release_date.dart';
 import 'package:sonus_next/features/library/domain/entities/artist.dart';
 import 'package:sonus_next/features/library/domain/entities/song.dart';
 import 'package:sonus_next/features/library/domain/metadata/metadata_field_state.dart';
@@ -422,7 +423,7 @@ void main() {
           entityKind: ExternalMetadataEntityKind.album,
           providerEntityId: 'release-group-mbid',
           displayName: 'Renaissance',
-          releaseDate: DateTime.utc(2022, 7, 29),
+          releaseDate: ReleaseDate.of(2022, 7, 29),
         ),
         now: mutationTime,
       );
@@ -1081,5 +1082,155 @@ void main() {
 
       expect(await organization.getFormats(), isEmpty);
     });
+  });
+
+  group('SN-49 release date from MusicBrainz', () {
+    ExternalMetadataCandidate dated(ReleaseDate? date) =>
+        ExternalMetadataCandidate(
+          provider: ExternalMetadataProviderKind.musicBrainz,
+          entityKind: ExternalMetadataEntityKind.album,
+          providerEntityId: 'release-group-mbid',
+          displayName: 'Old Album',
+          releaseDate: date,
+        );
+
+    Future<AlbumEdition> taggedYear(ReleaseDate date) async {
+      final graph = await createGraph();
+      final db = await appDatabase.database;
+      await AlbumEditionDao(db).update(graph.edition.withReleaseDate(date));
+      await seedState(
+        entityType: MetadataEntityType.albumEdition,
+        entityId: graph.edition.id,
+        fieldName: MetadataFields.editionReleaseDate,
+        authority: MetadataAuthority.imported,
+      );
+      return graph.edition;
+    }
+
+    test('a tagged year becomes MusicBrainz\'s exact day', () async {
+      final edition = await taggedYear(ReleaseDate.of(2020)!);
+
+      final result = await service.applyAlbumCandidate(
+        userId: 'user_1',
+        albumId: edition.albumId,
+        candidate: dated(ReleaseDate.of(2020, 2, 14)),
+        now: mutationTime,
+      );
+
+      expect(result.changedFields, contains(MetadataFields.editionReleaseDate));
+
+      final db = await appDatabase.database;
+      final saved = await AlbumEditionDao(db).findById(edition.id);
+      expect(saved!.releaseDateValue, ReleaseDate.of(2020, 2, 14));
+      expect(saved.releaseDatePrecision, ReleaseDatePrecision.day);
+
+      final state = await MetadataFieldStateDao(db).find(
+        entityType: MetadataEntityType.albumEdition,
+        entityId: edition.id,
+        fieldName: MetadataFields.editionReleaseDate,
+      );
+      expect(state!.authority, MetadataAuthority.external);
+      expect(state.source, MetadataProvenanceSource.musicBrainz);
+
+      final pending = await LocalSyncDao(db).findPending('user_1');
+      expect(
+        pending
+            .where((entry) => entry.entityType == CloudDataEntity.albumEdition)
+            .map((entry) => entry.entityId),
+        [edition.id],
+      );
+    });
+
+    test('a month stays a month; no day is invented', () async {
+      final edition = await taggedYear(ReleaseDate.of(2020)!);
+
+      await service.applyAlbumCandidate(
+        userId: 'user_1',
+        albumId: edition.albumId,
+        candidate: dated(ReleaseDate.of(2020, 2)),
+        now: mutationTime,
+      );
+
+      final db = await appDatabase.database;
+      final saved = await AlbumEditionDao(db).findById(edition.id);
+      expect(saved!.releaseDateValue, ReleaseDate.of(2020, 2));
+      expect(saved.releaseDateValue!.label, 'February 2020');
+    });
+
+    test('a less exact form of the saved date changes nothing', () async {
+      final edition = await taggedYear(ReleaseDate.of(2020, 2, 14)!);
+
+      final result = await service.applyAlbumCandidate(
+        userId: 'user_1',
+        albumId: edition.albumId,
+        candidate: dated(ReleaseDate.of(2020)),
+        now: mutationTime,
+      );
+
+      expect(
+        result.changedFields,
+        isNot(contains(MetadataFields.editionReleaseDate)),
+      );
+      expect(
+        result.provenanceUpdatedFields,
+        isNot(contains(MetadataFields.editionReleaseDate)),
+      );
+
+      final db = await appDatabase.database;
+      final saved = await AlbumEditionDao(db).findById(edition.id);
+      expect(saved!.releaseDateValue, ReleaseDate.of(2020, 2, 14));
+      final state = await MetadataFieldStateDao(db).find(
+        entityType: MetadataEntityType.albumEdition,
+        entityId: edition.id,
+        fieldName: MetadataFields.editionReleaseDate,
+      );
+      expect(state!.authority, MetadataAuthority.imported);
+    });
+
+    test(
+      'a date of unknown source waits for review, then is confirmed',
+      () async {
+        final graph = await createGraph();
+        final candidate = dated(ReleaseDate.of(2021, 9));
+
+        final applied = await service.applyAlbumCandidate(
+          userId: 'user_1',
+          albumId: graph.album.id,
+          candidate: candidate,
+          now: mutationTime,
+        );
+        expect(
+          applied.reviewRequiredFields,
+          contains(MetadataFields.editionReleaseDate),
+        );
+
+        final db = await appDatabase.database;
+        expect(
+          (await AlbumEditionDao(db).findById(graph.edition.id))!.releaseDate,
+          DateTime.utc(2020, 1, 1),
+        );
+
+        final confirmed = await service.confirmReviewedAlbumCandidate(
+          userId: 'user_1',
+          albumId: graph.album.id,
+          candidate: candidate,
+          confirmedFields: {MetadataFields.editionReleaseDate},
+          now: mutationTime,
+        );
+
+        expect(confirmed.changedFields, {MetadataFields.editionReleaseDate});
+        final saved = await AlbumEditionDao(db).findById(graph.edition.id);
+        expect(saved!.releaseDateValue, ReleaseDate.of(2021, 9));
+        expect(saved.title, 'Standard');
+        final album = await AlbumDao(db).findById(graph.album.id);
+        expect(album!.title, 'Old Album');
+        final state = await MetadataFieldStateDao(db).find(
+          entityType: MetadataEntityType.albumEdition,
+          entityId: graph.edition.id,
+          fieldName: MetadataFields.editionReleaseDate,
+        );
+        expect(state!.authority, MetadataAuthority.confirmed);
+      },
+    );
   });
 }

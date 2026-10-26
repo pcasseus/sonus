@@ -1,3 +1,4 @@
+import '../../domain/entities/release_date.dart';
 import 'external_metadata_search_query.dart';
 
 enum ExternalMetadataProviderKind { musicBrainz }
@@ -33,7 +34,9 @@ class ExternalMetadataReleaseOption {
   final String releaseId;
   final String title;
   final String? releaseGroupId;
-  final DateTime? releaseDate;
+
+  /// As exact as MusicBrainz knows it: a year, a month or a day.
+  final ReleaseDate? releaseDate;
   final String? country;
   final String? status;
 
@@ -90,7 +93,9 @@ class ExternalMetadataCandidate {
   final List<ExternalMetadataReleaseOption> releaseOptions;
 
   final int? durationSeconds;
-  final DateTime? releaseDate;
+
+  /// The first release date, as exact as MusicBrainz knows it.
+  final ReleaseDate? releaseDate;
 
   final String? primaryType;
   final List<String> secondaryTypes;

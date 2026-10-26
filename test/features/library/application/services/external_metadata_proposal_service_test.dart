@@ -8,6 +8,7 @@ import 'package:sonus_next/features/library/application/models/external_metadata
 import 'package:sonus_next/features/library/application/services/external_metadata_proposal_service.dart';
 import 'package:sonus_next/features/library/data/daos/album_dao.dart';
 import 'package:sonus_next/features/library/data/daos/album_edition_dao.dart';
+import 'package:sonus_next/features/library/data/repositories/sqlite_album_edition_repository.dart';
 import 'package:sonus_next/features/library/data/daos/artist_dao.dart';
 import 'package:sonus_next/features/library/data/daos/metadata_field_state_dao.dart';
 import 'package:sonus_next/features/library/data/daos/song_dao.dart';
@@ -17,6 +18,7 @@ import 'package:sonus_next/features/library/data/repositories/sqlite_metadata_fi
 import 'package:sonus_next/features/library/data/repositories/sqlite_song_repository.dart';
 import 'package:sonus_next/features/library/domain/entities/album.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
+import 'package:sonus_next/features/library/domain/entities/release_date.dart';
 import 'package:sonus_next/features/library/domain/entities/artist.dart';
 import 'package:sonus_next/features/library/domain/entities/song.dart';
 import 'package:sonus_next/features/library/domain/metadata/metadata_field_state.dart';
@@ -42,6 +44,7 @@ void main() {
     service = ExternalMetadataProposalService(
       artistRepository: SqliteArtistRepository(ArtistDao(db)),
       albumRepository: SqliteAlbumRepository(AlbumDao(db)),
+      albumEditionRepository: SqliteAlbumEditionRepository(AlbumEditionDao(db)),
       songRepository: SqliteSongRepository(SongDao(db)),
       metadataFieldStateRepository: SqliteMetadataFieldStateRepository(
         MetadataFieldStateDao(db),
@@ -141,6 +144,31 @@ void main() {
         displayName: title,
       );
 
+  ExternalMetadataCandidate datedAlbumCandidate(ReleaseDate? date) =>
+      ExternalMetadataCandidate(
+        provider: ExternalMetadataProviderKind.musicBrainz,
+        entityKind: ExternalMetadataEntityKind.album,
+        providerEntityId: 'mb-album-1',
+        displayName: 'Old Album',
+        releaseDate: date,
+      );
+
+  Future<void> dateEdition(ReleaseDate date) async {
+    final db = await database.database;
+    final edition = await AlbumEditionDao(db).findById('edition_1');
+    await AlbumEditionDao(db).update(edition!.withReleaseDate(date));
+  }
+
+  Future<ExternalMetadataProposalField> releaseDateField(
+    ExternalMetadataCandidate candidate,
+  ) async =>
+      (await service.previewAlbum(
+        albumId: 'album_1',
+        candidate: candidate,
+      )).fields.singleWhere(
+        (field) => field.fieldName == MetadataFields.editionReleaseDate,
+      );
+
   ExternalMetadataCandidate trackCandidate({
     String title = 'New Track',
     int? duration = 220,
@@ -202,7 +230,7 @@ void main() {
     );
 
     expect(
-      proposal.fields.single.status,
+      proposal.fields.first.status,
       ExternalMetadataProposalFieldStatus.reviewRequired,
     );
     expect(proposal.requiresReview, isTrue);
@@ -225,7 +253,7 @@ void main() {
       );
 
       expect(
-        proposal.fields.single.status,
+        proposal.fields.first.status,
         ExternalMetadataProposalFieldStatus.provenanceOnly,
       );
       expect(proposal.hasValueChanges, isFalse);
@@ -251,7 +279,7 @@ void main() {
     );
 
     expect(
-      proposal.fields.single.status,
+      proposal.fields.first.status,
       ExternalMetadataProposalFieldStatus.unchanged,
     );
     expect(proposal.hasApplicableChanges, isFalse);
@@ -364,7 +392,7 @@ void main() {
     );
 
     expect(
-      proposal.fields.single.status,
+      proposal.fields.first.status,
       ExternalMetadataProposalFieldStatus.provenanceOnly,
     );
     expect(proposal.hasValueChanges, isFalse);
@@ -424,5 +452,73 @@ void main() {
 
     final pending = await LocalSyncDao(db).findPending('user_1');
     expect(pending, isEmpty);
+  });
+
+  group('SN-49 release date', () {
+    test('a year from a file tag is refined by MusicBrainz\'s day', () async {
+      await dateEdition(ReleaseDate.of(2019)!);
+      await seedState(
+        entityType: MetadataEntityType.albumEdition,
+        entityId: 'edition_1',
+        fieldName: MetadataFields.editionReleaseDate,
+        authority: MetadataAuthority.imported,
+      );
+
+      final field = await releaseDateField(
+        datedAlbumCandidate(ReleaseDate.of(2019, 3, 15)),
+      );
+
+      expect(field.status, ExternalMetadataProposalFieldStatus.valueChange);
+      expect(field.currentValue, ReleaseDate.of(2019));
+      expect(field.proposedValue, ReleaseDate.of(2019, 3, 15));
+    });
+
+    test('a less exact form of the saved date is never proposed', () async {
+      await dateEdition(ReleaseDate.of(2019, 3, 15)!);
+      await seedState(
+        entityType: MetadataEntityType.albumEdition,
+        entityId: 'edition_1',
+        fieldName: MetadataFields.editionReleaseDate,
+        authority: MetadataAuthority.imported,
+      );
+
+      for (final partial in [ReleaseDate.of(2019), ReleaseDate.of(2019, 3)]) {
+        final field = await releaseDateField(datedAlbumCandidate(partial));
+        expect(field.status, ExternalMetadataProposalFieldStatus.unchanged);
+        expect(field.willUpdateProvenance, isFalse);
+      }
+    });
+
+    test('a missing date takes MusicBrainz\'s month', () async {
+      final field = await releaseDateField(
+        datedAlbumCandidate(ReleaseDate.of(2021, 5)),
+      );
+
+      expect(field.status, ExternalMetadataProposalFieldStatus.valueChange);
+      expect(field.currentValue, isNull);
+    });
+
+    test('a date someone typed is protected', () async {
+      await dateEdition(ReleaseDate.of(2018, 6)!);
+      await seedState(
+        entityType: MetadataEntityType.albumEdition,
+        entityId: 'edition_1',
+        fieldName: MetadataFields.editionReleaseDate,
+        authority: MetadataAuthority.manual,
+        source: MetadataProvenanceSource.user,
+      );
+
+      final field = await releaseDateField(
+        datedAlbumCandidate(ReleaseDate.of(2019, 3, 15)),
+      );
+
+      expect(field.status, ExternalMetadataProposalFieldStatus.protected);
+    });
+
+    test('no MusicBrainz date proposes nothing', () async {
+      final field = await releaseDateField(datedAlbumCandidate(null));
+
+      expect(field.status, ExternalMetadataProposalFieldStatus.notProposed);
+    });
   });
 }
