@@ -15,6 +15,8 @@ import '../../domain/entities/library_organization.dart';
 import '../../domain/repositories/song_artist_credit_repository.dart';
 import '../../../account/application/controllers/account_controller.dart';
 import '../../../analytics/domain/repositories/qualified_play_repository.dart';
+import '../../../analytics/domain/repositories/playback_listening_segment_repository.dart';
+import '../../../analytics/domain/repositories/playback_session_repository.dart';
 import '../../../artwork/application/services/artwork_assignment_service.dart';
 import '../../../artwork/application/services/artwork_file_picker.dart';
 import '../../../player/application/controllers/playback_coordinator.dart';
@@ -139,9 +141,12 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
 
   /// Qualified plays come from the app's analytics scope. Pages built
   /// without one (previews, focused tests) simply show no Top Tracks.
-  static QualifiedPlayRepository? _qualifiedPlays(BuildContext context) {
+  static QualifiedPlayRepository? _qualifiedPlays(BuildContext context) =>
+      _optional<QualifiedPlayRepository>(context);
+
+  static T? _optional<T extends Object>(BuildContext context) {
     try {
-      return context.read<QualifiedPlayRepository?>();
+      return context.read<T?>();
     } on ProviderNotFoundException {
       return null;
     }
@@ -183,6 +188,8 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
       artistProfileEditingService: context.read<ArtistProfileEditingService?>(),
       songBlockService: context.read<SongBlockService?>(),
       qualifiedPlays: _qualifiedPlays(context),
+      playbackSessions: _optional<PlaybackSessionRepository>(context),
+      listeningSegments: _optional<PlaybackListeningSegmentRepository>(context),
       artworkCropService: context.read<ArtworkCropService?>(),
       organization: context.read<LibraryOrganizationService?>(),
       projectArtistId: widget.projectArtistId,

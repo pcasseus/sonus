@@ -349,17 +349,32 @@ abstract final class ArtistProfileSections {
 
 /// Where an artist stands in the listener's all-time artist ranking.
 class ArtistStanding {
-  const ArtistStanding({required this.rank, required this.streamCount});
+  const ArtistStanding({
+    required this.rank,
+    required this.streamCount,
+    this.listened,
+  });
 
   final int rank;
   final int streamCount;
+
+  /// All-time listening time credited to the artist, when it is known.
+  final Duration? listened;
+
+  /// "Your #1 artist" or "Ranked #6 among your artists".
+  String get rankLabel =>
+      rank == 1 ? 'Your #1 artist' : 'Ranked #$rank among your artists';
+
+  ArtistStanding withListened(Duration? listened) =>
+      ArtistStanding(rank: rank, streamCount: streamCount, listened: listened);
 
   @override
   bool operator ==(Object other) =>
       other is ArtistStanding &&
       other.rank == rank &&
-      other.streamCount == streamCount;
+      other.streamCount == streamCount &&
+      other.listened == listened;
 
   @override
-  int get hashCode => Object.hash(rank, streamCount);
+  int get hashCode => Object.hash(rank, streamCount, listened);
 }

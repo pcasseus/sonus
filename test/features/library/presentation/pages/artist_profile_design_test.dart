@@ -5,6 +5,10 @@ import 'package:sonus_next/core/design/sonus_artwork_palette.dart';
 import 'package:sonus_next/core/design/sonus_theme_factory.dart';
 import 'package:sonus_next/core/design/sonus_theme_id.dart';
 import 'package:sonus_next/core/design/sonus_tokens.dart';
+import 'package:sonus_next/features/analytics/domain/entities/playback_listening_segment.dart';
+import 'package:sonus_next/features/analytics/domain/entities/playback_session.dart';
+import 'package:sonus_next/features/analytics/domain/repositories/playback_listening_segment_repository.dart';
+import 'package:sonus_next/features/analytics/domain/repositories/playback_session_repository.dart';
 import 'package:sonus_next/features/library/application/models/library_track.dart';
 import 'package:sonus_next/features/library/presentation/pages/artist_profile_page.dart';
 import 'package:sonus_next/features/player/application/controllers/playback_coordinator.dart';
@@ -23,6 +27,7 @@ void main() {
     WidgetTester tester, {
     required base.FakeLibraryQueryRepository repository,
     base.FakeQualifiedPlayRepository? plays,
+    _FakeListening? listening,
     PlaybackCoordinator? playbackCoordinator,
     SonusAppearanceSpec spec = const SonusAppearanceSpec(),
     Size size = const Size(411, 900),
@@ -39,6 +44,8 @@ void main() {
       base.buildSubject(
         repository: repository,
         qualifiedPlays: plays,
+        playbackSessions: listening,
+        listeningSegments: listening?.segments,
         playbackCoordinator: playbackCoordinator,
         theme: SonusThemeFactory.build(spec),
         appBuilder: (context, child) => MediaQuery(
@@ -228,10 +235,44 @@ void main() {
         final (repository, plays) = catalogue({'a': 3, 'b': 2});
         await pump(tester, repository: repository, plays: plays);
 
-        expect(
-          find.text('#1 in your artists, all time · 5 streams'),
-          findsOneWidget,
+        expect(find.text('Your #1 artist'), findsOneWidget);
+        expect(find.text('5 streams'), findsOneWidget);
+        expect(find.textContaining('in your artists'), findsNothing);
+      });
+
+      testWidgets('a lower place reads "Ranked #N among your artists"', (
+        tester,
+      ) async {
+        final (repository, plays) = catalogue({'a': 1});
+        // Another artist with more streams ranks first.
+        plays.plays.addAll([
+          for (var i = 0; i < 3; i++)
+            base.qualifiedPlay(
+              'other-song',
+              at: DateTime.utc(2026, 2, 1 + i),
+              artistId: 'artist-2',
+            ),
+        ]);
+        await pump(tester, repository: repository, plays: plays);
+
+        expect(find.text('Ranked #2 among your artists'), findsOneWidget);
+        expect(find.text('1 stream'), findsOneWidget);
+      });
+
+      testWidgets('listening time is shown beside the streams', (tester) async {
+        final (repository, plays) = catalogue({'a': 2});
+        await pump(
+          tester,
+          repository: repository,
+          plays: plays,
+          listening: _FakeListening({
+            'artist-1': const Duration(hours: 1, minutes: 58, seconds: 20),
+            'artist-2': const Duration(minutes: 5),
+          }),
         );
+
+        expect(find.text('Your #1 artist'), findsOneWidget);
+        expect(find.text('2 streams · 1h 58m listened'), findsOneWidget);
       });
 
       testWidgets('no standing is invented without streams', (tester) async {
@@ -905,4 +946,75 @@ class _FakePalette extends SonusArtworkPalette {
   }) async {
     return colours[artworkPath];
   }
+}
+
+/// Playback sessions and segments giving each artist the listening time in
+/// [byArtist], as one finished segment per artist.
+class _FakeListening implements PlaybackSessionRepository {
+  _FakeListening(Map<String, Duration> byArtist)
+    : _sessions = {
+        for (final MapEntry(key: artistId, value: listened) in byArtist.entries)
+          'session-$artistId': PlaybackSession(
+            id: 'session-$artistId',
+            songId: 'song-$artistId',
+            artistId: artistId,
+            albumId: 'album-$artistId',
+            albumEditionId: 'edition-$artistId',
+            songTitle: 'Song',
+            artistName: artistId,
+            albumTitle: 'Album',
+            albumEditionTitle: 'Standard',
+            startedAt: DateTime.utc(2026, 1, 1),
+            listenedDuration: listened,
+            trackDuration: listened,
+            finalPosition: listened,
+            createdAt: DateTime.utc(2026, 1, 1),
+            updatedAt: DateTime.utc(2026, 1, 1),
+          ),
+      };
+
+  final Map<String, PlaybackSession> _sessions;
+
+  late final PlaybackListeningSegmentRepository segments = _FakeSegments([
+    for (final session in _sessions.values)
+      PlaybackListeningSegment(
+        id: 'segment-${session.id}',
+        playbackSessionId: session.id,
+        startedAt: session.startedAt,
+        endedAt: session.startedAt.add(session.listenedDuration),
+        listenedDuration: session.listenedDuration,
+        createdAt: session.createdAt,
+        updatedAt: session.updatedAt,
+      ),
+  ]);
+
+  @override
+  Future<PlaybackSession?> getById(String id) async => _sessions[id];
+
+  @override
+  Future<List<PlaybackSession>> getByIds(Iterable<String> ids) async => [
+    for (final id in ids)
+      if (_sessions[id] case final session?) session,
+  ];
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _FakeSegments implements PlaybackListeningSegmentRepository {
+  _FakeSegments(this._segments);
+
+  final List<PlaybackListeningSegment> _segments;
+
+  @override
+  Future<List<PlaybackListeningSegment>> getAll({
+    DateTime? startedBefore,
+  }) async => [
+    for (final segment in _segments)
+      if (startedBefore == null || segment.startedAt.isBefore(startedBefore))
+        segment,
+  ];
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

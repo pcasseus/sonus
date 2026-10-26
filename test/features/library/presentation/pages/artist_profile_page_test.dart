@@ -8,6 +8,8 @@ import 'package:sonus_next/features/account/domain/repositories/account_reposito
 import 'package:sonus_next/features/account/presentation/scopes/account_scope.dart';
 import 'package:sonus_next/features/analytics/domain/entities/qualified_play.dart';
 import 'package:sonus_next/features/analytics/domain/repositories/qualified_play_repository.dart';
+import 'package:sonus_next/features/analytics/domain/repositories/playback_listening_segment_repository.dart';
+import 'package:sonus_next/features/analytics/domain/repositories/playback_session_repository.dart';
 import 'package:sonus_next/features/library/application/services/external_metadata_application_service.dart';
 import 'package:sonus_next/features/library/application/services/external_metadata_proposal_service.dart';
 import 'package:sonus_next/features/library/application/services/metadata_provider.dart';
@@ -1063,6 +1065,8 @@ Widget buildSubject({
   ThemeData? theme,
   TransitionBuilder? appBuilder,
   QualifiedPlayRepository? qualifiedPlays,
+  PlaybackSessionRepository? playbackSessions,
+  PlaybackListeningSegmentRepository? listeningSegments,
   Widget? home,
 }) {
   final app = wrapArtistInRoute
@@ -1123,7 +1127,14 @@ Widget buildSubject({
                     value: externalMetadataProposalService,
                     child: Provider<QualifiedPlayRepository?>.value(
                       value: qualifiedPlays,
-                      child: app,
+                      child: Provider<PlaybackSessionRepository?>.value(
+                        value: playbackSessions,
+                        child:
+                            Provider<PlaybackListeningSegmentRepository?>.value(
+                              value: listeningSegments,
+                              child: app,
+                            ),
+                      ),
                     ),
                   ),
                 ),

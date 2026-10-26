@@ -290,18 +290,31 @@ class _Identity extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 6),
-              if (standing != null)
+              if (standing != null) ...[
                 Text(
-                  '#${standing.rank} in your artists, all time · '
-                  '${sonusCount(standing.streamCount, 'stream')}',
+                  standing.rankLabel,
                   key: const ValueKey<String>('artist-profile-standing'),
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: colors.textPrimary,
                     fontWeight: FontWeight.w700,
+                    shadows: shadow,
+                  ),
+                ),
+                Text(
+                  [
+                    sonusCount(standing.streamCount, 'stream'),
+                    if (standing.listened case final listened?
+                        when listened > Duration.zero)
+                      '${sonusListeningTime(listened)} listened',
+                  ].join(' · '),
+                  key: const ValueKey<String>('artist-profile-listening'),
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: colors.textPrimary,
                     fontFeatures: const [FontFeature.tabularFigures()],
                     shadows: shadow,
                   ),
                 ),
+              ],
               Text(
                 summary ??
                     '${sonusCount(artist.albumCount, 'album')} • '

@@ -6,7 +6,10 @@ import 'package:flutter/foundation.dart';
 import 'package:sonus_next/core/identity/text_normalizer.dart';
 
 import '../../../analytics/application/models/analytics_period.dart';
+import '../../../analytics/application/services/analytics_artist_listening_duration_service.dart';
 import '../../../analytics/application/services/analytics_entity_ranking_service.dart';
+import '../../../analytics/domain/repositories/playback_listening_segment_repository.dart';
+import '../../../analytics/domain/repositories/playback_session_repository.dart';
 import '../../../analytics/domain/repositories/qualified_play_repository.dart';
 import '../../../artwork/application/services/artwork_assignment_service.dart';
 import '../../../artwork/application/services/artwork_crop_service.dart';
@@ -41,6 +44,8 @@ class ArtistProfileController extends ChangeNotifier {
     SongArtistCreditRepository? songArtistCreditRepository,
     TrackProfileEditingService? trackProfileEditingService,
     QualifiedPlayRepository? qualifiedPlays,
+    PlaybackSessionRepository? playbackSessions,
+    PlaybackListeningSegmentRepository? listeningSegments,
     ArtworkCropService? artworkCropService,
     LibraryOrganizationService? organization,
     String? projectArtistId,
@@ -57,6 +62,8 @@ class ArtistProfileController extends ChangeNotifier {
          songArtistCreditRepository,
          trackProfileEditingService,
          qualifiedPlays,
+         playbackSessions,
+         listeningSegments,
          artworkCropService,
          organization,
          projectArtistId,
@@ -75,6 +82,8 @@ class ArtistProfileController extends ChangeNotifier {
     this._songArtistCreditRepository,
     this._trackProfileEditingService,
     this._qualifiedPlays,
+    this._playbackSessions,
+    this._listeningSegments,
     this._artworkCropService,
     this._organizationService,
     this._projectArtistId,
@@ -92,6 +101,8 @@ class ArtistProfileController extends ChangeNotifier {
   final SongArtistCreditRepository? _songArtistCreditRepository;
   final TrackProfileEditingService? _trackProfileEditingService;
   final QualifiedPlayRepository? _qualifiedPlays;
+  final PlaybackSessionRepository? _playbackSessions;
+  final PlaybackListeningSegmentRepository? _listeningSegments;
   final ArtworkCropService? _artworkCropService;
 
   /// The Library's artist identity. Without it every artist is shown as a
@@ -650,21 +661,23 @@ class ArtistProfileController extends ChangeNotifier {
 
     try {
       final organizationService = _organizationService;
+      final attribution = organizationService == null
+          ? null
+          : OrganizationArtistAttribution(organizationService);
       final rankings = await AnalyticsEntityRankingService(
         qualifiedPlays: qualifiedPlays,
-        artistAttribution: organizationService == null
-            ? null
-            : OrganizationArtistAttribution(organizationService),
+        artistAttribution: attribution,
       ).load(period: AnalyticsPeriod.lifetime, referenceLocal: _clock());
 
       _topTracks = ArtistProfileSections.topTracks(
         catalogue: catalogue,
         rankedSongs: rankings.songs,
       );
-      _standing = ArtistProfileSections.standing(
+      final standing = ArtistProfileSections.standing(
         artistId: _artistId,
         rankedArtists: rankings.artists,
       );
+      _standing = standing?.withListened(await _listenedTime(attribution));
     } catch (error, stackTrace) {
       // Top Tracks is optional; the rest of the profile still shows.
       developer.log(
@@ -676,6 +689,34 @@ class ArtistProfileController extends ChangeNotifier {
       );
       _topTracks = const [];
       _standing = null;
+    }
+  }
+
+  /// The artist's all-time listening time, attributed the same way as the
+  /// ranking. Null when it can't be read; the standing still shows.
+  Future<Duration?> _listenedTime(
+    OrganizationArtistAttribution? attribution,
+  ) async {
+    final sessions = _playbackSessions;
+    final segments = _listeningSegments;
+    if (sessions == null || segments == null) return null;
+
+    try {
+      final totals = await AnalyticsArtistListeningDurationService(
+        playbackSessions: sessions,
+        listeningSegments: segments,
+        artistAttribution: attribution,
+      ).load(period: AnalyticsPeriod.lifetime, referenceLocal: _clock());
+      return totals[_artistId];
+    } catch (error, stackTrace) {
+      developer.log(
+        'Could not read listening time (${error.runtimeType})',
+        name: 'sonus.library.artist_profile',
+        level: 900,
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return null;
     }
   }
 
