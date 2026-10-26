@@ -13,6 +13,7 @@ import '../../domain/repositories/chart_moment_repository.dart';
 import '../../domain/services/all_time_history_replay.dart';
 import '../../domain/services/chart_ranking_engine.dart';
 import '../../domain/services/chart_week_resolver.dart';
+import '../../domain/services/release_chart_eligibility.dart';
 import 'chart_finalization_service.dart' show ChartRestoreGeneration;
 
 typedef AllTimeMomentNow = DateTime Function();
@@ -35,6 +36,7 @@ class AllTimeMomentService {
     ChartWeekResolver weekResolver = const ChartWeekResolver(),
     AllTimeMomentNow? now,
     ChartRestoreGeneration? restoreGeneration,
+    ReleaseChartEligibility? releaseEligibility,
   }) : _qualifiedPlays = qualifiedPlays,
        _library = library,
        _moments = moments,
@@ -42,7 +44,8 @@ class AllTimeMomentService {
        _replay = replay,
        _weeks = weekResolver,
        _now = now ?? DateTime.now,
-       _restoreGeneration = restoreGeneration;
+       _restoreGeneration = restoreGeneration,
+       _releaseEligibility = releaseEligibility;
 
   final QualifiedPlayRepository _qualifiedPlays;
   final LibraryQueryRepository _library;
@@ -52,6 +55,9 @@ class AllTimeMomentService {
   final ChartWeekResolver _weeks;
   final AllTimeMomentNow _now;
   final ChartRestoreGeneration? _restoreGeneration;
+
+  /// Singles never chart as releases, so they earn no release Moments.
+  final ReleaseChartEligibility? _releaseEligibility;
 
   /// A debut below this rank is not news; reaching it later is.
   static const int debutStoryLimit = AllTimeHistoryReplay.hot100;
@@ -63,6 +69,8 @@ class AllTimeMomentService {
     final generation = _restoreGeneration?.call();
     final plays = await _qualifiedPlays.getAll();
     final entities = await _entities();
+    final singles = await excludedReleaseIds(_releaseEligibility);
+    entities[ChartType.albums]!.removeWhere((id, _) => singles.contains(id));
     final from = _storiesFrom(referenceLocal);
     final createdAt = _now().toUtc();
 
@@ -70,7 +78,12 @@ class AllTimeMomentService {
       for (final chartType in ChartType.values)
         ..._eventsFor(
           chartType,
-          plays: plays,
+          plays: chartType == ChartType.albums
+              ? [
+                  for (final play in plays)
+                    if (!singles.contains(play.albumId)) play,
+                ]
+              : plays,
           entities: entities[chartType]!,
           referenceLocal: referenceLocal,
           from: from,

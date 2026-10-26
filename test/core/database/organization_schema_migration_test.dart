@@ -87,6 +87,61 @@ void main() {
     },
   );
 
+  test(
+    'SN-45: version 38 keeps every classification and adds formats',
+    () async {
+      final file = path.join(root.path, 'v37.db');
+      await _v31Fixture.copy(file);
+
+      final at37 = await databaseFactoryFfi.openDatabase(
+        file,
+        options: OpenDatabaseOptions(
+          version: 37,
+          onConfigure: (db) => db.execute('PRAGMA foreign_keys = ON'),
+          onUpgrade: (db, oldVersion, newVersion) => DatabaseMigrations.migrate(
+            db,
+            oldVersion: oldVersion,
+            newVersion: newVersion,
+          ),
+        ),
+      );
+      final albumId =
+          (await at37.query(DatabaseTables.albums)).first['id']! as String;
+      final classification = {
+        'album_id': albumId,
+        'kind': 'soundtrack',
+        'authority': 'manual',
+        'source_reference': null,
+        'created_at': at,
+        'updated_at': at,
+      };
+      await at37.insert(
+        DatabaseTables.albumReleaseClassifications,
+        classification,
+      );
+      await at37.close();
+
+      final upgraded = AppDatabase(
+        databaseFactory: databaseFactoryFfi,
+        databasePath: file,
+      );
+      try {
+        final db = await upgraded.database;
+        expect(await db.query(DatabaseTables.albumReleaseClassifications), [
+          {
+            ...classification,
+            'format': null,
+            'format_authority': null,
+            'format_source_reference': null,
+          },
+        ]);
+        expect(await db.rawQuery('PRAGMA foreign_key_check'), isEmpty);
+      } finally {
+        await upgraded.close();
+      }
+    },
+  );
+
   group('constraints', () {
     late AppDatabase app;
     late Database db;
@@ -111,6 +166,32 @@ void main() {
       DatabaseTables.albumReleaseClassifications,
       {'created_at': at, 'updated_at': at, ...values},
     );
+
+    test('SN-45: formats are single, ep or album, with an authority', () async {
+      await expectLater(
+        classify({
+          'album_id': 'album-a',
+          'format': 'mixtape',
+          'format_authority': 'manual',
+        }),
+        throwsA(isA<DatabaseException>()),
+      );
+      await expectLater(
+        classify({'album_id': 'album-a', 'format': 'ep'}),
+        throwsA(isA<DatabaseException>()),
+        reason: 'a format needs an authority',
+      );
+      await expectLater(
+        classify({'album_id': 'album-a'}),
+        throwsA(isA<DatabaseException>()),
+        reason: 'an empty row is never kept',
+      );
+      await classify({
+        'album_id': 'album-a',
+        'format': 'single',
+        'format_authority': 'manual',
+      });
+    });
 
     test('a grouped artist needs a project', () async {
       await expectLater(

@@ -14,6 +14,7 @@ import '../../domain/moments/chart_moment_milestone_detector.dart';
 import '../../domain/repositories/chart_moment_repository.dart';
 import '../../domain/repositories/chart_repository.dart';
 import '../../domain/services/chart_week_resolver.dart';
+import '../../domain/services/release_chart_eligibility.dart';
 import 'chart_snapshot_builder_service.dart';
 
 typedef ChartFinalizationNow = DateTime Function();
@@ -40,6 +41,7 @@ class ChartFinalizationService {
     ChartWeekResolver weekResolver = const ChartWeekResolver(),
     ChartFinalizationNow? now,
     ChartRestoreGeneration? restoreGeneration,
+    ReleaseChartEligibility? releaseEligibility,
   }) : _builder = builder,
        _charts = charts,
        _qualifiedPlays = qualifiedPlays,
@@ -54,9 +56,14 @@ class ChartFinalizationService {
        _momentsActivationWeekStartUtc = momentsActivationWeekStartUtc?.toUtc(),
        _weekResolver = weekResolver,
        _now = now ?? DateTime.now,
-       _restoreGeneration = restoreGeneration;
+       _restoreGeneration = restoreGeneration,
+       _releaseEligibility = releaseEligibility;
 
   final ChartSnapshotBuilderService _builder;
+
+  /// Singles never chart as releases. A finalized week is never rewritten
+  /// for it: a Single already on a stored week stays there.
+  final ReleaseChartEligibility? _releaseEligibility;
   final ChartRepository _charts;
   final QualifiedPlayRepository _qualifiedPlays;
 
@@ -176,6 +183,14 @@ class ChartFinalizationService {
       weekEndUtc: week.endUtc,
       finalizedAt: week.endUtc,
       revision: existing == null ? 1 : existing.revision + 1,
+      excludedAlbumIds: chartType == ChartType.albums
+          ? {
+              for (final id in await excludedReleaseIds(_releaseEligibility))
+                if (existing == null ||
+                    !existing.entries.any((e) => e.entity.entityId == id))
+                  id,
+            }
+          : const {},
     );
 
     late final ChartSnapshot canonical;

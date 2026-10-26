@@ -15,6 +15,8 @@ import '../../application/services/chart_snapshot_builder_service.dart';
 import '../../data/repositories/sqlite_chart_moment_repository.dart';
 import '../../data/repositories/sqlite_chart_repository.dart';
 import '../controllers/charts_controller.dart';
+import '../../../library/application/services/library_organization_service.dart';
+import '../../application/services/library_release_chart_eligibility.dart';
 
 class ChartsScope extends StatefulWidget {
   const ChartsScope({super.key, required this.child, this.now, this.changes});
@@ -72,6 +74,14 @@ class _ChartsScopeState extends State<ChartsScope> {
     }
   }
 
+  static LibraryOrganizationService? _organizationOf(BuildContext context) {
+    try {
+      return context.read<LibraryOrganizationService?>();
+    } on ProviderNotFoundException {
+      return null;
+    }
+  }
+
   void _recreateController() {
     final previousController = _controller;
     _controller = null;
@@ -95,6 +105,10 @@ class _ChartsScopeState extends State<ChartsScope> {
     final charts = SqliteChartRepository(database);
 
     final moments = SqliteChartMomentRepository(database);
+    final organization = _organizationOf(context);
+    final releaseEligibility = organization == null
+        ? null
+        : LibraryReleaseChartEligibility(organization);
     final builder = ChartSnapshotBuilderService(
       qualifiedPlays: qualifiedPlays,
       library: library,
@@ -105,6 +119,7 @@ class _ChartsScopeState extends State<ChartsScope> {
     final allTimeCharts = AllTimeChartService(
       qualifiedPlays: qualifiedPlays,
       library: library,
+      releaseEligibility: releaseEligibility,
     );
     final finalization = ChartFinalizationService(
       builder: builder,
@@ -114,6 +129,7 @@ class _ChartsScopeState extends State<ChartsScope> {
       momentsActivationWeekStartUtc: DateTime(2026, 9, 27).toUtc(),
       // A pass that spans a restore must not write what it read before it.
       restoreGeneration: () => database.mutationCoordinator.restoreGeneration,
+      releaseEligibility: releaseEligibility,
     );
 
     final allTimeMoments = AllTimeMomentService(
@@ -123,6 +139,7 @@ class _ChartsScopeState extends State<ChartsScope> {
       // SN-45 release week: earlier achievements are never told as news.
       activationUtc: DateTime(2026, 10, 25).toUtc(),
       restoreGeneration: () => database.mutationCoordinator.restoreGeneration,
+      releaseEligibility: releaseEligibility,
     );
 
     final controller = ChartsController(

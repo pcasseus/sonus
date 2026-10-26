@@ -25,6 +25,55 @@ enum ReleaseKind {
 /// MusicBrainz release-group type, or the user.
 enum ReleaseClassificationAuthority { external, manual }
 
+/// A release's format. A release without a stated format is an Album.
+enum ReleaseFormat {
+  single,
+  ep,
+  album;
+
+  /// The format a MusicBrainz release group's primary type states, if it
+  /// is one of these. "Broadcast" and "Other" state none.
+  static ReleaseFormat? fromMusicBrainz(String? primaryType) =>
+      switch (primaryType?.trim().toLowerCase()) {
+        'single' => ReleaseFormat.single,
+        'ep' => ReleaseFormat.ep,
+        'album' => ReleaseFormat.album,
+        _ => null,
+      };
+
+  /// "Single", "EP" or "Album".
+  String get label => switch (this) {
+    ReleaseFormat.single => 'Single',
+    ReleaseFormat.ep => 'EP',
+    ReleaseFormat.album => 'Album',
+  };
+
+  /// Singles chart through their songs only, never as a release.
+  bool get chartsAsRelease => this != ReleaseFormat.single;
+}
+
+/// A release's stated format and who stated it.
+class AlbumReleaseFormat {
+  const AlbumReleaseFormat({
+    required this.albumId,
+    required this.format,
+    required this.authority,
+    required this.createdAt,
+    required this.updatedAt,
+    this.sourceReference,
+  });
+
+  final String albumId;
+  final ReleaseFormat format;
+  final ReleaseClassificationAuthority authority;
+
+  /// For external formats, e.g. `musicbrainz:release-group:<id>`.
+  final String? sourceReference;
+
+  final DateTime createdAt;
+  final DateTime updatedAt;
+}
+
 class AlbumReleaseClassification {
   const AlbumReleaseClassification({
     required this.albumId,

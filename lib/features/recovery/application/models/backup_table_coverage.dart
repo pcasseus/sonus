@@ -8,10 +8,15 @@ class BackupTableCoverage {
     required this.table,
     required this.policy,
     this.requiredInEveryBackup = true,
+    this.columnsAddedLater = const {},
   });
 
   final String table;
   final BackupTablePolicy policy;
+
+  /// Nullable columns added after backups of this table already existed.
+  /// Rows from older backups may lack them; they restore as null.
+  final Set<String> columnsAddedLater;
 
   /// False for portable tables that older backups do not contain. New
   /// backups always include them; restoring a backup without one leaves
@@ -122,6 +127,12 @@ abstract final class BackupCoverageContract {
       table: DatabaseTables.albumReleaseClassifications,
       policy: BackupTablePolicy.portableData,
       requiredInEveryBackup: false,
+      // Release formats (database version 38).
+      columnsAddedLater: {
+        'format',
+        'format_authority',
+        'format_source_reference',
+      },
     ),
     BackupTableCoverage(
       table: DatabaseTables.artistProjectAssignments,

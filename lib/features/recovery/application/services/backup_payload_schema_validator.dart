@@ -31,11 +31,15 @@ class BackupPayloadSchemaValidator {
         throw FormatException('Missing portable table $table.');
       }
 
+      final requiredColumns = expectedColumns.difference(
+        coverage.columnsAddedLater,
+      );
+
       for (var index = 0; index < rows.length; index++) {
         final actualColumns = rows[index].keys.toSet();
 
-        if (actualColumns.length != expectedColumns.length ||
-            !actualColumns.containsAll(expectedColumns)) {
+        if (!expectedColumns.containsAll(actualColumns) ||
+            !actualColumns.containsAll(requiredColumns)) {
           throw FormatException(
             'Invalid column structure in $table at row $index.',
           );

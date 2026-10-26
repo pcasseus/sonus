@@ -16,6 +16,7 @@ import 'package:sonus_next/features/charts/domain/moments/chart_moment_event_typ
 import 'package:sonus_next/features/charts/domain/moments/chart_moment_scope.dart';
 import 'package:sonus_next/features/charts/domain/repositories/chart_moment_repository.dart';
 import 'package:sonus_next/features/charts/domain/repositories/chart_repository.dart';
+import 'package:sonus_next/features/charts/domain/services/release_chart_eligibility.dart';
 import 'package:sonus_next/features/library/application/models/library_album.dart';
 import 'package:sonus_next/features/library/application/models/library_artist.dart';
 import 'package:sonus_next/features/library/application/models/library_track.dart';
@@ -82,6 +83,7 @@ void main() {
     _RecordingMomentRepository? moments,
     DateTime? momentsActivationWeekStartUtc,
     ChartRestoreGeneration? restoreGeneration,
+    ReleaseChartEligibility? releaseEligibility,
   }) {
     final library = _FakeLibraryQueryRepository(
       tracks: [
@@ -106,8 +108,95 @@ void main() {
       momentsActivationWeekStartUtc: momentsActivationWeekStartUtc,
       now: () => DateTime.utc(2026, 10, 4, 1),
       restoreGeneration: restoreGeneration,
+      releaseEligibility: releaseEligibility,
     );
   }
+
+  group('SN-45: Singles on the release chart', () {
+    final week = ChartWeek(
+      startUtc: DateTime.utc(2026, 9, 27),
+      endUtc: DateTime.utc(2026, 10, 4),
+    );
+
+    _MutableQualifiedPlayRepository weekPlays() =>
+        _MutableQualifiedPlayRepository([
+          play(
+            id: '1',
+            songId: 'song-a',
+            albumId: 'album-a',
+            qualifiedAt: DateTime.utc(2026, 9, 28, 10),
+          ),
+          play(
+            id: '2',
+            songId: 'song-b',
+            albumId: 'album-b',
+            qualifiedAt: DateTime.utc(2026, 9, 29, 10),
+          ),
+        ]);
+
+    Set<String> albumsIn(ChartSnapshot? snapshot) => {
+      for (final entry in snapshot?.entries ?? const []) entry.entity.entityId,
+    };
+
+    test(
+      'a newly finalized week leaves a Single out; its song stays',
+      () async {
+        final charts = _RecordingChartRepository();
+        await createService(
+          qualifiedPlays: weekPlays(),
+          charts: charts,
+          releaseEligibility: const _Singles({'album-b'}),
+        ).reconcileCompletedWeek(week);
+
+        expect(
+          albumsIn(
+            await charts.getForWeek(
+              chartType: ChartType.albums,
+              weekStartUtc: week.startUtc,
+            ),
+          ),
+          {'album-a'},
+        );
+        final songs = await charts.getForWeek(
+          chartType: ChartType.songs,
+          weekStartUtc: week.startUtc,
+        );
+        expect(
+          {for (final e in songs!.entries) e.entity.entityId},
+          {'song-a', 'song-b'},
+        );
+      },
+    );
+
+    test(
+      'a stored week is never rewritten when a release becomes a Single',
+      () async {
+        final charts = _RecordingChartRepository();
+        await createService(
+          qualifiedPlays: weekPlays(),
+          charts: charts,
+        ).reconcileCompletedWeek(week);
+        final stored = await charts.getForWeek(
+          chartType: ChartType.albums,
+          weekStartUtc: week.startUtc,
+        );
+        expect(albumsIn(stored), {'album-a', 'album-b'});
+
+        await createService(
+          qualifiedPlays: weekPlays(),
+          charts: charts,
+          releaseEligibility: const _Singles({'album-b'}),
+        ).reconcileCompletedWeek(week);
+
+        final again = await charts.getForWeek(
+          chartType: ChartType.albums,
+          weekStartUtc: week.startUtc,
+        );
+        expect(albumsIn(again), {'album-a', 'album-b'});
+        expect(again!.revision, stored!.revision);
+      },
+    );
+  });
 
   group('restore generation', () {
     final week = ChartWeek(
@@ -1499,4 +1588,13 @@ class _PlaybackSessionRepository implements PlaybackSessionRepository {
   Future<void> save(PlaybackSession session) {
     throw UnimplementedError();
   }
+}
+
+class _Singles implements ReleaseChartEligibility {
+  const _Singles(this.ids);
+
+  final Set<String> ids;
+
+  @override
+  Future<Set<String>> excludedAlbumIds() async => ids;
 }

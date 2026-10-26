@@ -42,6 +42,7 @@ class ChartSnapshotBuilderService {
     DateTime? finalizedAt,
     int revision = 1,
     ChartRankObservationCallback? onRankObservation,
+    Set<String> excludedAlbumIds = const {},
   }) async {
     final startUtc = weekStartUtc.toUtc();
     final endUtc = weekEndUtc.toUtc();
@@ -58,10 +59,17 @@ class ChartSnapshotBuilderService {
       );
     }
 
-    final plays = await _qualifiedPlays.getAll(
-      qualifiedAtOrAfter: startUtc,
-      qualifiedBefore: endUtc,
-    );
+    // Releases that never chart as releases (Singles) leave the release
+    // chart entirely; their songs still chart.
+    final plays = [
+      for (final play in await _qualifiedPlays.getAll(
+        qualifiedAtOrAfter: startUtc,
+        qualifiedBefore: endUtc,
+      ))
+        if (chartType != ChartType.albums ||
+            !excludedAlbumIds.contains(play.albumId))
+          play,
+    ];
 
     final history = await _charts.getHistory(chartType);
 

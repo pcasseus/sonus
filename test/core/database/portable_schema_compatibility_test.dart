@@ -77,8 +77,9 @@ void main() {
       35,
       36,
       37,
+      38,
     });
-    expect(AppDatabase.databaseVersion, 37);
+    expect(AppDatabase.databaseVersion, 38);
   });
 
   test('the fixture is a real version 31 database', () async {
@@ -102,9 +103,10 @@ void main() {
     final v34 = await migrateTo(await copyOfV31('v34.db'), 34);
     final v35 = await migrateTo(await copyOfV31('v35.db'), 35);
     final v36 = await migrateTo(await copyOfV31('v36.db'), 36);
-    final v37 = AppDatabase(
+    final v37 = await migrateTo(await copyOfV31('v37.db'), 37);
+    final v38 = AppDatabase(
       databaseFactory: databaseFactoryFfi,
-      databasePath: await copyOfV31('v37.db'),
+      databasePath: await copyOfV31('v38.db'),
     );
     final fresh = AppDatabase(
       databaseFactory: databaseFactoryFfi,
@@ -119,15 +121,23 @@ void main() {
       expect(await userVersion(v34), 34);
       expect(await userVersion(v35), 35);
       expect(await userVersion(v36), 36);
-      expect(await userVersion(await v37.database), 37);
+      expect(await userVersion(v37), 37);
+      expect(await userVersion(await v38.database), 38);
       // Required tables are identical everywhere; an optional table is
-      // identical wherever the version has it.
+      // identical wherever the version has it, apart from nullable columns
+      // added later, which older backups may lack.
       void expectCompatible(Map<String, Object> schema) {
         expect(
           schema.keys,
           containsAll(BackupCoverageContract.requiredPortableTableNames),
         );
-        expect(schema, {for (final t in schema.keys) t: reference[t]});
+        expect(
+          {for (final t in schema.keys) t: _withoutLaterColumns(t, schema[t]!)},
+          {
+            for (final t in schema.keys)
+              t: _withoutLaterColumns(t, reference[t]!),
+          },
+        );
       }
 
       expectCompatible(await _portableSchema(v31));
@@ -136,7 +146,8 @@ void main() {
       expectCompatible(await _portableSchema(v34));
       expectCompatible(await _portableSchema(v35));
       expectCompatible(await _portableSchema(v36));
-      expect(await _portableSchema(await v37.database), reference);
+      expectCompatible(await _portableSchema(v37));
+      expect(await _portableSchema(await v38.database), reference);
     } finally {
       await v31.close();
       await v32.close();
@@ -145,6 +156,7 @@ void main() {
       await v35.close();
       await v36.close();
       await v37.close();
+      await v38.close();
       await fresh.close();
     }
   });
@@ -169,7 +181,7 @@ void main() {
       final db = await upgraded.database;
       final rowsAfter = await _allRows(db);
 
-      expect(await userVersion(db), 37);
+      expect(await userVersion(db), 38);
       expect(
         rowsAfter[DatabaseTables.artworkCrops],
         isEmpty,
@@ -216,6 +228,25 @@ void main() {
       await upgraded.close();
     }
   });
+}
+
+/// [table]'s schema without the columns added after older backups were
+/// made. Those columns are nullable, so `kind` (nullable since 38, always
+/// set in older rows) is compared by name and type only.
+Object _withoutLaterColumns(String table, Object schema) {
+  final later = BackupCoverageContract.tables
+      .firstWhere((coverage) => coverage.table == table)
+      .columnsAddedLater;
+  if (later.isEmpty) return schema;
+  final map = schema as Map<String, Object>;
+  return {
+    ...map,
+    'columns': [
+      for (final column in map['columns']! as List<Map<String, Object?>>)
+        if (!later.contains(column['name']))
+          {'name': column['name'], 'type': column['type'], 'pk': column['pk']},
+    ],
+  };
 }
 
 /// Columns, foreign keys, and indexes of every portable table.

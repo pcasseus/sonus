@@ -11,6 +11,7 @@ import '../../../../core/design/sonus_atmosphere_colors.dart';
 import '../../../../core/design/sonus_count_label.dart';
 import '../../../../core/design/sonus_theme.dart';
 import '../../../../core/events/library_change_signal.dart';
+import '../../domain/entities/library_organization.dart';
 import '../../domain/repositories/song_artist_credit_repository.dart';
 import '../../../account/application/controllers/account_controller.dart';
 import '../../../analytics/domain/repositories/qualified_play_repository.dart';
@@ -441,6 +442,14 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
                 final visibleAlbums = controller.albums
                     .where((album) => visibleAlbumIds.contains(album.albumId))
                     .toList(growable: false);
+                // Newest first within each format (the controller's order).
+                final releasesByFormat = {
+                  for (final format in ReleaseFormat.values)
+                    format: [
+                      for (final album in visibleAlbums)
+                        if (controller.formatOf(album.albumId) == format) album,
+                    ],
+                };
                 final visibleCollaborators = controller.collaborators
                     .where(
                       (collaborator) =>
@@ -485,6 +494,10 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
                         portraitPath: controller.portraitPath,
                         standing: controller.standing,
                         atmosphere: atmosphere,
+                        summary: _catalogSummary(
+                          releasesByFormat,
+                          songCount: artist.songCount,
+                        ),
                       ),
                       Padding(
                         padding: EdgeInsets.symmetric(horizontal: gutter),
@@ -519,30 +532,37 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
                             ),
                           ],
                         ),
-                      if (visibleAlbums.isNotEmpty)
-                        section(
-                          const ValueKey<String>('artist-profile-albums'),
-                          [
-                            ArtistProfileSectionHeading(
-                              title: 'Albums',
-                              count: visibleAlbums.length,
+                      for (final format in const [
+                        ReleaseFormat.album,
+                        ReleaseFormat.ep,
+                        ReleaseFormat.single,
+                      ])
+                        if (releasesByFormat[format]!.isNotEmpty)
+                          section(
+                            ValueKey<String>(
+                              'artist-profile-${_sectionKey(format)}',
                             ),
-                            const SizedBox(height: 12),
-                            ArtistProfileAlbumsGrid(
-                              albums: visibleAlbums,
-                              onAlbumTap: (album) {
-                                unawaited(
-                                  _pushAndRefresh(
-                                    AlbumProfilePage(
-                                      albumId: album.albumId,
-                                      initialAlbumTitle: album.title,
+                            [
+                              ArtistProfileSectionHeading(
+                                title: _sectionTitle(format),
+                                count: releasesByFormat[format]!.length,
+                              ),
+                              const SizedBox(height: 12),
+                              ArtistProfileAlbumsGrid(
+                                albums: releasesByFormat[format]!,
+                                onAlbumTap: (album) {
+                                  unawaited(
+                                    _pushAndRefresh(
+                                      AlbumProfilePage(
+                                        albumId: album.albumId,
+                                        initialAlbumTitle: album.title,
+                                      ),
                                     ),
-                                  ),
-                                );
-                              },
-                            ),
-                          ],
-                        ),
+                                  );
+                                },
+                              ),
+                            ],
+                          ),
                       if (visibleCollaborations.isNotEmpty)
                         section(
                           const ValueKey<String>(
@@ -594,6 +614,35 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
             ),
     );
   }
+
+  /// "3 albums • 1 EP • 2 singles • 44 songs": accurate catalog counts,
+  /// leaving out formats the artist has none of.
+  static String _catalogSummary(
+    Map<ReleaseFormat, List<Object>> releasesByFormat, {
+    required int songCount,
+  }) {
+    final albums = releasesByFormat[ReleaseFormat.album]!.length;
+    final eps = releasesByFormat[ReleaseFormat.ep]!.length;
+    final singles = releasesByFormat[ReleaseFormat.single]!.length;
+    return [
+      if (albums > 0 || (eps == 0 && singles == 0)) sonusCount(albums, 'album'),
+      if (eps > 0) eps == 1 ? '1 EP' : '$eps EPs',
+      if (singles > 0) sonusCount(singles, 'single'),
+      sonusCount(songCount, 'song'),
+    ].join(' • ');
+  }
+
+  static String _sectionKey(ReleaseFormat format) => switch (format) {
+    ReleaseFormat.album => 'albums',
+    ReleaseFormat.ep => 'eps',
+    ReleaseFormat.single => 'singles',
+  };
+
+  static String _sectionTitle(ReleaseFormat format) => switch (format) {
+    ReleaseFormat.album => 'Albums',
+    ReleaseFormat.ep => 'EPs',
+    ReleaseFormat.single => 'Singles',
+  };
 
   void _openCollaborator(ArtistProfileCollaborator collaborator) {
     unawaited(

@@ -1012,5 +1012,74 @@ void main() {
       expect(classification.kind, ReleaseKind.castRecording);
       expect(classification.authority, ReleaseClassificationAuthority.manual);
     });
+
+    ExternalMetadataCandidate typed(String primaryType) =>
+        ExternalMetadataCandidate(
+          provider: ExternalMetadataProviderKind.musicBrainz,
+          entityKind: ExternalMetadataEntityKind.album,
+          providerEntityId: 'rg-2',
+          displayName: 'Old Album',
+          primaryType: primaryType,
+        );
+
+    test('SN-45: a Single release group suggests the Single format', () async {
+      final graph = await createGraph();
+
+      await classifying.applyAlbumCandidate(
+        userId: null,
+        albumId: graph.album.id,
+        candidate: typed('Single'),
+        now: mutationTime,
+      );
+
+      final format = (await organization.getFormats()).single;
+      expect(format.format, ReleaseFormat.single);
+      expect(format.authority, ReleaseClassificationAuthority.external);
+      expect(format.sourceReference, contains('rg-2'));
+      expect(
+        await organization.getClassifications(),
+        isEmpty,
+        reason: 'a format is not a classification',
+      );
+    });
+
+    test('SN-45: a manual format is never replaced by a refresh', () async {
+      final graph = await createGraph();
+      await organization.saveFormat(
+        AlbumReleaseFormat(
+          albumId: graph.album.id,
+          format: ReleaseFormat.single,
+          authority: ReleaseClassificationAuthority.manual,
+          createdAt: originalTime,
+          updatedAt: originalTime,
+        ),
+      );
+
+      for (final type in ['Album', 'EP']) {
+        await classifying.applyAlbumCandidate(
+          userId: null,
+          albumId: graph.album.id,
+          candidate: typed(type),
+          now: mutationTime,
+        );
+      }
+
+      final format = (await organization.getFormats()).single;
+      expect(format.format, ReleaseFormat.single);
+      expect(format.authority, ReleaseClassificationAuthority.manual);
+    });
+
+    test('SN-45: an unknown primary type states no format', () async {
+      final graph = await createGraph();
+
+      await classifying.applyAlbumCandidate(
+        userId: null,
+        albumId: graph.album.id,
+        candidate: typed('Broadcast'),
+        now: mutationTime,
+      );
+
+      expect(await organization.getFormats(), isEmpty);
+    });
   });
 }

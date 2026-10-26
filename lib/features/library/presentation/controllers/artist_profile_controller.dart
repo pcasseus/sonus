@@ -23,6 +23,7 @@ import '../../application/services/library_organization_service.dart';
 import '../../application/services/song_block_service.dart';
 import '../../application/services/song_artist_credit_service.dart';
 import '../../application/services/track_profile_editing_service.dart';
+import '../../domain/entities/library_organization.dart';
 import '../../domain/entities/song_artist_credit.dart';
 import '../../domain/entities/song.dart';
 import '../../domain/repositories/song_artist_credit_repository.dart';
@@ -165,6 +166,10 @@ class ArtistProfileController extends ChangeNotifier {
 
   /// The project this page was opened from, if any.
   String? get projectArtistId => _projectArtistId;
+
+  /// The release's format; an Album unless one was stated.
+  ReleaseFormat formatOf(String albumId) =>
+      _organization?.formatOf(albumId) ?? ReleaseFormat.album;
 
   /// The wide banner photo, exactly as saved.
   String? get bannerPath => _nonEmpty(_artist?.headerArtworkPath);

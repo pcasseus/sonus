@@ -64,6 +64,7 @@ class ArtistLibraryOrganization {
     required this.classifications,
     this.albumOwners = const {},
     this.catalogOwners,
+    this.formats = const {},
   });
 
   /// Everything is standalone: used when the organization can't be loaded,
@@ -80,6 +81,13 @@ class ArtistLibraryOrganization {
   /// Artists that own at least one release with songs. Null means unknown,
   /// in which case every artist without a placement is standalone.
   final Set<String>? catalogOwners;
+
+  /// Stated release formats by album id.
+  final Map<String, AlbumReleaseFormat> formats;
+
+  /// The release's format; a release without a stated format is an Album.
+  ReleaseFormat formatOf(String albumId) =>
+      formats[albumId]?.format ?? ReleaseFormat.album;
 
   ArtistLibraryPlacement placementOf(String artistId) {
     final placement = placements[artistId];
@@ -185,6 +193,9 @@ class LibraryOrganizationService {
     final assignments = {
       for (final a in await organization.getAssignments()) a.artistId: a,
     };
+    final formats = {
+      for (final f in await organization.getFormats()) f.albumId: f,
+    };
 
     final ownerOf = {
       for (final album in albums)
@@ -249,6 +260,7 @@ class LibraryOrganizationService {
       classifications: Map.unmodifiable(classifications),
       albumOwners: Map.unmodifiable(ownerOf),
       catalogOwners: Set.unmodifiable(owners),
+      formats: Map.unmodifiable(formats),
     );
   }
 
@@ -344,6 +356,65 @@ class LibraryOrganizationService {
 
   Future<void> clearReleaseClassification(String albumId) =>
       organization.deleteClassification(albumId);
+
+  /// Stated formats by album id. Releases missing here are Albums.
+  Future<Map<String, ReleaseFormat>> releaseFormats() async => {
+    for (final f in await organization.getFormats()) f.albumId: f.format,
+  };
+
+  /// The user's format, which replaces any external one and is never
+  /// replaced by a later metadata refresh.
+  Future<void> setReleaseFormat({
+    required String albumId,
+    required ReleaseFormat format,
+  }) {
+    final timestamp = _now();
+
+    return organization.saveFormat(
+      AlbumReleaseFormat(
+        albumId: albumId,
+        format: format,
+        authority: ReleaseClassificationAuthority.manual,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      ),
+    );
+  }
+
+  /// A format suggested by an external source such as MusicBrainz. Ignored
+  /// when the user has chosen one. Returns whether it was saved.
+  Future<bool> suggestReleaseFormat({
+    required String albumId,
+    required ReleaseFormat format,
+    String? sourceReference,
+  }) async {
+    final existing = [
+      for (final f in await organization.getFormats())
+        if (f.albumId == albumId) f,
+    ];
+    if (existing.any(
+      (f) => f.authority == ReleaseClassificationAuthority.manual,
+    )) {
+      return false;
+    }
+    final timestamp = _now();
+    await organization.saveFormat(
+      AlbumReleaseFormat(
+        albumId: albumId,
+        format: format,
+        authority: ReleaseClassificationAuthority.external,
+        sourceReference: sourceReference,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      ),
+    );
+    return true;
+  }
+
+  /// Forgets the user's format; the release is an Album again unless an
+  /// external source states otherwise later.
+  Future<void> clearReleaseFormat(String albumId) =>
+      organization.deleteFormat(albumId);
 
   Future<void> _save(
     String artistId,

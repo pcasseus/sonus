@@ -461,6 +461,12 @@ abstract final class DatabaseMigrations {
         await CloudArchiveSchema.create(db);
         return;
 
+      case 38:
+        // SN-45: release format (Single, EP, Album) beside the release
+        // classification. Every classification row is kept as it was.
+        await OrganizationSchema.addReleaseFormats(db);
+        return;
+
       default:
         throw UnsupportedError(
           'No Sonus database migration exists for version $targetVersion.',
