@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:sonus_next/core/network/timed_http_client.dart';
+import 'package:sonus_next/features/sync/application/controllers/sync_controller.dart';
 import 'package:sonus_next/features/sync/application/models/sync_failure.dart';
 import 'package:sonus_next/features/sync/application/services/cloud_conditional_write_result.dart';
 import 'package:sonus_next/features/sync/application/services/outbound_sync_processor.dart';
@@ -95,5 +96,26 @@ void main() {
       'auth 401',
     );
     expect(describeSupabaseSyncFailure(StateError('secret')), 'StateError');
+  });
+
+  test('SN-49: the device log names the failure, never server text', () {
+    expect(
+      SyncController.syncFailureLogLine(
+        SyncFailureKind.unknown,
+        'StateError',
+        StateError('Cloud returned more than one row for song-1.'),
+      ),
+      'sonus.sync: sync failed (unknown, StateError): '
+      'Cloud returned more than one row for song-1.',
+    );
+    final server = SyncController.syncFailureLogLine(
+      SyncFailureKind.unknown,
+      '42501',
+      const PostgrestException(
+        message: 'permission denied for someone@example.com',
+        code: '42501',
+      ),
+    );
+    expect(server, 'sonus.sync: sync failed (unknown, 42501)');
   });
 }

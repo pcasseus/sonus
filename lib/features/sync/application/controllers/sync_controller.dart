@@ -317,8 +317,9 @@ class SyncController extends ChangeNotifier {
       _retryPending = true;
       _status = SyncStatus.error;
       final kind = _failureKind = _classifyFailure(error);
-      _failureCode = _describeFailure(error);
+      final code = _failureCode = _describeFailure(error);
       _log('Sync failed (${kind.name})', error);
+      debugPrint(syncFailureLogLine(kind, code, error));
 
       // Unsent changes stay in the outbox; show how many are waiting.
       final pending = await _readPendingCount(userId);
@@ -328,6 +329,25 @@ class SyncController extends ChangeNotifier {
     } finally {
       if (!isStale()) notifyListeners();
     }
+  }
+
+  /// One line for the device log, which release builds keep (unlike
+  /// developer.log): kind, code, and, for the app's own StateError or
+  /// ArgumentError, its fixed developer message. Server and SDK messages
+  /// are never included, since they can carry names or record contents.
+  @visibleForTesting
+  static String syncFailureLogLine(
+    SyncFailureKind kind,
+    String code,
+    Object error,
+  ) {
+    final detail = switch (error) {
+      StateError(:final message) => ': $message',
+      ArgumentError(:final message?) => ': $message',
+      _ => '',
+    };
+    final line = 'sonus.sync: sync failed (${kind.name}, $code)$detail';
+    return line.length > 300 ? '${line.substring(0, 300)}…' : line;
   }
 
   static void _log(String message, Object error) {
