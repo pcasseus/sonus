@@ -42,8 +42,9 @@ void main() {
           request.response.add(chunk);
           await request.response.flush();
           chunksSent += 1;
-          if (chunkPause > Duration.zero)
+          if (chunkPause > Duration.zero) {
             await Future<void>.delayed(chunkPause);
+          }
         }
 
         await request.response.close();
