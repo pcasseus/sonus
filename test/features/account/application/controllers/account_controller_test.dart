@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sonus_next/features/account/application/controllers/account_controller.dart';
+import 'package:sonus_next/features/account/domain/entities/account_failure.dart';
 import 'package:sonus_next/features/account/domain/entities/account_user.dart';
 import 'package:sonus_next/features/account/domain/repositories/account_repository.dart';
 
@@ -145,6 +146,100 @@ void main() {
       expect(controller.error, isA<StateError>());
 
       controller.dispose();
+    });
+  });
+
+  group('SN-49 sign-in states', () {
+    const user = AccountUser(id: 'user_1', email: 'user@example.com');
+
+    test('a failed sign-in says what kind of failure it was', () async {
+      for (final kind in AccountFailureKind.values) {
+        final repository = _FakeAccountRepository(
+          signInError: AccountFailure(kind, cause: StateError('cause')),
+        );
+        final controller = AccountController(repository: repository);
+
+        expect(await controller.signInWithGoogle(), isFalse);
+        expect(controller.failureKind, kind);
+        expect(controller.isSignedIn, isFalse);
+
+        controller.dispose();
+        await repository.dispose();
+      }
+    });
+
+    test('an unclassified error is reported as unknown', () async {
+      final repository = _FakeAccountRepository(signInError: Exception('x'));
+      final controller = AccountController(repository: repository);
+
+      await controller.signInWithGoogle();
+      expect(controller.failureKind, AccountFailureKind.unknown);
+
+      controller.dispose();
+      await repository.dispose();
+    });
+
+    test(
+      'cancelling is not an error and leaves the person signed out',
+      () async {
+        final repository = _FakeAccountRepository();
+        final controller = AccountController(repository: repository);
+
+        expect(await controller.signInWithGoogle(), isFalse);
+        expect(controller.hasError, isFalse);
+        expect(controller.failureKind, isNull);
+        expect(controller.isSignedIn, isFalse);
+
+        controller.dispose();
+        await repository.dispose();
+      },
+    );
+
+    test('a saved session is restored after a restart, offline too', () async {
+      // The account service's saved session is all a restart reads; no
+      // network call is made to know who is signed in.
+      final repository = _FakeAccountRepository(currentUser: user);
+      final controller = AccountController(repository: repository)
+        ..initialize();
+
+      expect(controller.isSignedIn, isTrue);
+      expect(controller.user, same(user));
+      expect(repository.signInCallCount, 0);
+
+      controller.dispose();
+      await repository.dispose();
+    });
+
+    test('signed out, signed in, failed, then signed in again', () async {
+      final repository = _FakeAccountRepository(
+        signInError: const AccountFailure(AccountFailureKind.offline),
+      );
+      final controller = AccountController(repository: repository)
+        ..initialize();
+      final seen = <String>[];
+      controller.addListener(
+        () => seen.add(
+          controller.isLoading
+              ? 'loading'
+              : controller.isSignedIn
+              ? 'in'
+              : controller.hasError
+              ? 'failed'
+              : 'out',
+        ),
+      );
+
+      await controller.signInWithGoogle();
+      repository.emitAuthState(user);
+      await Future<void>.delayed(Duration.zero);
+      repository.emitAuthState(null);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(seen, ['loading', 'failed', 'in', 'out']);
+      expect(controller.hasError, isFalse, reason: 'a new state clears it');
+
+      controller.dispose();
+      await repository.dispose();
     });
   });
 }
