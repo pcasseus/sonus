@@ -515,6 +515,40 @@ void main() {
       expect(field.status, ExternalMetadataProposalFieldStatus.protected);
     });
 
+    test('the note says which date is proposed, and names edition dates '
+        'that differ instead of mixing them in', () async {
+      final field = await releaseDateField(
+        ExternalMetadataCandidate(
+          provider: ExternalMetadataProviderKind.musicBrainz,
+          entityKind: ExternalMetadataEntityKind.album,
+          providerEntityId: 'mb-album-1',
+          displayName: 'Old Album',
+          releaseDate: ReleaseDate.of(2021, 5),
+          releaseOptions: [
+            ExternalMetadataReleaseOption(
+              releaseId: 'r-standard',
+              title: 'Old Album',
+              releaseDate: ReleaseDate.of(2021, 5),
+            ),
+            ExternalMetadataReleaseOption(
+              releaseId: 'r-deluxe',
+              title: 'Old Album (Deluxe)',
+              releaseDate: ReleaseDate.of(2022, 3, 4),
+            ),
+          ],
+        ),
+      );
+
+      expect(field.proposedValue, ReleaseDate.of(2021, 5));
+      expect(
+        field.note,
+        'The first release of this album on MusicBrainz, for the "Standard" '
+        'edition. MusicBrainz gives only the month. Other dates MusicBrainz '
+        'lists for its editions (Old Album (Deluxe): March 4, 2022) are not '
+        'used.',
+      );
+    });
+
     test('no MusicBrainz date proposes nothing', () async {
       final field = await releaseDateField(datedAlbumCandidate(null));
 

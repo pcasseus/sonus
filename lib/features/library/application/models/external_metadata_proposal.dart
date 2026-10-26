@@ -17,6 +17,7 @@ class ExternalMetadataProposalField {
     required this.proposedValue,
     required this.status,
     this.existingState,
+    this.note,
   });
 
   final String fieldName;
@@ -24,6 +25,10 @@ class ExternalMetadataProposalField {
   final Object? proposedValue;
   final ExternalMetadataProposalFieldStatus status;
   final MetadataFieldState? existingState;
+
+  /// Where the proposed value comes from, when that is not obvious, such
+  /// as which of a release's dates is proposed.
+  final String? note;
 
   bool get willChangeValue =>
       status == ExternalMetadataProposalFieldStatus.valueChange;

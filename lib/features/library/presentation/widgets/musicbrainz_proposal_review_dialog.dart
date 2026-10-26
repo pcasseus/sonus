@@ -139,6 +139,16 @@ class _ProposalFieldRow extends StatelessWidget {
             const SizedBox(height: 8),
             Text('Current: ${_displayValue(field.currentValue)}'),
             Text('Proposed: ${_displayValue(field.proposedValue)}'),
+            if (field.note case final note?) ...[
+              const SizedBox(height: 4),
+              Text(
+                note,
+                key: ValueKey<String>(
+                  'musicbrainz-proposal-note-${field.fieldName}',
+                ),
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
             const SizedBox(height: 8),
             Text(
               _statusLabel(field.status),
