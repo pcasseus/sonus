@@ -76,8 +76,9 @@ void main() {
       34,
       35,
       36,
+      37,
     });
-    expect(AppDatabase.databaseVersion, 36);
+    expect(AppDatabase.databaseVersion, 37);
   });
 
   test('the fixture is a real version 31 database', () async {
@@ -100,9 +101,10 @@ void main() {
     final v33 = await migrateTo(await copyOfV31('v33.db'), 33);
     final v34 = await migrateTo(await copyOfV31('v34.db'), 34);
     final v35 = await migrateTo(await copyOfV31('v35.db'), 35);
-    final v36 = AppDatabase(
+    final v36 = await migrateTo(await copyOfV31('v36.db'), 36);
+    final v37 = AppDatabase(
       databaseFactory: databaseFactoryFfi,
-      databasePath: await copyOfV31('v36.db'),
+      databasePath: await copyOfV31('v37.db'),
     );
     final fresh = AppDatabase(
       databaseFactory: databaseFactoryFfi,
@@ -116,7 +118,8 @@ void main() {
       expect(await userVersion(v33), 33);
       expect(await userVersion(v34), 34);
       expect(await userVersion(v35), 35);
-      expect(await userVersion(await v36.database), 36);
+      expect(await userVersion(v36), 36);
+      expect(await userVersion(await v37.database), 37);
       // Required tables are identical everywhere; an optional table is
       // identical wherever the version has it.
       void expectCompatible(Map<String, Object> schema) {
@@ -132,7 +135,8 @@ void main() {
       expectCompatible(await _portableSchema(v33));
       expectCompatible(await _portableSchema(v34));
       expectCompatible(await _portableSchema(v35));
-      expect(await _portableSchema(await v36.database), reference);
+      expectCompatible(await _portableSchema(v36));
+      expect(await _portableSchema(await v37.database), reference);
     } finally {
       await v31.close();
       await v32.close();
@@ -140,6 +144,7 @@ void main() {
       await v34.close();
       await v35.close();
       await v36.close();
+      await v37.close();
       await fresh.close();
     }
   });
@@ -164,7 +169,7 @@ void main() {
       final db = await upgraded.database;
       final rowsAfter = await _allRows(db);
 
-      expect(await userVersion(db), 36);
+      expect(await userVersion(db), 37);
       expect(
         rowsAfter[DatabaseTables.artworkCrops],
         isEmpty,
@@ -182,7 +187,13 @@ void main() {
         reason: 'migration 32 must not invent replay obligations',
       );
       expect(rowsAfter[SyncSchema.outboundConflictsTable], isEmpty);
+      expect(
+        rowsAfter[DatabaseTables.cloudArchiveState],
+        isEmpty,
+        reason: 'migration 37 must not claim any archive agreement',
+      );
       rowsAfter
+        ..remove(DatabaseTables.cloudArchiveState)
         ..remove(SyncSchema.inboundDeferredRecordsTable)
         ..remove(SyncSchema.outboundConflictsTable)
         ..remove(DatabaseTables.albumReleaseClassifications)

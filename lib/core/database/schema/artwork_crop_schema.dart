@@ -9,7 +9,7 @@ import '../database_tables.dart';
 /// it unchanged. This table only remembers the untouched original and the
 /// crop rectangle, so the crop can be moved again or reset later.
 ///
-/// Device-local: not in backups and not synced. Without a row, the
+/// Kept in backups and in the cloud archive. Without a row, the
 /// assigned artwork simply shows as it is. The rectangle is normalized to
 /// the original image (0 to 1 on each axis). A row whose output is no
 /// longer the assigned artwork (replaced elsewhere) is ignored.

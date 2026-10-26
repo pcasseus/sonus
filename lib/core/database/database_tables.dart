@@ -31,4 +31,5 @@ abstract final class DatabaseTables {
   static const String syncState = 'sync_state';
   static const String syncOutbox = 'sync_outbox';
   static const String localAccountBinding = 'local_account_binding';
+  static const String cloudArchiveState = 'cloud_archive_state';
 }

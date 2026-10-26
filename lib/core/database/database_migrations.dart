@@ -6,6 +6,7 @@ import '../identity/entity_id.dart';
 import '../identity/text_normalizer.dart';
 import 'database_tables.dart';
 import 'schema/artwork_crop_schema.dart';
+import 'schema/cloud_archive_schema.dart';
 import 'schema/account_schema.dart';
 import 'schema/analytics_schema.dart';
 import 'schema/chart_schema.dart';
@@ -453,6 +454,11 @@ abstract final class DatabaseMigrations {
 
       case 36:
         await ChartSchema.rebuildChartMomentEvents(db);
+        return;
+
+      case 37:
+        // One new internal sync table; no existing row is touched.
+        await CloudArchiveSchema.create(db);
         return;
 
       default:

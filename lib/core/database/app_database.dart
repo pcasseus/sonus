@@ -4,6 +4,7 @@ import 'package:sqflite/sqflite.dart' as sqflite;
 import 'library_mutation_coordinator.dart';
 import 'database_migrations.dart';
 import 'schema/artwork_crop_schema.dart';
+import 'schema/cloud_archive_schema.dart';
 import 'schema/account_schema.dart';
 import 'schema/analytics_schema.dart';
 import 'schema/chart_schema.dart';
@@ -25,7 +26,7 @@ class AppDatabase {
        _databasePathOverride = databasePath;
 
   static const String databaseName = 'sonus_next.db';
-  static const int databaseVersion = 36;
+  static const int databaseVersion = 37;
 
   /// Coordinates normal database transactions with recovery.
   final LibraryMutationCoordinator mutationCoordinator;
@@ -95,6 +96,7 @@ class AppDatabase {
     await AccountSchema.create(db);
     await OrganizationSchema.create(db);
     await ArtworkCropSchema.create(db);
+    await CloudArchiveSchema.create(db);
   }
 
   Future<void> _onUpgrade(

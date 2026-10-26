@@ -45,6 +45,7 @@ class RecoveryFingerprintService {
     SyncSchema.artistDependencyJournalTable,
     SyncSchema.inboundDeferredRecordsTable,
     SyncSchema.outboundConflictsTable,
+    DatabaseTables.cloudArchiveState,
   ];
 
   /// Digest of a table with no rows.

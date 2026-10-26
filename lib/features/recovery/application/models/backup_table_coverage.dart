@@ -148,6 +148,10 @@ abstract final class BackupCoverageContract {
       policy: BackupTablePolicy.internalState,
     ),
     BackupTableCoverage(
+      table: DatabaseTables.cloudArchiveState,
+      policy: BackupTablePolicy.internalState,
+    ),
+    BackupTableCoverage(
       table: SyncSchema.cloudRevisionBaselinesTable,
       policy: BackupTablePolicy.internalState,
     ),

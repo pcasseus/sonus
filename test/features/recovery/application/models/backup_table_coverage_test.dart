@@ -9,7 +9,7 @@ void main() {
     final tables = BackupCoverageContract.tables;
     final names = tables.map((entry) => entry.table).toSet();
 
-    expect(tables.length, 32);
+    expect(tables.length, 33);
     expect(names.length, tables.length);
     expect(names.every((name) => name.trim().isNotEmpty), isTrue);
   });
@@ -106,7 +106,7 @@ void main() {
         .map((entry) => entry.table)
         .toSet();
 
-    expect(internal.length, 8);
+    expect(internal.length, 9);
     expect(internal, contains(DatabaseTables.syncState));
     expect(internal, contains(DatabaseTables.syncOutbox));
     expect(internal, contains(DatabaseTables.localAccountBinding));
@@ -115,6 +115,7 @@ void main() {
     expect(internal, contains(SyncSchema.artistDependencyJournalTable));
     expect(internal, contains(SyncSchema.inboundDeferredRecordsTable));
     expect(internal, contains(SyncSchema.outboundConflictsTable));
+    expect(internal, contains(DatabaseTables.cloudArchiveState));
   });
 
   test('every internal sync table is watched as sync state', () {

@@ -134,6 +134,7 @@ void main() {
       34,
       35,
       36,
+      37,
     });
     expect(
       BackupCompatibility.restorableDatabaseVersions,
