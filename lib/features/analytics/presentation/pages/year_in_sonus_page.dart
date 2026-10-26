@@ -1003,7 +1003,7 @@ class _TrackRankings extends StatelessWidget {
                 '${row.artistName} • ${_formatInt(row.streams)} ${sonusCountNoun(row.streams, 'stream')}',
             artworkPath: row.artworkPath,
             fallbackIcon: Icons.music_note_rounded,
-            onTap: row.canPlay ? () => _playTrack(context, row) : null,
+            onTap: row.canPlay ? () => _playTrack(context, row, rows) : null,
             trailing: row.hasCurrentLibraryEntity && !row.canPlay
                 ? Icon(
                     Icons.block_rounded,
@@ -1353,7 +1353,12 @@ class _YearMessage extends StatelessWidget {
   }
 }
 
-Future<void> _playTrack(BuildContext context, YearInSonusTrackRow row) async {
+/// Plays [row]; from a ranking, [ranking] becomes the queue from that row.
+Future<void> _playTrack(
+  BuildContext context,
+  YearInSonusTrackRow row, [
+  List<YearInSonusTrackRow> ranking = const [],
+]) async {
   final track = row.track;
   final playback = context.read<PlaybackCoordinator?>();
 
@@ -1362,7 +1367,9 @@ Future<void> _playTrack(BuildContext context, YearInSonusTrackRow row) async {
   }
 
   try {
-    await playback.playTrack(track);
+    await playback.playInContext(track, [
+      for (final ranked in ranking) ?ranked.track,
+    ]);
   } catch (_) {
     if (!context.mounted) {
       return;

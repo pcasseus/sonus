@@ -3,10 +3,23 @@ import 'package:sonus_next/core/identity/text_normalizer.dart';
 import 'package:sonus_next/features/import/application/services/atomic_library_importer.dart';
 import 'package:sonus_next/features/import/application/services/lyrics_ingestion_service.dart';
 import 'package:sonus_next/features/import/application/services/metadata_resolver.dart';
+import 'package:sonus_next/features/import/application/folders/folder_album_planner.dart';
+import 'package:sonus_next/features/import/application/folders/source_folder_key.dart';
 import 'package:sonus_next/features/import/domain/models/import_candidate.dart';
+import 'package:sonus_next/features/import/domain/models/import_folder_placement.dart';
+import 'package:sonus_next/features/import/domain/models/resolved_metadata.dart';
 import 'package:sonus_next/features/import/domain/models/import_failure.dart';
 import 'package:sonus_next/features/import/domain/models/import_result.dart';
 import 'package:sonus_next/features/import/domain/repositories/media_file_binding_repository.dart';
+
+/// What a batch pre-pass learned about one new file: its tags, and the
+/// folder album it belongs to (SN-45).
+class PreparedImport {
+  const PreparedImport({required this.metadata, this.placement});
+
+  final ResolvedMetadata metadata;
+  final ImportFolderPlacement? placement;
+}
 
 class LibraryImportService {
   const LibraryImportService({
@@ -21,9 +34,58 @@ class LibraryImportService {
   final MediaFileBindingRepository? mediaFileBindingRepository;
   final LyricsIngestionService? lyricsIngestionService;
 
+  /// SN-45 pre-pass: reads the tags of the batch's new files once and
+  /// decides one album per folder (see FolderAlbumPlanner). Files already
+  /// in the library and unreadable files are left out; [importCandidate]
+  /// handles them exactly as before.
+  Future<Map<String, PreparedImport>> prepareFolders(
+    List<ImportCandidate> candidates,
+  ) async {
+    final resolved = <String, (ImportCandidate, ResolvedMetadata)>{};
+
+    for (final candidate in candidates) {
+      final normalizedPath = TextNormalizer.normalizePath(candidate.filePath);
+
+      try {
+        final known = await mediaFileBindingRepository?.getByNormalizedPath(
+          normalizedPath,
+        );
+        if (known != null) continue;
+
+        resolved[normalizedPath] = (
+          candidate,
+          await metadataResolver.resolve(candidate),
+        );
+      } on LibraryMutationUnavailable {
+        rethrow;
+      } catch (_) {
+        // Reported by importCandidate when it reads the file itself.
+      }
+    }
+
+    final placements = FolderAlbumPlanner.plan([
+      for (final MapEntry(key: path, value: (candidate, metadata))
+          in resolved.entries)
+        FolderPlanEntry(
+          normalizedPath: path,
+          folderKey: SourceFolderKey.of(candidate.filePath),
+          folderName: SourceFolderKey.folderName(
+            candidate.metadataFallbackPath ?? candidate.filePath,
+          ),
+          metadata: metadata.metadata,
+        ),
+    ]);
+
+    return {
+      for (final MapEntry(key: path, value: (_, metadata)) in resolved.entries)
+        path: PreparedImport(metadata: metadata, placement: placements[path]),
+    };
+  }
+
   Future<ImportResult> importCandidate(
     ImportCandidate candidate, {
     DateTime? now,
+    PreparedImport? prepared,
   }) async {
     final timestamp = now ?? DateTime.now();
     final normalizedPath = TextNormalizer.normalizePath(candidate.filePath);
@@ -85,13 +147,15 @@ class LibraryImportService {
     final ImportResult imported;
 
     try {
-      final resolvedMetadata = await metadataResolver.resolve(candidate);
+      final resolvedMetadata =
+          prepared?.metadata ?? await metadataResolver.resolve(candidate);
 
       imported = await atomicImporter.import(
         candidate: candidate,
         metadata: resolvedMetadata.metadata,
         metadataSource: resolvedMetadata.source,
         metadataOrigins: resolvedMetadata.origins,
+        folderPlacement: prepared?.placement,
         now: timestamp,
       );
     } on LibraryMutationUnavailable {

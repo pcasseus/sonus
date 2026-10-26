@@ -1,5 +1,7 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../../../core/network/timed_http_client.dart';
+
 import '../../data/repositories/supabase_account_repository.dart';
 import '../../data/services/google_sign_in_auth_gateway.dart';
 import '../../data/services/supabase_client_auth_gateway.dart';
@@ -17,6 +19,9 @@ abstract final class AccountBootstrapper {
     await Supabase.initialize(
       url: config.supabaseUrl.trim(),
       publishableKey: config.supabasePublishableKey.trim(),
+      // Every auth, database and storage request finishes or times out, so
+      // a stalled connection can never leave sync running forever.
+      httpClient: TimedHttpClient(),
     );
 
     final googleAuthGateway = GoogleSignInAuthGateway(

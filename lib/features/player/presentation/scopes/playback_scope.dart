@@ -5,15 +5,19 @@ import 'package:provider/provider.dart';
 
 import '../../../../core/database/app_database.dart';
 import '../../../library/application/repositories/library_query_repository.dart';
+import '../../../playlists/application/services/playlist_service.dart';
 import '../../application/controllers/playback_coordinator.dart';
 import '../../application/controllers/playback_preferences_controller.dart';
 import '../../application/controllers/playback_restoration_controller.dart';
+import '../../application/services/media_session/media_browse_catalog.dart';
+import '../../application/services/media_session/media_browse_library.dart';
 import '../../application/services/media_session/sonus_audio_handler.dart';
 import '../../data/daos/track_lyrics_dao.dart';
 import '../../data/engines/just_audio_playback_engine.dart';
 import '../../data/repositories/sqlite_track_lyrics_repository.dart';
 import '../../data/services/playback_preferences_store.dart';
 import '../../data/services/playback_session_store.dart';
+import '../../data/services/recently_played_song_query.dart';
 import '../../domain/repositories/track_lyrics_repository.dart';
 import '../../domain/services/playback_engine.dart';
 import '../controllers/lyrics_controller.dart';
@@ -60,6 +64,9 @@ class _PlaybackScopeState extends State<PlaybackScope>
   bool _restoreRequested = false;
 
   AppDatabase? _database;
+  MediaBrowseCatalog? _catalog;
+  LibraryQueryRepository? _catalogLibrary;
+  PlaylistService? _catalogPlaylists;
   TrackLyricsRepository? _lyricsRepository;
   LyricsController? _lyricsController;
   int _initializationVersion = 0;
@@ -115,6 +122,12 @@ class _PlaybackScopeState extends State<PlaybackScope>
 
     final database = context.watch<AppDatabase>();
 
+    _updateCatalog(
+      library: library,
+      playlists: context.watch<PlaylistService?>(),
+      database: database,
+    );
+
     if (identical(database, _database)) {
       return;
     }
@@ -124,6 +137,42 @@ class _PlaybackScopeState extends State<PlaybackScope>
     final version = ++_initializationVersion;
 
     unawaited(_initializeLyrics(appDatabase: database, version: version));
+  }
+
+  /// Gives Android Auto the same library and playlists the app shows.
+  void _updateCatalog({
+    required LibraryQueryRepository? library,
+    required PlaylistService? playlists,
+    required AppDatabase database,
+  }) {
+    final session = widget.mediaSession;
+
+    if (session == null ||
+        library == null ||
+        (identical(library, _catalogLibrary) &&
+            identical(playlists, _catalogPlaylists))) {
+      return;
+    }
+
+    final previous = _catalog;
+    final catalog = MediaBrowseCatalog(
+      library: RepositoryMediaBrowseLibrary(
+        library: library,
+        playlists: playlists,
+        recentlyPlayedSongIds: (limit) async =>
+            RecentlyPlayedSongQuery(await database.database).songIds(limit),
+      ),
+      artworkUri: session.carArtworkUri,
+    );
+
+    _catalog = catalog;
+    _catalogLibrary = library;
+    _catalogPlaylists = playlists;
+    session.attachCatalog(catalog);
+
+    if (previous != null) {
+      session.detachCatalog(previous);
+    }
   }
 
   Future<void> _initializeLyrics({
@@ -185,6 +234,10 @@ class _PlaybackScopeState extends State<PlaybackScope>
     // Only unbinds if no newer scope has attached (restore reloads mount
     // the new scope first).
     widget.mediaSession?.detach(_coordinator);
+    final catalog = _catalog;
+    if (catalog != null) {
+      widget.mediaSession?.detachCatalog(catalog);
+    }
     WidgetsBinding.instance.removeObserver(this);
     _restoration.dispose();
     _preferencesController.dispose();

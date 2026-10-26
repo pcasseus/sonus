@@ -10,6 +10,7 @@ import 'package:sonus_next/features/library/application/models/library_track_ord
 import 'package:sonus_next/features/library/application/repositories/library_query_repository.dart';
 import 'package:sonus_next/features/charts/application/services/chart_finalization_service.dart';
 import 'package:sonus_next/features/charts/application/services/all_time_chart_service.dart';
+import 'package:sonus_next/features/charts/application/services/all_time_moment_service.dart';
 import 'package:sonus_next/features/charts/domain/entities/all_time_chart.dart';
 import 'package:sonus_next/features/charts/domain/entities/chart_entry.dart';
 import 'package:sonus_next/features/charts/domain/entities/chart_snapshot.dart';
@@ -406,6 +407,62 @@ void main() {
     expect(controller.momentFeedError, isA<StateError>());
     expect(controller.momentFeedItems, isEmpty);
   });
+  test('all-time Moments are recorded before the feed is read', () async {
+    final log = <String>[];
+    final moments = _FakeChartMomentRepository(onRead: () => log.add('read'));
+    final allTimeMoments = _FakeAllTimeMomentService(
+      onRecord: () => log.add('record'),
+    );
+
+    final controller = ChartsController(
+      allTimeCharts: _FakeAllTimeChartService(
+        snapshot: _snapshot(
+          id: 'live',
+          chartType: ChartType.songs,
+          weekStartUtc: DateTime.utc(2026, 9, 27),
+        ),
+      ),
+      finalization: _FakeChartFinalizationService(),
+      charts: _FakeChartRepository(),
+      library: _FakeLibraryQueryRepository(),
+      moments: moments,
+      allTimeMoments: allTimeMoments,
+      now: () => referenceLocal,
+    );
+
+    await controller.load();
+    await controller.refresh();
+
+    expect(log, ['record', 'read', 'record', 'read']);
+    expect(allTimeMoments.lastReferenceLocal, referenceLocal);
+  });
+
+  test('an all-time Moments failure does not fail the chart', () async {
+    final live = _snapshot(
+      id: 'live',
+      chartType: ChartType.songs,
+      weekStartUtc: DateTime.utc(2026, 9, 27),
+    );
+
+    final controller = ChartsController(
+      allTimeCharts: _FakeAllTimeChartService(snapshot: live),
+      finalization: _FakeChartFinalizationService(),
+      charts: _FakeChartRepository(),
+      library: _FakeLibraryQueryRepository(),
+      moments: _FakeChartMomentRepository(),
+      allTimeMoments: _FakeAllTimeMomentService(
+        error: StateError('replay failed'),
+      ),
+      now: () => referenceLocal,
+    );
+
+    await controller.load();
+
+    expect(controller.allTimeChart?.entries, same(live.entries));
+    expect(controller.hasError, isFalse);
+    expect(controller.momentFeedError, isA<StateError>());
+  });
+
   test(
     'presentation mode defaults to charts and switches without reloading',
     () async {
@@ -1057,10 +1114,11 @@ class _FakeChartFinalizationService implements ChartFinalizationService {
 }
 
 class _FakeChartMomentRepository implements ChartMomentRepository {
-  _FakeChartMomentRepository({this.events = const [], this.error});
+  _FakeChartMomentRepository({this.events = const [], this.error, this.onRead});
 
   final List<ChartMomentEvent> events;
   final Object? error;
+  final void Function()? onRead;
 
   int getRecentCallCount = 0;
   int? lastLimit;
@@ -1069,6 +1127,7 @@ class _FakeChartMomentRepository implements ChartMomentRepository {
   Future<List<ChartMomentEvent>> getRecent({int? limit}) async {
     getRecentCallCount++;
     lastLimit = limit;
+    onRead?.call();
 
     final error = this.error;
 
@@ -1103,6 +1162,25 @@ class _FakeChartMomentRepository implements ChartMomentRepository {
     required DateTime weekStartUtc,
     required Iterable<ChartMomentEvent> events,
   }) async {}
+}
+
+class _FakeAllTimeMomentService implements AllTimeMomentService {
+  _FakeAllTimeMomentService({this.onRecord, this.error});
+
+  final void Function()? onRecord;
+  final Object? error;
+  DateTime? lastReferenceLocal;
+
+  @override
+  Future<List<ChartMomentEvent>> record({
+    required DateTime referenceLocal,
+  }) async {
+    lastReferenceLocal = referenceLocal;
+    onRecord?.call();
+    final error = this.error;
+    if (error != null) throw error;
+    return const [];
+  }
 }
 
 class _FakeChartRepository implements ChartRepository {

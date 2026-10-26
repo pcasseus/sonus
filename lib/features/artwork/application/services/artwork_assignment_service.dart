@@ -14,6 +14,7 @@ import '../../domain/entities/artwork_asset.dart';
 import '../../domain/entities/artwork_asset_factory.dart';
 import '../../domain/repositories/artwork_asset_repository.dart';
 import 'artwork_managed_storage.dart';
+import 'managed_artwork_locator.dart';
 
 class ArtworkAssignmentService {
   const ArtworkAssignmentService({
@@ -581,6 +582,14 @@ class ArtworkAssignmentService {
     final storage = artworkManagedStorage;
 
     if (storage == null) {
+      return trimmedPath;
+    }
+
+    // A file Sonus already manages is reused rather than copied again.
+    if (storage is ManagedArtworkLocator &&
+        await (storage as ManagedArtworkLocator).isManagedArtwork(
+          trimmedPath,
+        )) {
       return trimmedPath;
     }
 

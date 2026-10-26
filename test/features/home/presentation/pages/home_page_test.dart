@@ -109,6 +109,33 @@ void main() {
     );
   });
 
+  testWidgets('Home has no news: Moments live only in Hot 100', (tester) async {
+    final controller = await _loadedController(_snapshot());
+
+    await _pumpHome(tester, controller, size: const Size(430, 6000));
+
+    for (final word in [
+      'News',
+      'Moments',
+      'PulsePop',
+      'Sonus Daily',
+      '@sonusdaily',
+      '@pulsepop',
+    ]) {
+      expect(find.textContaining(word), findsNothing, reason: word);
+    }
+    expect(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget.key is ValueKey<String> &&
+            RegExp(
+              'news|moment',
+            ).hasMatch((widget.key! as ValueKey<String>).value),
+      ),
+      findsNothing,
+    );
+  });
+
   testWidgets(
     'popular track tap opens context instead of immediately playing',
     (tester) async {

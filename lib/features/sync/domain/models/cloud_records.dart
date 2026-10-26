@@ -14,6 +14,44 @@ class CloudMetadataFieldState {
   final DateTime updatedAt;
 }
 
+/// One edition that lists a song, with the song's place on it.
+class CloudEditionMembership {
+  const CloudEditionMembership({
+    required this.albumEditionId,
+    required this.discNumber,
+    required this.trackNumber,
+    required this.sortPosition,
+    required this.numberingAuthority,
+    required this.orderingAuthority,
+  });
+
+  final String albumEditionId;
+  final int discNumber;
+  final int trackNumber;
+  final int sortPosition;
+  final String numberingAuthority;
+  final String orderingAuthority;
+}
+
+/// One credited artist on a song, in credit order.
+class CloudSongCredit {
+  const CloudSongCredit({
+    required this.id,
+    required this.creditedName,
+    required this.canonicalCreditedName,
+    required this.role,
+    required this.position,
+    this.artistId,
+  });
+
+  final String id;
+  final String? artistId;
+  final String creditedName;
+  final String canonicalCreditedName;
+  final String role;
+  final int position;
+}
+
 abstract class CloudOwnedRecord {
   const CloudOwnedRecord({
     required this.id,
@@ -123,6 +161,8 @@ class CloudSongRecord extends CloudOwnedRecord {
     super.deletedAt,
     this.artworkId,
     this.metadataFieldStates,
+    this.editionMemberships,
+    this.artistCredits,
   });
 
   final String artistId;
@@ -142,6 +182,14 @@ class CloudSongRecord extends CloudOwnedRecord {
   final bool isLeak;
   final String? artworkId;
   final List<CloudMetadataFieldState>? metadataFieldStates;
+
+  /// Every edition that lists this song (SN-45). Null when not provided,
+  /// as from an older app or a server without the column: it then never
+  /// replaces local memberships.
+  final List<CloudEditionMembership>? editionMemberships;
+
+  /// The song's full credit list (SN-45). Null when not provided.
+  final List<CloudSongCredit>? artistCredits;
 }
 
 class CloudArtworkAssetRecord extends CloudOwnedRecord {

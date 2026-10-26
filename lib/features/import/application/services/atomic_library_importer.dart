@@ -1,4 +1,8 @@
+import 'package:sqflite/sqflite.dart';
 import 'package:sonus_next/core/database/app_database.dart';
+import 'package:sonus_next/core/database/database_tables.dart';
+import 'package:sonus_next/features/import/application/folders/source_folder_key.dart';
+import 'package:sonus_next/features/import/domain/models/import_folder_placement.dart';
 import 'package:sonus_next/core/database/library_mutation_coordinator.dart';
 import 'package:sonus_next/core/identity/entity_id.dart';
 import 'package:sonus_next/core/identity/text_normalizer.dart';
@@ -62,12 +66,46 @@ class AtomicLibraryImporter {
   /// and nothing is created or modified for them.
   final bool relinkOnly;
 
+  /// Imports one file.
+  ///
+  /// With a [folderPlacement] (SN-45), the file joins its folder's album:
+  /// the album that folder's songs already belong to, or one album for the
+  /// whole folder, titled and owned as the placement says. The song keeps
+  /// its own performer. Without one, the album comes from the file's tags.
   Future<ImportResult> import({
     required ImportCandidate candidate,
     required AudioMetadata metadata,
     MetadataSource metadataSource = MetadataSource.embedded,
     ImportMetadataOrigins? metadataOrigins,
+    ImportFolderPlacement? folderPlacement,
     DateTime? now,
+  }) {
+    // Relinking after a restore only attaches files to the songs they
+    // already were; it never re-files them, so placement is ignored.
+    final placement = relinkOnly ? null : folderPlacement;
+
+    return _import(
+      candidate: candidate,
+      metadata: placement == null
+          ? metadata
+          : metadata.copyWith(
+              albumTitle: placement.albumTitle,
+              albumArtistName: placement.albumArtistName,
+            ),
+      metadataSource: metadataSource,
+      metadataOrigins: metadataOrigins,
+      folderKey: placement?.folderKey,
+      now: now,
+    );
+  }
+
+  Future<ImportResult> _import({
+    required ImportCandidate candidate,
+    required AudioMetadata metadata,
+    required MetadataSource metadataSource,
+    required ImportMetadataOrigins? metadataOrigins,
+    required String? folderKey,
+    required DateTime? now,
   }) async {
     final timestamp = now ?? DateTime.now();
     final syncUserId = userId?.trim();
@@ -193,10 +231,24 @@ class AtomicLibraryImporter {
           title: interpretedTitle.title,
         );
 
+        final placement = folderKey == null
+            ? AlbumPlacement.automatic
+            : await _placementFor(
+                transaction,
+                folderKey: folderKey,
+                candidatePath: candidate.filePath,
+                resolver: resolver,
+                albumRepository: albumRepository,
+                editionRepository: editionRepository,
+                metadata: effectiveMetadata,
+                interpretedTitle: interpretedTitle,
+              );
+
         final match = await resolver.resolve(
           effectiveMetadata,
           versionLabel: interpretedTitle.versionLabel,
           versionCharacteristics: interpretedTitle.versionCharacteristics,
+          placement: placement,
         );
         if (match.hasAmbiguity) {
           return ImportResult(
@@ -695,6 +747,14 @@ class AtomicLibraryImporter {
               updatedAt: timestamp,
             ),
           );
+
+          if (syncUserId != null && syncUserId.isNotEmpty) {
+            await localSyncRepository.recordUpsert(
+              userId: syncUserId,
+              entityType: CloudDataEntity.song,
+              entityId: song.id,
+            );
+          }
         }
 
         final existingSongBindings = await bindingRepository.getBySongId(
@@ -788,6 +848,147 @@ class AtomicLibraryImporter {
       );
     }
   }
+
+  /// SN-45: which album a file in [folderKey] joins.
+  ///
+  /// - The album the folder's existing songs belong to, when they belong
+  ///   to exactly one (a song added to an imported folder stays with it).
+  /// - Several albums in one folder came from an older import; the tags
+  ///   decide, and the reconciliation preview can offer to merge them.
+  /// - For a new folder, an album of the same title and owner that lives
+  ///   in a different folder is a different project, so a new album is
+  ///   made. An edition-titled folder ("locket (Deluxe)") still joins its
+  ///   album as an edition, and an album with no known folder is matched
+  ///   by tags as before.
+  Future<AlbumPlacement> _placementFor(
+    DatabaseExecutor executor, {
+    required String folderKey,
+    required String candidatePath,
+    required LibraryIdentityResolver resolver,
+    required SqliteAlbumRepository albumRepository,
+    required SqliteAlbumEditionRepository editionRepository,
+    required AudioMetadata metadata,
+    required InterpretedTrackTitle interpretedTitle,
+  }) async {
+    final inFolder = await _songsInFolder(
+      executor,
+      folderKey: folderKey,
+      samplePath: candidatePath,
+    );
+    final albumIds = {for (final row in inFolder) row.albumId};
+
+    if (albumIds.length == 1) {
+      final album = await albumRepository.getById(albumIds.single);
+
+      if (album != null) {
+        // The edition most of the folder's songs are on.
+        final counts = <String, int>{};
+        for (final row in inFolder) {
+          counts[row.editionId] = (counts[row.editionId] ?? 0) + 1;
+        }
+        final editionId =
+            (counts.entries.toList()
+                  ..sort((a, b) => b.value.compareTo(a.value)))
+                .first
+                .key;
+        final edition = await editionRepository.getById(editionId);
+
+        return WithinAlbumPlacement(
+          album,
+          edition: edition?.albumId == album.id ? edition : null,
+        );
+      }
+    }
+
+    if (albumIds.length > 1) {
+      return AlbumPlacement.automatic;
+    }
+
+    final probe = await resolver.resolve(
+      metadata,
+      versionLabel: interpretedTitle.versionLabel,
+      versionCharacteristics: interpretedTitle.versionCharacteristics,
+    );
+
+    if (probe.albumAmbiguous) {
+      return AlbumPlacement.separate;
+    }
+
+    final album = probe.album;
+
+    if (album == null ||
+        EditionTitleParser.parse(metadata.albumTitle) != null) {
+      return AlbumPlacement.automatic;
+    }
+
+    final albumFolders = await _foldersOfAlbum(executor, album.id);
+
+    if (albumFolders.isNotEmpty && !albumFolders.contains(folderKey)) {
+      return AlbumPlacement.separate;
+    }
+
+    return AlbumPlacement.automatic;
+  }
+
+  /// Songs whose files are in [folderKey], found through a path-prefix
+  /// pre-filter and confirmed with SourceFolderKey.
+  Future<List<({String albumId, String editionId})>> _songsInFolder(
+    DatabaseExecutor executor, {
+    required String folderKey,
+    required String samplePath,
+  }) async {
+    final prefix = SourceFolderKey.pathPrefix(samplePath);
+
+    if (prefix == null) {
+      return const [];
+    }
+
+    final rows = await executor.rawQuery(
+      '''
+      SELECT mb.file_path AS file_path,
+             s.album_id AS album_id,
+             s.album_edition_id AS edition_id
+      FROM ${DatabaseTables.mediaFileBindings} mb
+      JOIN ${DatabaseTables.songs} s ON s.id = mb.song_id
+      WHERE mb.normalized_path LIKE ? ESCAPE '\\'
+      ''',
+      ['${_escapeLike(prefix)}%'],
+    );
+
+    return [
+      for (final row in rows)
+        if (SourceFolderKey.of(row['file_path']! as String) == folderKey)
+          (
+            albumId: row['album_id']! as String,
+            editionId: row['edition_id']! as String,
+          ),
+    ];
+  }
+
+  /// The known folders of [albumId]'s songs.
+  Future<Set<String>> _foldersOfAlbum(
+    DatabaseExecutor executor,
+    String albumId,
+  ) async {
+    final rows = await executor.rawQuery(
+      '''
+      SELECT mb.file_path AS file_path
+      FROM ${DatabaseTables.mediaFileBindings} mb
+      JOIN ${DatabaseTables.songs} s ON s.id = mb.song_id
+      WHERE s.album_id = ?
+      ''',
+      [albumId],
+    );
+
+    return {
+      for (final row in rows) ?SourceFolderKey.of(row['file_path']! as String),
+    };
+  }
+
+  static String _escapeLike(String value) => value
+      .replaceAll('\\', '\\\\')
+      .replaceAll('%', '\\%')
+      .replaceAll('_', '\\_');
 
   Future<void> _recordImportField({
     required MetadataFieldStateService service,

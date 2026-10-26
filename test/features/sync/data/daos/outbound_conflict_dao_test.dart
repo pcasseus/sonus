@@ -176,7 +176,7 @@ void main() {
 
       expect(
         (await db.rawQuery('PRAGMA user_version')).single['user_version'],
-        34,
+        AppDatabase.databaseVersion,
       );
 
       final deferredDao = InboundDeferredRecordDao(db);

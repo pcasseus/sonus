@@ -43,6 +43,8 @@ class SyncService {
     SyncClock? now,
     this._attachAccount,
     this._runGuard,
+    this._firstLinkGuard,
+    this._syncArchive,
   }) : _bindToUser = accountBindingRepository.bindToUser,
        _claimUnowned = localSyncOwnershipRepository.claimUnowned,
        _getPending = localSyncRepository.getPending,
@@ -62,9 +64,19 @@ class SyncService {
     this._attachAccount,
     this._runGuard,
     this._pushPendingIsolated,
+    this._firstLinkGuard,
+    this._syncArchive,
   }) : _now = now ?? DateTime.now;
 
   final Future<int> Function(String userId)? _attachAccount;
+
+  /// Throws SyncNeedsCloudLibraryChoice before this device is linked to an
+  /// account that already has a cloud library.
+  final Future<void> Function(String userId)? _firstLinkGuard;
+
+  /// Playlists, listening history, lyrics, crops, organization and
+  /// all-time Moments; runs after the library.
+  final Future<void> Function(String userId)? _syncArchive;
 
   // Guards the entire run, so attachment, push, and pull are all covered.
   final SyncRunGuard? _runGuard;
@@ -76,6 +88,10 @@ class SyncService {
   _pushPendingIsolated;
   final Future<int> Function(String userId) _pullAll;
   final SyncClock _now;
+
+  /// Local changes still waiting to be sent to the cloud.
+  Future<int> pendingCount(String userId) async =>
+      (await _getPending(userId.trim())).length;
 
   Future<SyncRunResult> synchronize(String userId) async {
     final normalizedUserId = userId.trim();
@@ -96,6 +112,9 @@ class SyncService {
   Future<SyncRunResult> _synchronize(String normalizedUserId) async {
     final startedAt = _now().toUtc();
 
+    // Before anything is bound, claimed, uploaded or downloaded.
+    await _firstLinkGuard?.call(normalizedUserId);
+
     final attachAccount = _attachAccount;
     final int claimedUnownedCount;
 
@@ -114,6 +133,7 @@ class SyncService {
     if (pushIsolated == null) {
       await _pushPending(normalizedUserId);
       pulledRecordCount = await _pullAll(normalizedUserId);
+      await _syncArchive?.call(normalizedUserId);
     } else {
       // Safety holds throw here and stop the run before any pull.
       final report = await pushIsolated(normalizedUserId);
@@ -122,9 +142,23 @@ class SyncService {
       // and never overwrites, records with pending local mutations.
       pulledRecordCount = await _pullAll(normalizedUserId);
 
+      // The archive does not depend on the library push having finished;
+      // a failure of either is reported, the library's first.
+      Object? archiveError;
+      StackTrace? archiveStack;
+      try {
+        await _syncArchive?.call(normalizedUserId);
+      } catch (error, stackTrace) {
+        archiveError = error;
+        archiveStack = stackTrace;
+      }
+
       if (!report.isComplete) {
         final first = report.failures.first;
         Error.throwWithStackTrace(first.error, first.stackTrace);
+      }
+      if (archiveError != null) {
+        Error.throwWithStackTrace(archiveError, archiveStack!);
       }
     }
 

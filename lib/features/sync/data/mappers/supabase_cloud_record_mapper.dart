@@ -102,6 +102,30 @@ abstract final class SupabaseCloudRecordMapper {
           SupabaseSyncContract.artworkIdColumn: record.artworkId,
           SupabaseSyncContract.metadataFieldStatesColumn:
               _metadataFieldStatesToJson(record.metadataFieldStates),
+          if (record.editionMemberships case final memberships?)
+            SupabaseSyncContract.editionMembershipsColumn: [
+              for (final membership in memberships)
+                {
+                  'album_edition_id': membership.albumEditionId,
+                  'disc_number': membership.discNumber,
+                  'track_number': membership.trackNumber,
+                  'sort_position': membership.sortPosition,
+                  'numbering_authority': membership.numberingAuthority,
+                  'ordering_authority': membership.orderingAuthority,
+                },
+            ],
+          if (record.artistCredits case final credits?)
+            SupabaseSyncContract.artistCreditsColumn: [
+              for (final credit in credits)
+                {
+                  'id': credit.id,
+                  'artist_id': credit.artistId,
+                  'credited_name': credit.creditedName,
+                  'canonical_credited_name': credit.canonicalCreditedName,
+                  'role': credit.role,
+                  'position': credit.position,
+                },
+            ],
         });
 
       case CloudArtworkAssetRecord():
@@ -265,10 +289,56 @@ abstract final class SupabaseCloudRecordMapper {
       isLeak: _boolOrDefault(row, SupabaseSyncContract.isLeakColumn, false),
       artworkId: _optionalString(row, SupabaseSyncContract.artworkIdColumn),
       metadataFieldStates: _metadataFieldStatesFromJson(row),
+      editionMemberships: _optionalObjectList(
+        row,
+        SupabaseSyncContract.editionMembershipsColumn,
+        (item) => CloudEditionMembership(
+          albumEditionId: _requiredString(item, 'album_edition_id'),
+          discNumber: _requiredInt(item, 'disc_number'),
+          trackNumber: _requiredInt(item, 'track_number'),
+          sortPosition: _requiredInt(item, 'sort_position'),
+          numberingAuthority: _requiredString(item, 'numbering_authority'),
+          orderingAuthority: _requiredString(item, 'ordering_authority'),
+        ),
+      ),
+      artistCredits: _optionalObjectList(
+        row,
+        SupabaseSyncContract.artistCreditsColumn,
+        (item) => CloudSongCredit(
+          id: _requiredString(item, 'id'),
+          artistId: _optionalString(item, 'artist_id'),
+          creditedName: _requiredString(item, 'credited_name'),
+          canonicalCreditedName: _requiredString(
+            item,
+            'canonical_credited_name',
+          ),
+          role: _requiredString(item, 'role'),
+          position: _requiredInt(item, 'position'),
+        ),
+      ),
       createdAt: _requiredDateTime(row, SupabaseSyncContract.createdAtColumn),
       updatedAt: _requiredDateTime(row, SupabaseSyncContract.updatedAtColumn),
       deletedAt: _optionalDateTime(row, SupabaseSyncContract.deletedAtColumn),
     );
+  }
+
+  /// A JSON array column. Missing or null means not provided.
+  static List<T>? _optionalObjectList<T>(
+    Map<String, dynamic> row,
+    String column,
+    T Function(Map<String, dynamic> item) parse,
+  ) {
+    final value = row[column];
+    if (value == null) return null;
+    if (value is! List) throw StateError('Invalid $column.');
+
+    return List<T>.unmodifiable([
+      for (final item in value)
+        if (item is Map)
+          parse(Map<String, dynamic>.from(item))
+        else
+          throw StateError('Invalid $column item.'),
+    ]);
   }
 
   static CloudArtworkAssetRecord _artworkFromRow(Map<String, dynamic> row) {

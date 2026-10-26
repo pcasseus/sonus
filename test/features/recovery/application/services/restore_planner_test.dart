@@ -77,7 +77,7 @@ void main() {
 
     final plan = await planner.plan(contents);
 
-    expect(plan.tables, hasLength(17));
+    expect(plan.tables, hasLength(20));
     expect(plan.totalRemoved, 0);
     expect(plan.totalUpdated, 0);
     expect(plan.totalAdded, contents.backup.payload.totalRows);

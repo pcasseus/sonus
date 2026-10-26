@@ -1138,6 +1138,7 @@ LibraryArtist createArtist({
   int albumCount = 1,
   int songCount = 1,
   String? headerArtworkPath,
+  String? topArtistsArtworkPath,
 }) {
   return LibraryArtist(
     artistId: artistId,
@@ -1145,6 +1146,7 @@ LibraryArtist createArtist({
     albumCount: albumCount,
     songCount: songCount,
     headerArtworkPath: headerArtworkPath,
+    topArtistsArtworkPath: topArtistsArtworkPath,
     dateAdded: DateTime(2026, 1, 1),
   );
 }

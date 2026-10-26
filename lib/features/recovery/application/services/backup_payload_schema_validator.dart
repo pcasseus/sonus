@@ -27,6 +27,7 @@ class BackupPayloadSchemaValidator {
       final rows = payload.tables[table];
 
       if (rows == null) {
+        if (!coverage.requiredInEveryBackup) continue;
         throw FormatException('Missing portable table $table.');
       }
 

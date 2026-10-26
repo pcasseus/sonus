@@ -50,10 +50,19 @@ class AlbumEditionManagementService {
 
   final SyncMutationRunner mutationRunner;
 
+  /// Creates an edition of the album.
+  ///
+  /// With [includeSongsFrom] (for example the Standard edition, when
+  /// creating Deluxe), the new edition starts with every song that edition
+  /// lists, in the same order and with the same disc and track numbers.
+  /// These are the same songs, not copies: their IDs, listening history
+  /// and playlist entries are unchanged. Everything happens in one
+  /// transaction.
   Future<AlbumEdition> createEdition({
     required String albumId,
     required String title,
     required AlbumEditionType type,
+    String? includeSongsFrom,
     DateTime? releaseDate,
     String? userId,
     DateTime? now,
@@ -86,6 +95,38 @@ class AlbumEditionManagementService {
 
       await context.albumEditionRepository.create(edition);
       await _recordEdition(context, userId, edition.id);
+
+      final sourceId = includeSongsFrom?.trim();
+
+      if (sourceId != null && sourceId.isNotEmpty) {
+        final source = await _edition(context, sourceId);
+
+        if (source.albumId != album.id) {
+          throw const AlbumEditionManagementException(
+            AlbumEditionRefusal.editionNotFound,
+          );
+        }
+
+        final memberships = await context.albumEditionTrackRepository
+            .getByEditionId(source.id);
+
+        for (final membership in memberships) {
+          await context.albumEditionTrackRepository.create(
+            AlbumEditionTrack(
+              albumEditionId: edition.id,
+              songId: membership.songId,
+              discNumber: membership.discNumber,
+              trackNumber: membership.trackNumber,
+              sortPosition: membership.sortPosition,
+              numberingAuthority: membership.numberingAuthority,
+              orderingAuthority: membership.orderingAuthority,
+              createdAt: timestamp,
+              updatedAt: timestamp,
+            ),
+          );
+          await _recordSong(context, userId, membership.songId);
+        }
+      }
 
       return edition;
     });
@@ -157,6 +198,7 @@ class AlbumEditionManagementService {
   Future<int> assignTracks({
     required String editionId,
     required List<String> songIds,
+    String? userId,
     DateTime? now,
   }) {
     final timestamp = now ?? DateTime.now();
@@ -197,6 +239,7 @@ class AlbumEditionManagementService {
             updatedAt: timestamp,
           ),
         );
+        await _recordSong(context, userId, song.id);
         added++;
       }
 
@@ -267,6 +310,7 @@ class AlbumEditionManagementService {
         editionId: edition.id,
         songId: song.id,
       );
+      await _recordSong(context, userId, song.id);
     });
   }
 
@@ -367,6 +411,20 @@ class AlbumEditionManagementService {
     }
 
     return song;
+  }
+
+  /// A song's edition listings travel with the song to the cloud, so any
+  /// change to them queues the song.
+  static Future<void> _recordSong(
+    SyncMutationContext context,
+    String? userId,
+    String songId,
+  ) {
+    return context.localSyncRepository.recordUpsert(
+      userId: userId?.trim(),
+      entityType: CloudDataEntity.song,
+      entityId: songId,
+    );
   }
 
   static Future<void> _recordEdition(

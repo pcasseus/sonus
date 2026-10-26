@@ -47,6 +47,9 @@ dependencies:
     path: third_party/audio_service
   file_picker: ^12.3.0
   supabase_flutter: 2.17.2
+  # Already shipped through supabase_flutter; declared to give sync requests
+  # connect, response and transfer timeouts (SN-45).
+  http: 1.6.0
   google_sign_in: 7.2.0
   media_metadata: ^2.2.2
   saf: ^2.1.2

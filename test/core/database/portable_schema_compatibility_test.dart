@@ -69,8 +69,16 @@ void main() {
 
   test('only versions proven by this file are restorable', () {
     // Adding a version requires extending the migration proof below.
-    expect(BackupCompatibility.restorableDatabaseVersions, {31, 32, 33, 34});
-    expect(AppDatabase.databaseVersion, 34);
+    expect(BackupCompatibility.restorableDatabaseVersions, {
+      31,
+      32,
+      33,
+      34,
+      35,
+      36,
+      37,
+    });
+    expect(AppDatabase.databaseVersion, 37);
   });
 
   test('the fixture is a real version 31 database', () async {
@@ -91,9 +99,12 @@ void main() {
     final v31 = await openWithoutMigrating(await copyOfV31('v31.db'));
     final v32 = await migrateTo(await copyOfV31('v32.db'), 32);
     final v33 = await migrateTo(await copyOfV31('v33.db'), 33);
-    final v34 = AppDatabase(
+    final v34 = await migrateTo(await copyOfV31('v34.db'), 34);
+    final v35 = await migrateTo(await copyOfV31('v35.db'), 35);
+    final v36 = await migrateTo(await copyOfV31('v36.db'), 36);
+    final v37 = AppDatabase(
       databaseFactory: databaseFactoryFfi,
-      databasePath: await copyOfV31('v34.db'),
+      databasePath: await copyOfV31('v37.db'),
     );
     final fresh = AppDatabase(
       databaseFactory: databaseFactoryFfi,
@@ -105,16 +116,35 @@ void main() {
 
       expect(await userVersion(v32), 32);
       expect(await userVersion(v33), 33);
-      expect(await userVersion(await v34.database), 34);
-      expect(await _portableSchema(v31), reference);
-      expect(await _portableSchema(v32), reference);
-      expect(await _portableSchema(v33), reference);
-      expect(await _portableSchema(await v34.database), reference);
+      expect(await userVersion(v34), 34);
+      expect(await userVersion(v35), 35);
+      expect(await userVersion(v36), 36);
+      expect(await userVersion(await v37.database), 37);
+      // Required tables are identical everywhere; an optional table is
+      // identical wherever the version has it.
+      void expectCompatible(Map<String, Object> schema) {
+        expect(
+          schema.keys,
+          containsAll(BackupCoverageContract.requiredPortableTableNames),
+        );
+        expect(schema, {for (final t in schema.keys) t: reference[t]});
+      }
+
+      expectCompatible(await _portableSchema(v31));
+      expectCompatible(await _portableSchema(v32));
+      expectCompatible(await _portableSchema(v33));
+      expectCompatible(await _portableSchema(v34));
+      expectCompatible(await _portableSchema(v35));
+      expectCompatible(await _portableSchema(v36));
+      expect(await _portableSchema(await v37.database), reference);
     } finally {
       await v31.close();
       await v32.close();
       await v33.close();
       await v34.close();
+      await v35.close();
+      await v36.close();
+      await v37.close();
       await fresh.close();
     }
   });
@@ -139,7 +169,12 @@ void main() {
       final db = await upgraded.database;
       final rowsAfter = await _allRows(db);
 
-      expect(await userVersion(db), 34);
+      expect(await userVersion(db), 37);
+      expect(
+        rowsAfter[DatabaseTables.artworkCrops],
+        isEmpty,
+        reason: 'migration 35 must not invent crops',
+      );
       expect(
         rowsAfter[DatabaseTables.albumReleaseClassifications],
         isEmpty,
@@ -152,11 +187,18 @@ void main() {
         reason: 'migration 32 must not invent replay obligations',
       );
       expect(rowsAfter[SyncSchema.outboundConflictsTable], isEmpty);
+      expect(
+        rowsAfter[DatabaseTables.cloudArchiveState],
+        isEmpty,
+        reason: 'migration 37 must not claim any archive agreement',
+      );
       rowsAfter
+        ..remove(DatabaseTables.cloudArchiveState)
         ..remove(SyncSchema.inboundDeferredRecordsTable)
         ..remove(SyncSchema.outboundConflictsTable)
         ..remove(DatabaseTables.albumReleaseClassifications)
-        ..remove(DatabaseTables.artistProjectAssignments);
+        ..remove(DatabaseTables.artistProjectAssignments)
+        ..remove(DatabaseTables.artworkCrops);
       expect(rowsAfter, rowsBefore);
 
       // The fixture carries real library, ownership, and sync rows.
@@ -183,6 +225,11 @@ Future<Map<String, Object>> _portableSchema(DatabaseExecutor db) async {
   for (final coverage in BackupCoverageContract.portableTables) {
     // Table names come from the backup coverage contract.
     final table = coverage.table;
+    final columns = await db.rawQuery('PRAGMA table_info("$table")');
+
+    // Optional portable tables may predate this version.
+    if (columns.isEmpty && !coverage.requiredInEveryBackup) continue;
+
     final indexes = <Object>[];
 
     for (final index in await db.rawQuery('PRAGMA index_list("$table")')) {
@@ -198,7 +245,7 @@ Future<Map<String, Object>> _portableSchema(DatabaseExecutor db) async {
     indexes.sort((a, b) => '$a'.compareTo('$b'));
 
     schema[table] = {
-      'columns': await db.rawQuery('PRAGMA table_info("$table")'),
+      'columns': columns,
       'foreignKeys': await db.rawQuery('PRAGMA foreign_key_list("$table")'),
       'indexes': indexes,
     };

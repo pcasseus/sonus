@@ -1,3 +1,5 @@
+import '../../../player/presentation/models/now_playing_mark.dart';
+import 'package:flutter/rendering.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -19,6 +21,8 @@ import '../../application/services/external_metadata_proposal_service.dart';
 import '../../application/services/metadata_provider.dart';
 import '../../application/models/library_track.dart';
 import '../../application/models/library_track_order.dart';
+import '../models/alphabet_index.dart';
+import '../widgets/alphabet_rail.dart';
 import '../../application/repositories/library_query_repository.dart';
 import '../../application/services/artist_creation_service.dart';
 import '../../application/services/song_block_service.dart';
@@ -45,9 +49,19 @@ class _TracksPageState extends State<TracksPage> {
   LibraryTracksController? _controller;
   LibraryQueryRepository? _repository;
 
+  final ScrollController _scroll = ScrollController();
+  final GlobalKey _listStartKey = GlobalKey();
+  final GlobalKey _jumpTargetKey = GlobalKey();
+  String? _jumpSongId;
+  String? _scrubLetter;
+
+  List<LibraryTrack>? _indexedTracks;
+  LibraryTrackOrder? _indexedOrder;
+  AlphabetIndex? _index;
+
   /// The song now playing, read from the player without changing it. Only
-  /// changes of song rebuild the list, not every position update.
-  Stream<String?>? _currentSongIds;
+  /// changes of song or play state rebuild the list, not position updates.
+  Stream<NowPlayingMark>? _nowPlaying;
   PlaybackCoordinator? _coordinator;
 
   @override
@@ -68,9 +82,7 @@ class _TracksPageState extends State<TracksPage> {
     final coordinator = context.read<PlaybackCoordinator>();
     if (!identical(coordinator, _coordinator)) {
       _coordinator = coordinator;
-      _currentSongIds = coordinator.states
-          .map((state) => state.queue.currentTrack?.songId)
-          .distinct();
+      _nowPlaying = NowPlayingMark.changes(coordinator);
     }
 
     _controller = LibraryTracksController(
@@ -90,6 +102,55 @@ class _TracksPageState extends State<TracksPage> {
       onChange: () => unawaited(controller.refresh()),
     );
     unawaited(controller.load());
+  }
+
+  /// The letter index for the list on screen, or null when the sort is not
+  /// alphabetical (date added) or there is only one letter.
+  AlphabetIndex? _alphabetFor(
+    List<LibraryTrack> tracks,
+    LibraryTrackOrder order,
+  ) {
+    if (order == LibraryTrackOrder.dateAdded) return null;
+    if (!identical(tracks, _indexedTracks) || order != _indexedOrder) {
+      _indexedTracks = tracks;
+      _indexedOrder = order;
+      _index = AlphabetIndex.build([
+        for (final track in tracks)
+          order == LibraryTrackOrder.artist ? track.artistName : track.title,
+      ]);
+    }
+    final index = _index;
+    return index != null && index.isUseful ? index : null;
+  }
+
+  void _jumpToLetter(
+    String letter,
+    AlphabetIndex index,
+    List<LibraryTrack> tracks,
+  ) {
+    final row = index.indexFor(letter);
+    final start = _listStartKey.currentContext?.findRenderObject();
+    if (row == null || start is! RenderBox || !_scroll.hasClients) return;
+
+    final position = _scroll.position;
+    final viewport = RenderAbstractViewport.of(start);
+    final listStart = viewport.getOffsetToReveal(start, 0).offset;
+    // The list's average row height, as the scroll view currently
+    // estimates it; the exact row is then brought to the top.
+    final listExtent =
+        position.maxScrollExtent + position.viewportDimension - listStart;
+    final rowHeight = tracks.isEmpty ? 0.0 : listExtent / tracks.length;
+    _scroll.jumpTo(
+      (listStart + row * rowHeight).clamp(0.0, position.maxScrollExtent),
+    );
+
+    setState(() => _jumpSongId = tracks[row].songId);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final target = _jumpTargetKey.currentContext;
+      if (target != null && mounted) {
+        Scrollable.ensureVisible(target, alignment: 0);
+      }
+    });
   }
 
   @override
@@ -141,15 +202,19 @@ class _TracksPageState extends State<TracksPage> {
           }
 
           final gutter = SonusTheme.of(context).metrics.pageGutter;
+          final alphabet = _alphabetFor(visibleTracks, controller.order);
+          final railSpace = alphabet == null ? 0.0 : AlphabetRail.width + 2;
 
-          return RefreshIndicator(
+          final list = RefreshIndicator(
             onRefresh: controller.refresh,
-            child: StreamBuilder<String?>(
-              stream: _currentSongIds,
-              initialData:
-                  _coordinator?.currentState.queue.currentTrack?.songId,
+            child: StreamBuilder<NowPlayingMark>(
+              stream: _nowPlaying,
+              initialData: _coordinator == null
+                  ? const NowPlayingMark()
+                  : NowPlayingMark.of(_coordinator!.currentState),
               builder: (context, current) => CustomScrollView(
                 key: const PageStorageKey<String>('tracks-list'),
+                controller: _scroll,
                 physics: const AlwaysScrollableScrollPhysics(),
                 slivers: [
                   SliverToBoxAdapter(
@@ -158,11 +223,14 @@ class _TracksPageState extends State<TracksPage> {
                   SliverToBoxAdapter(
                     child: _TracksControls(controller: controller),
                   ),
+                  SliverToBoxAdapter(
+                    child: SizedBox(key: _listStartKey, height: 0),
+                  ),
                   SliverPadding(
                     padding: EdgeInsets.fromLTRB(
                       gutter - 4,
                       4,
-                      gutter - 4,
+                      gutter - 4 + railSpace,
                       120 + MediaQuery.paddingOf(context).bottom,
                     ),
                     // Lazy: only rows on screen are built, for large libraries.
@@ -171,10 +239,11 @@ class _TracksPageState extends State<TracksPage> {
                       itemBuilder: (context, index) {
                         final track = visibleTracks[index];
 
-                        return _TrackTile(
+                        final tile = _TrackTile(
                           track: track,
                           isPlayable: controller.isTrackPlayable(track),
-                          isCurrent: current.data == track.songId,
+                          isCurrent: current.data?.marks(track.songId) ?? false,
+                          isNowPlaying: current.data?.isPlaying ?? false,
                           canEditArtwork: controller.canEditArtwork,
                           canEditTrack: controller.canEditTrack(userId),
                           canSetBlocked: controller.canSetTrackBlocked(userId),
@@ -196,12 +265,39 @@ class _TracksPageState extends State<TracksPage> {
                             isBlocked,
                           ),
                         );
+
+                        return track.songId == _jumpSongId
+                            ? KeyedSubtree(key: _jumpTargetKey, child: tile)
+                            : tile;
                       },
                     ),
                   ),
                 ],
               ),
             ),
+          );
+
+          if (alphabet == null) return list;
+
+          final scrubLetter = _scrubLetter;
+          return Stack(
+            children: [
+              list,
+              Positioned(
+                right: 2,
+                top: 8,
+                bottom: 16,
+                child: AlphabetRail(
+                  available: alphabet.available,
+                  onLetter: (letter) =>
+                      _jumpToLetter(letter, alphabet, visibleTracks),
+                  onScrubbing: (letter) =>
+                      setState(() => _scrubLetter = letter),
+                ),
+              ),
+              if (scrubLetter != null)
+                Center(child: AlphabetScrubBubble(letter: scrubLetter)),
+            ],
           );
         },
       ),
@@ -430,6 +526,7 @@ class _TracksPageState extends State<TracksPage> {
 
   @override
   void dispose() {
+    _scroll.dispose();
     _refresher?.dispose();
     _controller?.dispose();
     super.dispose();
@@ -592,6 +689,7 @@ class _TrackTile extends StatelessWidget {
     required this.track,
     required this.isPlayable,
     required this.isCurrent,
+    this.isNowPlaying = false,
     required this.canEditArtwork,
     required this.canEditTrack,
     required this.canSetBlocked,
@@ -608,6 +706,7 @@ class _TrackTile extends StatelessWidget {
   final LibraryTrack track;
   final bool isPlayable;
   final bool isCurrent;
+  final bool isNowPlaying;
   final bool canEditArtwork;
   final bool canEditTrack;
   final bool canSetBlocked;
@@ -642,6 +741,7 @@ class _TrackTile extends StatelessWidget {
       durationKey: ValueKey<String>('track-duration-${track.songId}'),
       enabled: isPlayable,
       isCurrent: isCurrent,
+      isPlaying: isNowPlaying,
       tileColor: tokens.colors.surface,
       onTap: () {
         unawaited(onPlay());

@@ -1,3 +1,8 @@
+import '../../../../core/design/widgets/playback/sonus_playing_indicator.dart';
+import '../../../player/presentation/models/now_playing_mark.dart';
+import '../../../artwork/presentation/pages/artwork_crop_editor_page.dart';
+import '../../../artwork/domain/entities/artwork_crop.dart';
+import '../../../artwork/application/services/artwork_crop_service.dart';
 import 'dart:async';
 import 'dart:io';
 
@@ -45,12 +50,17 @@ class AlbumProfilePage extends StatefulWidget {
     super.key,
     required this.albumId,
     this.initialAlbumTitle,
+    this.initialEditionId,
     this.artworkPalette,
     this.changes,
   });
 
   final String albumId;
   final String? initialAlbumTitle;
+
+  /// Opens on this edition when it belongs to the album, for example the
+  /// edition a linked song is on.
+  final String? initialEditionId;
 
   /// Where artwork colours come from; the app-wide cache by default.
   final SonusArtworkPalette? artworkPalette;
@@ -128,6 +138,7 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
     _controller = AlbumProfileController(
       repository: repository,
       albumId: widget.albumId,
+      initialEditionId: widget.initialEditionId,
       playbackCoordinator: context.read<PlaybackCoordinator?>(),
       albumProfileEditingService: context.read<AlbumProfileEditingService?>(),
       albumEditionTrackOrderingService: context
@@ -137,6 +148,7 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
       songBlockService: context.read<SongBlockService?>(),
       artworkAssignmentService: context.read<ArtworkAssignmentService?>(),
       artworkFilePicker: context.read<ArtworkFilePicker?>(),
+      artworkCropService: context.read<ArtworkCropService?>(),
     );
 
     // The artwork can change without this State rebuilding: when the album
@@ -410,6 +422,9 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
                     _AlbumMenuAction.clearArtwork,
                   )
                 : null,
+            onRepositionArtwork: controller.canCropArtwork
+                ? () => _repositionArtwork(controller)
+                : null,
           );
         },
       ),
@@ -483,7 +498,10 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
       final changed = switch (action) {
         _AlbumMenuAction.studio => false,
         _AlbumMenuAction.editProfile => false,
-        _AlbumMenuAction.changeArtwork => await controller.changeArtwork(),
+        _AlbumMenuAction.changeArtwork =>
+          controller.canCropArtwork
+              ? await _pickAndCropArtwork(controller)
+              : await controller.changeArtwork(),
         _AlbumMenuAction.clearArtwork => await controller.clearArtwork(),
       };
 
@@ -491,11 +509,21 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
         return;
       }
 
+      // Each edition has its own cover, so name it when there are several.
+      final edition = controller.editions.length > 1
+          ? controller.selectedEdition?.title
+          : null;
       final message = switch (action) {
         _AlbumMenuAction.studio => '',
         _AlbumMenuAction.editProfile => '',
-        _AlbumMenuAction.changeArtwork => 'Album artwork updated.',
-        _AlbumMenuAction.clearArtwork => 'Album artwork cleared.',
+        _AlbumMenuAction.changeArtwork =>
+          edition == null
+              ? 'Album artwork updated.'
+              : 'Cover updated for $edition.',
+        _AlbumMenuAction.clearArtwork =>
+          edition == null
+              ? 'Album artwork cleared.'
+              : 'Cover cleared for $edition.',
       };
 
       ScaffoldMessenger.of(
@@ -509,6 +537,82 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Could not update album artwork.')),
       );
+    }
+  }
+
+  /// Change artwork (SN-45): choose an image, then crop it to the cover.
+  Future<bool> _pickAndCropArtwork(AlbumProfileController controller) async {
+    final path = await controller.pickArtworkFile();
+
+    if (path == null || !mounted) {
+      return false;
+    }
+
+    final decision = await showArtworkCropEditor(
+      context,
+      imagePath: path,
+      target: ArtworkCropTarget.albumEdition,
+    );
+
+    if (decision is! ArtworkCropSave) {
+      return false;
+    }
+
+    return controller.applyArtworkCrop(sourcePath: path, rect: decision.rect);
+  }
+
+  /// Reposition cover: reopens the original at its saved crop.
+  Future<void> _repositionArtwork(AlbumProfileController controller) async {
+    final messenger = ScaffoldMessenger.of(context);
+
+    try {
+      final source = await controller.artworkRepositionSource();
+
+      if (!mounted) {
+        return;
+      }
+
+      if (source == null) {
+        messenger.showSnackBar(
+          const SnackBar(
+            content: Text('This edition has no cover of its own to move.'),
+          ),
+        );
+        return;
+      }
+
+      final decision = await showArtworkCropEditor(
+        context,
+        imagePath: source.filePath,
+        target: ArtworkCropTarget.albumEdition,
+        initialRect: source.rect,
+        canReset: source.isRecropping,
+      );
+
+      final String? message = switch (decision) {
+        ArtworkCropSave(:final rect) =>
+          await controller.applyArtworkCrop(
+                sourcePath: source.filePath,
+                rect: rect,
+              )
+              ? 'Cover repositioned.'
+              : null,
+        ArtworkCropReset() =>
+          await controller.resetArtworkCrop()
+              ? 'The full original cover is back.'
+              : null,
+        null => null,
+      };
+
+      if (message != null && mounted) {
+        messenger.showSnackBar(SnackBar(content: Text(message)));
+      }
+    } catch (_) {
+      if (mounted) {
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Could not reposition the cover.')),
+        );
+      }
     }
   }
 
@@ -1500,7 +1604,26 @@ class _TracksList extends StatelessWidget {
     // follow the list's existing order; nothing is re-sorted here.
     final multiDisc =
         tracks.map((track) => track.discNumber).toSet().length > 1;
+    final coordinator = context.read<PlaybackCoordinator?>();
 
+    return StreamBuilder<NowPlayingMark>(
+      stream: coordinator == null ? null : NowPlayingMark.changes(coordinator),
+      initialData: coordinator == null
+          ? const NowPlayingMark()
+          : NowPlayingMark.of(coordinator.currentState),
+      builder: (context, snapshot) {
+        final mark = snapshot.data ?? const NowPlayingMark();
+        return _rows(context, tracks, multiDisc, mark);
+      },
+    );
+  }
+
+  Widget _rows(
+    BuildContext context,
+    List<LibraryTrack> tracks,
+    bool multiDisc,
+    NowPlayingMark mark,
+  ) {
     return Column(
       key: const ValueKey<String>('album-profile-tracks-list'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1511,6 +1634,8 @@ class _TracksList extends StatelessWidget {
             _DiscHeading(disc: track.discNumber, index: index),
           _TrackTile(
             track: track,
+            isCurrent: mark.marks(track.songId),
+            isNowPlaying: mark.isPlaying,
             selectedEditionTitle: controller.selectedEdition?.title,
             isPlayable: controller.isTrackPlayable(track),
             canEditArtwork: controller.canEditTrackArtwork,
@@ -1565,6 +1690,8 @@ class _DiscHeading extends StatelessWidget {
 class _TrackTile extends StatelessWidget {
   const _TrackTile({
     required this.track,
+    this.isCurrent = false,
+    this.isNowPlaying = false,
     this.selectedEditionTitle,
     required this.isPlayable,
     required this.canEditArtwork,
@@ -1581,6 +1708,8 @@ class _TrackTile extends StatelessWidget {
   });
 
   final LibraryTrack track;
+  final bool isCurrent;
+  final bool isNowPlaying;
 
   /// The edition on screen; a row names its edition only when it differs.
   final String? selectedEditionTitle;
@@ -1621,23 +1750,34 @@ class _TrackTile extends StatelessWidget {
         constraints: BoxConstraints(
           minWidth: MediaQuery.textScalerOf(context).scale(28),
         ),
-        child: Text(
-          '${track.trackNumber}',
-          textAlign: TextAlign.center,
-          maxLines: 1,
-          softWrap: false,
-          style: theme.textTheme.titleSmall?.copyWith(
-            color: colors.textSecondary,
-            fontWeight: FontWeight.w700,
-            fontFeatures: tabular,
-          ),
-        ),
+        child: isCurrent
+            ? SizedBox(
+                key: ValueKey<String>('album-track-playing-${track.songId}'),
+                width: MediaQuery.textScalerOf(context).scale(28),
+                child: Center(
+                  child: SonusPlayingIndicator(isPlaying: isNowPlaying),
+                ),
+              )
+            : Text(
+                '${track.trackNumber}',
+                textAlign: TextAlign.center,
+                maxLines: 1,
+                softWrap: false,
+                style: theme.textTheme.titleSmall?.copyWith(
+                  color: colors.textSecondary,
+                  fontWeight: FontWeight.w700,
+                  fontFeatures: tabular,
+                ),
+              ),
       ),
       title: Text(
         track.title,
         maxLines: largeText ? 3 : 2,
         overflow: TextOverflow.ellipsis,
-        style: theme.textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
+        style: theme.textTheme.bodyLarge?.copyWith(
+          fontWeight: isCurrent ? FontWeight.w800 : FontWeight.w600,
+          color: isCurrent ? colors.accentPrimary : null,
+        ),
       ),
       subtitle: _subtitle(track, colors, duration: largeText ? duration : null),
       trailing: Row(

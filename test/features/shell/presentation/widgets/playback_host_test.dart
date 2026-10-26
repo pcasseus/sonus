@@ -2,6 +2,7 @@
 // pages (albums, artists, Studios, Settings, Import) had no playback
 // controls. One host now places it below every route.
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
@@ -10,6 +11,7 @@ import 'package:sonus_next/features/player/data/engines/just_audio_playback_engi
 import 'package:sonus_next/features/player/domain/models/playback_track.dart';
 import 'package:sonus_next/features/player/presentation/controllers/lyrics_controller.dart';
 import 'package:sonus_next/features/player/presentation/controllers/playback_state_controller.dart';
+import 'package:sonus_next/features/player/presentation/pages/now_playing_page.dart';
 import 'package:sonus_next/features/player/presentation/pages/playback_queue_page.dart';
 import 'package:sonus_next/features/shell/presentation/widgets/playback_host.dart';
 
@@ -31,6 +33,7 @@ void main() {
   late PlaybackCoordinator coordinator;
   late PlaybackStateController stateController;
   late GlobalKey<NavigatorState> navigatorKey;
+  late PlaybackHostRouteObserver hostRoutes;
 
   setUp(() {
     engine = JustAudioPlaybackEngine(
@@ -50,7 +53,7 @@ void main() {
   Future<void> pumpApp(WidgetTester tester) async {
     await tester.binding.setSurfaceSize(const Size(400, 800));
     addTearDown(() => tester.binding.setSurfaceSize(null));
-    final routes = PlaybackHostRouteObserver();
+    final routes = hostRoutes = PlaybackHostRouteObserver();
 
     await tester.pumpWidget(
       MultiProvider(
@@ -183,5 +186,197 @@ void main() {
     await tester.pump();
 
     expect(stateController.state.isPlaying, isTrue);
+  });
+
+  group('SN-45 mini-player and Now Playing', () {
+    final nowPlaying = find.byType(NowPlayingPage);
+
+    testWidgets('an upward swipe on the bar opens Now Playing', (tester) async {
+      await pumpApp(tester);
+      await startPlaying(tester);
+
+      await tester.fling(miniPlayer, const Offset(0, -200), 1000);
+      await tester.pumpAndSettle();
+
+      expect(nowPlaying, findsOneWidget);
+    });
+
+    testWidgets('tapping twice still opens one Now Playing', (tester) async {
+      await pumpApp(tester);
+      await startPlaying(tester);
+      final open = find.byKey(const ValueKey<String>('mini-player-open'));
+
+      final seen = <double>[];
+      hostRoutes.nowPlayingCoverage.addListener(
+        () => seen.add(hostRoutes.nowPlayingCoverage.value),
+      );
+      await tester.tap(open);
+      await tester.pump();
+      // The bar never vanishes for a frame when Now Playing is pushed.
+      expect(bar, findsOneWidget);
+      await tester.pump(const Duration(milliseconds: 40));
+      await tester.tap(open, warnIfMissed: false);
+      await tester.pumpAndSettle();
+
+      expect(nowPlaying, findsOneWidget);
+      // Coverage only ever grows while opening: no flicker back to 0.
+      expect(seen.first, lessThan(0.5));
+      for (var i = 1; i < seen.length; i++) {
+        expect(seen[i], greaterThanOrEqualTo(seen[i - 1]));
+      }
+      navigatorKey.currentState!.pop();
+      await tester.pumpAndSettle();
+      expect(nowPlaying, findsNothing, reason: 'one pop closes it');
+      expect(miniPlayer, findsOneWidget);
+    });
+
+    testWidgets('the bar folds away while Now Playing rises, no jump', (
+      tester,
+    ) async {
+      await pumpApp(tester);
+      await startPlaying(tester);
+      final barTop = tester.getTopLeft(bar).dy;
+
+      await tester.tap(find.byKey(const ValueKey<String>('mini-player-open')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 120));
+
+      // Part way: the bar is still there, partly folded.
+      expect(bar, findsOneWidget);
+      final folding = tester.getTopLeft(bar).dy;
+      expect(folding, greaterThan(barTop));
+      expect(folding, lessThan(800));
+
+      await tester.pumpAndSettle();
+      expect(bar, findsNothing);
+
+      // And it unfolds again as Now Playing closes.
+      navigatorKey.currentState!.pop();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 160));
+      expect(bar, findsOneWidget);
+      await tester.pumpAndSettle();
+      expect(tester.getTopLeft(bar).dy, barTop);
+    });
+
+    testWidgets('with reduced motion the bar folds away at once', (
+      tester,
+    ) async {
+      await pumpApp(tester);
+      await startPlaying(tester);
+      tester.platformDispatcher.accessibilityFeaturesTestValue =
+          const FakeAccessibilityFeatures(disableAnimations: true);
+      addTearDown(
+        tester.platformDispatcher.clearAccessibilityFeaturesTestValue,
+      );
+      await tester.pump();
+
+      await tester.tap(find.byKey(const ValueKey<String>('mini-player-open')));
+      await tester.pump();
+      await tester.pump();
+
+      expect(nowPlaying, findsOneWidget);
+      expect(bar, findsNothing);
+    });
+
+    testWidgets('a sideways swipe closes the player while paused', (
+      tester,
+    ) async {
+      await pumpApp(tester);
+      await startPlaying(tester);
+      expect(stateController.state.isPlaying, isFalse);
+
+      await tester.drag(miniPlayer, const Offset(-320, 0));
+      await tester.pumpAndSettle();
+      await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+      await tester.pump();
+
+      expect(stateController.state.queue.isEmpty, isTrue);
+      expect(bar, findsNothing);
+    });
+
+    testWidgets('a sideways swipe never stops music that is playing', (
+      tester,
+    ) async {
+      await pumpApp(tester);
+      await startPlaying(tester);
+      await tester.runAsync(() async {
+        await coordinator.play();
+        await Future<void>.delayed(Duration.zero);
+      });
+      await tester.pump();
+      expect(stateController.state.isPlaying, isTrue);
+
+      await tester.drag(miniPlayer, const Offset(-400, 0));
+      await tester.pumpAndSettle();
+      await tester.runAsync(() => Future<void>.delayed(Duration.zero));
+      await tester.pump();
+
+      expect(stateController.state.isPlaying, isTrue);
+      expect(stateController.state.queue.isNotEmpty, isTrue);
+      expect(miniPlayer, findsOneWidget);
+      // It springs back into place.
+      expect(tester.getTopLeft(miniPlayer).dx, closeTo(8, 0.5));
+    });
+
+    testWidgets('closing is also a screen-reader action, only while paused', (
+      tester,
+    ) async {
+      await pumpApp(tester);
+      await startPlaying(tester);
+
+      Set<String?> actions() => {
+        for (final action
+            in tester
+                    .widget<Semantics>(
+                      find.byWidgetPredicate(
+                        (w) =>
+                            w is Semantics &&
+                            w.properties.label == 'Now playing',
+                      ),
+                    )
+                    .properties
+                    .customSemanticsActions
+                    ?.keys ??
+                const <CustomSemanticsAction>[])
+          action.label,
+      };
+
+      expect(actions(), {'Open Now Playing', 'Close player'});
+
+      await tester.runAsync(() async {
+        await coordinator.play();
+        await Future<void>.delayed(Duration.zero);
+      });
+      await tester.pump();
+
+      expect(actions(), {'Open Now Playing'});
+    });
+
+    testWidgets('the navigation area is reserved and painted, never content', (
+      tester,
+    ) async {
+      tester.view.padding = const FakeViewPadding(bottom: 144);
+      addTearDown(tester.view.resetPadding);
+      await pumpApp(tester);
+
+      final inset = find.byKey(
+        const ValueKey<String>('playback-host-system-inset'),
+      );
+      expect(inset, findsOneWidget);
+      final insetTop = tester.getTopLeft(inset).dy;
+      expect(tester.getSize(inset).height, closeTo(48, 0.5));
+
+      await pushPage(tester, 'Album');
+      final pageBottom = tester
+          .getBottomLeft(find.byKey(const ValueKey('Album')))
+          .dy;
+      expect(pageBottom, lessThanOrEqualTo(insetTop));
+
+      // With music queued, the bar takes the area instead.
+      await startPlaying(tester);
+      expect(inset, findsNothing);
+      expect(bar, findsOneWidget);
+    });
   });
 }

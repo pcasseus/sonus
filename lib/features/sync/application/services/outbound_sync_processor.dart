@@ -1,3 +1,6 @@
+import '../../../library/domain/entities/album_edition_track.dart';
+import '../../../library/domain/repositories/album_edition_track_repository.dart';
+import '../../../library/domain/repositories/song_artist_credit_repository.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../../artwork/domain/repositories/artwork_asset_repository.dart';
@@ -132,6 +135,8 @@ class OutboundSyncProcessor {
     this.recoverArtistWrites,
     this.outboundConflictRepository,
     this.acknowledgeEntry,
+    this.albumEditionTrackRepository,
+    this.songArtistCreditRepository,
     ArtworkVersionGenerator? newArtworkVersion,
     OutboundClock? now,
   }) : _newArtworkVersion = newArtworkVersion ?? const Uuid().v4,
@@ -156,6 +161,11 @@ class OutboundSyncProcessor {
   /// Required with [outboundConflictRepository], so an acknowledged entry
   /// can never leave its conflict behind.
   final AcknowledgeOutboundEntry? acknowledgeEntry;
+
+  /// With these, songs carry every edition listing and their full credits
+  /// (SN-45). Without them, songs upload as before.
+  final AlbumEditionTrackRepository? albumEditionTrackRepository;
+  final SongArtistCreditRepository? songArtistCreditRepository;
   final ArtworkVersionGenerator _newArtworkVersion;
   final OutboundClock _now;
 
@@ -1125,11 +1135,33 @@ class OutboundSyncProcessor {
       entityId: normalizedSongId,
     );
 
+    final memberships = await albumEditionTrackRepository?.getBySongId(
+      normalizedSongId,
+    );
+
+    // Every edition the song is listed on must be in the cloud first.
+    for (final membership in memberships ?? const <AlbumEditionTrack>[]) {
+      await _ensureAlbumEdition(
+        membership.albumEditionId,
+        userId: userId,
+        ensuredArtworkIds: ensuredArtworkIds,
+        ensuredArtistIds: ensuredArtistIds,
+        ensuredAlbumIds: ensuredAlbumIds,
+        ensuredAlbumEditionIds: ensuredAlbumEditionIds,
+      );
+    }
+
+    final credits = await songArtistCreditRepository?.getBySongId(
+      normalizedSongId,
+    );
+
     await _writeRecord(
       CloudRecordMapper.song(
         song: entity,
         userId: userId,
         metadataFieldStates: metadataFieldStates,
+        memberships: memberships,
+        credits: credits,
       ),
       entityType: CloudDataEntity.song,
       explicitEntry: explicitEntry,

@@ -5,12 +5,16 @@ import 'package:path_provider/path_provider.dart';
 import 'package:uuid/uuid.dart';
 
 import '../../application/services/artwork_managed_storage.dart';
+import '../../application/services/managed_artwork_locator.dart';
 import '../../application/services/owned_artwork_managed_storage.dart';
 
 typedef ArtworkStorageDirectoryProvider = Future<Directory> Function();
 
 class FileSystemArtworkManagedStorage
-    implements ArtworkManagedStorage, OwnedArtworkManagedStorage {
+    implements
+        ArtworkManagedStorage,
+        OwnedArtworkManagedStorage,
+        ManagedArtworkLocator {
   FileSystemArtworkManagedStorage({
     ArtworkStorageDirectoryProvider? applicationSupportDirectoryProvider,
     Uuid? uuid,
@@ -89,6 +93,30 @@ class FileSystemArtworkManagedStorage
 
       rethrow;
     }
+  }
+
+  /// Whether [filePath] is an existing file directly inside Sonus's managed
+  /// artwork folder, named as this storage names its files.
+  @override
+  Future<bool> isManagedArtwork(String filePath) async {
+    final trimmed = filePath.trim();
+
+    if (trimmed.isEmpty) {
+      return false;
+    }
+
+    final supportDirectory = await _applicationSupportDirectoryProvider();
+    final artworkDirectory = path.normalize(
+      path.join(supportDirectory.path, 'sonus', 'artwork'),
+    );
+    final normalized = path.normalize(trimmed);
+
+    if (!path.equals(path.dirname(normalized), artworkDirectory) ||
+        !path.basename(normalized).startsWith('artwork_')) {
+      return false;
+    }
+
+    return File(normalized).exists();
   }
 
   @override

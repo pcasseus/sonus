@@ -49,6 +49,9 @@ class RecordingEngine implements PlaybackEngine {
   PlaybackState _state = const PlaybackState();
 
   final List<String> commands = [];
+
+  /// Every queue loaded: song IDs, start index and whether it autoplays.
+  final List<(List<String>, int, bool)> loads = [];
   Object? failWith;
 
   void emit(PlaybackState state) {
@@ -101,7 +104,10 @@ class RecordingEngine implements PlaybackEngine {
     List<PlaybackTrack> tracks, {
     int startIndex = 0,
     bool autoPlay = false,
-  }) => _record('loadQueue');
+  }) {
+    loads.add(([for (final t in tracks) t.songId], startIndex, autoPlay));
+    return _record('loadQueue');
+  }
 
   @override
   Future<void> insertTrack(PlaybackTrack track, {required int index}) =>

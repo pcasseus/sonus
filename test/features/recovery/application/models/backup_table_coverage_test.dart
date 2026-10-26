@@ -9,7 +9,7 @@ void main() {
     final tables = BackupCoverageContract.tables;
     final names = tables.map((entry) => entry.table).toSet();
 
-    expect(tables.length, 31);
+    expect(tables.length, 33);
     expect(names.length, tables.length);
     expect(names.every((name) => name.trim().isNotEmpty), isTrue);
   });
@@ -19,7 +19,7 @@ void main() {
         .map((entry) => entry.table)
         .toSet();
 
-    expect(names.length, 17);
+    expect(names.length, 20);
 
     expect(
       names,
@@ -41,7 +41,48 @@ void main() {
         DatabaseTables.chartMomentEvents,
         DatabaseTables.playlists,
         DatabaseTables.playlistItems,
+        // User-made organization and crop positions (post-SN-45).
+        DatabaseTables.albumReleaseClassifications,
+        DatabaseTables.artistProjectAssignments,
+        DatabaseTables.artworkCrops,
       ]),
+    );
+  });
+
+  test('only the newest portable tables may be missing from a backup', () {
+    expect(
+      BackupCoverageContract.portableTableNames.difference(
+        BackupCoverageContract.requiredPortableTableNames,
+      ),
+      {
+        DatabaseTables.albumReleaseClassifications,
+        DatabaseTables.artistProjectAssignments,
+        DatabaseTables.artworkCrops,
+      },
+    );
+    expect(
+      BackupCoverageContract.isValidBackupTableSet(
+        BackupCoverageContract.requiredPortableTableNames,
+      ),
+      isTrue,
+      reason: 'an older backup',
+    );
+    expect(
+      BackupCoverageContract.isValidBackupTableSet({
+        ...BackupCoverageContract.portableTableNames,
+        DatabaseTables.syncOutbox,
+      }),
+      isFalse,
+      reason: 'never a sync table',
+    );
+    expect(
+      BackupCoverageContract.isValidBackupTableSet(
+        BackupCoverageContract.requiredPortableTableNames.difference({
+          DatabaseTables.songs,
+        }),
+      ),
+      isFalse,
+      reason: 'never without a required table',
     );
   });
 
@@ -51,13 +92,12 @@ void main() {
         .map((entry) => entry.table)
         .toSet();
 
-    expect(local.length, 6);
-    expect(local, contains(DatabaseTables.mediaFileBindings));
-    expect(local, contains(DatabaseTables.importSources));
-    expect(local, contains(DatabaseTables.importBatches));
-    expect(local, contains(DatabaseTables.songImportReviews));
-    expect(local, contains(DatabaseTables.albumReleaseClassifications));
-    expect(local, contains(DatabaseTables.artistProjectAssignments));
+    expect(local, {
+      DatabaseTables.mediaFileBindings,
+      DatabaseTables.importSources,
+      DatabaseTables.importBatches,
+      DatabaseTables.songImportReviews,
+    });
   });
 
   test('protects sync and ownership state from direct restoration', () {
@@ -66,7 +106,7 @@ void main() {
         .map((entry) => entry.table)
         .toSet();
 
-    expect(internal.length, 8);
+    expect(internal.length, 9);
     expect(internal, contains(DatabaseTables.syncState));
     expect(internal, contains(DatabaseTables.syncOutbox));
     expect(internal, contains(DatabaseTables.localAccountBinding));
@@ -75,6 +115,7 @@ void main() {
     expect(internal, contains(SyncSchema.artistDependencyJournalTable));
     expect(internal, contains(SyncSchema.inboundDeferredRecordsTable));
     expect(internal, contains(SyncSchema.outboundConflictsTable));
+    expect(internal, contains(DatabaseTables.cloudArchiveState));
   });
 
   test('every internal sync table is watched as sync state', () {

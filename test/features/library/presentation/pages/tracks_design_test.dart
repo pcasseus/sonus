@@ -117,9 +117,21 @@ void main() {
     expect(find.bySemanticsLabel(RegExp('Now playing')), findsNothing);
 
     engine.playing('short');
-    await tester.pumpAndSettle();
+    // The bars keep moving while playing, so frames are pumped, not settled.
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
 
     expect(find.bySemanticsLabel(RegExp('Now playing')), findsOneWidget);
+
+    engine.playing('short', status: PlaybackStatus.paused);
+    await tester.pumpAndSettle();
+    expect(find.bySemanticsLabel(RegExp('Now playing')), findsNothing);
+    expect(find.bySemanticsLabel(RegExp('Paused')), findsOneWidget);
+
+    // A stopped session marks nothing.
+    engine.playing('short', status: PlaybackStatus.idle);
+    await tester.pumpAndSettle();
+    expect(find.bySemanticsLabel(RegExp('Paused')), findsNothing);
   });
 }
 
@@ -128,8 +140,12 @@ class _NowPlayingEngine implements PlaybackEngine {
   final _states = StreamController<PlaybackState>.broadcast();
   PlaybackState _state = const PlaybackState();
 
-  void playing(String songId) {
+  void playing(
+    String songId, {
+    PlaybackStatus status = PlaybackStatus.playing,
+  }) {
     _state = PlaybackState(
+      status: status,
       queue: PlaybackQueue(
         tracks: [
           PlaybackTrack(

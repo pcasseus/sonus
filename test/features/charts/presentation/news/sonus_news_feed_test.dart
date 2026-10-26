@@ -91,14 +91,24 @@ void main() {
       );
     });
 
-    test('sorts chart news into Sonus Daily and milestones into PulsePop', () {
+    test('Sonus Daily reports chart news; PulsePop covers momentum and '
+        'milestones', () {
       expect(
         SonusNewsDesk.editionFor(ChartMomentEventType.firstNumberOne),
         SonusNewsEdition.sonusDaily,
       );
       expect(
-        SonusNewsDesk.editionFor(ChartMomentEventType.rankRise),
+        SonusNewsDesk.editionFor(ChartMomentEventType.debut),
         SonusNewsEdition.sonusDaily,
+      );
+      expect(
+        SonusNewsDesk.editionFor(ChartMomentEventType.rankFall),
+        SonusNewsEdition.sonusDaily,
+      );
+      // The legacy PulsePop desk owned momentum stories.
+      expect(
+        SonusNewsDesk.editionFor(ChartMomentEventType.rankRise),
+        SonusNewsEdition.pulsePop,
       );
       expect(
         SonusNewsDesk.editionFor(ChartMomentEventType.lifetimeStreamMilestone),

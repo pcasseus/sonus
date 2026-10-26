@@ -166,6 +166,9 @@ class _AccountCloudTile extends StatelessWidget {
   if (sync.isRecoveryHeld) {
     return ('Cloud sync is paused for recovery review.', true);
   }
+  if (sync.isAwaitingCloudChoice) {
+    return ('Your cloud library is waiting for your choice.', true);
+  }
   if (sync.status == SyncStatus.error) {
     return ('Sync could not finish. Sonus will try again.', true);
   }
@@ -175,7 +178,7 @@ class _AccountCloudTile extends StatelessWidget {
 
   return (
     sync.lastSuccessfulSync == null
-        ? '$name · Ready to sync'
+        ? '$name · Not synced yet'
         : '$name · Up to date',
     false,
   );

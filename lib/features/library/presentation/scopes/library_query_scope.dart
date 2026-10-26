@@ -1,3 +1,6 @@
+import '../../../artwork/data/repositories/sqlite_artwork_crop_repository.dart';
+import '../../../artwork/application/services/artwork_crop_service.dart';
+import 'package:path_provider/path_provider.dart';
 import 'dart:async';
 
 import 'package:flutter/widgets.dart';
@@ -72,6 +75,7 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
   LibraryQueryRepository? _repository;
   LibrarySearchRepository? _searchRepository;
   ArtworkAssignmentService? _artworkAssignmentService;
+  ArtworkCropService? _artworkCropService;
   AlbumProfileEditingService? _albumProfileEditingService;
   AlbumEditionTrackOrderingService? _albumEditionTrackOrderingService;
   AlbumEditionManagementService? _albumEditionManagementService;
@@ -129,6 +133,15 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
       songRepository: SqliteSongRepository(SongDao(database)),
       artworkManagedStorage: FileSystemArtworkManagedStorage(),
       mutationRunner: SyncMutationTransactionRunner(appDatabase: _database),
+    );
+
+    // SN-45: crops reuse the same assignment service, so cropped artwork
+    // gets the same managed storage, provenance and sync records.
+    final artworkCropService = ArtworkCropService(
+      assignment: artworkAssignmentService,
+      crops: SqliteArtworkCropRepository(database),
+      assets: SqliteArtworkAssetRepository(ArtworkAssetDao(database)),
+      temporaryDirectory: getTemporaryDirectory,
     );
 
     final albumProfileEditingService = AlbumProfileEditingService(
@@ -232,6 +245,7 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
       _repository = libraryQueryRepository;
       _searchRepository = libraryQueryRepository;
       _artworkAssignmentService = artworkAssignmentService;
+      _artworkCropService = artworkCropService;
       _albumProfileEditingService = albumProfileEditingService;
       _albumEditionTrackOrderingService = albumEditionTrackOrderingService;
       _albumEditionManagementService = albumEditionManagementService;
@@ -271,6 +285,7 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
         Provider<ArtworkAssignmentService?>.value(
           value: _artworkAssignmentService,
         ),
+        Provider<ArtworkCropService?>.value(value: _artworkCropService),
         Provider<AlbumProfileEditingService?>.value(
           value: _albumProfileEditingService,
         ),

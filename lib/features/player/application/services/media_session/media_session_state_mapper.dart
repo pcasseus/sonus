@@ -9,6 +9,9 @@ import '../../../domain/models/playback_track.dart';
 
 typedef ArtworkExists = bool Function(String path);
 
+/// A `content://` artwork URI a car host can open, or null.
+typedef CarArtworkUri = Uri? Function(String? artworkPath);
+
 /// What the Android media session should show for one Sonus state.
 @immutable
 class MediaSessionSnapshot {
@@ -58,6 +61,7 @@ abstract final class MediaSessionStateMapper {
     required DateTime now,
     bool previousPlaying = false,
     ArtworkExists? artworkExists,
+    CarArtworkUri? carArtworkUri,
   }) {
     final track = state.queue.currentTrack;
 
@@ -112,17 +116,27 @@ abstract final class MediaSessionStateMapper {
         track,
         duration: state.duration,
         artworkExists: artworkExists ?? _fileExists,
+        carArtworkUri: carArtworkUri,
       ),
-      queue: [for (final queued in state.queue.tracks) itemFor(queued)],
+      queue: [
+        for (final queued in state.queue.tracks)
+          queueItemFor(queued, carArtworkUri: carArtworkUri),
+      ],
     );
   }
 
   /// The media item for [track]. Artwork is only offered when the file
   /// exists, so a missing file never leaves a broken image.
+  ///
+  /// The artwork file itself is kept as the art URI: the notification and
+  /// lock screen load it as a bitmap (SN-44). Car hosts cannot open app
+  /// files, so the `content://` form from [carArtworkUri] is added under
+  /// the standard metadata art-URI keys.
   static media.MediaItem itemFor(
     PlaybackTrack track, {
     Duration? duration,
     ArtworkExists? artworkExists,
+    CarArtworkUri? carArtworkUri,
   }) {
     final artworkPath = track.artworkPath?.trim();
     final hasArtwork =
@@ -136,6 +150,8 @@ abstract final class MediaSessionStateMapper {
         ? track.duration
         : null;
 
+    final carUri = hasArtwork ? carArtworkUri?.call(artworkPath) : null;
+
     return media.MediaItem(
       id: track.songId,
       title: track.title,
@@ -144,8 +160,32 @@ abstract final class MediaSessionStateMapper {
       duration: knownDuration,
       artUri: hasArtwork ? Uri.file(artworkPath) : null,
       playable: true,
+      extras: carUri == null
+          ? null
+          : {albumArtUriKey: carUri.toString(), artUriKey: carUri.toString()},
     );
   }
+
+  /// A queue entry. Queue rows are drawn by the car itself, so their
+  /// artwork is only ever the `content://` form.
+  static media.MediaItem queueItemFor(
+    PlaybackTrack track, {
+    CarArtworkUri? carArtworkUri,
+  }) {
+    return media.MediaItem(
+      id: track.songId,
+      title: track.title,
+      artist: track.artistName,
+      album: track.albumTitle,
+      duration: track.duration > Duration.zero ? track.duration : null,
+      artUri: carArtworkUri?.call(track.artworkPath),
+      playable: true,
+    );
+  }
+
+  /// MediaMetadataCompat.METADATA_KEY_ALBUM_ART_URI and METADATA_KEY_ART_URI.
+  static const String albumArtUriKey = 'android.media.metadata.ALBUM_ART_URI';
+  static const String artUriKey = 'android.media.metadata.ART_URI';
 
   static media.AudioServiceRepeatMode _repeatMode(PlaybackRepeatMode mode) =>
       switch (mode) {

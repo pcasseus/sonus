@@ -413,6 +413,7 @@ class _PlaylistDetailPageState extends State<PlaylistDetailPage> {
         builder: (_) => AlbumProfilePage(
           albumId: track.albumId,
           initialAlbumTitle: track.albumTitle,
+          initialEditionId: track.albumEditionId,
         ),
       ),
     );

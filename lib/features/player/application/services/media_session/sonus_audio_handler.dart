@@ -6,11 +6,15 @@ import 'package:audio_service/audio_service.dart' as media;
 import '../../../domain/models/playback_repeat_mode.dart';
 import '../../../domain/models/playback_state.dart';
 import '../../controllers/playback_coordinator.dart';
+import 'media_browse_catalog.dart';
 import 'media_session_state_mapper.dart';
 
 typedef MediaSessionClock = DateTime Function();
 typedef MediaSessionLogger = void Function(String message, {int level});
 typedef ForegroundRelease = Future<void> Function();
+
+/// Asks Flutter for a frame even while it has no screen.
+typedef AppWakeUp = void Function();
 
 /// Bridges Android's media session to Sonus's existing playback authority.
 ///
@@ -28,8 +32,12 @@ class SonusAudioHandler extends media.BaseAudioHandler {
     MediaSessionClock? now,
     MediaSessionLogger? log,
     this._releaseForeground,
+    this._carArtworkUri,
+    this._wakeApp,
+    Duration? readinessTimeout,
   }) : _now = now ?? DateTime.now,
-       _log = log ?? _developerLog;
+       _log = log ?? _developerLog,
+       _readinessTimeout = readinessTimeout ?? const Duration(seconds: 10);
 
   /// A position change larger than this, compared with where the session
   /// expects playback to be, is treated as a seek and published at once.
@@ -48,6 +56,29 @@ class SonusAudioHandler extends media.BaseAudioHandler {
   /// SonusForegroundRelease.kt.
   final ForegroundRelease? _releaseForeground;
 
+  /// Artwork URIs car hosts can open (see ArtworkContentUris).
+  final CarArtworkUri? _carArtworkUri;
+
+  /// Artwork URIs car hosts can open, for the browse catalog.
+  CarArtworkUri? get carArtworkUri => _carArtworkUri;
+
+  /// How long a car request waits for the app to finish starting. Android
+  /// Auto can start Sonus with no screen, and its first requests may
+  /// arrive before the library and player are ready.
+  final Duration _readinessTimeout;
+
+  /// Android Auto can start Sonus with no activity. Flutter then pauses
+  /// frames, and the app's scopes, which finish loading through rebuilds,
+  /// never finish. While a car request waits, frames are requested so
+  /// startup completes. See [_awaitCatalog].
+  final AppWakeUp? _wakeApp;
+
+  /// How often frames are requested while a car request waits.
+  static const Duration wakeInterval = Duration(milliseconds: 100);
+
+  MediaBrowseCatalog? _catalog;
+  Completer<void> _ready = Completer<void>();
+
   PlaybackCoordinator? _coordinator;
   StreamSubscription<PlaybackState>? _subscription;
   _Published? _published;
@@ -61,6 +92,7 @@ class SonusAudioHandler extends media.BaseAudioHandler {
     unawaited(_subscription?.cancel());
     _coordinator = coordinator;
     _subscription = coordinator.states.listen(_publish);
+    _completeReadiness();
     // Publish everything for the new coordinator, while keeping what was
     // published before, so a playing session that a reload replaces with
     // an idle one still ends properly.
@@ -69,10 +101,27 @@ class SonusAudioHandler extends media.BaseAudioHandler {
         coordinator.currentState,
         now: _now(),
         artworkExists: _artworkExists,
+        carArtworkUri: _carArtworkUri,
       ),
       full: true,
     );
   }
+
+  /// The browsable library the car sees. Replaces any earlier one.
+  void attachCatalog(MediaBrowseCatalog catalog) {
+    _catalog = catalog;
+    _completeReadiness();
+  }
+
+  /// Removes [catalog] unless a newer one has already replaced it.
+  void detachCatalog(MediaBrowseCatalog catalog) {
+    if (identical(_catalog, catalog)) {
+      _catalog = null;
+    }
+  }
+
+  /// The catalog currently answering browse requests, if any.
+  MediaBrowseCatalog? get catalog => _catalog;
 
   /// Unbinds from [coordinator] and clears the session. Does nothing if a
   /// newer coordinator has already attached: during a reload the new
@@ -85,6 +134,9 @@ class SonusAudioHandler extends media.BaseAudioHandler {
     unawaited(_subscription?.cancel());
     _subscription = null;
     _coordinator = null;
+    if (_ready.isCompleted) {
+      _ready = Completer<void>();
+    }
     _publishSnapshot(
       MediaSessionStateMapper.map(const PlaybackState(), now: _now()),
     );
@@ -133,6 +185,181 @@ class SonusAudioHandler extends media.BaseAudioHandler {
     }),
   );
 
+  // Browsing for Android Auto and other media browsers. Reads only.
+
+  @override
+  Future<List<media.MediaItem>> getChildren(
+    String parentMediaId, [
+    Map<String, dynamic>? options,
+  ]) async {
+    final catalog = await _awaitCatalog('getChildren');
+    if (catalog == null) return const [];
+
+    try {
+      return await catalog.children(parentMediaId);
+    } catch (error, stackTrace) {
+      _log(
+        'Browse request failed. error=${error.runtimeType}\n$stackTrace',
+        level: 900,
+      );
+      return const [];
+    }
+  }
+
+  @override
+  Future<media.MediaItem?> getMediaItem(String mediaId) async {
+    final catalog = await _awaitCatalog('getMediaItem');
+    if (catalog == null) return null;
+
+    try {
+      return await catalog.item(mediaId);
+    } catch (error, stackTrace) {
+      _log(
+        'Media item lookup failed. error=${error.runtimeType}\n$stackTrace',
+        level: 900,
+      );
+      return null;
+    }
+  }
+
+  @override
+  Future<List<media.MediaItem>> search(
+    String query, [
+    Map<String, dynamic>? extras,
+  ]) async {
+    final catalog = await _awaitCatalog('search');
+    if (catalog == null) return const [];
+
+    try {
+      return await catalog.search(query);
+    } catch (error, stackTrace) {
+      _log(
+        'Search failed. error=${error.runtimeType}\n$stackTrace',
+        level: 900,
+      );
+      return const [];
+    }
+  }
+
+  @override
+  Future<void> playFromMediaId(
+    String mediaId, [
+    Map<String, dynamic>? extras,
+  ]) => _playBrowsed('playFromMediaId', mediaId, autoPlay: true);
+
+  @override
+  Future<void> prepareFromMediaId(
+    String mediaId, [
+    Map<String, dynamic>? extras,
+  ]) => _playBrowsed('prepareFromMediaId', mediaId, autoPlay: false);
+
+  @override
+  Future<void> playMediaItem(media.MediaItem mediaItem) =>
+      _playBrowsed('playMediaItem', mediaItem.id, autoPlay: true);
+
+  @override
+  Future<void> playFromSearch(String query, [Map<String, dynamic>? extras]) =>
+      _playSearched('playFromSearch', query, extras, autoPlay: true);
+
+  @override
+  Future<void> prepareFromSearch(
+    String query, [
+    Map<String, dynamic>? extras,
+  ]) => _playSearched('prepareFromSearch', query, extras, autoPlay: false);
+
+  /// Android's keys for a structured voice request (MediaStore).
+  static const String searchArtistKey = 'android.intent.extra.artist';
+  static const String searchAlbumKey = 'android.intent.extra.album';
+
+  Future<void> _playBrowsed(
+    String command,
+    String mediaId, {
+    required bool autoPlay,
+  }) async {
+    final catalog = await _awaitCatalog(command);
+    if (catalog == null) return;
+
+    await _run(command, (coordinator) async {
+      final queue = await catalog.queueFor(mediaId);
+
+      if (queue == null) {
+        _log('Media command "$command" ignored: the song is unavailable.');
+        return;
+      }
+
+      await coordinator.playTracks(
+        queue.tracks,
+        startIndex: queue.startIndex,
+        autoPlay: autoPlay,
+      );
+    });
+  }
+
+  Future<void> _playSearched(
+    String command,
+    String query,
+    Map<String, dynamic>? extras, {
+    required bool autoPlay,
+  }) async {
+    final catalog = await _awaitCatalog(command);
+    if (catalog == null) return;
+
+    await _run(command, (coordinator) async {
+      final artist = extras?[searchArtistKey];
+      final album = extras?[searchAlbumKey];
+      final queue = await catalog.queueForSearch(
+        query,
+        artist: artist is String ? artist : null,
+        album: album is String ? album : null,
+      );
+
+      if (queue == null) {
+        _log('Media command "$command" found nothing to play.');
+        return;
+      }
+
+      await coordinator.playTracks(
+        queue.tracks,
+        startIndex: queue.startIndex,
+        autoPlay: autoPlay,
+      );
+    });
+  }
+
+  /// Waits, up to the readiness timeout, until both the library catalog
+  /// and the player are attached.
+  Future<MediaBrowseCatalog?> _awaitCatalog(String command) async {
+    if (_catalog == null || _coordinator == null) {
+      final wake = _wakeApp;
+      final waking = wake == null
+          ? null
+          : Timer.periodic(wakeInterval, (_) => wake());
+      wake?.call();
+
+      try {
+        await _ready.future.timeout(_readinessTimeout);
+      } on TimeoutException {
+        // Reported below.
+      } finally {
+        waking?.cancel();
+      }
+    }
+
+    final catalog = _catalog;
+
+    if (catalog == null) {
+      _log('Media command "$command" ignored: the library is not ready.');
+    }
+
+    return catalog;
+  }
+
+  void _completeReadiness() {
+    if (_catalog != null && _coordinator != null && !_ready.isCompleted) {
+      _ready.complete();
+    }
+  }
+
   /// An explicit Stop ends playback (the queue is kept) and, because Sonus
   /// then reports idle, removes the notification and stops the service.
   ///
@@ -180,6 +407,7 @@ class SonusAudioHandler extends media.BaseAudioHandler {
       now: now,
       previousPlaying: _published?.snapshot.state.playing ?? false,
       artworkExists: _artworkExists,
+      carArtworkUri: _carArtworkUri,
     );
     final published = _published;
 

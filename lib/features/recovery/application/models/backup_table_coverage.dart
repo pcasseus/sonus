@@ -4,10 +4,19 @@ import '../../../../core/database/schema/sync_schema.dart';
 enum BackupTablePolicy { portableData, deviceLocal, internalState }
 
 class BackupTableCoverage {
-  const BackupTableCoverage({required this.table, required this.policy});
+  const BackupTableCoverage({
+    required this.table,
+    required this.policy,
+    this.requiredInEveryBackup = true,
+  });
 
   final String table;
   final BackupTablePolicy policy;
+
+  /// False for portable tables that older backups do not contain. New
+  /// backups always include them; restoring a backup without one leaves
+  /// that table's local rows as they are.
+  final bool requiredInEveryBackup;
 
   bool get isPortable => policy == BackupTablePolicy.portableData;
 }
@@ -107,15 +116,22 @@ abstract final class BackupCoverageContract {
       table: DatabaseTables.songImportReviews,
       policy: BackupTablePolicy.deviceLocal,
     ),
-    // Organization preferences. Device-local for now: adding portable tables
-    // would need every older backup to restore without them.
+    // User-made organization and crop positions. Portable, but backups made
+    // before they were included restore without them.
     BackupTableCoverage(
       table: DatabaseTables.albumReleaseClassifications,
-      policy: BackupTablePolicy.deviceLocal,
+      policy: BackupTablePolicy.portableData,
+      requiredInEveryBackup: false,
     ),
     BackupTableCoverage(
       table: DatabaseTables.artistProjectAssignments,
-      policy: BackupTablePolicy.deviceLocal,
+      policy: BackupTablePolicy.portableData,
+      requiredInEveryBackup: false,
+    ),
+    BackupTableCoverage(
+      table: DatabaseTables.artworkCrops,
+      policy: BackupTablePolicy.portableData,
+      requiredInEveryBackup: false,
     ),
 
     // Never restore as another device's active sync/ownership state.
@@ -129,6 +145,10 @@ abstract final class BackupCoverageContract {
     ),
     BackupTableCoverage(
       table: DatabaseTables.localAccountBinding,
+      policy: BackupTablePolicy.internalState,
+    ),
+    BackupTableCoverage(
+      table: DatabaseTables.cloudArchiveState,
       policy: BackupTablePolicy.internalState,
     ),
     BackupTableCoverage(
@@ -155,4 +175,20 @@ abstract final class BackupCoverageContract {
 
   static List<BackupTableCoverage> get portableTables =>
       List.unmodifiable(tables.where((entry) => entry.isPortable));
+
+  /// Portable tables every restorable backup must contain.
+  static Set<String> get requiredPortableTableNames => {
+    for (final entry in portableTables)
+      if (entry.requiredInEveryBackup) entry.table,
+  };
+
+  static Set<String> get portableTableNames => {
+    for (final entry in portableTables) entry.table,
+  };
+
+  /// Whether [names] is a valid set of backed-up tables: every required
+  /// table, any optional ones, and nothing else.
+  static bool isValidBackupTableSet(Set<String> names) =>
+      names.containsAll(requiredPortableTableNames) &&
+      portableTableNames.containsAll(names);
 }

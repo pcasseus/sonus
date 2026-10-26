@@ -356,7 +356,12 @@ void main() {
     expect(storedSong.updatedAt, originalTime);
 
     final pending = await LocalSyncDao(db).findPending('user_1');
-    expect(pending, isEmpty);
+    // The song's edition listings travel with the song, so the songs
+    // whose listing changed are queued; their own rows are unchanged.
+    expect(pending.map((entry) => entry.entityType).toSet(), {
+      CloudDataEntity.song,
+    });
+    expect(pending.map((entry) => entry.entityId).toSet(), {fixture.songA.id});
   });
 
   test(
@@ -389,7 +394,14 @@ void main() {
       expect(storedSong!.updatedAt, originalTime);
 
       final pending = await LocalSyncDao(db).findPending('user_1');
-      expect(pending, isEmpty);
+      // The song's edition listings travel with the song, so the songs
+      // whose listing changed are queued; their own rows are unchanged.
+      expect(pending.map((entry) => entry.entityType).toSet(), {
+        CloudDataEntity.song,
+      });
+      expect(pending.map((entry) => entry.entityId).toSet(), {
+        fixture.songC.id,
+      });
     },
   );
   test('single-disc auto-renumber follows dragged visual order', () async {
@@ -561,7 +573,16 @@ void main() {
       expect(storedC.trackNumber, fixture.songC.trackNumber);
 
       final pending = await LocalSyncDao(db).findPending('user_1');
-      expect(pending, isEmpty);
+      // The song's edition listings travel with the song, so the songs
+      // whose listing changed are queued; their own rows are unchanged.
+      expect(pending.map((entry) => entry.entityType).toSet(), {
+        CloudDataEntity.song,
+      });
+      expect(pending.map((entry) => entry.entityId).toSet(), {
+        fixture.songA.id,
+        fixture.songB.id,
+        fixture.songC.id,
+      });
     },
   );
 
@@ -603,7 +624,16 @@ void main() {
       // Track numbers were already 1/2/3, so the Song projection
       // itself did not need to change or generate cloud mutations.
       final pending = await LocalSyncDao(db).findPending('user_1');
-      expect(pending, isEmpty);
+      // The song's edition listings travel with the song, so the songs
+      // whose listing changed are queued; their own rows are unchanged.
+      expect(pending.map((entry) => entry.entityType).toSet(), {
+        CloudDataEntity.song,
+      });
+      expect(pending.map((entry) => entry.entityId).toSet(), {
+        fixture.songA.id,
+        fixture.songB.id,
+        fixture.songC.id,
+      });
     },
   );
 }

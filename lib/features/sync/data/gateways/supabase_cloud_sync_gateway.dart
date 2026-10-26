@@ -9,14 +9,56 @@ import '../contracts/supabase_sync_contract.dart';
 import '../mappers/supabase_cloud_record_mapper.dart';
 
 class SupabaseCloudSyncGateway implements CloudSyncGateway {
-  const SupabaseCloudSyncGateway({required this.client});
+  SupabaseCloudSyncGateway({required this.client});
 
   final SupabaseClient client;
+
+  bool? _songExtensionsSupported;
+
+  /// The row to write. Song memberships and credits are sent only when the
+  /// server has their columns, so this app works before and after the
+  /// server migration is deployed.
+  Future<Map<String, dynamic>> _rowFor(CloudOwnedRecord record) async {
+    final row = SupabaseCloudRecordMapper.toRow(record);
+    final carriesExtensions = row.keys.any(
+      SupabaseSyncContract.songExtensionColumns.contains,
+    );
+
+    if (carriesExtensions && !await _supportsSongExtensions()) {
+      row.removeWhere(
+        (column, _) =>
+            SupabaseSyncContract.songExtensionColumns.contains(column),
+      );
+    }
+
+    return row;
+  }
+
+  /// Asks the server once whether the song extension columns exist. Only
+  /// a definite "missing column" answer counts as unsupported; any other
+  /// failure is thrown like any network error and asked again next time.
+  Future<bool> _supportsSongExtensions() async {
+    final known = _songExtensionsSupported;
+    if (known != null) return known;
+
+    try {
+      await client
+          .from(SupabaseSyncContract.songsTable)
+          .select(SupabaseSyncContract.songExtensionColumns.join(','))
+          .limit(0);
+      return _songExtensionsSupported = true;
+    } on PostgrestException catch (error) {
+      if (error.code == '42703' || error.code == 'PGRST204') {
+        return _songExtensionsSupported = false;
+      }
+      rethrow;
+    }
+  }
 
   @override
   Future<void> upsert(CloudOwnedRecord record) async {
     final table = SupabaseCloudRecordMapper.tableFor(record);
-    final row = SupabaseCloudRecordMapper.toRow(record);
+    final row = await _rowFor(record);
 
     await client
         .from(table)
@@ -32,7 +74,7 @@ class SupabaseCloudSyncGateway implements CloudSyncGateway {
     }
 
     final table = SupabaseCloudRecordMapper.tableFor(record);
-    final row = SupabaseCloudRecordMapper.toRow(record);
+    final row = await _rowFor(record);
 
     // INSERT ... ON CONFLICT (id) DO NOTHING never touches an existing row.
     final List<Map<String, dynamic>> inserted = await client
@@ -69,7 +111,7 @@ class SupabaseCloudSyncGateway implements CloudSyncGateway {
     }
 
     final table = SupabaseCloudRecordMapper.tableFor(record);
-    final row = SupabaseCloudRecordMapper.toRow(record)
+    final row = (await _rowFor(record))
       ..remove(SupabaseSyncContract.idColumn)
       ..remove(SupabaseSyncContract.userIdColumn)
       ..remove(SupabaseSyncContract.createdAtColumn)

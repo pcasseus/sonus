@@ -7,6 +7,9 @@ import 'package:sonus_next/core/database/app_database.dart';
 import 'package:sonus_next/core/database/database_tables.dart';
 import 'package:sonus_next/core/database/schema/sync_schema.dart';
 import 'package:sonus_next/features/recovery/application/models/backup_table_coverage.dart';
+import 'package:sonus_next/features/recovery/application/services/backup_json_codec.dart';
+import 'package:sonus_next/features/recovery/application/models/backup_manifest.dart';
+import 'package:sonus_next/features/recovery/application/models/backup_data_payload.dart';
 import 'package:sonus_next/features/recovery/application/services/backup_archive_verifier.dart';
 import 'package:sonus_next/features/recovery/application/services/sqlite_restore_executor.dart';
 
@@ -59,6 +62,7 @@ void main() {
       {
         ...SqliteRestoreExecutor.anchorTables,
         ...SqliteRestoreExecutor.dependentTables,
+        ...SqliteRestoreExecutor.optionalTables,
       },
       {for (final c in BackupCoverageContract.portableTables) c.table},
     );
@@ -111,6 +115,100 @@ void main() {
     expect(play['playback_session_id'], 'session-a');
   });
 
+  test(
+    'SN-45 data survives: editions, the portrait and all-time Moments',
+    () async {
+      final cover = File(path.join(root.path, 'cover.jpg'));
+      await cover.writeAsBytes([1, 2, 3]);
+
+      final contents = await verifiedFixtureContents(
+        directory: root,
+        seed: (db) async {
+          await seedConnectedLibrary(db, key: 'a', artworkPath: cover.path);
+          await db.update(
+            DatabaseTables.artists,
+            {'top_artists_artwork_id': 'artwork-a'},
+            where: 'id = ?',
+            whereArgs: ['artist-a'],
+          );
+          // Deluxe inherits Standard's song and adds one of its own.
+          await db.insert(DatabaseTables.albumEditions, {
+            'id': 'edition-a-deluxe',
+            'album_id': 'album-a',
+            'title': 'Deluxe',
+            'type': 'deluxe',
+            'is_primary': 0,
+            'created_at': fixtureTimestamp,
+            'updated_at': fixtureTimestamp,
+          });
+          await db.insert(DatabaseTables.songs, {
+            'id': 'song-a-bonus',
+            'artist_id': 'artist-a',
+            'album_id': 'album-a',
+            'album_edition_id': 'edition-a-deluxe',
+            'title': 'Bonus',
+            'canonical_title': 'bonus',
+            'track_number': 2,
+            'duration_seconds': 180,
+            'created_at': fixtureTimestamp,
+            'updated_at': fixtureTimestamp,
+          });
+          for (final (index, song) in ['song-a', 'song-a-bonus'].indexed) {
+            await db.insert(DatabaseTables.albumEditionTracks, {
+              'album_edition_id': 'edition-a-deluxe',
+              'song_id': song,
+              'sort_position': index,
+              'created_at': fixtureTimestamp,
+              'updated_at': fixtureTimestamp,
+            });
+          }
+          await db.insert(DatabaseTables.chartMomentEvents, {
+            'id': 'alltime|songs|numberOne|song-a|',
+            'deduplication_key': 'alltime|songs|numberOne|song-a|',
+            'source_id': 'play-a',
+            'chart_type': 'songs',
+            'scope': 'allTime',
+            'event_type': 'firstNumberOne',
+            'entity_id': 'song-a',
+            'entity_title': 'Song',
+            'entity_artist_name': 'Artist a',
+            'week_start_utc': '2026-01-05T00:00:00.000Z',
+            'week_end_utc': '2026-01-12T00:00:00.000Z',
+            'occurred_at': fixtureTimestamp,
+            'created_at': fixtureTimestamp,
+            'current_rank': 1,
+            'threshold': 1,
+            'qualified_stream_count': 1,
+          });
+        },
+      );
+
+      await apply(contents);
+      final db = await target.database;
+
+      final deluxe = await db.query(
+        DatabaseTables.albumEditionTracks,
+        where: 'album_edition_id = ?',
+        whereArgs: ['edition-a-deluxe'],
+        orderBy: 'sort_position',
+      );
+      expect(deluxe.map((row) => row['song_id']), ['song-a', 'song-a-bonus']);
+
+      final artist = (await db.query(DatabaseTables.artists)).single;
+      expect(artist['top_artists_artwork_id'], 'artwork-a');
+      expect(artist['header_artwork_id'], 'artwork-a');
+
+      final scopes = {
+        for (final row in await db.query(DatabaseTables.chartMomentEvents))
+          row['id']: row['scope'],
+      };
+      expect(scopes, {
+        'moment-a': 'finalized',
+        'alltime|songs|numberOne|song-a|': 'allTime',
+      });
+    },
+  );
+
   test('keeps device-local data of surviving songs only', () async {
     final db = await target.database;
 
@@ -146,55 +244,140 @@ void main() {
   // Migration 34: organization preferences are device-local. A restore
   // keeps those of artists and albums it keeps, and drops the rest with
   // their artist or album; it never writes them.
-  test(
-    'keeps organization preferences of surviving artists and albums only',
-    () async {
-      final db = await target.database;
-      final at = DateTime.utc(2026, 10, 25).toIso8601String();
+  Future<void> seedOrganization(
+    DatabaseExecutor db,
+    String key, {
+    String? kind,
+  }) async {
+    final at = DateTime.utc(2026, 10, 25).toIso8601String();
+    await db.insert(DatabaseTables.albumReleaseClassifications, {
+      'album_id': 'album-$key',
+      'kind': kind ?? 'soundtrack',
+      'authority': 'manual',
+      'created_at': at,
+      'updated_at': at,
+    });
+    await db.insert(DatabaseTables.artistProjectAssignments, {
+      'artist_id': 'artist-$key',
+      'album_id': 'album-$key',
+      'mode': 'grouped',
+      'created_at': at,
+      'updated_at': at,
+    });
+  }
 
-      await seedConnectedLibrary(db, key: 'a');
-      await seedConnectedLibrary(db, key: 'c', week: 2);
-      for (final key in ['a', 'c']) {
-        await db.insert(DatabaseTables.albumReleaseClassifications, {
-          'album_id': 'album-$key',
-          'kind': 'soundtrack',
-          'authority': 'manual',
-          'created_at': at,
-          'updated_at': at,
-        });
-        await db.insert(DatabaseTables.artistProjectAssignments, {
-          'artist_id': 'artist-$key',
-          'album_id': 'album-$key',
-          'mode': 'grouped',
-          'created_at': at,
-          'updated_at': at,
-        });
-      }
+  /// [contents] as a backup made before the optional tables were included.
+  VerifiedBackupContents withoutOptionalTables(
+    VerifiedBackupContents contents,
+  ) {
+    final tables = {
+      for (final entry in contents.backup.payload.tables.entries)
+        if (!SqliteRestoreExecutor.optionalTables.contains(entry.key))
+          entry.key: entry.value,
+    };
+    final manifest = contents.backup.manifest;
+    return VerifiedBackupContents(
+      backup: DecodedBackup(
+        manifest: BackupManifest(
+          backupId: manifest.backupId,
+          createdAtUtc: manifest.createdAtUtc,
+          databaseVersion: manifest.databaseVersion,
+          rowCounts: {
+            for (final entry in tables.entries) entry.key: entry.value.length,
+          },
+        ),
+        payload: BackupDataPayload(tables: tables),
+      ),
+      artwork: contents.artwork,
+      directory: contents.directory,
+    );
+  }
 
-      final contents = await verifiedFixtureContents(
+  test('an older backup without organization keeps this device\'s, for '
+      'surviving artists and albums only', () async {
+    final db = await target.database;
+
+    await seedConnectedLibrary(db, key: 'a');
+    await seedConnectedLibrary(db, key: 'c', week: 2);
+    for (final key in ['a', 'c']) {
+      await seedOrganization(db, key);
+    }
+
+    final contents = withoutOptionalTables(
+      await verifiedFixtureContents(
         directory: root,
         seed: (db) async {
           await seedConnectedLibrary(db, key: 'a');
           await seedConnectedLibrary(db, key: 'b', week: 1);
         },
-      );
+      ),
+    );
 
+    expect(
+      contents.backup.payload.tables.keys,
+      isNot(contains(DatabaseTables.artistProjectAssignments)),
+    );
+
+    await apply(contents);
+
+    final kinds = await db.query(DatabaseTables.albumReleaseClassifications);
+    expect(kinds.map((row) => row['album_id']), ['album-a']);
+    final assignments = await db.query(DatabaseTables.artistProjectAssignments);
+    expect(assignments.map((row) => row['artist_id']), ['artist-a']);
+    expect(assignments.single['album_id'], 'album-a');
+  });
+
+  test('a backup restores organization and crop positions exactly', () async {
+    final cover = File(path.join(root.path, 'cover.jpg'));
+    await cover.writeAsBytes([1, 2, 3]);
+    final db = await target.database;
+
+    // This device has different organization that the backup replaces.
+    await seedConnectedLibrary(db, key: 'a');
+    await seedOrganization(db, 'a', kind: 'compilation');
+
+    final contents = await verifiedFixtureContents(
+      directory: root,
+      seed: (db) async {
+        await seedConnectedLibrary(db, key: 'a', artworkPath: cover.path);
+        await seedOrganization(db, 'a');
+        await db.insert(DatabaseTables.artworkCrops, {
+          'target_type': 'artistPortrait',
+          'target_id': 'artist-a',
+          'source_artwork_id': 'artwork-a',
+          'output_artwork_id': 'artwork-a',
+          'crop_left': 0.1,
+          'crop_top': 0.2,
+          'crop_width': 0.5,
+          'crop_height': 0.5,
+          'created_at': fixtureTimestamp,
+          'updated_at': fixtureTimestamp,
+        });
+      },
+    );
+
+    for (final table in SqliteRestoreExecutor.optionalTables) {
+      expect(contents.backup.payload.tables, contains(table));
+    }
+
+    await apply(contents);
+
+    for (final table in SqliteRestoreExecutor.optionalTables) {
       expect(
-        contents.backup.payload.tables.keys,
-        isNot(contains(DatabaseTables.artistProjectAssignments)),
+        await db.query(table),
+        unorderedEquals(contents.backup.payload.tables[table]!),
+        reason: table,
       );
-
-      await apply(contents);
-
-      final kinds = await db.query(DatabaseTables.albumReleaseClassifications);
-      expect(kinds.map((row) => row['album_id']), ['album-a']);
-      final assignments = await db.query(
-        DatabaseTables.artistProjectAssignments,
-      );
-      expect(assignments.map((row) => row['artist_id']), ['artist-a']);
-      expect(assignments.single['album_id'], 'album-a');
-    },
-  );
+    }
+    final crop = (await db.query(DatabaseTables.artworkCrops)).single;
+    expect(crop['crop_left'], 0.1);
+    expect(
+      (await db.query(
+        DatabaseTables.albumReleaseClassifications,
+      )).single['kind'],
+      'soundtrack',
+    );
+  });
 
   test('never writes sync or account tables', () async {
     final db = await target.database;

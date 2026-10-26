@@ -77,7 +77,7 @@ void main() {
     final decoded = await const BackupArchiveVerifier().verify(destination);
 
     expect(decoded.manifest.backupId, 'integration-backup');
-    expect(decoded.payload.tables.length, 17);
+    expect(decoded.payload.tables.length, 20);
     expect(decoded.payload.totalRows, 0);
     expect(decoded.manifest.totalRows, 0);
 

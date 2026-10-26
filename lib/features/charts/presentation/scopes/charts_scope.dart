@@ -9,6 +9,7 @@ import '../../../analytics/domain/repositories/playback_session_repository.dart'
 import '../../../analytics/domain/repositories/qualified_play_repository.dart';
 import '../../../library/application/repositories/library_query_repository.dart';
 import '../../application/services/all_time_chart_service.dart';
+import '../../application/services/all_time_moment_service.dart';
 import '../../application/services/chart_finalization_service.dart';
 import '../../application/services/chart_snapshot_builder_service.dart';
 import '../../data/repositories/sqlite_chart_moment_repository.dart';
@@ -115,12 +116,22 @@ class _ChartsScopeState extends State<ChartsScope> {
       restoreGeneration: () => database.mutationCoordinator.restoreGeneration,
     );
 
+    final allTimeMoments = AllTimeMomentService(
+      qualifiedPlays: qualifiedPlays,
+      library: library,
+      moments: moments,
+      // SN-45 release week: earlier achievements are never told as news.
+      activationUtc: DateTime(2026, 10, 25).toUtc(),
+      restoreGeneration: () => database.mutationCoordinator.restoreGeneration,
+    );
+
     final controller = ChartsController(
       allTimeCharts: allTimeCharts,
       finalization: finalization,
       charts: charts,
       library: library,
       moments: moments,
+      allTimeMoments: allTimeMoments,
       now: widget.now,
     );
 

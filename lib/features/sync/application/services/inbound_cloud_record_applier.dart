@@ -4,6 +4,7 @@ import '../../../library/domain/repositories/album_edition_track_repository.dart
 import '../../../library/domain/entities/album_edition_track.dart';
 import '../../../library/domain/entities/artist.dart';
 import '../../../library/domain/entities/song.dart';
+import '../../../library/domain/entities/song_artist_credit.dart';
 import '../../../library/domain/metadata/metadata_field_state.dart';
 import '../../domain/models/cloud_records.dart';
 import '../../domain/models/inbound_deferred_record.dart';
@@ -350,6 +351,148 @@ class InboundCloudRecordApplier {
       cloudStates: record.metadataFieldStates,
       context: context,
     );
+
+    await _applyEditionMemberships(record, effectiveEntity, context);
+    await _applyArtistCredits(record, context);
+  }
+
+  /// Applies the editions that list this song (SN-45). Null or empty means
+  /// the sender did not provide them, so nothing changes. A listing whose
+  /// edition is not on this device yet, or belongs to another album, is
+  /// skipped. Listings the cloud no longer has are removed, except the
+  /// song's home listing.
+  Future<void> _applyEditionMemberships(
+    CloudSongRecord record,
+    Song song,
+    SyncMutationContext context,
+  ) async {
+    final cloud = record.editionMemberships;
+    if (cloud == null || cloud.isEmpty) return;
+
+    final repository = context.albumEditionTrackRepository;
+    final local = {
+      for (final membership in await repository.getBySongId(song.id))
+        membership.albumEditionId: membership,
+    };
+    final listed = <String>{};
+
+    for (final membership in cloud) {
+      final edition = await context.albumEditionRepository.getById(
+        membership.albumEditionId,
+      );
+      if (edition == null || edition.albumId != song.albumId) continue;
+
+      listed.add(edition.id);
+      final numbering = _authority(membership.numberingAuthority);
+      final ordering = _authority(membership.orderingAuthority);
+      final existing = local[edition.id];
+
+      if (existing == null) {
+        await repository.create(
+          AlbumEditionTrack(
+            albumEditionId: edition.id,
+            songId: song.id,
+            discNumber: membership.discNumber,
+            trackNumber: membership.trackNumber,
+            sortPosition: membership.sortPosition,
+            numberingAuthority: numbering,
+            orderingAuthority: ordering,
+            createdAt: record.updatedAt,
+            updatedAt: record.updatedAt,
+          ),
+        );
+      } else if (existing.discNumber != membership.discNumber ||
+          existing.trackNumber != membership.trackNumber ||
+          existing.sortPosition != membership.sortPosition ||
+          existing.numberingAuthority != numbering ||
+          existing.orderingAuthority != ordering) {
+        await repository.save(
+          existing.copyWith(
+            discNumber: membership.discNumber,
+            trackNumber: membership.trackNumber,
+            sortPosition: membership.sortPosition,
+            numberingAuthority: numbering,
+            orderingAuthority: ordering,
+            updatedAt: record.updatedAt,
+          ),
+        );
+      }
+    }
+
+    if (listed.isEmpty) return;
+
+    for (final editionId in local.keys) {
+      if (!listed.contains(editionId) && editionId != song.albumEditionId) {
+        await repository.delete(editionId: editionId, songId: song.id);
+      }
+    }
+  }
+
+  static AlbumEditionTrackAuthority _authority(String name) =>
+      AlbumEditionTrackAuthority.values.asNameMap()[name] ??
+      AlbumEditionTrackAuthority.inferred;
+
+  /// Replaces the song's credits with the cloud's (SN-45), but only when
+  /// every linked artist is already on this device; otherwise the local
+  /// credits stay as they are until a later sync completes them.
+  Future<void> _applyArtistCredits(
+    CloudSongRecord record,
+    SyncMutationContext context,
+  ) async {
+    final cloud = record.artistCredits;
+    if (cloud == null || cloud.isEmpty) return;
+
+    final roles = <SongArtistCreditRole>[];
+    for (final credit in cloud) {
+      final role = SongArtistCreditRole.values.asNameMap()[credit.role];
+      if (role == null) return;
+      roles.add(role);
+
+      final artistId = credit.artistId;
+      if (artistId != null &&
+          await context.artistRepository.getById(artistId) == null) {
+        return;
+      }
+    }
+
+    final repository = context.songArtistCreditRepository;
+    final local = {
+      for (final credit in await repository.getBySongId(record.id))
+        credit.id: credit,
+    };
+
+    final incoming = [
+      for (final (index, credit) in cloud.indexed)
+        SongArtistCredit(
+          id: credit.id,
+          songId: record.id,
+          artistId: credit.artistId,
+          creditedName: credit.creditedName,
+          canonicalCreditedName: credit.canonicalCreditedName,
+          role: roles[index],
+          position: credit.position,
+          createdAt: local[credit.id]?.createdAt ?? record.updatedAt,
+          updatedAt: record.updatedAt,
+        ),
+    ];
+
+    final unchanged =
+        incoming.length == local.length &&
+        incoming.every((credit) {
+          final current = local[credit.id];
+          return current != null &&
+              current.artistId == credit.artistId &&
+              current.creditedName == credit.creditedName &&
+              current.canonicalCreditedName == credit.canonicalCreditedName &&
+              current.role == credit.role &&
+              current.position == credit.position;
+        });
+    if (unchanged) return;
+
+    await repository.deleteBySongId(record.id);
+    for (final credit in incoming) {
+      await repository.create(credit);
+    }
   }
 
   Future<void> _reconcileSongCompatibilityMembership({

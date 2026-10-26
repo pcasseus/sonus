@@ -9,6 +9,8 @@ import '../../../analytics/application/models/analytics_period.dart';
 import '../../../analytics/application/services/analytics_entity_ranking_service.dart';
 import '../../../analytics/domain/repositories/qualified_play_repository.dart';
 import '../../../artwork/application/services/artwork_assignment_service.dart';
+import '../../../artwork/application/services/artwork_crop_service.dart';
+import '../../../artwork/domain/entities/artwork_crop.dart';
 import '../../../artwork/application/services/artwork_file_picker.dart';
 import '../../../player/application/controllers/playback_coordinator.dart';
 import '../../application/models/library_album.dart';
@@ -37,6 +39,7 @@ class ArtistProfileController extends ChangeNotifier {
     SongArtistCreditRepository? songArtistCreditRepository,
     TrackProfileEditingService? trackProfileEditingService,
     QualifiedPlayRepository? qualifiedPlays,
+    ArtworkCropService? artworkCropService,
     DateTime Function()? clock,
     Random? random,
   }) : this._(
@@ -50,6 +53,7 @@ class ArtistProfileController extends ChangeNotifier {
          songArtistCreditRepository,
          trackProfileEditingService,
          qualifiedPlays,
+         artworkCropService,
          clock ?? DateTime.now,
          random ?? Random(),
        );
@@ -65,6 +69,7 @@ class ArtistProfileController extends ChangeNotifier {
     this._songArtistCreditRepository,
     this._trackProfileEditingService,
     this._qualifiedPlays,
+    this._artworkCropService,
     this._clock,
     this._random,
   );
@@ -79,6 +84,7 @@ class ArtistProfileController extends ChangeNotifier {
   final SongArtistCreditRepository? _songArtistCreditRepository;
   final TrackProfileEditingService? _trackProfileEditingService;
   final QualifiedPlayRepository? _qualifiedPlays;
+  final ArtworkCropService? _artworkCropService;
   final DateTime Function() _clock;
   final Random _random;
 
@@ -91,6 +97,7 @@ class ArtistProfileController extends ChangeNotifier {
   List<LibraryTrack> _collaborationTracks = const [];
   List<ArtistProfileCollaborator> _collaborators = const [];
   List<ArtistTopTrack> _topTracks = const [];
+  ArtistStanding? _standing;
 
   bool _isLoading = false;
   // Starts from the player's actual mode, which may have been restored
@@ -124,6 +131,21 @@ class ArtistProfileController extends ChangeNotifier {
 
   /// Up to five of the catalogue's most streamed songs, all-time.
   List<ArtistTopTrack> get topTracks => _topTracks;
+
+  /// The artist's place in the listener's all-time artist ranking.
+  ArtistStanding? get standing => _standing;
+
+  /// The wide banner photo, exactly as saved.
+  String? get bannerPath => _nonEmpty(_artist?.headerArtworkPath);
+
+  /// The smaller identity photo, exactly as saved. Never the banner: a
+  /// missing portrait shows initials instead.
+  String? get portraitPath => _nonEmpty(_artist?.topArtistsArtworkPath);
+
+  static String? _nonEmpty(String? value) {
+    final trimmed = value?.trim();
+    return trimmed == null || trimmed.isEmpty ? null : trimmed;
+  }
 
   /// What Play and Shuffle queue: the artist's own songs, then the other
   /// performers' songs on the artist's own albums.
@@ -375,6 +397,7 @@ class ArtistProfileController extends ChangeNotifier {
         _collaborationTracks = const [];
         _collaborators = const [];
         _topTracks = const [];
+        _standing = null;
         return;
       }
 
@@ -463,7 +486,7 @@ class ArtistProfileController extends ChangeNotifier {
               projectTracks: projectTracks,
               artistsById: artistsById,
             );
-      _topTracks = await _rankTopTracks();
+      await _loadRankings();
     } catch (error) {
       _error = error;
     } finally {
@@ -506,27 +529,39 @@ class ArtistProfileController extends ChangeNotifier {
   Future<void> refreshTopTracks() async {
     if (_artist == null) return;
 
-    final topTracks = await _rankTopTracks();
-    if (_sameTopTracks(topTracks, _topTracks)) return;
+    final previousTopTracks = _topTracks;
+    final previousStanding = _standing;
+    await _loadRankings();
+    if (_sameTopTracks(previousTopTracks, _topTracks) &&
+        previousStanding == _standing) {
+      return;
+    }
 
-    _topTracks = topTracks;
     notifyListeners();
   }
 
-  Future<List<ArtistTopTrack>> _rankTopTracks() async {
+  Future<void> _loadRankings() async {
     final qualifiedPlays = _qualifiedPlays;
     final catalogue = playbackTracks;
 
-    if (qualifiedPlays == null || catalogue.isEmpty) return const [];
+    if (qualifiedPlays == null) {
+      _topTracks = const [];
+      _standing = null;
+      return;
+    }
 
     try {
       final rankings = await AnalyticsEntityRankingService(
         qualifiedPlays: qualifiedPlays,
       ).load(period: AnalyticsPeriod.lifetime, referenceLocal: _clock());
 
-      return ArtistProfileSections.topTracks(
+      _topTracks = ArtistProfileSections.topTracks(
         catalogue: catalogue,
         rankedSongs: rankings.songs,
+      );
+      _standing = ArtistProfileSections.standing(
+        artistId: _artistId,
+        rankedArtists: rankings.artists,
       );
     } catch (error, stackTrace) {
       // Top Tracks is optional; the rest of the profile still shows.
@@ -537,7 +572,8 @@ class ArtistProfileController extends ChangeNotifier {
         error: error,
         stackTrace: stackTrace,
       );
-      return const [];
+      _topTracks = const [];
+      _standing = null;
     }
   }
 
@@ -565,6 +601,95 @@ class ArtistProfileController extends ChangeNotifier {
 
     return true;
   }
+
+  /// Plays a Top Tracks song with the Top Tracks list as its queue.
+  Future<void> playTopTrack(LibraryTrack track) async {
+    final playbackCoordinator = _playbackCoordinator;
+
+    if (playbackCoordinator == null || !_isPlayable(track)) {
+      return;
+    }
+
+    await playbackCoordinator.playInContext(track, [
+      for (final entry in _topTracks) entry.track,
+    ]);
+  }
+
+  bool get canCropArtwork => _artworkCropService != null && canEditArtwork;
+
+  Future<String?> pickArtworkFile() async =>
+      _artworkFilePicker?.pickArtworkFile();
+
+  Future<bool> applyArtworkCrop({
+    required ArtworkCropTarget target,
+    required String sourcePath,
+    required CropRect rect,
+    String? userId,
+  }) async {
+    final service = _artworkCropService;
+    if (service == null) return false;
+
+    await service.apply(
+      target: target,
+      targetId: _artistId,
+      sourcePath: sourcePath,
+      rect: rect,
+      userId: userId,
+    );
+    await refresh();
+    return true;
+  }
+
+  Future<ArtworkCropSource?> artworkRepositionSource(
+    ArtworkCropTarget target,
+  ) async {
+    final service = _artworkCropService;
+    final artist = _artist;
+    if (service == null || artist == null) return null;
+
+    final (id, path) = _artworkOf(target, artist);
+    if (path == null) return null;
+
+    return service.repositionSource(
+      target: target,
+      targetId: _artistId,
+      currentArtworkId: id,
+      currentArtworkPath: path,
+    );
+  }
+
+  Future<bool> resetArtworkCrop(
+    ArtworkCropTarget target, {
+    String? userId,
+  }) async {
+    final service = _artworkCropService;
+    final artist = _artist;
+    if (service == null || artist == null) return false;
+
+    final reset = await service.reset(
+      target: target,
+      targetId: _artistId,
+      currentArtworkId: _artworkOf(target, artist).$1,
+      userId: userId,
+    );
+    if (reset) await refresh();
+    return reset;
+  }
+
+  static (String?, String?) _artworkOf(
+    ArtworkCropTarget target,
+    LibraryArtist artist,
+  ) => switch (target) {
+    ArtworkCropTarget.artistBanner => (
+      artist.headerArtworkId,
+      _nonEmpty(artist.headerArtworkPath),
+    ),
+    ArtworkCropTarget.artistPortrait => (
+      artist.topArtistsArtworkId,
+      _nonEmpty(artist.topArtistsArtworkPath),
+    ),
+    ArtworkCropTarget.albumEdition => (null, null),
+  };
 
   Future<bool> changeHeaderArtwork({String? userId}) async {
     final service = _artworkAssignmentService;

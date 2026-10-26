@@ -28,6 +28,7 @@ import 'package:sonus_next/features/charts/domain/repositories/chart_moment_repo
 import 'package:sonus_next/features/charts/domain/repositories/chart_repository.dart';
 import 'package:sonus_next/features/charts/domain/models/chart_week.dart';
 import 'package:sonus_next/features/charts/presentation/controllers/charts_controller.dart';
+import 'package:sonus_next/features/charts/presentation/news/moment_post_card.dart';
 import 'package:sonus_next/features/charts/presentation/pages/charts_page.dart';
 
 void main() {
@@ -55,11 +56,22 @@ void main() {
     expect(find.text('All time'), findsOneWidget);
     expect(find.text('LIVE'), findsNothing);
     expect(find.textContaining('Last week'), findsNothing);
-    expect(find.textContaining('Start of week'), findsOneWidget);
     expect(find.text('Song 1'), findsOneWidget);
     expect(find.text('Artist 1 • Album 1'), findsOneWidget);
-    expect(find.text('12 streams'), findsOneWidget);
-    expect(find.text('All-time peak #1'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('charts-spotlight-songs_1')),
+      findsOneWidget,
+    );
+    expect(find.text('LIFETIME STREAMS'), findsOneWidget);
+    expect(find.text('12'), findsOneWidget);
+    expect(find.text('ALL-TIME PEAK'), findsOneWidget);
+    expect(find.text('#1'), findsWidgets);
+    expect(find.text('WEEKLY CHANGE'), findsOneWidget);
+    expect(find.text('WEEKS IN TOP 3'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('charts-movement-legend')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('older week control shows finalized chart', (tester) async {
@@ -622,16 +634,62 @@ void main() {
 
     expect(find.text('Song 1 reaches a new peak of #3'), findsOneWidget);
     expect(find.text('Song 1 earns a new weekly peak of #3.'), findsOneWidget);
-    expect(find.text('FINAL'), findsOneWidget);
-    expect(find.text('SONG'), findsOneWidget);
+    expect(find.text('WEEKLY HOT 100 · FINAL'), findsOneWidget);
+    expect(find.text('Sonus Daily'), findsOneWidget);
+    expect(find.text('NEW PEAK'), findsOneWidget);
+    expect(find.text('#3'), findsOneWidget);
+    expect(find.text('HOT 100 #3'), findsOneWidget);
+  });
+
+  testWidgets('a Moment post links to its song, album and artist', (
+    tester,
+  ) async {
+    final controller = await _controller(
+      albums: [_album(id: 'album_1')],
+      artists: [_artist(portraitPath: '/art/artist_1.jpg')],
+      moments: [
+        _momentEvent(
+          id: 'final-peak',
+          scope: ChartMomentScope.finalized,
+          type: ChartMomentEventType.newPeak,
+          currentRank: 3,
+          currentPeakRank: 3,
+          artistId: 'artist_1',
+        ),
+      ],
+    );
+
+    await _pumpPage(tester, controller);
+    await tester.tap(find.text('Moments'));
+    await tester.pump();
+
+    expect(_postPart('portrait'), findsOneWidget);
+    for (final link in ['song', 'album', 'artist']) {
+      expect(_postPart(link), findsOneWidget);
+    }
+    // Sonus never invents engagement.
+    expect(find.byIcon(Icons.favorite_border_rounded), findsNothing);
+    expect(find.byIcon(Icons.repeat_rounded), findsNothing);
+    expect(find.byIcon(Icons.chat_bubble_outline_rounded), findsNothing);
+
+    await tester.tap(_postPart('album'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byType(AlbumProfilePage), findsOneWidget);
+    // The song's own edition opens, not whichever edition is primary.
     expect(
-      find.text('Chart week September 27 – October 3, 2026'),
-      findsOneWidget,
+      tester
+          .widget<AlbumProfilePage>(find.byType(AlbumProfilePage))
+          .initialEditionId,
+      'edition_1',
     );
   });
 
-  testWidgets('Moments open Sonus News with the same Moments', (tester) async {
+  testWidgets('a post only links to what exists in the library', (
+    tester,
+  ) async {
     final controller = await _controller(
+      tracks: [_track(isBlocked: true)],
       moments: [
         _momentEvent(
           id: 'final-peak',
@@ -647,35 +705,82 @@ void main() {
     await tester.tap(find.text('Moments'));
     await tester.pump();
 
+    expect(_postPart('song'), findsNothing);
+    expect(_postPart('artist'), findsNothing);
     expect(
-      find.byKey(const ValueKey<String>('charts-news-entry')),
-      findsOneWidget,
+      _postPart('portrait'),
+      findsNothing,
+      reason: 'without a portrait the artwork fills the collage',
     );
-    await tester.tap(find.byKey(const ValueKey<String>('charts-open-news')));
-    await tester.pumpAndSettle();
+  });
 
-    expect(
-      find.byKey(const ValueKey<String>('charts-news-page')),
-      findsOneWidget,
+  testWidgets('an all-time Moment says all-time, never weekly', (tester) async {
+    final controller = await _controller(
+      moments: [
+        _momentEvent(
+          id: 'all-time-one',
+          scope: ChartMomentScope.allTime,
+          type: ChartMomentEventType.firstNumberOne,
+          previousRank: 2,
+          currentRank: 1,
+          threshold: 1,
+          streams: 42,
+          occurredAt: DateTime(2026, 9, 28, 9),
+        ),
+      ],
     );
-    // Both editions are offered, and the story is the real Moment, with
-    // the shared copy (weekly scope, never all-time).
-    expect(
-      find.byKey(const ValueKey<String>('sonus-news-edition-sonusDaily')),
-      findsOneWidget,
-    );
-    expect(
-      find.byKey(const ValueKey<String>('sonus-news-edition-pulsePop')),
-      findsOneWidget,
-    );
-    expect(find.text('Song 1 reaches a new peak of #3'), findsOneWidget);
 
-    await tester.tap(find.byType(BackButton));
-    await tester.pumpAndSettle();
+    await _pumpPage(tester, controller);
+    await tester.tap(find.text('Moments'));
+    await tester.pump();
+
+    expect(find.text('Song 1 by Artist 1 takes #1 all-time'), findsOneWidget);
     expect(
-      find.byKey(const ValueKey<String>('charts-moments-feed')),
+      find.text(
+        'A new leader takes over the all-time Sonus Hot 100: Song 1 is #1 '
+        'for the first time with 42 lifetime streams.',
+      ),
       findsOneWidget,
     );
+    expect(find.text('ALL-TIME HOT 100'), findsOneWidget);
+    expect(find.text('ALL-TIME #1'), findsOneWidget);
+    expect(find.text('NUMBER ONE'), findsOneWidget);
+    expect(find.text('@sonusdaily · 3h'), findsOneWidget);
+    expect(find.textContaining('weekly'), findsNothing);
+  });
+
+  testWidgets('Moment posts fit a 320 px screen at large text', (tester) async {
+    final controller = await _controller(
+      artists: [_artist(portraitPath: '/art/artist_1.jpg')],
+      albums: [_album(id: 'album_1')],
+      moments: [
+        _momentEvent(
+          id: 'final-peak',
+          scope: ChartMomentScope.finalized,
+          type: ChartMomentEventType.newPeak,
+          currentRank: 3,
+          currentPeakRank: 3,
+          artistId: 'artist_1',
+        ),
+      ],
+    );
+
+    await _pumpPage(
+      tester,
+      controller,
+      size: const Size(320, 2400),
+      textScale: 2,
+    );
+    await tester.tap(find.text('Moments'));
+    await tester.pump();
+
+    expect(tester.takeException(), isNull);
+    final card = tester.getRect(find.byType(MomentPostCard));
+    expect(card.right, lessThanOrEqualTo(320));
+    for (final link in ['song', 'album', 'artist']) {
+      final size = tester.getSize(_postPart(link));
+      expect(size.height, greaterThanOrEqualTo(44));
+    }
   });
 
   testWidgets('LIVE Moment uses provisional presentation', (tester) async {
@@ -702,8 +807,8 @@ void main() {
       find.text('Song 1 rises to #3 on this week’s Sonus Hot 100.'),
       findsOneWidget,
     );
-    expect(find.text('LIVE'), findsOneWidget);
-    expect(find.text('September 29, 2026'), findsOneWidget);
+    expect(find.text('WEEKLY HOT 100 · THIS WEEK'), findsOneWidget);
+    expect(find.text('HOT 100 #3'), findsOneWidget);
   });
 
   testWidgets('empty Moments feed has its own empty state', (tester) async {
@@ -791,6 +896,7 @@ Future<ChartsController> _controller({
   List<ChartSnapshot> history = const [],
   List<LibraryTrack>? tracks,
   List<LibraryAlbum>? albums,
+  List<LibraryArtist> artists = const [],
   List<ChartMomentEvent> moments = const [],
 }) async {
   final resolvedLive =
@@ -810,6 +916,7 @@ Future<ChartsController> _controller({
     library: _FakeLibraryQueryRepository(
       tracks: tracks ?? [_track()],
       albums: albums ?? [_album()],
+      artists: artists,
     ),
     moments: _FakeChartMomentRepository(events: moments),
     now: () => DateTime(2026, 9, 28, 12),
@@ -908,9 +1015,27 @@ LibraryTrack _track({
   );
 }
 
-LibraryAlbum _album() {
+/// A part of the Moment post on screen, whatever its feed item id.
+Finder _postPart(String part) => find.byWidgetPredicate(
+  (widget) =>
+      widget.key is ValueKey<String> &&
+      (widget.key! as ValueKey<String>).value.startsWith('moment-post-$part-'),
+);
+
+LibraryArtist _artist({String? portraitPath}) {
+  return LibraryArtist(
+    artistId: 'artist_1',
+    name: 'Artist 1',
+    albumCount: 1,
+    songCount: 1,
+    dateAdded: DateTime.utc(2026, 9, 1),
+    topArtistsArtworkPath: portraitPath,
+  );
+}
+
+LibraryAlbum _album({String id = 'albums_1'}) {
   return LibraryAlbum(
-    albumId: 'albums_1',
+    albumId: id,
     title: 'Album 1',
     artistId: 'artist_1',
     artistName: 'Artist 1',
@@ -929,6 +1054,8 @@ ChartMomentEvent _momentEvent({
   int? currentPeakRank,
   int? threshold,
   int? milestoneValue,
+  int? streams,
+  String? artistId,
   DateTime? occurredAt,
 }) {
   final weekStart = DateTime.utc(2026, 9, 27);
@@ -941,9 +1068,10 @@ ChartMomentEvent _momentEvent({
     chartType: ChartType.songs,
     scope: scope,
     eventType: type,
-    entity: const ChartEntitySnapshot(
+    entity: ChartEntitySnapshot(
       entityId: 'songs_1',
       title: 'Song 1',
+      artistId: artistId,
       artistName: 'Artist 1',
       albumTitle: 'Album 1',
     ),
@@ -957,6 +1085,7 @@ ChartMomentEvent _momentEvent({
     currentPeakRank: currentPeakRank,
     threshold: threshold,
     milestoneValue: milestoneValue,
+    qualifiedStreamCount: streams,
   );
 }
 
@@ -1110,10 +1239,15 @@ class _FakeChartRepository implements ChartRepository {
 }
 
 class _FakeLibraryQueryRepository implements LibraryQueryRepository {
-  _FakeLibraryQueryRepository({this.tracks = const [], this.albums = const []});
+  _FakeLibraryQueryRepository({
+    this.tracks = const [],
+    this.albums = const [],
+    this.artists = const [],
+  });
 
   final List<LibraryTrack> tracks;
   final List<LibraryAlbum> albums;
+  final List<LibraryArtist> artists;
 
   @override
   Future<List<LibraryTrack>> getTracks({
@@ -1185,7 +1319,7 @@ class _FakeLibraryQueryRepository implements LibraryQueryRepository {
 
   @override
   Future<List<LibraryArtist>> getArtists() async {
-    return const [];
+    return artists;
   }
 
   @override

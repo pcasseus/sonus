@@ -1,3 +1,4 @@
+import '../../../import/application/folders/source_folder_key.dart';
 import '../../data/daos/library_integrity_dao.dart';
 import '../models/library_health_report.dart';
 import 'album_edition_management_service.dart';
@@ -227,6 +228,8 @@ class LibraryIntegrityService {
       ),
     );
 
+    findings.add(await _splitFolders());
+
     return LibraryHealthReport(
       checkedAt: _now(),
       songCount: totals.songs,
@@ -234,6 +237,70 @@ class LibraryIntegrityService {
       artistCount: totals.artists,
       findings: List.unmodifiable(findings),
       importCounts: importCounts,
+    );
+  }
+
+  /// SN-45: folders an earlier import split into several albums. Only
+  /// reported, with a preview; merging albums would change identities, so
+  /// it is never done here.
+  Future<HealthFinding> _splitFolders() async {
+    final files = await dao.filesWithAlbums();
+    final byFolder = <String, Map<String, ({String title, String owner})>>{};
+    final counts = <String, Map<String, int>>{};
+    final names = <String, String>{};
+
+    for (final file in files) {
+      final key = SourceFolderKey.of(file.filePath);
+      if (key == null) continue;
+      byFolder.putIfAbsent(key, () => {})[file.albumId] = (
+        title: file.title,
+        owner: file.owner,
+      );
+      final albumCounts = counts.putIfAbsent(key, () => {});
+      albumCounts[file.albumId] = (albumCounts[file.albumId] ?? 0) + 1;
+      names.putIfAbsent(
+        key,
+        () => SourceFolderKey.folderName(file.filePath) ?? 'A music folder',
+      );
+    }
+
+    final splits = <FolderSplit>[
+      for (final MapEntry(key: folder, value: albums) in byFolder.entries)
+        if (albums.length > 1)
+          FolderSplit(
+            folderName: names[folder]!,
+            albums: [
+              for (final MapEntry(key: id, value: album) in albums.entries)
+                FolderSplitAlbum(
+                  albumId: id,
+                  title: album.title,
+                  owner: album.owner,
+                  songCount: counts[folder]![id]!,
+                ),
+            ]..sort((a, b) => b.songCount.compareTo(a.songCount)),
+          ),
+    ]..sort((a, b) => a.folderName.compareTo(b.folderName));
+
+    if (splits.isEmpty) {
+      return const HealthFinding(
+        check: HealthCheck.splitFolders,
+        severity: HealthSeverity.verified,
+        summary: 'Each music folder is one album.',
+      );
+    }
+
+    return HealthFinding(
+      check: HealthCheck.splitFolders,
+      severity: HealthSeverity.warning,
+      summary:
+          '${_count(splits.length, 'music folder')} split into several '
+          'albums by an earlier import. Preview them; nothing is merged '
+          'automatically.',
+      entityIds: [
+        for (final split in splits)
+          for (final album in split.albums) album.albumId,
+      ],
+      folderSplits: List.unmodifiable(splits),
     );
   }
 

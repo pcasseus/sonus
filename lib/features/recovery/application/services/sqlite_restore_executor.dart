@@ -70,6 +70,14 @@ class SqliteRestoreExecutor {
     DatabaseTables.playlistItems,
   ];
 
+  /// Portable tables older backups may lack. Restored like dependent tables
+  /// when the backup has them; otherwise their local rows are untouched.
+  static const optionalTables = [
+    DatabaseTables.albumReleaseClassifications,
+    DatabaseTables.artistProjectAssignments,
+    DatabaseTables.artworkCrops,
+  ];
+
   Future<void> apply({
     required Transaction transaction,
     required DecodedBackup backup,
@@ -91,8 +99,13 @@ class SqliteRestoreExecutor {
         _remapArtwork(row, artworkPaths),
     ];
 
+    final restoredOptional = [
+      for (final table in optionalTables)
+        if (tables.containsKey(table)) table,
+    ];
+
     // 1. Dependent tables reference anchors; clear them children first.
-    for (final table in dependentTables.reversed) {
+    for (final table in [...dependentTables, ...restoredOptional].reversed) {
       await transaction.delete(table);
     }
     await afterPhase?.call(RestorePhase.clearDependentTables);
@@ -144,7 +157,7 @@ class SqliteRestoreExecutor {
     await afterPhase?.call(RestorePhase.removeAnchorsNotInBackup);
 
     // 5. Dependent rows, verbatim, parents first.
-    for (final table in dependentTables) {
+    for (final table in [...dependentTables, ...restoredOptional]) {
       final batch = transaction.batch();
 
       for (final row in tables[table]!) {
@@ -161,7 +174,7 @@ class SqliteRestoreExecutor {
   }
 
   void _assertCoverage() {
-    final handled = {...anchorTables, ...dependentTables};
+    final handled = {...anchorTables, ...dependentTables, ...optionalTables};
     final portable = {
       for (final coverage in BackupCoverageContract.portableTables)
         coverage.table,
@@ -205,8 +218,11 @@ class SqliteRestoreExecutor {
 
     // UPDATE never cascades on non-key columns; INSERT handles new rows.
     final updated = values.isEmpty
-        ? (await transaction.query(table, where: where, whereArgs: whereArgs))
-              .length
+        ? (await transaction.query(
+            table,
+            where: where,
+            whereArgs: whereArgs,
+          )).length
         : await transaction.update(
             table,
             values,
@@ -303,7 +319,8 @@ class SqliteRestoreExecutor {
         whereArgs: [row['id']],
       );
 
-      if (stored.length != 1 || stored.single['file_path'] != row['file_path']) {
+      if (stored.length != 1 ||
+          stored.single['file_path'] != row['file_path']) {
         throw const RestoreIntegrityFailure('Artwork path remapping failed.');
       }
     }

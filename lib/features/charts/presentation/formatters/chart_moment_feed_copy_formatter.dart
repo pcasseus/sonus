@@ -12,6 +12,10 @@ class ChartMomentFeedCopyFormatter {
       (event) => event.eventType == item.dominantEventType,
     );
 
+    if (item.isAllTime) {
+      return _allTime(item, dominant);
+    }
+
     return switch (item.dominantEventType) {
       ChartMomentEventType.firstNumberOne => _numberOne(
         item,
@@ -513,6 +517,100 @@ class ChartMomentFeedCopyFormatter {
 
     return null;
   }
+
+  /// All-time stories rank lifetime streams, so they never borrow the
+  /// weekly wording.
+  /// All-time stories rank lifetime streams, so they never borrow the
+  /// weekly wording or a chart-cycle reset.
+  ///
+  /// Patterns adopted from the legacy Sonus Daily / PulsePop desk
+  /// (sonus_app chart_narrative_service and sonus_feed_adapter): the
+  /// "Title by Artist" byline, breakthrough verbs scaled to the zone
+  /// (breaks into the Top 10, enters the Top 25, reaches the Top 50),
+  /// climb verbs scaled to the move (surges, jumps), and the decks "A new
+  /// leader takes over", "A fresh entry" and "its highest position so far".
+  ChartMomentFeedCopy _allTime(
+    ChartMomentFeedItem item,
+    ChartMomentEvent event,
+  ) {
+    final title = item.entity.title;
+    final artist = item.entity.artistName.trim();
+    final who = artist.isEmpty ? title : '$title by $artist';
+    final chart = allTimeChartName(item.chartType);
+    final rank = event.currentRank;
+    final streams = event.qualifiedStreamCount;
+    final withStreams = streams == null || streams <= 0
+        ? ''
+        : ' with $streams lifetime ${_plural(streams, 'stream')}';
+    final atRank = rank == null ? '' : ' at #$rank';
+
+    return switch (event.eventType) {
+      ChartMomentEventType.firstNumberOne => ChartMomentFeedCopy(
+        headline: '$who takes #1 all-time',
+        body:
+            'A new leader takes over the $chart: $title is #1 for the '
+            'first time$withStreams.',
+      ),
+      ChartMomentEventType.returnToNumberOne => ChartMomentFeedCopy(
+        headline: '$who is back at #1 all-time',
+        body: '$title retakes the top of the $chart$withStreams.',
+      ),
+      ChartMomentEventType.newPeak when event.threshold != null =>
+        ChartMomentFeedCopy(
+          headline: switch (event.threshold!) {
+            2 => '$who rises to #2 all-time',
+            10 => '$who breaks into the all-time Top 10',
+            25 => '$who enters the all-time Top 25',
+            50 => '$who reaches the all-time Top 50',
+            final zone => '$who climbs into the all-time Top $zone',
+          },
+          body: rank == null
+              ? '$title sets a new high on the $chart.'
+              : '$title climbs to #$rank on the $chart, its highest '
+                    'position so far.',
+        ),
+      ChartMomentEventType.firstThresholdEntry => ChartMomentFeedCopy(
+        headline: '$who enters the all-time Top ${event.threshold ?? 100}',
+        body: rank == null
+            ? '$title breaks into the $chart Top ${event.threshold ?? 100}.'
+            : '$title moves up to #$rank on the $chart$withStreams.',
+      ),
+      ChartMomentEventType.debut => ChartMomentFeedCopy(
+        headline: rank == null
+            ? '$who debuts on the all-time chart'
+            : '$who debuts at #$rank all-time',
+        body: 'A fresh entry: $title lands on the $chart$withStreams.',
+      ),
+      ChartMomentEventType.reentry => ChartMomentFeedCopy(
+        headline: '$who re-enters the all-time chart$atRank',
+        body: '$title returns to the $chart after dropping out.',
+      ),
+      ChartMomentEventType.rankRise
+          when rank != null && event.previousRank != null =>
+        ChartMomentFeedCopy(
+          headline:
+              '$who ${event.previousRank! - rank >= surgePlaces ? 'surges' : 'jumps'} '
+              '${event.previousRank! - rank} places all-time',
+          body:
+              '$title climbs from #${event.previousRank} to #$rank on the $chart.',
+        ),
+      _ => ChartMomentFeedCopy(
+        headline: '$who moves on the all-time chart',
+        body: rank == null
+            ? '$title moves on the $chart.'
+            : '$title is now #$rank on the $chart.',
+      ),
+    };
+  }
+
+  /// A climb this large reads as a surge rather than a jump.
+  static const int surgePlaces = 30;
+
+  /// For example "all-time Sonus Hot 100".
+  static String allTimeChartName(ChartType type) => switch (type) {
+    ChartType.songs => 'all-time Sonus Hot 100',
+    ChartType.albums => 'all-time Sonus Top 200 Albums',
+  };
 
   String _entityNoun(ChartType type) {
     return type == ChartType.songs ? 'song' : 'album';

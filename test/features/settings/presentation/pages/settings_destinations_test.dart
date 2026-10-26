@@ -322,7 +322,7 @@ void main() {
       );
 
       expect(accountCloudSummary(account(), sync), (
-        'Person Example · Ready to sync',
+        'Person Example · Not synced yet',
         false,
       ));
 

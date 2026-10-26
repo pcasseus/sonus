@@ -168,6 +168,104 @@ void main() {
     expect(engine.loadedAutoPlay, isTrue);
   });
 
+  group('playInContext (SN-45: Previous and Next follow the list)', () {
+    test('tapping the third of four queues all four from the third', () async {
+      final engine = FakePlaybackEngine();
+      final coordinator = PlaybackCoordinator(engine: engine);
+      final album = [
+        track(songId: 'first'),
+        track(songId: 'second'),
+        track(songId: 'third'),
+        track(songId: 'fourth'),
+      ];
+
+      await coordinator.playInContext(album[2], album);
+
+      expect(engine.loadedTracks!.map((t) => t.songId), [
+        'first',
+        'second',
+        'third',
+        'fourth',
+      ]);
+      expect(engine.loadedStartIndex, 2);
+      expect(engine.loadedAutoPlay, isTrue);
+
+      // The queue the engine received has a real Previous and Next.
+      final queue = const PlaybackQueue().replace(
+        tracks: engine.loadedTracks!,
+        startIndex: engine.loadedStartIndex!,
+      );
+      expect(queue.hasPrevious, isTrue);
+      expect(queue.trackAt(queue.currentIndex - 1)!.songId, 'second');
+      expect(queue.trackAt(queue.currentIndex + 1)!.songId, 'fourth');
+    });
+
+    test('boundaries stay real: the first song has no Previous', () async {
+      final engine = FakePlaybackEngine();
+      final coordinator = PlaybackCoordinator(engine: engine);
+      final list = [track(songId: 'a'), track(songId: 'b')];
+
+      await coordinator.playInContext(list.first, list);
+
+      expect(engine.loadedStartIndex, 0);
+      expect(engine.loadedTracks, hasLength(2));
+    });
+
+    test('unplayable neighbours are skipped, the chosen song kept', () async {
+      final engine = FakePlaybackEngine();
+      final coordinator = PlaybackCoordinator(engine: engine);
+      final list = [
+        track(songId: 'a'),
+        track(songId: 'gone', isAvailable: false),
+        track(songId: 'blocked', isSongBlocked: true),
+        track(songId: 'b'),
+      ];
+
+      await coordinator.playInContext(list.last, list);
+
+      expect(engine.loadedTracks!.map((t) => t.songId), ['a', 'b']);
+      expect(engine.loadedStartIndex, 1);
+    });
+
+    test('a song outside the list plays on its own', () async {
+      final engine = FakePlaybackEngine();
+      final coordinator = PlaybackCoordinator(engine: engine);
+
+      await coordinator.playInContext(track(songId: 'x'), [track(songId: 'a')]);
+
+      expect(engine.loadedTracks!.single.songId, 'x');
+    });
+  });
+
+  group('dismissPausedSession (SN-45 mini-player swipe)', () {
+    test('a paused session empties the queue', () async {
+      final engine = FakePlaybackEngine()
+        ..state = PlaybackState(
+          queue: PlaybackQueue(tracks: [playbackTrack('a')], currentIndex: 0),
+          status: PlaybackStatus.paused,
+        );
+      final coordinator = PlaybackCoordinator(engine: engine);
+
+      expect(await coordinator.dismissPausedSession(), isTrue);
+      expect(engine.loadedTracks, isEmpty);
+    });
+
+    test('playing or loading music is never dismissed', () async {
+      for (final status in [PlaybackStatus.playing, PlaybackStatus.loading]) {
+        final engine = FakePlaybackEngine()
+          ..state = PlaybackState(
+            queue: PlaybackQueue(tracks: [playbackTrack('a')], currentIndex: 0),
+            status: status,
+          );
+        final coordinator = PlaybackCoordinator(engine: engine);
+
+        expect(await coordinator.dismissPausedSession(), isFalse);
+        expect(engine.loadedTracks, isNull, reason: '$status');
+        expect(engine.stopCalls, 0);
+      }
+    });
+  });
+
   test('rejects unavailable single track', () async {
     final engine = FakePlaybackEngine();
     final coordinator = PlaybackCoordinator(engine: engine);

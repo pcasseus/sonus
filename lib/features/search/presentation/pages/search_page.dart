@@ -162,6 +162,7 @@ class _SearchPageState extends State<SearchPage> {
         builder: (_) => AlbumProfilePage(
           albumId: track.albumId,
           initialAlbumTitle: track.albumTitle,
+          initialEditionId: track.albumEditionId,
         ),
       ),
     );
@@ -225,7 +226,11 @@ class _SearchPageState extends State<SearchPage> {
     }
   }
 
-  Future<void> _playTrack(LibraryTrack track) async {
+  /// Plays [track] with the visible track results as the queue.
+  Future<void> _playTrack(
+    LibraryTrack track,
+    List<LibraryTrack> results,
+  ) async {
     if (!_isPlayable(track)) {
       _showMessage(
         track.isBlocked
@@ -236,7 +241,7 @@ class _SearchPageState extends State<SearchPage> {
     }
 
     try {
-      await context.read<PlaybackCoordinator>().playTrack(track);
+      await context.read<PlaybackCoordinator>().playInContext(track, results);
     } catch (error) {
       if (!mounted) {
         return;
@@ -463,7 +468,7 @@ class _SearchPageState extends State<SearchPage> {
             track: track,
             isPlayable: _isPlayable(track),
             canSetBlocked: canSetBlocked,
-            onTap: () => _playTrack(track),
+            onTap: () => _playTrack(track, visibleTracks),
             onAction: (action) {
               switch (action) {
                 case _TrackSearchAction.playNext:

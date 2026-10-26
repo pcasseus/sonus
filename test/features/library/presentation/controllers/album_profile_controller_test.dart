@@ -1,3 +1,5 @@
+import 'package:sonus_next/features/artwork/application/services/artwork_crop_service.dart';
+import 'package:sonus_next/features/artwork/domain/entities/artwork_crop.dart';
 import 'dart:async';
 import 'dart:math';
 
@@ -309,6 +311,91 @@ void main() {
       expect(repository.requestedTracksAlbumId, isNull);
 
       controller.dispose();
+    });
+
+    group('opening on a known edition', () {
+      FakeEditionAwareLibraryQueryRepository twoEditions() =>
+          FakeEditionAwareLibraryQueryRepository(
+            album: createAlbum(
+              primaryEditionId: 'edition-deluxe',
+              primaryEditionTitle: 'Deluxe',
+              primaryEditionType: AlbumEditionType.deluxe,
+            ),
+            editions: [
+              createLibraryEdition(
+                editionId: 'edition-deluxe',
+                title: 'Deluxe',
+                type: AlbumEditionType.deluxe,
+                isPrimary: true,
+              ),
+              createLibraryEdition(
+                editionId: 'edition-standard',
+                title: 'Standard',
+                type: AlbumEditionType.standard,
+              ),
+            ],
+            editionTracks: {
+              'edition-deluxe': [
+                createTrack(
+                  songId: 'deluxe-1',
+                  albumEditionId: 'edition-deluxe',
+                  albumEditionTitle: 'Deluxe',
+                  albumEditionType: AlbumEditionType.deluxe,
+                ),
+              ],
+              'edition-standard': [
+                createTrack(
+                  songId: 'standard-1',
+                  albumEditionId: 'edition-standard',
+                  albumEditionTitle: 'Standard',
+                ),
+              ],
+            },
+          );
+
+      test('opens on the linked song edition, not the primary', () async {
+        final repository = twoEditions();
+        final controller = AlbumProfileController(
+          repository: repository,
+          albumId: 'album-1',
+          initialEditionId: 'edition-standard',
+        );
+
+        await controller.load();
+
+        expect(controller.selectedEdition?.editionId, 'edition-standard');
+        expect(controller.tracks.map((track) => track.songId), ['standard-1']);
+        expect(repository.requestedTrackEditionIds, ['edition-standard']);
+        controller.dispose();
+      });
+
+      test('an edition from elsewhere falls back to the primary', () async {
+        final controller = AlbumProfileController(
+          repository: twoEditions(),
+          albumId: 'album-1',
+          initialEditionId: 'edition-of-another-album',
+        );
+
+        await controller.load();
+
+        expect(controller.selectedEdition?.editionId, 'edition-deluxe');
+        controller.dispose();
+      });
+
+      test('a later choice survives reloads', () async {
+        final controller = AlbumProfileController(
+          repository: twoEditions(),
+          albumId: 'album-1',
+          initialEditionId: 'edition-standard',
+        );
+
+        await controller.load();
+        await controller.selectEdition('edition-deluxe');
+        await controller.load();
+
+        expect(controller.selectedEdition?.editionId, 'edition-deluxe');
+        controller.dispose();
+      });
     });
 
     test('selectEdition swaps the complete playback context', () async {
@@ -808,6 +895,146 @@ void main() {
       expect(requestCount, 2);
 
       controller.dispose();
+    });
+
+    group('SN-45: each edition keeps its own cover', () {
+      FakeEditionAwareLibraryQueryRepository editionRepository({
+        String? deluxeArtwork,
+      }) => FakeEditionAwareLibraryQueryRepository(
+        album: createAlbum(
+          primaryEditionId: 'edition-standard',
+          primaryEditionTitle: 'Standard',
+          primaryEditionType: AlbumEditionType.standard,
+        ),
+        editions: [
+          createLibraryEdition(
+            editionId: 'edition-standard',
+            title: 'Standard',
+            type: AlbumEditionType.standard,
+            isPrimary: true,
+            artworkPath: '/art/standard.jpg',
+          ),
+          createLibraryEdition(
+            editionId: 'edition-deluxe',
+            title: 'Deluxe',
+            type: AlbumEditionType.deluxe,
+            artworkPath: deluxeArtwork,
+          ),
+        ],
+        editionTracks: {
+          'edition-standard': [createTrack(songId: 'a')],
+          'edition-deluxe': [createTrack(songId: 'a')],
+        },
+      );
+
+      test('switching editions switches the cover', () async {
+        final controller = AlbumProfileController(
+          repository: editionRepository(deluxeArtwork: '/art/deluxe.jpg'),
+          albumId: 'album-1',
+        );
+        addTearDown(controller.dispose);
+        await controller.load();
+
+        expect(controller.artworkPath, '/art/standard.jpg');
+
+        await controller.selectEdition('edition-deluxe');
+        expect(controller.artworkPath, '/art/deluxe.jpg');
+        expect(controller.selectedEditionHasOwnArtwork, isTrue);
+
+        await controller.selectEdition('edition-standard');
+        expect(controller.artworkPath, '/art/standard.jpg');
+      });
+
+      test('an edition without a cover shows the primary cover', () async {
+        final controller = AlbumProfileController(
+          repository: editionRepository(),
+          albumId: 'album-1',
+        );
+        addTearDown(controller.dispose);
+        await controller.load();
+        await controller.selectEdition('edition-deluxe');
+
+        expect(controller.selectedEditionHasOwnArtwork, isFalse);
+        expect(controller.artworkPath, '/art/standard.jpg');
+      });
+
+      test('changing artwork on Deluxe leaves Standard alone', () async {
+        final service = FakeEditionArtworkAssignmentService();
+        final controller = AlbumProfileController(
+          repository: editionRepository(),
+          albumId: 'album-1',
+          artworkAssignmentService: service,
+          artworkFilePicker: FakeArtworkFilePicker(result: '/new.jpg'),
+        );
+        addTearDown(controller.dispose);
+        await controller.load();
+        await controller.selectEdition('edition-deluxe');
+
+        expect(await controller.changeArtwork(), isTrue);
+        expect(service.assigned, [('edition-deluxe', '/new.jpg')]);
+
+        expect(await controller.clearArtwork(), isTrue);
+        expect(service.cleared, ['edition-deluxe']);
+      });
+
+      test('a crop is applied to the edition on screen', () async {
+        final crops = FakeArtworkCropService();
+        final controller = AlbumProfileController(
+          repository: editionRepository(deluxeArtwork: '/art/deluxe.jpg'),
+          albumId: 'album-1',
+          artworkAssignmentService: FakeEditionArtworkAssignmentService(),
+          artworkFilePicker: FakeArtworkFilePicker(result: '/new.jpg'),
+          artworkCropService: crops,
+        );
+        addTearDown(controller.dispose);
+        await controller.load();
+        await controller.selectEdition('edition-deluxe');
+
+        expect(controller.canCropArtwork, isTrue);
+        final rect = CropRect(left: 0, top: 0, width: 1, height: 1);
+        expect(
+          await controller.applyArtworkCrop(sourcePath: '/new.jpg', rect: rect),
+          isTrue,
+        );
+        expect(crops.applied, [
+          (ArtworkCropTarget.albumEdition, 'edition-deluxe', '/new.jpg', rect),
+        ]);
+
+        await controller.resetArtworkCrop();
+        expect(crops.resets, ['edition-deluxe']);
+      });
+
+      test('an edition without its own cover has nothing to move', () async {
+        final crops = FakeArtworkCropService();
+        final controller = AlbumProfileController(
+          repository: editionRepository(),
+          albumId: 'album-1',
+          artworkAssignmentService: FakeEditionArtworkAssignmentService(),
+          artworkFilePicker: FakeArtworkFilePicker(result: '/new.jpg'),
+          artworkCropService: crops,
+        );
+        addTearDown(controller.dispose);
+        await controller.load();
+        await controller.selectEdition('edition-deluxe');
+
+        expect(await controller.artworkRepositionSource(), isNull);
+        expect(crops.repositionRequests, isEmpty);
+      });
+
+      test('the primary edition is edited when it is on screen', () async {
+        final service = FakeEditionArtworkAssignmentService();
+        final controller = AlbumProfileController(
+          repository: editionRepository(),
+          albumId: 'album-1',
+          artworkAssignmentService: service,
+          artworkFilePicker: FakeArtworkFilePicker(result: '/new.jpg'),
+        );
+        addTearDown(controller.dispose);
+        await controller.load();
+
+        await controller.changeArtwork();
+        expect(service.assigned, [('edition-standard', '/new.jpg')]);
+      });
     });
 
     test('reports whether track artwork can be edited', () {
@@ -2806,6 +3033,78 @@ class FakeTrackArtworkAssignmentService implements ArtworkAssignmentService {
   Future<void> clearSong(String songId, {DateTime? now}) async {
     clearSongCallCount++;
     clearedSongId = songId;
+  }
+
+  @override
+  noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class FakeEditionArtworkAssignmentService implements ArtworkAssignmentService {
+  final List<(String, String)> assigned = [];
+  final List<String> cleared = [];
+
+  @override
+  Future<ArtworkAsset> assignAlbumEdition({
+    required String albumEditionId,
+    required String filePath,
+    DateTime? now,
+  }) async {
+    assigned.add((albumEditionId, filePath));
+    final timestamp = now ?? DateTime.utc(2026, 1, 1);
+    return ArtworkAsset(
+      id: 'artwork-$albumEditionId',
+      filePath: filePath,
+      normalizedPath: filePath.toLowerCase(),
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    );
+  }
+
+  @override
+  Future<void> clearAlbumEdition(String albumEditionId, {DateTime? now}) async {
+    cleared.add(albumEditionId);
+  }
+
+  @override
+  noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class FakeArtworkCropService implements ArtworkCropService {
+  final List<(ArtworkCropTarget, String, String, CropRect)> applied = [];
+  final List<String> resets = [];
+  final List<String> repositionRequests = [];
+
+  @override
+  Future<void> apply({
+    required ArtworkCropTarget target,
+    required String targetId,
+    required String sourcePath,
+    required CropRect rect,
+    String? userId,
+  }) async {
+    applied.add((target, targetId, sourcePath, rect));
+  }
+
+  @override
+  Future<bool> reset({
+    required ArtworkCropTarget target,
+    required String targetId,
+    required String? currentArtworkId,
+    String? userId,
+  }) async {
+    resets.add(targetId);
+    return true;
+  }
+
+  @override
+  Future<ArtworkCropSource?> repositionSource({
+    required ArtworkCropTarget target,
+    required String targetId,
+    required String? currentArtworkId,
+    required String? currentArtworkPath,
+  }) async {
+    repositionRequests.add(targetId);
+    return null;
   }
 
   @override

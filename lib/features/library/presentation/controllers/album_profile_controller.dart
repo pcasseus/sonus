@@ -3,6 +3,8 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 
 import '../../../artwork/application/services/artwork_assignment_service.dart';
+import '../../../artwork/application/services/artwork_crop_service.dart';
+import '../../../artwork/domain/entities/artwork_crop.dart';
 import '../../../artwork/application/services/artwork_file_picker.dart';
 import '../../../player/application/controllers/playback_coordinator.dart';
 import '../../application/models/library_album.dart';
@@ -23,6 +25,7 @@ class AlbumProfileController extends ChangeNotifier {
   AlbumProfileController({
     required LibraryQueryRepository repository,
     required String albumId,
+    String? initialEditionId,
     PlaybackCoordinator? playbackCoordinator,
     AlbumProfileEditingService? albumProfileEditingService,
     AlbumEditionTrackOrderingService? albumEditionTrackOrderingService,
@@ -31,6 +34,7 @@ class AlbumProfileController extends ChangeNotifier {
     SongBlockService? songBlockService,
     ArtworkAssignmentService? artworkAssignmentService,
     ArtworkFilePicker? artworkFilePicker,
+    ArtworkCropService? artworkCropService,
     Random? random,
   }) : this._(
          repository,
@@ -43,7 +47,9 @@ class AlbumProfileController extends ChangeNotifier {
          songBlockService,
          artworkAssignmentService,
          artworkFilePicker,
+         artworkCropService,
          random ?? Random(),
+         initialEditionId,
        );
 
   AlbumProfileController._(
@@ -57,7 +63,9 @@ class AlbumProfileController extends ChangeNotifier {
     this._songBlockService,
     this._artworkAssignmentService,
     this._artworkFilePicker,
+    this._artworkCropService,
     this._random,
+    this._initialEditionId,
   );
 
   final LibraryQueryRepository _repository;
@@ -70,7 +78,12 @@ class AlbumProfileController extends ChangeNotifier {
   final SongBlockService? _songBlockService;
   final ArtworkAssignmentService? _artworkAssignmentService;
   final ArtworkFilePicker? _artworkFilePicker;
+  final ArtworkCropService? _artworkCropService;
   final Random _random;
+
+  /// The edition to open on, such as the one a linked song is on. If it is
+  /// not one of this album's editions, the primary edition opens instead.
+  final String? _initialEditionId;
 
   LibraryAlbum? _album;
   List<LibraryAlbumEdition> _editions = const [];
@@ -96,7 +109,25 @@ class AlbumProfileController extends ChangeNotifier {
       _repository is AlbumEditionQueryRepository;
   List<LibraryTrack> get tracks => _tracks;
 
+  /// The cover shown for the selected edition. Each edition keeps its own
+  /// cover (SN-45); an edition without one shows the album's primary cover.
   String? get artworkPath {
+    final editionPath = _selectedEdition?.artworkPath?.trim();
+
+    if (editionPath != null && editionPath.isNotEmpty) {
+      return editionPath;
+    }
+
+    final primaryPath = _editions
+        .where((edition) => edition.isPrimary)
+        .firstOrNull
+        ?.artworkPath
+        ?.trim();
+
+    if (primaryPath != null && primaryPath.isNotEmpty) {
+      return primaryPath;
+    }
+
     final path = _album?.artworkPath?.trim();
 
     if (path == null || path.isEmpty) {
@@ -104,6 +135,25 @@ class AlbumProfileController extends ChangeNotifier {
     }
 
     return path;
+  }
+
+  /// Whether the selected edition has a cover of its own.
+  bool get selectedEditionHasOwnArtwork {
+    final editionPath = _selectedEdition?.artworkPath?.trim();
+    return editionPath != null && editionPath.isNotEmpty;
+  }
+
+  /// The edition that artwork changes apply to: the one on screen, or the
+  /// primary edition when editions cannot be read.
+  String? get _artworkEditionId {
+    final selected = _selectedEdition?.editionId.trim();
+
+    if (selected != null && selected.isNotEmpty) {
+      return selected;
+    }
+
+    final primary = _album?.primaryEditionId?.trim();
+    return primary == null || primary.isEmpty ? null : primary;
   }
 
   bool canEditAlbumProfile(String? userId) {
@@ -404,15 +454,88 @@ class AlbumProfileController extends ChangeNotifier {
     return true;
   }
 
+  /// Whether covers can be cropped and repositioned (SN-45).
+  bool get canCropArtwork => _artworkCropService != null && canEditArtwork;
+
+  /// Lets the user choose an image; null when cancelled or unavailable.
+  Future<String?> pickArtworkFile() async =>
+      _artworkFilePicker?.pickArtworkFile();
+
+  /// Crops [sourcePath] to [rect] and makes it the selected edition's
+  /// cover. The original is kept so the crop can be moved or reset.
+  Future<bool> applyArtworkCrop({
+    required String sourcePath,
+    required CropRect rect,
+  }) async {
+    final service = _artworkCropService;
+    final editionId = _artworkEditionId;
+
+    if (service == null || editionId == null) {
+      return false;
+    }
+
+    await service.apply(
+      target: ArtworkCropTarget.albumEdition,
+      targetId: editionId,
+      sourcePath: sourcePath,
+      rect: rect,
+    );
+
+    await refresh();
+    return true;
+  }
+
+  /// What "Reposition cover" opens for the selected edition, or null when
+  /// it has no cover of its own.
+  Future<ArtworkCropSource?> artworkRepositionSource() async {
+    final service = _artworkCropService;
+    final editionId = _artworkEditionId;
+    final edition = _selectedEdition;
+
+    if (service == null ||
+        editionId == null ||
+        edition == null ||
+        !selectedEditionHasOwnArtwork) {
+      return null;
+    }
+
+    return service.repositionSource(
+      target: ArtworkCropTarget.albumEdition,
+      targetId: editionId,
+      currentArtworkId: edition.artworkId,
+      currentArtworkPath: edition.artworkPath,
+    );
+  }
+
+  /// Restores the selected edition's full, uncropped original cover.
+  Future<bool> resetArtworkCrop() async {
+    final service = _artworkCropService;
+    final editionId = _artworkEditionId;
+
+    if (service == null || editionId == null) {
+      return false;
+    }
+
+    final reset = await service.reset(
+      target: ArtworkCropTarget.albumEdition,
+      targetId: editionId,
+      currentArtworkId: _selectedEdition?.artworkId,
+    );
+
+    if (reset) {
+      await refresh();
+    }
+
+    return reset;
+  }
+
+  /// Replaces the selected edition's cover. Other editions keep theirs.
   Future<bool> changeArtwork() async {
     final service = _artworkAssignmentService;
     final picker = _artworkFilePicker;
-    final primaryEditionId = _album?.primaryEditionId;
+    final editionId = _artworkEditionId;
 
-    if (service == null ||
-        picker == null ||
-        primaryEditionId == null ||
-        primaryEditionId.trim().isEmpty) {
+    if (service == null || picker == null || editionId == null) {
       return false;
     }
 
@@ -423,7 +546,7 @@ class AlbumProfileController extends ChangeNotifier {
     }
 
     await service.assignAlbumEdition(
-      albumEditionId: primaryEditionId,
+      albumEditionId: editionId,
       filePath: filePath,
     );
 
@@ -432,17 +555,16 @@ class AlbumProfileController extends ChangeNotifier {
     return true;
   }
 
+  /// Clears the selected edition's own cover. Other editions keep theirs.
   Future<bool> clearArtwork() async {
     final service = _artworkAssignmentService;
-    final primaryEditionId = _album?.primaryEditionId;
+    final editionId = _artworkEditionId;
 
-    if (service == null ||
-        primaryEditionId == null ||
-        primaryEditionId.trim().isEmpty) {
+    if (service == null || editionId == null) {
       return false;
     }
 
-    await service.clearAlbumEdition(primaryEditionId);
+    await service.clearAlbumEdition(editionId);
 
     await refresh();
 
@@ -578,7 +700,7 @@ class AlbumProfileController extends ChangeNotifier {
   }
 
   Future<void> load() async {
-    final preferredEditionId = _selectedEdition?.editionId;
+    final preferredEditionId = _selectedEdition?.editionId ?? _initialEditionId;
 
     _isLoading = true;
     _error = null;

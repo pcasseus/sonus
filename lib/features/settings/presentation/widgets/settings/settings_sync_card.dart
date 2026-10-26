@@ -4,6 +4,7 @@ import '../../../../../core/design/sonus_theme.dart';
 import '../../../../../core/design/widgets/sonus_surface_card.dart';
 import '../../../../account/application/controllers/account_controller.dart';
 import '../../../../sync/application/controllers/sync_controller.dart';
+import '../../../../sync/application/models/sync_failure.dart';
 import '../../../../sync/application/services/automatic_sync_coordinator.dart';
 import '../../../../sync/application/services/sync_network_policy_service.dart';
 
@@ -59,7 +60,9 @@ class SettingsSyncCard extends StatelessWidget {
 
     final lastSynced = syncController.lastSuccessfulSync;
     final canSync =
-        !syncController.isSyncing && !syncController.hasAccountConflict;
+        !syncController.isSyncing &&
+        !syncController.hasAccountConflict &&
+        !syncController.isAwaitingCloudChoice;
 
     return SonusSurfaceCard(
       key: const ValueKey<String>('settings-sync-card'),
@@ -115,6 +118,27 @@ class SettingsSyncCard extends StatelessWidget {
               key: const ValueKey<String>('settings-sync-account-conflict'),
               style: TextStyle(color: Theme.of(context).colorScheme.error),
             ),
+          ] else if (syncController.isAwaitingCloudChoice) ...[
+            const SizedBox(height: 16),
+            Text(
+              'This account already has a Sonus cloud library. Nothing has '
+              'been uploaded or downloaded yet.',
+              key: const ValueKey<String>('settings-sync-cloud-choice'),
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Bring it here to merge it with the library on this device. '
+              'To keep this library separate, sign out and use another '
+              'account; sync stays paused until you choose.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 12),
+            FilledButton(
+              key: const ValueKey<String>('settings-sync-bring-cloud-library'),
+              onPressed: syncController.bringCloudLibrary,
+              child: const Text('Bring it to this device'),
+            ),
           ] else if (syncController.isRecoveryHeld) ...[
             const SizedBox(height: 16),
             Text(
@@ -127,7 +151,8 @@ class SettingsSyncCard extends StatelessWidget {
           ] else if (syncController.status == SyncStatus.error) ...[
             const SizedBox(height: 16),
             Text(
-              'Sync could not finish. Sonus will try again later.',
+              syncController.failureKind?.message ??
+                  SyncFailureKind.unknown.message,
               key: const ValueKey<String>('settings-sync-error'),
               style: TextStyle(color: Theme.of(context).colorScheme.error),
             ),
@@ -226,7 +251,13 @@ class SettingsSyncCard extends StatelessWidget {
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
                 : const Icon(Icons.sync_rounded),
-            label: Text(syncController.isSyncing ? 'Syncing...' : 'Sync now'),
+            label: Text(
+              syncController.isSyncing
+                  ? 'Syncing...'
+                  : syncController.status == SyncStatus.error
+                  ? 'Try again'
+                  : 'Sync now',
+            ),
           ),
         ],
       ),
@@ -249,6 +280,10 @@ class SettingsSyncCard extends StatelessWidget {
       return 'Paused for recovery review';
     }
 
+    if (controller.isAwaitingCloudChoice) {
+      return 'Waiting for your choice';
+    }
+
     if (controller.status == SyncStatus.error) {
       return 'Waiting to retry';
     }
@@ -260,9 +295,9 @@ class SettingsSyncCard extends StatelessWidget {
       SyncNetworkAccess.mobileDenied => 'Waiting for Wi-Fi',
       SyncNetworkAccess.unsupported => 'Waiting for a supported network',
       SyncNetworkAccess.allowed =>
-        controller.lastSuccessfulSync == null ? 'Ready to sync' : 'Up to date',
+        controller.lastSuccessfulSync == null ? 'Not synced yet' : 'Up to date',
       null =>
-        controller.lastSuccessfulSync == null ? 'Ready to sync' : 'Up to date',
+        controller.lastSuccessfulSync == null ? 'Not synced yet' : 'Up to date',
     };
   }
 

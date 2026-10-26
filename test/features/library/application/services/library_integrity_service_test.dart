@@ -225,4 +225,71 @@ void main() {
       expect(primary.corrections, isEmpty);
     });
   });
+
+  group('SN-45 split folders (preview only)', () {
+    Future<void> legacyImport(String path, String title, String artist) {
+      // Without a folder placement, as imports before SN-45 worked.
+      return AtomicLibraryImporter(appDatabase: appDatabase).import(
+        candidate: ImportCandidate(
+          filePath: path,
+          normalizedPath: path.toLowerCase(),
+          discoveredAt: now,
+        ),
+        metadata: AudioMetadata(
+          title: title,
+          artistName: artist,
+          albumTitle: 'Starstruck',
+          durationSeconds: 180,
+          trackNumber: 1,
+          discNumber: 1,
+          isSingle: false,
+          featuredArtists: const [],
+        ),
+        now: now,
+      );
+    }
+
+    HealthFinding splitFinding(LibraryHealthReport report) =>
+        report.findings.singleWhere((f) => f.check == HealthCheck.splitFolders);
+
+    test('a folder split by artist tags is reported with its albums', () async {
+      await legacyImport('/m/Starstruck/1.mp3', 'A', 'Artist 1');
+      await legacyImport('/m/Starstruck/2.mp3', 'B', 'Artist 2');
+      await legacyImport('/m/Starstruck/3.mp3', 'C', 'Artist 2');
+
+      final finding = splitFinding(await integrity.verify());
+
+      expect(finding.severity, HealthSeverity.warning);
+      expect(finding.folderSplits.single.folderName, 'Starstruck');
+      expect(
+        finding.folderSplits.single.albums.map((a) => (a.owner, a.songCount)),
+        [('Artist 2', 2), ('Artist 1', 1)],
+      );
+      expect(finding.corrections, isEmpty, reason: 'never merged here');
+    });
+
+    test('checking changes nothing', () async {
+      await legacyImport('/m/Starstruck/1.mp3', 'A', 'Artist 1');
+      await legacyImport('/m/Starstruck/2.mp3', 'B', 'Artist 2');
+      final db = await appDatabase.database;
+      Future<List<Object?>> snapshot() async => [
+        await db.query(DatabaseTables.albums, orderBy: 'id'),
+        await db.query(DatabaseTables.songs, orderBy: 'id'),
+        await db.query(DatabaseTables.syncOutbox),
+      ];
+      final before = await snapshot();
+
+      await integrity.verify();
+
+      expect(await snapshot(), before);
+    });
+
+    test('one album per folder is verified', () async {
+      await legacyImport('/m/locket/1.mp3', 'A', 'Madison Beer');
+      await legacyImport('/m/locket/2.mp3', 'B', 'Madison Beer');
+
+      final finding = splitFinding(await integrity.verify());
+      expect(finding.severity, HealthSeverity.verified);
+    });
+  });
 }

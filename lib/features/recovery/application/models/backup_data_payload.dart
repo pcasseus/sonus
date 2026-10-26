@@ -18,14 +18,10 @@ class BackupDataPayload {
   int get totalRows => tables.values.fold(0, (sum, rows) => sum + rows.length);
 
   void _validateStructure() {
-    final expected = BackupCoverageContract.portableTables
-        .map((entry) => entry.table)
-        .toSet();
-
-    if (tables.keys.toSet().length != expected.length ||
-        !tables.keys.toSet().containsAll(expected)) {
+    if (!BackupCoverageContract.isValidBackupTableSet(tables.keys.toSet())) {
       throw FormatException(
-        'Backup payload must contain every portable table exactly once.',
+        'Backup payload must contain every required portable table, and '
+        'only portable tables.',
       );
     }
 

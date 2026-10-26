@@ -1,182 +1,326 @@
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
 import '../../../../../core/design/sonus_atmosphere_colors.dart';
+import '../../../../../core/design/sonus_count_label.dart';
 import '../../../../../core/design/sonus_theme.dart';
 import '../../../../../core/design/widgets/sonus_artwork_frame.dart';
 import '../../../application/models/library_artist.dart';
+import '../../models/artist_profile_sections.dart';
 
-/// Portrait, name and catalogue summary, on a background that flows from
-/// the artwork's tint into the page.
+/// The cinematic artist hero (SN-45): a full-bleed banner photo that fades
+/// into the page, with the artist's name over its lower edge and a smaller,
+/// separate portrait anchored at the transition.
+///
+/// Banner and portrait are different saved images. Without a banner, the
+/// page's atmosphere fills the hero; without a portrait, initials are
+/// shown. Neither ever stands in for the other.
 class ArtistProfileHeader extends StatelessWidget {
   const ArtistProfileHeader({
     super.key,
     required this.artist,
-    required this.artworkPath,
+    required this.bannerPath,
+    required this.portraitPath,
     required this.atmosphere,
+    this.standing,
   });
 
   final LibraryArtist artist;
-  final String? artworkPath;
+  final String? bannerPath;
+  final String? portraitPath;
   final SonusAtmosphereColors atmosphere;
+  final ArtistStanding? standing;
 
-  /// Page width from which the portrait sits beside the name (landscape and
-  /// tablets), keeping the sections below in view.
-  static const double wideLayoutWidth = 560;
+  /// The banner's shape, as the banner crop editor frames it.
+  static const double bannerAspectRatio = 4 / 3;
+
+  static const double _portraitSize = 88;
 
   @override
   Widget build(BuildContext context) {
     final tokens = SonusTheme.of(context);
+    final gutter = tokens.metrics.pageGutter;
+    final topInset = MediaQuery.paddingOf(context).top;
+    final banner = bannerPath?.trim();
+    final hasBanner = banner != null && banner.isNotEmpty;
 
-    return DecoratedBox(
-      key: const ValueKey<String>('artist-profile-hero'),
-      decoration: BoxDecoration(
-        // Both ends keep text readable (the atmosphere guarantees it), so
-        // every blend between them does too.
-        gradient: atmosphere.isTinted
-            ? LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [atmosphere.surface, atmosphere.background],
-              )
-            : null,
-        color: atmosphere.isTinted ? null : atmosphere.background,
-      ),
-      child: Padding(
-        padding: EdgeInsets.fromLTRB(
-          tokens.metrics.pageGutter,
-          12,
-          tokens.metrics.pageGutter,
-          20,
-        ),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final glow = atmosphere.isTinted && tokens.decoration.allowGlow
-                ? atmosphere.accent
-                : null;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final imageHeight = hasBanner
+            ? (width / bannerAspectRatio).clamp(240.0, 480.0)
+            : topInset + 168.0;
 
-            if (constraints.maxWidth >= wideLayoutWidth) {
-              final size = (constraints.maxWidth * 0.28).clamp(128.0, 200.0);
-              return Row(
-                children: [
-                  _ArtistPortrait(
-                    artist: artist,
-                    artworkPath: artworkPath,
-                    size: size,
-                    glow: glow,
-                  ),
-                  const SizedBox(width: 24),
-                  Expanded(child: _details(context, centered: false)),
-                ],
-              );
-            }
-
-            final size = (constraints.maxWidth * 0.5).clamp(112.0, 200.0);
-            return Column(
+        return Stack(
+          key: const ValueKey<String>('artist-profile-hero'),
+          clipBehavior: Clip.none,
+          children: [
+            Column(
               children: [
-                _ArtistPortrait(
-                  artist: artist,
-                  artworkPath: artworkPath,
-                  size: size,
-                  glow: glow,
+                SizedBox(
+                  height: imageHeight,
+                  width: double.infinity,
+                  child: hasBanner
+                      ? _Banner(
+                          path: banner,
+                          artistId: artist.artistId,
+                          width: width,
+                        )
+                      : _AtmosphereBackdrop(atmosphere: atmosphere),
                 ),
-                const SizedBox(height: 18),
-                _details(context, centered: true),
+                // Room for the identity row below the photo's edge.
+                const SizedBox(height: _portraitSize / 2 + 8),
               ],
-            );
-          },
+            ),
+            Positioned.fill(
+              child: IgnorePointer(
+                child: _Fades(
+                  atmosphere: atmosphere,
+                  topInset: topInset,
+                  imageHeight: imageHeight,
+                ),
+              ),
+            ),
+            Positioned(
+              left: gutter,
+              right: gutter,
+              bottom: 0,
+              child: _Identity(
+                artist: artist,
+                portraitPath: portraitPath,
+                standing: standing,
+                atmosphere: atmosphere,
+                portraitSize: _portraitSize,
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _Banner extends StatelessWidget {
+  const _Banner({
+    required this.path,
+    required this.artistId,
+    required this.width,
+  });
+
+  final String path;
+  final String artistId;
+  final double width;
+
+  @override
+  Widget build(BuildContext context) {
+    final cacheWidth = (width * MediaQuery.devicePixelRatioOf(context)).round();
+
+    return Image.file(
+      File(path),
+      key: ValueKey<String>('artist-profile-banner-$artistId'),
+      fit: BoxFit.cover,
+      alignment: Alignment.topCenter,
+      cacheWidth: cacheWidth,
+      gaplessPlayback: true,
+      excludeFromSemantics: true,
+      errorBuilder: (context, error, stackTrace) =>
+          const SizedBox.expand(key: ValueKey('artist-profile-banner-error')),
+    );
+  }
+}
+
+class _AtmosphereBackdrop extends StatelessWidget {
+  const _AtmosphereBackdrop({required this.atmosphere});
+
+  final SonusAtmosphereColors atmosphere;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      key: const ValueKey<String>('artist-profile-banner-fallback'),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color.alphaBlend(
+              atmosphere.accent.withValues(alpha: 0.28),
+              atmosphere.surface,
+            ),
+            atmosphere.background,
+          ],
         ),
       ),
     );
   }
+}
 
-  Widget _details(BuildContext context, {required bool centered}) {
-    final colors = SonusTheme.of(context).colors;
-    final theme = Theme.of(context);
-    final align = centered ? TextAlign.center : TextAlign.start;
+/// A light scrim under the status and app bars, and the long fade from
+/// the photo into the page, so there is no edge and no black block.
+class _Fades extends StatelessWidget {
+  const _Fades({
+    required this.atmosphere,
+    required this.topInset,
+    required this.imageHeight,
+  });
 
-    return Column(
-      crossAxisAlignment: centered
-          ? CrossAxisAlignment.center
-          : CrossAxisAlignment.start,
-      children: [
-        Text(
-          artist.name,
-          key: ValueKey<String>('artist-profile-name-${artist.artistId}'),
-          textAlign: align,
-          maxLines: 3,
-          overflow: TextOverflow.ellipsis,
-          style: theme.textTheme.headlineMedium?.copyWith(
-            color: colors.textPrimary,
-            fontWeight: FontWeight.w800,
-            height: 1.1,
+  final SonusAtmosphereColors atmosphere;
+  final double topInset;
+  final double imageHeight;
+
+  @override
+  Widget build(BuildContext context) {
+    final background = atmosphere.background;
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final total = constraints.maxHeight <= 0 ? 1.0 : constraints.maxHeight;
+        final imageEnd = (imageHeight / total).clamp(0.0, 1.0);
+        final fadeStart = (imageEnd * 0.42).clamp(0.0, imageEnd);
+        final scrimEnd = ((topInset + kToolbarHeight) / total).clamp(
+          0.0,
+          fadeStart,
+        );
+
+        return DecoratedBox(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              stops: [0, scrimEnd, fadeStart, imageEnd, 1],
+              colors: [
+                Colors.black.withValues(alpha: 0.38),
+                Colors.black.withValues(alpha: 0),
+                background.withValues(alpha: 0),
+                background,
+                background,
+              ],
+            ),
           ),
+        );
+      },
+    );
+  }
+}
+
+class _Identity extends StatelessWidget {
+  const _Identity({
+    required this.artist,
+    required this.portraitPath,
+    required this.standing,
+    required this.atmosphere,
+    required this.portraitSize,
+  });
+
+  final LibraryArtist artist;
+  final String? portraitPath;
+  final ArtistStanding? standing;
+  final SonusAtmosphereColors atmosphere;
+  final double portraitSize;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = SonusTheme.of(context);
+    final colors = tokens.colors;
+    final theme = Theme.of(context);
+    final standing = this.standing;
+    const shadow = [ui.Shadow(blurRadius: 12, color: Color(0x66000000))];
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        _Portrait(
+          artist: artist,
+          path: portraitPath,
+          size: portraitSize,
+          ring: atmosphere.background,
+          glow: atmosphere.isTinted && tokens.decoration.allowGlow
+              ? atmosphere.accent
+              : null,
         ),
-        const SizedBox(height: 8),
-        // Plain wrapping text: the counts can never push past the hero,
-        // whatever the width or text size.
-        Text(
-          _summary(artist),
-          key: const ValueKey<String>('artist-profile-summary'),
-          textAlign: align,
-          style: theme.textTheme.bodyMedium?.copyWith(
-            color: colors.textSecondary,
-            fontFeatures: const [FontFeature.tabularFigures()],
+        const SizedBox(width: 14),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                artist.name,
+                key: ValueKey<String>('artist-profile-name-${artist.artistId}'),
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.headlineLarge?.copyWith(
+                  color: colors.textPrimary,
+                  fontWeight: FontWeight.w800,
+                  height: 1.05,
+                  shadows: shadow,
+                ),
+              ),
+              const SizedBox(height: 6),
+              if (standing != null)
+                Text(
+                  '#${standing.rank} in your artists, all time · '
+                  '${sonusCount(standing.streamCount, 'stream')}',
+                  key: const ValueKey<String>('artist-profile-standing'),
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: colors.textPrimary,
+                    fontWeight: FontWeight.w700,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                    shadows: shadow,
+                  ),
+                ),
+              Text(
+                '${sonusCount(artist.albumCount, 'album')} • '
+                '${sonusCount(artist.songCount, 'song')}',
+                key: const ValueKey<String>('artist-profile-summary'),
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: colors.textSecondary,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
+            ],
           ),
         ),
       ],
     );
   }
-
-  String _summary(LibraryArtist artist) {
-    final albumLabel = artist.albumCount == 1 ? 'album' : 'albums';
-    final songLabel = artist.songCount == 1 ? 'song' : 'songs';
-
-    return '${artist.albumCount} $albumLabel • '
-        '${artist.songCount} $songLabel';
-  }
 }
 
-class _ArtistPortrait extends StatelessWidget {
-  const _ArtistPortrait({
+class _Portrait extends StatelessWidget {
+  const _Portrait({
     required this.artist,
-    required this.artworkPath,
+    required this.path,
     required this.size,
+    required this.ring,
     this.glow,
   });
 
   final LibraryArtist artist;
-  final String? artworkPath;
+  final String? path;
   final double size;
-
-  /// A soft glow in the artwork's accent, only with decoration effects on.
+  final Color ring;
   final Color? glow;
 
   @override
   Widget build(BuildContext context) {
-    final path = artworkPath?.trim();
+    final path = this.path;
     final glow = this.glow;
-    // Decoded at its display size, never at the image's full resolution.
     final cacheSize = (size * MediaQuery.devicePixelRatioOf(context)).round();
 
     return DecoratedBox(
       decoration: BoxDecoration(
         shape: BoxShape.circle,
+        border: Border.all(color: ring, width: 3),
         boxShadow: glow == null
             ? null
-            : [
-                BoxShadow(
-                  color: glow.withValues(alpha: 0.32),
-                  blurRadius: 36,
-                  spreadRadius: 2,
-                ),
-              ],
+            : [BoxShadow(color: glow.withValues(alpha: 0.32), blurRadius: 24)],
       ),
       child: SonusArtworkFrame(
         size: size,
         circular: true,
-        child: path == null || path.isEmpty
+        child: path == null
             ? _ArtistArtworkFallback(artistName: artist.name)
             : Image.file(
                 File(path),

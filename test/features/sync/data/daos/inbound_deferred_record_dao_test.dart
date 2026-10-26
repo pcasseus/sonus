@@ -220,7 +220,7 @@ void main() {
 
       expect(
         (await db.rawQuery('PRAGMA user_version')).single['user_version'],
-        34,
+        AppDatabase.databaseVersion,
       );
       expect(await db.query(DatabaseTables.syncOutbox), hasLength(1));
       expect(

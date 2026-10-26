@@ -56,6 +56,23 @@ abstract final class ArtistProfileSections {
   /// then most recent stream, then ID). Blacklisted songs are left out;
   /// unavailable ones stay, so history is not rewritten. Songs never
   /// streamed are not ranked, so no count is ever invented.
+  /// The artist's place in [rankedArtists] (all-time, most streamed
+  /// first), or null when they have no qualified streams.
+  static ArtistStanding? standing({
+    required String artistId,
+    required List<AnalyticsRankedEntity> rankedArtists,
+  }) {
+    final index = rankedArtists.indexWhere(
+      (ranked) => ranked.entityId == artistId,
+    );
+    if (index == -1) return null;
+
+    final streams = rankedArtists[index].qualifiedStreamCount;
+    return streams <= 0
+        ? null
+        : ArtistStanding(rank: index + 1, streamCount: streams);
+  }
+
   static List<ArtistTopTrack> topTracks({
     required Iterable<LibraryTrack> catalogue,
     required Iterable<AnalyticsRankedEntity> rankedSongs,
@@ -211,4 +228,21 @@ abstract final class ArtistProfileSections {
     }
     return null;
   }
+}
+
+/// Where an artist stands in the listener's all-time artist ranking.
+class ArtistStanding {
+  const ArtistStanding({required this.rank, required this.streamCount});
+
+  final int rank;
+  final int streamCount;
+
+  @override
+  bool operator ==(Object other) =>
+      other is ArtistStanding &&
+      other.rank == rank &&
+      other.streamCount == streamCount;
+
+  @override
+  int get hashCode => Object.hash(rank, streamCount);
 }

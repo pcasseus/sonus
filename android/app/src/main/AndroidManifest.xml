@@ -34,8 +34,22 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <!-- SN-45: Android Auto lists Sonus as a media app. -->
+        <meta-data
+            android:name="com.google.android.gms.car.application"
+            android:resource="@xml/automotive_app_desc" />
+        <!-- SN-45: the monochrome Waveform S on Android Auto media cards
+             and notifications. -->
+        <meta-data
+            android:name="androidx.car.app.TintableAttributionIcon"
+            android:resource="@drawable/ic_stat_sonus" />
+        <meta-data
+            android:name="com.google.android.gms.car.notification.SmallIcon"
+            android:resource="@drawable/ic_stat_sonus" />
+
         <!-- SN-44: the media session and notification. The service is
-             also the MediaBrowserService Android Auto (SN-45) will use. -->
+             also the MediaBrowserService Android Auto uses (SN-45). It is
+             exported so car hosts can bind to it; browsing is read-only. -->
         <service android:name="com.ryanheise.audioservice.AudioService"
             android:foregroundServiceType="mediaPlayback"
             android:exported="true"
@@ -44,6 +58,14 @@
                 <action android:name="android.media.browse.MediaBrowserService" />
             </intent-filter>
         </service>
+
+        <!-- SN-45: read-only artwork for Android Auto (see
+             SonusArtworkProvider.kt for the file and caller rules). -->
+        <provider
+            android:name=".SonusArtworkProvider"
+            android:authorities="com.sonus.sonus_next.artwork"
+            android:exported="true"
+            tools:ignore="ExportedContentProvider" />
 
         <!-- SN-44: Bluetooth, headset and other hardware media buttons. -->
         <receiver android:name="com.ryanheise.audioservice.MediaButtonReceiver"
