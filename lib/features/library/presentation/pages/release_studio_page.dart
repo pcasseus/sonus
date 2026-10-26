@@ -291,8 +291,8 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
         ),
         const SizedBox(height: 6),
         Text(
-          'A match can fill in the name, format and kind. Anything you set '
-          'yourself is kept.',
+          'A match can fill in the name, release date, format, kind and '
+          'Live. Anything you set yourself is kept.',
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
             color: SonusTheme.of(context).colors.textSecondary,
           ),
