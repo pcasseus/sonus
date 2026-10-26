@@ -28,6 +28,30 @@ class AlbumProfileEditingService {
 
   final SyncMutationRunner mutationRunner;
 
+  /// Records that the user keeps the release's current owner, so checks
+  /// that question the owner (such as Verify Library's) leave it alone.
+  /// Nothing about the release changes.
+  Future<void> confirmOwner({required String albumId, DateTime? now}) {
+    final timestamp = now ?? DateTime.now();
+
+    return mutationRunner.run((context) async {
+      final album = await context.albumRepository.getById(albumId.trim());
+      if (album == null) {
+        throw StateError('Album not found: $albumId');
+      }
+      final metadataRepository = context.metadataFieldStateRepository;
+      if (metadataRepository == null) return;
+      await MetadataFieldStateService(repository: metadataRepository).recordAll(
+        entityType: MetadataEntityType.album,
+        entityId: album.id,
+        fieldNames: const [MetadataFields.albumArtist],
+        authority: MetadataAuthority.confirmed,
+        source: MetadataProvenanceSource.user,
+        updatedAt: timestamp,
+      );
+    });
+  }
+
   Future<AlbumProfileEditResult> updateProfile({
     required String? userId,
     required String albumId,

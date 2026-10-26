@@ -66,6 +66,21 @@ void main() {
           album: 'Quiet Rooms',
           albumArtist: 'Ola Brandt',
         ),
+      // A project owning itself, with one cast-credited song of its own:
+      // it leads a minority of its songs, so it is not questioned.
+      for (final (n, artist) in [
+        (1, 'Summer Stage Cast'),
+        (2, 'Ivy Cole'),
+        (3, 'Ren Ito'),
+        (4, 'Sol Vega'),
+      ])
+        _track(
+          'Summer Stage',
+          n,
+          artist,
+          album: 'Summer Stage',
+          albumArtist: 'Summer Stage Cast',
+        ),
       // A cast recording owned by its cast, not by a performer.
       for (final (n, artist) in [
         (1, 'Ivy Cole'),
@@ -113,6 +128,28 @@ void main() {
     );
     expect(await owners(), before, reason: 'nothing is reassigned');
   });
+
+  test(
+    'keeping the owner on purpose clears it, and changes nothing else',
+    () async {
+      final library = SqliteLibraryQueryRepository(
+        LibraryQueryDao(await database.database),
+      );
+      final album = (await library.getAlbums()).firstWhere(
+        (a) => a.title == 'Harbor Lights',
+      );
+      final before = await owners();
+      await AlbumProfileEditingService(
+        mutationRunner: SyncMutationTransactionRunner(appDatabase: database),
+      ).confirmOwner(albumId: album.albumId);
+
+      expect(
+        finding(await (await integrity()).verify()).severity,
+        HealthSeverity.verified,
+      );
+      expect(await owners(), before);
+    },
+  );
 
   test('a new project as owner, or a confirmed owner, clears it', () async {
     final library = SqliteLibraryQueryRepository(

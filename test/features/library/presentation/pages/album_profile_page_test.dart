@@ -795,6 +795,47 @@ void main() {
       );
     });
 
+    testWidgets('choosing the current owner again keeps it on purpose', (
+      tester,
+    ) async {
+      final editingService = FakeAlbumProfileEditingService();
+
+      await tester.pumpWidget(
+        buildSubject(
+          repository: FakeLibraryQueryRepository(
+            album: createAlbum(
+              artistId: 'artist-1',
+              artistName: 'Test Artist',
+              primaryEditionTitle: 'Standard',
+            ),
+          ),
+          accountRepository: FakeAccountRepository(
+            currentUser: const AccountUser(id: 'user-1'),
+          ),
+          albumProfileEditingService: editingService,
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey<String>('album-profile-artwork-menu')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Edit Release'));
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey<String>('release-studio-owner')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey<String>('release-studio-owner-artist-1')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(editingService.confirmOwnerCount, 1);
+      expect(editingService.updateCallCount, 0);
+      expect(find.text('Test Artist is kept as the owner.'), findsOneWidget);
+    });
+
     testWidgets('without artist creation, only existing artists are offered', (
       tester,
     ) async {
@@ -3581,6 +3622,13 @@ class FakeAlbumProfileEditingService extends AlbumProfileEditingService {
   final FakeAlbumProfileUpdateCallback? onUpdate;
 
   int updateCallCount = 0;
+
+  int confirmOwnerCount = 0;
+
+  @override
+  Future<void> confirmOwner({required String albumId, DateTime? now}) async {
+    confirmOwnerCount++;
+  }
 
   String? lastUserId;
   String? lastAlbumId;

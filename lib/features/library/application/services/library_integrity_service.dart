@@ -346,19 +346,23 @@ class LibraryIntegrityService {
     );
   }
 
-  /// SN-45: a release owned by one of its performers while at least two
-  /// other artists lead songs on it looks like a soundtrack or cast
-  /// recording whose files name one performer as album artist. It is only
-  /// listed: the owner can be changed (or a new project made) in Edit
-  /// Release, and nothing is reassigned here. A credit that starts with the
-  /// owner's name ("Owner [Ft. Guest]") counts as the owner's.
+  /// SN-45: a release whose owner leads most of its songs while at least
+  /// two other artists lead the rest looks like a soundtrack or cast
+  /// recording whose files name one performer as album artist. (A project
+  /// that owns itself leads few of its own songs, so it is not listed.)
+  /// It is only listed: the owner can be changed (or a new project made)
+  /// in Edit Release, or kept, and nothing is reassigned here. A credit
+  /// that starts with the owner's name ("Owner [Ft. Guest]") counts as the
+  /// owner's.
   Future<HealthFinding> _performerOwnedProjects() async {
     final ownerLeads = <String, int>{};
+    final songs = <String, int>{};
     final others = <String, Set<String>>{};
     final info = <String, ({String title, String owner})>{};
 
     for (final row in await dao.songLeadsByRelease()) {
       info[row.albumId] = (title: row.title, owner: row.owner);
+      songs[row.albumId] = (songs[row.albumId] ?? 0) + 1;
       final owner = TextNormalizer.canonicalize(row.owner);
       final lead = TextNormalizer.canonicalize(row.lead);
       if (row.leadId == row.ownerId || lead.startsWith(owner)) {
@@ -370,7 +374,8 @@ class LibraryIntegrityService {
 
     final releases = [
       for (final MapEntry(key: albumId, value: leads) in others.entries)
-        if ((ownerLeads[albumId] ?? 0) > 0 && leads.length >= 2)
+        if ((ownerLeads[albumId] ?? 0) * 2 > songs[albumId]! &&
+            leads.length >= 2)
           PerformerOwnedProject(
             albumId: albumId,
             title: info[albumId]!.title,

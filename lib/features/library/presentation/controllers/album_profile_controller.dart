@@ -164,6 +164,14 @@ class AlbumProfileController extends ChangeNotifier {
         primaryEditionId.trim().isNotEmpty;
   }
 
+  /// Keeps the current owner as the user's choice. False when it can't.
+  Future<bool> confirmOwner() async {
+    final service = _albumProfileEditingService;
+    if (service == null || _album == null) return false;
+    await service.confirmOwner(albumId: _albumId);
+    return true;
+  }
+
   Future<bool> updateProfile({
     String? userId,
     required String title,

@@ -405,11 +405,38 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
       await _createOwner();
       return;
     }
-    if (artistId == null || artistId == album.artistId) return;
+    if (artistId == null) return;
+    if (artistId == album.artistId) {
+      await _confirmOwner(album.artistName);
+      return;
+    }
     await _saveDetails(
       artistId: artistId,
       message: 'The release now belongs to its new artist.',
     );
+  }
+
+  /// Choosing the current owner again keeps it as the user's choice.
+  Future<void> _confirmOwner(String owner) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      if (await controller.confirmOwner()) {
+        messenger.showSnackBar(
+          SnackBar(content: Text('$owner is kept as the owner.')),
+        );
+      }
+    } catch (error, stackTrace) {
+      developer.log(
+        'Could not keep the release owner (${error.runtimeType})',
+        name: 'sonus.library.release_studio',
+        level: 900,
+        error: error,
+        stackTrace: stackTrace,
+      );
+      messenger.showSnackBar(
+        const SnackBar(content: Text('The owner could not be saved.')),
+      );
+    }
   }
 
   /// Names a new artist or project (the release title, such as a
