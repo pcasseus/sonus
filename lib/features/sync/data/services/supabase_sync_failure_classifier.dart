@@ -16,6 +16,14 @@ SyncFailureKind classifySupabaseSyncFailure(Object error) {
   };
 }
 
+/// The server's error code when there is one, otherwise the error's type.
+String describeSupabaseSyncFailure(Object error) => switch (error) {
+  PostgrestException(:final code?) => code,
+  StorageException(:final statusCode?) => 'storage $statusCode',
+  AuthException(:final statusCode?) => 'auth $statusCode',
+  _ => describeSyncFailure(error),
+};
+
 SyncFailureKind _fromStatus(String? code) {
   if (code == null) return SyncFailureKind.unknown;
   if (const {'401', '403', 'PGRST301', 'PGRST302'}.contains(code)) {

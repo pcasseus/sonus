@@ -74,4 +74,26 @@ void main() {
       }
     },
   );
+
+  test('SN-49: a failure is described by its code, never its message', () {
+    expect(
+      describeSupabaseSyncFailure(
+        const PostgrestException(
+          message: 'permission denied for table songs',
+          code: '42501',
+        ),
+      ),
+      '42501',
+    );
+    expect(
+      describeSupabaseSyncFailure(
+        const AuthException(
+          'JWT expired for someone@example.com',
+          statusCode: '401',
+        ),
+      ),
+      'auth 401',
+    );
+    expect(describeSupabaseSyncFailure(StateError('secret')), 'StateError');
+  });
 }

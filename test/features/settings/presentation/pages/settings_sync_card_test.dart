@@ -176,6 +176,9 @@ void main() {
       find.byKey(const ValueKey<String>('settings-sync-error')),
       findsOneWidget,
     );
+    // SN-49: an unexplained failure shows a short code, never a message.
+    expect(find.text('Details: StateError'), findsOneWidget);
+    expect(find.textContaining('network failure'), findsNothing);
   });
 
   testWidgets('a stalled sync leaves Syncing, explains, and retries', (

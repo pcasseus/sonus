@@ -28,6 +28,13 @@ enum SyncFailureKind {
 
 typedef SyncFailureClassifier = SyncFailureKind Function(Object error);
 
+/// A short, non-sensitive code for a failure, such as a server error code
+/// ("42501") or the error's type, shown so a failure can be diagnosed.
+/// Never a message: messages can contain names or record contents.
+typedef SyncFailureDescriber = String Function(Object error);
+
+String describeSyncFailure(Object error) => '${error.runtimeType}';
+
 /// Classifies errors that need no cloud SDK to recognise.
 SyncFailureKind classifySyncFailure(Object error) => switch (error) {
   TimeoutException() => SyncFailureKind.timeout,

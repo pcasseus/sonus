@@ -30,12 +30,14 @@ class SyncController extends ChangeNotifier {
     required SyncService service,
     SyncStatusStore? statusStore,
     SyncFailureClassifier classifyFailure = classifySyncFailure,
+    SyncFailureDescriber describeFailure = describeSyncFailure,
     Future<void> Function(String userId)? grantCloudLibrary,
   }) : this._(
          synchronize: service.synchronize,
          statusStore: statusStore ?? SyncStatusStore(),
          countPending: service.pendingCount,
          classifyFailure: classifyFailure,
+         describeFailure: describeFailure,
          grantCloudLibrary: grantCloudLibrary,
        );
 
@@ -45,6 +47,7 @@ class SyncController extends ChangeNotifier {
     SyncStatusStore? statusStore,
     Future<int> Function(String userId)? countPending,
     SyncFailureClassifier classifyFailure = classifySyncFailure,
+    SyncFailureDescriber describeFailure = describeSyncFailure,
     Future<void> Function(String userId)? grantCloudLibrary,
   }) : this._(
          synchronize: synchronize,
@@ -56,6 +59,7 @@ class SyncController extends ChangeNotifier {
              ),
          countPending: countPending,
          classifyFailure: classifyFailure,
+         describeFailure: describeFailure,
          grantCloudLibrary: grantCloudLibrary,
        );
 
@@ -64,6 +68,7 @@ class SyncController extends ChangeNotifier {
     required this._statusStore,
     required this._countPending,
     required this._classifyFailure,
+    required this._describeFailure,
     required this._grantCloudLibrary,
   });
 
@@ -73,6 +78,7 @@ class SyncController extends ChangeNotifier {
   /// Reads the local outbox, so pending work is shown before any run.
   final Future<int> Function(String userId)? _countPending;
   final SyncFailureClassifier _classifyFailure;
+  final SyncFailureDescriber _describeFailure;
   final Future<void> Function(String userId)? _grantCloudLibrary;
 
   Future<void> _pending = Future<void>.value();
@@ -83,6 +89,7 @@ class SyncController extends ChangeNotifier {
   String? _queuedUserId;
 
   SyncFailureKind? _failureKind;
+  String? _failureCode;
 
   SyncStatus _status = SyncStatus.idle;
   String? _currentUserId;
@@ -110,6 +117,10 @@ class SyncController extends ChangeNotifier {
 
   /// Why the last attempt failed; null unless [status] is error.
   SyncFailureKind? get failureKind => _failureKind;
+
+  /// A short code for the last failure (see [SyncFailureDescriber]); null
+  /// unless [status] is error.
+  String? get failureCode => _failureCode;
 
   bool get isSyncing => _status == SyncStatus.syncing;
 
@@ -250,6 +261,7 @@ class SyncController extends ChangeNotifier {
     _status = SyncStatus.syncing;
     _lastError = null;
     _failureKind = null;
+    _failureCode = null;
     notifyListeners();
 
     try {
@@ -305,6 +317,7 @@ class SyncController extends ChangeNotifier {
       _retryPending = true;
       _status = SyncStatus.error;
       final kind = _failureKind = _classifyFailure(error);
+      _failureCode = _describeFailure(error);
       _log('Sync failed (${kind.name})', error);
 
       // Unsent changes stay in the outbox; show how many are waiting.

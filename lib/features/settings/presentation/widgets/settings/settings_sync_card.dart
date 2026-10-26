@@ -178,6 +178,14 @@ class SettingsSyncCard extends StatelessWidget {
               key: const ValueKey<String>('settings-sync-error'),
               style: TextStyle(color: Theme.of(context).colorScheme.error),
             ),
+            if (syncController.failureCode case final code?) ...[
+              const SizedBox(height: 4),
+              Text(
+                'Details: $code',
+                key: const ValueKey<String>('settings-sync-error-code'),
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
           ],
           if (coordinator.mobileConsentRequired) ...[
             const SizedBox(height: 16),

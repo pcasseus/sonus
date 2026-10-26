@@ -257,6 +257,7 @@ class _SyncScopeState extends State<SyncScope> {
     final syncController = SyncController(
       service: service,
       classifyFailure: classifySupabaseSyncFailure,
+      describeFailure: describeSupabaseSyncFailure,
       grantCloudLibrary: consent.grant,
       statusStore: statusStore,
     );
