@@ -47,6 +47,7 @@ void main() {
     String title,
     int track, {
     int seconds = 180,
+    bool statedFormat = true,
   }) async {
     final path = 'Artist/Album/$title.mp3';
     final result = await AtomicLibraryImporter(appDatabase: appDatabase).import(
@@ -67,6 +68,17 @@ void main() {
       ),
       now: now,
     );
+    if (statedFormat) {
+      // The fixture album is short; its format is stated so that only the
+      // check under test reports anything.
+      await (await appDatabase.database).rawInsert(
+        'INSERT OR IGNORE INTO ${DatabaseTables.albumReleaseClassifications} '
+        '(album_id, format, format_authority, created_at, updated_at) '
+        "SELECT album_id, 'album', 'manual', ?, ? FROM "
+        '${DatabaseTables.songs} WHERE id = ?',
+        [now.toIso8601String(), now.toIso8601String(), result.songId],
+      );
+    }
     return result.songId!;
   }
 
@@ -120,6 +132,45 @@ void main() {
     expect(
       second.findings.map((f) => (f.check, f.severity, f.entityIds)),
       first.findings.map((f) => (f.check, f.severity, f.entityIds)),
+    );
+  });
+
+  group('release formats', () {
+    test('a short release with no stated format is listed for review, '
+        'never guessed', () async {
+      await importTrack('One', 1, statedFormat: false);
+      await importTrack('Two', 2, statedFormat: false);
+      final before = await everyRow();
+
+      final report = await integrity.verify();
+      final formats = finding(report, HealthCheck.releaseFormats);
+      expect(formats.severity, HealthSeverity.needsReview);
+      expect(formats.summary, contains('might be a Single'));
+      expect(
+        [
+          for (final r in formats.formatReviews)
+            (r.title, r.owner, r.songCount),
+        ],
+        [('Album', 'Artist', 2)],
+      );
+      expect(await everyRow(), before, reason: 'verifying writes nothing');
+    });
+
+    test(
+      'a stated format clears it, and is not counted as a soundtrack',
+      () async {
+        await importTrack('One', 1);
+
+        final report = await integrity.verify();
+        expect(
+          finding(report, HealthCheck.releaseFormats).severity,
+          HealthSeverity.verified,
+        );
+        expect(
+          finding(report, HealthCheck.soundtrackOrganization).summary,
+          'No albums are classified as soundtracks or compilations yet.',
+        );
+      },
     );
   });
 

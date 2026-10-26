@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/design/sonus_theme.dart';
 import '../../../../core/design/widgets/sonus_decorations.dart';
-import '../../domain/models/chart_type.dart';
 import '../editorial/moment_editorial_desk.dart';
 import '../editorial/moment_publisher.dart';
 import '../editorial/moment_visuals.dart';
@@ -99,9 +98,7 @@ class MomentPostCard extends StatelessWidget {
                     _LinkChip(
                       key: ValueKey<String>('moment-post-album-${story.id}'),
                       icon: Icons.album_rounded,
-                      label: story.facts.chartType == ChartType.albums
-                          ? story.facts.format?.label ?? 'Album'
-                          : 'Album',
+                      label: story.facts.releaseLabel,
                       onPressed: onOpenAlbum!,
                     ),
                   if (onOpenArtist != null)

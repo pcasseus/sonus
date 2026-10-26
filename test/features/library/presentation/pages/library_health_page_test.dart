@@ -38,7 +38,10 @@ void main() {
 
   tearDown(() => appDatabase.close());
 
-  Future<void> seedAlbumWithoutPrimary(WidgetTester tester) async {
+  Future<void> seedAlbumWithoutPrimary(
+    WidgetTester tester, {
+    bool statedFormat = true,
+  }) async {
     await tester.runAsync(() async {
       const path = 'A/Album/One.mp3';
       await AtomicLibraryImporter(appDatabase: appDatabase).import(
@@ -61,6 +64,18 @@ void main() {
       );
       final db = await appDatabase.database;
       await db.update(DatabaseTables.albumEditions, {'is_primary': 0});
+      if (statedFormat) {
+        // A one-song album might be a Single; stating its format keeps the
+        // report about the edition only.
+        final album = (await db.query(DatabaseTables.albums)).single;
+        await db.insert(DatabaseTables.albumReleaseClassifications, {
+          'album_id': album['id'],
+          'format': 'album',
+          'format_authority': 'manual',
+          'created_at': now.toIso8601String(),
+          'updated_at': now.toIso8601String(),
+        });
+      }
     });
   }
 
@@ -146,5 +161,28 @@ void main() {
     final healthy = find.text('Nothing needs your attention.');
     await settle(tester, until: healthy);
     expect(healthy, findsOneWidget);
+  });
+
+  testWidgets('releases that might be Singles are listed for review', (
+    tester,
+  ) async {
+    await seedAlbumWithoutPrimary(tester, statedFormat: false);
+
+    await tester.pumpWidget(
+      MaterialApp(home: LibraryHealthPage(service: service)),
+    );
+    final review = find.byKey(
+      const ValueKey<String>('library-health-review-formats'),
+    );
+    await settle(tester, until: review);
+
+    expect(find.text('Needs your review'), findsOneWidget);
+    expect(find.textContaining('1 release might be a Single'), findsOneWidget);
+
+    await tester.tap(review);
+    await tester.pumpAndSettle();
+    expect(find.text('Choose Single, EP or Album'), findsOneWidget);
+    expect(find.text('Album'), findsOneWidget);
+    expect(find.text('Artist · 1 song'), findsOneWidget);
   });
 }

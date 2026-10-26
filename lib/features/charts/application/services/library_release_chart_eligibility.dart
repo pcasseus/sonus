@@ -3,7 +3,8 @@ import 'dart:developer' as developer;
 import '../../../library/application/services/library_organization_service.dart';
 import '../../domain/services/release_chart_eligibility.dart';
 
-/// Release formats from the library: Singles never chart as releases.
+/// Release formats from the library: Singles never chart as releases, nor
+/// do releases that might be Singles until their format is chosen.
 /// Fails open: if formats can't be read, every release charts, as before.
 class LibraryReleaseChartEligibility implements ReleaseChartEligibility {
   const LibraryReleaseChartEligibility(this._organization);
@@ -13,11 +14,7 @@ class LibraryReleaseChartEligibility implements ReleaseChartEligibility {
   @override
   Future<Set<String>> excludedAlbumIds() async {
     try {
-      return {
-        for (final MapEntry(key: albumId, value: format)
-            in (await _organization.releaseFormats()).entries)
-          if (!format.chartsAsRelease) albumId,
-      };
+      return await _organization.releasesOffReleaseChart();
     } catch (error, stackTrace) {
       developer.log(
         'Release formats could not be read (${error.runtimeType})',

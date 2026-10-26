@@ -10,9 +10,11 @@ import '../../../domain/entities/library_organization.dart';
 /// The release's format: Single, EP or Album (SN-45).
 ///
 /// The user's choice is kept through every later metadata refresh. A
-/// MusicBrainz match can suggest a format; with neither, the release is an
-/// Album. Nothing is inferred from how many tracks it has. Singles chart
-/// through their songs only, never as a release.
+/// MusicBrainz match can suggest a format. With neither, a release of a
+/// few songs is left unconfirmed (it might be a Single, so it stays off the
+/// release chart until someone chooses) and anything longer is an Album.
+/// Nothing is ever stored as a guess. Singles chart through their songs
+/// only, never as a release.
 class ReleaseStudioFormat extends StatefulWidget {
   const ReleaseStudioFormat({
     super.key,
@@ -29,6 +31,7 @@ class ReleaseStudioFormat extends StatefulWidget {
 
 class _ReleaseStudioFormatState extends State<ReleaseStudioFormat> {
   AlbumReleaseFormat? _stated;
+  bool _needsReview = false;
   bool _loaded = false;
   bool _busy = false;
 
@@ -44,6 +47,7 @@ class _ReleaseStudioFormatState extends State<ReleaseStudioFormat> {
       if (!mounted) return;
       setState(() {
         _stated = organization.formats[widget.albumId];
+        _needsReview = organization.needsFormatReview(widget.albumId);
         _loaded = true;
       });
     } catch (error, stackTrace) {
@@ -81,10 +85,14 @@ class _ReleaseStudioFormatState extends State<ReleaseStudioFormat> {
     final colors = tokens.colors;
     final theme = Theme.of(context);
     final stated = _stated;
-    final format = stated?.format ?? ReleaseFormat.album;
+    final ReleaseFormat? format =
+        stated?.format ?? (_needsReview ? null : ReleaseFormat.album);
     final isManual = stated?.authority == ReleaseClassificationAuthority.manual;
 
-    final source = stated == null
+    final source = format == null
+        ? 'Not chosen yet. A release this short might be a Single, so it '
+              'stays off the Sonus Albums & EPs chart until you choose.'
+        : stated == null
         ? 'Not stated, so it counts as an Album.'
         : isManual
         ? 'Set by you. Metadata lookups never change it.'
@@ -116,6 +124,7 @@ class _ReleaseStudioFormatState extends State<ReleaseStudioFormat> {
             SegmentedButton<ReleaseFormat>(
               key: const ValueKey<String>('release-studio-format-choice'),
               showSelectedIcon: false,
+              emptySelectionAllowed: format == null,
               segments: [
                 for (final option in ReleaseFormat.values)
                   ButtonSegment<ReleaseFormat>(
@@ -128,10 +137,11 @@ class _ReleaseStudioFormatState extends State<ReleaseStudioFormat> {
                     ),
                   ),
               ],
-              selected: {format},
+              selected: {?format},
               onSelectionChanged: !_loaded || _busy
                   ? null
                   : (selection) {
+                      if (selection.isEmpty) return;
                       final chosen = selection.single;
                       if (chosen == format && isManual) return;
                       unawaited(

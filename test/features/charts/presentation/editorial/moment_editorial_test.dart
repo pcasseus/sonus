@@ -21,13 +21,17 @@ class FakeLookups implements MomentLookups {
   FakeLookups({
     this.artists = const {},
     this.formats = const {},
+    this.songFormats = const {},
     this.featured = const {},
     this.covers = const {},
     this.portraits = const {},
   });
 
   final Map<String, String> artists;
-  final Map<String, ReleaseFormat> formats;
+  final Map<String, ReleaseFormat?> formats;
+
+  /// The format of each song's release; Album when missing.
+  final Map<String, ReleaseFormat?> songFormats;
   final Map<String, List<String>> featured;
   final Map<String, String> covers;
   final Map<String, String> portraits;
@@ -36,8 +40,14 @@ class FakeLookups implements MomentLookups {
   String? artistName(String artistId) => artists[artistId];
 
   @override
-  ReleaseFormat formatOf(String albumId) =>
-      formats[albumId] ?? ReleaseFormat.album;
+  ReleaseFormat? formatOf(String albumId) =>
+      formats.containsKey(albumId) ? formats[albumId] : ReleaseFormat.album;
+
+  @override
+  ReleaseFormat? songReleaseFormat(String songId) =>
+      songFormats.containsKey(songId)
+      ? songFormats[songId]
+      : ReleaseFormat.album;
 
   @override
   List<String> featuredOf(String songId) => featured[songId] ?? const [];
@@ -517,6 +527,127 @@ void main() {
           );
       expect(stories.first.facts.releaseWord, 'EP');
       expect(stories.first.headline, isNot(contains(' album ')));
+    });
+
+    test('a song story names its release correctly: Single, EP, Album, or '
+        'Release while unconfirmed', () {
+      MomentFacts factsFor(ReleaseFormat? format) => MomentFacts.of(
+        items([
+          event(
+            ChartMomentEventType.debut,
+            entity: song('s1'),
+            rank: 4,
+            streams: 3,
+          ),
+        ]).single,
+        FakeLookups(songFormats: {'s1': format}),
+      );
+
+      expect(factsFor(ReleaseFormat.single).releaseLabel, 'Single');
+      expect(factsFor(ReleaseFormat.ep).releaseLabel, 'EP');
+      expect(factsFor(ReleaseFormat.album).releaseLabel, 'Album');
+      expect(factsFor(null).releaseLabel, 'Release');
+
+      // "From <album>" is only said of a song on an EP or album.
+      expect(
+        factsFor(ReleaseFormat.single).available,
+        isNot(contains(MomentFact.album)),
+      );
+      expect(
+        factsFor(ReleaseFormat.album).available,
+        contains(MomentFact.album),
+      );
+    });
+
+    test('a release whose format is unconfirmed is a "release", never an '
+        '"album"', () {
+      final facts = MomentFacts.of(
+        items([
+          event(
+            ChartMomentEventType.debut,
+            entity: release('r1'),
+            chartType: ChartType.albums,
+            rank: 4,
+            streams: 3,
+          ),
+        ]).single,
+        FakeLookups(formats: {'r1': null}),
+      );
+      expect(facts.releaseWord, 'release');
+      expect(facts.releaseLabel, 'Release');
+    });
+  });
+
+  group('supporting text and grammar', () {
+    MomentEditorialDesk desk() => MomentEditorialDesk(
+      lookups: FakeLookups(artists: {'artist-a': 'Name artist-a'}),
+      minorStoriesPerDay: 1000,
+    );
+
+    test('a rank before this stream that was also the best is said once', () {
+      final stories = desk().compose(
+        items([
+          for (var i = 0; i < 12; i++)
+            event(
+              ChartMomentEventType.newPeak,
+              entity: song('s$i'),
+              source: 'play-$i',
+              rank: 3,
+              previousRank: 4,
+              previousPeak: 4,
+              threshold: 3,
+              streams: 2,
+              at: DateTime.utc(2026, 10, 26, 9, i),
+            ),
+        ]),
+      );
+      for (final story in stories) {
+        final body = story.body ?? '';
+        expect(
+          RegExp('#4').allMatches('${story.headline} $body').length,
+          lessThanOrEqualTo(1),
+          reason: '${story.headline} | $body',
+        );
+      }
+    });
+
+    test('a first stream is never the whole supporting paragraph', () {
+      final stories = desk().compose(
+        items([
+          for (var i = 0; i < 12; i++)
+            event(
+              ChartMomentEventType.debut,
+              entity: song('s$i'),
+              source: 'play-$i',
+              rank: 20 + i,
+              streams: 1,
+              at: DateTime.utc(2026, 10, 26, 9, i),
+            ),
+        ]),
+      );
+      for (final story in stories) {
+        expect(story.body ?? '', isNot(contains('1 stream')));
+      }
+    });
+
+    test('ordinals take the right article', () {
+      expect(MomentFacts.withArticle('second'), 'a second');
+      expect(MomentFacts.withArticle('eighth'), 'an eighth');
+      expect(MomentFacts.withArticle('eleventh'), 'an eleventh');
+      expect(MomentFacts.withArticle('11th'), 'an 11th');
+      expect(MomentFacts.withArticle('18th'), 'an 18th');
+      expect(MomentFacts.withArticle('80th'), 'an 80th');
+      expect(MomentFacts.withArticle('12th'), 'a 12th');
+      expect(MomentFacts.withArticle('100th'), 'a 100th');
+      for (final family in MomentFamily.values) {
+        for (final variant in MomentHeadlines.of(family)) {
+          final text = variant.build(fullFacts(family));
+          expect(
+            text,
+            isNot(matches(RegExp(r'a (eighth|eleventh|8|11th|18th)'))),
+          );
+        }
+      }
     });
   });
 

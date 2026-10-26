@@ -187,7 +187,42 @@ class LibraryIntegrityDao {
     ];
   }
 
+  /// Releases classified as a soundtrack, cast recording or compilation.
+  /// Rows that only state a format (Single, EP, Album) are not counted.
   Future<int> classifiedProjects() => _count(
-    'SELECT COUNT(*) FROM ${DatabaseTables.albumReleaseClassifications}',
+    'SELECT COUNT(*) FROM ${DatabaseTables.albumReleaseClassifications} '
+    'WHERE kind IS NOT NULL',
   );
+
+  /// Releases with no stated format and between one and [maxSongs] songs,
+  /// title order.
+  Future<List<({String albumId, String title, String owner, int songs})>>
+  releasesWithoutFormat({required int maxSongs}) async {
+    final rows = await db.rawQuery(
+      '''
+      SELECT al.id AS album_id, al.title, ar.name AS owner,
+        COUNT(DISTINCT s.id) AS songs
+      FROM ${DatabaseTables.albums} al
+      JOIN ${DatabaseTables.artists} ar ON ar.id = al.artist_id
+      JOIN ${DatabaseTables.songs} s ON s.album_id = al.id
+      WHERE NOT EXISTS (
+        SELECT 1 FROM ${DatabaseTables.albumReleaseClassifications} c
+        WHERE c.album_id = al.id AND c.format IS NOT NULL
+      )
+      GROUP BY al.id, al.title, ar.name
+      HAVING COUNT(DISTINCT s.id) <= ?
+      ORDER BY al.title COLLATE NOCASE, al.id
+    ''',
+      [maxSongs],
+    );
+    return [
+      for (final row in rows)
+        (
+          albumId: row['album_id']! as String,
+          title: row['title']! as String,
+          owner: row['owner']! as String,
+          songs: row['songs']! as int,
+        ),
+    ];
+  }
 }

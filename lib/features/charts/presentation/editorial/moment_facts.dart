@@ -11,8 +11,12 @@ import '../../domain/services/chart_ranking_engine.dart';
 abstract interface class MomentLookups {
   String? artistName(String artistId);
 
-  /// The release's format; an Album unless one was stated.
-  ReleaseFormat formatOf(String albumId);
+  /// The release's format: as stated, null while it needs review (it
+  /// might be a Single), otherwise an Album.
+  ReleaseFormat? formatOf(String albumId);
+
+  /// The format of the release the song is on, as [formatOf] gives it.
+  ReleaseFormat? songReleaseFormat(String songId);
 
   /// The song's featured credits, exactly as stored.
   List<String> featuredOf(String songId);
@@ -86,6 +90,7 @@ class MomentFacts {
     this.ownerName,
     this.album,
     this.format,
+    this.songRelease,
     this.rank,
     this.previousRank,
     this.previousPeak,
@@ -120,8 +125,18 @@ class MomentFacts {
 
   final String? album;
 
-  /// For release stories: Single, EP or Album.
+  /// For release stories: Single, EP or Album; null while unconfirmed.
   final ReleaseFormat? format;
+
+  /// For song stories: the format of the song's release; null while it is
+  /// unconfirmed.
+  final ReleaseFormat? songRelease;
+
+  /// What a link to the story's release calls it: "Single", "EP", "Album",
+  /// or "Release" while its format is unconfirmed.
+  String get releaseLabel =>
+      (chartType == ChartType.albums ? format : songRelease)?.label ??
+      'Release';
 
   final int? rank;
   final int? previousRank;
@@ -167,6 +182,7 @@ class MomentFacts {
     if (rivalTitle != null) MomentFact.rival,
     if (ordinal != null) MomentFact.ordinal,
     if (album != null &&
+        songRelease != ReleaseFormat.single &&
         album!.trim().isNotEmpty &&
         album!.trim().toLowerCase() != title.trim().toLowerCase())
       MomentFact.album,
@@ -197,11 +213,13 @@ class MomentFacts {
     ChartType.albums => 'Sonus Albums & EPs',
   };
 
-  /// "Single", "EP" or "album", for release stories.
+  /// "Single", "EP" or "album", for release stories; "release" while the
+  /// format is unconfirmed.
   String get releaseWord => switch (format) {
     ReleaseFormat.single => 'single',
     ReleaseFormat.ep => 'EP',
-    ReleaseFormat.album || null => 'album',
+    ReleaseFormat.album => 'album',
+    null => 'release',
   };
 
   /// The story's subject as a headline names it: "Song" by Artist (feat.
@@ -241,6 +259,20 @@ class MomentFacts {
 
   /// The artist's ordinal as a word: "third".
   String get ordinalText => ordinalWord(ordinal ?? 1);
+
+  /// [ordinalText] with its article: "a second", "an eighth", "an 11th".
+  String get aOrdinalText => withArticle(ordinalText);
+
+  /// [word] after "a" or "an", as it is said: "an eighth", "an 18th",
+  /// "a 12th".
+  static String withArticle(String word) {
+    final lower = word.trim().toLowerCase();
+    final digits = RegExp(r'^\d+').stringMatch(lower);
+    final an = digits == null
+        ? lower.isNotEmpty && 'aeio'.contains(lower[0])
+        : digits.startsWith('8') || digits == '11' || digits == '18';
+    return '${an ? 'an' : 'a'} $word';
+  }
 
   /// "Victoria Justice's", for the credited artist.
   static String possessive(String name) => "$name's";
@@ -341,6 +373,7 @@ class MomentFacts {
       format: item.chartType == ChartType.albums && !isArtistStory
           ? lookups.formatOf(entity.entityId)
           : null,
+      songRelease: songs ? lookups.songReleaseFormat(entity.entityId) : null,
       rank: dominant.currentRank,
       previousRank: dominant.previousRank,
       previousPeak: dominant.previousPeakRank,

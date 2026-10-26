@@ -1,7 +1,9 @@
 // SN-45 Scenario E (database level): a release marked Single charts only
 // through its song. It takes no place on the release chart and earns no
 // release Moment; its plays, song chart history and stored Moments are
-// kept, and making it an Album again restores its release standing.
+// kept, and making it an Album again restores its release standing. A
+// short release whose format nobody stated is never guessed: it waits for
+// review, off the release chart.
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sonus_next/core/database/app_database.dart';
 import 'package:sonus_next/features/analytics/domain/entities/qualified_play.dart';
@@ -100,6 +102,15 @@ void main() {
         track: 1,
       ),
     ]);
+
+    // The two albums are short fixtures; MusicBrainz states their format,
+    // so they chart as albums.
+    for (final title in ['Life Support', 'Think Later']) {
+      await organization.suggestReleaseFormat(
+        albumId: await fixtureAlbumId(database, title),
+        format: ReleaseFormat.album,
+      );
+    }
 
     plays = _Plays();
     final tracks = {for (final t in await library.getTracks()) t.title: t};
@@ -212,16 +223,77 @@ void main() {
     expect(plays.all, hasLength(8));
   });
 
+  test('an unstated one-song release is not guessed: it waits for review, '
+      'off the release chart, while its song charts', () async {
+    final org = await organization.load();
+    expect(org.formatOf(await singleId()), isNull);
+    expect(org.needsFormatReview(await singleId()), isTrue);
+    expect(
+      org.formats,
+      isNot(contains(await singleId())),
+      reason: 'nothing is stored as a guess',
+    );
+    expect(
+      [for (final a in await organization.releasesNeedingFormat()) a.title],
+      ['15 Minutes'],
+    );
+
+    final albums = await charts().load(
+      chartType: ChartType.albums,
+      referenceLocal: _today,
+    );
+    expect(
+      albums.entries.map((e) => e.entity.title),
+      isNot(contains('15 Minutes')),
+    );
+    final songs = await charts().load(
+      chartType: ChartType.songs,
+      referenceLocal: _today,
+    );
+    expect(songs.entries.first.entity.title, '15 Minutes');
+
+    final events = await moments().record(referenceLocal: _today);
+    expect(
+      events.where(
+        (e) =>
+            e.chartType == ChartType.albums && e.entity.title == '15 Minutes',
+      ),
+      isEmpty,
+      reason: 'no album Moment merely because the format is unknown',
+    );
+
+    // Choosing EP (or Album) puts it on the release chart with every play.
+    await organization.setReleaseFormat(
+      albumId: await singleId(),
+      format: ReleaseFormat.ep,
+    );
+    expect(await organization.releasesNeedingFormat(), isEmpty);
+    final after = await charts().load(
+      chartType: ChartType.albums,
+      referenceLocal: _today,
+    );
+    expect(after.entries.first.entity.title, '15 Minutes');
+    expect(after.entries.first.qualifiedStreamCount, 5);
+  });
+
   test(
-    'an unstated format is an Album, never inferred from one track',
+    'an unstated release of four or more songs counts as an Album',
     () async {
+      await importFixtureTracks(database, [
+        for (final i in [1, 2, 3, 4])
+          FixtureTrack(
+            'Tate McRae/So Close To What/$i Song $i.mp3',
+            title: 'So Close $i',
+            artist: 'Tate McRae',
+            album: 'So Close To What',
+            albumArtist: 'Tate McRae',
+            track: i,
+          ),
+      ], batchId: 'later');
+      final id = await fixtureAlbumId(database, 'So Close To What');
       final org = await organization.load();
-      expect(org.formatOf(await singleId()), ReleaseFormat.album);
-      final albums = await charts().load(
-        chartType: ChartType.albums,
-        referenceLocal: _today,
-      );
-      expect(albums.entries.map((e) => e.entity.title), contains('15 Minutes'));
+      expect(org.formatOf(id), ReleaseFormat.album);
+      expect(org.needsFormatReview(id), isFalse);
     },
   );
 }

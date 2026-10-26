@@ -65,7 +65,27 @@ class ArtistLibraryOrganization {
     this.albumOwners = const {},
     this.catalogOwners,
     this.formats = const {},
+    this.formatReviews = const {},
   });
+
+  /// A release with no stated format and at most this many songs might be
+  /// a Single.
+  static const int possibleSingleMaxSongs = 3;
+
+  /// Releases with no stated format and [possibleSingleMaxSongs] songs or
+  /// fewer, by album id. Their format is never guessed: until someone
+  /// chooses it they stay off the release chart (so a Single never charts
+  /// or makes a release Moment as an album) and are listed for review.
+  static Set<String> formatReviewsOf(
+    Iterable<LibraryAlbum> albums,
+    Set<String> statedAlbumIds,
+  ) => {
+    for (final album in albums)
+      if (album.trackCount > 0 &&
+          album.trackCount <= possibleSingleMaxSongs &&
+          !statedAlbumIds.contains(album.albumId))
+        album.albumId,
+  };
 
   /// Everything is standalone: used when the organization can't be loaded,
   /// so the Library fails open rather than hiding artists.
@@ -85,9 +105,17 @@ class ArtistLibraryOrganization {
   /// Stated release formats by album id.
   final Map<String, AlbumReleaseFormat> formats;
 
-  /// The release's format; a release without a stated format is an Album.
-  ReleaseFormat formatOf(String albumId) =>
-      formats[albumId]?.format ?? ReleaseFormat.album;
+  /// See [formatReviewsOf].
+  final Set<String> formatReviews;
+
+  /// The release's stated format; null while it needs review (see
+  /// [formatReviewsOf]); otherwise an Album.
+  ReleaseFormat? formatOf(String albumId) =>
+      formats[albumId]?.format ??
+      (formatReviews.contains(albumId) ? null : ReleaseFormat.album);
+
+  /// Whether the release might be a Single and has no stated format.
+  bool needsFormatReview(String albumId) => formatReviews.contains(albumId);
 
   ArtistLibraryPlacement placementOf(String artistId) {
     final placement = placements[artistId];
@@ -261,6 +289,9 @@ class LibraryOrganizationService {
       albumOwners: Map.unmodifiable(ownerOf),
       catalogOwners: Set.unmodifiable(owners),
       formats: Map.unmodifiable(formats),
+      formatReviews: Set.unmodifiable(
+        ArtistLibraryOrganization.formatReviewsOf(albums, formats.keys.toSet()),
+      ),
     );
   }
 
@@ -362,6 +393,39 @@ class LibraryOrganizationService {
     for (final f in await organization.getFormats()) f.albumId: f.format,
   };
 
+  /// Formats for naming releases: each stated format, and null for a
+  /// release whose format needs review. Releases missing here are Albums.
+  Future<Map<String, ReleaseFormat?>> releaseFormatsForDisplay() async {
+    final stated = await releaseFormats();
+    final reviews = ArtistLibraryOrganization.formatReviewsOf(
+      await library.getAlbums(),
+      stated.keys.toSet(),
+    );
+    return {...stated, for (final id in reviews) id: null};
+  }
+
+  /// Releases that never chart as releases: Singles, and releases that
+  /// might be Singles until their format is chosen.
+  Future<Set<String>> releasesOffReleaseChart() async {
+    final formats = await releaseFormatsForDisplay();
+    return {
+      for (final MapEntry(key: id, value: format) in formats.entries)
+        if (format == null || !format.chartsAsRelease) id,
+    };
+  }
+
+  /// Releases whose format needs review, newest import first.
+  Future<List<LibraryAlbum>> releasesNeedingFormat() async {
+    final albums = await library.getAlbums();
+    final reviews = ArtistLibraryOrganization.formatReviewsOf(albums, {
+      for (final f in await organization.getFormats()) f.albumId,
+    });
+    return [
+      for (final album in albums)
+        if (reviews.contains(album.albumId)) album,
+    ]..sort((a, b) => b.dateAdded.compareTo(a.dateAdded));
+  }
+
   /// The user's format, which replaces any external one and is never
   /// replaced by a later metadata refresh.
   Future<void> setReleaseFormat({
@@ -411,8 +475,9 @@ class LibraryOrganizationService {
     return true;
   }
 
-  /// Forgets the user's format; the release is an Album again unless an
-  /// external source states otherwise later.
+  /// Forgets the user's format; the release is an Album again (or needs
+  /// review, when it might be a Single) unless an external source states
+  /// otherwise later.
   Future<void> clearReleaseFormat(String albumId) =>
       organization.deleteFormat(albumId);
 

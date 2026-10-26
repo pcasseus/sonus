@@ -94,12 +94,13 @@ LibraryAlbum _release(
   String artistId = 'artist-1',
   String artistName = 'Test Artist',
   DateTime? released,
+  int trackCount = 10,
 }) => LibraryAlbum(
   albumId: id,
   title: title,
   artistId: artistId,
   artistName: artistName,
-  trackCount: 1,
+  trackCount: trackCount,
   releaseDate: released,
   dateAdded: DateTime(2026, 1, 1),
 );
@@ -146,13 +147,19 @@ void main() {
       _release('a-none', 'Undated Album'),
       _release('a-2024', 'New Album', released: DateTime(2024, 6, 21)),
       _release('ep-2023', 'An EP', released: DateTime(2023, 1, 1)),
-      _release('s-2025', '15 Minutes', released: DateTime(2025, 1, 10)),
+      _release(
+        's-2025',
+        '15 Minutes',
+        released: DateTime(2025, 1, 10),
+        trackCount: 1,
+      ),
+      _release('demo', 'Demo', trackCount: 2),
     ];
     await pump(
       tester,
       repository: _Repo(
         library: releases,
-        artist: base.createArtist(albumCount: 5, songCount: 5),
+        artist: base.createArtist(albumCount: 6, songCount: 6),
         albums: releases,
         tracks: [
           for (final r in releases)
@@ -166,7 +173,19 @@ void main() {
     expect(key('artist-profile-albums'), findsOneWidget);
     expect(key('artist-profile-eps'), findsOneWidget);
     expect(key('artist-profile-singles'), findsOneWidget);
-    expect(find.text('3 albums • 1 EP • 1 single • 5 songs'), findsOneWidget);
+    // A short release with no stated format is not guessed to be anything.
+    expect(key('artist-profile-other-releases'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: key('artist-profile-other-releases'),
+        matching: find.text('Demo'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.text('3 albums • 1 EP • 1 single • 1 other release • 6 songs'),
+      findsOneWidget,
+    );
 
     double left(String title) => tester.getTopLeft(find.text(title).first).dx;
     double top(String title) => tester.getTopLeft(find.text(title).first).dy;

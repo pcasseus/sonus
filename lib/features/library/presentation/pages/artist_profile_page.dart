@@ -19,6 +19,7 @@ import '../../../artwork/application/services/artwork_assignment_service.dart';
 import '../../../artwork/application/services/artwork_file_picker.dart';
 import '../../../player/application/controllers/playback_coordinator.dart';
 import '../../../playlists/presentation/widgets/add_to_playlist_sheet.dart';
+import '../../application/models/library_album.dart';
 import '../../application/models/library_artist.dart';
 import '../../application/models/library_track.dart';
 import '../../application/repositories/library_query_repository.dart';
@@ -462,8 +463,12 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
                     .where((album) => visibleAlbumIds.contains(album.albumId))
                     .toList(growable: false);
                 // Newest first within each format (the controller's order).
-                final releasesByFormat = {
-                  for (final format in ReleaseFormat.values)
+                // Null holds releases whose format is not chosen yet.
+                final releasesByFormat = <ReleaseFormat?, List<LibraryAlbum>>{
+                  for (final format in <ReleaseFormat?>[
+                    ...ReleaseFormat.values,
+                    null,
+                  ])
                     format: [
                       for (final album in visibleAlbums)
                         if (controller.formatOf(album.albumId) == format) album,
@@ -559,6 +564,7 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
                           ReleaseFormat.album,
                           ReleaseFormat.ep,
                           ReleaseFormat.single,
+                          null,
                         ])
                           if (releasesByFormat[format]!.isNotEmpty)
                             section(
@@ -568,6 +574,10 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
                               [
                                 ArtistProfileSectionHeading(
                                   title: _sectionTitle(format),
+                                  subtitle: format == null
+                                      ? 'Choose Single, EP or Album in '
+                                            'Edit Release'
+                                      : null,
                                   count: releasesByFormat[format]!.length,
                                 ),
                                 const SizedBox(height: 12),
@@ -664,30 +674,35 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
   /// "3 albums • 1 EP • 2 singles • 44 songs": accurate catalog counts,
   /// leaving out formats the artist has none of.
   static String _catalogSummary(
-    Map<ReleaseFormat, List<Object>> releasesByFormat, {
+    Map<ReleaseFormat?, List<Object>> releasesByFormat, {
     required int songCount,
   }) {
     final albums = releasesByFormat[ReleaseFormat.album]!.length;
     final eps = releasesByFormat[ReleaseFormat.ep]!.length;
     final singles = releasesByFormat[ReleaseFormat.single]!.length;
+    final others = releasesByFormat[null]!.length;
     return [
-      if (albums > 0 || (eps == 0 && singles == 0)) sonusCount(albums, 'album'),
+      if (albums > 0 || (eps == 0 && singles == 0 && others == 0))
+        sonusCount(albums, 'album'),
       if (eps > 0) eps == 1 ? '1 EP' : '$eps EPs',
       if (singles > 0) sonusCount(singles, 'single'),
+      if (others > 0) sonusCount(others, 'other release'),
       sonusCount(songCount, 'song'),
     ].join(' • ');
   }
 
-  static String _sectionKey(ReleaseFormat format) => switch (format) {
+  static String _sectionKey(ReleaseFormat? format) => switch (format) {
     ReleaseFormat.album => 'albums',
     ReleaseFormat.ep => 'eps',
     ReleaseFormat.single => 'singles',
+    null => 'other-releases',
   };
 
-  static String _sectionTitle(ReleaseFormat format) => switch (format) {
+  static String _sectionTitle(ReleaseFormat? format) => switch (format) {
     ReleaseFormat.album => 'Albums',
     ReleaseFormat.ep => 'EPs',
     ReleaseFormat.single => 'Singles',
+    null => 'Other releases',
   };
 
   void _openCollaborator(ArtistProfileCollaborator collaborator) {

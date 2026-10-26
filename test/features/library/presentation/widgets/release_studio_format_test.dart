@@ -13,6 +13,10 @@ import 'package:sonus_next/features/library/presentation/widgets/album_studio/re
 
 class _Library
     implements LibraryQueryRepository, ProjectCollaboratorQueryRepository {
+  _Library(this.trackCount);
+
+  final int trackCount;
+
   @override
   Future<List<LibraryAlbum>> getAlbums() async => [
     LibraryAlbum(
@@ -20,7 +24,7 @@ class _Library
       title: '15 Minutes',
       artistId: 'artist-1',
       artistName: 'Madison Beer',
-      trackCount: 1,
+      trackCount: trackCount,
       dateAdded: DateTime(2026),
     ),
   ];
@@ -64,10 +68,11 @@ void main() {
     WidgetTester tester, {
     AlbumReleaseFormat? existing,
     double textScale = 1,
+    int trackCount = 1,
   }) async {
     final repository = _Organization();
     if (existing != null) repository.formats[existing.albumId] = existing;
-    final library = _Library();
+    final library = _Library(trackCount);
     await tester.pumpWidget(
       MaterialApp(
         theme: SonusThemeFactory.build(const SonusAppearanceSpec()),
@@ -99,15 +104,35 @@ void main() {
 
   Finder key(String value) => find.byKey(ValueKey<String>(value));
 
-  testWidgets('an unstated format shows as Album and says so', (tester) async {
-    await pump(tester);
+  testWidgets('a one-song release with no stated format is left unchosen '
+      'and says why', (tester) async {
+    final repository = await pump(tester);
+
+    final choice = tester.widget<SegmentedButton<ReleaseFormat>>(
+      key('release-studio-format-choice'),
+    );
+    expect(choice.selected, isEmpty);
+    expect(
+      find.text(
+        'Not chosen yet. A release this short might be a Single, so it stays '
+        'off the Sonus Albums & EPs chart until you choose.',
+      ),
+      findsOneWidget,
+    );
+    expect(key('release-studio-format-reset'), findsNothing);
+    expect(repository.formats, isEmpty, reason: 'nothing is guessed');
+  });
+
+  testWidgets('a longer release with no stated format shows as Album', (
+    tester,
+  ) async {
+    await pump(tester, trackCount: 10);
 
     final choice = tester.widget<SegmentedButton<ReleaseFormat>>(
       key('release-studio-format-choice'),
     );
     expect(choice.selected, {ReleaseFormat.album});
     expect(find.text('Not stated, so it counts as an Album.'), findsOneWidget);
-    expect(key('release-studio-format-reset'), findsNothing);
   });
 
   testWidgets('marking it a Single saves a manual choice', (tester) async {

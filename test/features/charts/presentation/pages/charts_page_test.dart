@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sonus_next/features/library/domain/entities/library_organization.dart';
 import 'package:sonus_next/core/design/sonus_theme_factory.dart';
 import 'package:sonus_next/core/design/sonus_theme_id.dart';
 import 'package:sonus_next/features/library/application/models/library_album.dart';
@@ -661,6 +662,71 @@ void main() {
     expect(find.text('WEEKLY HOT 100 #3'), findsOneWidget);
   });
 
+  test('Singles and releases awaiting a format tell no release story; '
+      'a song story names its Single as a Single', () async {
+    ChartMomentEvent releaseDebut(String albumId) {
+      final at = DateTime.utc(2026, 9, 28, 1);
+      final week = DateTime.utc(2026, 9, 27);
+      return ChartMomentEvent(
+        id: 'debut-$albumId',
+        deduplicationKey: 'debut-$albumId',
+        sourceId: 'source-$albumId',
+        chartType: ChartType.albums,
+        scope: ChartMomentScope.allTime,
+        eventType: ChartMomentEventType.debut,
+        entity: ChartEntitySnapshot(
+          entityId: albumId,
+          title: 'Release $albumId',
+          artistId: 'artist_1',
+          artistName: 'Artist 1',
+        ),
+        weekStartUtc: week,
+        weekEndUtc: week.add(const Duration(days: 7)),
+        occurredAt: at,
+        createdAt: at,
+        currentRank: 2,
+        qualifiedStreamCount: 4,
+      );
+    }
+
+    final controller = await _controller(
+      moments: [
+        releaseDebut('album_single'),
+        releaseDebut('album_review'),
+        releaseDebut('album_ep'),
+        _momentEvent(
+          id: 'song-peak',
+          scope: ChartMomentScope.allTime,
+          type: ChartMomentEventType.newPeak,
+          currentRank: 3,
+          currentPeakRank: 3,
+        ),
+      ],
+      releaseFormats: () async => {
+        'album_single': ReleaseFormat.single,
+        'album_review': null,
+        'album_ep': ReleaseFormat.ep,
+        'album_1': ReleaseFormat.single,
+      },
+    );
+
+    final stories = controller.momentStories;
+    expect(
+      [
+        for (final s in stories)
+          if (s.facts.chartType == ChartType.albums) s.facts.title,
+      ],
+      ['Release album_ep'],
+    );
+    final song = stories.singleWhere(
+      (s) => s.facts.chartType == ChartType.songs,
+    );
+    // "Song 1" is on album_1, a Single.
+    expect(song.facts.releaseLabel, 'Single');
+    // The stored events are untouched.
+    expect(controller.momentFeedItems.length, 4);
+  });
+
   testWidgets('a Moment post links to its song, album and artist', (
     tester,
   ) async {
@@ -923,6 +989,7 @@ Future<ChartsController> _controller({
   List<LibraryAlbum>? albums,
   List<LibraryArtist> artists = const [],
   List<ChartMomentEvent> moments = const [],
+  ReleaseFormatsLoader? releaseFormats,
 }) async {
   final resolvedLive =
       live ?? _snapshot(id: 'live', start: DateTime.utc(2026, 9, 27));
@@ -945,6 +1012,7 @@ Future<ChartsController> _controller({
     ),
     moments: _FakeChartMomentRepository(events: moments),
     now: () => DateTime(2026, 9, 28, 12),
+    releaseFormats: releaseFormats,
   );
 
   await controller.load();

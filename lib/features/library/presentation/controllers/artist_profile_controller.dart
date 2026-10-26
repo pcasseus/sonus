@@ -167,9 +167,14 @@ class ArtistProfileController extends ChangeNotifier {
   /// The project this page was opened from, if any.
   String? get projectArtistId => _projectArtistId;
 
-  /// The release's format; an Album unless one was stated.
-  ReleaseFormat formatOf(String albumId) =>
-      _organization?.formatOf(albumId) ?? ReleaseFormat.album;
+  /// The release's format: as stated, null while it needs review (it might
+  /// be a Single), otherwise an Album.
+  ReleaseFormat? formatOf(String albumId) {
+    final organization = _organization;
+    return organization == null
+        ? ReleaseFormat.album
+        : organization.formatOf(albumId);
+  }
 
   /// The wide banner photo, exactly as saved.
   String? get bannerPath => _nonEmpty(_artist?.headerArtworkPath);

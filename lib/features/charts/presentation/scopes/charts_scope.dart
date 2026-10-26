@@ -172,7 +172,7 @@ class _ChartsScopeState extends State<ChartsScope> {
       moments: moments,
       allTimeMoments: allTimeMoments,
       now: widget.now,
-      releaseFormats: organization?.releaseFormats,
+      releaseFormats: organization?.releaseFormatsForDisplay,
     );
 
     _controller = controller;

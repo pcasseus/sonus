@@ -15,6 +15,7 @@ import '../../application/models/library_health_report.dart';
 import '../../application/services/album_edition_management_service.dart';
 import '../../application/services/library_integrity_service.dart';
 import '../../data/daos/library_integrity_dao.dart';
+import 'album_profile_page.dart';
 
 /// The Import Health Report, and "Verify Library" for an existing library.
 ///
@@ -211,6 +212,7 @@ class _LibraryHealthPageState extends State<LibraryHealthPage> {
                             severity: severity,
                             busy: _busy,
                             onApply: () => _apply(finding),
+                            onReviewFormats: () => _reviewFormats(finding),
                           ),
                       ],
                     ),
@@ -218,6 +220,31 @@ class _LibraryHealthPageState extends State<LibraryHealthPage> {
               ],
             ),
     );
+  }
+
+  /// Lists the releases that might be Singles; each opens its page, where
+  /// Edit Release sets the format. The report is checked again afterwards.
+  Future<void> _reviewFormats(HealthFinding finding) async {
+    final albumId = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => _FormatReviewList(releases: finding.formatReviews),
+    );
+    if (albumId == null || !mounted) return;
+
+    final release = finding.formatReviews.firstWhere(
+      (r) => r.albumId == albumId,
+    );
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => AlbumProfilePage(
+          albumId: release.albumId,
+          initialAlbumTitle: release.title,
+        ),
+      ),
+    );
+    if (mounted) await _verify();
   }
 
   static IconData _iconFor(HealthSeverity severity) => switch (severity) {
@@ -234,12 +261,14 @@ class _FindingTile extends StatelessWidget {
     required this.severity,
     required this.busy,
     required this.onApply,
+    required this.onReviewFormats,
   });
 
   final HealthFinding finding;
   final HealthSeverity severity;
   final bool busy;
   final VoidCallback onApply;
+  final VoidCallback onReviewFormats;
 
   @override
   Widget build(BuildContext context) {
@@ -270,6 +299,12 @@ class _FindingTile extends StatelessWidget {
                     _FolderSplitPreview(splits: finding.folderSplits),
               ),
               child: const Text('Preview'),
+            )
+          : finding.formatReviews.isNotEmpty
+          ? TextButton(
+              key: const ValueKey<String>('library-health-review-formats'),
+              onPressed: busy ? null : onReviewFormats,
+              child: const Text('Review'),
             )
           : finding.corrections.isEmpty
           ? null
@@ -344,6 +379,69 @@ class _FolderSplitPreview extends StatelessWidget {
                 ),
               ),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+/// SN-45: releases that might be Singles. Choosing one returns its id.
+class _FormatReviewList extends StatelessWidget {
+  const _FormatReviewList({required this.releases});
+
+  final List<ReleaseFormatReview> releases;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = SonusTheme.of(context).colors;
+    final theme = Theme.of(context);
+
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.7,
+      minChildSize: 0.4,
+      maxChildSize: 0.95,
+      builder: (context, controller) => ListView(
+        key: const ValueKey<String>('library-health-format-reviews'),
+        controller: controller,
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),
+        children: [
+          Semantics(
+            header: true,
+            child: Text(
+              'Choose Single, EP or Album',
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'These releases have no stated format and only a few songs, so '
+            'they might be Singles. Sonus does not guess: open one and set '
+            'its format in Edit Release. Until then it stays off the Sonus '
+            'Albums & EPs chart; its songs still chart on the Sonus Hot 100, '
+            'and nothing about them changes.',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: colors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 8),
+          for (final release in releases)
+            ListTile(
+              key: ValueKey<String>(
+                'library-health-format-review-${release.albumId}',
+              ),
+              contentPadding: EdgeInsets.zero,
+              minTileHeight: 56,
+              leading: const Icon(Icons.album_outlined),
+              title: Text(release.title),
+              subtitle: Text(
+                '${release.owner} · ${sonusCount(release.songCount, 'song')}',
+              ),
+              trailing: const Icon(Icons.chevron_right_rounded),
+              onTap: () => Navigator.of(context).pop(release.albumId),
+            ),
         ],
       ),
     );

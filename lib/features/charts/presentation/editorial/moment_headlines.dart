@@ -1371,7 +1371,7 @@ abstract final class MomentHeadlines {
         'artist-top10-n-d1',
         _d,
         (f) =>
-            '${f.careerArtist} earns a ${f.ordinalText} Top 10 hit as '
+            '${f.careerArtist} earns ${f.aOrdinalText} Top 10 hit as '
             '${f.work} reaches #${f.rank}.',
         requires: _ordinal,
       ),
@@ -1395,7 +1395,7 @@ abstract final class MomentHeadlines {
         'artist-top10-n-d4',
         _d,
         (f) =>
-            '${f.careerArtist} adds a ${f.ordinalText} Top 10 hit: ${f.work} '
+            '${f.careerArtist} adds ${f.aOrdinalText} Top 10 hit: ${f.work} '
             'is #${f.rank} on ${f.chart}.',
         requires: _ordinal,
       ),
@@ -1403,8 +1403,8 @@ abstract final class MomentHeadlines {
         'artist-top10-n-d5',
         _d,
         (f) =>
-            '${f.work} reaches #${f.rank} with ${f.streamsText}, a '
-            '${f.ordinalText} Top 10 hit for ${f.careerArtist}.',
+            '${f.work} reaches #${f.rank} with ${f.streamsText}, '
+            '${f.aOrdinalText} Top 10 hit for ${f.careerArtist}.',
         requires: _ordinalStreams,
       ),
       HeadlineVariant(
@@ -1427,8 +1427,8 @@ abstract final class MomentHeadlines {
         'artist-top10-n-p2',
         _p,
         (f) =>
-            '${f.careerArtist} keeps the hits coming: ${f.work} is a '
-            '${f.ordinalText} Top 10 hit.',
+            '${f.careerArtist} keeps the hits coming: ${f.work} is '
+            '${f.aOrdinalText} Top 10 hit.',
         requires: _ordinal,
       ),
       HeadlineVariant(
@@ -1459,7 +1459,7 @@ abstract final class MomentHeadlines {
         'artist-top10-n-p6',
         _p,
         (f) =>
-            '${f.careerArtist} collects a ${f.ordinalText} Top 10 hit as '
+            '${f.careerArtist} collects ${f.aOrdinalText} Top 10 hit as '
             '${f.work} reaches #${f.rank}.',
         requires: _ordinal,
       ),
@@ -1560,7 +1560,7 @@ abstract final class MomentHeadlines {
         'artist-1-n-d1',
         _d,
         (f) =>
-            '${f.careerArtist} earns a ${f.ordinalText} #1 hit as ${f.work} '
+            '${f.careerArtist} earns ${f.aOrdinalText} #1 hit as ${f.work} '
             'reaches #1 on ${f.chart}.',
         requires: const {MomentFact.ordinal},
       ),
@@ -1582,8 +1582,8 @@ abstract final class MomentHeadlines {
         'artist-1-n-d4',
         _d,
         (f) =>
-            '${f.work} rises from #${f.previousRank} to #1, a '
-            '${f.ordinalText} #1 hit for ${f.careerArtist}.',
+            '${f.work} rises from #${f.previousRank} to #1, '
+            '${f.aOrdinalText} #1 hit for ${f.careerArtist}.',
         requires: _ordinalFrom,
       ),
       HeadlineVariant(
@@ -1606,8 +1606,8 @@ abstract final class MomentHeadlines {
         'artist-1-n-p1',
         _p,
         (f) =>
-            '${f.careerArtist} does it again: ${f.work} is a '
-            '${f.ordinalText} #1 hit.',
+            '${f.careerArtist} does it again: ${f.work} is '
+            '${f.aOrdinalText} #1 hit.',
         requires: const {MomentFact.ordinal},
       ),
       HeadlineVariant(
@@ -1715,7 +1715,8 @@ abstract final class MomentHeadlines {
       HeadlineVariant(
         'artist-top-p3',
         _p,
-        (f) => '${f.title} vs. ${f.rivalTitle}: ${f.title} pulls ahead to #1.',
+        (f) =>
+            '${f.title} vs. ${f.rivalTitle}: ${f.title} pulls ahead as your #1 artist.',
         requires: _rival,
       ),
       HeadlineVariant(
@@ -1723,7 +1724,7 @@ abstract final class MomentHeadlines {
         _p,
         (f) =>
             '${f.title} hits ${f.streamsText} and moves past ${f.rivalTitle} '
-            'to #1.',
+            'to become your #1 artist.',
         requires: const {MomentFact.rival, MomentFact.streams},
       ),
       HeadlineVariant(
@@ -2575,7 +2576,7 @@ abstract final class MomentHeadlines {
         'artist-release-1-n-d1',
         _d,
         (f) =>
-            '${f.careerArtist} earns a ${f.ordinalText} #1 release as '
+            '${f.careerArtist} earns ${f.aOrdinalText} #1 release as '
             '${f.title} reaches #1.',
         requires: const {MomentFact.ordinal},
       ),
@@ -2599,8 +2600,8 @@ abstract final class MomentHeadlines {
         'artist-release-1-n-d4',
         _d,
         (f) =>
-            '${f.title} rises from #${f.previousRank} to #1, a '
-            '${f.ordinalText} #1 for ${f.careerArtist}.',
+            '${f.title} rises from #${f.previousRank} to #1, '
+            '${f.aOrdinalText} #1 for ${f.careerArtist}.',
         requires: _ordinalFrom,
       ),
       HeadlineVariant(
@@ -2623,8 +2624,8 @@ abstract final class MomentHeadlines {
         'artist-release-1-n-p1',
         _p,
         (f) =>
-            '${f.careerArtist} does it again: ${f.title} is a '
-            '${f.ordinalText} #1 release.',
+            '${f.careerArtist} does it again: ${f.title} is '
+            '${f.aOrdinalText} #1 release.',
         requires: const {MomentFact.ordinal},
       ),
       HeadlineVariant(
@@ -2676,7 +2677,7 @@ abstract final class MomentHeadlines {
       '$kind-weeks-d1',
       _d,
       (f) =>
-          '${f.subject} spends a ${MomentFacts.ordinalWord(f.weeks!)} '
+          '${f.subject} spends ${MomentFacts.withArticle(MomentFacts.ordinalWord(f.weeks!))} '
           'consecutive week ${f.weeksPlace}.',
       requires: _run,
     ),

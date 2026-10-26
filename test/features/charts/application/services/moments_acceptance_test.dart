@@ -64,14 +64,20 @@ class _Lookups implements MomentLookups {
 
   final Map<String, LibraryTrack> tracks;
   final Map<String, String> artists;
-  final Map<String, ReleaseFormat> formats;
+  final Map<String, ReleaseFormat?> formats;
 
   @override
   String? artistName(String artistId) => artists[artistId];
 
   @override
-  ReleaseFormat formatOf(String albumId) =>
-      formats[albumId] ?? ReleaseFormat.album;
+  ReleaseFormat? formatOf(String albumId) =>
+      formats.containsKey(albumId) ? formats[albumId] : ReleaseFormat.album;
+
+  @override
+  ReleaseFormat? songReleaseFormat(String songId) {
+    final album = tracks[songId]?.albumId;
+    return album == null ? null : formatOf(album);
+  }
 
   @override
   List<String> featuredOf(String songId) =>
@@ -136,7 +142,11 @@ void main() {
     };
     final events = await SqliteChartMomentRepository(database).getRecent();
     return MomentEditorialDesk(
-      lookups: _Lookups(tracks, artists, await organization.releaseFormats()),
+      lookups: _Lookups(
+        tracks,
+        artists,
+        await organization.releaseFormatsForDisplay(),
+      ),
       // Every story in these scenarios is wanted.
       minorStoriesPerDay: 1000,
     ).compose(const ChartMomentFeedAggregator().aggregate(events));
@@ -348,6 +358,13 @@ void main() {
       albumId: await fixtureAlbumId(database, '15 Minutes'),
       format: ReleaseFormat.single,
     );
+    // The two-song fixtures stand in for full albums.
+    for (final album in ['Think Later', 'Life Support']) {
+      await organization.setReleaseFormat(
+        albumId: await fixtureAlbumId(database, album),
+        format: ReleaseFormat.album,
+      );
+    }
     final t = await tracksByTitle();
     for (final title in ['Greedy', 'Exes', 'Greedy']) {
       plays.add(t[title]!);

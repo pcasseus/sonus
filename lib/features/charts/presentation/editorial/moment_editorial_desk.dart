@@ -200,7 +200,9 @@ class MomentEditorialDesk {
     HeadlineVariant variant,
   ) {
     final used = variant.requires;
-    final it = facts.chartType == ChartType.songs ? 'The song' : 'The release';
+    final it = facts.chartType == ChartType.songs
+        ? 'The song'
+        : 'The ${facts.releaseWord}';
     final sentences = <String>[];
 
     final newTop = facts.newTopArtist;
@@ -232,24 +234,30 @@ class MomentEditorialDesk {
       _ => false,
     };
     final previous = facts.previousRank;
+    final peak = facts.previousPeak;
     final peakNamed =
-        used.contains(MomentFact.previousPeak) &&
-        previous == facts.previousPeak;
+        used.contains(MomentFact.previousPeak) && previous == peak;
+    final tellsPeak =
+        (family == MomentFamily.songReentry ||
+            family == MomentFamily.releaseReentry ||
+            family == MomentFamily.songNewPeak ||
+            family == MomentFamily.releaseNewPeak) &&
+        peak != null &&
+        !used.contains(MomentFact.previousPeak);
     if (climbs &&
         previous != null &&
         previous != facts.rank &&
         !peakNamed &&
         !used.contains(MomentFact.previousRank)) {
-      sentences.add('$it was at #$previous before this stream.');
+      // One sentence when the rank before this stream was also the best.
+      sentences.add(
+        tellsPeak && previous == peak
+            ? '$it was at #$previous, its best so far, before this stream.'
+            : '$it was at #$previous before this stream.',
+      );
     }
 
-    final peak = facts.previousPeak;
-    if ((family == MomentFamily.songReentry ||
-            family == MomentFamily.releaseReentry ||
-            family == MomentFamily.songNewPeak ||
-            family == MomentFamily.releaseNewPeak) &&
-        peak != null &&
-        !used.contains(MomentFact.previousPeak)) {
+    if (tellsPeak && !(climbs && previous == peak && previous != null)) {
       sentences.add('Its previous best was #$peak.');
     }
 
@@ -267,8 +275,9 @@ class MomentEditorialDesk {
       MomentFamily.artistStreamMilestone => true,
       _ => false,
     };
+    // A first stream is what every debut has; it is not worth a sentence.
     if (streams != null &&
-        streams > 0 &&
+        streams > 1 &&
         !milestoneStory &&
         !used.contains(MomentFact.streams)) {
       sentences.add(

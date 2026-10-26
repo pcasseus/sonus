@@ -25,8 +25,9 @@ import '../models/charts_presentation_mode.dart';
 
 typedef ChartsControllerNow = DateTime Function();
 
-/// Stated release formats by album id.
-typedef ReleaseFormatsLoader = Future<Map<String, ReleaseFormat>> Function();
+/// Release formats by album id: null while a release's format needs
+/// review. Releases missing are Albums.
+typedef ReleaseFormatsLoader = Future<Map<String, ReleaseFormat?>> Function();
 
 class ChartsController extends ChangeNotifier {
   ChartsController({
@@ -61,7 +62,7 @@ class ChartsController extends ChangeNotifier {
 
   /// Formats name releases correctly in Moments; Albums without it.
   final ReleaseFormatsLoader? _loadReleaseFormats;
-  Map<String, ReleaseFormat> _releaseFormats = const {};
+  Map<String, ReleaseFormat?> _releaseFormats = const {};
 
   /// The published stories for the current feed, composed once per load.
   List<MomentStory>? _momentStories;
@@ -134,9 +135,23 @@ class ChartsController extends ChangeNotifier {
   late final MomentLookups momentLookups = _ControllerMomentLookups(this);
 
   /// The Moments feed as published stories, newest first.
-  List<MomentStory> get momentStories => _momentStories ??= MomentEditorialDesk(
-    lookups: momentLookups,
-  ).compose(_momentFeedItems);
+  ///
+  /// A release that is now a Single, or whose format awaits review, tells
+  /// no release-chart story: one recorded earlier stays stored and returns
+  /// if the release is made an EP or Album.
+  List<MomentStory> get momentStories =>
+      _momentStories ??= MomentEditorialDesk(lookups: momentLookups).compose([
+        for (final item in _momentFeedItems)
+          if (!_offReleaseChart(item)) item,
+      ]);
+
+  bool _offReleaseChart(ChartMomentFeedItem item) {
+    if (item.chartType != ChartType.albums) return false;
+    final id = item.entity.entityId;
+    if (!_releaseFormats.containsKey(id)) return false;
+    final format = _releaseFormats[id];
+    return format == null || !format.chartsAsRelease;
+  }
 
   AllTimeChart? get allTimeChart => _allTimeChart;
 
@@ -306,7 +321,7 @@ class ChartsController extends ChangeNotifier {
   }
 
   /// Fails open: without formats every release reads as an Album.
-  Future<Map<String, ReleaseFormat>> _readReleaseFormats() async {
+  Future<Map<String, ReleaseFormat?>> _readReleaseFormats() async {
     try {
       return await _loadReleaseFormats?.call() ?? const {};
     } catch (_) {
@@ -647,8 +662,18 @@ class _ControllerMomentLookups implements MomentLookups {
       _controller._artistsById[artistId]?.name;
 
   @override
-  ReleaseFormat formatOf(String albumId) =>
-      _controller._releaseFormats[albumId] ?? ReleaseFormat.album;
+  ReleaseFormat? formatOf(String albumId) {
+    final formats = _controller._releaseFormats;
+    return formats.containsKey(albumId)
+        ? formats[albumId]
+        : ReleaseFormat.album;
+  }
+
+  @override
+  ReleaseFormat? songReleaseFormat(String songId) {
+    final track = _controller._tracksById[songId];
+    return track == null ? null : formatOf(track.albumId);
+  }
 
   @override
   List<String> featuredOf(String songId) =>
