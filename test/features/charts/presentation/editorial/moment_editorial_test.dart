@@ -432,6 +432,36 @@ void main() {
       );
     });
 
+    test('supporting text never repeats itself or the headline', () {
+      final stories = desk().compose(
+        items([
+          for (var i = 0; i < 12; i++)
+            event(
+              ChartMomentEventType.newPeak,
+              entity: song('s$i'),
+              source: 'play-$i',
+              rank: 2,
+              previousRank: 3,
+              previousPeak: 3,
+              threshold: 2,
+              streams: 6,
+              at: DateTime.utc(2026, 10, 26, 9, i),
+            ),
+        ]),
+      );
+      for (final story in stories) {
+        final body = story.body ?? '';
+        expect(
+          RegExp('The song').allMatches(body).length,
+          lessThanOrEqualTo(1),
+          reason: body,
+        );
+        if (story.headline.contains('#3')) {
+          expect(body, isNot(contains('#3')), reason: story.headline);
+        }
+      }
+    });
+
     test('weekly movement is not news; the week\'s biggest gainer is', () {
       final weekly = [
         event(

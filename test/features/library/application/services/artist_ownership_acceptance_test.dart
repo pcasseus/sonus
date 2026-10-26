@@ -185,6 +185,15 @@ void main() {
     ]);
   });
 
+  test('song counts include every song on the artist releases', () async {
+    final artists = {for (final a in await library.getArtists()) a.name: a};
+    // A project owner performs none of its songs itself.
+    expect(artists['Victorious Cast']!.songCount, 23);
+    expect(artists['Descendants']!.songCount, 7);
+    // Dove Cameron: two songs of her own, two on Descendants.
+    expect(artists['Dove Cameron']!.songCount, 4);
+  });
+
   group('Scenario A: Victorious', () {
     test('one album holds all 23 songs, owned by the project', () async {
       final db = await database.database;

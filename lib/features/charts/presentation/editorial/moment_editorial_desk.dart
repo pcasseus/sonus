@@ -232,9 +232,13 @@ class MomentEditorialDesk {
       _ => false,
     };
     final previous = facts.previousRank;
+    final peakNamed =
+        used.contains(MomentFact.previousPeak) &&
+        previous == facts.previousPeak;
     if (climbs &&
         previous != null &&
         previous != facts.rank &&
+        !peakNamed &&
         !used.contains(MomentFact.previousRank)) {
       sentences.add('$it was at #$previous before this stream.');
     }
@@ -270,6 +274,8 @@ class MomentEditorialDesk {
       sentences.add(
         family == MomentFamily.artistTopArtist
             ? '${facts.title} now has ${facts.streamsText} on Sonus.'
+            : sentences.any((sentence) => sentence.startsWith(it))
+            ? 'It now has ${facts.streamsText} on Sonus.'
             : '$it now has ${facts.streamsText} on Sonus.',
       );
     }
