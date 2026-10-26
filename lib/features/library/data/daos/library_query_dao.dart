@@ -595,6 +595,30 @@ class LibraryQueryDao {
     return sorted.take(limit).toList(growable: false);
   }
 
+  /// An artist's songs: those it performs (a main credit, or its own
+  /// song without credits) and every song on a release it owns, such as a
+  /// soundtrack's songs for its cast. Each song is counted once.
+  static final String _artistSongCount =
+      '''
+        (
+          SELECT COUNT(*) FROM (
+            SELECT main_credit.song_id
+            FROM ${DatabaseTables.songArtistCredits} main_credit
+            WHERE main_credit.artist_id = ar.id
+              AND main_credit.role IN ('primary', 'coPrimary')
+            UNION
+            SELECT own_song.id
+            FROM ${DatabaseTables.songs} own_song
+            WHERE own_song.artist_id = ar.id
+            UNION
+            SELECT owned_song.id
+            FROM ${DatabaseTables.songs} owned_song
+            INNER JOIN ${DatabaseTables.albums} owned_album
+              ON owned_album.id = owned_song.album_id
+            WHERE owned_album.artist_id = ar.id
+          )
+        )''';
+
   Future<List<LibraryArtist>> findArtists() async {
     final rows = await db.rawQuery('''
       SELECT
@@ -605,7 +629,7 @@ class LibraryQueryDao {
         ar.top_artists_artwork_id AS top_artists_artwork_id,
         ta.file_path AS top_artists_artwork_path,
         COUNT(DISTINCT al.id) AS album_count,
-        COUNT(DISTINCT s.id) AS song_count,
+        $_artistSongCount AS song_count,
         ar.created_at AS created_at
       FROM ${DatabaseTables.artists} ar
       LEFT JOIN ${DatabaseTables.artworkAssets} ha
@@ -614,8 +638,6 @@ class LibraryQueryDao {
         ON ta.id = ar.top_artists_artwork_id
       LEFT JOIN ${DatabaseTables.albums} al
         ON al.artist_id = ar.id
-      LEFT JOIN ${DatabaseTables.songs} s
-        ON s.artist_id = ar.id
       GROUP BY
         ar.id,
         ar.name,
@@ -642,12 +664,7 @@ class LibraryQueryDao {
         ar.top_artists_artwork_id AS top_artists_artwork_id,
         ta.file_path AS top_artists_artwork_path,
         COUNT(DISTINCT al.id) AS album_count,
-        (
-          SELECT COUNT(DISTINCT main_credit.song_id)
-          FROM ${DatabaseTables.songArtistCredits} main_credit
-          WHERE main_credit.artist_id = ar.id
-            AND main_credit.role IN ('primary', 'coPrimary')
-        ) AS song_count,
+        $_artistSongCount AS song_count,
         ar.created_at AS created_at
       FROM ${DatabaseTables.artists} ar
       LEFT JOIN ${DatabaseTables.artworkAssets} ha

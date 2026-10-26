@@ -13,6 +13,7 @@ import '../../../library/application/models/library_health_report.dart';
 import '../../../library/application/services/album_profile_editing_service.dart';
 import '../../../library/presentation/pages/library_health_page.dart';
 import '../../application/models/import_execution_summary.dart';
+import '../../application/services/device_music_access.dart';
 import '../../application/services/import_review_service.dart';
 import '../../application/services/import_source_picker.dart';
 import '../../application/services/import_workflow_service.dart';
@@ -23,6 +24,7 @@ import '../widgets/import_folder_structure_card.dart';
 import '../widgets/import_progress_card.dart';
 import '../widgets/import_result_card.dart';
 import '../widgets/import_source_card.dart';
+import 'device_music_folder_page.dart';
 import 'import_review_page.dart';
 
 class ImportsPage extends StatefulWidget {
@@ -80,6 +82,24 @@ class _ImportsPageState extends State<ImportsPage> {
     }
 
     _userId = userId;
+  }
+
+  /// On Android, Sonus's own music folder browser comes first: some
+  /// devices' system picker cannot open folders such as Download/Music.
+  Future<bool> _importFolder(ImportsController controller) async {
+    final access = context.read<DeviceMusicAccess?>();
+
+    if (access == null) {
+      return controller.importStructuredFolder();
+    }
+
+    final choice = await DeviceMusicFolderPage.open(context, access);
+
+    return switch (choice) {
+      ChosenDeviceMusicFolder(:final path) => controller.importFolderAt(path),
+      UseSystemFolderPicker() => controller.importStructuredFolder(),
+      null => false,
+    };
   }
 
   @override
@@ -173,7 +193,7 @@ class _ImportsPageState extends State<ImportsPage> {
                         onPressed: () {
                           unawaited(
                             _runAndRefreshReviewCount(
-                              controller.importStructuredFolder,
+                              () => _importFolder(controller),
                             ),
                           );
                         },

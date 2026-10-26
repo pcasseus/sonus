@@ -2,6 +2,7 @@ import '../../../../library/application/models/library_album.dart';
 import '../../../../library/application/models/library_artist.dart';
 import '../../../../library/application/models/library_track.dart';
 import '../../../../library/application/repositories/library_query_repository.dart';
+import '../../../../library/application/services/library_organization_service.dart';
 import '../../../../playlists/application/services/playlist_service.dart';
 
 /// Song IDs, most recently played first, each listed once.
@@ -52,10 +53,15 @@ class RepositoryMediaBrowseLibrary implements MediaBrowseLibrary {
     required this._library,
     required this._recentlyPlayedSongIds,
     this._playlists,
+    this._organization,
   });
 
   final LibraryQueryRepository _library;
   final RecentlyPlayedSongIds _recentlyPlayedSongIds;
+
+  /// The Library's artist identity: the car lists the same artists as the
+  /// Library. Without it, every artist is listed.
+  final LibraryOrganizationService? _organization;
   final PlaylistService? _playlists;
 
   @override
@@ -85,7 +91,21 @@ class RepositoryMediaBrowseLibrary implements MediaBrowseLibrary {
         ? await (library as StructuredArtistQueryRepository)
               .getProfileEligibleArtists()
         : await library.getArtists();
-    return artists;
+    final organization = await _loadOrganization();
+    if (organization == null) return artists;
+    return [
+      for (final artist in artists)
+        if (organization.isShownInLibrary(artist.artistId)) artist,
+    ];
+  }
+
+  /// Fails open: if the organization can't be read, every artist is listed.
+  Future<ArtistLibraryOrganization?> _loadOrganization() async {
+    try {
+      return await _organization?.load();
+    } catch (_) {
+      return null;
+    }
   }
 
   @override

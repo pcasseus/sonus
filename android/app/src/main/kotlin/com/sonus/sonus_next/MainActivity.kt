@@ -24,6 +24,20 @@ class MainActivity : AudioServiceActivity() {
 
     private var backupDocuments: BackupDocumentChannel? = null
 
+    private var audioLibrary: AudioLibraryChannel? = null
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        if (audioLibrary?.onRequestPermissionsResult(requestCode, grantResults) == true) {
+            return
+        }
+
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+    }
+
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         if (backupDocuments?.onActivityResult(requestCode, resultCode, data) == true) {
             return
@@ -41,6 +55,11 @@ class MainActivity : AudioServiceActivity() {
         )
 
         AppInfoChannel(this, flutterEngine.dartExecutor.binaryMessenger)
+
+        audioLibrary = AudioLibraryChannel(
+            this,
+            flutterEngine.dartExecutor.binaryMessenger
+        )
 
         // Uses no activity, so it is deliberately left registered in
         // cleanUpFlutterEngine: a session can end while no activity exists.
@@ -146,12 +165,14 @@ class MainActivity : AudioServiceActivity() {
             publicationChannel,
             storageChannel,
             BackupDocumentChannel.CHANNEL,
-            AppInfoChannel.CHANNEL
+            AppInfoChannel.CHANNEL,
+            AudioLibraryChannel.CHANNEL
         )) {
             MethodChannel(messenger, channel).setMethodCallHandler(null)
         }
 
         backupDocuments = null
+        audioLibrary = null
         super.cleanUpFlutterEngine(flutterEngine)
     }
 }

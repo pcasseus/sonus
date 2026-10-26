@@ -1,13 +1,19 @@
 import '../entities/library_organization.dart';
 
-/// Release classifications and artist placements. Device-local: not synced
-/// and not in backups.
+/// Release classifications, release formats and artist placements. Kept in
+/// backups and the cloud archive.
 abstract interface class LibraryOrganizationRepository {
   Future<List<AlbumReleaseClassification>> getClassifications();
 
   Future<void> saveClassification(AlbumReleaseClassification classification);
 
   Future<void> deleteClassification(String albumId);
+
+  Future<List<AlbumReleaseFormat>> getFormats();
+
+  Future<void> saveFormat(AlbumReleaseFormat format);
+
+  Future<void> deleteFormat(String albumId);
 
   Future<List<ArtistProjectAssignment>> getAssignments();
 

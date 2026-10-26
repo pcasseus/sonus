@@ -14,6 +14,7 @@ import '../../domain/services/all_time_chart_ranking_engine.dart';
 import '../../domain/services/all_time_history_replay.dart';
 import '../../domain/services/chart_ranking_engine.dart';
 import '../../domain/services/chart_week_resolver.dart';
+import '../../domain/services/release_chart_eligibility.dart';
 
 /// Builds the permanent all-time chart from every qualified play.
 ///
@@ -27,11 +28,13 @@ class AllTimeChartService {
     AllTimeChartRankingEngine rankingEngine = const AllTimeChartRankingEngine(),
     AllTimeHistoryReplay replay = const AllTimeHistoryReplay(),
     ChartWeekResolver weekResolver = const ChartWeekResolver(),
+    ReleaseChartEligibility? releaseEligibility,
   }) : _qualifiedPlays = qualifiedPlays,
        _library = library,
        _rankingEngine = rankingEngine,
        _replay = replay,
-       _weekResolver = weekResolver;
+       _weekResolver = weekResolver,
+       _releaseEligibility = releaseEligibility;
 
   final QualifiedPlayRepository _qualifiedPlays;
   final LibraryQueryRepository _library;
@@ -39,22 +42,32 @@ class AllTimeChartService {
   final AllTimeHistoryReplay _replay;
   final ChartWeekResolver _weekResolver;
 
+  /// Singles never chart as releases; without this every album does.
+  final ReleaseChartEligibility? _releaseEligibility;
+
   Future<AllTimeChart> load({
     required ChartType chartType,
     required DateTime referenceLocal,
     ChartViewSize viewSize = ChartViewSize.top100,
   }) async {
     final comparisonStartUtc = _weekResolver.resolve(referenceLocal).startUtc;
+    final excluded = chartType == ChartType.albums
+        ? await excludedReleaseIds(_releaseEligibility)
+        : const <String>{};
     final plays = await _qualifiedPlays.getAll();
-    final entities = await _currentEntities(chartType);
+    final entities = await _currentEntities(chartType)
+      ..removeWhere((id, _) => excluded.contains(id));
 
+    // A Single's plays never enter the release chart, so it neither takes
+    // a place nor pushes other releases down.
     final events = [
       for (final play in plays)
-        ChartRankingEvent(
-          entityId: _entityIdFor(play, chartType),
-          qualifiedAt: play.qualifiedAt,
-          sourceEventId: play.id,
-        ),
+        if (!excluded.contains(_entityIdFor(play, chartType)))
+          ChartRankingEvent(
+            entityId: _entityIdFor(play, chartType),
+            qualifiedAt: play.qualifiedAt,
+            sourceEventId: play.id,
+          ),
     ];
     final ranked = _rankingEngine.rank(
       events: events,

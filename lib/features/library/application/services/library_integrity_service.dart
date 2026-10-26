@@ -1,7 +1,9 @@
+import '../../../../core/identity/text_normalizer.dart';
 import '../../../import/application/folders/source_folder_key.dart';
 import '../../data/daos/library_integrity_dao.dart';
 import '../models/library_health_report.dart';
 import 'album_edition_management_service.dart';
+import 'library_organization_service.dart';
 
 typedef FileExists = Future<bool> Function(String path);
 
@@ -229,6 +231,8 @@ class LibraryIntegrityService {
     );
 
     findings.add(await _splitFolders());
+    findings.add(await _releaseFormats());
+    findings.add(await _performerOwnedProjects());
 
     return LibraryHealthReport(
       checkedAt: _now(),
@@ -301,6 +305,106 @@ class LibraryIntegrityService {
           for (final album in split.albums) album.albumId,
       ],
       folderSplits: List.unmodifiable(splits),
+    );
+  }
+
+  /// SN-45: releases that might be Singles. Their format is never guessed;
+  /// they are listed so the user can choose, and stay off the release chart
+  /// until then.
+  Future<HealthFinding> _releaseFormats() async {
+    final releases = await dao.releasesWithoutFormat(
+      maxSongs: ArtistLibraryOrganization.possibleSingleMaxSongs,
+    );
+
+    if (releases.isEmpty) {
+      return const HealthFinding(
+        check: HealthCheck.releaseFormats,
+        severity: HealthSeverity.verified,
+        summary: 'Every short release has a format.',
+      );
+    }
+
+    return HealthFinding(
+      check: HealthCheck.releaseFormats,
+      severity: HealthSeverity.needsReview,
+      summary: releases.length == 1
+          ? '1 release might be a Single. Choose its format; until then it '
+                'stays off the Sonus Albums & EPs chart.'
+          : '${releases.length} releases might be Singles. Choose their '
+                'formats; until then they stay off the Sonus Albums & EPs '
+                'chart.',
+      entityIds: [for (final r in releases) r.albumId],
+      formatReviews: List.unmodifiable([
+        for (final r in releases)
+          ReleaseFormatReview(
+            albumId: r.albumId,
+            title: r.title,
+            owner: r.owner,
+            songCount: r.songs,
+          ),
+      ]),
+    );
+  }
+
+  /// SN-45: a release whose owner leads most of its songs while at least
+  /// two other artists lead the rest looks like a soundtrack or cast
+  /// recording whose files name one performer as album artist. (A project
+  /// that owns itself leads few of its own songs, so it is not listed.)
+  /// It is only listed: the owner can be changed (or a new project made)
+  /// in Edit Release, or kept, and nothing is reassigned here. A credit
+  /// that starts with the owner's name ("Owner [Ft. Guest]") counts as the
+  /// owner's.
+  Future<HealthFinding> _performerOwnedProjects() async {
+    final ownerLeads = <String, int>{};
+    final songs = <String, int>{};
+    final others = <String, Set<String>>{};
+    final info = <String, ({String title, String owner})>{};
+
+    for (final row in await dao.songLeadsByRelease()) {
+      info[row.albumId] = (title: row.title, owner: row.owner);
+      songs[row.albumId] = (songs[row.albumId] ?? 0) + 1;
+      final owner = TextNormalizer.canonicalize(row.owner);
+      final lead = TextNormalizer.canonicalize(row.lead);
+      if (row.leadId == row.ownerId || lead.startsWith(owner)) {
+        ownerLeads[row.albumId] = (ownerLeads[row.albumId] ?? 0) + 1;
+      } else {
+        others.putIfAbsent(row.albumId, () => {}).add(row.lead);
+      }
+    }
+
+    final releases = [
+      for (final MapEntry(key: albumId, value: leads) in others.entries)
+        if ((ownerLeads[albumId] ?? 0) * 2 > songs[albumId]! &&
+            leads.length >= 2)
+          PerformerOwnedProject(
+            albumId: albumId,
+            title: info[albumId]!.title,
+            owner: info[albumId]!.owner,
+            otherLeads: List.unmodifiable(leads.toList()..sort()),
+          ),
+    ]..sort((a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()));
+
+    if (releases.isEmpty) {
+      return const HealthFinding(
+        check: HealthCheck.performerOwnedProjects,
+        severity: HealthSeverity.verified,
+        summary:
+            'No release with several lead artists is owned by just one '
+            'of them.',
+      );
+    }
+
+    return HealthFinding(
+      check: HealthCheck.performerOwnedProjects,
+      severity: HealthSeverity.warning,
+      summary: releases.length == 1
+          ? '1 release with several lead artists is owned by one of them. '
+                'If it is a soundtrack or cast recording, it can own itself.'
+          : '${releases.length} releases with several lead artists are owned '
+                'by one of them. If one is a soundtrack or cast recording, it '
+                'can own itself.',
+      entityIds: [for (final r in releases) r.albumId],
+      performerOwnedProjects: List.unmodifiable(releases),
     );
   }
 

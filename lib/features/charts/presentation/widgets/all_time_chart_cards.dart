@@ -11,6 +11,7 @@ import '../../domain/entities/chart_entry.dart';
 import '../../domain/models/all_time_entry_stats.dart';
 import '../../domain/models/chart_type.dart';
 import '../../domain/services/all_time_history_replay.dart';
+import 'chart_extended_divider.dart';
 import 'chart_entry_card.dart';
 import 'chart_movement_indicator.dart';
 
@@ -277,7 +278,7 @@ class AllTimeSpotlightCard extends StatelessWidget {
                       columns: 2,
                       tiles: [
                         _StatTile(
-                          label: 'LIFETIME STREAMS',
+                          label: 'TOTAL STREAMS',
                           value: '${entry.qualifiedStreamCount}',
                         ),
                         _StatTile(
@@ -425,12 +426,21 @@ class AllTimeEntryCard extends StatelessWidget {
                           );
                         }
 
+                        // The change sits under the title, so the title
+                        // keeps the full width and never breaks mid-word.
                         return Row(
                           children: [
                             ...lead,
-                            Expanded(child: heading),
-                            const SizedBox(width: 8),
-                            changeLabel,
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  heading,
+                                  const SizedBox(height: 6),
+                                  changeLabel,
+                                ],
+                              ),
+                            ),
                           ],
                         );
                       },
@@ -444,7 +454,7 @@ class AllTimeEntryCard extends StatelessWidget {
                           if (isExtended)
                             _Badge(
                               key: ValueKey<String>('charts-extended-$id'),
-                              label: 'EXTENDED',
+                              label: ChartZoneNames.lowerZoneBadge(chartType),
                               borderColor: colors.border,
                             ),
                           if (status != null) _StatusBadge(status: status!),

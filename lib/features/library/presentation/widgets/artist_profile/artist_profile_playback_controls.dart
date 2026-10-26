@@ -28,7 +28,7 @@ class ArtistProfilePlaybackControls extends StatelessWidget {
           key: const ValueKey<String>('artist-profile-shuffle-button'),
           tooltip: controller.isShuffleEnabled ? 'Shuffle on' : 'Shuffle off',
           isSelected: controller.isShuffleEnabled,
-          constraints: const BoxConstraints(minWidth: 52, minHeight: 52),
+          constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
           onPressed: controller.hasPlayableTracks
               ? () {
                   unawaited(controller.toggleShuffle());
@@ -52,7 +52,7 @@ class ArtistProfilePlaybackControls extends StatelessWidget {
             style: FilledButton.styleFrom(
               backgroundColor: atmosphere.accent,
               foregroundColor: atmosphere.onAccent,
-              minimumSize: const Size.fromHeight(52),
+              minimumSize: const Size.fromHeight(48),
               shape: RoundedRectangleBorder(borderRadius: radius),
             ),
             icon: const Icon(Icons.play_arrow_rounded),

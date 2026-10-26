@@ -4,6 +4,7 @@ import '../../../../core/database/library_mutation_coordinator.dart';
 import '../../../analytics/domain/repositories/qualified_play_repository.dart';
 import '../../domain/entities/chart_entry.dart';
 import '../../domain/entities/chart_snapshot.dart';
+import '../../domain/models/chart_entity_snapshot.dart';
 import '../../domain/models/chart_type.dart';
 import '../../domain/models/chart_week.dart';
 import '../../domain/moments/chart_moment_artist_achievement_detector.dart';
@@ -14,11 +15,15 @@ import '../../domain/moments/chart_moment_milestone_detector.dart';
 import '../../domain/repositories/chart_moment_repository.dart';
 import '../../domain/repositories/chart_repository.dart';
 import '../../domain/services/chart_week_resolver.dart';
+import '../../domain/services/release_chart_eligibility.dart';
 import 'chart_snapshot_builder_service.dart';
 
 typedef ChartFinalizationNow = DateTime Function();
 
 /// Reads LibraryMutationCoordinator.restoreGeneration.
+/// Entity id → the artist it counts for at artist level.
+typedef ChartArtistAttribution = Future<Map<String, String>> Function();
+
 typedef ChartRestoreGeneration = int Function();
 
 class ChartFinalizationService {
@@ -40,6 +45,8 @@ class ChartFinalizationService {
     ChartWeekResolver weekResolver = const ChartWeekResolver(),
     ChartFinalizationNow? now,
     ChartRestoreGeneration? restoreGeneration,
+    ReleaseChartEligibility? releaseEligibility,
+    ChartArtistAttribution? artistAttribution,
   }) : _builder = builder,
        _charts = charts,
        _qualifiedPlays = qualifiedPlays,
@@ -54,9 +61,21 @@ class ChartFinalizationService {
        _momentsActivationWeekStartUtc = momentsActivationWeekStartUtc?.toUtc(),
        _weekResolver = weekResolver,
        _now = now ?? DateTime.now,
-       _restoreGeneration = restoreGeneration;
+       _restoreGeneration = restoreGeneration,
+       _releaseEligibility = releaseEligibility,
+       _artistAttribution = artistAttribution;
 
   final ChartSnapshotBuilderService _builder;
+
+  /// Singles never chart as releases. A finalized week is never rewritten
+  /// for it: a Single already on a stored week stays there.
+  final ReleaseChartEligibility? _releaseEligibility;
+
+  /// The artist each charting song or release counts for, by entity id.
+  /// Weekly artist achievements group by it, so a soundtrack contributor's
+  /// songs count for the soundtrack's owner, never for an artist-chart
+  /// identity of their own. Stored charts keep their recorded artists.
+  final ChartArtistAttribution? _artistAttribution;
   final ChartRepository _charts;
   final QualifiedPlayRepository _qualifiedPlays;
 
@@ -71,6 +90,43 @@ class ChartFinalizationService {
   final ChartWeekResolver _weekResolver;
   final ChartFinalizationNow _now;
   final ChartRestoreGeneration? _restoreGeneration;
+
+  /// [snapshot] with each entry's artist replaced by the artist it counts
+  /// for, for artist-level detection only.
+  static ChartSnapshot _attributed(
+    ChartSnapshot snapshot,
+    Map<String, String> artists,
+  ) {
+    if (artists.isEmpty) return snapshot;
+    return ChartSnapshot(
+      id: snapshot.id,
+      chartType: snapshot.chartType,
+      weekStartUtc: snapshot.weekStartUtc,
+      weekEndUtc: snapshot.weekEndUtc,
+      finalizedAt: snapshot.finalizedAt,
+      revision: snapshot.revision,
+      entries: [
+        for (final entry in snapshot.entries)
+          ChartEntry(
+            entity: ChartEntitySnapshot(
+              entityId: entry.entity.entityId,
+              title: entry.entity.title,
+              artistName: entry.entity.artistName,
+              artistId: artists[entry.entity.entityId] ?? entry.entity.artistId,
+              albumTitle: entry.entity.albumTitle,
+            ),
+            rank: entry.rank,
+            qualifiedStreamCount: entry.qualifiedStreamCount,
+            lastQualifiedAt: entry.lastQualifiedAt,
+            previousFinalRank: entry.previousFinalRank,
+            peakRank: entry.peakRank,
+            peakAchievedAt: entry.peakAchievedAt,
+            weeksOnChart: entry.weeksOnChart,
+            movement: entry.movement,
+          ),
+      ],
+    );
+  }
 
   Future<List<ChartSnapshot>> finalizeCompletedWeeks({
     required DateTime referenceLocal,
@@ -176,6 +232,14 @@ class ChartFinalizationService {
       weekEndUtc: week.endUtc,
       finalizedAt: week.endUtc,
       revision: existing == null ? 1 : existing.revision + 1,
+      excludedAlbumIds: chartType == ChartType.albums
+          ? {
+              for (final id in await excludedReleaseIds(_releaseEligibility))
+                if (existing == null ||
+                    !existing.entries.any((e) => e.entity.entityId == id))
+                  id,
+            }
+          : const {},
     );
 
     late final ChartSnapshot canonical;
@@ -215,10 +279,11 @@ class ChartFinalizationService {
         .detect(snapshot: snapshot, history: history, createdAt: createdAt)
         .toList();
 
+    final artists = await _artistAttribution?.call() ?? const {};
     events.addAll(
       _artistAchievementDetector.detect(
-        snapshot: snapshot,
-        history: history,
+        snapshot: _attributed(snapshot, artists),
+        history: [for (final week in history) _attributed(week, artists)],
         createdAt: createdAt,
       ),
     );

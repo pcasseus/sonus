@@ -7,14 +7,14 @@ import '../../../../../core/design/sonus_theme.dart';
 import '../../../application/services/library_organization_service.dart';
 import '../../../domain/entities/library_organization.dart';
 
-/// What kind of release the album is: a soundtrack, a cast recording or a
-/// compilation. Soundtracks and cast recordings can show their performers
-/// under the project; compilations never group anyone.
+/// What kind of release the album is, beside its format: a soundtrack, a
+/// cast recording or a compilation. A soundtrack can be an Album or an EP;
+/// who owns it, and who is shown as a standalone artist, never depends on
+/// this label.
 ///
 /// The user's choice replaces a MusicBrainz release-group type, and only
 /// the user's own choice can be cleared here. Nothing is inferred from
-/// titles or credit counts. Device-local: the choice is not synced or
-/// backed up.
+/// titles or credit counts. Kept in backups and the cloud archive.
 class AlbumStudioReleaseType extends StatefulWidget {
   const AlbumStudioReleaseType({
     super.key,
@@ -83,7 +83,7 @@ class _AlbumStudioReleaseTypeState extends State<AlbumStudioReleaseType> {
       await _load();
     } catch (_) {
       messenger.showSnackBar(
-        const SnackBar(content: Text('The release type could not be saved.')),
+        const SnackBar(content: Text('The kind could not be saved.')),
       );
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -100,8 +100,7 @@ class _AlbumStudioReleaseTypeState extends State<AlbumStudioReleaseType> {
         current?.authority == ReleaseClassificationAuthority.manual;
 
     final source = current == null
-        ? 'Soundtracks and cast recordings can list their performers under '
-              'the project.'
+        ? 'Shown on the release, such as "Soundtrack".'
         : isManual
         ? 'Set by you.'
         : 'From MusicBrainz.';
@@ -122,7 +121,7 @@ class _AlbumStudioReleaseTypeState extends State<AlbumStudioReleaseType> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Release type: '
+                    'Kind: '
                     '${_loaded ? AlbumStudioReleaseType.labelFor(current?.kind) : '…'}',
                     key: const ValueKey<String>(
                       'album-studio-release-type-value',
@@ -143,7 +142,7 @@ class _AlbumStudioReleaseTypeState extends State<AlbumStudioReleaseType> {
             ),
             PopupMenuButton<_ReleaseChoice>(
               key: const ValueKey<String>('album-studio-release-type-menu'),
-              tooltip: 'Change release type',
+              tooltip: 'Change kind of release',
               enabled: _loaded && !_busy,
               onSelected: (choice) => unawaited(_choose(choice.kind)),
               itemBuilder: (context) => [

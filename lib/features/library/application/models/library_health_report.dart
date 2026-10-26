@@ -24,6 +24,14 @@ enum HealthCheck {
   /// SN-45: one music folder whose songs an earlier import split into
   /// several albums.
   splitFolders,
+
+  /// SN-45: releases with no stated format that might be Singles.
+  releaseFormats,
+
+  /// SN-45: releases owned by one of their performers although other
+  /// artists lead songs on them too, as a soundtrack or cast recording
+  /// tagged with one performer as album artist would be.
+  performerOwnedProjects,
 }
 
 /// A deterministic, low-risk correction. Never applied without the user.
@@ -63,6 +71,39 @@ class FolderSplitAlbum {
   final int songCount;
 }
 
+/// A release whose format needs choosing: it has no stated format and so
+/// few songs that it might be a Single.
+class ReleaseFormatReview {
+  const ReleaseFormatReview({
+    required this.albumId,
+    required this.title,
+    required this.owner,
+    required this.songCount,
+  });
+
+  final String albumId;
+  final String title;
+  final String owner;
+  final int songCount;
+}
+
+/// A release owned by one of its performers, with songs led by others.
+class PerformerOwnedProject {
+  const PerformerOwnedProject({
+    required this.albumId,
+    required this.title,
+    required this.owner,
+    required this.otherLeads,
+  });
+
+  final String albumId;
+  final String title;
+  final String owner;
+
+  /// The other artists leading songs on it, in name order.
+  final List<String> otherLeads;
+}
+
 /// A music folder whose songs are spread over several albums, as an
 /// import before SN-45 filed them by each file's artist tag. Shown as a
 /// preview only; nothing is merged automatically.
@@ -83,6 +124,8 @@ class HealthFinding {
     this.entityIds = const [],
     this.corrections = const [],
     this.folderSplits = const [],
+    this.formatReviews = const [],
+    this.performerOwnedProjects = const [],
   });
 
   final HealthCheck check;
@@ -99,6 +142,12 @@ class HealthFinding {
 
   /// The split folders, for [HealthCheck.splitFolders].
   final List<FolderSplit> folderSplits;
+
+  /// The releases to review, for [HealthCheck.releaseFormats].
+  final List<ReleaseFormatReview> formatReviews;
+
+  /// The releases, for [HealthCheck.performerOwnedProjects].
+  final List<PerformerOwnedProject> performerOwnedProjects;
 }
 
 /// Counts from the import that triggered the check, when there was one.

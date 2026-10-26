@@ -9,7 +9,7 @@ import 'package:sonus_next/features/library/data/services/edition_follow_up_dism
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/domain/entities/entity_factory.dart';
 import 'package:sonus_next/features/library/presentation/controllers/album_profile_controller.dart';
-import 'package:sonus_next/features/library/presentation/pages/album_studio_page.dart';
+import 'package:sonus_next/features/library/presentation/pages/release_studio_page.dart';
 import 'package:sonus_next/features/sync/application/services/sync_mutation_runner.dart';
 
 import 'album_profile_page_test.dart' as base;
@@ -66,6 +66,7 @@ void main() {
     Size size = const Size(411, 1000),
     base.FakeEditionAwareLibraryQueryRepository? library,
     _MemoryDismissals? dismissals,
+    ReleaseStudioSection section = ReleaseStudioSection.editions,
   }) async {
     await tester.binding.setSurfaceSize(size);
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -90,12 +91,13 @@ void main() {
           ).copyWith(textScaler: TextScaler.linear(textScale)),
           child: child!,
         ),
-        home: AlbumStudioPage(
+        home: ReleaseStudioPage(
           controller: controller,
           userId: 'user-1',
           editionManagement: service,
           library: repo,
           editionFollowUpDismissals: dismissals ?? _MemoryDismissals(),
+          initialSection: section,
         ),
       ),
     );
@@ -104,6 +106,7 @@ void main() {
   }
 
   Finder key(String value) => find.byKey(ValueKey<String>(value));
+  const tracklist = ReleaseStudioSection.tracklist;
 
   testWidgets('shows the selected edition, its type and primary status', (
     tester,
@@ -123,6 +126,20 @@ void main() {
     expect(key('album-studio-make-primary'), findsOneWidget);
     // Not empty, so it can't be deleted.
     expect(key('album-studio-delete-edition'), findsNothing);
+  });
+
+  testWidgets('edition actions and song membership never share a section', (
+    tester,
+  ) async {
+    await pump(tester);
+    expect(key('album-studio-new-edition'), findsOneWidget);
+    expect(key('album-studio-choose-songs'), findsNothing);
+
+    await tester.tap(key('release-studio-tab-tracklist'));
+    await tester.pumpAndSettle();
+    expect(key('album-studio-choose-songs'), findsOneWidget);
+    expect(key('album-studio-new-edition'), findsNothing);
+    expect(key('album-studio-edit-edition'), findsNothing);
   });
 
   testWidgets('creates an edition from the dialog', (tester) async {
@@ -263,6 +280,7 @@ void main() {
         editions: service,
         library: builtOn(),
         dismissals: dismissals,
+        section: tracklist,
       );
 
       await tester.tap(key('album-studio-choose-songs'));
@@ -285,7 +303,12 @@ void main() {
 
     testWidgets('choosing to add puts the song on Deluxe too', (tester) async {
       final service = _FakeEditions();
-      await pump(tester, editions: service, library: builtOn());
+      await pump(
+        tester,
+        editions: service,
+        library: builtOn(),
+        section: tracklist,
+      );
 
       await tester.tap(key('album-studio-choose-songs'));
       await tester.pumpAndSettle();
@@ -304,7 +327,7 @@ void main() {
     testWidgets('a curated Deluxe is never offered new songs', (tester) async {
       final service = _FakeEditions();
       // The default library's Deluxe lacks s2: it was curated.
-      await pump(tester, editions: service);
+      await pump(tester, editions: service, section: tracklist);
 
       await tester.tap(key('album-studio-choose-songs'));
       await tester.pumpAndSettle();
@@ -326,6 +349,7 @@ void main() {
         editions: service,
         library: builtOn(lateOnStandard: true),
         dismissals: dismissals,
+        section: tracklist,
       );
 
       final notice = key('album-studio-follow-up-notice-edition-deluxe');
@@ -369,7 +393,7 @@ void main() {
     tester,
   ) async {
     final service = _FakeEditions();
-    await pump(tester, editions: service);
+    await pump(tester, editions: service, section: tracklist);
 
     await tester.tap(key('album-studio-choose-songs'));
     await tester.pumpAndSettle();
@@ -392,7 +416,7 @@ void main() {
     final service = _FakeEditions(
       refuseRemoval: AlbumEditionRefusal.lastEditionOfSong,
     );
-    await pump(tester, editions: service);
+    await pump(tester, editions: service, section: tracklist);
 
     await tester.tap(key('album-studio-choose-songs'));
     await tester.pumpAndSettle();
@@ -427,7 +451,7 @@ void main() {
   testWidgets('sort by disc and track uses the ordering service', (
     tester,
   ) async {
-    final (_, _, ordering) = await pump(tester);
+    final (_, _, ordering) = await pump(tester, section: tracklist);
 
     await tester.ensureVisible(key('album-studio-sort-disc-track'));
     await tester.tap(key('album-studio-sort-disc-track'));

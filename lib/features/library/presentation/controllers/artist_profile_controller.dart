@@ -19,9 +19,11 @@ import '../../application/models/library_track.dart';
 import '../../application/models/project_collaborator.dart';
 import '../../application/repositories/library_query_repository.dart';
 import '../../application/services/artist_profile_editing_service.dart';
+import '../../application/services/library_organization_service.dart';
 import '../../application/services/song_block_service.dart';
 import '../../application/services/song_artist_credit_service.dart';
 import '../../application/services/track_profile_editing_service.dart';
+import '../../domain/entities/library_organization.dart';
 import '../../domain/entities/song_artist_credit.dart';
 import '../../domain/entities/song.dart';
 import '../../domain/repositories/song_artist_credit_repository.dart';
@@ -40,6 +42,8 @@ class ArtistProfileController extends ChangeNotifier {
     TrackProfileEditingService? trackProfileEditingService,
     QualifiedPlayRepository? qualifiedPlays,
     ArtworkCropService? artworkCropService,
+    LibraryOrganizationService? organization,
+    String? projectArtistId,
     DateTime Function()? clock,
     Random? random,
   }) : this._(
@@ -54,6 +58,8 @@ class ArtistProfileController extends ChangeNotifier {
          trackProfileEditingService,
          qualifiedPlays,
          artworkCropService,
+         organization,
+         projectArtistId,
          clock ?? DateTime.now,
          random ?? Random(),
        );
@@ -70,6 +76,8 @@ class ArtistProfileController extends ChangeNotifier {
     this._trackProfileEditingService,
     this._qualifiedPlays,
     this._artworkCropService,
+    this._organizationService,
+    this._projectArtistId,
     this._clock,
     this._random,
   );
@@ -85,6 +93,14 @@ class ArtistProfileController extends ChangeNotifier {
   final TrackProfileEditingService? _trackProfileEditingService;
   final QualifiedPlayRepository? _qualifiedPlays;
   final ArtworkCropService? _artworkCropService;
+
+  /// The Library's artist identity. Without it every artist is shown as a
+  /// standalone artist.
+  final LibraryOrganizationService? _organizationService;
+
+  /// The project this profile was opened from, for a contributor: only
+  /// their songs there are shown.
+  final String? _projectArtistId;
   final DateTime Function() _clock;
   final Random _random;
 
@@ -98,6 +114,8 @@ class ArtistProfileController extends ChangeNotifier {
   List<ArtistProfileCollaborator> _collaborators = const [];
   List<ArtistTopTrack> _topTracks = const [];
   ArtistStanding? _standing;
+  ArtistLibraryOrganization? _organization;
+  List<ContributorAppearance> _appearances = const [];
 
   bool _isLoading = false;
   // Starts from the player's actual mode, which may have been restored
@@ -135,6 +153,50 @@ class ArtistProfileController extends ChangeNotifier {
   /// The artist's place in the listener's all-time artist ranking.
   ArtistStanding? get standing => _standing;
 
+  /// Whether this artist is a contributor: it owns no release, so its page
+  /// shows where it appears instead of a catalog of its own.
+  bool get isContributor =>
+      _artist != null &&
+      _organization != null &&
+      !_organization!.isShownInLibrary(_artistId);
+
+  /// For a contributor, the projects it appears on with its songs there
+  /// (only [projectArtistId]'s, when the page was opened from it).
+  List<ContributorAppearance> get appearances => _appearances;
+
+  /// Performers of Top Tracks whose artist-level streams count for another
+  /// artist than this one, such as an independent artist's song on this
+  /// soundtrack. Their song counts are unchanged; only the artist total in
+  /// the header leaves them out.
+  List<String> get topTracksCountedElsewhere {
+    final organization = _organization;
+    if (organization == null) return const [];
+    final names = <String>[];
+    for (final entry in _topTracks) {
+      final track = entry.track;
+      final countsFor = organization.attributedArtistId(
+        artistId: track.artistId,
+        albumId: track.albumId,
+      );
+      if (countsFor != _artistId && !names.contains(track.artistName)) {
+        names.add(track.artistName);
+      }
+    }
+    return List.unmodifiable(names);
+  }
+
+  /// The project this page was opened from, if any.
+  String? get projectArtistId => _projectArtistId;
+
+  /// The release's format: as stated, null while it needs review (it might
+  /// be a Single), otherwise an Album.
+  ReleaseFormat? formatOf(String albumId) {
+    final organization = _organization;
+    return organization == null
+        ? ReleaseFormat.album
+        : organization.formatOf(albumId);
+  }
+
   /// The wide banner photo, exactly as saved.
   String? get bannerPath => _nonEmpty(_artist?.headerArtworkPath);
 
@@ -149,7 +211,10 @@ class ArtistProfileController extends ChangeNotifier {
 
   /// What Play and Shuffle queue: the artist's own songs, then the other
   /// performers' songs on the artist's own albums.
-  List<LibraryTrack> get playbackTracks => [..._tracks, ..._projectTracks];
+  /// For a contributor, its songs on the projects shown.
+  List<LibraryTrack> get playbackTracks => isContributor
+      ? [for (final appearance in _appearances) ...appearance.tracks]
+      : [..._tracks, ..._projectTracks];
 
   String? get headerArtworkPath {
     final path = _artist?.headerArtworkPath?.trim();
@@ -398,6 +463,7 @@ class ArtistProfileController extends ChangeNotifier {
         _collaborators = const [];
         _topTracks = const [];
         _standing = null;
+        _appearances = const [];
         return;
       }
 
@@ -463,8 +529,14 @@ class ArtistProfileController extends ChangeNotifier {
                 candidate.artistId: candidate,
             };
 
+      final organization = await _loadOrganization();
+      final collaborationAlbums = {
+        for (final album in await _repository.getAlbums()) album.albumId: album,
+      };
+
+      _organization = organization;
       _artist = artist;
-      _albums = albums;
+      _albums = [...albums]..sort(ArtistProfileSections.compareReleases);
       _tracks = tracks;
       _featuredTracks = featuredTracks;
       _projectTracks = projectTracks;
@@ -473,7 +545,16 @@ class ArtistProfileController extends ChangeNotifier {
         mainTracks: tracks,
         featuredTracks: featuredTracks,
         ownedAlbumIds: ownedAlbumIds,
+        albumsById: collaborationAlbums,
       );
+      _appearances =
+          organization != null && !organization.isShownInLibrary(_artistId)
+          ? ArtistProfileSections.appearances(
+              tracks: [...tracks, ...featuredTracks],
+              albumsById: collaborationAlbums,
+              projectArtistId: _projectArtistId,
+            )
+          : const [];
       _collaborators = credits == null
           ? ArtistProfileSections.collaborators(
               projectArtistId: _artistId,
@@ -496,6 +577,23 @@ class ArtistProfileController extends ChangeNotifier {
   }
 
   Future<void> refresh() => load();
+
+  /// Fails open: if the organization can't be read, the artist is shown as
+  /// a standalone artist.
+  Future<ArtistLibraryOrganization?> _loadOrganization() async {
+    try {
+      return await _organizationService?.load();
+    } catch (error, stackTrace) {
+      developer.log(
+        'Library organization could not be read (${error.runtimeType})',
+        name: 'sonus.library.artist_profile',
+        level: 900,
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return null;
+    }
+  }
 
   /// Credited performers of the artist's own albums, or null when the
   /// repository has no structured credit query (or it fails, in which
@@ -551,8 +649,12 @@ class ArtistProfileController extends ChangeNotifier {
     }
 
     try {
+      final organizationService = _organizationService;
       final rankings = await AnalyticsEntityRankingService(
         qualifiedPlays: qualifiedPlays,
+        artistAttribution: organizationService == null
+            ? null
+            : OrganizationArtistAttribution(organizationService),
       ).load(period: AnalyticsPeriod.lifetime, referenceLocal: _clock());
 
       _topTracks = ArtistProfileSections.topTracks(

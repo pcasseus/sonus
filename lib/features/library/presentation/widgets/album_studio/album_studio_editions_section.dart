@@ -24,6 +24,10 @@ import 'album_studio_edition_follow_up.dart';
 /// files and listening history are never deleted here. Nothing changes
 /// unless the user asks: which edition is primary is never changed
 /// automatically.
+/// Which part of edition management a section shows: the editions
+/// themselves, or which songs the selected edition lists.
+enum AlbumStudioEditionsView { editions, tracklist }
+
 class AlbumStudioEditionsSection extends StatefulWidget {
   const AlbumStudioEditionsSection({
     super.key,
@@ -32,7 +36,12 @@ class AlbumStudioEditionsSection extends StatefulWidget {
     required this.library,
     required this.userId,
     this.dismissals,
+    this.view = AlbumStudioEditionsView.editions,
   });
+
+  /// Release Studio shows edition actions under Editions, and song
+  /// membership (Choose songs and the Deluxe follow-ups) under Tracklist.
+  final AlbumStudioEditionsView view;
 
   final AlbumProfileController controller;
   final AlbumEditionManagementService service;
@@ -565,9 +574,12 @@ class _AlbumStudioEditionsSectionState
         !edition.isPrimary &&
         editions.length > 1 &&
         _controller.tracks.isEmpty;
+    final songsView = widget.view == AlbumStudioEditionsView.tracklist;
 
     return Material(
-      key: const ValueKey<String>('album-studio-editions'),
+      key: ValueKey<String>(
+        songsView ? 'album-studio-edition-songs' : 'album-studio-editions',
+      ),
       color: colors.surface,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(tokens.metrics.cardRadius),
@@ -581,7 +593,7 @@ class _AlbumStudioEditionsSectionState
             Semantics(
               header: true,
               child: Text(
-                'Editions',
+                songsView ? 'Songs on this edition' : 'Editions',
                 style: theme.textTheme.titleMedium?.copyWith(
                   color: colors.textPrimary,
                   fontWeight: FontWeight.w800,
@@ -621,18 +633,29 @@ class _AlbumStudioEditionsSectionState
                     ),
                 ],
               ),
-            for (final followUp in _pending) ...[
-              const SizedBox(height: 10),
-              AlbumStudioEditionFollowUpNotice(
-                followUp: followUp,
-                sourceTitle: _titleOf(followUp.sourceEditionId),
-                onReview: _busy
-                    ? null
-                    : () => _offer(_titleOf(followUp.sourceEditionId), [
-                        followUp,
-                      ]),
+            if (songsView && edition != null && !edition.isPrimary) ...[
+              const SizedBox(height: 6),
+              Text(
+                'Songs from the main edition are listed here too. Songs only '
+                'on this edition are marked as bonus tracks.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: colors.textSecondary,
+                ),
               ),
             ],
+            if (songsView)
+              for (final followUp in _pending) ...[
+                const SizedBox(height: 10),
+                AlbumStudioEditionFollowUpNotice(
+                  followUp: followUp,
+                  sourceTitle: _titleOf(followUp.sourceEditionId),
+                  onReview: _busy
+                      ? null
+                      : () => _offer(_titleOf(followUp.sourceEditionId), [
+                          followUp,
+                        ]),
+                ),
+              ],
             if (_busy) ...[
               const SizedBox(height: 10),
               const LinearProgressIndicator(
@@ -644,19 +667,7 @@ class _AlbumStudioEditionsSectionState
               spacing: 8,
               runSpacing: 8,
               children: [
-                _action(
-                  key: 'album-studio-new-edition',
-                  icon: Icons.add_rounded,
-                  label: 'New edition',
-                  onPressed: _controller.album == null ? null : _create,
-                ),
-                if (edition != null) ...[
-                  _action(
-                    key: 'album-studio-edit-edition',
-                    icon: Icons.edit_outlined,
-                    label: 'Rename or change type',
-                    onPressed: () => _edit(edition),
-                  ),
+                if (songsView && edition != null)
                   _action(
                     key: 'album-studio-choose-songs',
                     icon: Icons.playlist_add_check_rounded,
@@ -664,6 +675,20 @@ class _AlbumStudioEditionsSectionState
                     onPressed: widget.library == null
                         ? null
                         : () => _chooseSongs(edition),
+                  ),
+                if (!songsView)
+                  _action(
+                    key: 'album-studio-new-edition',
+                    icon: Icons.add_rounded,
+                    label: 'New edition',
+                    onPressed: _controller.album == null ? null : _create,
+                  ),
+                if (!songsView && edition != null) ...[
+                  _action(
+                    key: 'album-studio-edit-edition',
+                    icon: Icons.edit_outlined,
+                    label: 'Rename or change type',
+                    onPressed: () => _edit(edition),
                   ),
                   if (!edition.isPrimary)
                     _action(

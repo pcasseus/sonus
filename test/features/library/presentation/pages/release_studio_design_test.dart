@@ -5,11 +5,11 @@ import 'package:sonus_next/core/design/sonus_theme_id.dart';
 import 'package:sonus_next/features/library/application/models/library_track.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/presentation/controllers/album_profile_controller.dart';
-import 'package:sonus_next/features/library/presentation/pages/album_studio_page.dart';
+import 'package:sonus_next/features/library/presentation/pages/release_studio_page.dart';
 
 import 'album_profile_page_test.dart' as base;
 
-// SN-48J J4: the Album Studio layout.
+// Release Studio layout (SN-45; track list from SN-48J J4).
 void main() {
   LibraryTrack track(String id, int number, {int disc = 1, String? edition}) =>
       base.createTrack(
@@ -69,14 +69,15 @@ void main() {
     EdgeInsets padding = EdgeInsets.zero,
     Future<void> Function()? onChangeArtwork,
     Future<void> Function()? onClearArtwork,
-    Future<void> Function()? onEditDetails,
+    ReleaseStudioSection section = ReleaseStudioSection.tracklist,
   }) async {
     await tester.binding.setSurfaceSize(size);
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
     final ordering = base.FakeAlbumEditionTrackOrderingService();
+    final library = repo ?? repository();
     final controller = AlbumProfileController(
-      repository: repo ?? repository(),
+      repository: library,
       albumId: 'album-1',
       albumEditionTrackOrderingService: ordering,
     );
@@ -93,12 +94,13 @@ void main() {
           ),
           child: child!,
         ),
-        home: AlbumStudioPage(
+        home: ReleaseStudioPage(
           controller: controller,
           userId: null,
-          onEditDetails: onEditDetails,
           onChangeArtwork: onChangeArtwork,
           onClearArtwork: onClearArtwork,
+          initialSection: section,
+          library: library,
         ),
       ),
     );
@@ -110,11 +112,11 @@ void main() {
 
   group('layout', () {
     // Regression (J4): a fixed tools card above the list left about three
-    // track rows visible on a phone.
-    testWidgets('tracks get the screen: tools start collapsed', (tester) async {
+    // track rows visible on a phone. The Tracklist has its own section.
+    testWidgets('the tracklist gets the screen', (tester) async {
       await pump(tester);
 
-      expect(tool('edit-details'), findsNothing);
+      expect(tool('change-artwork'), findsNothing);
       final visible = [
         for (var n = 1; n <= 20; n++)
           if (find
@@ -124,11 +126,10 @@ void main() {
               .isNotEmpty)
             n,
       ];
-      // The old layout showed one row here in the test font (4x fewer).
       expect(visible.length, greaterThanOrEqualTo(4), reason: '$visible');
     });
 
-    testWidgets('one scroll view: no nested vertical scrolling', (
+    testWidgets('one scroll view per section: no nested vertical scrolling', (
       tester,
     ) async {
       await pump(tester);
@@ -173,71 +174,87 @@ void main() {
     });
   });
 
-  group('album tools', () {
-    testWidgets('expand and collapse, announcing their state', (tester) async {
-      final semantics = tester.ensureSemantics();
-      await pump(tester);
+  group('four sections, each action once', () {
+    Finder key(String value) => find.byKey(ValueKey<String>(value));
 
-      final toggle = tool('tools-toggle');
-      expect(
-        tester.getSemantics(toggle),
-        matchesSemantics(
-          isButton: true,
-          hasExpandedState: true,
-          isExpanded: false,
-          hasTapAction: true,
-          hasFocusAction: true,
-          isFocusable: true,
-          label:
-              'Album tools\nDetails, MusicBrainz, Cover Art Archive and '
-              'artwork',
-        ),
-      );
+    testWidgets('Details, Artwork, Editions and Tracklist', (tester) async {
+      await pump(tester, section: ReleaseStudioSection.details);
 
-      await tester.tap(toggle);
-      await tester.pumpAndSettle();
-      for (final key in [
-        'edit-details',
-        'search-musicbrainz',
-        'search-cover-art',
-        'change-artwork',
-        'clear-artwork',
-      ]) {
-        expect(tool(key), findsOneWidget, reason: key);
+      expect(find.text('Edit Release'), findsOneWidget);
+      for (final tab in ['details', 'artwork', 'editions', 'tracklist']) {
+        expect(key('release-studio-tab-$tab'), findsOneWidget, reason: tab);
       }
+      for (final row in ['name', 'owner', 'date', 'genre']) {
+        expect(key('release-studio-$row'), findsOneWidget, reason: row);
+      }
+      // Artwork actions live only under Artwork.
+      expect(tool('change-artwork'), findsNothing);
 
-      await tester.tap(toggle);
+      await tester.tap(key('release-studio-tab-artwork'));
       await tester.pumpAndSettle();
-      expect(tool('edit-details'), findsNothing);
-      semantics.dispose();
+      expect(tool('change-artwork'), findsOneWidget);
+      expect(tool('search-cover-art'), findsOneWidget);
+      expect(tool('clear-artwork'), findsOneWidget);
+      // Naming lives only under Details.
+      expect(key('release-studio-name'), findsNothing);
     });
 
-    testWidgets('artwork and details actions still run', (tester) async {
-      var details = 0;
+    testWidgets('artwork actions run for the selected edition', (tester) async {
       var change = 0;
       var clear = 0;
       await pump(
         tester,
-        onEditDetails: () async => details++,
+        section: ReleaseStudioSection.artwork,
         onChangeArtwork: () async => change++,
         onClearArtwork: () async => clear++,
+        repo: base.FakeEditionAwareLibraryQueryRepository(
+          album: base.createAlbum(
+            title: 'Studio Album',
+            primaryEditionId: 'edition-standard',
+          ),
+          editions: [
+            base.createLibraryEdition(
+              editionId: 'edition-standard',
+              title: 'Standard',
+              type: AlbumEditionType.standard,
+              isPrimary: true,
+              artworkPath: 'missing/cover.jpg',
+            ),
+          ],
+          editionTracks: {
+            'edition-standard': [track('s1', 1)],
+          },
+        ),
       );
 
-      await tester.tap(tool('tools-toggle'));
-      await tester.pumpAndSettle();
-      await tester.tap(tool('edit-details'));
-      await tester.pumpAndSettle();
       await tester.tap(tool('change-artwork'));
       await tester.pumpAndSettle();
       await tester.tap(tool('clear-artwork'));
       await tester.pumpAndSettle();
 
-      expect((details, change, clear), (1, 1, 1));
-      // MusicBrainz needs its services; without them it is shown, disabled.
+      expect((change, clear), (1, 1));
+      // Cover Art Archive needs its services; without them it is disabled.
       expect(
-        tester.widget<ListTile>(tool('search-musicbrainz')).enabled,
+        tester.widget<ListTile>(tool('search-cover-art')).enabled,
         isFalse,
       );
+    });
+
+    testWidgets('an edition without its own cover has nothing to remove', (
+      tester,
+    ) async {
+      var clear = 0;
+      await pump(
+        tester,
+        section: ReleaseStudioSection.artwork,
+        onClearArtwork: () async => clear++,
+      );
+
+      await tester.tap(tool('clear-artwork'));
+      await tester.pumpAndSettle();
+
+      expect(clear, 0);
+      expect(find.text('Standard has no cover yet'), findsOneWidget);
     });
   });
 
@@ -289,6 +306,32 @@ void main() {
       expect(find.text(' • 3:00'), findsNWidgets(3));
     });
 
+    testWidgets('a Deluxe edition marks the songs only it has as bonus', (
+      tester,
+    ) async {
+      final (controller, _) = await pump(
+        tester,
+        repo: repository(count: 3, deluxe: true),
+      );
+      await controller.selectEdition('edition-deluxe');
+      await tester.pumpAndSettle();
+
+      final bonus = find.byKey(
+        const ValueKey<String>('album-studio-track-bonus'),
+      );
+      final inherited = find.byKey(
+        const ValueKey<String>('album-studio-track-s1'),
+      );
+      expect(
+        find.descendant(of: bonus, matching: find.text(' • Bonus track')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: inherited, matching: find.textContaining('Bonus')),
+        findsNothing,
+      );
+    });
+
     testWidgets('choosing another edition swaps the editable tracks', (
       tester,
     ) async {
@@ -307,7 +350,7 @@ void main() {
     });
 
     // J3's ordering service now exists, so the control is offered (its
-    // behaviour is covered in album_studio_editions_test.dart).
+    // behaviour is covered in release_studio_editions_test.dart).
     testWidgets('"Sort by disc & track" sits with the track order', (
       tester,
     ) async {
@@ -367,7 +410,7 @@ void main() {
     });
 
     for (final id in SonusThemeId.values) {
-      testWidgets('${id.label} fits 320dp at 2x text, tools open', (
+      testWidgets('${id.label} fits 320dp at 2x text in every section', (
         tester,
       ) async {
         await pump(
@@ -377,11 +420,13 @@ void main() {
           textScale: 2,
           repo: repository(count: 6, deluxe: true),
         );
-        await tester.tap(tool('tools-toggle'));
-        await tester.pumpAndSettle();
-
-        expect(tester.takeException(), isNull);
-        expect(tool('edit-details'), findsOneWidget);
+        for (final tab in ['details', 'artwork', 'editions', 'tracklist']) {
+          await tester.tap(
+            find.byKey(ValueKey<String>('release-studio-tab-$tab')),
+          );
+          await tester.pumpAndSettle();
+          expect(tester.takeException(), isNull, reason: tab);
+        }
       });
     }
   });

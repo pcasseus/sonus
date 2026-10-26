@@ -15,6 +15,10 @@ import '../../application/services/chart_snapshot_builder_service.dart';
 import '../../data/repositories/sqlite_chart_moment_repository.dart';
 import '../../data/repositories/sqlite_chart_repository.dart';
 import '../controllers/charts_controller.dart';
+import '../../../library/application/services/library_organization_service.dart';
+import '../../application/services/library_release_chart_eligibility.dart';
+import '../../../analytics/presentation/scopes/listening_artist_attribution_lookup.dart';
+import '../../../analytics/application/services/listening_artist_attribution.dart';
 
 class ChartsScope extends StatefulWidget {
   const ChartsScope({super.key, required this.child, this.now, this.changes});
@@ -72,6 +76,31 @@ class _ChartsScopeState extends State<ChartsScope> {
     }
   }
 
+  /// Every song and release by id, with the artist it counts for.
+  static Future<Map<String, String>> _entityArtists(
+    LibraryQueryRepository library,
+    ListeningArtistAttribution? attribution,
+  ) async {
+    final attributor = await ArtistAttributor.of(attribution);
+    return {
+      for (final track in await library.getTracks())
+        track.songId: attributor.artistFor(
+          artistId: track.artistId,
+          albumId: track.albumId,
+        ),
+      for (final album in await library.getAlbums())
+        album.albumId: album.artistId,
+    };
+  }
+
+  static LibraryOrganizationService? _organizationOf(BuildContext context) {
+    try {
+      return context.read<LibraryOrganizationService?>();
+    } on ProviderNotFoundException {
+      return null;
+    }
+  }
+
   void _recreateController() {
     final previousController = _controller;
     _controller = null;
@@ -95,6 +124,11 @@ class _ChartsScopeState extends State<ChartsScope> {
     final charts = SqliteChartRepository(database);
 
     final moments = SqliteChartMomentRepository(database);
+    final organization = _organizationOf(context);
+    final attribution = listeningArtistAttributionOf(context);
+    final releaseEligibility = organization == null
+        ? null
+        : LibraryReleaseChartEligibility(organization);
     final builder = ChartSnapshotBuilderService(
       qualifiedPlays: qualifiedPlays,
       library: library,
@@ -105,6 +139,7 @@ class _ChartsScopeState extends State<ChartsScope> {
     final allTimeCharts = AllTimeChartService(
       qualifiedPlays: qualifiedPlays,
       library: library,
+      releaseEligibility: releaseEligibility,
     );
     final finalization = ChartFinalizationService(
       builder: builder,
@@ -114,6 +149,8 @@ class _ChartsScopeState extends State<ChartsScope> {
       momentsActivationWeekStartUtc: DateTime(2026, 9, 27).toUtc(),
       // A pass that spans a restore must not write what it read before it.
       restoreGeneration: () => database.mutationCoordinator.restoreGeneration,
+      releaseEligibility: releaseEligibility,
+      artistAttribution: () => _entityArtists(library, attribution),
     );
 
     final allTimeMoments = AllTimeMomentService(
@@ -123,6 +160,8 @@ class _ChartsScopeState extends State<ChartsScope> {
       // SN-45 release week: earlier achievements are never told as news.
       activationUtc: DateTime(2026, 10, 25).toUtc(),
       restoreGeneration: () => database.mutationCoordinator.restoreGeneration,
+      releaseEligibility: releaseEligibility,
+      artistAttribution: attribution,
     );
 
     final controller = ChartsController(
@@ -133,6 +172,7 @@ class _ChartsScopeState extends State<ChartsScope> {
       moments: moments,
       allTimeMoments: allTimeMoments,
       now: widget.now,
+      releaseFormats: organization?.releaseFormatsForDisplay,
     );
 
     _controller = controller;

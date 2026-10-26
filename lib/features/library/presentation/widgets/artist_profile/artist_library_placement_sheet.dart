@@ -230,10 +230,11 @@ class _ArtistLibraryPlacementSheetState
   String _status(ArtistLibraryPlacement placement) {
     final project = _albums[placement.projectAlbumId]?.title ?? 'a project';
     return switch (placement.reason) {
-      ArtistPlacementReason.standalone => 'Shown as its own artist.',
+      ArtistPlacementReason.standalone =>
+        'Shown as its own artist, because it has releases of its own.',
       ArtistPlacementReason.automatic =>
-        'Listed under $project, because every song is on that soundtrack or '
-            'cast recording.',
+        'Listed under $project, because it has no release of its own in '
+            'your library.',
       ArtistPlacementReason.manual =>
         placement.isGrouped
             ? 'Listed under $project (your choice).'
@@ -286,8 +287,9 @@ class _ArtistLibraryPlacementSheetState
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      'This only changes the Library\'s artist list. Songs, '
-                      'credits, search and this profile stay the same.',
+                      'This changes where the artist is listed and who its '
+                      'plays count for in artist rankings. Songs and credits '
+                      'stay the same.',
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: colors.textSecondary,
                       ),

@@ -151,7 +151,12 @@ void main() {
     ) async {
       final service = await pumpSheet(tester);
 
-      expect(find.text('Shown as its own artist.'), findsOneWidget);
+      expect(
+        find.text(
+          'Shown as its own artist, because it has releases of its own.',
+        ),
+        findsOneWidget,
+      );
       await tester.tap(key('artist-placement-project-ost'));
       await tester.pumpAndSettle();
 
@@ -234,6 +239,8 @@ class _FakeOrganization implements LibraryOrganizationService {
                 ? ArtistPlacementReason.manual
                 : ArtistPlacementReason.automatic,
             projectAlbumId: album,
+            projectAlbumIds: [album],
+            isShown: false,
           ),
       },
       classifications: const {},

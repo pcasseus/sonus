@@ -302,6 +302,35 @@ void main() {
     );
   });
 
+  test("SN-45: a rename is the user's, kept through later lookups", () async {
+    final (album, _, _) = await standardAlbum();
+    final extra = await editions.createEdition(
+      albumId: album,
+      title: 'Bonus',
+      type: AlbumEditionType.other,
+      now: now,
+    );
+
+    await editions.updateEdition(
+      editionId: extra.id,
+      title: 'Deluxe',
+      type: AlbumEditionType.deluxe,
+      now: now,
+    );
+
+    final db = await appDatabase.database;
+    final states = await db.query(
+      DatabaseTables.metadataFieldStates,
+      where: 'entity_type = ? AND entity_id = ?',
+      whereArgs: ['albumEdition', extra.id],
+    );
+    expect({
+      for (final row in states)
+        if (row['authority'] == 'manual' && row['source'] == 'user')
+          row['field_name'],
+    }, containsAll(['title', 'type']));
+  });
+
   test('exactly one primary edition after choosing a new one', () async {
     final (album, standard, _) = await standardAlbum();
     final deluxe = await editions.createEdition(

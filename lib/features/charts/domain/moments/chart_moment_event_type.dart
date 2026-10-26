@@ -49,4 +49,14 @@ enum ChartMomentEventType {
   artistReturnsToNumberOneAlbum,
   artistSimultaneousThresholdSongs,
   artistSimultaneousThresholdAlbums,
+
+  // Artist ranking (SN-45): from the same qualified plays, with each play
+  // counted once for the artist it is attributed to.
+
+  /// The artist becomes the most-streamed artist, passing the previous
+  /// leader (the related entity).
+  artistBecomesTopArtist,
+
+  /// The artist's qualified plays reach a milestone.
+  artistStreamMilestone,
 }

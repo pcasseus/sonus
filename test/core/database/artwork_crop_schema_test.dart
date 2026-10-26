@@ -53,7 +53,7 @@ void main() {
 
   test('fresh databases have the table', () async {
     final version = await db.rawQuery('PRAGMA user_version');
-    expect(version.single['user_version'], 37);
+    expect(version.single['user_version'], 38);
     await db.insert(DatabaseTables.artworkCrops, row());
     expect(await db.query(DatabaseTables.artworkCrops), hasLength(1));
   });

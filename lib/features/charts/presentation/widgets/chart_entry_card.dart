@@ -8,6 +8,7 @@ import '../../../../core/design/widgets/sonus_artwork_frame.dart';
 import '../../../../core/design/widgets/sonus_decorations.dart';
 import '../../domain/entities/chart_entry.dart';
 import '../../domain/models/chart_type.dart';
+import 'chart_extended_divider.dart';
 import 'chart_movement_indicator.dart';
 
 /// Why a chart entry cannot be opened, shown as a text badge.
@@ -26,7 +27,7 @@ enum ChartEntryStatus {
 /// and movement, artwork, title and artist, then statistics.
 ///
 /// Positions 1–100 are the official chart and sit on a card surface;
-/// extended standings (101–200) sit flat on the page with an EXTENDED
+/// positions 101–200 sit flat on the page with a Bubbling Under
 /// badge, so they never read as official entries.
 class ChartEntryCard extends StatefulWidget {
   const ChartEntryCard({
@@ -93,7 +94,7 @@ class ChartEntryCard extends StatefulWidget {
 
     return [
       'Number ${entry.rank}',
-      if (entry.isOffChartStanding) 'extended standing',
+      if (entry.isOffChartStanding) 'Bubbling Under',
       ChartMovementIndicator.semanticLabelFor(entry),
       entry.entity.title,
       subtitle,
@@ -159,6 +160,7 @@ class _ChartEntryCardState extends State<ChartEntryCard> {
         : colors.surface;
 
     final details = _EntryDetails(
+      chartType: widget.chartType,
       entry: entry,
       subtitle: subtitle,
       status: widget.status,
@@ -370,6 +372,7 @@ class _ChartArtwork extends StatelessWidget {
 class _EntryDetails extends StatelessWidget {
   const _EntryDetails({
     required this.entry,
+    required this.chartType,
     required this.subtitle,
     required this.status,
     required this.isAllTime,
@@ -377,6 +380,7 @@ class _EntryDetails extends StatelessWidget {
   });
 
   final ChartEntry entry;
+  final ChartType chartType;
   final String subtitle;
   final ChartEntryStatus? status;
   final bool isAllTime;
@@ -450,7 +454,7 @@ class _EntryDetails extends StatelessWidget {
                 key: ValueKey<String>(
                   'charts-extended-${entry.entity.entityId}',
                 ),
-                label: 'EXTENDED',
+                label: ChartZoneNames.lowerZoneBadge(chartType),
                 borderColor: colors.border,
               ),
             if (status != null)

@@ -25,6 +25,7 @@ class ArtistProfileHeader extends StatelessWidget {
     required this.portraitPath,
     required this.atmosphere,
     this.standing,
+    this.summary,
   });
 
   final LibraryArtist artist;
@@ -33,10 +34,37 @@ class ArtistProfileHeader extends StatelessWidget {
   final SonusAtmosphereColors atmosphere;
   final ArtistStanding? standing;
 
+  /// The line under the name; the artist's album and song counts if null.
+  final String? summary;
+
   /// The banner's shape, as the banner crop editor frames it.
   static const double bannerAspectRatio = 4 / 3;
 
   static const double _portraitSize = 88;
+
+  /// The photo's height: the banner's shape at this width, but never more
+  /// than about half the screen, so the catalog starts on the first screen.
+  static double imageHeightFor(BuildContext context, double width) {
+    final screen = MediaQuery.sizeOf(context).height;
+    final cap = screen <= 0 ? 440.0 : (screen * 0.46).clamp(220.0, 440.0);
+    return (width / bannerAspectRatio).clamp(220.0, cap);
+  }
+
+  /// How far the page scrolls before the hero's name has gone under the
+  /// toolbar, so the toolbar may show a compact title instead.
+  static double collapseOffset(
+    BuildContext context, {
+    required double width,
+    required bool hasBanner,
+  }) {
+    final imageHeight = hasBanner
+        ? imageHeightFor(context, width)
+        : MediaQuery.paddingOf(context).top + 168.0;
+    return imageHeight -
+        MediaQuery.paddingOf(context).top -
+        kToolbarHeight +
+        _portraitSize / 2;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -50,7 +78,7 @@ class ArtistProfileHeader extends StatelessWidget {
       builder: (context, constraints) {
         final width = constraints.maxWidth;
         final imageHeight = hasBanner
-            ? (width / bannerAspectRatio).clamp(240.0, 480.0)
+            ? imageHeightFor(context, width)
             : topInset + 168.0;
 
         return Stack(
@@ -91,6 +119,7 @@ class ArtistProfileHeader extends StatelessWidget {
                 artist: artist,
                 portraitPath: portraitPath,
                 standing: standing,
+                summary: summary,
                 atmosphere: atmosphere,
                 portraitSize: _portraitSize,
               ),
@@ -210,6 +239,7 @@ class _Identity extends StatelessWidget {
     required this.artist,
     required this.portraitPath,
     required this.standing,
+    required this.summary,
     required this.atmosphere,
     required this.portraitSize,
   });
@@ -217,6 +247,7 @@ class _Identity extends StatelessWidget {
   final LibraryArtist artist;
   final String? portraitPath;
   final ArtistStanding? standing;
+  final String? summary;
   final SonusAtmosphereColors atmosphere;
   final double portraitSize;
 
@@ -272,8 +303,9 @@ class _Identity extends StatelessWidget {
                   ),
                 ),
               Text(
-                '${sonusCount(artist.albumCount, 'album')} • '
-                '${sonusCount(artist.songCount, 'song')}',
+                summary ??
+                    '${sonusCount(artist.albumCount, 'album')} • '
+                        '${sonusCount(artist.songCount, 'song')}',
                 key: const ValueKey<String>('artist-profile-summary'),
                 style: theme.textTheme.bodyMedium?.copyWith(
                   color: colors.textSecondary,

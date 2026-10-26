@@ -15,6 +15,7 @@ import '../../application/models/library_health_report.dart';
 import '../../application/services/album_edition_management_service.dart';
 import '../../application/services/library_integrity_service.dart';
 import '../../data/daos/library_integrity_dao.dart';
+import 'album_profile_page.dart';
 
 /// The Import Health Report, and "Verify Library" for an existing library.
 ///
@@ -211,6 +212,7 @@ class _LibraryHealthPageState extends State<LibraryHealthPage> {
                             severity: severity,
                             busy: _busy,
                             onApply: () => _apply(finding),
+                            onReview: () => _reviewReleases(finding),
                           ),
                       ],
                     ),
@@ -218,6 +220,31 @@ class _LibraryHealthPageState extends State<LibraryHealthPage> {
               ],
             ),
     );
+  }
+
+  /// Lists the finding's releases; each opens its page, where Edit Release
+  /// changes it. The report is checked again afterwards.
+  Future<void> _reviewReleases(HealthFinding finding) async {
+    final sheet = _ReleaseReviewList.of(finding);
+    if (sheet == null) return;
+    final albumId = await showModalBottomSheet<String>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => sheet,
+    );
+    if (albumId == null || !mounted) return;
+
+    final release = sheet.releases.firstWhere((r) => r.albumId == albumId);
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => AlbumProfilePage(
+          albumId: release.albumId,
+          initialAlbumTitle: release.title,
+        ),
+      ),
+    );
+    if (mounted) await _verify();
   }
 
   static IconData _iconFor(HealthSeverity severity) => switch (severity) {
@@ -234,12 +261,14 @@ class _FindingTile extends StatelessWidget {
     required this.severity,
     required this.busy,
     required this.onApply,
+    required this.onReview,
   });
 
   final HealthFinding finding;
   final HealthSeverity severity;
   final bool busy;
   final VoidCallback onApply;
+  final VoidCallback onReview;
 
   @override
   Widget build(BuildContext context) {
@@ -270,6 +299,14 @@ class _FindingTile extends StatelessWidget {
                     _FolderSplitPreview(splits: finding.folderSplits),
               ),
               child: const Text('Preview'),
+            )
+          : _ReleaseReviewList.of(finding) != null
+          ? TextButton(
+              key: ValueKey<String>(
+                'library-health-review-${finding.check.name}',
+              ),
+              onPressed: busy ? null : onReview,
+              child: const Text('Review'),
             )
           : finding.corrections.isEmpty
           ? null
@@ -344,6 +381,114 @@ class _FolderSplitPreview extends StatelessWidget {
                 ),
               ),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+/// SN-45: releases a finding asks the user to look at, each opening its
+/// page. Choosing one returns its id.
+class _ReleaseReviewList extends StatelessWidget {
+  const _ReleaseReviewList({
+    required this.heading,
+    required this.explanation,
+    required this.releases,
+  });
+
+  /// The list for [finding], or null when it lists no releases.
+  static _ReleaseReviewList? of(HealthFinding finding) {
+    if (finding.formatReviews.isNotEmpty) {
+      return _ReleaseReviewList(
+        heading: 'Choose Single, EP or Album',
+        explanation:
+            'These releases have no stated format and only a few songs, so '
+            'they might be Singles. Sonus does not guess: open one and set '
+            'its format in Edit Release. Until then it stays off the Sonus '
+            'Albums & EPs chart; its songs still chart on the Sonus Hot 100, '
+            'and nothing about them changes.',
+        releases: [
+          for (final r in finding.formatReviews)
+            (
+              albumId: r.albumId,
+              title: r.title,
+              subtitle: '${r.owner} · ${sonusCount(r.songCount, 'song')}',
+            ),
+        ],
+      );
+    }
+    if (finding.performerOwnedProjects.isNotEmpty) {
+      return _ReleaseReviewList(
+        heading: 'Owned by one of its performers',
+        explanation:
+            'Other artists lead songs on these releases too, as on a '
+            'soundtrack or cast recording whose files name one performer as '
+            'album artist. If one is such a project, open it and choose '
+            '"Artist or project" in Edit Release to pick its project or '
+            'create one. Credits and streams stay as they are. If the owner '
+            'is right, leave it as it is.',
+        releases: [
+          for (final r in finding.performerOwnedProjects)
+            (
+              albumId: r.albumId,
+              title: r.title,
+              subtitle: '${r.owner} · also led by ${r.otherLeads.join(', ')}',
+            ),
+        ],
+      );
+    }
+    return null;
+  }
+
+  final String heading;
+  final String explanation;
+  final List<({String albumId, String title, String subtitle})> releases;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = SonusTheme.of(context).colors;
+    final theme = Theme.of(context);
+
+    return DraggableScrollableSheet(
+      expand: false,
+      initialChildSize: 0.7,
+      minChildSize: 0.4,
+      maxChildSize: 0.95,
+      builder: (context, controller) => ListView(
+        key: const ValueKey<String>('library-health-release-reviews'),
+        controller: controller,
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),
+        children: [
+          Semantics(
+            header: true,
+            child: Text(
+              heading,
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            explanation,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: colors.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 8),
+          for (final release in releases)
+            ListTile(
+              key: ValueKey<String>(
+                'library-health-release-review-${release.albumId}',
+              ),
+              contentPadding: EdgeInsets.zero,
+              minTileHeight: 56,
+              leading: const Icon(Icons.album_outlined),
+              title: Text(release.title),
+              subtitle: Text(release.subtitle),
+              trailing: const Icon(Icons.chevron_right_rounded),
+              onTap: () => Navigator.of(context).pop(release.albumId),
+            ),
         ],
       ),
     );

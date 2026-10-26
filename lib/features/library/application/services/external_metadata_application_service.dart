@@ -59,8 +59,9 @@ class ExternalMetadataApplicationService {
 
   final SyncMutationRunner mutationRunner;
 
-  /// Where an applied release group's type (Soundtrack, Compilation) is
-  /// recorded as the album's release classification.
+  /// Where an applied release group's types are recorded: its primary type
+  /// (Single, EP, Album) as the album's format, and its secondary type
+  /// (Soundtrack, Compilation) as the album's classification.
   final LibraryOrganizationRepository? organization;
 
   /// After an album candidate is applied, its MusicBrainz release-group
@@ -74,9 +75,21 @@ class ExternalMetadataApplicationService {
   }) async {
     final result = await applying;
     final repository = organization;
+
+    if (repository == null) {
+      return result;
+    }
+
+    await _recordReleaseFormat(
+      repository,
+      albumId: albumId,
+      candidate: candidate,
+      timestamp: timestamp,
+    );
+
     final kind = ReleaseKind.fromMusicBrainz(candidate.secondaryTypes);
 
-    if (repository == null || kind == null) {
+    if (kind == null) {
       return result;
     }
 
@@ -98,6 +111,35 @@ class ExternalMetadataApplicationService {
     }
 
     return result;
+  }
+
+  /// The release group's primary type (Single, EP, Album) becomes the
+  /// album's format, unless the user chose one. A manual format is never
+  /// replaced by a later refresh.
+  Future<void> _recordReleaseFormat(
+    LibraryOrganizationRepository repository, {
+    required String albumId,
+    required ExternalMetadataCandidate candidate,
+    required DateTime timestamp,
+  }) async {
+    final format = ReleaseFormat.fromMusicBrainz(candidate.primaryType);
+    if (format == null) return;
+
+    final existing = (await repository.getFormats())
+        .where((saved) => saved.albumId == albumId)
+        .firstOrNull;
+    if (existing?.authority == ReleaseClassificationAuthority.manual) return;
+
+    await repository.saveFormat(
+      AlbumReleaseFormat(
+        albumId: albumId,
+        format: format,
+        authority: ReleaseClassificationAuthority.external,
+        sourceReference: candidate.sourceReference,
+        createdAt: existing?.createdAt ?? timestamp,
+        updatedAt: timestamp,
+      ),
+    );
   }
 
   Future<ExternalMetadataApplicationResult> applyArtistCandidate({

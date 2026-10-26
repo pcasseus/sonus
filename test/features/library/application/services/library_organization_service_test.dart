@@ -170,38 +170,63 @@ void main() {
       );
     });
 
-    test('an unclassified album groups nobody, however many artists', () async {
+    test('an unclassified soundtrack groups its performers too: owning no '
+        'release is what decides (SN-45)', () async {
       await starstruck();
 
       final organizationNow = await service.load();
 
-      expect(organizationNow.placements, isEmpty);
+      for (final name in ['Anna Margaret', 'Chelsea Staub']) {
+        final id = await artistId(name);
+        expect(organizationNow.isShownInLibrary(id), isFalse, reason: name);
+        expect(
+          organizationNow.placementOf(id).projectAlbumId,
+          await albumId('Starstruck'),
+        );
+      }
+      for (final name in ['Sterling Knight', 'Starstruck Cast']) {
+        expect(
+          organizationNow.isShownInLibrary(await artistId(name)),
+          isTrue,
+          reason: name,
+        );
+      }
     });
 
-    test('a compilation groups nobody', () async {
+    test('a compilation performer without a release of its own is a '
+        'contributor as well', () async {
       await starstruck();
       await classify('Starstruck', ReleaseKind.compilation);
 
-      expect((await service.load()).placements, isEmpty);
-    });
-
-    test('credits on two projects are ambiguous and stay visible', () async {
-      for (final album in ['Descendants', 'Descendants 2']) {
-        await track(
-          album: album,
-          albumArtist: 'Descendants Cast',
-          artist: 'Cameron Boyce',
-          title: 'Song from $album',
-        );
-        await classify(album, ReleaseKind.soundtrack);
-      }
-
       expect(
         (await service.load()).isShownInLibrary(
-          await artistId('Cameron Boyce'),
+          await artistId('Anna Margaret'),
         ),
-        isTrue,
+        isFalse,
       );
+    });
+
+    test('a contributor on two projects is listed under both, the one with '
+        'more songs first', () async {
+      for (final (album, count) in [('Descendants', 1), ('Descendants 2', 2)]) {
+        for (var i = 0; i < count; i++) {
+          await track(
+            album: album,
+            albumArtist: 'Descendants Cast',
+            artist: 'Cameron Boyce',
+            title: 'Song $i from $album',
+          );
+        }
+      }
+
+      final placement = (await service.load()).placementOf(
+        await artistId('Cameron Boyce'),
+      );
+      expect(placement.isShown, isFalse);
+      expect(placement.projectAlbumIds, [
+        await albumId('Descendants 2'),
+        await albumId('Descendants'),
+      ]);
     });
 
     test('a cast recording groups its performers too', () async {
@@ -244,6 +269,15 @@ void main() {
       expect(preview.allowed, isTrue);
       expect(preview.songsOnProject, 1);
       expect(preview.songsElsewhere, 0);
+      final automatic = await service.load();
+      expect(automatic.isShownInLibrary(adrienne), isFalse);
+      expect(
+        automatic.placementOf(adrienne).reason,
+        ArtistPlacementReason.automatic,
+      );
+
+      // Promoted on purpose, then placed under the project on purpose.
+      await service.showAsOwnArtist(adrienne);
       expect((await service.load()).isShownInLibrary(adrienne), isTrue);
 
       await service.assignToProject(artistId: adrienne, albumId: project);
@@ -256,7 +290,10 @@ void main() {
       expect(grouped.groupedUnder(project), [adrienne]);
 
       await service.clearAssignment(adrienne);
-      expect((await service.load()).isShownInLibrary(adrienne), isTrue);
+      expect(
+        (await service.load()).placementOf(adrienne).reason,
+        ArtistPlacementReason.automatic,
+      );
     });
 
     test('"Show as its own artist" overrides automatic grouping', () async {
@@ -394,21 +431,20 @@ void main() {
     );
   });
 
-  test('removing the project returns its performers to the Library', () async {
+  test('removing a manual choice returns the artist to the automatic '
+      'rule', () async {
     await starstruck();
     final anna = await artistId('Anna Margaret');
-    await service.assignToProject(
-      artistId: anna,
-      albumId: await albumId('Starstruck'),
-    );
+    await service.showAsOwnArtist(anna);
+    expect((await service.load()).isShownInLibrary(anna), isTrue);
 
     final db = await appDatabase.database;
     await db.delete(
       DatabaseTables.artistProjectAssignments,
-      where: 'album_id = ?',
-      whereArgs: [await albumId('Starstruck')],
+      where: 'artist_id = ?',
+      whereArgs: [anna],
     );
 
-    expect((await service.load()).isShownInLibrary(anna), isTrue);
+    expect((await service.load()).isShownInLibrary(anna), isFalse);
   });
 }

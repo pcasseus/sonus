@@ -12,6 +12,7 @@ import 'package:sonus_next/features/charts/domain/moments/chart_moment_event.dar
 import 'package:sonus_next/features/charts/domain/moments/chart_moment_event_type.dart';
 import 'package:sonus_next/features/charts/domain/moments/chart_moment_scope.dart';
 import 'package:sonus_next/features/library/application/models/library_album.dart';
+import 'package:sonus_next/features/library/application/models/library_artist.dart';
 import 'package:sonus_next/features/library/application/models/library_track.dart';
 import 'package:sonus_next/features/library/application/models/library_track_order.dart';
 import 'package:sonus_next/features/library/application/repositories/library_query_repository.dart';
@@ -170,7 +171,8 @@ void main() {
     expect(events.where((e) => e.chartType == ChartType.albums), isNotEmpty);
   });
 
-  test('a debut outside the Top 100 waits until it gets there', () async {
+  test('SN-45: a debut outside the Top 100 is a Bubbling Under debut at its '
+      'real position; reaching the Top 100 later is a breakthrough', () async {
     for (var i = 0; i < 100; i++) {
       final id = 'f${i.toString().padLeft(3, '0')}';
       library.add(id);
@@ -186,10 +188,12 @@ void main() {
     plays.add('late', _today.subtract(const Duration(minutes: 20)));
 
     await service().record(referenceLocal: _today);
-    expect(
-      (await saved()).where((e) => e.entity.entityId == 'song-late'),
-      isEmpty,
+    final debut = (await saved()).singleWhere(
+      (e) =>
+          e.entity.entityId == 'song-late' &&
+          e.eventType == ChartMomentEventType.debut,
     );
+    expect(debut.currentRank, 101, reason: '#101, never "#1"');
 
     plays.add('late', _today.subtract(const Duration(minutes: 10)));
     plays.add('late', _today.subtract(const Duration(minutes: 5)));
@@ -199,13 +203,26 @@ void main() {
         .where(
           (e) =>
               e.entity.entityId == 'song-late' &&
-              e.chartType == ChartType.songs,
+              e.chartType == ChartType.songs &&
+              e.eventType != ChartMomentEventType.lifetimeStreamMilestone,
         )
         .toList();
-    expect(late.map((e) => e.eventType), [
+    expect(late.map((e) => e.eventType).toSet(), {
+      ChartMomentEventType.debut,
       ChartMomentEventType.firstThresholdEntry,
-    ]);
-    expect(late.single.threshold, 100);
+      // Its artist's first song in the Top 100.
+      ChartMomentEventType.artistFirstThresholdSong,
+    });
+    final breakthrough = late.singleWhere(
+      (e) => e.eventType == ChartMomentEventType.firstThresholdEntry,
+    );
+    expect(breakthrough.threshold, 100);
+    expect(breakthrough.previousRank, greaterThan(100));
+    expect(
+      late.where((e) => e.eventType == ChartMomentEventType.debut),
+      hasLength(1),
+      reason: 'entering the Hot 100 is not a new debut',
+    );
   });
 
   test('weekly Moments are left alone', () async {
@@ -333,6 +350,18 @@ class _Library implements LibraryQueryRepository {
 
   @override
   Future<List<LibraryAlbum>> getAlbums() async => albums;
+
+  @override
+  Future<List<LibraryArtist>> getArtists() async => [
+    for (final track in tracks)
+      LibraryArtist(
+        artistId: track.artistId,
+        name: track.artistName,
+        albumCount: 1,
+        songCount: 1,
+        dateAdded: DateTime.utc(2026, 9, 1),
+      ),
+  ];
 
   @override
   dynamic noSuchMethod(Invocation invocation) => throw UnimplementedError();

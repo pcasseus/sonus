@@ -158,7 +158,7 @@ void main() {
     expect(find.text('#1'), findsWidgets);
     expect(find.text('NEW'), findsOneWidget);
     for (final label in [
-      'LIFETIME STREAMS',
+      'TOTAL STREAMS',
       'WEEKLY CHANGE',
       'ALL-TIME PEAK',
       'WEEKS IN TOP 3',
@@ -221,7 +221,7 @@ void main() {
       // No label breaks inside a word ("STREAM / S").
       for (final label in [
         if (card == 'spotlight') ...[
-          'LIFETIME STREAMS',
+          'TOTAL STREAMS',
           'WEEKLY CHANGE',
           'ALL-TIME PEAK',
         ] else ...[
@@ -277,7 +277,7 @@ void main() {
     );
 
     expect(tester.takeException(), isNull);
-    final streams = tester.getTopLeft(find.text('LIFETIME STREAMS'));
+    final streams = tester.getTopLeft(find.text('TOTAL STREAMS'));
     final change = tester.getTopLeft(find.text('WEEKLY CHANGE'));
     expect(change.dy, greaterThan(streams.dy), reason: 'one tile per row');
     final paragraph = tester.renderObject<RenderParagraph>(

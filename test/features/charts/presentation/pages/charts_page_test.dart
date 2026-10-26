@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sonus_next/features/library/domain/entities/library_organization.dart';
 import 'package:sonus_next/core/design/sonus_theme_factory.dart';
 import 'package:sonus_next/core/design/sonus_theme_id.dart';
 import 'package:sonus_next/features/library/application/models/library_album.dart';
@@ -43,7 +44,7 @@ void main() {
     expect(find.text('Hot 100'), findsOneWidget);
 
     expect(find.text('Songs'), findsWidgets);
-    expect(find.text('Albums'), findsOneWidget);
+    expect(find.text('Albums & EPs'), findsOneWidget);
 
     expect(find.text('Top 10'), findsOneWidget);
     expect(find.text('Top 25'), findsOneWidget);
@@ -62,7 +63,7 @@ void main() {
       find.byKey(const ValueKey<String>('charts-spotlight-songs_1')),
       findsOneWidget,
     );
-    expect(find.text('LIFETIME STREAMS'), findsOneWidget);
+    expect(find.text('TOTAL STREAMS'), findsOneWidget);
     expect(find.text('12'), findsOneWidget);
     expect(find.text('ALL-TIME PEAK'), findsOneWidget);
     expect(find.text('#1'), findsWidgets);
@@ -100,7 +101,7 @@ void main() {
 
     await _pumpPage(tester, controller);
 
-    await tester.tap(find.text('Albums'));
+    await tester.tap(find.text('Albums & EPs'));
     await tester.pumpAndSettle();
 
     expect(controller.chartType, ChartType.albums);
@@ -289,7 +290,9 @@ void main() {
 
     expect(find.byType(AlbumProfilePage), findsOneWidget);
   });
-  testWidgets('Top 200 explains extended standings', (tester) async {
+  testWidgets('the full 200 explains Hot 100 and Bubbling Under', (
+    tester,
+  ) async {
     final controller = await _controller();
 
     await _pumpPage(tester, controller);
@@ -305,7 +308,9 @@ void main() {
 
     expect(
       find.text(
-        'Top 100 is the official chart. Positions 101\u2013200 are extended standings.',
+        'Positions #1\u2013100 are the Sonus Hot 100. '
+        '#101\u2013200 are Sonus Bubbling Under, shown at their real '
+        'positions.',
       ),
       findsOneWidget,
     );
@@ -426,7 +431,7 @@ void main() {
       await _pumpPage(tester, controller);
 
       const divider = ValueKey<String>('charts-extended-divider');
-      expect(find.text('Extended standings · 101–200'), findsOneWidget);
+      expect(find.text('Sonus Bubbling Under · #101–200'), findsOneWidget);
 
       final dividerTop = tester.getTopLeft(find.byKey(divider)).dy;
       final official = find.byKey(
@@ -438,6 +443,20 @@ void main() {
 
       expect(tester.getBottomLeft(official).dy, lessThanOrEqualTo(dividerTop));
       expect(tester.getTopLeft(extended).dy, greaterThan(dividerTop));
+
+      // Bubbling Under keeps the real Top 200 position: #101, never #1.
+      expect(
+        find.descendant(of: extended, matching: find.text('101')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: extended, matching: find.text('1')),
+        findsNothing,
+      );
+      expect(
+        find.descendant(of: extended, matching: find.text('BUBBLING UNDER')),
+        findsOneWidget,
+      );
 
       // Official entries are never badged as extended, and extended ones are.
       expect(
@@ -632,13 +651,80 @@ void main() {
       findsNothing,
     );
 
-    expect(find.text('Song 1 reaches a new peak of #3'), findsOneWidget);
-    expect(find.text('Song 1 earns a new weekly peak of #3.'), findsOneWidget);
-    expect(find.text('WEEKLY HOT 100 · FINAL'), findsOneWidget);
-    expect(find.text('Sonus Daily'), findsOneWidget);
+    final story = controller.momentStories.single;
+    expect(find.text(story.headline), findsOneWidget);
+    expect(story.headline, contains('#3'));
+    expect(story.headline, contains('"Song 1"'));
+    expect(find.text('WEEKLY SONUS HOT 100'), findsOneWidget);
+    expect(find.text(story.publisher.label), findsOneWidget);
     expect(find.text('NEW PEAK'), findsOneWidget);
     expect(find.text('#3'), findsOneWidget);
-    expect(find.text('HOT 100 #3'), findsOneWidget);
+    expect(find.text('WEEKLY HOT 100 #3'), findsOneWidget);
+  });
+
+  test('Singles and releases awaiting a format tell no release story; '
+      'a song story names its Single as a Single', () async {
+    ChartMomentEvent releaseDebut(String albumId) {
+      final at = DateTime.utc(2026, 9, 28, 1);
+      final week = DateTime.utc(2026, 9, 27);
+      return ChartMomentEvent(
+        id: 'debut-$albumId',
+        deduplicationKey: 'debut-$albumId',
+        sourceId: 'source-$albumId',
+        chartType: ChartType.albums,
+        scope: ChartMomentScope.allTime,
+        eventType: ChartMomentEventType.debut,
+        entity: ChartEntitySnapshot(
+          entityId: albumId,
+          title: 'Release $albumId',
+          artistId: 'artist_1',
+          artistName: 'Artist 1',
+        ),
+        weekStartUtc: week,
+        weekEndUtc: week.add(const Duration(days: 7)),
+        occurredAt: at,
+        createdAt: at,
+        currentRank: 2,
+        qualifiedStreamCount: 4,
+      );
+    }
+
+    final controller = await _controller(
+      moments: [
+        releaseDebut('album_single'),
+        releaseDebut('album_review'),
+        releaseDebut('album_ep'),
+        _momentEvent(
+          id: 'song-peak',
+          scope: ChartMomentScope.allTime,
+          type: ChartMomentEventType.newPeak,
+          currentRank: 3,
+          currentPeakRank: 3,
+        ),
+      ],
+      releaseFormats: () async => {
+        'album_single': ReleaseFormat.single,
+        'album_review': null,
+        'album_ep': ReleaseFormat.ep,
+        'album_1': ReleaseFormat.single,
+      },
+    );
+
+    final stories = controller.momentStories;
+    expect(
+      [
+        for (final s in stories)
+          if (s.facts.chartType == ChartType.albums) s.facts.title,
+      ],
+      ['Release album_ep'],
+    );
+    final song = stories.singleWhere(
+      (s) => s.facts.chartType == ChartType.songs,
+    );
+    // "Song 1" is on album_1, a Single.
+    expect(song.facts.releaseLabel, 'Single');
+    // The stored events are untouched.
+    expect(controller.momentFeedItems.length, 4);
   });
 
   testWidgets('a Moment post links to its song, album and artist', (
@@ -663,7 +749,7 @@ void main() {
     await tester.tap(find.text('Moments'));
     await tester.pump();
 
-    expect(_postPart('portrait'), findsOneWidget);
+    expect(_postPart('image-right'), findsOneWidget);
     for (final link in ['song', 'album', 'artist']) {
       expect(_postPart(link), findsOneWidget);
     }
@@ -707,14 +793,19 @@ void main() {
 
     expect(_postPart('song'), findsNothing);
     expect(_postPart('artist'), findsNothing);
+    // The artist has no portrait: a placeholder, never someone else's.
     expect(
-      _postPart('portrait'),
+      find.descendant(
+        of: _postPart('image-right'),
+        matching: find.byType(Image),
+      ),
       findsNothing,
-      reason: 'without a portrait the artwork fills the collage',
     );
   });
 
-  testWidgets('an all-time Moment says all-time, never weekly', (tester) async {
+  testWidgets('a #1 on the permanent chart says #1 and names the Hot 100', (
+    tester,
+  ) async {
     final controller = await _controller(
       moments: [
         _momentEvent(
@@ -734,19 +825,17 @@ void main() {
     await tester.tap(find.text('Moments'));
     await tester.pump();
 
-    expect(find.text('Song 1 by Artist 1 takes #1 all-time'), findsOneWidget);
-    expect(
-      find.text(
-        'A new leader takes over the all-time Sonus Hot 100: Song 1 is #1 '
-        'for the first time with 42 lifetime streams.',
-      ),
-      findsOneWidget,
-    );
-    expect(find.text('ALL-TIME HOT 100'), findsOneWidget);
-    expect(find.text('ALL-TIME #1'), findsOneWidget);
+    final story = controller.momentStories.single;
+    expect(find.text(story.headline), findsOneWidget);
+    expect(story.headline, contains('#1'));
+    for (final banned in ['lifetime', 'summit', 'all-time', 'weekly']) {
+      expect(story.headline.toLowerCase(), isNot(contains(banned)));
+      expect((story.body ?? '').toLowerCase(), isNot(contains(banned)));
+    }
+    expect(find.text('SONUS HOT 100'), findsOneWidget);
+    expect(find.text('HOT 100 #1'), findsOneWidget);
     expect(find.text('NUMBER ONE'), findsOneWidget);
-    expect(find.text('@sonusdaily · 3h'), findsOneWidget);
-    expect(find.textContaining('weekly'), findsNothing);
+    expect(find.text('${story.publisher.handle} · 3h'), findsOneWidget);
   });
 
   testWidgets('Moment posts fit a 320 px screen at large text', (tester) async {
@@ -783,7 +872,9 @@ void main() {
     }
   });
 
-  testWidgets('LIVE Moment uses provisional presentation', (tester) async {
+  testWidgets('provisional live facts are not published as news', (
+    tester,
+  ) async {
     final controller = await _controller(
       moments: [
         _momentEvent(
@@ -802,13 +893,13 @@ void main() {
     await tester.tap(find.text('Moments'));
     await tester.pump();
 
-    expect(find.text('Song 1 reaches a new peak of #3'), findsOneWidget);
+    // The permanent chart tells this as it happens; a provisional weekly
+    // fact would only repeat it.
+    expect(controller.momentStories, isEmpty);
     expect(
-      find.text('Song 1 rises to #3 on this week’s Sonus Hot 100.'),
+      find.byKey(const ValueKey<String>('charts-moments-empty')),
       findsOneWidget,
     );
-    expect(find.text('WEEKLY HOT 100 · THIS WEEK'), findsOneWidget);
-    expect(find.text('HOT 100 #3'), findsOneWidget);
   });
 
   testWidgets('empty Moments feed has its own empty state', (tester) async {
@@ -898,6 +989,7 @@ Future<ChartsController> _controller({
   List<LibraryAlbum>? albums,
   List<LibraryArtist> artists = const [],
   List<ChartMomentEvent> moments = const [],
+  ReleaseFormatsLoader? releaseFormats,
 }) async {
   final resolvedLive =
       live ?? _snapshot(id: 'live', start: DateTime.utc(2026, 9, 27));
@@ -920,6 +1012,7 @@ Future<ChartsController> _controller({
     ),
     moments: _FakeChartMomentRepository(events: moments),
     now: () => DateTime(2026, 9, 28, 12),
+    releaseFormats: releaseFormats,
   );
 
   await controller.load();

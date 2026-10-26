@@ -13,6 +13,7 @@ import '../../../library/application/models/library_album.dart';
 import '../../../library/application/models/library_artist.dart';
 import '../../../library/application/models/library_track.dart';
 import '../../../library/application/repositories/library_query_repository.dart';
+import '../../../library/application/services/library_organization_service.dart';
 import '../../../library/presentation/pages/album_profile_page.dart';
 import '../../../library/presentation/pages/artist_profile_page.dart';
 import '../../../player/application/controllers/playback_coordinator.dart';
@@ -40,6 +41,9 @@ class _SearchPageState extends State<SearchPage> {
   List<LibraryAlbum> _availabilityAlbums = const [];
   List<LibraryTrack> _availabilityTracks = const [];
   bool _hasAvailabilityCatalog = false;
+
+  /// The Library's artist identity; null shows every artist (fails open).
+  ArtistLibraryOrganization? _organization;
   int _availabilityGeneration = 0;
   _SearchFilter _filter = _SearchFilter.all;
 
@@ -94,6 +98,7 @@ class _SearchPageState extends State<SearchPage> {
         repository.getAlbums(),
         repository.getTracks(),
       ]);
+      final organization = await _loadOrganization();
 
       if (!mounted || generation != _availabilityGeneration) {
         return;
@@ -102,6 +107,7 @@ class _SearchPageState extends State<SearchPage> {
       setState(() {
         _availabilityAlbums = results[0] as List<LibraryAlbum>;
         _availabilityTracks = results[1] as List<LibraryTrack>;
+        _organization = organization;
         _hasAvailabilityCatalog = true;
       });
     } catch (_) {
@@ -114,6 +120,20 @@ class _SearchPageState extends State<SearchPage> {
         _availabilityTracks = const [];
         _hasAvailabilityCatalog = false;
       });
+    }
+  }
+
+  Future<ArtistLibraryOrganization?> _loadOrganization() async {
+    LibraryOrganizationService? service;
+    try {
+      service = context.read<LibraryOrganizationService?>();
+    } on ProviderNotFoundException {
+      return null;
+    }
+    try {
+      return await service?.load();
+    } catch (_) {
+      return null;
     }
   }
 
@@ -388,8 +408,15 @@ class _SearchPageState extends State<SearchPage> {
       }
     }
 
+    // Contributors without a release of their own are found through their
+    // songs and projects, not as artists.
+    final organization = _organization;
     return artists
-        .where((artist) => visibleArtistIds.contains(artist.artistId))
+        .where(
+          (artist) =>
+              visibleArtistIds.contains(artist.artistId) &&
+              (organization?.isShownInLibrary(artist.artistId) ?? true),
+        )
         .toList(growable: false);
   }
 

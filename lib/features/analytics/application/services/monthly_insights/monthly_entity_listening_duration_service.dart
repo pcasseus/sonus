@@ -8,6 +8,7 @@ import '../../models/analytics_period.dart';
 import '../../models/analytics_time_window.dart';
 import '../../models/monthly_insights/monthly_entity_listening_durations.dart';
 import '../analytics_time_window_resolver.dart';
+import '../listening_artist_attribution.dart';
 
 class MonthlyEntityListeningDurationService {
   const MonthlyEntityListeningDurationService({
@@ -15,13 +16,16 @@ class MonthlyEntityListeningDurationService {
     required PlaybackListeningSegmentRepository listeningSegments,
     AnalyticsTimeWindowResolver timeWindowResolver =
         const AnalyticsTimeWindowResolver(),
+    ListeningArtistAttribution? artistAttribution,
   }) : _playbackSessions = playbackSessions,
        _listeningSegments = listeningSegments,
-       _timeWindowResolver = timeWindowResolver;
+       _timeWindowResolver = timeWindowResolver,
+       _artistAttribution = artistAttribution;
 
   final PlaybackSessionRepository _playbackSessions;
   final PlaybackListeningSegmentRepository _listeningSegments;
   final AnalyticsTimeWindowResolver _timeWindowResolver;
+  final ListeningArtistAttribution? _artistAttribution;
 
   Future<MonthlyEntityListeningDurations> load({
     required DateTime referenceLocal,
@@ -65,6 +69,7 @@ class MonthlyEntityListeningDurationService {
       for (final session in sessions) session.id: session,
     };
 
+    final attributor = await ArtistAttributor.of(_artistAttribution);
     final songMilliseconds = <String, int>{};
     final artistMilliseconds = <String, int>{};
     final albumMilliseconds = <String, int>{};
@@ -84,7 +89,10 @@ class MonthlyEntityListeningDurationService {
 
       _addDuration(
         totals: artistMilliseconds,
-        entityId: session.artistId,
+        entityId: attributor.artistFor(
+          artistId: session.artistId,
+          albumId: session.albumId,
+        ),
         duration: entry.duration,
       );
 

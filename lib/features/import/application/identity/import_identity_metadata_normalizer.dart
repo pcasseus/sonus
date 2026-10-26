@@ -12,14 +12,13 @@ class ImportIdentityMetadataNormalizer {
     required ImportCandidate candidate,
     required AudioMetadata metadata,
   }) {
-    if (candidate.structure != ImportCandidateStructure.artistAlbum) {
-      return metadata;
-    }
-
-    final folderArtist = _folderArtist(candidate.metadataFallbackPath);
+    final folderArtist =
+        candidate.structure == ImportCandidateStructure.artistAlbum
+        ? _folderArtist(candidate.metadataFallbackPath)
+        : null;
 
     if (folderArtist == null) {
-      return metadata;
+      return _splitExplicitFeature(metadata);
     }
 
     final canonicalFolderArtist = TextNormalizer.canonicalize(folderArtist);
@@ -50,9 +49,32 @@ class ImportIdentityMetadataNormalizer {
       );
     }
 
+    return _splitExplicitFeature(
+      metadata,
+    ).copyWith(albumArtistName: folderArtist);
+  }
+
+  /// An explicit "A feat. B" / "A [Ft. B]" credit is A performing with B
+  /// featured, whoever A is: A becomes the performer and B a featured
+  /// credit, so the whole string never becomes an artist of its own. Any
+  /// other credit, such as "A & B", is kept exactly as tagged.
+  AudioMetadata _splitExplicitFeature(AudioMetadata metadata) {
+    final credit = _artistCreditParser.parseExplicitFeatureCredit(
+      metadata.artistName,
+    );
+
+    if (credit == null) {
+      return metadata.copyWith(
+        featuredArtists: _deduplicate(metadata.featuredArtists),
+      );
+    }
+
     return metadata.copyWith(
-      albumArtistName: folderArtist,
-      featuredArtists: _deduplicate(metadata.featuredArtists),
+      artistName: credit.primaryArtist,
+      featuredArtists: _deduplicate([
+        ...metadata.featuredArtists,
+        credit.featuredArtist,
+      ]),
     );
   }
 

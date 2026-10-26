@@ -139,22 +139,40 @@ class ImportsController extends ChangeNotifier {
         return false;
       }
 
-      final result = await _execute(
-        () => _workflowService.importStructuredFolder(
-          folderPath,
-          onProgress: _handleProgress,
-        ),
-      );
-
-      if (result) {
-        await loadSources();
-      }
-
-      return result;
+      return await _importFolder(folderPath);
     } catch (error) {
       _fail(error);
       return false;
     }
+  }
+
+  /// Imports a folder chosen in Sonus's own music folder browser.
+  Future<bool> importFolderAt(String folderPath) async {
+    if (isBusy) {
+      return false;
+    }
+
+    try {
+      return await _importFolder(folderPath);
+    } catch (error) {
+      _fail(error);
+      return false;
+    }
+  }
+
+  Future<bool> _importFolder(String folderPath) async {
+    final result = await _execute(
+      () => _workflowService.importStructuredFolder(
+        folderPath,
+        onProgress: _handleProgress,
+      ),
+    );
+
+    if (result) {
+      await loadSources();
+    }
+
+    return result;
   }
 
   Future<bool> rescanSource(ImportSource source) async {

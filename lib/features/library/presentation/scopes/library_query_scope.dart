@@ -34,6 +34,7 @@ import '../../application/services/artist_merge_service.dart';
 import '../../application/services/artist_profile_editing_service.dart';
 import '../../application/services/external_metadata_application_service.dart';
 import '../../application/services/external_metadata_proposal_service.dart';
+import '../../../analytics/application/services/listening_artist_attribution.dart';
 import '../../application/services/library_organization_service.dart';
 import '../../data/daos/album_dao.dart';
 import '../../data/daos/metadata_field_state_dao.dart';
@@ -80,6 +81,7 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
   AlbumEditionTrackOrderingService? _albumEditionTrackOrderingService;
   AlbumEditionManagementService? _albumEditionManagementService;
   LibraryOrganizationService? _libraryOrganizationService;
+  ListeningArtistAttribution? _libraryArtistAttribution;
   ArtistCreationService? _artistCreationService;
   ArtistMergeService? _artistMergeService;
   ArtistProfileEditingService? _artistProfileEditingService;
@@ -250,6 +252,9 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
       _albumEditionTrackOrderingService = albumEditionTrackOrderingService;
       _albumEditionManagementService = albumEditionManagementService;
       _libraryOrganizationService = libraryOrganizationService;
+      _libraryArtistAttribution = OrganizationArtistAttribution(
+        libraryOrganizationService,
+      );
       _artistCreationService = artistCreationService;
       _artistProfileEditingService = artistProfileEditingService;
       _artistMergeService = artistMergeService;
@@ -297,6 +302,9 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
         ),
         Provider<LibraryOrganizationService?>.value(
           value: _libraryOrganizationService,
+        ),
+        Provider<ListeningArtistAttribution?>.value(
+          value: _libraryArtistAttribution,
         ),
         Provider<ArtistCreationService?>.value(value: _artistCreationService),
         Provider<ArtistProfileEditingService?>.value(
