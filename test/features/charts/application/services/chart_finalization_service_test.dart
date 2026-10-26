@@ -84,6 +84,7 @@ void main() {
     DateTime? momentsActivationWeekStartUtc,
     ChartRestoreGeneration? restoreGeneration,
     ReleaseChartEligibility? releaseEligibility,
+    ChartArtistAttribution? artistAttribution,
   }) {
     final library = _FakeLibraryQueryRepository(
       tracks: [
@@ -109,8 +110,45 @@ void main() {
       now: () => DateTime.utc(2026, 10, 4, 1),
       restoreGeneration: restoreGeneration,
       releaseEligibility: releaseEligibility,
+      artistAttribution: artistAttribution,
     );
   }
+
+  test('SN-45: weekly artist achievements count for the artist each song '
+      'belongs to, never for a contributor', () async {
+    final week = ChartWeek(
+      startUtc: DateTime.utc(2026, 9, 27),
+      endUtc: DateTime.utc(2026, 10, 4),
+    );
+    final moments = _RecordingMomentRepository();
+    await createService(
+      qualifiedPlays: _MutableQualifiedPlayRepository([
+        play(
+          id: '1',
+          songId: 'song-a',
+          albumId: 'album-a',
+          qualifiedAt: DateTime.utc(2026, 9, 28, 10),
+        ),
+      ]),
+      charts: _RecordingChartRepository(),
+      moments: moments,
+      momentsActivationWeekStartUtc: week.startUtc,
+      // song-a is a contributor's song on the project "owner" owns.
+      artistAttribution: () async => {'song-a': 'owner'},
+    ).reconcileCompletedWeek(week);
+
+    final artistEvents = [
+      for (final replacement in moments.replacements)
+        if (replacement.chartType == ChartType.songs)
+          for (final event in replacement.events)
+            if (event.eventType.name.startsWith('artist')) event,
+    ];
+    expect(artistEvents, isNotEmpty);
+    expect(
+      {for (final event in artistEvents) event.entity.artistId},
+      {'owner'},
+    );
+  });
 
   group('SN-45: Singles on the release chart', () {
     final week = ChartWeek(

@@ -2138,8 +2138,7 @@ abstract final class MomentHeadlines {
       HeadlineVariant(
         'release-1-p5',
         _p,
-        (f) =>
-            'New #1 ${f.releaseWord}: ${f.subject} moves up to #1.',
+        (f) => 'New #1 ${f.releaseWord}: ${f.subject} moves up to #1.',
       ),
       HeadlineVariant(
         'release-1-p6',
