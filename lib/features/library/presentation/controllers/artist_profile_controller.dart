@@ -164,6 +164,27 @@ class ArtistProfileController extends ChangeNotifier {
   /// (only [projectArtistId]'s, when the page was opened from it).
   List<ContributorAppearance> get appearances => _appearances;
 
+  /// Performers of Top Tracks whose artist-level streams count for another
+  /// artist than this one, such as an independent artist's song on this
+  /// soundtrack. Their song counts are unchanged; only the artist total in
+  /// the header leaves them out.
+  List<String> get topTracksCountedElsewhere {
+    final organization = _organization;
+    if (organization == null) return const [];
+    final names = <String>[];
+    for (final entry in _topTracks) {
+      final track = entry.track;
+      final countsFor = organization.attributedArtistId(
+        artistId: track.artistId,
+        albumId: track.albumId,
+      );
+      if (countsFor != _artistId && !names.contains(track.artistName)) {
+        names.add(track.artistName);
+      }
+    }
+    return List.unmodifiable(names);
+  }
+
   /// The project this page was opened from, if any.
   String? get projectArtistId => _projectArtistId;
 

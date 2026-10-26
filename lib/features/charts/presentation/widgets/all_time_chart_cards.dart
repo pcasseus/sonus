@@ -426,12 +426,21 @@ class AllTimeEntryCard extends StatelessWidget {
                           );
                         }
 
+                        // The change sits under the title, so the title
+                        // keeps the full width and never breaks mid-word.
                         return Row(
                           children: [
                             ...lead,
-                            Expanded(child: heading),
-                            const SizedBox(width: 8),
-                            changeLabel,
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  heading,
+                                  const SizedBox(height: 6),
+                                  changeLabel,
+                                ],
+                              ),
+                            ),
                           ],
                         );
                       },

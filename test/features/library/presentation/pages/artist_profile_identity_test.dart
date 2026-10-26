@@ -4,6 +4,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'package:sonus_next/features/analytics/domain/repositories/qualified_play_repository.dart';
 import 'package:sonus_next/features/library/application/models/library_album.dart';
 import 'package:sonus_next/features/library/application/models/project_collaborator.dart';
 import 'package:sonus_next/features/library/application/repositories/library_query_repository.dart';
@@ -115,6 +116,7 @@ void main() {
     String artistId = 'artist-1',
     String? projectArtistId,
     Size size = const Size(411, 2400),
+    QualifiedPlayRepository? qualifiedPlays,
   }) async {
     await tester.binding.setSurfaceSize(size);
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -128,6 +130,7 @@ void main() {
         value: organization,
         child: base.buildSubject(
           repository: repository,
+          qualifiedPlays: qualifiedPlays,
           home: ArtistProfilePage(
             artistId: artistId,
             projectArtistId: projectArtistId,
@@ -299,5 +302,91 @@ void main() {
     for (final section in ['albums', 'eps', 'singles', 'collaborators']) {
       expect(key('artist-profile-$section'), findsNothing, reason: section);
     }
+  });
+
+  testWidgets('a soundtrack says why its artist total leaves out an '
+      "independent artist's songs", (tester) async {
+    final project = _release(
+      'descendants',
+      'Descendants',
+      artistId: 'descendants',
+      artistName: 'Descendants',
+    );
+    final solo = _release(
+      'bloodshot',
+      'Bloodshot',
+      artistId: 'dove',
+      artistName: 'Dove Cameron',
+    );
+    await pump(
+      tester,
+      artistId: 'descendants',
+      repository: _Repo(
+        library: [project, solo],
+        artist: base.createArtist(
+          artistId: 'descendants',
+          name: 'Descendants',
+          albumCount: 1,
+          songCount: 2,
+        ),
+        albums: [project],
+        tracks: [
+          base.createTrack(
+            songId: 'evil',
+            title: 'Evil Like Me',
+            artistId: 'dove',
+            artistName: 'Dove Cameron',
+            albumId: 'descendants',
+            albumTitle: 'Descendants',
+          ),
+          base.createTrack(
+            songId: 'mention',
+            title: 'Did I Mention',
+            artistId: 'mitchell',
+            artistName: 'Mitchell Hope',
+            albumId: 'descendants',
+            albumTitle: 'Descendants',
+          ),
+        ],
+      ),
+      libraryAlbums: [project, solo],
+      credits: const [
+        ProjectCollaborator(
+          albumId: 'descendants',
+          artistId: 'mitchell',
+          artistName: 'Mitchell Hope',
+          roles: {SongArtistCreditRole.primary},
+          songCount: 1,
+        ),
+        ProjectCollaborator(
+          albumId: 'descendants',
+          artistId: 'dove',
+          artistName: 'Dove Cameron',
+          roles: {SongArtistCreditRole.primary},
+          songCount: 1,
+        ),
+      ],
+      qualifiedPlays: base.FakeQualifiedPlayRepository([
+        for (var i = 0; i < 3; i++) ...[
+          base.qualifiedPlay('evil', artistId: 'dove', albumId: 'descendants'),
+          base.qualifiedPlay(
+            'mention',
+            artistId: 'mitchell',
+            albumId: 'descendants',
+          ),
+        ],
+      ]),
+    );
+
+    // Mitchell Hope's three count for the soundtrack; Dove Cameron's three
+    // count for her, and the Top Tracks heading says so.
+    expect(find.textContaining('3 streams'), findsWidgets);
+    expect(
+      find.text(
+        'Your most streamed, all time. Streams of songs by Dove Cameron '
+        "count toward Dove Cameron's own artist total, not the one above.",
+      ),
+      findsOneWidget,
+    );
   });
 }

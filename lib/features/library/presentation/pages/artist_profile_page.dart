@@ -538,9 +538,11 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
                           section(
                             const ValueKey<String>('artist-profile-top-tracks'),
                             [
-                              const ArtistProfileSectionHeading(
+                              ArtistProfileSectionHeading(
                                 title: 'Top Tracks',
-                                subtitle: 'Your most streamed, all time',
+                                subtitle: _topTracksSubtitle(
+                                  controller.topTracksCountedElsewhere,
+                                ),
                               ),
                               const SizedBox(height: 8),
                               _tracksList(
@@ -689,6 +691,21 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
       if (others > 0) sonusCount(others, 'other release'),
       sonusCount(songCount, 'song'),
     ].join(' • ');
+  }
+
+  /// Says why the header's artist total can be lower than these songs'
+  /// streams: songs by artists with their own releases count for them.
+  static String _topTracksSubtitle(List<String> countedElsewhere) {
+    const base = 'Your most streamed, all time';
+    if (countedElsewhere.isEmpty) return base;
+    final names = countedElsewhere.length <= 2
+        ? countedElsewhere.join(' and ')
+        : '${countedElsewhere.take(2).join(', ')} and others';
+    final owner = countedElsewhere.length == 1
+        ? "$names's own artist total"
+        : 'their own artist totals';
+    return '$base. Streams of songs by $names count toward $owner, '
+        'not the one above.';
   }
 
   static String _sectionKey(ReleaseFormat? format) => switch (format) {

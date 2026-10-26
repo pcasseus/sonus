@@ -132,8 +132,11 @@ class LibraryArtistCard extends StatelessWidget {
     return null;
   }
 
+  /// Releases of every format (albums, EPs, Singles), so not "albums".
   String get _albumLabel {
-    return artist.albumCount == 1 ? '1 album' : '${artist.albumCount} albums';
+    return artist.albumCount == 1
+        ? '1 release'
+        : '${artist.albumCount} releases';
   }
 
   String get _songLabel {
