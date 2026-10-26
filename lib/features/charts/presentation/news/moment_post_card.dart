@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/design/sonus_theme.dart';
 import '../../../../core/design/widgets/sonus_decorations.dart';
+import '../../domain/models/chart_type.dart';
 import '../editorial/moment_editorial_desk.dart';
 import '../editorial/moment_publisher.dart';
 import '../editorial/moment_visuals.dart';
@@ -38,87 +39,115 @@ class MomentPostCard extends StatelessWidget {
     final tag = story.tag;
     final hasLinks =
         onOpenSong != null || onOpenAlbum != null || onOpenArtist != null;
+    final facts = story.facts;
+    final releaseName = facts.chartType == ChartType.albums
+        ? facts.title
+        : facts.album;
 
-    return Material(
-      key: ValueKey<String>('moment-post-${story.id}'),
-      color: colors.raisedSurface,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(tokens.metrics.cardRadius + 6),
-        side: BorderSide(color: colors.border),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _Byline(
-              publisher: story.publisher,
-              occurredAt: story.occurredAt,
-              now: now,
-            ),
-            const SizedBox(height: 12),
-            Text(
-              story.headline,
-              key: ValueKey<String>('moment-post-headline-${story.id}'),
-              style: theme.textTheme.titleMedium?.copyWith(
-                color: colors.textPrimary,
-                fontWeight: FontWeight.w800,
-                height: 1.25,
-              ),
-            ),
-            if (body != null) ...[
-              const SizedBox(height: 6),
-              Text(
-                body,
-                key: ValueKey<String>('moment-post-body-${story.id}'),
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: colors.textSecondary,
-                  height: 1.35,
+    // SN-49: one container per story, so a screen reader moves story by
+    // story. The byline, headline and body are read as one item, the
+    // picture's chart and status as another; the buttons stay separate
+    // and say what they open.
+    return Semantics(
+      container: true,
+      child: Material(
+        key: ValueKey<String>('moment-post-${story.id}'),
+        color: colors.raisedSurface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(tokens.metrics.cardRadius + 6),
+          side: BorderSide(color: colors.border),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              MergeSemantics(
+                key: ValueKey<String>('moment-post-story-${story.id}'),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _Byline(
+                      publisher: story.publisher,
+                      occurredAt: story.occurredAt,
+                      now: now,
+                    ),
+                    const SizedBox(height: 12),
+                    Text(
+                      story.headline,
+                      key: ValueKey<String>('moment-post-headline-${story.id}'),
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        color: colors.textPrimary,
+                        fontWeight: FontWeight.w800,
+                        height: 1.25,
+                      ),
+                    ),
+                    if (body != null) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        body,
+                        key: ValueKey<String>('moment-post-body-${story.id}'),
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: colors.textSecondary,
+                          height: 1.35,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
+              const SizedBox(height: 14),
+              MergeSemantics(child: _Collage(story: story)),
+              if (hasLinks || tag != null) ...[
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    if (onOpenSong != null)
+                      _LinkChip(
+                        key: ValueKey<String>('moment-post-song-${story.id}'),
+                        icon: Icons.music_note_rounded,
+                        label: 'Song',
+                        spokenLabel: 'Song options, ${facts.title}',
+                        onPressed: onOpenSong!,
+                      ),
+                    if (onOpenAlbum != null)
+                      _LinkChip(
+                        key: ValueKey<String>('moment-post-album-${story.id}'),
+                        icon: Icons.album_rounded,
+                        label: facts.releaseLabel,
+                        spokenLabel: releaseName == null
+                            ? 'Open ${facts.releaseLabel}'
+                            : 'Open ${facts.releaseLabel}, $releaseName',
+                        onPressed: onOpenAlbum!,
+                      ),
+                    if (onOpenArtist != null)
+                      _LinkChip(
+                        key: ValueKey<String>('moment-post-artist-${story.id}'),
+                        icon: Icons.person_rounded,
+                        label: 'Artist',
+                        spokenLabel: 'Open artist, ${facts.artist}',
+                        onPressed: onOpenArtist!,
+                      ),
+                    if (tag != null)
+                      MergeSemantics(
+                        child: _Pill(
+                          key: ValueKey<String>('moment-post-tag-${story.id}'),
+                          label: tag,
+                          background: colors.accentPrimary.withValues(
+                            alpha: 0.14,
+                          ),
+                          foreground: colors.textPrimary,
+                        ),
+                      ),
+                  ],
+                ),
+              ],
             ],
-            const SizedBox(height: 14),
-            _Collage(story: story),
-            if (hasLinks || tag != null) ...[
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  if (onOpenSong != null)
-                    _LinkChip(
-                      key: ValueKey<String>('moment-post-song-${story.id}'),
-                      icon: Icons.music_note_rounded,
-                      label: 'Song',
-                      onPressed: onOpenSong!,
-                    ),
-                  if (onOpenAlbum != null)
-                    _LinkChip(
-                      key: ValueKey<String>('moment-post-album-${story.id}'),
-                      icon: Icons.album_rounded,
-                      label: story.facts.releaseLabel,
-                      onPressed: onOpenAlbum!,
-                    ),
-                  if (onOpenArtist != null)
-                    _LinkChip(
-                      key: ValueKey<String>('moment-post-artist-${story.id}'),
-                      icon: Icons.person_rounded,
-                      label: 'Artist',
-                      onPressed: onOpenArtist!,
-                    ),
-                  if (tag != null)
-                    _Pill(
-                      key: ValueKey<String>('moment-post-tag-${story.id}'),
-                      label: tag,
-                      background: colors.accentPrimary.withValues(alpha: 0.14),
-                      foreground: colors.textPrimary,
-                    ),
-                ],
-              ),
-            ],
-          ],
+          ),
         ),
       ),
     );
@@ -408,11 +437,15 @@ class _LinkChip extends StatelessWidget {
     super.key,
     required this.icon,
     required this.label,
+    required this.spokenLabel,
     required this.onPressed,
   });
 
   final IconData icon;
   final String label;
+
+  /// What a screen reader says: which song, release or artist it opens.
+  final String spokenLabel;
   final VoidCallback onPressed;
 
   @override
@@ -422,7 +455,7 @@ class _LinkChip extends StatelessWidget {
     return OutlinedButton.icon(
       onPressed: onPressed,
       icon: Icon(icon, size: 18, color: colors.accentPrimary),
-      label: Text(label),
+      label: Text(label, semanticsLabel: spokenLabel),
       style: OutlinedButton.styleFrom(
         minimumSize: const Size(44, 44),
         foregroundColor: colors.textPrimary,
