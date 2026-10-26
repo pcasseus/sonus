@@ -25,6 +25,7 @@ class ArtistProfileHeader extends StatelessWidget {
     required this.portraitPath,
     required this.atmosphere,
     this.standing,
+    this.summary,
   });
 
   final LibraryArtist artist;
@@ -32,6 +33,9 @@ class ArtistProfileHeader extends StatelessWidget {
   final String? portraitPath;
   final SonusAtmosphereColors atmosphere;
   final ArtistStanding? standing;
+
+  /// The line under the name; the artist's album and song counts if null.
+  final String? summary;
 
   /// The banner's shape, as the banner crop editor frames it.
   static const double bannerAspectRatio = 4 / 3;
@@ -91,6 +95,7 @@ class ArtistProfileHeader extends StatelessWidget {
                 artist: artist,
                 portraitPath: portraitPath,
                 standing: standing,
+                summary: summary,
                 atmosphere: atmosphere,
                 portraitSize: _portraitSize,
               ),
@@ -210,6 +215,7 @@ class _Identity extends StatelessWidget {
     required this.artist,
     required this.portraitPath,
     required this.standing,
+    required this.summary,
     required this.atmosphere,
     required this.portraitSize,
   });
@@ -217,6 +223,7 @@ class _Identity extends StatelessWidget {
   final LibraryArtist artist;
   final String? portraitPath;
   final ArtistStanding? standing;
+  final String? summary;
   final SonusAtmosphereColors atmosphere;
   final double portraitSize;
 
@@ -272,8 +279,9 @@ class _Identity extends StatelessWidget {
                   ),
                 ),
               Text(
-                '${sonusCount(artist.albumCount, 'album')} • '
-                '${sonusCount(artist.songCount, 'song')}',
+                summary ??
+                    '${sonusCount(artist.albumCount, 'album')} • '
+                        '${sonusCount(artist.songCount, 'song')}',
                 key: const ValueKey<String>('artist-profile-summary'),
                 style: theme.textTheme.bodyMedium?.copyWith(
                   color: colors.textSecondary,

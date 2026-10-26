@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../../../../core/database/app_database.dart';
 import '../../../library/application/repositories/library_query_repository.dart';
+import '../../../library/application/services/library_organization_service.dart';
 import '../../../playlists/application/services/playlist_service.dart';
 import '../../application/controllers/playback_coordinator.dart';
 import '../../application/controllers/playback_preferences_controller.dart';
@@ -139,6 +140,14 @@ class _PlaybackScopeState extends State<PlaybackScope>
     unawaited(_initializeLyrics(appDatabase: database, version: version));
   }
 
+  static LibraryOrganizationService? _organizationOf(BuildContext context) {
+    try {
+      return context.read<LibraryOrganizationService?>();
+    } on ProviderNotFoundException {
+      return null;
+    }
+  }
+
   /// Gives Android Auto the same library and playlists the app shows.
   void _updateCatalog({
     required LibraryQueryRepository? library,
@@ -159,6 +168,7 @@ class _PlaybackScopeState extends State<PlaybackScope>
       library: RepositoryMediaBrowseLibrary(
         library: library,
         playlists: playlists,
+        organization: _organizationOf(context),
         recentlyPlayedSongIds: (limit) async =>
             RecentlyPlayedSongQuery(await database.database).songIds(limit),
       ),

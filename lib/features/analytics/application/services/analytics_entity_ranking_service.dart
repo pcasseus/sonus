@@ -6,17 +6,21 @@ import '../models/analytics_entity_rankings.dart';
 import '../models/analytics_period.dart';
 import '../models/analytics_ranked_entity.dart';
 import 'analytics_time_window_resolver.dart';
+import 'listening_artist_attribution.dart';
 
 class AnalyticsEntityRankingService {
   const AnalyticsEntityRankingService({
     required QualifiedPlayRepository qualifiedPlays,
     AnalyticsTimeWindowResolver timeWindowResolver =
         const AnalyticsTimeWindowResolver(),
+    ListeningArtistAttribution? artistAttribution,
   }) : _qualifiedPlays = qualifiedPlays,
-       _timeWindowResolver = timeWindowResolver;
+       _timeWindowResolver = timeWindowResolver,
+       _artistAttribution = artistAttribution;
 
   final QualifiedPlayRepository _qualifiedPlays;
   final AnalyticsTimeWindowResolver _timeWindowResolver;
+  final ListeningArtistAttribution? _artistAttribution;
 
   Future<AnalyticsEntityRankings> load({
     required AnalyticsPeriod period,
@@ -41,11 +45,20 @@ class AnalyticsEntityRankingService {
       qualifiedBefore: window.endUtc,
     );
 
+    final attributor = await ArtistAttributor.of(_artistAttribution);
+
     return AnalyticsEntityRankings(
       period: period,
       window: window,
       songs: _rank(plays, (play) => play.songId, limit: limit),
-      artists: _rank(plays, (play) => play.artistId, limit: limit),
+      artists: _rank(
+        plays,
+        (play) => attributor.artistFor(
+          artistId: play.artistId,
+          albumId: play.albumId,
+        ),
+        limit: limit,
+      ),
       albums: _rank(plays, (play) => play.albumId, limit: limit),
       albumEditions: _rank(plays, (play) => play.albumEditionId, limit: limit),
     );

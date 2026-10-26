@@ -11,6 +11,7 @@ import '../analytics_behavior_metrics_service.dart';
 import '../analytics_entity_ranking_service.dart';
 import '../analytics_listening_duration_service.dart';
 import '../analytics_summary_service.dart';
+import '../listening_artist_attribution.dart';
 
 abstract interface class YearInSonusLoader {
   Future<YearInSonusRecap> load({required int year});
@@ -23,17 +24,20 @@ class YearInSonusService implements YearInSonusLoader {
     required AnalyticsBehaviorMetricsService behaviorMetrics,
     required AnalyticsEntityRankingService rankings,
     required QualifiedPlayRepository qualifiedPlays,
+    ListeningArtistAttribution? artistAttribution,
   }) : _summaries = summaries,
        _listeningDurations = listeningDurations,
        _behaviorMetrics = behaviorMetrics,
        _rankings = rankings,
-       _qualifiedPlays = qualifiedPlays;
+       _qualifiedPlays = qualifiedPlays,
+       _artistAttribution = artistAttribution;
 
   final AnalyticsSummaryService _summaries;
   final AnalyticsListeningDurationService _listeningDurations;
   final AnalyticsBehaviorMetricsService _behaviorMetrics;
   final AnalyticsEntityRankingService _rankings;
   final QualifiedPlayRepository _qualifiedPlays;
+  final ListeningArtistAttribution? _artistAttribution;
 
   @override
   Future<YearInSonusRecap> load({required int year}) async {
@@ -47,6 +51,10 @@ class YearInSonusService implements YearInSonusLoader {
 
     final startUtc = startLocal.toUtc();
     final endUtc = endLocal.toUtc();
+
+    final attributor = await ArtistAttributor.of(_artistAttribution);
+    String artistOf(QualifiedPlay play) =>
+        attributor.artistFor(artistId: play.artistId, albumId: play.albumId);
 
     final summaryFuture = _summaries.load(
       period: AnalyticsPeriod.year,
@@ -104,6 +112,7 @@ class YearInSonusService implements YearInSonusLoader {
       months: _buildMonths(
         year: year,
         plays: plays,
+        artistOf: artistOf,
         monthlyListeningDurations: [
           for (final duration in monthlyListening)
             duration.totalAudibleListeningDuration,
@@ -113,7 +122,7 @@ class YearInSonusService implements YearInSonusLoader {
       newArtistIds: _discoveries(
         year: year,
         plays: historicalPlays,
-        entityId: (play) => play.artistId,
+        entityId: artistOf,
       ),
       newAlbumIds: _discoveries(
         year: year,
@@ -144,6 +153,7 @@ class YearInSonusService implements YearInSonusLoader {
   List<YearInSonusMonth> _buildMonths({
     required int year,
     required List<QualifiedPlay> plays,
+    required String Function(QualifiedPlay play) artistOf,
     required List<Duration> monthlyListeningDurations,
   }) {
     final byMonth = <int, List<QualifiedPlay>>{};
@@ -168,10 +178,7 @@ class YearInSonusService implements YearInSonusLoader {
           streams: monthPlays.length,
           listeningDuration: monthlyListeningDurations[index],
           topSongId: _topEntity(monthPlays, entityId: (play) => play.songId),
-          topArtistId: _topEntity(
-            monthPlays,
-            entityId: (play) => play.artistId,
-          ),
+          topArtistId: _topEntity(monthPlays, entityId: artistOf),
         );
       }),
     );

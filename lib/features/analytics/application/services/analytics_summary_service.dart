@@ -6,17 +6,21 @@ import '../models/analytics_period.dart';
 import '../models/analytics_summary.dart';
 import '../models/analytics_time_window.dart';
 import 'analytics_time_window_resolver.dart';
+import 'listening_artist_attribution.dart';
 
 class AnalyticsSummaryService {
   const AnalyticsSummaryService({
     required QualifiedPlayRepository qualifiedPlays,
     AnalyticsTimeWindowResolver timeWindowResolver =
         const AnalyticsTimeWindowResolver(),
+    ListeningArtistAttribution? artistAttribution,
   }) : _qualifiedPlays = qualifiedPlays,
-       _timeWindowResolver = timeWindowResolver;
+       _timeWindowResolver = timeWindowResolver,
+       _artistAttribution = artistAttribution;
 
   final QualifiedPlayRepository _qualifiedPlays;
   final AnalyticsTimeWindowResolver _timeWindowResolver;
+  final ListeningArtistAttribution? _artistAttribution;
 
   Future<AnalyticsSummary> load({
     required AnalyticsPeriod period,
@@ -32,13 +36,19 @@ class AnalyticsSummaryService {
       qualifiedBefore: window.endUtc,
     );
 
-    return _buildSummary(period: period, window: window, plays: plays);
+    return _buildSummary(
+      period: period,
+      window: window,
+      plays: plays,
+      attributor: await ArtistAttributor.of(_artistAttribution),
+    );
   }
 
   AnalyticsSummary _buildSummary({
     required AnalyticsPeriod period,
     required AnalyticsTimeWindow window,
     required List<QualifiedPlay> plays,
+    required ArtistAttributor attributor,
   }) {
     final songIds = <String>{};
     final artistIds = <String>{};
@@ -51,7 +61,9 @@ class AnalyticsSummaryService {
 
     for (final play in plays) {
       songIds.add(play.songId);
-      artistIds.add(play.artistId);
+      artistIds.add(
+        attributor.artistFor(artistId: play.artistId, albumId: play.albumId),
+      );
       albumIds.add(play.albumId);
 
       totalListeningMilliseconds += play.listenedDuration.inMilliseconds;

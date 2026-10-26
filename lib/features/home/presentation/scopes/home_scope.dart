@@ -8,6 +8,7 @@ import '../../../../core/events/library_change_signal.dart';
 import '../../../analytics/application/services/analytics_artist_listening_duration_service.dart';
 import '../../../analytics/application/services/analytics_entity_ranking_service.dart';
 import '../../../analytics/domain/repositories/playback_listening_segment_repository.dart';
+import '../../../analytics/presentation/scopes/listening_artist_attribution_lookup.dart';
 import '../../../analytics/domain/repositories/playback_session_repository.dart';
 import '../../../analytics/domain/repositories/qualified_play_repository.dart';
 import '../../../library/application/repositories/library_query_repository.dart';
@@ -90,14 +91,17 @@ class _HomeScopeState extends State<HomeScope> {
       return;
     }
 
+    final attribution = listeningArtistAttributionOf(context);
     final service = HomeDataService(
       library: library,
       analyticsRankings: AnalyticsEntityRankingService(
         qualifiedPlays: qualifiedPlays,
+        artistAttribution: attribution,
       ),
       artistListeningDurations: AnalyticsArtistListeningDurationService(
         playbackSessions: playbackSessions,
         listeningSegments: listeningSegments,
+        artistAttribution: attribution,
       ),
     );
 

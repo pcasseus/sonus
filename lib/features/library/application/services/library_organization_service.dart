@@ -1,3 +1,6 @@
+import 'dart:developer' as developer;
+
+import '../../../analytics/application/services/listening_artist_attribution.dart';
 import '../../domain/entities/library_organization.dart';
 import '../../domain/repositories/library_organization_repository.dart';
 import '../models/library_album.dart';
@@ -6,11 +9,11 @@ import '../repositories/library_query_repository.dart';
 
 /// Why an artist is where it is in the Library.
 enum ArtistPlacementReason {
-  /// Its own Library entry: the default.
+  /// Its own Library entry: the artist owns at least one release.
   standalone,
 
-  /// Grouped automatically: every credit is on one soundtrack or cast
-  /// recording owned by someone else, and the artist owns no albums.
+  /// A contributor: the artist owns no release, so it is shown inside the
+  /// projects it is credited on instead of as a Library entry.
   automatic,
 
   /// Placed by the user, grouped or standalone.
@@ -22,43 +25,100 @@ class ArtistLibraryPlacement {
     required this.artistId,
     required this.reason,
     this.projectAlbumId,
+    this.projectAlbumIds = const [],
+    this.isShown = true,
   });
 
   final String artistId;
   final ArtistPlacementReason reason;
 
-  /// The project the artist is shown under, when grouped.
+  /// The project the artist is mainly shown under (where it has the most
+  /// songs), when it is a contributor.
   final String? projectAlbumId;
+
+  /// Every project the contributor is credited on, main project first.
+  final List<String> projectAlbumIds;
+
+  /// Whether the artist has its own entry in the Library and Artist Search.
+  final bool isShown;
 
   bool get isGrouped => projectAlbumId != null;
 }
 
-/// Where every artist appears. Artists missing from [placements] are
-/// standalone. Grouping only moves an artist's Library entry under its
-/// project: credits, search results and profiles are unchanged.
+/// The one rule for artist identity in the Library (SN-45).
+///
+/// A release belongs to its owner (the album artist the importer decided,
+/// such as a soundtrack's cast). An artist with at least one release of its
+/// own is a **standalone** artist: it has a Library entry, appears in
+/// Artist Search and artist rankings, and lists releases it is only
+/// credited on under Collaborations. An artist that owns no release is a
+/// **contributor**: its credits stay exactly as tagged, but it is shown
+/// inside the projects it appears on, never as a catalog of its own. The
+/// user can promote a contributor ("Show as its own artist") or group an
+/// artist that owns nothing under a project; neither happens automatically.
+///
+/// Nothing here changes stored credits, songs or listening history.
 class ArtistLibraryOrganization {
   const ArtistLibraryOrganization({
     required this.placements,
     required this.classifications,
+    this.albumOwners = const {},
+    this.catalogOwners,
   });
+
+  /// Everything is standalone: used when the organization can't be loaded,
+  /// so the Library fails open rather than hiding artists.
+  static const ArtistLibraryOrganization unrestricted =
+      ArtistLibraryOrganization(placements: {}, classifications: {});
 
   final Map<String, ArtistLibraryPlacement> placements;
   final Map<String, AlbumReleaseClassification> classifications;
 
-  ArtistLibraryPlacement placementOf(String artistId) =>
-      placements[artistId] ??
-      ArtistLibraryPlacement(
-        artistId: artistId,
-        reason: ArtistPlacementReason.standalone,
-      );
+  /// The owner of every release with songs, by album id.
+  final Map<String, String> albumOwners;
 
-  /// Whether the artist gets its own entry in the Library's artist list.
-  bool isShownInLibrary(String artistId) => !placementOf(artistId).isGrouped;
+  /// Artists that own at least one release with songs. Null means unknown,
+  /// in which case every artist without a placement is standalone.
+  final Set<String>? catalogOwners;
 
-  /// Artists shown under [albumId]'s collaborators instead of the Library.
+  ArtistLibraryPlacement placementOf(String artistId) {
+    final placement = placements[artistId];
+    if (placement != null) return placement;
+    final owner = catalogOwners?.contains(artistId) ?? true;
+    return ArtistLibraryPlacement(
+      artistId: artistId,
+      reason: owner
+          ? ArtistPlacementReason.standalone
+          : ArtistPlacementReason.automatic,
+      isShown: owner,
+    );
+  }
+
+  /// Whether the artist gets its own entry in the Library's artist list,
+  /// Artist Search and artist rankings.
+  bool isShownInLibrary(String artistId) => placementOf(artistId).isShown;
+
+  /// Whether the artist owns a release of its own.
+  bool ownsCatalog(String artistId) =>
+      catalogOwners?.contains(artistId) ?? true;
+
+  /// The artist a play by [artistId] on [albumId] counts for at artist
+  /// level. A standalone artist keeps its own plays; a contributor's plays
+  /// count for the owner of the release they are on. Every play counts for
+  /// exactly one artist.
+  String attributedArtistId({
+    required String artistId,
+    required String albumId,
+  }) {
+    if (isShownInLibrary(artistId)) return artistId;
+    return albumOwners[albumId] ?? artistId;
+  }
+
+  /// Contributors shown under [albumId]'s collaborators.
   List<String> groupedUnder(String albumId) => [
     for (final placement in placements.values)
-      if (placement.projectAlbumId == albumId) placement.artistId,
+      if (!placement.isShown && placement.projectAlbumIds.contains(albumId))
+        placement.artistId,
   ]..sort();
 }
 
@@ -99,9 +159,10 @@ class ProjectAssignmentPreview {
   bool get allowed => refusal == null;
 }
 
-/// Soundtrack and collaborator organization: release classification,
-/// automatic grouping of soundtrack-only performers, and the reversible
-/// "Assign to Project" / "Show as its own artist" choices.
+/// Artist identity and release organization: who is a standalone artist
+/// and who is a contributor (see [ArtistLibraryOrganization]), release
+/// classification, and the reversible "Assign to Project" / "Show as its
+/// own artist" choices.
 class LibraryOrganizationService {
   const LibraryOrganizationService({
     required this.library,
@@ -125,50 +186,69 @@ class LibraryOrganizationService {
       for (final a in await organization.getAssignments()) a.artistId: a,
     };
 
-    final ownerOf = {for (final album in albums) album.albumId: album.artistId};
+    final ownerOf = {
+      for (final album in albums)
+        if (album.trackCount > 0) album.albumId: album.artistId,
+    };
     final owners = ownerOf.values.toSet();
-    final projectsOf = <String, Set<String>>{};
 
+    // Songs per release, for every artist credited on a release it does
+    // not own.
+    final songsOnProject = <String, Map<String, int>>{};
     for (final credit in credits) {
-      projectsOf.putIfAbsent(credit.artistId, () => {}).add(credit.albumId);
+      final owner = ownerOf[credit.albumId];
+      if (owner == null || owner == credit.artistId) continue;
+      final projects = songsOnProject.putIfAbsent(credit.artistId, () => {});
+      projects[credit.albumId] =
+          (projects[credit.albumId] ?? 0) + credit.songCount;
+    }
+
+    List<String> projectsOf(String artistId) {
+      final projects = songsOnProject[artistId] ?? const <String, int>{};
+      return projects.keys.toList()..sort((a, b) {
+        final bySongs = projects[b]!.compareTo(projects[a]!);
+        return bySongs != 0 ? bySongs : a.compareTo(b);
+      });
     }
 
     final placements = <String, ArtistLibraryPlacement>{};
 
     for (final assignment in assignments.values) {
+      final grouped = assignment.mode == ArtistProjectAssignmentMode.grouped;
       placements[assignment.artistId] = ArtistLibraryPlacement(
         artistId: assignment.artistId,
         reason: ArtistPlacementReason.manual,
-        projectAlbumId: assignment.mode == ArtistProjectAssignmentMode.grouped
-            ? assignment.albumId
-            : null,
+        projectAlbumId: grouped ? assignment.albumId : null,
+        projectAlbumIds: grouped
+            ? [
+                assignment.albumId!,
+                for (final id in projectsOf(assignment.artistId))
+                  if (id != assignment.albumId) id,
+              ]
+            : const [],
+        isShown: !grouped,
       );
     }
 
-    for (final MapEntry(key: artistId, value: projects) in projectsOf.entries) {
-      if (placements.containsKey(artistId) ||
-          owners.contains(artistId) ||
-          projects.length != 1) {
+    for (final artistId in songsOnProject.keys) {
+      if (placements.containsKey(artistId) || owners.contains(artistId)) {
         continue;
       }
-
-      final project = projects.single;
-      final classification = classifications[project];
-
-      if (classification != null &&
-          classification.groupsPerformers &&
-          ownerOf[project] != artistId) {
-        placements[artistId] = ArtistLibraryPlacement(
-          artistId: artistId,
-          reason: ArtistPlacementReason.automatic,
-          projectAlbumId: project,
-        );
-      }
+      final projects = projectsOf(artistId);
+      placements[artistId] = ArtistLibraryPlacement(
+        artistId: artistId,
+        reason: ArtistPlacementReason.automatic,
+        projectAlbumId: projects.first,
+        projectAlbumIds: List.unmodifiable(projects),
+        isShown: false,
+      );
     }
 
     return ArtistLibraryOrganization(
       placements: Map.unmodifiable(placements),
       classifications: Map.unmodifiable(classifications),
+      albumOwners: Map.unmodifiable(ownerOf),
+      catalogOwners: Set.unmodifiable(owners),
     );
   }
 
@@ -281,5 +361,37 @@ class LibraryOrganizationService {
         updatedAt: timestamp,
       ),
     );
+  }
+}
+
+/// Artist-level statistics follow the Library's artist identity: a
+/// contributor's plays count for the owner of the release they are on.
+/// Fails open: if the organization can't be read, plays count for their
+/// stored artist, as before.
+class OrganizationArtistAttribution implements ListeningArtistAttribution {
+  const OrganizationArtistAttribution(this._organization);
+
+  final LibraryOrganizationService _organization;
+
+  @override
+  Future<ArtistAttributor> load() async {
+    try {
+      final organization = await _organization.load();
+      return ArtistAttributor(
+        (artistId, albumId) => organization.attributedArtistId(
+          artistId: artistId,
+          albumId: albumId,
+        ),
+      );
+    } catch (error, stackTrace) {
+      developer.log(
+        'Artist attribution could not be read (${error.runtimeType})',
+        name: 'sonus.library.organization',
+        level: 900,
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return ArtistAttributor.identity;
+    }
   }
 }

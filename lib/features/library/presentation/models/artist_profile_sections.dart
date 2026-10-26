@@ -1,4 +1,5 @@
 import '../../../analytics/application/models/analytics_ranked_entity.dart';
+import '../../application/models/library_album.dart';
 import '../../application/models/library_artist.dart';
 import '../../application/models/library_track.dart';
 import '../../application/models/project_collaborator.dart';
@@ -44,6 +45,26 @@ class ArtistProfileCollaborator {
   SongArtistCreditRole? get leadRole => roles.isEmpty
       ? null
       : SongArtistCreditRole.values.firstWhere(roles.contains);
+}
+
+/// A project a contributor appears on: the releases one owner (such as a
+/// soundtrack's cast) owns, with the contributor's songs on them.
+class ContributorAppearance {
+  const ContributorAppearance({
+    required this.ownerArtistId,
+    required this.ownerName,
+    required this.albums,
+    required this.tracks,
+  });
+
+  final String ownerArtistId;
+  final String ownerName;
+
+  /// The owner's releases the contributor is on, newest first.
+  final List<LibraryAlbum> albums;
+
+  /// The contributor's songs there, in release then track order.
+  final List<LibraryTrack> tracks;
 }
 
 /// Presentation-only derivations for the Artist Profile sections. They read
@@ -99,10 +120,12 @@ abstract final class ArtistProfileSections {
   /// Songs the artist collaborated on: featured and guest credits, plus
   /// main (primary or co-primary) credits on a release another artist owns,
   /// such as a duet on someone else's album or a soundtrack contribution.
+  /// With [albumsById], newest release first; otherwise by title.
   static List<LibraryTrack> collaborations({
     required Iterable<LibraryTrack> mainTracks,
     required Iterable<LibraryTrack> featuredTracks,
     required Set<String> ownedAlbumIds,
+    Map<String, LibraryAlbum>? albumsById,
   }) {
     final seen = <String>{};
     final result = <LibraryTrack>[];
@@ -114,9 +137,103 @@ abstract final class ArtistProfileSections {
       if (seen.add(track.songId)) result.add(track);
     }
 
+    if (albumsById == null) {
+      result.sort((a, b) {
+        final byTitle = a.title.toLowerCase().compareTo(b.title.toLowerCase());
+        return byTitle != 0 ? byTitle : a.songId.compareTo(b.songId);
+      });
+    } else {
+      result.sort((a, b) => compareByRelease(a, b, albumsById));
+    }
+
+    return List.unmodifiable(result);
+  }
+
+  /// Releases newest first by release date; undated releases last. Ties
+  /// fall back to title, then ID, so the order never shifts.
+  static int compareReleases(LibraryAlbum a, LibraryAlbum b) {
+    final aDate = a.releaseDate;
+    final bDate = b.releaseDate;
+    if (aDate != null && bDate != null) {
+      final byDate = bDate.compareTo(aDate);
+      if (byDate != 0) return byDate;
+    } else if (aDate != null || bDate != null) {
+      return aDate == null ? 1 : -1;
+    }
+    final byTitle = a.title.toLowerCase().compareTo(b.title.toLowerCase());
+    return byTitle != 0 ? byTitle : a.albumId.compareTo(b.albumId);
+  }
+
+  /// Songs by their release (newest first), then disc and track.
+  static int compareByRelease(
+    LibraryTrack a,
+    LibraryTrack b,
+    Map<String, LibraryAlbum> albumsById,
+  ) {
+    if (a.albumId != b.albumId) {
+      final aAlbum = albumsById[a.albumId];
+      final bAlbum = albumsById[b.albumId];
+      if (aAlbum != null && bAlbum != null) {
+        return compareReleases(aAlbum, bAlbum);
+      }
+      if (aAlbum != null || bAlbum != null) return aAlbum == null ? 1 : -1;
+      return a.albumId.compareTo(b.albumId);
+    }
+    for (final comparison in [
+      a.discNumber.compareTo(b.discNumber),
+      a.trackNumber.compareTo(b.trackNumber),
+      a.title.toLowerCase().compareTo(b.title.toLowerCase()),
+      a.songId.compareTo(b.songId),
+    ]) {
+      if (comparison != 0) return comparison;
+    }
+    return 0;
+  }
+
+  /// Where a contributor (an artist with no release of its own) appears:
+  /// one entry per release owner, the main project (most songs) first.
+  /// With [projectArtistId], only that project.
+  static List<ContributorAppearance> appearances({
+    required Iterable<LibraryTrack> tracks,
+    required Map<String, LibraryAlbum> albumsById,
+    String? projectArtistId,
+  }) {
+    final byOwner = <String, List<LibraryTrack>>{};
+    final seen = <String>{};
+
+    for (final track in tracks) {
+      final album = albumsById[track.albumId];
+      if (album == null || !seen.add(track.songId)) continue;
+      if (projectArtistId != null && album.artistId != projectArtistId) {
+        continue;
+      }
+      byOwner.putIfAbsent(album.artistId, () => []).add(track);
+    }
+
+    final result = [
+      for (final MapEntry(key: ownerId, value: ownerTracks) in byOwner.entries)
+        ContributorAppearance(
+          ownerArtistId: ownerId,
+          ownerName: albumsById[ownerTracks.first.albumId]!.artistName,
+          albums: List.unmodifiable(
+            {
+              for (final track in ownerTracks)
+                track.albumId: albumsById[track.albumId]!,
+            }.values.toList()..sort(compareReleases),
+          ),
+          tracks: List.unmodifiable(
+            ownerTracks..sort((a, b) => compareByRelease(a, b, albumsById)),
+          ),
+        ),
+    ];
+
     result.sort((a, b) {
-      final byTitle = a.title.toLowerCase().compareTo(b.title.toLowerCase());
-      return byTitle != 0 ? byTitle : a.songId.compareTo(b.songId);
+      final bySongs = b.tracks.length.compareTo(a.tracks.length);
+      if (bySongs != 0) return bySongs;
+      final byName = a.ownerName.toLowerCase().compareTo(
+        b.ownerName.toLowerCase(),
+      );
+      return byName != 0 ? byName : a.ownerArtistId.compareTo(b.ownerArtistId);
     });
 
     return List.unmodifiable(result);

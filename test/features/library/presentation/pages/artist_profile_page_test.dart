@@ -170,14 +170,18 @@ void main() {
       },
     );
 
-    testWidgets('shows empty album and song sections', (tester) async {
+    testWidgets('shows no empty sections (SN-45)', (tester) async {
       final repository = FakeLibraryQueryRepository(artist: createArtist());
 
       await tester.pumpWidget(buildSubject(repository: repository));
 
       await tester.pumpAndSettle();
 
-      expect(find.text('No albums yet'), findsOneWidget);
+      expect(find.text('No albums yet'), findsNothing);
+      expect(
+        find.byKey(const ValueKey<String>('artist-profile-albums')),
+        findsNothing,
+      );
 
       expect(find.text('Songs'), findsNothing);
       expect(find.text('Top Tracks'), findsNothing);

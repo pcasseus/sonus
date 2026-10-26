@@ -7,6 +7,7 @@ import '../../domain/repositories/playback_session_repository.dart';
 import '../models/analytics_period.dart';
 import '../models/analytics_time_window.dart';
 import 'analytics_time_window_resolver.dart';
+import 'listening_artist_attribution.dart';
 
 class AnalyticsArtistListeningDurationService {
   const AnalyticsArtistListeningDurationService({
@@ -14,13 +15,16 @@ class AnalyticsArtistListeningDurationService {
     required PlaybackListeningSegmentRepository listeningSegments,
     AnalyticsTimeWindowResolver timeWindowResolver =
         const AnalyticsTimeWindowResolver(),
+    ListeningArtistAttribution? artistAttribution,
   }) : _playbackSessions = playbackSessions,
        _listeningSegments = listeningSegments,
-       _timeWindowResolver = timeWindowResolver;
+       _timeWindowResolver = timeWindowResolver,
+       _artistAttribution = artistAttribution;
 
   final PlaybackSessionRepository _playbackSessions;
   final PlaybackListeningSegmentRepository _listeningSegments;
   final AnalyticsTimeWindowResolver _timeWindowResolver;
+  final ListeningArtistAttribution? _artistAttribution;
 
   Future<Map<String, Duration>> load({
     required AnalyticsPeriod period,
@@ -35,6 +39,7 @@ class AnalyticsArtistListeningDurationService {
       startedBefore: window.endUtc,
     );
 
+    final attributor = await ArtistAttributor.of(_artistAttribution);
     final sessionCache = <String, PlaybackSession?>{};
     final totalsMilliseconds = <String, int>{};
 
@@ -58,7 +63,10 @@ class AnalyticsArtistListeningDurationService {
       }
 
       totalsMilliseconds.update(
-        session.artistId,
+        attributor.artistFor(
+          artistId: session.artistId,
+          albumId: session.albumId,
+        ),
         (current) => current + duration.inMilliseconds,
         ifAbsent: () => duration.inMilliseconds,
       );

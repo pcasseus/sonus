@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../../../../core/events/library_change_signal.dart';
 
 import '../../../library/application/repositories/library_query_repository.dart';
+import 'listening_artist_attribution_lookup.dart';
 import '../../application/services/analytics_behavior_metrics_service.dart';
 import '../../application/services/analytics_entity_ranking_service.dart';
 import '../../application/services/analytics_listening_duration_service.dart';
@@ -102,8 +103,12 @@ class _MonthlyListeningInsightsScopeState
       return;
     }
 
+    final attribution = listeningArtistAttributionOf(context);
     final service = MonthlyListeningInsightsService(
-      summaries: AnalyticsSummaryService(qualifiedPlays: qualifiedPlays),
+      summaries: AnalyticsSummaryService(
+        qualifiedPlays: qualifiedPlays,
+        artistAttribution: attribution,
+      ),
       listeningDurations: AnalyticsListeningDurationService(
         listeningSegments: listeningSegments,
       ),
@@ -111,10 +116,14 @@ class _MonthlyListeningInsightsScopeState
         playbackSessions: playbackSessions,
         qualifiedPlays: qualifiedPlays,
       ),
-      rankings: AnalyticsEntityRankingService(qualifiedPlays: qualifiedPlays),
+      rankings: AnalyticsEntityRankingService(
+        qualifiedPlays: qualifiedPlays,
+        artistAttribution: attribution,
+      ),
       entityListeningDurations: MonthlyEntityListeningDurationService(
         playbackSessions: playbackSessions,
         listeningSegments: listeningSegments,
+        artistAttribution: attribution,
       ),
       distribution: MonthlyListeningDistributionService(
         qualifiedPlays: qualifiedPlays,

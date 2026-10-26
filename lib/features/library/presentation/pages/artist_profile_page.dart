@@ -8,6 +8,7 @@ import 'package:provider/provider.dart';
 
 import '../../../../core/design/sonus_artwork_palette.dart';
 import '../../../../core/design/sonus_atmosphere_colors.dart';
+import '../../../../core/design/sonus_count_label.dart';
 import '../../../../core/design/sonus_theme.dart';
 import '../../../../core/events/library_change_signal.dart';
 import '../../domain/repositories/song_artist_credit_repository.dart';
@@ -17,6 +18,7 @@ import '../../../artwork/application/services/artwork_assignment_service.dart';
 import '../../../artwork/application/services/artwork_file_picker.dart';
 import '../../../player/application/controllers/playback_coordinator.dart';
 import '../../../playlists/presentation/widgets/add_to_playlist_sheet.dart';
+import '../../application/models/library_artist.dart';
 import '../../application/models/library_track.dart';
 import '../../application/repositories/library_query_repository.dart';
 import '../../application/services/artist_profile_editing_service.dart';
@@ -49,10 +51,15 @@ class ArtistProfilePage extends StatefulWidget {
     this.initialArtistName,
     this.artworkPalette,
     this.changes,
+    this.projectArtistId,
   });
 
   final String artistId;
   final String? initialArtistName;
+
+  /// The project (release owner) this page was opened from. A contributor's
+  /// page then shows only its songs on that project.
+  final String? projectArtistId;
 
   /// Where artwork colours come from; the app-wide cache by default.
   final SonusArtworkPalette? artworkPalette;
@@ -171,6 +178,8 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
       songBlockService: context.read<SongBlockService?>(),
       qualifiedPlays: _qualifiedPlays(context),
       artworkCropService: context.read<ArtworkCropService?>(),
+      organization: context.read<LibraryOrganizationService?>(),
+      projectArtistId: widget.projectArtistId,
     );
 
     // The artwork can change without this State rebuilding: when the
@@ -440,6 +449,16 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
                     .toList(growable: false);
                 final topTracks = controller.topTracks;
 
+                if (controller.isContributor) {
+                  return _contributorBody(
+                    context,
+                    controller,
+                    userId,
+                    atmosphere,
+                    artist,
+                  );
+                }
+
                 final gutter = SonusTheme.of(context).metrics.pageGutter;
                 Widget section(Key key, List<Widget> children) => Padding(
                   key: key,
@@ -500,26 +519,30 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
                             ),
                           ],
                         ),
-                      section(const ValueKey<String>('artist-profile-albums'), [
-                        ArtistProfileSectionHeading(
-                          title: 'Albums',
-                          count: visibleAlbums.length,
+                      if (visibleAlbums.isNotEmpty)
+                        section(
+                          const ValueKey<String>('artist-profile-albums'),
+                          [
+                            ArtistProfileSectionHeading(
+                              title: 'Albums',
+                              count: visibleAlbums.length,
+                            ),
+                            const SizedBox(height: 12),
+                            ArtistProfileAlbumsGrid(
+                              albums: visibleAlbums,
+                              onAlbumTap: (album) {
+                                unawaited(
+                                  _pushAndRefresh(
+                                    AlbumProfilePage(
+                                      albumId: album.albumId,
+                                      initialAlbumTitle: album.title,
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          ],
                         ),
-                        const SizedBox(height: 12),
-                        ArtistProfileAlbumsGrid(
-                          albums: visibleAlbums,
-                          onAlbumTap: (album) {
-                            unawaited(
-                              _pushAndRefresh(
-                                AlbumProfilePage(
-                                  albumId: album.albumId,
-                                  initialAlbumTitle: album.title,
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                      ]),
                       if (visibleCollaborations.isNotEmpty)
                         section(
                           const ValueKey<String>(
@@ -579,7 +602,114 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
           artistId: collaborator.artistId,
           initialArtistName: collaborator.name,
           artworkPalette: widget.artworkPalette,
+          // A contributor's page then shows its songs on this project.
+          projectArtistId: widget.artistId,
         ),
+      ),
+    );
+  }
+
+  /// A contributor's page: who it is and where it appears. It never
+  /// presents the projects as the contributor's own releases.
+  Widget _contributorBody(
+    BuildContext context,
+    ArtistProfileController controller,
+    String? userId,
+    SonusAtmosphereColors atmosphere,
+    LibraryArtist artist,
+  ) {
+    final gutter = SonusTheme.of(context).metrics.pageGutter;
+    final appearances = controller.appearances;
+    final songCount = appearances.fold(
+      0,
+      (sum, appearance) => sum + appearance.tracks.length,
+    );
+    final summary = appearances.length == 1
+        ? 'On ${appearances.single.ownerName} · '
+              '${sonusCount(songCount, 'song')}'
+        : appearances.isEmpty
+        ? 'No songs in your library'
+        : 'On ${appearances.length} projects · '
+              '${sonusCount(songCount, 'song')}';
+
+    return RefreshIndicator(
+      onRefresh: controller.refresh,
+      child: ListView(
+        key: const PageStorageKey<String>('artist-profile-scroll'),
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: EdgeInsets.only(
+          bottom: 32 + MediaQuery.paddingOf(context).bottom,
+        ),
+        children: [
+          ArtistProfileHeader(
+            artist: artist,
+            bannerPath: controller.bannerPath,
+            portraitPath: controller.portraitPath,
+            atmosphere: atmosphere,
+            summary: summary,
+          ),
+          Padding(
+            padding: EdgeInsets.symmetric(horizontal: gutter),
+            child: ArtistProfilePlaybackControls(
+              controller: controller,
+              atmosphere: atmosphere,
+            ),
+          ),
+          for (final appearance in appearances)
+            Padding(
+              key: ValueKey<String>(
+                'artist-profile-appearance-${appearance.ownerArtistId}',
+              ),
+              padding: EdgeInsets.fromLTRB(gutter, 28, gutter, 0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  ArtistProfileSectionHeading(
+                    title: 'On ${appearance.ownerName}',
+                    count: appearance.tracks.length,
+                    subtitle: appearance.albums
+                        .map((album) => album.title)
+                        .join(' · '),
+                  ),
+                  const SizedBox(height: 8),
+                  _tracksList(
+                    context,
+                    controller,
+                    userId,
+                    atmosphere,
+                    tracks: appearance.tracks
+                        .where(_hasAvailableMedia)
+                        .toList(growable: false),
+                    keyPrefix: 'artist-appearance-track',
+                    profileArtistId: artist.artistId,
+                  ),
+                  Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: TextButton.icon(
+                      key: ValueKey<String>(
+                        'artist-profile-open-project-'
+                        '${appearance.ownerArtistId}',
+                      ),
+                      style: TextButton.styleFrom(
+                        minimumSize: const Size(48, 48),
+                      ),
+                      onPressed: () => unawaited(
+                        _pushAndRefresh(
+                          ArtistProfilePage(
+                            artistId: appearance.ownerArtistId,
+                            initialArtistName: appearance.ownerName,
+                            artworkPalette: widget.artworkPalette,
+                          ),
+                        ),
+                      ),
+                      icon: const Icon(Icons.arrow_forward_rounded),
+                      label: Text('Open ${appearance.ownerName}'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
       ),
     );
   }
