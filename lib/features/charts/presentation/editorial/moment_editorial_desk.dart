@@ -275,9 +275,10 @@ class MomentEditorialDesk {
       MomentFamily.artistStreamMilestone => true,
       _ => false,
     };
-    // A first stream is what every debut has; it is not worth a sentence.
+    // A handful of streams is what every early story has; it is not worth
+    // a sentence.
     if (streams != null &&
-        streams > 1 &&
+        facts.hasNotableStreams &&
         !milestoneStory &&
         !used.contains(MomentFact.streams)) {
       sentences.add(

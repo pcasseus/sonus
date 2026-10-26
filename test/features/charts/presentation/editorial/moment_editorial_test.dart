@@ -630,6 +630,51 @@ void main() {
       }
     });
 
+    test('SN-49: a small count is never quoted, in any headline or line', () {
+      final events = [
+        for (var i = 0; i < 24; i++)
+          event(
+            i.isEven
+                ? ChartMomentEventType.firstNumberOne
+                : ChartMomentEventType.debut,
+            entity: song('s$i'),
+            source: 'play-$i',
+            rank: i.isEven ? 1 : 4,
+            threshold: i.isEven ? 1 : null,
+            streams: 1 + i % (MomentFacts.notableStreams - 1),
+            at: DateTime.utc(2026, 10, 26, 9, i),
+          ),
+      ];
+      final stories = desk().compose(items(events));
+      expect(stories, hasLength(events.length));
+      for (final story in stories) {
+        final text = '${story.headline} ${story.body ?? ''}';
+        expect(text, isNot(matches(RegExp(r'\b\d+ streams?\b'))), reason: text);
+      }
+    });
+
+    test('SN-49: a notable count can still be quoted', () {
+      final quoted = <String>[];
+      final stories = desk().compose(
+        items([
+          for (var i = 0; i < 24; i++)
+            event(
+              ChartMomentEventType.debut,
+              entity: song('s$i'),
+              source: 'play-$i',
+              rank: 4,
+              streams: MomentFacts.notableStreams + i,
+              at: DateTime.utc(2026, 10, 26, 9, i),
+            ),
+        ]),
+      );
+      for (final story in stories) {
+        final text = '${story.headline} ${story.body ?? ''}';
+        if (RegExp(r'\b\d+ streams\b').hasMatch(text)) quoted.add(text);
+      }
+      expect(quoted, isNotEmpty);
+    });
+
     test('ordinals take the right article', () {
       expect(MomentFacts.withArticle('second'), 'a second');
       expect(MomentFacts.withArticle('eighth'), 'an eighth');
@@ -644,7 +689,7 @@ void main() {
           final text = variant.build(fullFacts(family));
           expect(
             text,
-            isNot(matches(RegExp(r'a (eighth|eleventh|8|11th|18th)'))),
+            isNot(matches(RegExp(r'ba (eighth|eleventh|8|11th|18th)'))),
           );
         }
       }

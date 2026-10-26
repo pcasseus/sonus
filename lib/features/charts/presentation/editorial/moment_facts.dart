@@ -175,10 +175,18 @@ class MomentFacts {
       rank != null &&
       rank! > ChartRankingEngine.officialChartLimit;
 
+  /// SN-49: the fewest streams a story quotes. A personal chart can be
+  /// led by a song played twice; "debuts at #1 with 2 streams" reads as a
+  /// joke, so smaller counts are left to the chart itself.
+  static const int notableStreams = 10;
+
+  /// Whether [streams] is worth stating; see [notableStreams].
+  bool get hasNotableStreams => (streams ?? 0) >= notableStreams;
+
   Set<MomentFact> get available => {
     if (previousRank != null) MomentFact.previousRank,
     if (previousPeak != null) MomentFact.previousPeak,
-    if (streams != null && streams! > 0) MomentFact.streams,
+    if (hasNotableStreams) MomentFact.streams,
     if (rivalTitle != null) MomentFact.rival,
     if (ordinal != null) MomentFact.ordinal,
     if (album != null &&
