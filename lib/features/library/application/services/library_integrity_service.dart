@@ -1,3 +1,4 @@
+import '../../../../core/identity/text_normalizer.dart';
 import '../../../import/application/folders/source_folder_key.dart';
 import '../../data/daos/library_integrity_dao.dart';
 import '../models/library_health_report.dart';
@@ -231,6 +232,7 @@ class LibraryIntegrityService {
 
     findings.add(await _splitFolders());
     findings.add(await _releaseFormats());
+    findings.add(await _performerOwnedProjects());
 
     return LibraryHealthReport(
       checkedAt: _now(),
@@ -341,6 +343,63 @@ class LibraryIntegrityService {
             songCount: r.songs,
           ),
       ]),
+    );
+  }
+
+  /// SN-45: a release owned by one of its performers while at least two
+  /// other artists lead songs on it looks like a soundtrack or cast
+  /// recording whose files name one performer as album artist. It is only
+  /// listed: the owner can be changed (or a new project made) in Edit
+  /// Release, and nothing is reassigned here. A credit that starts with the
+  /// owner's name ("Owner [Ft. Guest]") counts as the owner's.
+  Future<HealthFinding> _performerOwnedProjects() async {
+    final ownerLeads = <String, int>{};
+    final others = <String, Set<String>>{};
+    final info = <String, ({String title, String owner})>{};
+
+    for (final row in await dao.songLeadsByRelease()) {
+      info[row.albumId] = (title: row.title, owner: row.owner);
+      final owner = TextNormalizer.canonicalize(row.owner);
+      final lead = TextNormalizer.canonicalize(row.lead);
+      if (row.leadId == row.ownerId || lead.startsWith(owner)) {
+        ownerLeads[row.albumId] = (ownerLeads[row.albumId] ?? 0) + 1;
+      } else {
+        others.putIfAbsent(row.albumId, () => {}).add(row.lead);
+      }
+    }
+
+    final releases = [
+      for (final MapEntry(key: albumId, value: leads) in others.entries)
+        if ((ownerLeads[albumId] ?? 0) > 0 && leads.length >= 2)
+          PerformerOwnedProject(
+            albumId: albumId,
+            title: info[albumId]!.title,
+            owner: info[albumId]!.owner,
+            otherLeads: List.unmodifiable(leads.toList()..sort()),
+          ),
+    ]..sort((a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()));
+
+    if (releases.isEmpty) {
+      return const HealthFinding(
+        check: HealthCheck.performerOwnedProjects,
+        severity: HealthSeverity.verified,
+        summary:
+            'No release with several lead artists is owned by just one '
+            'of them.',
+      );
+    }
+
+    return HealthFinding(
+      check: HealthCheck.performerOwnedProjects,
+      severity: HealthSeverity.warning,
+      summary: releases.length == 1
+          ? '1 release with several lead artists is owned by one of them. '
+                'If it is a soundtrack or cast recording, it can own itself.'
+          : '${releases.length} releases with several lead artists are owned '
+                'by one of them. If one is a soundtrack or cast recording, it '
+                'can own itself.',
+      entityIds: [for (final r in releases) r.albumId],
+      performerOwnedProjects: List.unmodifiable(releases),
     );
   }
 

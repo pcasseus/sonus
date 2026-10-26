@@ -194,6 +194,49 @@ class LibraryIntegrityDao {
     'WHERE kind IS NOT NULL',
   );
 
+  /// Each song's lead artist beside its release and the release's owner,
+  /// for releases whose owner nobody has chosen or confirmed by hand.
+  Future<
+    List<
+      ({
+        String albumId,
+        String title,
+        String ownerId,
+        String owner,
+        String leadId,
+        String lead,
+      })
+    >
+  >
+  songLeadsByRelease() async {
+    final rows = await db.rawQuery('''
+      SELECT al.id AS album_id, al.title, al.artist_id AS owner_id,
+        owner.name AS owner, s.artist_id AS lead_id, lead.name AS lead
+      FROM ${DatabaseTables.albums} al
+      JOIN ${DatabaseTables.artists} owner ON owner.id = al.artist_id
+      JOIN ${DatabaseTables.songs} s ON s.album_id = al.id
+      JOIN ${DatabaseTables.artists} lead ON lead.id = s.artist_id
+      WHERE NOT EXISTS (
+        SELECT 1 FROM ${DatabaseTables.metadataFieldStates} m
+        WHERE m.entity_type = 'album' AND m.entity_id = al.id
+          AND m.field_name = 'artistId'
+          AND m.authority IN ('manual', 'confirmed')
+      )
+      ORDER BY al.title COLLATE NOCASE, al.id
+    ''');
+    return [
+      for (final row in rows)
+        (
+          albumId: row['album_id']! as String,
+          title: row['title']! as String,
+          ownerId: row['owner_id']! as String,
+          owner: row['owner']! as String,
+          leadId: row['lead_id']! as String,
+          lead: row['lead']! as String,
+        ),
+    ];
+  }
+
   /// Releases with no stated format and between one and [maxSongs] songs,
   /// title order.
   Future<List<({String albumId, String title, String owner, int songs})>>

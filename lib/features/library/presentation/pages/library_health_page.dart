@@ -212,7 +212,7 @@ class _LibraryHealthPageState extends State<LibraryHealthPage> {
                             severity: severity,
                             busy: _busy,
                             onApply: () => _apply(finding),
-                            onReviewFormats: () => _reviewFormats(finding),
+                            onReview: () => _reviewReleases(finding),
                           ),
                       ],
                     ),
@@ -222,20 +222,20 @@ class _LibraryHealthPageState extends State<LibraryHealthPage> {
     );
   }
 
-  /// Lists the releases that might be Singles; each opens its page, where
-  /// Edit Release sets the format. The report is checked again afterwards.
-  Future<void> _reviewFormats(HealthFinding finding) async {
+  /// Lists the finding's releases; each opens its page, where Edit Release
+  /// changes it. The report is checked again afterwards.
+  Future<void> _reviewReleases(HealthFinding finding) async {
+    final sheet = _ReleaseReviewList.of(finding);
+    if (sheet == null) return;
     final albumId = await showModalBottomSheet<String>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (_) => _FormatReviewList(releases: finding.formatReviews),
+      builder: (_) => sheet,
     );
     if (albumId == null || !mounted) return;
 
-    final release = finding.formatReviews.firstWhere(
-      (r) => r.albumId == albumId,
-    );
+    final release = sheet.releases.firstWhere((r) => r.albumId == albumId);
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
         builder: (_) => AlbumProfilePage(
@@ -261,14 +261,14 @@ class _FindingTile extends StatelessWidget {
     required this.severity,
     required this.busy,
     required this.onApply,
-    required this.onReviewFormats,
+    required this.onReview,
   });
 
   final HealthFinding finding;
   final HealthSeverity severity;
   final bool busy;
   final VoidCallback onApply;
-  final VoidCallback onReviewFormats;
+  final VoidCallback onReview;
 
   @override
   Widget build(BuildContext context) {
@@ -300,10 +300,12 @@ class _FindingTile extends StatelessWidget {
               ),
               child: const Text('Preview'),
             )
-          : finding.formatReviews.isNotEmpty
+          : _ReleaseReviewList.of(finding) != null
           ? TextButton(
-              key: const ValueKey<String>('library-health-review-formats'),
-              onPressed: busy ? null : onReviewFormats,
+              key: ValueKey<String>(
+                'library-health-review-${finding.check.name}',
+              ),
+              onPressed: busy ? null : onReview,
               child: const Text('Review'),
             )
           : finding.corrections.isEmpty
@@ -385,11 +387,62 @@ class _FolderSplitPreview extends StatelessWidget {
   }
 }
 
-/// SN-45: releases that might be Singles. Choosing one returns its id.
-class _FormatReviewList extends StatelessWidget {
-  const _FormatReviewList({required this.releases});
+/// SN-45: releases a finding asks the user to look at, each opening its
+/// page. Choosing one returns its id.
+class _ReleaseReviewList extends StatelessWidget {
+  const _ReleaseReviewList({
+    required this.heading,
+    required this.explanation,
+    required this.releases,
+  });
 
-  final List<ReleaseFormatReview> releases;
+  /// The list for [finding], or null when it lists no releases.
+  static _ReleaseReviewList? of(HealthFinding finding) {
+    if (finding.formatReviews.isNotEmpty) {
+      return _ReleaseReviewList(
+        heading: 'Choose Single, EP or Album',
+        explanation:
+            'These releases have no stated format and only a few songs, so '
+            'they might be Singles. Sonus does not guess: open one and set '
+            'its format in Edit Release. Until then it stays off the Sonus '
+            'Albums & EPs chart; its songs still chart on the Sonus Hot 100, '
+            'and nothing about them changes.',
+        releases: [
+          for (final r in finding.formatReviews)
+            (
+              albumId: r.albumId,
+              title: r.title,
+              subtitle: '${r.owner} · ${sonusCount(r.songCount, 'song')}',
+            ),
+        ],
+      );
+    }
+    if (finding.performerOwnedProjects.isNotEmpty) {
+      return _ReleaseReviewList(
+        heading: 'Owned by one of its performers',
+        explanation:
+            'Other artists lead songs on these releases too, as on a '
+            'soundtrack or cast recording whose files name one performer as '
+            'album artist. If one is such a project, open it and choose '
+            '"Artist or project" in Edit Release to pick its project or '
+            'create one. Credits and streams stay as they are. If the owner '
+            'is right, leave it as it is.',
+        releases: [
+          for (final r in finding.performerOwnedProjects)
+            (
+              albumId: r.albumId,
+              title: r.title,
+              subtitle: '${r.owner} · also led by ${r.otherLeads.join(', ')}',
+            ),
+        ],
+      );
+    }
+    return null;
+  }
+
+  final String heading;
+  final String explanation;
+  final List<({String albumId, String title, String subtitle})> releases;
 
   @override
   Widget build(BuildContext context) {
@@ -402,14 +455,14 @@ class _FormatReviewList extends StatelessWidget {
       minChildSize: 0.4,
       maxChildSize: 0.95,
       builder: (context, controller) => ListView(
-        key: const ValueKey<String>('library-health-format-reviews'),
+        key: const ValueKey<String>('library-health-release-reviews'),
         controller: controller,
         padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),
         children: [
           Semantics(
             header: true,
             child: Text(
-              'Choose Single, EP or Album',
+              heading,
               style: theme.textTheme.titleLarge?.copyWith(
                 fontWeight: FontWeight.w800,
               ),
@@ -417,11 +470,7 @@ class _FormatReviewList extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            'These releases have no stated format and only a few songs, so '
-            'they might be Singles. Sonus does not guess: open one and set '
-            'its format in Edit Release. Until then it stays off the Sonus '
-            'Albums & EPs chart; its songs still chart on the Sonus Hot 100, '
-            'and nothing about them changes.',
+            explanation,
             style: theme.textTheme.bodyMedium?.copyWith(
               color: colors.textSecondary,
             ),
@@ -430,15 +479,13 @@ class _FormatReviewList extends StatelessWidget {
           for (final release in releases)
             ListTile(
               key: ValueKey<String>(
-                'library-health-format-review-${release.albumId}',
+                'library-health-release-review-${release.albumId}',
               ),
               contentPadding: EdgeInsets.zero,
               minTileHeight: 56,
               leading: const Icon(Icons.album_outlined),
               title: Text(release.title),
-              subtitle: Text(
-                '${release.owner} · ${sonusCount(release.songCount, 'song')}',
-              ),
+              subtitle: Text(release.subtitle),
               trailing: const Icon(Icons.chevron_right_rounded),
               onTap: () => Navigator.of(context).pop(release.albumId),
             ),

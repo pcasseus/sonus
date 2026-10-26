@@ -172,7 +172,7 @@ void main() {
       MaterialApp(home: LibraryHealthPage(service: service)),
     );
     final review = find.byKey(
-      const ValueKey<String>('library-health-review-formats'),
+      const ValueKey<String>('library-health-review-releaseFormats'),
     );
     await settle(tester, until: review);
 
