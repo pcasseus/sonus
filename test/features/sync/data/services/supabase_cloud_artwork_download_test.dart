@@ -14,6 +14,10 @@ void main() {
   late List<String> requestedPaths;
   late List<List<int>> chunks;
   late int chunksSent;
+
+  /// Pause between chunks. Socket writes complete once buffered, not once
+  /// read, so only pacing shows whether the client stopped early.
+  late Duration chunkPause;
   late SupabaseClient client;
   late Directory directory;
   late SupabaseCloudArtworkStorage storage;
@@ -22,6 +26,7 @@ void main() {
     requestedPaths = [];
     chunks = [];
     chunksSent = 0;
+    chunkPause = Duration.zero;
     server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
     server.listen((request) async {
       await request.drain<void>();
@@ -37,6 +42,8 @@ void main() {
           request.response.add(chunk);
           await request.response.flush();
           chunksSent += 1;
+          if (chunkPause > Duration.zero)
+            await Future<void>.delayed(chunkPause);
         }
 
         await request.response.close();
@@ -132,7 +139,10 @@ void main() {
   });
 
   test('stops streaming once the byte limit is passed', () async {
-    chunks = List.generate(50, (_) => List<int>.filled(1024, 7));
+    // 200 paced chunks take a second to send; a client that stops after
+    // about 2 KB leaves most of them unsent.
+    chunks = List.generate(200, (_) => List<int>.filled(1024, 7));
+    chunkPause = const Duration(milliseconds: 5);
 
     await expectLater(
       download('user-1/artwork_1.png', maxBytes: 1500),
