@@ -60,7 +60,9 @@ class SettingsSyncCard extends StatelessWidget {
 
     final lastSynced = syncController.lastSuccessfulSync;
     final canSync =
-        !syncController.isSyncing && !syncController.hasAccountConflict;
+        !syncController.isSyncing &&
+        !syncController.hasAccountConflict &&
+        !syncController.isAwaitingCloudChoice;
 
     return SonusSurfaceCard(
       key: const ValueKey<String>('settings-sync-card'),
@@ -115,6 +117,27 @@ class SettingsSyncCard extends StatelessWidget {
               'account.',
               key: const ValueKey<String>('settings-sync-account-conflict'),
               style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+          ] else if (syncController.isAwaitingCloudChoice) ...[
+            const SizedBox(height: 16),
+            Text(
+              'This account already has a Sonus cloud library. Nothing has '
+              'been uploaded or downloaded yet.',
+              key: const ValueKey<String>('settings-sync-cloud-choice'),
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Bring it here to merge it with the library on this device. '
+              'To keep this library separate, sign out and use another '
+              'account; sync stays paused until you choose.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 12),
+            FilledButton(
+              key: const ValueKey<String>('settings-sync-bring-cloud-library'),
+              onPressed: syncController.bringCloudLibrary,
+              child: const Text('Bring it to this device'),
             ),
           ] else if (syncController.isRecoveryHeld) ...[
             const SizedBox(height: 16),
@@ -255,6 +278,10 @@ class SettingsSyncCard extends StatelessWidget {
 
     if (controller.isRecoveryHeld) {
       return 'Paused for recovery review';
+    }
+
+    if (controller.isAwaitingCloudChoice) {
+      return 'Waiting for your choice';
     }
 
     if (controller.status == SyncStatus.error) {

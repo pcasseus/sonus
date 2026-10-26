@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import '../../../account/application/repositories/local_account_binding_repository.dart';
 import '../../data/services/sync_status_store.dart';
 import '../models/sync_failure.dart';
+import '../services/cloud_library_first_link_guard.dart';
 import '../services/sync_run_guard.dart';
 import '../services/sync_service.dart';
 
@@ -18,6 +19,10 @@ enum SyncStatus {
 
   /// Paused by backup recovery; no sync work was attempted.
   recoveryHold,
+
+  /// The account already has a cloud library and this device has never
+  /// synced with it; nothing moves until the person chooses.
+  awaitingCloudChoice,
 }
 
 class SyncController extends ChangeNotifier {
@@ -25,11 +30,13 @@ class SyncController extends ChangeNotifier {
     required SyncService service,
     SyncStatusStore? statusStore,
     SyncFailureClassifier classifyFailure = classifySyncFailure,
+    Future<void> Function(String userId)? grantCloudLibrary,
   }) : this._(
          synchronize: service.synchronize,
          statusStore: statusStore ?? SyncStatusStore(),
          countPending: service.pendingCount,
          classifyFailure: classifyFailure,
+         grantCloudLibrary: grantCloudLibrary,
        );
 
   @visibleForTesting
@@ -38,6 +45,7 @@ class SyncController extends ChangeNotifier {
     SyncStatusStore? statusStore,
     Future<int> Function(String userId)? countPending,
     SyncFailureClassifier classifyFailure = classifySyncFailure,
+    Future<void> Function(String userId)? grantCloudLibrary,
   }) : this._(
          synchronize: synchronize,
          statusStore:
@@ -48,6 +56,7 @@ class SyncController extends ChangeNotifier {
              ),
          countPending: countPending,
          classifyFailure: classifyFailure,
+         grantCloudLibrary: grantCloudLibrary,
        );
 
   SyncController._({
@@ -55,6 +64,7 @@ class SyncController extends ChangeNotifier {
     required this._statusStore,
     required this._countPending,
     required this._classifyFailure,
+    required this._grantCloudLibrary,
   });
 
   final Future<SyncRunResult> Function(String userId) _synchronize;
@@ -63,6 +73,7 @@ class SyncController extends ChangeNotifier {
   /// Reads the local outbox, so pending work is shown before any run.
   final Future<int> Function(String userId)? _countPending;
   final SyncFailureClassifier _classifyFailure;
+  final Future<void> Function(String userId)? _grantCloudLibrary;
 
   Future<void> _pending = Future<void>.value();
 
@@ -108,6 +119,18 @@ class SyncController extends ChangeNotifier {
   bool get hasAccountConflict => _status == SyncStatus.accountConflict;
 
   bool get isRecoveryHeld => _status == SyncStatus.recoveryHold;
+
+  bool get isAwaitingCloudChoice => _status == SyncStatus.awaitingCloudChoice;
+
+  /// The person chose to bring the account's cloud library onto this
+  /// device: records the choice and syncs.
+  Future<bool> bringCloudLibrary() async {
+    final userId = _currentUserId;
+    final grant = _grantCloudLibrary;
+    if (userId == null || grant == null) return false;
+    await grant(userId);
+    return synchronize(userId);
+  }
 
   SyncHoldReason? get recoveryHoldReason => switch (_lastError) {
     SyncHeldForRecovery(:final reason) => reason,
@@ -253,6 +276,13 @@ class SyncController extends ChangeNotifier {
       _lastError = error;
       _retryPending = false;
       _status = SyncStatus.recoveryHold;
+
+      return false;
+    } on SyncNeedsCloudLibraryChoice catch (error) {
+      // Not a failure: waiting for the person, not for a retry.
+      _lastError = error;
+      _retryPending = false;
+      _status = SyncStatus.awaitingCloudChoice;
 
       return false;
     } on LocalAccountBindingConflict catch (error) {

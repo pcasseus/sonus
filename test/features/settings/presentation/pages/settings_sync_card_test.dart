@@ -14,6 +14,7 @@ import 'package:sonus_next/core/network/timed_http_client.dart';
 import 'package:sonus_next/features/sync/application/controllers/sync_controller.dart';
 import 'package:sonus_next/features/sync/application/models/sync_failure.dart';
 import 'package:sonus_next/features/sync/application/services/automatic_sync_coordinator.dart';
+import 'package:sonus_next/features/sync/application/services/cloud_library_first_link_guard.dart';
 import 'package:sonus_next/features/sync/application/services/sync_network_policy_service.dart';
 import 'package:sonus_next/features/sync/application/services/sync_service.dart';
 
@@ -282,6 +283,70 @@ void main() {
     );
 
     expect(button.onPressed, isNull);
+  });
+
+  testWidgets('an existing cloud library waits for the choice', (tester) async {
+    final accountController = _signedInAccountController();
+    var granted = false;
+
+    final syncController = SyncController.forTesting(
+      synchronize: (userId) async {
+        if (!granted) throw const SyncNeedsCloudLibraryChoice();
+        return SyncRunResult(
+          userId: userId,
+          startedAt: DateTime.utc(2026, 10, 25),
+          completedAt: DateTime.utc(2026, 10, 25, 0, 0, 1),
+          claimedUnownedCount: 0,
+          pendingBeforePush: 0,
+          pulledRecordCount: 0,
+          pendingAfterSync: 0,
+        );
+      },
+      grantCloudLibrary: (_) async => granted = true,
+    );
+
+    await syncController.synchronize('user-1');
+
+    final coordinator = AutomaticSyncCoordinator(
+      syncController: syncController,
+      networkPolicy: _wifiPolicy(),
+    );
+
+    coordinator.updateUserId('user-1');
+
+    await tester.pumpWidget(
+      _buildTestApp(
+        accountController: accountController,
+        syncController: syncController,
+        coordinator: coordinator,
+      ),
+    );
+
+    expect(find.text('Waiting for your choice'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('settings-sync-cloud-choice')),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .widget<FilledButton>(
+            find.byKey(const ValueKey<String>('settings-sync-now-button')),
+          )
+          .onPressed,
+      isNull,
+    );
+
+    final bring = find.byKey(
+      const ValueKey<String>('settings-sync-bring-cloud-library'),
+    );
+    await tester.ensureVisible(bring);
+    await tester.pumpAndSettle();
+    await tester.tap(bring);
+    await tester.pumpAndSettle();
+
+    expect(granted, isTrue);
+    expect(find.text('Up to date'), findsOneWidget);
+    expect(bring, findsNothing);
   });
 
   testWidgets('mobile-data consent can allow sync', (tester) async {
