@@ -122,8 +122,17 @@ class SyncController extends ChangeNotifier {
 
   bool get isAwaitingCloudChoice => _status == SyncStatus.awaitingCloudChoice;
 
-  /// The person chose to bring the account's cloud library onto this
-  /// device: records the choice and syncs.
+  /// While [isAwaitingCloudChoice]: true when the account already has a
+  /// cloud library to bring here; false when this device's library would
+  /// be the first one sent to the account.
+  bool get cloudChoiceHasCloudLibrary => switch (_lastError) {
+    SyncNeedsCloudLibraryChoice(:final cloudHasLibrary) => cloudHasLibrary,
+    _ => false,
+  };
+
+  /// The person chose to start syncing this device with the account
+  /// (bringing its cloud library here, or sending this library to it):
+  /// records the choice and syncs.
   Future<bool> bringCloudLibrary() async {
     final userId = _currentUserId;
     final grant = _grantCloudLibrary;

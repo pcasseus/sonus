@@ -118,6 +118,28 @@ class SettingsSyncCard extends StatelessWidget {
               key: const ValueKey<String>('settings-sync-account-conflict'),
               style: TextStyle(color: Theme.of(context).colorScheme.error),
             ),
+          ] else if (syncController.isAwaitingCloudChoice &&
+              !syncController.cloudChoiceHasCloudLibrary) ...[
+            const SizedBox(height: 16),
+            Text(
+              'Cloud sync is off for this device. Nothing has been '
+              'uploaded.',
+              key: const ValueKey<String>('settings-sync-first-upload-choice'),
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Turning it on sends this library to your account and keeps it '
+              'in step with your other devices. Until then, signing in '
+              'changes nothing here, and Sonus works fully on this device.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 12),
+            FilledButton(
+              key: const ValueKey<String>('settings-sync-start-first-upload'),
+              onPressed: syncController.bringCloudLibrary,
+              child: const Text('Turn on cloud sync'),
+            ),
           ] else if (syncController.isAwaitingCloudChoice) ...[
             const SizedBox(height: 16),
             Text(
@@ -281,7 +303,9 @@ class SettingsSyncCard extends StatelessWidget {
     }
 
     if (controller.isAwaitingCloudChoice) {
-      return 'Waiting for your choice';
+      return controller.cloudChoiceHasCloudLibrary
+          ? 'Waiting for your choice'
+          : 'Off on this device';
     }
 
     if (controller.status == SyncStatus.error) {

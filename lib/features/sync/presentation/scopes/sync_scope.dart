@@ -56,6 +56,7 @@ import '../../application/services/cloud_library_first_link_guard.dart';
 import '../../data/gateways/supabase_cloud_archive_gateway.dart';
 import '../../data/services/sqlite_cloud_archive_store.dart';
 import '../../data/services/supabase_cloud_library_probe.dart';
+import '../../data/services/sync_status_store.dart';
 import '../../domain/models/sync_data_contract.dart';
 import '../widgets/automatic_sync_lifecycle_bridge.dart';
 import 'cloud_artwork_recovery_composition.dart';
@@ -214,9 +215,6 @@ class _SyncScopeState extends State<SyncScope> {
       replayWindow: const Duration(minutes: 2),
     );
 
-    final bindingRepository = SqliteLocalAccountBindingRepository(
-      appDatabase: database,
-    );
     final consent = SharedPreferencesCloudLibraryConsentStore();
     final archive = CloudArchiveSyncService(
       gateway: SupabaseCloudArchiveGateway(client: client),
@@ -228,8 +226,13 @@ class _SyncScopeState extends State<SyncScope> {
             entityId: artworkId,
           ),
     );
+    // Shared with the controller, which records each completed sync: a
+    // device counts as linked to an account only once it has synced with
+    // it, never merely because someone signed in.
+    final statusStore = SyncStatusStore();
     final firstLink = CloudLibraryFirstLinkGuard(
-      boundUserId: () async => (await bindingRepository.getBinding())?.userId,
+      syncedBefore: (userId) async =>
+          await statusStore.getLastSuccessfulSync(userId) != null,
       probe: SupabaseCloudLibraryProbe(client: client),
       consent: consent,
     );
@@ -255,6 +258,7 @@ class _SyncScopeState extends State<SyncScope> {
       service: service,
       classifyFailure: classifySupabaseSyncFailure,
       grantCloudLibrary: consent.grant,
+      statusStore: statusStore,
     );
 
     final automaticSyncCoordinator = AutomaticSyncCoordinator(

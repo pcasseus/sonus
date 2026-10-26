@@ -56,7 +56,7 @@ class _Device {
       queueArtworkUpload: ({required userId, required artworkId}) async {},
     );
     final guard = CloudLibraryFirstLinkGuard(
-      boundUserId: () async => (await binding.getBinding())?.userId,
+      syncedBefore: (userId) async => syncedWith.contains(userId),
       probe: _CloudLibraries(cloud),
       consent: consent,
     );
@@ -78,7 +78,17 @@ class _Device {
   final AppDatabase database;
   final SqliteLocalAccountBindingRepository binding;
   final consent = _Consent();
+
+  /// Accounts this device has completed a sync with, as the app's sync
+  /// status store records them.
+  final syncedWith = <String>{};
   late final SyncService service;
+
+  Future<SyncRunResult> synchronize(String userId) async {
+    final result = await service.synchronize(userId);
+    syncedWith.add(userId);
+    return result;
+  }
 
   Future<Database> get db => database.database;
 }
@@ -108,7 +118,8 @@ void main() {
   Future<Map<String, Object>> oldCloudLibrary() async {
     final old = await device('old-phone');
     await seedConnectedLibrary(await old.db, key: 'old');
-    await old.service.synchronize(_oldAccount);
+    await old.consent.grant(_oldAccount);
+    await old.synchronize(_oldAccount);
     expect(cloud.rowsFor(_oldAccount), isNotEmpty);
     return {
       for (final MapEntry(:key, :value) in cloud.rowsFor(_oldAccount).entries)
@@ -129,7 +140,7 @@ void main() {
     final before = await snapshotDatabase(await fresh.db);
 
     await expectLater(
-      fresh.service.synchronize(_oldAccount),
+      fresh.synchronize(_oldAccount),
       throwsA(isA<SyncNeedsCloudLibraryChoice>()),
     );
 
@@ -145,8 +156,9 @@ void main() {
     final oldCloud = await oldCloudLibrary();
     final fresh = await reinstalledDevice();
 
-    final result = await fresh.service.synchronize(_newAccount);
-    final again = await fresh.service.synchronize(_newAccount);
+    await fresh.consent.grant(_newAccount);
+    final result = await fresh.synchronize(_newAccount);
+    final again = await fresh.synchronize(_newAccount);
 
     expect(result.userId, _newAccount);
     expect(again.userId, _newAccount);
@@ -167,20 +179,57 @@ void main() {
   test('once linked, the old account is refused as before', () async {
     await oldCloudLibrary();
     final fresh = await reinstalledDevice();
-    await fresh.service.synchronize(_newAccount);
+    await fresh.consent.grant(_newAccount);
+    await fresh.synchronize(_newAccount);
+    await fresh.consent.grant(_oldAccount);
 
     await expectLater(
-      fresh.service.synchronize(_oldAccount),
+      fresh.synchronize(_oldAccount),
       throwsA(isA<LocalAccountBindingConflict>()),
     );
   });
+
+  test('SN-49: signing in binds the device but unlocks no transfer', () async {
+    final oldCloud = await oldCloudLibrary();
+    final fresh = await reinstalledDevice();
+
+    // What the sign-in bridge does the moment someone signs in.
+    await fresh.binding.bindToUser(_oldAccount);
+    final before = await snapshotDatabase(await fresh.db);
+
+    final stop = await fresh
+        .synchronize(_oldAccount)
+        .then<Object?>((_) => null, onError: (Object error) => error);
+    expect(stop, isA<SyncNeedsCloudLibraryChoice>());
+    expect(await snapshotDatabase(await fresh.db), before);
+    expect({
+      for (final MapEntry(:key, :value) in cloud.rowsFor(_oldAccount).entries)
+        key: '${value.serverRevision}:${value.fingerprint}',
+    }, oldCloud);
+  });
+
+  test(
+    'SN-49: signing in to an empty account sends nothing until chosen',
+    () async {
+      final fresh = await reinstalledDevice();
+      await fresh.binding.bindToUser(_newAccount);
+
+      final stop = await fresh
+          .synchronize(_newAccount)
+          .then<Object?>((_) => null, onError: (Object error) => error);
+
+      expect(stop, isA<SyncNeedsCloudLibraryChoice>());
+      expect((stop! as SyncNeedsCloudLibraryChoice).cloudHasLibrary, isFalse);
+      expect(cloud.rowsFor(_newAccount), isEmpty);
+    },
+  );
 
   test('choosing to bring the old library merges it, nothing lost', () async {
     await oldCloudLibrary();
     final fresh = await reinstalledDevice();
     await fresh.consent.grant(_oldAccount);
 
-    await fresh.service.synchronize(_oldAccount);
+    await fresh.synchronize(_oldAccount);
 
     final db = await fresh.db;
     final sessions = await db.query(

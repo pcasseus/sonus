@@ -29,13 +29,13 @@ class _Consent implements CloudLibraryConsentStore {
 void main() {
   group('the first-link guard', () {
     Future<Object?> check({
-      String? boundUserId,
+      Set<String> syncedWith = const {},
       bool cloudHasLibrary = true,
       _Consent? consent,
     }) async {
       try {
         await CloudLibraryFirstLinkGuard(
-          boundUserId: () async => boundUserId,
+          syncedBefore: (userId) async => syncedWith.contains(userId),
           probe: _Probe(cloudHasLibrary),
           consent: consent ?? _Consent(),
         ).check('user-1');
@@ -46,22 +46,33 @@ void main() {
     }
 
     test('stops a new device before an existing cloud library', () async {
-      expect(await check(), isA<SyncNeedsCloudLibraryChoice>());
+      final stop = await check();
+      expect(stop, isA<SyncNeedsCloudLibraryChoice>());
+      expect((stop! as SyncNeedsCloudLibraryChoice).cloudHasLibrary, isTrue);
     });
 
-    test('lets a new device link to an empty account', () async {
-      expect(await check(cloudHasLibrary: false), isNull);
+    test('SN-49: an empty account is not sent this library unasked', () async {
+      final stop = await check(cloudHasLibrary: false);
+      expect(stop, isA<SyncNeedsCloudLibraryChoice>());
+      expect((stop! as SyncNeedsCloudLibraryChoice).cloudHasLibrary, isFalse);
     });
 
-    test('never stops a device already linked', () async {
+    test('never stops a device that has synced with the account', () async {
       final probe = _Probe(true);
       await CloudLibraryFirstLinkGuard(
-        boundUserId: () async => 'user-1',
+        syncedBefore: (userId) async => userId == 'user-1',
         probe: probe,
         consent: _Consent(),
       ).check('user-1');
 
       expect(probe.calls, 0, reason: 'no extra cloud reads for linked devices');
+    });
+
+    test('SN-49: having synced with another account does not count', () async {
+      expect(
+        await check(syncedWith: {'user-2'}),
+        isA<SyncNeedsCloudLibraryChoice>(),
+      );
     });
 
     test('lets the person bring the library once they choose to', () async {

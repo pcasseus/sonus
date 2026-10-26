@@ -349,6 +349,73 @@ void main() {
     expect(bring, findsNothing);
   });
 
+  testWidgets('SN-49: signing in leaves cloud sync off until it is turned '
+      'on; nothing is sent before', (tester) async {
+    final accountController = _signedInAccountController();
+    var granted = false;
+    var sent = 0;
+
+    final syncController = SyncController.forTesting(
+      synchronize: (userId) async {
+        if (!granted) {
+          throw const SyncNeedsCloudLibraryChoice(cloudHasLibrary: false);
+        }
+        sent++;
+        return SyncRunResult(
+          userId: userId,
+          startedAt: DateTime.utc(2026, 10, 25),
+          completedAt: DateTime.utc(2026, 10, 25, 0, 0, 1),
+          claimedUnownedCount: 0,
+          pendingBeforePush: 3,
+          pulledRecordCount: 0,
+          pendingAfterSync: 0,
+        );
+      },
+      grantCloudLibrary: (_) async => granted = true,
+    );
+
+    await syncController.synchronize('user-1');
+
+    final coordinator = AutomaticSyncCoordinator(
+      syncController: syncController,
+      networkPolicy: _wifiPolicy(),
+    );
+
+    coordinator.updateUserId('user-1');
+
+    await tester.pumpWidget(
+      _buildTestApp(
+        accountController: accountController,
+        syncController: syncController,
+        coordinator: coordinator,
+      ),
+    );
+
+    expect(syncController.hasError, isFalse, reason: 'a choice, not a failure');
+    expect(find.text('Off on this device'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('settings-sync-first-upload-choice')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('settings-sync-cloud-choice')),
+      findsNothing,
+    );
+    expect(sent, 0);
+
+    final start = find.byKey(
+      const ValueKey<String>('settings-sync-start-first-upload'),
+    );
+    await tester.ensureVisible(start);
+    await tester.pumpAndSettle();
+    await tester.tap(start);
+    await tester.pumpAndSettle();
+
+    expect(granted, isTrue);
+    expect(sent, 1);
+    expect(find.text('Up to date'), findsOneWidget);
+  });
+
   testWidgets('mobile-data consent can allow sync', (tester) async {
     var mobileAllowed = false;
     var syncCalls = 0;
