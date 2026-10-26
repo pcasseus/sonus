@@ -41,7 +41,7 @@ import 'package:sonus_next/features/library/domain/entities/album_edition_track.
 import 'package:sonus_next/features/library/domain/entities/song.dart';
 import 'package:sonus_next/features/library/presentation/controllers/album_profile_controller.dart';
 import 'package:sonus_next/features/library/presentation/pages/album_profile_page.dart';
-import 'package:sonus_next/features/library/presentation/pages/album_studio_page.dart';
+import 'package:sonus_next/features/library/presentation/pages/release_studio_page.dart';
 import 'package:sonus_next/features/player/application/controllers/playback_coordinator.dart';
 import 'package:sonus_next/features/player/domain/models/playback_repeat_mode.dart';
 import 'package:sonus_next/features/player/domain/models/playback_state.dart';
@@ -574,7 +574,7 @@ void main() {
       expect(find.text('Recovered Album'), findsWidgets);
     });
 
-    testWidgets('signed-in user can edit album details', (tester) async {
+    testWidgets('signed-in user can edit release details', (tester) async {
       var currentAlbum = createAlbum(
         title: 'Test Album',
         primaryEditionTitle: 'Standard',
@@ -628,89 +628,67 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('Album Studio'), findsOneWidget);
+      // One entry point: everything about the release is in Edit Release.
+      expect(find.text('Edit Release'), findsOneWidget);
       expect(find.text('Edit album details'), findsNothing);
       expect(find.text('Change artwork'), findsNothing);
       expect(find.text('Clear artwork'), findsNothing);
 
-      await tester.tap(find.text('Album Studio'));
+      await tester.tap(find.text('Edit Release'));
       await tester.pumpAndSettle();
 
-      await expandAlbumTools(tester);
-      await tester.tap(
-        find.byKey(const ValueKey<String>('album-studio-edit-details')),
-      );
-      await tester.pumpAndSettle();
+      // Each field shows its value and has one way to change it.
+      expect(find.text('Test Album'), findsWidgets);
+      expect(find.text('2024-05-17'), findsOneWidget);
+      expect(find.text('Pop'), findsOneWidget);
 
-      final titleField = find.byKey(
-        const ValueKey<String>('album-title-field'),
-      );
-      final editionTitleField = find.byKey(
-        const ValueKey<String>('album-edition-title-field'),
-      );
-      final releaseDateField = find.byKey(
-        const ValueKey<String>('album-release-date-field'),
-      );
-      final genreField = find.byKey(
-        const ValueKey<String>('album-genre-field'),
-      );
+      Future<void> edit(String row, String field, String value) async {
+        await tester.tap(find.byKey(ValueKey<String>('release-studio-$row')));
+        await tester.pumpAndSettle();
+        await tester.enterText(
+          find.byKey(ValueKey<String>('release-studio-$field-field')),
+          value,
+        );
+        await tester.tap(
+          find.byKey(ValueKey<String>('release-studio-save-$field')),
+        );
+        await tester.pumpAndSettle();
+      }
 
-      expect(
-        tester.widget<TextFormField>(titleField).controller?.text,
-        'Test Album',
-      );
-      expect(
-        tester.widget<TextFormField>(editionTitleField).controller?.text,
-        'Standard',
-      );
-      expect(
-        tester.widget<TextFormField>(releaseDateField).controller?.text,
-        '2024-05-17',
-      );
-      expect(tester.widget<TextFormField>(genreField).controller?.text, 'Pop');
-
-      await tester.enterText(titleField, 'Renamed Album');
-      await tester.enterText(editionTitleField, 'Deluxe Edition');
-      await tester.enterText(releaseDateField, '2025-06-20');
-      await tester.enterText(genreField, 'Alternative');
-
-      await tester.ensureVisible(
-        find.byKey(const ValueKey<String>('album-edition-type-field')),
-      );
-      await tester.pumpAndSettle();
-
-      await tester.tap(
-        find.byKey(const ValueKey<String>('album-edition-type-field')),
-      );
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Deluxe').last);
-      await tester.pumpAndSettle();
-
-      await tester.tap(find.text('Save'));
-      await tester.pumpAndSettle();
-
+      await edit('name', 'name', 'Renamed Album');
       expect(editingService.updateCallCount, 1);
       expect(editingService.lastUserId, 'user-1');
       expect(editingService.lastAlbumId, 'album-1');
       expect(editingService.lastPrimaryEditionId, 'edition-1');
       expect(editingService.lastTitle, 'Renamed Album');
-      expect(editingService.lastEditionTitle, 'Deluxe Edition');
-      expect(editingService.lastEditionType, AlbumEditionType.deluxe);
-      expect(editingService.lastReleaseDate, DateTime(2025, 6, 20));
+      // The edition is named in Editions, never here.
+      expect(editingService.lastEditionTitle, 'Standard');
+      expect(editingService.lastEditionType, AlbumEditionType.standard);
+      expect(editingService.lastReleaseDate, DateTime(2024, 5, 17));
+      expect(editingService.lastGenre, 'Pop');
+      expect(find.text('Release renamed.'), findsOneWidget);
+
+      await edit('date', 'date', '2025-06-20');
+      expect(editingService.lastReleaseDate, DateTime.utc(2025, 6, 20));
+      expect(editingService.lastTitle, 'Renamed Album');
+
+      await edit('genre', 'genre', 'Alternative');
       expect(editingService.lastGenre, 'Alternative');
-      expect(find.text('Album details updated.'), findsOneWidget);
+      expect(editingService.updateCallCount, 3);
 
       await tester.pageBack();
       await tester.pumpAndSettle();
 
       expect(
-        find.byKey(const ValueKey<String>('album-studio-page')),
+        find.byKey(const ValueKey<String>('release-studio-page')),
         findsNothing,
       );
       expect(find.text('Renamed Album'), findsWidgets);
     });
 
-    testWidgets('album edit can change album artist', (tester) async {
+    testWidgets('the release can move to another artist or project', (
+      tester,
+    ) async {
       final editingService = FakeAlbumProfileEditingService();
 
       await tester.pumpWidget(
@@ -736,36 +714,26 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Album Studio'));
+      await tester.tap(find.text('Edit Release'));
       await tester.pumpAndSettle();
 
-      await expandAlbumTools(tester);
       await tester.tap(
-        find.byKey(const ValueKey<String>('album-studio-edit-details')),
+        find.byKey(const ValueKey<String>('release-studio-owner')),
       );
       await tester.pumpAndSettle();
 
-      final artistField = find.byKey(
-        const ValueKey<String>('album-artist-field'),
+      expect(
+        find.byKey(const ValueKey<String>('release-studio-owner-dialog')),
+        findsOneWidget,
       );
-
-      expect(artistField, findsOneWidget);
-
-      await tester.tap(artistField);
-      await tester.pumpAndSettle();
-
       await tester.tap(find.text('Second Artist').last);
-      await tester.pumpAndSettle();
-
-      await tester.tap(
-        find.byKey(const ValueKey<String>('album-edit-save-button')),
-      );
       await tester.pumpAndSettle();
 
       expect(editingService.updateCallCount, 1);
       expect(editingService.lastArtistId, 'artist-2');
     });
-    testWidgets('album edit validates required fields and release date', (
+
+    testWidgets('a blank name and an impossible date are refused', (
       tester,
     ) async {
       final editingService = FakeAlbumProfileEditingService();
@@ -788,38 +756,43 @@ void main() {
         find.byKey(const ValueKey<String>('album-profile-artwork-menu')),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Album Studio'));
+      await tester.tap(find.text('Edit Release'));
       await tester.pumpAndSettle();
 
-      await expandAlbumTools(tester);
       await tester.tap(
-        find.byKey(const ValueKey<String>('album-studio-edit-details')),
+        find.byKey(const ValueKey<String>('release-studio-name')),
       );
       await tester.pumpAndSettle();
-
       await tester.enterText(
-        find.byKey(const ValueKey<String>('album-title-field')),
+        find.byKey(const ValueKey<String>('release-studio-name-field')),
         '   ',
       );
-      await tester.enterText(
-        find.byKey(const ValueKey<String>('album-edition-title-field')),
-        '',
+      await tester.tap(
+        find.byKey(const ValueKey<String>('release-studio-save-name')),
       );
+      await tester.pump();
+      expect(find.text('Enter a name.'), findsOneWidget);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('release-studio-date')),
+      );
+      await tester.pumpAndSettle();
       await tester.enterText(
-        find.byKey(const ValueKey<String>('album-release-date-field')),
+        find.byKey(const ValueKey<String>('release-studio-date-field')),
         '2026-02-31',
       );
-
-      await tester.tap(find.text('Save'));
+      await tester.tap(
+        find.byKey(const ValueKey<String>('release-studio-save-date')),
+      );
       await tester.pump();
+      expect(find.text('Use a real date, such as 2024-06-21.'), findsOneWidget);
 
-      expect(find.text('Album title cannot be blank.'), findsOneWidget);
-      expect(find.text('Edition title cannot be blank.'), findsOneWidget);
-      expect(find.text('Use YYYY-MM-DD.'), findsOneWidget);
       expect(editingService.updateCallCount, 0);
     });
 
-    testWidgets('album edit can clear release date and genre', (tester) async {
+    testWidgets('release date and genre can be cleared', (tester) async {
       final editingService = FakeAlbumProfileEditingService();
 
       await tester.pumpWidget(
@@ -844,33 +817,31 @@ void main() {
         find.byKey(const ValueKey<String>('album-profile-artwork-menu')),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Album Studio'));
+      await tester.tap(find.text('Edit Release'));
       await tester.pumpAndSettle();
 
-      await expandAlbumTools(tester);
-      await tester.tap(
-        find.byKey(const ValueKey<String>('album-studio-edit-details')),
-      );
-      await tester.pumpAndSettle();
+      for (final field in ['date', 'genre']) {
+        await tester.tap(find.byKey(ValueKey<String>('release-studio-$field')));
+        await tester.pumpAndSettle();
+        await tester.enterText(
+          find.byKey(ValueKey<String>('release-studio-$field-field')),
+          '',
+        );
+        await tester.tap(
+          find.byKey(ValueKey<String>('release-studio-save-$field')),
+        );
+        await tester.pumpAndSettle();
+        if (field == 'date') {
+          expect(editingService.lastReleaseDate, isNull);
+          expect(editingService.lastGenre, 'Pop');
+        }
+      }
 
-      await tester.enterText(
-        find.byKey(const ValueKey<String>('album-release-date-field')),
-        '',
-      );
-      await tester.enterText(
-        find.byKey(const ValueKey<String>('album-genre-field')),
-        '',
-      );
-
-      await tester.tap(find.text('Save'));
-      await tester.pumpAndSettle();
-
-      expect(editingService.updateCallCount, 1);
-      expect(editingService.lastReleaseDate, isNull);
+      expect(editingService.updateCallCount, 2);
       expect(editingService.lastGenre, isNull);
     });
 
-    testWidgets('signed-out user can edit album details locally', (
+    testWidgets('signed-out user can edit release details locally', (
       tester,
     ) async {
       final editingService = FakeAlbumProfileEditingService();
@@ -902,21 +873,20 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Album Studio'));
+      await tester.tap(find.text('Edit Release'));
       await tester.pumpAndSettle();
 
-      await expandAlbumTools(tester);
       await tester.tap(
-        find.byKey(const ValueKey<String>('album-studio-edit-details')),
+        find.byKey(const ValueKey<String>('release-studio-name')),
       );
       await tester.pumpAndSettle();
-
       await tester.enterText(
-        find.byKey(const ValueKey<String>('album-title-field')),
+        find.byKey(const ValueKey<String>('release-studio-name-field')),
         'Anonymous Album Edit',
       );
-
-      await tester.tap(find.text('Save'));
+      await tester.tap(
+        find.byKey(const ValueKey<String>('release-studio-save-name')),
+      );
       await tester.pumpAndSettle();
 
       expect(editingService.updateCallCount, 1);
@@ -1272,13 +1242,14 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        expect(find.text('Album Studio'), findsOneWidget);
+        expect(find.text('Edit Release'), findsOneWidget);
 
-        await tester.tap(find.text('Album Studio'));
+        await tester.tap(find.text('Edit Release'));
         await tester.pumpAndSettle();
+        await openStudioSection(tester, 'tracklist');
 
         expect(
-          find.byKey(const ValueKey<String>('album-studio-page')),
+          find.byKey(const ValueKey<String>('release-studio-page')),
           findsOneWidget,
         );
         expect(
@@ -1346,7 +1317,7 @@ void main() {
 
         await tester.pumpWidget(
           MaterialApp(
-            home: AlbumStudioPage(
+            home: ReleaseStudioPage(
               controller: controller,
               userId: null,
               onChangeArtwork: () async {
@@ -1355,12 +1326,12 @@ void main() {
               onClearArtwork: () async {
                 clearArtworkCallCount++;
               },
+              initialSection: ReleaseStudioSection.artwork,
             ),
           ),
         );
         await tester.pumpAndSettle();
 
-        await expandAlbumTools(tester);
         final changeArtwork = find.byKey(
           const ValueKey<String>('album-studio-change-artwork'),
         );
@@ -1460,20 +1431,20 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
-          home: AlbumStudioPage(
+          home: ReleaseStudioPage(
             controller: controller,
             userId: null,
             metadataProvider: provider,
             externalMetadataApplicationService: applicationService,
             coverArtCandidateDiscoveryService: discovery,
             coverArtAlbumEditionImportService: importService,
+            initialSection: ReleaseStudioSection.artwork,
           ),
         ),
       );
 
       await tester.pumpAndSettle();
 
-      await expandAlbumTools(tester);
       final searchTile = find.byKey(
         const ValueKey<String>('album-studio-search-cover-art'),
       );
@@ -1611,26 +1582,28 @@ void main() {
 
         await tester.pumpWidget(
           MaterialApp(
-            home: AlbumStudioPage(
+            home: ReleaseStudioPage(
               controller: controller,
               userId: null,
               metadataProvider: provider,
               externalMetadataApplicationService: applicationService,
               coverArtCandidateDiscoveryService: discovery,
               coverArtAlbumEditionImportService: importService,
+              initialSection: ReleaseStudioSection.artwork,
             ),
           ),
         );
 
         await tester.pumpAndSettle();
 
-        await expandAlbumTools(tester);
         final searchTile = find.byKey(
           const ValueKey<String>('album-studio-search-cover-art'),
         );
 
         expect(tester.widget<ListTile>(searchTile).enabled, isTrue);
 
+        await tester.ensureVisible(searchTile);
+        await tester.pumpAndSettle();
         await tester.tap(searchTile);
         await tester.pumpAndSettle();
 
@@ -1757,20 +1730,20 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
-          home: AlbumStudioPage(
+          home: ReleaseStudioPage(
             controller: controller,
             userId: null,
             metadataProvider: provider,
             externalMetadataApplicationService: applicationService,
             coverArtCandidateDiscoveryService: discovery,
             coverArtAlbumEditionImportService: importService,
+            initialSection: ReleaseStudioSection.artwork,
           ),
         ),
       );
 
       await tester.pumpAndSettle();
 
-      await expandAlbumTools(tester);
       final searchTile = find.byKey(
         const ValueKey<String>('album-studio-search-cover-art'),
       );
@@ -1900,20 +1873,20 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
-          home: AlbumStudioPage(
+          home: ReleaseStudioPage(
             controller: controller,
             userId: null,
             metadataProvider: provider,
             externalMetadataApplicationService: applicationService,
             coverArtCandidateDiscoveryService: discovery,
             coverArtAlbumEditionImportService: importService,
+            initialSection: ReleaseStudioSection.artwork,
           ),
         ),
       );
 
       await tester.pumpAndSettle();
 
-      await expandAlbumTools(tester);
       final searchTile = find.byKey(
         const ValueKey<String>('album-studio-search-cover-art'),
       );
@@ -2042,20 +2015,20 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
-          home: AlbumStudioPage(
+          home: ReleaseStudioPage(
             controller: controller,
             userId: null,
             metadataProvider: provider,
             externalMetadataApplicationService: applicationService,
             coverArtCandidateDiscoveryService: discovery,
             coverArtAlbumEditionImportService: importService,
+            initialSection: ReleaseStudioSection.artwork,
           ),
         ),
       );
 
       await tester.pumpAndSettle();
 
-      await expandAlbumTools(tester);
       final searchTile = find.byKey(
         const ValueKey<String>('album-studio-search-cover-art'),
       );
@@ -2184,20 +2157,20 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
-          home: AlbumStudioPage(
+          home: ReleaseStudioPage(
             controller: controller,
             userId: null,
             metadataProvider: provider,
             externalMetadataApplicationService: applicationService,
             coverArtCandidateDiscoveryService: discovery,
             coverArtAlbumEditionImportService: importService,
+            initialSection: ReleaseStudioSection.artwork,
           ),
         ),
       );
 
       await tester.pumpAndSettle();
 
-      await expandAlbumTools(tester);
       final searchTile = find.byKey(
         const ValueKey<String>('album-studio-search-cover-art'),
       );
@@ -2324,20 +2297,20 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
-          home: AlbumStudioPage(
+          home: ReleaseStudioPage(
             controller: controller,
             userId: null,
             metadataProvider: provider,
             externalMetadataApplicationService: applicationService,
             coverArtCandidateDiscoveryService: discovery,
             coverArtAlbumEditionImportService: importService,
+            initialSection: ReleaseStudioSection.artwork,
           ),
         ),
       );
 
       await tester.pumpAndSettle();
 
-      await expandAlbumTools(tester);
       final searchTile = find.byKey(
         const ValueKey<String>('album-studio-search-cover-art'),
       );
@@ -2439,20 +2412,20 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
-          home: AlbumStudioPage(
+          home: ReleaseStudioPage(
             controller: controller,
             userId: null,
             metadataProvider: provider,
             externalMetadataApplicationService: applicationService,
             coverArtCandidateDiscoveryService: discovery,
             coverArtAlbumEditionImportService: _UnusedCoverArtImportService(),
+            initialSection: ReleaseStudioSection.artwork,
           ),
         ),
       );
 
       await tester.pumpAndSettle();
 
-      await expandAlbumTools(tester);
       final searchTile = find.byKey(
         const ValueKey<String>('album-studio-search-cover-art'),
       );
@@ -2560,20 +2533,20 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
-          home: AlbumStudioPage(
+          home: ReleaseStudioPage(
             controller: controller,
             userId: null,
             metadataProvider: provider,
             externalMetadataApplicationService: applicationService,
             coverArtCandidateDiscoveryService: discovery,
             coverArtAlbumEditionImportService: _UnusedCoverArtImportService(),
+            initialSection: ReleaseStudioSection.artwork,
           ),
         ),
       );
 
       await tester.pumpAndSettle();
 
-      await expandAlbumTools(tester);
       final searchTile = find.byKey(
         const ValueKey<String>('album-studio-search-cover-art'),
       );
@@ -2623,18 +2596,19 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
-          home: AlbumStudioPage(controller: controller, userId: null),
+          home: ReleaseStudioPage(controller: controller, userId: null),
         ),
       );
       await tester.pumpAndSettle();
 
-      await expandAlbumTools(tester);
       final tile = tester.widget<ListTile>(
         find.byKey(const ValueKey<String>('album-studio-search-musicbrainz')),
       );
 
       expect(tile.enabled, isFalse);
       expect(tile.onTap, isNull);
+
+      await openStudioSection(tester, 'artwork');
 
       final coverArtTile = tester.widget<ListTile>(
         find.byKey(const ValueKey<String>('album-studio-search-cover-art')),
@@ -2667,7 +2641,7 @@ void main() {
 
       await tester.pumpWidget(
         MaterialApp(
-          home: AlbumStudioPage(
+          home: ReleaseStudioPage(
             controller: controller,
             userId: null,
             metadataProvider: provider,
@@ -2678,7 +2652,6 @@ void main() {
 
       await tester.pumpAndSettle();
 
-      await expandAlbumTools(tester);
       final finder = find.byKey(
         const ValueKey<String>('album-studio-search-musicbrainz'),
       );
@@ -2771,10 +2744,9 @@ void main() {
         );
         await tester.pumpAndSettle();
 
-        await tester.tap(find.text('Album Studio'));
+        await tester.tap(find.text('Edit Release'));
         await tester.pumpAndSettle();
 
-        await expandAlbumTools(tester);
         final musicBrainzTile = find.byKey(
           const ValueKey<String>('album-studio-search-musicbrainz'),
         );
@@ -2898,8 +2870,9 @@ void main() {
         find.byKey(const ValueKey<String>('album-profile-artwork-menu')),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Album Studio'));
+      await tester.tap(find.text('Edit Release'));
       await tester.pumpAndSettle();
+      await openStudioSection(tester, 'tracklist');
 
       expect(find.text('Standard Studio Song'), findsOneWidget);
       expect(find.text('Deluxe Studio Song'), findsNothing);
@@ -2973,8 +2946,9 @@ void main() {
           find.byKey(const ValueKey<String>('album-profile-artwork-menu')),
         );
         await tester.pumpAndSettle();
-        await tester.tap(find.text('Album Studio'));
+        await tester.tap(find.text('Edit Release'));
         await tester.pumpAndSettle();
+        await openStudioSection(tester, 'tracklist');
 
         final autoRenumberFinder = find.byKey(
           const ValueKey<String>('album-studio-auto-renumber'),
@@ -3079,16 +3053,9 @@ void main() {
   });
 }
 
-/// Album Studio opens with its tools collapsed; expand them to use one.
-Future<void> expandAlbumTools(WidgetTester tester) async {
-  if (tester.any(
-    find.byKey(const ValueKey<String>('album-studio-edit-details')),
-  )) {
-    return;
-  }
-  await tester.tap(
-    find.byKey(const ValueKey<String>('album-studio-tools-toggle')),
-  );
+/// Release Studio opens on Details; switch to [section]'s tab.
+Future<void> openStudioSection(WidgetTester tester, String section) async {
+  await tester.tap(find.byKey(ValueKey<String>('release-studio-tab-$section')));
   await tester.pumpAndSettle();
 }
 

@@ -6,7 +6,10 @@ import '../../domain/entities/album_edition.dart';
 import '../../domain/entities/album_edition_track.dart';
 import '../../domain/entities/entity_factory.dart';
 import '../../domain/entities/song.dart';
+import '../../domain/metadata/metadata_field_state.dart';
+import '../../domain/metadata/metadata_fields.dart';
 import '../../domain/repositories/album_edition_repository.dart';
+import '../../domain/services/metadata_field_state_service.dart';
 
 /// Why an edition operation was refused. Nothing is changed when one is.
 enum AlbumEditionRefusal {
@@ -160,6 +163,24 @@ class AlbumEditionManagementService {
 
       await context.albumEditionRepository.save(updated);
       await _recordEdition(context, userId, updated.id);
+
+      // The user's own name and type are never replaced by a later lookup.
+      final metadataRepository = context.metadataFieldStateRepository;
+      if (metadataRepository != null) {
+        await MetadataFieldStateService(
+          repository: metadataRepository,
+        ).recordAll(
+          entityType: MetadataEntityType.albumEdition,
+          entityId: updated.id,
+          fieldNames: {
+            if (updated.title != edition.title) MetadataFields.editionTitle,
+            if (updated.type != edition.type) MetadataFields.editionType,
+          },
+          authority: MetadataAuthority.manual,
+          source: MetadataProvenanceSource.user,
+          updatedAt: timestamp,
+        );
+      }
 
       return updated;
     });

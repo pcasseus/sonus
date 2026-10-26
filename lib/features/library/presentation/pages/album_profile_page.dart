@@ -41,9 +41,8 @@ import '../../domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/application/services/track_profile_editing_service.dart';
 import '../controllers/album_profile_controller.dart';
 import '../models/track_profile_edit_draft.dart';
-import 'album_studio_page.dart';
+import 'release_studio_page.dart';
 import 'track_studio_page.dart';
-import '../widgets/album_profile_edit_dialog.dart';
 
 class AlbumProfilePage extends StatefulWidget {
   const AlbumProfilePage({
@@ -236,7 +235,7 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
                       controller.canEditArtwork ||
                       controller.canEditAlbumProfile(userId) ||
                       controller.canEditAlbumStudio(userId),
-                  tooltip: 'Album actions',
+                  tooltip: 'Release actions',
                   onSelected: (action) {
                     unawaited(_handleAlbumAction(controller, action, userId));
                   },
@@ -249,7 +248,7 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
                           controller.canEditArtwork,
                       child: const ListTile(
                         leading: Icon(Icons.tune_rounded),
-                        title: Text('Album Studio'),
+                        title: Text('Edit Release'),
                         contentPadding: EdgeInsets.zero,
                       ),
                     ),
@@ -362,10 +361,6 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
       await _openAlbumStudio(controller, userId);
       return;
     }
-    if (action == _AlbumMenuAction.editProfile) {
-      await _editAlbumProfile(controller, userId);
-      return;
-    }
 
     await _handleArtworkAction(controller, action);
   }
@@ -393,7 +388,7 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
     await Navigator.of(context).push<void>(
       MaterialPageRoute<void>(
         builder: (routeContext) {
-          return AlbumStudioPage(
+          return ReleaseStudioPage(
             controller: controller,
             userId: userId,
             metadataProvider: metadataProvider,
@@ -407,9 +402,6 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
             editionManagement: context.read<AlbumEditionManagementService?>(),
             organization: context.read<LibraryOrganizationService?>(),
             library: context.read<LibraryQueryRepository?>(),
-            onEditDetails: controller.canEditAlbumProfile(userId)
-                ? () => _editAlbumProfile(controller, userId)
-                : null,
             onChangeArtwork: controller.canEditArtwork
                 ? () => _handleArtworkAction(
                     controller,
@@ -431,65 +423,6 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
     );
   }
 
-  Future<void> _editAlbumProfile(
-    AlbumProfileController controller,
-    String? userId,
-  ) async {
-    final album = controller.album;
-    final repository = _repository;
-
-    if (album == null ||
-        repository == null ||
-        !controller.canEditAlbumProfile(userId)) {
-      return;
-    }
-
-    try {
-      final artists = await repository.getArtists();
-
-      if (!mounted) {
-        return;
-      }
-
-      final draft = await showDialog<AlbumProfileEditDraft>(
-        context: context,
-        builder: (dialogContext) {
-          return AlbumProfileEditDialog(album: album, artists: artists);
-        },
-      );
-
-      if (!mounted || draft == null) {
-        return;
-      }
-
-      final changed = await controller.updateProfile(
-        userId: userId,
-        title: draft.title,
-        editionTitle: draft.editionTitle,
-        editionType: draft.editionType,
-        releaseDate: draft.releaseDate,
-        genre: draft.genre,
-        artistId: draft.artistId,
-      );
-
-      if (!mounted || !changed) {
-        return;
-      }
-
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Album details updated.')));
-    } catch (_) {
-      if (!mounted) {
-        return;
-      }
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not update album details.')),
-      );
-    }
-  }
-
   Future<void> _handleArtworkAction(
     AlbumProfileController controller,
     _AlbumMenuAction action,
@@ -497,7 +430,6 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
     try {
       final changed = switch (action) {
         _AlbumMenuAction.studio => false,
-        _AlbumMenuAction.editProfile => false,
         _AlbumMenuAction.changeArtwork =>
           controller.canCropArtwork
               ? await _pickAndCropArtwork(controller)
@@ -515,7 +447,6 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
           : null;
       final message = switch (action) {
         _AlbumMenuAction.studio => '',
-        _AlbumMenuAction.editProfile => '',
         _AlbumMenuAction.changeArtwork =>
           edition == null
               ? 'Album artwork updated.'
@@ -1928,7 +1859,7 @@ class _TrackTile extends StatelessWidget {
   }
 }
 
-enum _AlbumMenuAction { studio, editProfile, changeArtwork, clearArtwork }
+enum _AlbumMenuAction { studio, changeArtwork, clearArtwork }
 
 enum _TrackMenuAction {
   playNext,
