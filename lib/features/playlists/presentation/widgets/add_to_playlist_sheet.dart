@@ -1,16 +1,29 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../library/application/models/library_track.dart';
+import '../../application/models/playlist_add_result.dart';
 import '../../application/models/playlist_summary.dart';
 import '../../application/services/playlist_service.dart';
 
-Future<void> showAddToPlaylistFlow(
+Future<void> showAddToPlaylistFlow(BuildContext context, LibraryTrack track) {
+  return showAddTracksToPlaylistFlow(context, [track]);
+}
+
+/// Adds [tracks] to a playlist the user picks, in the given order. Songs
+/// already in it are not added twice; the message says what happened.
+/// Returns whether the playlist was updated, or null when cancelled.
+Future<bool?> showAddTracksToPlaylistFlow(
   BuildContext context,
-  LibraryTrack track,
+  List<LibraryTrack> tracks,
 ) async {
+  if (tracks.isEmpty) {
+    return null;
+  }
+
   final service = context.read<PlaylistService?>();
 
   if (service == null) {
@@ -18,29 +31,74 @@ Future<void> showAddToPlaylistFlow(
       context,
       'Playlists are still loading. Try again in a moment.',
     );
-    return;
+    return false;
   }
 
   try {
-    final result = await showModalBottomSheet<_AddToPlaylistResult>(
+    final result = await showModalBottomSheet<PlaylistAddResult>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (_) => _AddToPlaylistSheet(service: service, track: track),
+      builder: (_) => _AddToPlaylistSheet(service: service, tracks: tracks),
     );
 
     if (!context.mounted || result == null) {
-      return;
+      return null;
     }
 
-    _showMessage(context, 'Added "${track.title}" to ${result.playlistName}.');
-  } catch (_) {
+    _showMessage(context, addToPlaylistMessage(result, tracks));
+    return true;
+  } catch (error, stackTrace) {
+    _logFailure(error, stackTrace);
+
     if (!context.mounted) {
-      return;
+      return false;
     }
 
-    _showMessage(context, 'Could not add "${track.title}" to a playlist.');
+    _showMessage(
+      context,
+      tracks.length == 1
+          ? 'Could not add "${tracks.single.title}" to a playlist.'
+          : 'Could not add the songs to a playlist.',
+    );
+    return false;
   }
+}
+
+/// The confirmation shown after adding [tracks]: names a single song, and
+/// counts songs already in the playlist or no longer in the library.
+String addToPlaylistMessage(
+  PlaylistAddResult result,
+  List<LibraryTrack> tracks,
+) {
+  final name = result.playlistName;
+
+  if (tracks.length == 1) {
+    final title = tracks.single.title;
+
+    if (result.added > 0) return 'Added "$title" to $name.';
+    if (result.alreadyPresent > 0) return '"$title" is already in $name.';
+    return 'Could not add "$title" to $name. It is no longer in your library.';
+  }
+
+  final added = result.added;
+  final present = result.alreadyPresent;
+  final failed = result.failed;
+
+  return [
+    if (added > 0)
+      'Added ${added == 1 ? '1 song' : '$added songs'} to $name.'
+    else
+      'No songs were added to $name.',
+    if (present > 0)
+      present == 1
+          ? '1 was already in this playlist.'
+          : '$present were already in this playlist.',
+    if (failed > 0)
+      failed == 1
+          ? '1 is no longer in your library.'
+          : '$failed are no longer in your library.',
+  ].join(' ');
 }
 
 void _showMessage(BuildContext context, String message) {
@@ -49,11 +107,21 @@ void _showMessage(BuildContext context, String message) {
     ..showSnackBar(SnackBar(content: Text(message)));
 }
 
+void _logFailure(Object error, StackTrace stackTrace) {
+  developer.log(
+    'Adding songs to a playlist failed (${error.runtimeType})',
+    name: 'sonus.playlists',
+    level: 900,
+    error: error,
+    stackTrace: stackTrace,
+  );
+}
+
 class _AddToPlaylistSheet extends StatefulWidget {
-  const _AddToPlaylistSheet({required this.service, required this.track});
+  const _AddToPlaylistSheet({required this.service, required this.tracks});
 
   final PlaylistService service;
-  final LibraryTrack track;
+  final List<LibraryTrack> tracks;
 
   @override
   State<_AddToPlaylistSheet> createState() => _AddToPlaylistSheetState();
@@ -88,7 +156,9 @@ class _AddToPlaylistSheetState extends State<_AddToPlaylistSheet> {
       setState(() {
         _playlists = List<PlaylistSummary>.unmodifiable(playlists);
       });
-    } catch (error) {
+    } catch (error, stackTrace) {
+      _logFailure(error, stackTrace);
+
       if (!mounted) {
         return;
       }
@@ -116,19 +186,16 @@ class _AddToPlaylistSheetState extends State<_AddToPlaylistSheet> {
     });
 
     try {
-      await widget.service.addSong(
-        playlistId: summary.playlist.id,
-        songId: widget.track.songId,
-      );
+      final result = await _addTo(summary.playlist.id);
 
       if (!mounted) {
         return;
       }
 
-      Navigator.of(
-        context,
-      ).pop(_AddToPlaylistResult(playlistName: summary.playlist.name));
-    } catch (error) {
+      Navigator.of(context).pop(result);
+    } catch (error, stackTrace) {
+      _logFailure(error, stackTrace);
+
       if (!mounted) {
         return;
       }
@@ -138,6 +205,13 @@ class _AddToPlaylistSheetState extends State<_AddToPlaylistSheet> {
         _isMutating = false;
       });
     }
+  }
+
+  Future<PlaylistAddResult> _addTo(String playlistId) {
+    return widget.service.addSongs(
+      playlistId: playlistId,
+      songIds: [for (final track in widget.tracks) track.songId],
+    );
   }
 
   Future<void> _createPlaylist() async {
@@ -161,20 +235,16 @@ class _AddToPlaylistSheetState extends State<_AddToPlaylistSheet> {
 
     try {
       final playlist = await widget.service.createPlaylist(name: name);
-
-      await widget.service.addSong(
-        playlistId: playlist.id,
-        songId: widget.track.songId,
-      );
+      final result = await _addTo(playlist.id);
 
       if (!mounted) {
         return;
       }
 
-      Navigator.of(
-        context,
-      ).pop(_AddToPlaylistResult(playlistName: playlist.name));
-    } catch (error) {
+      Navigator.of(context).pop(result);
+    } catch (error, stackTrace) {
+      _logFailure(error, stackTrace);
+
       if (!mounted) {
         return;
       }
@@ -189,6 +259,7 @@ class _AddToPlaylistSheetState extends State<_AddToPlaylistSheet> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isSingle = widget.tracks.length == 1;
 
     return SafeArea(
       child: Padding(
@@ -212,7 +283,9 @@ class _AddToPlaylistSheetState extends State<_AddToPlaylistSheet> {
               ),
               const SizedBox(height: 4),
               Text(
-                widget.track.title,
+                isSingle
+                    ? widget.tracks.single.title
+                    : '${widget.tracks.length} songs',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: theme.textTheme.bodyMedium?.copyWith(
@@ -232,7 +305,11 @@ class _AddToPlaylistSheetState extends State<_AddToPlaylistSheet> {
                   ),
                 ),
                 title: const Text('New playlist'),
-                subtitle: const Text('Create a playlist and add this song'),
+                subtitle: Text(
+                  isSingle
+                      ? 'Create a playlist and add this song'
+                      : 'Create a playlist and add these songs',
+                ),
                 onTap: _isMutating
                     ? null
                     : () {
@@ -383,10 +460,4 @@ class _NewPlaylistDialogState extends State<_NewPlaylistDialog> {
     _controller.dispose();
     super.dispose();
   }
-}
-
-class _AddToPlaylistResult {
-  const _AddToPlaylistResult({required this.playlistName});
-
-  final String playlistName;
 }

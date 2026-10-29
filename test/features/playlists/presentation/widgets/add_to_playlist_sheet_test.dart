@@ -10,10 +10,10 @@ import 'package:sonus_next/features/library/application/models/library_track.dar
 import 'package:sonus_next/features/library/application/models/library_track_order.dart';
 import 'package:sonus_next/features/library/application/repositories/library_query_repository.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
+import 'package:sonus_next/features/playlists/application/models/playlist_add_result.dart';
 import 'package:sonus_next/features/playlists/application/models/playlist_summary.dart';
 import 'package:sonus_next/features/playlists/application/services/playlist_service.dart';
 import 'package:sonus_next/features/playlists/domain/entities/playlist.dart';
-import 'package:sonus_next/features/playlists/domain/entities/playlist_item.dart';
 import 'package:sonus_next/features/playlists/domain/repositories/playlist_repository.dart';
 import 'package:sonus_next/features/playlists/presentation/widgets/add_to_playlist_sheet.dart';
 import 'package:sonus_next/features/sync/application/services/sync_mutation_runner.dart';
@@ -155,13 +155,108 @@ void main() {
     expect(service.lastPlaylistId, 'playlist_keep');
     expect(service.lastSongId, 'song_blocked');
   });
+
+  testWidgets('says a song is already in the playlist instead of "Added"', (
+    tester,
+  ) async {
+    final service = _FakePlaylistService(
+      playlists: [_summary(id: 'playlist_dupe', name: 'Night Drive')],
+      presentSongIds: {'song_dupe'},
+    );
+
+    await tester.pumpWidget(
+      _FlowHarness(
+        service: service,
+        track: _track(songId: 'song_dupe', title: 'Paper Lanterns'),
+      ),
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('open-add-to-playlist')),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('add-to-playlist-playlist_dupe')),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.text('"Paper Lanterns" is already in Night Drive.'), findsOne);
+    expect(find.textContaining('Added'), findsNothing);
+  });
+
+  testWidgets('adds several songs and reports duplicates in one message', (
+    tester,
+  ) async {
+    final service = _FakePlaylistService(
+      playlists: [_summary(id: 'playlist_bulk', name: 'Lakeside')],
+      presentSongIds: {'song_b', 'song_d'},
+    );
+    final tracks = [
+      for (final id in ['song_a', 'song_b', 'song_c', 'song_d', 'song_e'])
+        _track(songId: id, title: 'Title $id'),
+    ];
+
+    await tester.pumpWidget(_FlowHarness(service: service, tracks: tracks));
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('open-add-to-playlist')),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.text('5 songs'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('add-to-playlist-playlist_bulk')),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(service.addSongCallCount, 1);
+    expect(service.lastSongIds, [
+      'song_a',
+      'song_b',
+      'song_c',
+      'song_d',
+      'song_e',
+    ]);
+    expect(
+      find.text('Added 3 songs to Lakeside. 2 were already in this playlist.'),
+      findsOneWidget,
+    );
+  });
+
+  test('bulk message counts songs no longer in the library', () {
+    final tracks = [
+      _track(songId: 'song_x', title: 'X'),
+      _track(songId: 'song_y', title: 'Y'),
+    ];
+
+    expect(
+      addToPlaylistMessage(
+        const PlaylistAddResult(
+          playlistName: 'Harbor',
+          added: 0,
+          alreadyPresent: 1,
+          failed: 1,
+        ),
+        tracks,
+      ),
+      'No songs were added to Harbor. 1 was already in this playlist. '
+      '1 is no longer in your library.',
+    );
+  });
 }
 
 class _FlowHarness extends StatelessWidget {
-  const _FlowHarness({required this.service, required this.track});
+  const _FlowHarness({required this.service, this.track, this.tracks});
 
   final PlaylistService service;
-  final LibraryTrack track;
+  final LibraryTrack? track;
+  final List<LibraryTrack>? tracks;
 
   @override
   Widget build(BuildContext context) {
@@ -175,7 +270,12 @@ class _FlowHarness extends StatelessWidget {
                 child: FilledButton(
                   key: const ValueKey<String>('open-add-to-playlist'),
                   onPressed: () {
-                    unawaited(showAddToPlaylistFlow(context, track));
+                    final many = tracks;
+                    unawaited(
+                      many == null
+                          ? showAddToPlaylistFlow(context, track!)
+                          : showAddTracksToPlaylistFlow(context, many),
+                    );
                   },
                   child: const Text('Open chooser'),
                 ),
@@ -189,15 +289,18 @@ class _FlowHarness extends StatelessWidget {
 }
 
 class _FakePlaylistService extends PlaylistService {
-  _FakePlaylistService({List<PlaylistSummary> playlists = const []})
-    : _playlists = List<PlaylistSummary>.of(playlists),
-      super(
-        repository: _UnusedPlaylistRepository(),
-        library: _UnusedLibraryQueryRepository(),
-        mutationRunner: _UnusedSyncMutationRunner(),
-      );
+  _FakePlaylistService({
+    List<PlaylistSummary> playlists = const [],
+    this.presentSongIds = const {},
+  }) : _playlists = List<PlaylistSummary>.of(playlists),
+       super(
+         repository: _UnusedPlaylistRepository(),
+         library: _UnusedLibraryQueryRepository(),
+         mutationRunner: _UnusedSyncMutationRunner(),
+       );
 
   final List<PlaylistSummary> _playlists;
+  final Set<String> presentSongIds;
 
   int createPlaylistCallCount = 0;
   int addSongCallCount = 0;
@@ -205,9 +308,9 @@ class _FakePlaylistService extends PlaylistService {
   String? lastCreatedName;
   String? lastPlaylistId;
   String? lastSongId;
+  List<String>? lastSongIds;
 
   int _createdCounter = 0;
-  int _itemCounter = 0;
 
   @override
   Future<List<PlaylistSummary>> getPlaylists() async {
@@ -236,26 +339,26 @@ class _FakePlaylistService extends PlaylistService {
   }
 
   @override
-  Future<PlaylistItem> addSong({
+  Future<PlaylistAddResult> addSongs({
     required String playlistId,
-    required String songId,
+    required List<String> songIds,
     DateTime? now,
   }) async {
     addSongCallCount++;
     lastPlaylistId = playlistId;
-    lastSongId = songId;
+    lastSongIds = songIds;
+    lastSongId = songIds.last;
 
-    _itemCounter++;
+    final present = songIds.where(presentSongIds.contains).length;
 
-    final timestamp = now ?? DateTime.utc(2026, 9, 30, 12);
-
-    return PlaylistItem(
-      id: 'playlist_item_fake_$_itemCounter',
-      playlistId: playlistId,
-      songId: songId,
-      position: 0,
-      createdAt: timestamp,
-      updatedAt: timestamp,
+    return PlaylistAddResult(
+      playlistName: _playlists
+          .firstWhere((summary) => summary.playlist.id == playlistId)
+          .playlist
+          .name,
+      added: songIds.length - present,
+      alreadyPresent: present,
+      failed: 0,
     );
   }
 }

@@ -146,6 +146,75 @@ void main() {
       'song_unavailable',
     ]);
   });
+
+  testWidgets('bulk add back into the same playlist never duplicates songs', (
+    tester,
+  ) async {
+    await _seedSongs(
+      appDatabase,
+      now: now,
+      songIds: const ['song_tide', 'song_moss'],
+      availableSongIds: const {'song_tide', 'song_moss'},
+    );
+    final playlist = await service.createPlaylist(name: 'Low Tide');
+    final first = await service.addSong(
+      playlistId: playlist.id,
+      songId: 'song_tide',
+    );
+    await service.addSong(playlistId: playlist.id, songId: 'song_moss');
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          Provider<PlaylistService?>.value(value: service),
+          Provider<PlaybackCoordinator>.value(value: playbackCoordinator),
+          ChangeNotifierProvider<PlaybackStateController>.value(
+            value: playbackStateController,
+          ),
+        ],
+        child: MaterialApp(
+          home: PlaylistDetailPage(
+            playlistId: playlist.id,
+            initialName: playlist.name,
+          ),
+        ),
+      ),
+    );
+
+    final row = find.byKey(ValueKey<String>('playlist-track-${first.id}'));
+    await _pumpUntilFound(tester, row);
+
+    await tester.longPress(row);
+    await tester.pump();
+    expect(find.text('1 selected'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('track-selection-all')));
+    await tester.pump();
+    expect(find.text('2 selected'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('track-selection-playlist')));
+    final target = find.byKey(
+      ValueKey<String>('add-to-playlist-${playlist.id}'),
+    );
+    await _pumpUntilFound(tester, target);
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.tap(target);
+
+    final message = find.text(
+      'No songs were added to Low Tide. 2 were already in this playlist.',
+    );
+    await _pumpUntilFound(tester, message);
+
+    expect(message, findsOneWidget);
+    expect(await playlistRepository.getItems(playlist.id), hasLength(2));
+  });
+}
+
+Future<void> _pumpUntilFound(WidgetTester tester, Finder finder) async {
+  for (var attempt = 0; attempt < 40; attempt++) {
+    await tester.pump(const Duration(milliseconds: 50));
+    if (finder.evaluate().isNotEmpty) return;
+  }
 }
 
 Future<void> _seedSongs(

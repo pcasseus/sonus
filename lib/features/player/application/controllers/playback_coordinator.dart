@@ -130,6 +130,25 @@ class PlaybackCoordinator {
     );
   }
 
+  /// Appends [tracks] in the given order, skipping songs that cannot be
+  /// queued, as [addToQueue] refuses them. Returns how many were added.
+  Future<int> addTracksToQueue(List<LibraryTrack> tracks) async {
+    var added = 0;
+
+    for (final track in tracks) {
+      if (!isPlayable(track)) {
+        continue;
+      }
+
+      await _engine.appendTrack(
+        LibraryTrackPlaybackMapper.toPlaybackTrack(track),
+      );
+      added++;
+    }
+
+    return added;
+  }
+
   Future<void> removeBlockedSongFromQueue(String songId) {
     return removeSongFromQueue(songId);
   }

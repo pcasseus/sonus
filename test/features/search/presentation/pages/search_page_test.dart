@@ -886,6 +886,35 @@ void main() {
         expect(tester.takeException(), isNull);
         expect(find.text('Query Track'), findsOneWidget);
       });
+
+      testWidgets('${id.label} selection bar fits 320dp at 2x text', (
+        tester,
+      ) async {
+        await searchFor(
+          tester,
+          spec: SonusAppearanceSpec(themeId: id),
+          size: const Size(320, 2400),
+          textScale: 2,
+        );
+
+        await tester.longPress(
+          find.byKey(const ValueKey<String>('search-track-song-1')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(tester.takeException(), isNull);
+        expect(find.text('1 selected'), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey<String>('search-track-menu-song-1')),
+          findsNothing,
+        );
+
+        await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+        await tester.pumpAndSettle();
+
+        expect(find.text('1 selected'), findsNothing);
+        expect(find.text('Query Track'), findsOneWidget);
+      });
     }
 
     for (final level in SonusDecorationIntensity.values) {

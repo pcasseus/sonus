@@ -1502,6 +1502,81 @@ void main() {
       expect(rail, findsOneWidget);
     });
   });
+
+  group('SN-50 multi-select', () {
+    final repositoryTracks = [
+      createTrack(songId: 'song-amber', title: 'Amber Coast'),
+      createTrack(songId: 'song-birch', title: 'Birch Road'),
+    ];
+
+    testWidgets('long-press selects a row, which then toggles on tap', (
+      tester,
+    ) async {
+      final engine = RecordingPlaybackEngine();
+      final semantics = tester.ensureSemantics();
+
+      await tester.pumpWidget(
+        buildSubject(
+          repository: FakeLibraryQueryRepository(tracks: repositoryTracks),
+          engine: engine,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.longPress(
+        find.byKey(const ValueKey<String>('track-song-amber')),
+      );
+      await tester.pump();
+
+      expect(find.text('1 selected'), findsOneWidget);
+      expect(
+        tester.getSemantics(
+          find.byKey(const ValueKey<String>('track-song-amber')),
+        ),
+        isSemantics(
+          isChecked: true,
+          isSelected: true,
+          hasTapAction: true,
+          hasLongPressAction: true,
+        ),
+      );
+      expect(
+        find.byKey(const ValueKey<String>('track-menu-song-amber')),
+        findsNothing,
+      );
+
+      await tester.tap(find.byKey(const ValueKey<String>('track-song-birch')));
+      await tester.pump();
+
+      expect(find.text('2 selected'), findsOneWidget);
+      expect(engine.loadQueueCalls, 0);
+      semantics.dispose();
+    });
+
+    testWidgets('the song menu offers Select, Go to album and Go to artist', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        buildSubject(
+          repository: FakeLibraryQueryRepository(tracks: repositoryTracks),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('track-menu-song-birch')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Go to album'), findsOneWidget);
+      expect(find.text('Go to artist'), findsOneWidget);
+
+      await tester.tap(find.text('Select'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('1 selected'), findsOneWidget);
+    });
+  });
 }
 
 Widget buildSubject({

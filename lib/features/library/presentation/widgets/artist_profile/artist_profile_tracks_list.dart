@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../../../../../core/design/sonus_theme.dart';
 import '../../../application/models/library_track.dart';
 import '../../../application/models/song_credit_line.dart';
+import '../../controllers/track_selection_controller.dart';
 
 /// Text scale above which rows switch to their large-text layout, as in
 /// the shared Sonus data components.
@@ -27,6 +28,8 @@ class ArtistProfileTracksList extends StatelessWidget {
     required this.onChangeArtwork,
     required this.onClearArtwork,
     required this.onSetBlocked,
+    required this.onGoToAlbum,
+    this.selection,
     this.keyPrefix = 'artist-track',
     this.streamCounts,
     this.firstRank = 1,
@@ -64,6 +67,10 @@ class ArtistProfileTracksList extends StatelessWidget {
   final Future<void> Function(LibraryTrack track) onChangeArtwork;
   final Future<void> Function(LibraryTrack track) onClearArtwork;
   final Future<void> Function(LibraryTrack track, bool isBlocked) onSetBlocked;
+  final void Function(LibraryTrack track) onGoToAlbum;
+
+  /// The page's multi-select, when its rows can be selected.
+  final TrackSelectionController? selection;
 
   @override
   Widget build(BuildContext context) {
@@ -73,6 +80,7 @@ class ArtistProfileTracksList extends StatelessWidget {
 
     final largeText =
         MediaQuery.textScalerOf(context).scale(1) > _largeTextScale;
+    final selection = this.selection;
 
     return Column(
       key: ValueKey<String>('$keyPrefix-list'),
@@ -99,6 +107,16 @@ class ArtistProfileTracksList extends StatelessWidget {
             onChangeArtwork: () => onChangeArtwork(track),
             onClearArtwork: () => onClearArtwork(track),
             onSetBlocked: (isBlocked) => onSetBlocked(track, isBlocked),
+            onGoToAlbum: () => onGoToAlbum(track),
+            selected: selection != null && selection.isActive
+                ? selection.isSelected(track.songId)
+                : null,
+            onSelect: selection == null
+                ? null
+                : () => selection.start(track.songId),
+            onToggleSelected: selection == null
+                ? null
+                : () => selection.toggle(track.songId),
           ),
       ],
     );
@@ -126,6 +144,10 @@ class _TrackTile extends StatelessWidget {
     required this.onChangeArtwork,
     required this.onClearArtwork,
     required this.onSetBlocked,
+    required this.onGoToAlbum,
+    required this.selected,
+    required this.onSelect,
+    required this.onToggleSelected,
   });
 
   final LibraryTrack track;
@@ -148,9 +170,30 @@ class _TrackTile extends StatelessWidget {
   final Future<void> Function() onChangeArtwork;
   final Future<void> Function() onClearArtwork;
   final Future<void> Function(bool isBlocked) onSetBlocked;
+  final VoidCallback onGoToAlbum;
+
+  /// Null outside selection mode.
+  final bool? selected;
+
+  /// Null when the list has no multi-select.
+  final VoidCallback? onSelect;
+  final VoidCallback? onToggleSelected;
 
   @override
   Widget build(BuildContext context) {
+    final selected = this.selected;
+
+    if (selected == null) return _buildRow(context, null);
+
+    return Semantics(
+      checked: selected,
+      selected: selected,
+      child: _buildRow(context, selected),
+    );
+  }
+
+  Widget _buildRow(BuildContext context, bool? selected) {
+    final selecting = selected != null;
     final theme = Theme.of(context);
     final colors = SonusTheme.of(context).colors;
     final rank = this.rank;
@@ -163,7 +206,8 @@ class _TrackTile extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 3),
       child: ListTile(
         key: ValueKey<String>('$keyPrefix-${track.songId}'),
-        enabled: isPlayable,
+        enabled: isPlayable || selecting,
+        selected: selected ?? false,
         tileColor: tileColor ?? colors.surface,
         textColor: colors.textPrimary,
         shape: RoundedRectangleBorder(
@@ -176,6 +220,15 @@ class _TrackTile extends StatelessWidget {
         leading: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (selecting)
+              ExcludeFocus(
+                child: ExcludeSemantics(
+                  child: Checkbox(
+                    value: selected,
+                    onChanged: (_) => onToggleSelected?.call(),
+                  ),
+                ),
+              ),
             // The rank column would squeeze titles at large text sizes.
             if (rank != null && !largeText)
               SizedBox(
@@ -220,83 +273,106 @@ class _TrackTile extends StatelessWidget {
                   fontFeatures: tabular,
                 ),
               ),
-            PopupMenuButton<_TrackMenuAction>(
-              key: ValueKey<String>('$keyPrefix-menu-${track.songId}'),
-              enabled:
-                  isPlayable || canEditArtwork || canEditTrack || canSetBlocked,
-              onSelected: (action) {
-                switch (action) {
-                  case _TrackMenuAction.playNext:
-                    unawaited(onPlayNext());
-                  case _TrackMenuAction.addToQueue:
-                    unawaited(onAddToQueue());
-                  case _TrackMenuAction.addToPlaylist:
-                    unawaited(onAddToPlaylist());
-                  case _TrackMenuAction.trackStudio:
-                    unawaited(onEditTrack());
-                  case _TrackMenuAction.toggleBlocked:
-                    unawaited(onSetBlocked(!track.isSongBlocked));
-                }
-              },
-              itemBuilder: (context) => [
-                PopupMenuItem(
-                  value: _TrackMenuAction.playNext,
-                  enabled: isPlayable,
-                  child: const ListTile(
-                    leading: Icon(Icons.skip_next_rounded),
-                    title: Text('Play next'),
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                ),
-                PopupMenuItem(
-                  value: _TrackMenuAction.addToQueue,
-                  enabled: isPlayable,
-                  child: const ListTile(
-                    leading: Icon(Icons.queue_music_rounded),
-                    title: Text('Add to queue'),
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                ),
-                PopupMenuItem(
-                  value: _TrackMenuAction.addToPlaylist,
-                  child: const ListTile(
-                    leading: Icon(Icons.playlist_add_rounded),
-                    title: Text('Add to playlist'),
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                ),
-                PopupMenuItem(
-                  value: _TrackMenuAction.trackStudio,
-                  enabled: canEditTrack || canEditArtwork,
-                  child: const ListTile(
-                    leading: Icon(Icons.edit_outlined),
-                    title: Text('Track Studio'),
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                ),
-                PopupMenuItem(
-                  value: _TrackMenuAction.toggleBlocked,
-                  enabled: canSetBlocked,
-                  child: ListTile(
-                    leading: Icon(
-                      track.isSongBlocked
-                          ? Icons.lock_open_rounded
-                          : Icons.block_rounded,
+            if (!selecting)
+              PopupMenuButton<_TrackMenuAction>(
+                key: ValueKey<String>('$keyPrefix-menu-${track.songId}'),
+                onSelected: (action) {
+                  switch (action) {
+                    case _TrackMenuAction.playNext:
+                      unawaited(onPlayNext());
+                    case _TrackMenuAction.addToQueue:
+                      unawaited(onAddToQueue());
+                    case _TrackMenuAction.addToPlaylist:
+                      unawaited(onAddToPlaylist());
+                    case _TrackMenuAction.goToAlbum:
+                      onGoToAlbum();
+                    case _TrackMenuAction.select:
+                      onSelect?.call();
+                    case _TrackMenuAction.trackStudio:
+                      unawaited(onEditTrack());
+                    case _TrackMenuAction.toggleBlocked:
+                      unawaited(onSetBlocked(!track.isSongBlocked));
+                  }
+                },
+                itemBuilder: (context) => [
+                  PopupMenuItem(
+                    value: _TrackMenuAction.playNext,
+                    enabled: isPlayable,
+                    child: const ListTile(
+                      leading: Icon(Icons.skip_next_rounded),
+                      title: Text('Play next'),
+                      contentPadding: EdgeInsets.zero,
                     ),
-                    title: Text(
-                      track.isSongBlocked
-                          ? 'Remove from blacklist'
-                          : 'Blacklist song',
-                    ),
-                    contentPadding: EdgeInsets.zero,
                   ),
-                ),
-                const PopupMenuDivider(),
-              ],
-            ),
+                  PopupMenuItem(
+                    value: _TrackMenuAction.addToQueue,
+                    enabled: isPlayable,
+                    child: const ListTile(
+                      leading: Icon(Icons.queue_music_rounded),
+                      title: Text('Add to queue'),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: _TrackMenuAction.addToPlaylist,
+                    child: const ListTile(
+                      leading: Icon(Icons.playlist_add_rounded),
+                      title: Text('Add to playlist'),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: _TrackMenuAction.goToAlbum,
+                    child: ListTile(
+                      leading: Icon(Icons.album_outlined),
+                      title: Text('Go to album'),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+                  if (onSelect != null)
+                    const PopupMenuItem(
+                      value: _TrackMenuAction.select,
+                      child: ListTile(
+                        leading: Icon(Icons.check_box_outlined),
+                        title: Text('Select'),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                    ),
+                  const PopupMenuDivider(),
+                  PopupMenuItem(
+                    value: _TrackMenuAction.trackStudio,
+                    enabled: canEditTrack || canEditArtwork,
+                    child: const ListTile(
+                      leading: Icon(Icons.edit_outlined),
+                      title: Text('Track Studio'),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: _TrackMenuAction.toggleBlocked,
+                    enabled: canSetBlocked,
+                    child: ListTile(
+                      leading: Icon(
+                        track.isSongBlocked
+                            ? Icons.lock_open_rounded
+                            : Icons.block_rounded,
+                      ),
+                      title: Text(
+                        track.isSongBlocked
+                            ? 'Remove from blacklist'
+                            : 'Blacklist song',
+                      ),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+                ],
+              ),
           ],
         ),
-        onTap: isPlayable
+        onLongPress: selecting ? onToggleSelected : onSelect,
+        onTap: selecting
+            ? onToggleSelected
+            : isPlayable
             ? () {
                 unawaited(onPlay());
               }
@@ -389,6 +465,8 @@ enum _TrackMenuAction {
   playNext,
   addToQueue,
   addToPlaylist,
+  goToAlbum,
+  select,
   trackStudio,
   toggleBlocked,
 }

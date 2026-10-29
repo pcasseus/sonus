@@ -10,12 +10,15 @@ import '../../../../core/design/widgets/sonus_state_view.dart';
 import '../../../../core/design/widgets/sonus_track_tile.dart';
 
 import '../../../library/application/models/library_track.dart';
+import '../../../library/presentation/controllers/track_selection_controller.dart';
 import '../../../library/presentation/pages/album_profile_page.dart';
 import '../../../library/presentation/pages/artist_profile_page.dart';
+import '../../../library/presentation/widgets/track_selection_bar.dart';
 import '../../../player/application/controllers/playback_coordinator.dart';
 import '../../application/models/playlist_track.dart';
 import '../../application/services/playlist_service.dart';
 import '../controllers/playlist_detail_controller.dart';
+import '../widgets/add_to_playlist_sheet.dart';
 import '../widgets/playlist_cover.dart';
 
 class PlaylistDetailPage extends StatefulWidget {
@@ -39,6 +42,7 @@ class PlaylistDetailPage extends StatefulWidget {
 class _PlaylistDetailPageState extends State<PlaylistDetailPage> {
   PlaylistService? _service;
   PlaylistDetailController? _controller;
+  final TrackSelectionController _selection = TrackSelectionController();
 
   // Artwork atmosphere, as on the Album Profile: theme colours first, the
   // cover's colours once extracted.
@@ -205,7 +209,7 @@ class _PlaylistDetailPageState extends State<PlaylistDetailPage> {
       body: controller == null
           ? const Center(child: Text('Loading playlist...'))
           : AnimatedBuilder(
-              animation: controller,
+              animation: Listenable.merge([controller, _selection]),
               builder: (context, _) => _buildBody(controller, atmosphere),
             ),
     );
@@ -276,45 +280,58 @@ class _PlaylistDetailPageState extends State<PlaylistDetailPage> {
       );
     }
 
-    return RefreshIndicator(
-      onRefresh: controller.refresh,
-      child: ReorderableListView.builder(
-        key: const PageStorageKey<String>('playlist-detail-tracks'),
-        physics: const AlwaysScrollableScrollPhysics(),
-        header: header,
-        buildDefaultDragHandles: false,
-        padding: EdgeInsets.fromLTRB(gutter - 6, 0, gutter - 6, bottomInset),
-        itemCount: visibleTracks.length,
-        // ignore: deprecated_member_use
-        onReorder: (oldIndex, newIndex) {
-          unawaited(
-            controller.reorderVisible(oldIndex: oldIndex, newIndex: newIndex),
-          );
-        },
-        itemBuilder: (context, index) {
-          final entry = visibleTracks[index];
+    final selecting = _selection.isActive;
 
-          return _PlaylistTrackTile(
-            key: ValueKey<String>(entry.item.id),
-            entry: entry,
-            index: index,
-            count: visibleTracks.length,
-            isPlayable: controller.isTrackPlayable(entry.track),
-            tileColor: atmosphere.surface,
-            onPlay: () => controller.playTrack(entry.track),
-            onPlayNext: () => controller.playNext(entry.track),
-            onAddToQueue: () => controller.addToQueue(entry.track),
-            onRemove: () => _removeTrack(controller, entry),
-            // Same index convention as dragging: a move down targets the
-            // slot after the next song.
-            onMove: (offset) => controller.reorderVisible(
-              oldIndex: index,
-              newIndex: offset < 0 ? index - 1 : index + 2,
-            ),
-            onGoToAlbum: () => _openAlbum(entry.track),
-            onGoToArtist: () => _openArtist(entry.track),
-          );
-        },
+    return TrackSelectionScope(
+      controller: _selection,
+      visibleTracks: [for (final entry in visibleTracks) entry.track],
+      child: RefreshIndicator(
+        onRefresh: controller.refresh,
+        child: ReorderableListView.builder(
+          key: const PageStorageKey<String>('playlist-detail-tracks'),
+          physics: const AlwaysScrollableScrollPhysics(),
+          header: header,
+          buildDefaultDragHandles: false,
+          padding: EdgeInsets.fromLTRB(gutter - 6, 0, gutter - 6, bottomInset),
+          itemCount: visibleTracks.length,
+          // ignore: deprecated_member_use
+          onReorder: (oldIndex, newIndex) {
+            unawaited(
+              controller.reorderVisible(oldIndex: oldIndex, newIndex: newIndex),
+            );
+          },
+          itemBuilder: (context, index) {
+            final entry = visibleTracks[index];
+
+            return _PlaylistTrackTile(
+              key: ValueKey<String>(entry.item.id),
+              entry: entry,
+              index: index,
+              count: visibleTracks.length,
+              isPlayable: controller.isTrackPlayable(entry.track),
+              tileColor: atmosphere.surface,
+              selected: selecting
+                  ? _selection.isSelected(entry.track.songId)
+                  : null,
+              onSelect: () => _selection.start(entry.track.songId),
+              onToggleSelected: () => _selection.toggle(entry.track.songId),
+              onAddToPlaylist: () =>
+                  showAddToPlaylistFlow(context, entry.track),
+              onPlay: () => controller.playTrack(entry.track),
+              onPlayNext: () => controller.playNext(entry.track),
+              onAddToQueue: () => controller.addToQueue(entry.track),
+              onRemove: () => _removeTrack(controller, entry),
+              // Same index convention as dragging: a move down targets the
+              // slot after the next song.
+              onMove: (offset) => controller.reorderVisible(
+                oldIndex: index,
+                newIndex: offset < 0 ? index - 1 : index + 2,
+              ),
+              onGoToAlbum: () => _openAlbum(entry.track),
+              onGoToArtist: () => _openArtist(entry.track),
+            );
+          },
+        ),
       ),
     );
   }
@@ -440,6 +457,7 @@ class _PlaylistDetailPageState extends State<PlaylistDetailPage> {
   void dispose() {
     _controller?.removeListener(_onControllerChanged);
     _controller?.dispose();
+    _selection.dispose();
     super.dispose();
   }
 }
@@ -612,6 +630,10 @@ class _PlaylistTrackTile extends StatelessWidget {
     required this.count,
     required this.isPlayable,
     required this.tileColor,
+    required this.selected,
+    required this.onSelect,
+    required this.onToggleSelected,
+    required this.onAddToPlaylist,
     required this.onPlay,
     required this.onPlayNext,
     required this.onAddToQueue,
@@ -626,6 +648,12 @@ class _PlaylistTrackTile extends StatelessWidget {
   final int count;
   final bool isPlayable;
   final Color tileColor;
+
+  /// Null outside selection mode.
+  final bool? selected;
+  final VoidCallback onSelect;
+  final VoidCallback onToggleSelected;
+  final Future<void> Function() onAddToPlaylist;
 
   final Future<void> Function() onPlay;
   final Future<void> Function() onPlayNext;
@@ -653,7 +681,9 @@ class _PlaylistTrackTile extends StatelessWidget {
       duration: sonusFormatDuration(track.durationSeconds),
       enabled: isPlayable,
       tileColor: tileColor,
-      onTap: () => unawaited(onPlay()),
+      selected: selected,
+      onLongPress: selected == null ? onSelect : onToggleSelected,
+      onTap: selected == null ? () => unawaited(onPlay()) : onToggleSelected,
       status: isPlayable
           ? null
           : Text(
@@ -674,6 +704,10 @@ class _PlaylistTrackTile extends StatelessWidget {
                   unawaited(onPlayNext());
                 case _TrackAction.addToQueue:
                   unawaited(onAddToQueue());
+                case _TrackAction.addToPlaylist:
+                  unawaited(onAddToPlaylist());
+                case _TrackAction.select:
+                  onSelect();
                 case _TrackAction.moveUp:
                   unawaited(onMove(-1));
                 case _TrackAction.moveDown:
@@ -702,6 +736,22 @@ class _PlaylistTrackTile extends StatelessWidget {
                 child: const ListTile(
                   leading: Icon(Icons.queue_music_rounded),
                   title: Text('Add to queue'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+              const PopupMenuItem(
+                value: _TrackAction.addToPlaylist,
+                child: ListTile(
+                  leading: Icon(Icons.playlist_add_rounded),
+                  title: Text('Add to playlist'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+              const PopupMenuItem(
+                value: _TrackAction.select,
+                child: ListTile(
+                  leading: Icon(Icons.check_box_outlined),
+                  title: Text('Select'),
                   contentPadding: EdgeInsets.zero,
                 ),
               ),
@@ -934,6 +984,8 @@ enum _DetailAction { rename, delete }
 enum _TrackAction {
   playNext,
   addToQueue,
+  addToPlaylist,
+  select,
   moveUp,
   moveDown,
   goToAlbum,

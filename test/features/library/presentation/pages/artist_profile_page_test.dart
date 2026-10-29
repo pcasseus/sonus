@@ -369,6 +369,41 @@ void main() {
       await engine.dispose();
     });
 
+    testWidgets('SN-50 C-Q12: song menu offers Go to album and Select', (
+      tester,
+    ) async {
+      final repository = FakeLibraryQueryRepository(
+        artist: createArtist(),
+        albums: [createAlbum()],
+        tracks: [createTrack(songId: 'song-quay', title: 'Quay Lights')],
+      );
+
+      await tester.pumpWidget(
+        buildSubject(
+          repository: repository,
+          qualifiedPlays: FakeQualifiedPlayRepository([
+            qualifiedPlay('song-quay'),
+          ]),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final menu = find.byKey(
+        const ValueKey<String>('artist-top-track-menu-song-quay'),
+      );
+      await tester.ensureVisible(menu);
+      await tester.pumpAndSettle();
+      await tester.tap(menu);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Go to album'), findsOneWidget);
+
+      await tester.tap(find.text('Select'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('1 selected'), findsOneWidget);
+    });
+
     testWidgets('a streamed but unavailable song stays in Top Tracks, '
         'labelled and not playable', (tester) async {
       final repository = FakeLibraryQueryRepository(

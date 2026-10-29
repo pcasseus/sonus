@@ -520,6 +520,45 @@ void main() {
       expect(find.textContaining('2 tracks'), findsNothing);
     });
 
+    testWidgets('SN-50 C-Q10A: long-press selects tracks; Back leaves', (
+      tester,
+    ) async {
+      final repository = FakeLibraryQueryRepository(
+        album: createAlbum(),
+        tracks: [
+          createTrack(songId: 'song-ember'),
+          createTrack(songId: 'song-fjord'),
+        ],
+      );
+
+      await tester.pumpWidget(buildSubject(repository: repository));
+      await tester.pumpAndSettle();
+
+      await tester.longPress(
+        find.byKey(const ValueKey<String>('album-track-song-ember')),
+      );
+      await tester.pump();
+
+      expect(find.text('1 selected'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey<String>('album-track-menu-song-ember')),
+        findsNothing,
+      );
+
+      await tester.tap(find.byKey(const ValueKey('track-selection-all')));
+      await tester.pump();
+      expect(find.text('2 selected'), findsOneWidget);
+
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+
+      expect(find.text('2 selected'), findsNothing);
+      expect(
+        find.byKey(const ValueKey<String>('album-track-menu-song-ember')),
+        findsOneWidget,
+      );
+    });
+
     testWidgets(
       'all unavailable album tracks present as an empty current album',
       (tester) async {

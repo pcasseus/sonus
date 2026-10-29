@@ -31,6 +31,7 @@ import '../../application/services/song_block_service.dart';
 import '../../application/services/library_organization_service.dart';
 import 'package:sonus_next/features/library/application/services/track_profile_editing_service.dart';
 import '../controllers/artist_profile_controller.dart';
+import '../controllers/track_selection_controller.dart';
 import '../models/artist_profile_sections.dart';
 import '../models/track_profile_edit_draft.dart';
 import '../widgets/artist_profile/artist_profile_albums_grid.dart';
@@ -40,6 +41,7 @@ import '../widgets/artist_profile/artist_profile_tracks_list.dart';
 import '../widgets/artist_profile/artist_profile_playback_controls.dart';
 import '../widgets/artist_profile/artist_profile_section_heading.dart';
 import '../widgets/artist_profile/artist_library_placement_sheet.dart';
+import '../widgets/track_selection_bar.dart';
 import 'album_profile_page.dart';
 import 'artist_studio_page.dart';
 import 'track_studio_page.dart';
@@ -80,6 +82,7 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
   LibraryChangeRefresher? _refresher;
   ArtistProfileController? _controller;
   LibraryQueryRepository? _repository;
+  final TrackSelectionController _selection = TrackSelectionController();
 
   // Artwork atmosphere, as on the Album Profile: theme colours show at
   // once; the artwork's colours arrive asynchronously and replace them.
@@ -434,7 +437,7 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
       body: controller == null
           ? const Center(child: Text('Loading artist...'))
           : AnimatedBuilder(
-              animation: controller,
+              animation: Listenable.merge([controller, _selection]),
               builder: (context, _) {
                 if (controller.isLoading && controller.artist == null) {
                   return const Center(child: CircularProgressIndicator());
@@ -483,12 +486,19 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
                 final topTracks = controller.topTracks;
 
                 if (controller.isContributor) {
-                  return _contributorBody(
-                    context,
-                    controller,
-                    userId,
-                    atmosphere,
-                    artist,
+                  return TrackSelectionScope(
+                    controller: _selection,
+                    visibleTracks: [
+                      for (final appearance in controller.appearances)
+                        ...appearance.tracks.where(_hasAvailableMedia),
+                    ],
+                    child: _contributorBody(
+                      context,
+                      controller,
+                      userId,
+                      atmosphere,
+                      artist,
+                    ),
                   );
                 }
 
@@ -502,157 +512,168 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
                   ),
                 );
 
-                return _watchScroll(
-                  controller,
-                  RefreshIndicator(
-                    onRefresh: controller.refresh,
-                    child: ListView(
-                      key: const PageStorageKey<String>(
-                        'artist-profile-scroll',
-                      ),
-                      physics: const AlwaysScrollableScrollPhysics(),
-                      // Clears the system inset and any bottom player.
-                      padding: EdgeInsets.only(
-                        bottom: 32 + MediaQuery.paddingOf(context).bottom,
-                      ),
-                      children: [
-                        ArtistProfileHeader(
-                          artist: artist,
-                          bannerPath: controller.bannerPath,
-                          portraitPath: controller.portraitPath,
-                          standing: controller.standing,
-                          atmosphere: atmosphere,
+                return TrackSelectionScope(
+                  controller: _selection,
+                  visibleTracks: [
+                    for (final entry in topTracks) entry.track,
+                    ...collaborations,
+                  ],
+                  child: _watchScroll(
+                    controller,
+                    RefreshIndicator(
+                      onRefresh: controller.refresh,
+                      child: ListView(
+                        key: const PageStorageKey<String>(
+                          'artist-profile-scroll',
                         ),
-                        Padding(
-                          padding: EdgeInsets.fromLTRB(gutter, 16, gutter, 0),
-                          child: ArtistProfilePlaybackControls(
-                            controller: controller,
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        // Clears the system inset and any bottom player.
+                        padding: EdgeInsets.only(
+                          bottom: 32 + MediaQuery.paddingOf(context).bottom,
+                        ),
+                        children: [
+                          ArtistProfileHeader(
+                            artist: artist,
+                            bannerPath: controller.bannerPath,
+                            portraitPath: controller.portraitPath,
+                            standing: controller.standing,
                             atmosphere: atmosphere,
                           ),
-                        ),
-                        if (topTracks.isNotEmpty)
-                          section(
-                            const ValueKey<String>('artist-profile-top-tracks'),
-                            [
-                              ArtistProfileSectionHeading(
-                                title: 'Top Tracks',
-                                subtitle: _topTracksSubtitle(
-                                  controller.topTracksCountedElsewhere,
-                                ),
+                          Padding(
+                            padding: EdgeInsets.fromLTRB(gutter, 16, gutter, 0),
+                            child: ArtistProfilePlaybackControls(
+                              controller: controller,
+                              atmosphere: atmosphere,
+                            ),
+                          ),
+                          if (topTracks.isNotEmpty)
+                            section(
+                              const ValueKey<String>(
+                                'artist-profile-top-tracks',
                               ),
-                              const SizedBox(height: 8),
-                              _tracksList(
-                                context,
-                                controller,
-                                userId,
-                                atmosphere,
-                                tracks: [
-                                  for (final entry in topTracks) entry.track,
-                                ],
-                                keyPrefix: 'artist-top-track',
-                                profileArtistId: artist.artistId,
-                                onPlay: controller.playTopTrack,
-                                streamCounts: {
-                                  for (final entry in topTracks)
-                                    entry.track.songId: entry.streamCount,
-                                },
-                              ),
-                              if (controller.rankedTracks.length >
-                                  topTracks.length)
-                                Align(
-                                  alignment: AlignmentDirectional.centerStart,
-                                  child: TextButton(
-                                    key: const ValueKey<String>(
-                                      'artist-profile-top-tracks-see-all',
-                                    ),
-                                    style: TextButton.styleFrom(
-                                      minimumSize: const Size(48, 48),
-                                    ),
-                                    onPressed: () =>
-                                        _openRankedTracks(controller, userId),
-                                    child: const Text('See All'),
+                              [
+                                ArtistProfileSectionHeading(
+                                  title: 'Top Tracks',
+                                  subtitle: _topTracksSubtitle(
+                                    controller.topTracksCountedElsewhere,
                                   ),
                                 ),
-                            ],
-                          ),
-                        for (final MapEntry(key: shelf, value: cards)
-                            in shelves.entries)
-                          section(
-                            ValueKey<String>('artist-profile-${shelf.key}'),
-                            [
-                              ArtistProfileSectionHeading(
-                                title: shelf.title,
-                                subtitle:
-                                    shelf == ArtistReleaseShelf.needsReview
-                                    ? 'Choose Single, EP or Album in '
-                                          'Edit Release'
-                                    : null,
-                                count: cards.length,
-                              ),
-                              const SizedBox(height: 12),
-                              ArtistProfileAlbumsGrid(
-                                cards: cards,
-                                onAlbumTap: (album) {
-                                  unawaited(
-                                    _pushAndRefresh(
-                                      AlbumProfilePage(
-                                        albumId: album.albumId,
-                                        initialAlbumTitle: album.displayTitle,
+                                const SizedBox(height: 8),
+                                _tracksList(
+                                  context,
+                                  controller,
+                                  userId,
+                                  atmosphere,
+                                  tracks: [
+                                    for (final entry in topTracks) entry.track,
+                                  ],
+                                  keyPrefix: 'artist-top-track',
+                                  selection: _selection,
+                                  profileArtistId: artist.artistId,
+                                  onPlay: controller.playTopTrack,
+                                  streamCounts: {
+                                    for (final entry in topTracks)
+                                      entry.track.songId: entry.streamCount,
+                                  },
+                                ),
+                                if (controller.rankedTracks.length >
+                                    topTracks.length)
+                                  Align(
+                                    alignment: AlignmentDirectional.centerStart,
+                                    child: TextButton(
+                                      key: const ValueKey<String>(
+                                        'artist-profile-top-tracks-see-all',
                                       ),
+                                      style: TextButton.styleFrom(
+                                        minimumSize: const Size(48, 48),
+                                      ),
+                                      onPressed: () =>
+                                          _openRankedTracks(controller, userId),
+                                      child: const Text('See All'),
                                     ),
-                                  );
-                                },
-                              ),
-                            ],
-                          ),
-                        if (collaborations.isNotEmpty)
-                          section(
-                            const ValueKey<String>(
-                              'artist-profile-collaborations',
+                                  ),
+                              ],
                             ),
-                            [
-                              ArtistProfileSectionHeading(
-                                title: 'Collaborations',
-                                count: collaborations.length,
-                              ),
-                              const SizedBox(height: 8),
-                              _tracksList(
-                                context,
-                                controller,
-                                userId,
-                                atmosphere,
-                                tracks: collaborations,
-                                keyPrefix: 'artist-track',
-                                profileArtistId: artist.artistId,
-                                onPlay: controller.playCollaboration,
-                              ),
-                            ],
-                          ),
-                        if (collaborators.isNotEmpty)
-                          section(
-                            const ValueKey<String>(
-                              'artist-profile-collaborators',
+                          for (final MapEntry(key: shelf, value: cards)
+                              in shelves.entries)
+                            section(
+                              ValueKey<String>('artist-profile-${shelf.key}'),
+                              [
+                                ArtistProfileSectionHeading(
+                                  title: shelf.title,
+                                  subtitle:
+                                      shelf == ArtistReleaseShelf.needsReview
+                                      ? 'Choose Single, EP or Album in '
+                                            'Edit Release'
+                                      : null,
+                                  count: cards.length,
+                                ),
+                                const SizedBox(height: 12),
+                                ArtistProfileAlbumsGrid(
+                                  cards: cards,
+                                  onAlbumTap: (album) {
+                                    unawaited(
+                                      _pushAndRefresh(
+                                        AlbumProfilePage(
+                                          albumId: album.albumId,
+                                          initialAlbumTitle: album.displayTitle,
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ],
                             ),
-                            [
-                              ArtistProfileSectionHeading(
-                                title: 'Collaborators',
-                                count: collaborators.length,
-                                subtitle:
-                                    'Artists who appear on these releases',
+                          if (collaborations.isNotEmpty)
+                            section(
+                              const ValueKey<String>(
+                                'artist-profile-collaborations',
                               ),
-                              const SizedBox(height: 8),
-                              ArtistProfileCollaborators(
-                                collaborators: collaborators,
-                                tileColor: atmosphere.surface,
-                                isPlayable: (collaborator) => collaborator
-                                    .tracks
-                                    .any(controller.isTrackPlayable),
-                                onPlay: controller.playCollaborator,
-                                onOpen: _openCollaborator,
+                              [
+                                ArtistProfileSectionHeading(
+                                  title: 'Collaborations',
+                                  count: collaborations.length,
+                                ),
+                                const SizedBox(height: 8),
+                                _tracksList(
+                                  context,
+                                  controller,
+                                  userId,
+                                  atmosphere,
+                                  tracks: collaborations,
+                                  keyPrefix: 'artist-track',
+                                  selection: _selection,
+                                  profileArtistId: artist.artistId,
+                                  onPlay: controller.playCollaboration,
+                                ),
+                              ],
+                            ),
+                          if (collaborators.isNotEmpty)
+                            section(
+                              const ValueKey<String>(
+                                'artist-profile-collaborators',
                               ),
-                            ],
-                          ),
-                      ],
+                              [
+                                ArtistProfileSectionHeading(
+                                  title: 'Collaborators',
+                                  count: collaborators.length,
+                                  subtitle:
+                                      'Artists who appear on these releases',
+                                ),
+                                const SizedBox(height: 8),
+                                ArtistProfileCollaborators(
+                                  collaborators: collaborators,
+                                  tileColor: atmosphere.surface,
+                                  isPlayable: (collaborator) => collaborator
+                                      .tracks
+                                      .any(controller.isTrackPlayable),
+                                  onPlay: controller.playCollaborator,
+                                  onOpen: _openCollaborator,
+                                ),
+                              ],
+                            ),
+                        ],
+                      ),
                     ),
                   ),
                 );
@@ -812,6 +833,7 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
                           .where(_hasAvailableMedia)
                           .toList(growable: false),
                       keyPrefix: 'artist-appearance-track',
+                      selection: _selection,
                       profileArtistId: artist.artistId,
                     ),
                     Align(
@@ -867,9 +889,11 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
     int firstRank = 1,
     String? profileArtistId,
     Future<void> Function(LibraryTrack track)? onPlay,
+    TrackSelectionController? selection,
   }) {
     return ArtistProfileTracksList(
       tracks: tracks,
+      selection: selection,
       profileArtistId: profileArtistId,
       keyPrefix: keyPrefix,
       streamCounts: streamCounts,
@@ -888,6 +912,15 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
       onClearArtwork: (track) => _clearTrackArtwork(controller, track),
       onSetBlocked: (track, isBlocked) =>
           _setTrackBlocked(controller, track, userId, isBlocked),
+      onGoToAlbum: (track) => unawaited(
+        _pushAndRefresh(
+          AlbumProfilePage(
+            albumId: track.albumId,
+            initialAlbumTitle: track.albumTitle,
+            initialEditionId: track.albumEditionId,
+          ),
+        ),
+      ),
     );
   }
 
@@ -1467,6 +1500,7 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
   @override
   void dispose() {
     _titleShown.dispose();
+    _selection.dispose();
     _controller?.removeListener(_onControllerChanged);
     _refresher?.dispose();
     _controller?.dispose();

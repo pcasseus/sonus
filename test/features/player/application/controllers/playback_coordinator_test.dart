@@ -29,6 +29,7 @@ class FakePlaybackEngine implements PlaybackEngine {
   PlaybackTrack? insertedTrack;
 
   PlaybackTrack? appendedTrack;
+  final List<PlaybackTrack> appendedTracks = [];
 
   int? removedIndex;
   final List<int> removedIndices = [];
@@ -89,6 +90,7 @@ class FakePlaybackEngine implements PlaybackEngine {
   @override
   Future<void> appendTrack(PlaybackTrack track) async {
     appendedTrack = track;
+    appendedTracks.add(track);
   }
 
   @override
@@ -449,6 +451,26 @@ void main() {
     await coordinator.addToQueue(track(songId: 'song_2'));
 
     expect(engine.appendedTrack?.songId, 'song_2');
+  });
+
+  test('adds several tracks in list order, skipping unplayable ones', () async {
+    final engine = FakePlaybackEngine();
+    final coordinator = PlaybackCoordinator(engine: engine);
+
+    final added = await coordinator.addTracksToQueue([
+      track(songId: 'song_c'),
+      track(songId: 'song_gone', isAvailable: false),
+      track(songId: 'song_a'),
+      track(songId: 'song_blocked', isSongBlocked: true),
+      track(songId: 'song_b'),
+    ]);
+
+    expect(added, 3);
+    expect(engine.appendedTracks.map((track) => track.songId), [
+      'song_c',
+      'song_a',
+      'song_b',
+    ]);
   });
 
   test('remove from queue delegates requested index', () async {

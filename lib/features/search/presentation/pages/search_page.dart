@@ -14,8 +14,10 @@ import '../../../library/application/models/library_artist.dart';
 import '../../../library/application/models/library_track.dart';
 import '../../../library/application/repositories/library_query_repository.dart';
 import '../../../library/application/services/library_organization_service.dart';
+import '../../../library/presentation/controllers/track_selection_controller.dart';
 import '../../../library/presentation/pages/album_profile_page.dart';
 import '../../../library/presentation/pages/artist_profile_page.dart';
+import '../../../library/presentation/widgets/track_selection_bar.dart';
 import '../../../player/application/controllers/playback_coordinator.dart';
 import '../../../playlists/presentation/widgets/add_to_playlist_sheet.dart';
 import '../../application/repositories/library_search_repository.dart';
@@ -33,6 +35,7 @@ class SearchPage extends StatefulWidget {
 class _SearchPageState extends State<SearchPage> {
   final TextEditingController _textController = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
+  final TrackSelectionController _selection = TrackSelectionController();
 
   LibrarySearchRepository? _repository;
   LibrarySearchController? _controller;
@@ -140,6 +143,7 @@ class _SearchPageState extends State<SearchPage> {
   void _clearSearch() {
     _textController.clear();
     _controller?.clear();
+    _selection.exit();
     _searchFocusNode.requestFocus();
   }
 
@@ -351,7 +355,7 @@ class _SearchPageState extends State<SearchPage> {
               ),
             )
           : AnimatedBuilder(
-              animation: controller,
+              animation: Listenable.merge([controller, _selection]),
               builder: (context, child) {
                 return Column(
                   children: [
@@ -459,6 +463,10 @@ class _SearchPageState extends State<SearchPage> {
         filter == _SearchFilter.all || filter == kind;
     final canSetBlocked = context.read<SongBlockService?>() != null;
     final gutter = SonusTheme.of(context).metrics.pageGutter;
+    final selecting = _selection.isActive;
+    final selectableTracks = shows(_SearchFilter.tracks)
+        ? visibleTracks
+        : const <LibraryTrack>[];
 
     // Built lazily: large result sets only build the rows on screen.
     final items = <WidgetBuilder>[
@@ -495,9 +503,17 @@ class _SearchPageState extends State<SearchPage> {
             track: track,
             isPlayable: _isPlayable(track),
             canSetBlocked: canSetBlocked,
-            onTap: () => _playTrack(track, visibleTracks),
+            selected: selecting ? _selection.isSelected(track.songId) : null,
+            onLongPress: selecting
+                ? () => _selection.toggle(track.songId)
+                : () => _selection.start(track.songId),
+            onTap: selecting
+                ? () => _selection.toggle(track.songId)
+                : () => _playTrack(track, visibleTracks),
             onAction: (action) {
               switch (action) {
+                case _TrackSearchAction.select:
+                  _selection.start(track.songId);
                 case _TrackSearchAction.playNext:
                   _playNext(track);
                 case _TrackSearchAction.addToQueue:
@@ -516,24 +532,29 @@ class _SearchPageState extends State<SearchPage> {
       ],
     ];
 
-    return ListView.builder(
-      key: const ValueKey<String>('search-results'),
-      // Dragging the results hides the keyboard, so they are not covered.
-      keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-      padding: EdgeInsets.fromLTRB(
-        gutter - 4,
-        4,
-        gutter - 4,
-        32 + MediaQuery.paddingOf(context).bottom,
+    return TrackSelectionScope(
+      controller: _selection,
+      visibleTracks: selectableTracks,
+      child: ListView.builder(
+        key: const ValueKey<String>('search-results'),
+        // Dragging the results hides the keyboard, so they are not covered.
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+        padding: EdgeInsets.fromLTRB(
+          gutter - 4,
+          4,
+          gutter - 4,
+          32 + MediaQuery.paddingOf(context).bottom,
+        ),
+        itemCount: items.length,
+        itemBuilder: (context, index) => items[index](context),
       ),
-      itemCount: items.length,
-      itemBuilder: (context, index) => items[index](context),
     );
   }
 
   @override
   void dispose() {
     _controller?.dispose();
+    _selection.dispose();
     _textController.dispose();
     _searchFocusNode.dispose();
 
@@ -895,6 +916,8 @@ class _TrackResultTile extends StatelessWidget {
     required this.track,
     required this.isPlayable,
     required this.canSetBlocked,
+    required this.selected,
+    required this.onLongPress,
     required this.onTap,
     required this.onAction,
   });
@@ -902,6 +925,10 @@ class _TrackResultTile extends StatelessWidget {
   final LibraryTrack track;
   final bool isPlayable;
   final bool canSetBlocked;
+
+  /// Null outside selection mode.
+  final bool? selected;
+  final VoidCallback onLongPress;
   final VoidCallback onTap;
   final ValueChanged<_TrackSearchAction> onAction;
 
@@ -909,6 +936,8 @@ class _TrackResultTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return SonusTrackTile(
       inkKey: ValueKey<String>('search-track-${track.songId}'),
+      selected: selected,
+      onLongPress: onLongPress,
       onTap: onTap,
       enabled: isPlayable,
       artworkPath: track.artworkPath,
@@ -988,6 +1017,14 @@ class _TrackResultTile extends StatelessWidget {
                 title: Text('Go to album'),
               ),
             ),
+            const PopupMenuItem<_TrackSearchAction>(
+              value: _TrackSearchAction.select,
+              child: ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(Icons.check_box_outlined),
+                title: Text('Select'),
+              ),
+            ),
           ];
         },
       ),
@@ -1001,5 +1038,6 @@ enum _TrackSearchAction {
   addToPlaylist,
   goToArtist,
   goToAlbum,
+  select,
   toggleBlocked,
 }
