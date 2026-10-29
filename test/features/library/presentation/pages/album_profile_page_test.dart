@@ -718,7 +718,10 @@ void main() {
       expect(find.text('Pop'), findsOneWidget);
 
       Future<void> edit(String row, String field, String value) async {
-        await tester.tap(find.byKey(ValueKey<String>('release-studio-$row')));
+        final target = find.byKey(ValueKey<String>('release-studio-$row'));
+        await tester.ensureVisible(target);
+        await tester.pumpAndSettle();
+        await tester.tap(target);
         await tester.pumpAndSettle();
         await tester.enterText(
           find.byKey(ValueKey<String>('release-studio-$field-field')),
@@ -977,6 +980,10 @@ void main() {
       await tester.tap(find.text('Edit Release'));
       await tester.pumpAndSettle();
 
+      await tester.ensureVisible(
+        find.byKey(const ValueKey<String>('release-studio-date')),
+      );
+      await tester.pumpAndSettle();
       await tester.tap(
         find.byKey(const ValueKey<String>('release-studio-date')),
       );
@@ -1028,7 +1035,10 @@ void main() {
       await tester.pumpAndSettle();
 
       for (final field in ['date', 'genre']) {
-        await tester.tap(find.byKey(ValueKey<String>('release-studio-$field')));
+        final target = find.byKey(ValueKey<String>('release-studio-$field'));
+        await tester.ensureVisible(target);
+        await tester.pumpAndSettle();
+        await tester.tap(target);
         await tester.pumpAndSettle();
         await tester.enterText(
           find.byKey(ValueKey<String>('release-studio-$field-field')),
@@ -3084,16 +3094,18 @@ void main() {
       expect(find.text('Standard Studio Song'), findsOneWidget);
       expect(find.text('Deluxe Studio Song'), findsNothing);
 
-      final selector = find.byKey(
-        const ValueKey<String>('album-studio-edition-selector'),
+      final tabs = find.byKey(
+        const ValueKey<String>('release-studio-edition-tabs'),
       );
 
-      expect(selector, findsOneWidget);
+      expect(tabs, findsOneWidget);
 
-      await tester.tap(
-        find.descendant(of: selector, matching: find.text('Deluxe')),
-      );
+      final deluxe = find.descendant(of: tabs, matching: find.text('Deluxe'));
+      await tester.ensureVisible(deluxe);
       await tester.pumpAndSettle();
+      await tester.tap(deluxe);
+      await tester.pumpAndSettle();
+      await revealStudioSection(tester, 'tracklist');
 
       expect(find.text('Standard Studio Song'), findsNothing);
       expect(find.text('Deluxe Studio Song'), findsOneWidget);
@@ -3170,7 +3182,7 @@ void main() {
           const ValueKey<String>('album-studio-track-list'),
         );
 
-        final list = tester.widget<ReorderableListView>(listFinder);
+        final list = tester.widget<SliverReorderableList>(listFinder);
 
         list.onReorderItem!(0, 2);
         await tester.pumpAndSettle();
@@ -3260,9 +3272,26 @@ void main() {
   });
 }
 
-/// Release Studio opens on Details; switch to [section]'s tab.
+/// Release Studio opens on Shared details; open the selected edition's
+/// [section] and scroll its heading to the top, as arriving there would.
 Future<void> openStudioSection(WidgetTester tester, String section) async {
-  await tester.tap(find.byKey(ValueKey<String>('release-studio-tab-$section')));
+  final header = find.byKey(
+    ValueKey<String>('release-studio-section-$section'),
+  );
+  await tester.ensureVisible(header);
+  await tester.pumpAndSettle();
+  await tester.tap(header);
+  await tester.pumpAndSettle();
+  await revealStudioSection(tester, section);
+}
+
+/// Scrolls an open [section]'s heading to the top of Release Studio.
+Future<void> revealStudioSection(WidgetTester tester, String section) async {
+  final header = find.byKey(
+    ValueKey<String>('release-studio-section-$section'),
+  );
+  await tester.ensureVisible(header);
+  await Scrollable.ensureVisible(tester.element(header));
   await tester.pumpAndSettle();
 }
 

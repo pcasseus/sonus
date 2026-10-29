@@ -35,6 +35,138 @@ Future<TrackProfileCreditDraft?> showTrackCreditEditor({
   );
 }
 
+/// A song's additional credits with Add, Edit and Remove, each through
+/// [showTrackCreditEditor]. Shared by Track Studio and Import Review so both
+/// use the same roles and linking rules (SN-50 C-Q5).
+class TrackCreditList extends StatelessWidget {
+  const TrackCreditList({
+    super.key,
+    required this.credits,
+    required this.artists,
+    required this.primaryArtistId,
+    required this.primaryArtistName,
+    required this.onChanged,
+  });
+
+  final List<TrackProfileCreditDraft> credits;
+  final List<LibraryArtist> artists;
+  final String primaryArtistId;
+  final String primaryArtistName;
+  final ValueChanged<List<TrackProfileCreditDraft>> onChanged;
+
+  Future<TrackProfileCreditDraft?> _showEditor(
+    BuildContext context, {
+    int? editingIndex,
+  }) {
+    return showTrackCreditEditor(
+      context: context,
+      artists: artists,
+      primaryArtistId: primaryArtistId,
+      primaryArtistName: primaryArtistName,
+      otherCredits: [
+        for (var index = 0; index < credits.length; index++)
+          if (index != editingIndex) credits[index],
+      ],
+      initialCredit: editingIndex == null ? null : credits[editingIndex],
+    );
+  }
+
+  Future<void> _add(BuildContext context) async {
+    final credit = await _showEditor(context);
+
+    if (credit != null && context.mounted) {
+      onChanged([...credits, credit]);
+    }
+  }
+
+  Future<void> _edit(BuildContext context, int index) async {
+    final updated = await _showEditor(context, editingIndex: index);
+
+    if (updated != null && context.mounted) {
+      onChanged([...credits]..[index] = updated);
+    }
+  }
+
+  void _remove(int index) {
+    onChanged([...credits]..removeAt(index));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = SonusTheme.of(context);
+    final colors = tokens.colors;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (credits.isEmpty)
+          Text(
+            'No additional artist credits.',
+            style: Theme.of(
+              context,
+            ).textTheme.bodyMedium?.copyWith(color: colors.textSecondary),
+          )
+        else
+          for (var index = 0; index < credits.length; index++)
+            Padding(
+              key: ValueKey<String>('track-credit-row-$index'),
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Material(
+                color: colors.raisedSurface,
+                borderRadius: BorderRadius.circular(
+                  tokens.metrics.controlRadius,
+                ),
+                child: ListTile(
+                  title: Text(credits[index].creditedName),
+                  subtitle: Text(trackCreditRoleLabel(credits[index].role)),
+                  contentPadding: const EdgeInsets.only(left: 14, right: 4),
+                  trailing: Wrap(
+                    spacing: 4,
+                    children: [
+                      IconButton(
+                        key: ValueKey<String>('track-edit-credit-$index'),
+                        tooltip: 'Edit credit',
+                        onPressed: () => _edit(context, index),
+                        icon: const Icon(Icons.edit_rounded),
+                      ),
+                      IconButton(
+                        key: ValueKey<String>('track-remove-credit-$index'),
+                        tooltip: 'Remove credit',
+                        onPressed: () => _remove(index),
+                        icon: const Icon(Icons.delete_outline_rounded),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+        Align(
+          alignment: AlignmentDirectional.centerStart,
+          child: TextButton.icon(
+            key: const ValueKey<String>('track-add-credit-button'),
+            onPressed: () => _add(context),
+            icon: const Icon(Icons.add_rounded),
+            label: const Text('Add credit'),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+String trackCreditRoleLabel(SongArtistCreditRole role) {
+  switch (role) {
+    case SongArtistCreditRole.coPrimary:
+      return 'Co-primary';
+    case SongArtistCreditRole.featured:
+      return 'Featured';
+    case SongArtistCreditRole.guest:
+      return 'Guest';
+    case SongArtistCreditRole.primary:
+      return 'Primary';
+  }
+}
+
 const int _maxArtistOptions = 8;
 
 class _TrackCreditEditorDialog extends StatefulWidget {

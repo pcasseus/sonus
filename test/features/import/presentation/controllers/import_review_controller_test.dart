@@ -28,6 +28,10 @@ import 'package:sonus_next/features/library/domain/repositories/album_edition_re
 import 'package:sonus_next/features/library/domain/repositories/artist_repository.dart';
 import 'package:sonus_next/features/library/domain/repositories/song_repository.dart';
 import 'package:sonus_next/features/sync/application/services/sync_mutation_runner.dart';
+import 'package:sonus_next/features/library/application/services/song_artist_credit_service.dart';
+import 'package:sonus_next/features/library/domain/entities/song_artist_credit.dart';
+
+import '../../support/in_memory_song_artist_credit_repository.dart';
 
 void main() {
   final createdAt = DateTime.utc(2026, 9, 17, 12);
@@ -111,6 +115,7 @@ void main() {
 
     return ImportReviewController(
       service: ImportReviewService(
+        songArtistCreditRepository: InMemorySongArtistCreditRepository(),
         reviewRepository: reviewRepository,
         libraryQueryRepository: libraryRepository,
         trackProfileEditingService: editingService,
@@ -232,7 +237,7 @@ void main() {
         title: 'Corrected Second Song',
         trackNumber: 2,
         discNumber: 1,
-        featuredArtists: const [],
+        additionalCredits: const [],
         isSingle: false,
         artistId: 'artist-song-2',
         albumId: 'album-song-2',
@@ -270,7 +275,7 @@ void main() {
       title: 'Corrected Second Song',
       trackNumber: 2,
       discNumber: 1,
-      featuredArtists: const [],
+      additionalCredits: const [],
       isSingle: false,
       artistId: 'artist-song-2',
       albumId: 'album-song-2',
@@ -316,7 +321,7 @@ void main() {
       title: 'Corrected First Song',
       trackNumber: 1,
       discNumber: 7,
-      featuredArtists: const [],
+      additionalCredits: const [],
       isSingle: false,
       artistId: 'artist-song-1',
       albumId: 'album-song-1',
@@ -345,7 +350,7 @@ void main() {
       title: 'Corrected Song',
       trackNumber: 1,
       discNumber: 1,
-      featuredArtists: const [],
+      additionalCredits: const [],
       isSingle: false,
       artistId: 'artist-song-1',
       albumId: 'album-song-1',
@@ -373,7 +378,7 @@ void main() {
       title: 'Corrected Song',
       trackNumber: 1,
       discNumber: 1,
-      featuredArtists: const [],
+      additionalCredits: const [],
       isSingle: false,
       artistId: 'artist-song-1',
       albumId: 'album-song-1',
@@ -408,7 +413,12 @@ void main() {
         title: 'Persisted Corrected Title',
         trackNumber: 7,
         discNumber: 8,
-        featuredArtists: const ['Guest'],
+        additionalCredits: const [
+          SongArtistCreditInput(
+            creditedName: 'Guest',
+            role: SongArtistCreditRole.featured,
+          ),
+        ],
         isSingle: true,
         artistId: 'artist-song-1',
         albumId: 'album-song-1',
@@ -682,6 +692,7 @@ void main() {
 
       final controller = ImportReviewController(
         service: ImportReviewService(
+          songArtistCreditRepository: InMemorySongArtistCreditRepository(),
           reviewRepository: _FakeReviewRepository(reviews),
           libraryQueryRepository: libraryRepository,
           trackProfileEditingService: _FakeEditingService(
@@ -739,6 +750,7 @@ void main() {
 
       final controller = ImportReviewController(
         service: ImportReviewService(
+          songArtistCreditRepository: InMemorySongArtistCreditRepository(),
           reviewRepository: _FakeReviewRepository([
             review('song-1'),
             review('song-2'),
@@ -813,7 +825,7 @@ void main() {
       title: 'Corrected Song',
       trackNumber: 1,
       discNumber: 1,
-      featuredArtists: const [],
+      additionalCredits: const [],
       isSingle: false,
       artistId: 'artist-song-1',
       albumId: 'album-song-1',
@@ -832,6 +844,7 @@ void main() {
   test('load failure exposes error without reporting completion', () async {
     final controller = ImportReviewController(
       service: ImportReviewService(
+        songArtistCreditRepository: InMemorySongArtistCreditRepository(),
         reviewRepository: _FakeReviewRepository([review('missing-song')]),
         libraryQueryRepository: _FakeLibraryRepository(const {}),
         trackProfileEditingService: _FakeEditingService(
@@ -971,20 +984,29 @@ class _FakeEditingService extends TrackProfileEditingService {
   final _FakeLibraryRepository _libraryRepository;
 
   @override
-  Future<TrackProfileEditResult> updateTrack({
+  Future<TrackProfileEditResult> updateTrackWithCredits({
     required String? userId,
     required String songId,
     required String title,
     required int trackNumber,
-    int discNumber = 1,
-    required List<String> featuredArtists,
+    required int discNumber,
+    required Iterable<SongArtistCreditInput> additionalCredits,
     required bool isSingle,
+    String? versionLabel,
+    List<SongVersionCharacteristic> versionCharacteristics = const [],
+    SongReleaseStatus releaseStatus = SongReleaseStatus.released,
+    bool isLeak = false,
+    bool updateVersionMetadata = false,
     String? artistId,
     String? albumId,
     String? albumEditionId,
     String? placementEditionId,
     DateTime? now,
   }) async {
+    final featuredArtists = [
+      for (final credit in additionalCredits)
+        if (credit.role == SongArtistCreditRole.featured) credit.creditedName,
+    ];
     final failure = error;
 
     if (failure != null) {

@@ -13,7 +13,9 @@ import '../../../library/application/models/library_track.dart';
 import '../../../library/presentation/controllers/track_selection_controller.dart';
 import '../../../library/presentation/pages/album_profile_page.dart';
 import '../../../library/presentation/pages/artist_profile_page.dart';
+import '../../../account/application/controllers/account_controller.dart';
 import '../../../library/presentation/widgets/track_selection_bar.dart';
+import '../../../library/presentation/widgets/track_studio_launcher.dart';
 import '../../../player/application/controllers/playback_coordinator.dart';
 import '../../application/models/playlist_track.dart';
 import '../../application/services/playlist_service.dart';
@@ -281,6 +283,7 @@ class _PlaylistDetailPageState extends State<PlaylistDetailPage> {
     }
 
     final selecting = _selection.isActive;
+    final canEditTrack = canOpenTrackStudio(context);
 
     return TrackSelectionScope(
       controller: _selection,
@@ -329,6 +332,14 @@ class _PlaylistDetailPageState extends State<PlaylistDetailPage> {
               ),
               onGoToAlbum: () => _openAlbum(entry.track),
               onGoToArtist: () => _openArtist(entry.track),
+              onTrackStudio: canEditTrack
+                  ? () => openTrackStudio(
+                      context,
+                      track: entry.track,
+                      userId: context.read<AccountController?>()?.user?.id,
+                      onSaved: controller.refresh,
+                    )
+                  : null,
             );
           },
         ),
@@ -641,6 +652,7 @@ class _PlaylistTrackTile extends StatelessWidget {
     required this.onMove,
     required this.onGoToAlbum,
     required this.onGoToArtist,
+    required this.onTrackStudio,
   });
 
   final PlaylistTrack entry;
@@ -665,6 +677,9 @@ class _PlaylistTrackTile extends StatelessWidget {
 
   final VoidCallback onGoToAlbum;
   final VoidCallback onGoToArtist;
+
+  /// Null when songs cannot be edited here.
+  final Future<void> Function()? onTrackStudio;
 
   @override
   Widget build(BuildContext context) {
@@ -716,6 +731,8 @@ class _PlaylistTrackTile extends StatelessWidget {
                   onGoToAlbum();
                 case _TrackAction.goToArtist:
                   onGoToArtist();
+                case _TrackAction.trackStudio:
+                  unawaited(onTrackStudio?.call());
                 case _TrackAction.remove:
                   unawaited(onRemove());
               }
@@ -796,6 +813,15 @@ class _PlaylistTrackTile extends StatelessWidget {
                 ),
               ),
               const PopupMenuDivider(),
+              PopupMenuItem(
+                value: _TrackAction.trackStudio,
+                enabled: onTrackStudio != null,
+                child: const ListTile(
+                  leading: Icon(Icons.edit_outlined),
+                  title: Text('Track Studio'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
               const PopupMenuItem(
                 value: _TrackAction.remove,
                 child: ListTile(
@@ -990,6 +1016,7 @@ enum _TrackAction {
   moveDown,
   goToAlbum,
   goToArtist,
+  trackStudio,
   remove,
 }
 

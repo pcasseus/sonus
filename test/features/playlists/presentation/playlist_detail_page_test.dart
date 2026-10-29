@@ -7,8 +7,11 @@ import 'package:sonus_next/core/database/app_database.dart';
 import 'package:sonus_next/core/database/database_tables.dart';
 import 'package:sonus_next/features/import/data/daos/media_file_binding_dao.dart';
 import 'package:sonus_next/features/import/domain/entities/media_file_binding.dart';
+import 'package:sonus_next/features/library/application/repositories/library_query_repository.dart';
+import 'package:sonus_next/features/library/application/services/track_profile_editing_service.dart';
 import 'package:sonus_next/features/library/data/daos/library_query_dao.dart';
 import 'package:sonus_next/features/library/data/repositories/sqlite_library_query_repository.dart';
+import 'package:sonus_next/features/library/presentation/pages/track_studio_page.dart';
 import 'package:sonus_next/features/player/application/controllers/playback_coordinator.dart';
 import 'package:sonus_next/features/player/domain/models/playback_state.dart';
 import 'package:sonus_next/features/player/domain/services/playback_engine.dart';
@@ -207,6 +210,128 @@ void main() {
 
     expect(message, findsOneWidget);
     expect(await playlistRepository.getItems(playlist.id), hasLength(2));
+  });
+  testWidgets('row menu opens Track Studio and saves the song (C-Q12)', (
+    tester,
+  ) async {
+    await _seedSongs(
+      appDatabase,
+      now: now,
+      songIds: const ['song_ember'],
+      availableSongIds: const {'song_ember'},
+    );
+    final playlist = await service.createPlaylist(name: 'Ember Hours');
+    final item = await service.addSong(
+      playlistId: playlist.id,
+      songId: 'song_ember',
+    );
+    final db = await appDatabase.database;
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          Provider<PlaylistService?>.value(value: service),
+          Provider<PlaybackCoordinator>.value(value: playbackCoordinator),
+          ChangeNotifierProvider<PlaybackStateController>.value(
+            value: playbackStateController,
+          ),
+          Provider<LibraryQueryRepository?>.value(
+            value: SqliteLibraryQueryRepository(LibraryQueryDao(db)),
+          ),
+          Provider<TrackProfileEditingService?>.value(
+            value: TrackProfileEditingService(
+              mutationRunner: SyncMutationTransactionRunner(
+                appDatabase: appDatabase,
+              ),
+            ),
+          ),
+        ],
+        child: MaterialApp(
+          home: PlaylistDetailPage(
+            playlistId: playlist.id,
+            initialName: playlist.name,
+          ),
+        ),
+      ),
+    );
+
+    final row = find.byKey(ValueKey<String>('playlist-track-${item.id}'));
+    await _pumpUntilFound(tester, row);
+
+    await tester.tap(find.byTooltip('Song options'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Track Studio'));
+    final titleField = find.byKey(const ValueKey<String>('track-title-field'));
+    await _pumpUntilFound(tester, titleField);
+    await tester.pumpAndSettle();
+
+    await tester.enterText(titleField, 'Ember Hours Reprise');
+    await tester.tap(
+      find.byKey(const ValueKey<String>('track-studio-save-button')),
+    );
+    for (var attempt = 0; attempt < 40; attempt++) {
+      await tester.pump(const Duration(milliseconds: 50));
+      if (find.byType(TrackStudioPage).evaluate().isEmpty) break;
+    }
+    final renamed = find.text('Ember Hours Reprise');
+    await _pumpUntilFound(tester, renamed);
+
+    expect(find.byType(TrackStudioPage), findsNothing);
+    expect(renamed, findsOneWidget);
+    final saved = await db.query(
+      DatabaseTables.songs,
+      where: 'id = ?',
+      whereArgs: ['song_ember'],
+    );
+    expect(saved.single['title'], 'Ember Hours Reprise');
+  });
+
+  testWidgets('Track Studio is disabled without an editing service', (
+    tester,
+  ) async {
+    await _seedSongs(
+      appDatabase,
+      now: now,
+      songIds: const ['song_ember'],
+      availableSongIds: const {'song_ember'},
+    );
+    final playlist = await service.createPlaylist(name: 'Ember Hours');
+    final item = await service.addSong(
+      playlistId: playlist.id,
+      songId: 'song_ember',
+    );
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          Provider<PlaylistService?>.value(value: service),
+          Provider<PlaybackCoordinator>.value(value: playbackCoordinator),
+          ChangeNotifierProvider<PlaybackStateController>.value(
+            value: playbackStateController,
+          ),
+        ],
+        child: MaterialApp(
+          home: PlaylistDetailPage(
+            playlistId: playlist.id,
+            initialName: playlist.name,
+          ),
+        ),
+      ),
+    );
+
+    final row = find.byKey(ValueKey<String>('playlist-track-${item.id}'));
+    await _pumpUntilFound(tester, row);
+
+    await tester.tap(find.byTooltip('Song options'));
+    await tester.pumpAndSettle();
+
+    final menuItem = tester.widget<PopupMenuItem<Object>>(
+      find.ancestor(
+        of: find.text('Track Studio'),
+        matching: find.byWidgetPredicate((widget) => widget is PopupMenuItem),
+      ),
+    );
+    expect(menuItem.enabled, isFalse);
   });
 }
 

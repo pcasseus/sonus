@@ -512,70 +512,14 @@ class _TrackStudioPageState extends State<TrackStudioPage> {
                 title: 'Credits',
                 icon: Icons.people_alt_outlined,
                 children: [
-                  if (_additionalCredits.isEmpty)
-                    Text(
-                      'No additional artist credits.',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: colors.textSecondary,
-                      ),
-                    )
-                  else
-                    for (
-                      var index = 0;
-                      index < _additionalCredits.length;
-                      index++
-                    )
-                      Padding(
-                        key: ValueKey<String>('track-credit-row-$index'),
-                        padding: const EdgeInsets.only(bottom: 6),
-                        child: Material(
-                          color: colors.raisedSurface,
-                          borderRadius: BorderRadius.circular(
-                            tokens.metrics.controlRadius,
-                          ),
-                          child: ListTile(
-                            title: Text(_additionalCredits[index].creditedName),
-                            subtitle: Text(
-                              _creditRoleLabel(_additionalCredits[index].role),
-                            ),
-                            contentPadding: const EdgeInsets.only(
-                              left: 14,
-                              right: 4,
-                            ),
-                            trailing: Wrap(
-                              spacing: 4,
-                              children: [
-                                IconButton(
-                                  key: ValueKey<String>(
-                                    'track-edit-credit-$index',
-                                  ),
-                                  tooltip: 'Edit credit',
-                                  onPressed: () => _editCredit(index),
-                                  icon: const Icon(Icons.edit_rounded),
-                                ),
-                                IconButton(
-                                  key: ValueKey<String>(
-                                    'track-remove-credit-$index',
-                                  ),
-                                  tooltip: 'Remove credit',
-                                  onPressed: () => _removeCredit(index),
-                                  icon: const Icon(
-                                    Icons.delete_outline_rounded,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                  Align(
-                    alignment: AlignmentDirectional.centerStart,
-                    child: TextButton.icon(
-                      key: const ValueKey<String>('track-add-credit-button'),
-                      onPressed: _addCredit,
-                      icon: const Icon(Icons.add_rounded),
-                      label: const Text('Add credit'),
-                    ),
+                  TrackCreditList(
+                    credits: _additionalCredits,
+                    artists: _artists,
+                    primaryArtistId: _artistId,
+                    primaryArtistName: _primaryArtistName,
+                    onChanged: (credits) {
+                      setState(() => _additionalCredits = credits);
+                    },
                   ),
                   SwitchListTile(
                     key: const ValueKey<String>('track-single-toggle'),
@@ -806,65 +750,6 @@ class _TrackStudioPageState extends State<TrackStudioPage> {
     } finally {
       nameController.dispose();
     }
-  }
-
-  String _creditRoleLabel(SongArtistCreditRole role) {
-    switch (role) {
-      case SongArtistCreditRole.coPrimary:
-        return 'Co-primary';
-      case SongArtistCreditRole.featured:
-        return 'Featured';
-      case SongArtistCreditRole.guest:
-        return 'Guest';
-      case SongArtistCreditRole.primary:
-        return 'Primary';
-    }
-  }
-
-  Future<void> _addCredit() async {
-    final credit = await _showCreditEditor();
-
-    if (!mounted || credit == null) {
-      return;
-    }
-
-    setState(() {
-      _additionalCredits.add(credit);
-    });
-  }
-
-  Future<void> _editCredit(int index) async {
-    final updated = await _showCreditEditor(editingIndex: index);
-
-    if (!mounted || updated == null) {
-      return;
-    }
-
-    setState(() {
-      _additionalCredits[index] = updated;
-    });
-  }
-
-  void _removeCredit(int index) {
-    setState(() {
-      _additionalCredits.removeAt(index);
-    });
-  }
-
-  Future<TrackProfileCreditDraft?> _showCreditEditor({int? editingIndex}) {
-    return showTrackCreditEditor(
-      context: context,
-      artists: _artists,
-      primaryArtistId: _artistId,
-      primaryArtistName: _primaryArtistName,
-      otherCredits: [
-        for (var index = 0; index < _additionalCredits.length; index++)
-          if (index != editingIndex) _additionalCredits[index],
-      ],
-      initialCredit: editingIndex == null
-          ? null
-          : _additionalCredits[editingIndex],
-    );
   }
 
   String get _primaryArtistName {

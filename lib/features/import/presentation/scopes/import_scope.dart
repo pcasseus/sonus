@@ -16,7 +16,9 @@ import '../../../library/application/services/malformed_artist_identity_repair_s
 import '../../../library/data/daos/artist_dao.dart';
 import '../../../library/data/repositories/sqlite_artist_repository.dart';
 import '../../../library/application/services/track_profile_editing_service.dart';
+import '../../../library/data/daos/song_artist_credit_dao.dart';
 import '../../../library/data/daos/song_dao.dart';
+import '../../../library/data/repositories/sqlite_song_artist_credit_repository.dart';
 import '../../../player/application/controllers/playback_coordinator.dart';
 import '../../../library/data/repositories/sqlite_song_repository.dart';
 import '../../../player/data/daos/track_lyrics_dao.dart';
@@ -260,6 +262,9 @@ class _ImportScopeState extends State<ImportScope> {
             libraryQueryRepository: libraryQueryRepository,
             trackProfileEditingService: trackProfileEditingService,
             artistCreationService: artistCreationService,
+            songArtistCreditRepository: SqliteSongArtistCreditRepository(
+              SongArtistCreditDao(sqliteDatabase),
+            ),
           )
         : null;
 

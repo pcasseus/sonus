@@ -29,6 +29,10 @@ import 'package:sonus_next/features/library/application/services/track_profile_e
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/domain/entities/song.dart';
 import 'package:sonus_next/features/sync/application/services/sync_mutation_runner.dart';
+import 'package:sonus_next/features/library/application/services/song_artist_credit_service.dart';
+import 'package:sonus_next/features/library/domain/entities/song_artist_credit.dart';
+
+import '../../support/in_memory_song_artist_credit_repository.dart';
 
 void main() {
   final createdAt = DateTime.utc(2026, 9, 17, 12);
@@ -185,6 +189,7 @@ Widget _buildApp({
   );
 
   final reviewService = ImportReviewService(
+    songArtistCreditRepository: InMemorySongArtistCreditRepository(),
     reviewRepository: reviewRepository,
     libraryQueryRepository: _FakeLibraryRepository(tracks),
     trackProfileEditingService: _FakeEditingService(),
@@ -312,20 +317,29 @@ class _FakeEditingService extends TrackProfileEditingService {
   _FakeEditingService() : super(mutationRunner: _UnusedMutationRunner());
 
   @override
-  Future<TrackProfileEditResult> updateTrack({
+  Future<TrackProfileEditResult> updateTrackWithCredits({
     required String? userId,
     required String songId,
     required String title,
     required int trackNumber,
     required int discNumber,
-    required List<String> featuredArtists,
+    required Iterable<SongArtistCreditInput> additionalCredits,
     required bool isSingle,
+    String? versionLabel,
+    List<SongVersionCharacteristic> versionCharacteristics = const [],
+    SongReleaseStatus releaseStatus = SongReleaseStatus.released,
+    bool isLeak = false,
+    bool updateVersionMetadata = false,
     String? artistId,
     String? albumId,
     String? albumEditionId,
     String? placementEditionId,
     DateTime? now,
   }) async {
+    final featuredArtists = [
+      for (final credit in additionalCredits)
+        if (credit.role == SongArtistCreditRole.featured) credit.creditedName,
+    ];
     final timestamp = now ?? DateTime.utc(2026, 9, 17, 13);
 
     return TrackProfileEditResult(

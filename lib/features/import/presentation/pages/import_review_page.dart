@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 
 import 'package:flutter/material.dart';
 
@@ -488,10 +489,43 @@ class _ImportReviewPageState extends State<ImportReviewPage> {
       return;
     }
 
+    final List<TrackProfileCreditDraft> initialCredits;
+
+    try {
+      initialCredits = trackStudioInitialCredits(
+        credits: await _controller.loadCurrentCredits(),
+        legacyFeaturedArtists: item.track.featuredArtists,
+        primaryArtistId: item.track.artistId,
+        primaryArtistName: item.track.artistName,
+      );
+    } catch (error, stackTrace) {
+      developer.log(
+        'Import Review could not read song credits (${error.runtimeType})',
+        name: 'sonus.import',
+        level: 900,
+        error: error,
+        stackTrace: stackTrace,
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not open song details. Try again.'),
+          ),
+        );
+      }
+      return;
+    }
+
+    if (!mounted) {
+      return;
+    }
+
     final draft = await showDialog<TrackProfileEditDraft>(
       context: context,
       builder: (_) => TrackProfileEditDialog(
         track: item.track,
+        initialAdditionalCredits: initialCredits,
         artists: _controller.artists,
         albums: _controller.albums,
         onCreateArtist: _controller.createOrReuseArtist,
@@ -506,7 +540,9 @@ class _ImportReviewPageState extends State<ImportReviewPage> {
       title: draft.title,
       trackNumber: draft.trackNumber,
       discNumber: draft.discNumber,
-      featuredArtists: draft.featuredArtists,
+      additionalCredits: draft.additionalCredits.map(
+        (credit) => credit.toInput(),
+      ),
       isSingle: draft.isSingle,
       artistId: draft.artistId,
       albumId: draft.albumId,

@@ -6,7 +6,9 @@ import '../../../artwork/application/services/artwork_file_picker.dart';
 import '../../../library/application/models/library_album.dart';
 import '../../../library/application/models/library_artist.dart';
 import '../../../library/application/services/album_profile_editing_service.dart';
+import '../../../library/application/services/song_artist_credit_service.dart';
 import '../../../library/domain/entities/album_edition.dart';
+import '../../../library/domain/entities/song_artist_credit.dart';
 import '../../../library/domain/entities/release_date.dart';
 import '../../application/models/import_review_queue_item.dart';
 import '../../application/services/import_review_service.dart';
@@ -434,11 +436,23 @@ class ImportReviewController extends ChangeNotifier {
     }
   }
 
+  /// The current song's stored credits; throws when they cannot be read,
+  /// so the editor never opens without them.
+  Future<List<SongArtistCredit>> loadCurrentCredits() async {
+    final item = currentItem;
+
+    if (item == null) {
+      return const [];
+    }
+
+    return _service.getCredits(item.track.songId);
+  }
+
   Future<bool> resolveCurrent({
     required String title,
     required int trackNumber,
     required int discNumber,
-    required List<String> featuredArtists,
+    required Iterable<SongArtistCreditInput> additionalCredits,
     required bool isSingle,
     required String artistId,
     required String albumId,
@@ -465,7 +479,7 @@ class ImportReviewController extends ChangeNotifier {
         title: title,
         trackNumber: trackNumber,
         discNumber: discNumber,
-        featuredArtists: featuredArtists,
+        additionalCredits: additionalCredits,
         isSingle: isSingle,
         artistId: artistId,
         albumId: albumId,

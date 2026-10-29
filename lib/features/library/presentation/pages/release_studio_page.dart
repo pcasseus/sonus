@@ -6,7 +6,6 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/design/sonus_theme.dart';
 import '../../../../core/design/widgets/sonus_artwork_frame.dart';
-import '../../../../core/design/widgets/sonus_segmented_selector.dart';
 import '../../../artwork/application/models/cover_art_archive_image.dart';
 import '../../../artwork/application/services/cover_art_album_edition_import_service.dart';
 import '../../../artwork/application/services/cover_art_candidate_discovery_service.dart';
@@ -39,18 +38,15 @@ import '../widgets/cover_art_album_search_dialog.dart';
 import '../widgets/cover_art_image_selection_dialog.dart';
 import '../widgets/musicbrainz_search_dialog.dart';
 
-/// Release Studio (SN-45): one place to edit a release, in four sections.
+/// Release Studio (SN-45, SN-50 A-Q6A/B): one screen to edit a release.
 ///
-/// - **Details:** name, owning artist or project, release date, format
-///   (Single, EP, Album), kind (soundtrack, cast recording, compilation),
-///   genre, and a MusicBrainz lookup.
-/// - **Artwork:** the selected edition's cover: replace and crop,
-///   reposition, find on Cover Art Archive, or remove. Each edition keeps
-///   its own cover.
-/// - **Editions:** Standard, Deluxe and others: create (a new edition
-///   starts with the Standard songs), rename, make primary, delete.
-/// - **Tracklist:** which songs an edition lists, their order, disc and
-///   track numbers, and which are bonus tracks.
+/// - **Shared details** (collapsible, at the top): artist or project, genre,
+///   format, Live, Leaked, kind and a MusicBrainz lookup. They apply to
+///   every edition, so no edition changes them.
+/// - **Edition tabs** below, primary first and marked "Primary"; a release
+///   with one edition shows its sections without tabs. Each edition has its
+///   own name and release date, artwork, edition actions and tracklist, in
+///   expandable sections.
 ///
 /// Every action exists once. Songs, files and listening history are never
 /// deleted or duplicated here.
@@ -113,6 +109,8 @@ class ReleaseStudioPage extends StatefulWidget {
   State<ReleaseStudioPage> createState() => _ReleaseStudioPageState();
 }
 
+/// The section that opens expanded: the shared details (with the edition's
+/// name and date), or one of the selected edition's sections.
 enum ReleaseStudioSection { details, artwork, editions, tracklist }
 
 class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
@@ -128,215 +126,324 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
 
   AlbumProfileController get controller => widget.controller;
 
+  late bool _sharedExpanded =
+      widget.initialSection == ReleaseStudioSection.details;
+
+  late final Set<ReleaseStudioSection> _expandedParts = {widget.initialSection};
+
+  /// The heading of the section opened on arrival, scrolled to the top so
+  /// that section gets the screen.
+  final GlobalKey _initialPartKey = GlobalKey();
+
+  @override
+  void initState() {
+    super.initState();
+
+    if (widget.initialSection != ReleaseStudioSection.details) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final target = _initialPartKey.currentContext;
+        if (mounted && target != null && target.mounted) {
+          unawaited(Scrollable.ensureVisible(target));
+        }
+      });
+    }
+  }
+
+  void _togglePart(ReleaseStudioSection part) {
+    setState(() {
+      if (!_expandedParts.remove(part)) {
+        _expandedParts.add(part);
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
-    final scaler = MediaQuery.textScalerOf(context);
-
-    return DefaultTabController(
-      length: ReleaseStudioSection.values.length,
-      initialIndex: widget.initialSection.index,
-      child: AnimatedBuilder(
-        animation: controller,
-        builder: (context, _) {
-          return Scaffold(
-            key: const ValueKey<String>('release-studio-page'),
-            appBar: AppBar(
-              title: const Text('Edit Release'),
-              bottom: TabBar(
-                key: const ValueKey<String>('release-studio-tabs'),
-                // Large text keeps every label whole; it scrolls instead.
-                isScrollable: scaler.scale(1) > 1.3,
-                tabAlignment: scaler.scale(1) > 1.3
-                    ? TabAlignment.start
-                    : TabAlignment.fill,
-                tabs: const [
-                  Tab(
-                    key: ValueKey<String>('release-studio-tab-details'),
-                    text: 'Details',
-                  ),
-                  Tab(
-                    key: ValueKey<String>('release-studio-tab-artwork'),
-                    text: 'Artwork',
-                  ),
-                  Tab(
-                    key: ValueKey<String>('release-studio-tab-editions'),
-                    text: 'Editions',
-                  ),
-                  Tab(
-                    key: ValueKey<String>('release-studio-tab-tracklist'),
-                    text: 'Tracklist',
-                  ),
-                ],
-              ),
-            ),
-            body: TabBarView(
-              children: [
-                _detailsTab(context),
-                _artworkTab(context),
-                _editionsTab(context),
-                _tracklistTab(context),
-              ],
-            ),
-          );
-        },
-      ),
+    return AnimatedBuilder(
+      animation: controller,
+      builder: (context, _) {
+        return Scaffold(
+          key: const ValueKey<String>('release-studio-page'),
+          appBar: AppBar(title: const Text('Edit Release')),
+          body: _body(context),
+        );
+      },
     );
   }
 
   double get _bottomPadding => 32 + MediaQuery.paddingOf(context).bottom;
 
-  EdgeInsets _tabPadding(BuildContext context) {
+  /// One scroll view: the shared details, the edition tabs, the selected
+  /// edition's sections, then its tracks when the tracklist is open.
+  Widget _body(BuildContext context) {
     final gutter = SonusTheme.of(context).metrics.pageGutter;
-    return EdgeInsets.fromLTRB(gutter, 16, gutter, _bottomPadding);
+    final edition = controller.selectedEdition;
+    final tracksOpen = _expandedParts.contains(ReleaseStudioSection.tracklist);
+
+    return CustomScrollView(
+      key: const ValueKey<String>('release-studio-scroll'),
+      slivers: [
+        SliverPadding(
+          padding: EdgeInsets.fromLTRB(gutter, 16, gutter, 0),
+          sliver: SliverToBoxAdapter(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _StudioSummary(controller: controller),
+                if (_isSavingDetails) ...[
+                  const SizedBox(height: 8),
+                  const LinearProgressIndicator(
+                    key: ValueKey<String>('release-studio-saving'),
+                  ),
+                ],
+                const SizedBox(height: 8),
+                _SectionHeader(
+                  key: const ValueKey<String>('release-studio-section-shared'),
+                  title: 'Shared details',
+                  subtitle: 'Used by every edition.',
+                  icon: Icons.tune_rounded,
+                  expanded: _sharedExpanded,
+                  onToggle: () {
+                    setState(() => _sharedExpanded = !_sharedExpanded);
+                  },
+                ),
+                if (_sharedExpanded) _sharedDetails(context),
+                if (controller.editions.length > 1) ...[
+                  const SizedBox(height: 16),
+                  _EditionTabs(controller: controller),
+                ],
+                _part(
+                  ReleaseStudioSection.details,
+                  name: 'name',
+                  title: 'Name and release date',
+                  icon: Icons.event_note_rounded,
+                  content: _nameAndDate,
+                ),
+                _part(
+                  ReleaseStudioSection.artwork,
+                  name: 'artwork',
+                  title: 'Artwork',
+                  icon: Icons.image_outlined,
+                  content: _artwork,
+                ),
+                _part(
+                  ReleaseStudioSection.editions,
+                  name: 'editions',
+                  title: 'Edition',
+                  icon: Icons.library_music_outlined,
+                  content: _editions,
+                ),
+                // Last, so its tracks follow it in the scroll view.
+                _part(
+                  ReleaseStudioSection.tracklist,
+                  name: 'tracklist',
+                  title: 'Tracklist',
+                  icon: Icons.queue_music_rounded,
+                  content: _tracklistHeader,
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (tracksOpen && edition != null)
+          _StudioTrackList(
+            controller: controller,
+            tracks: controller.tracks,
+            autoRenumber: _autoRenumber,
+            isBusy: _isSavingOrder,
+            userId: widget.userId,
+            bonusSongIds: _bonusSongIds(),
+            onReorderStarted: () {
+              setState(() {
+                _isSavingOrder = true;
+              });
+            },
+            onReorderFinished: () {
+              if (!mounted) {
+                return;
+              }
+
+              setState(() {
+                _isSavingOrder = false;
+              });
+            },
+            onEditPlacement: _editPlacement,
+          ),
+        SliverPadding(padding: EdgeInsets.only(bottom: _bottomPadding)),
+      ],
+    );
   }
 
-  // Details ---------------------------------------------------------------
+  /// One of the selected edition's expandable sections.
+  Widget _part(
+    ReleaseStudioSection part, {
+    required String name,
+    required String title,
+    required IconData icon,
+    required Widget Function(BuildContext context) content,
+  }) {
+    final expanded = _expandedParts.contains(part);
 
-  Widget _detailsTab(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _SectionHeader(
+          key: ValueKey<String>('release-studio-section-$name'),
+          anchorKey: part == widget.initialSection ? _initialPartKey : null,
+          title: title,
+          icon: icon,
+          expanded: expanded,
+          onToggle: () => _togglePart(part),
+        ),
+        if (expanded) Builder(builder: content),
+      ],
+    );
+  }
+
+  // Shared details ---------------------------------------------------------
+
+  Widget _sharedDetails(BuildContext context) {
     final album = controller.album;
     final canEdit = controller.canEditAlbumProfile(widget.userId);
     final organization = widget.organization;
+    final genres = _differingEditionGenres;
+
+    return Padding(
+      key: const ValueKey<String>('release-studio-details'),
+      padding: const EdgeInsets.only(top: 8, bottom: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _StudioCard(
+            children: [
+              _DetailRow(
+                key: const ValueKey<String>('release-studio-owner'),
+                label: 'Artist or project',
+                value: album?.artistName ?? '',
+                onEdit: canEdit && !_isSavingDetails && widget.library != null
+                    ? _changeOwner
+                    : null,
+              ),
+              _DetailRow(
+                key: const ValueKey<String>('release-studio-genre'),
+                label: 'Genre',
+                value: (album?.genre ?? '').trim().isEmpty
+                    ? 'Not set'
+                    : album!.genre!,
+                onEdit: canEdit && !_isSavingDetails ? _editGenre : null,
+              ),
+            ],
+          ),
+          if (genres.length > 1) ...[
+            const SizedBox(height: 8),
+            _GenreReviewNote(genres: genres),
+          ],
+          if (organization != null && album != null) ...[
+            const SizedBox(height: 16),
+            ReleaseStudioFormat(
+              key: ValueKey<String>('release-studio-format-$_detailsVersion'),
+              albumId: album.albumId,
+              service: organization,
+            ),
+            const SizedBox(height: 16),
+            ReleaseStudioLive(
+              key: ValueKey<String>('release-studio-live-$_detailsVersion'),
+              albumId: album.albumId,
+              service: organization,
+            ),
+            const SizedBox(height: 16),
+            ReleaseStudioLeaked(
+              key: ValueKey<String>('release-studio-leaked-$_detailsVersion'),
+              albumId: album.albumId,
+              service: organization,
+            ),
+            const SizedBox(height: 16),
+            AlbumStudioReleaseType(
+              key: ValueKey<String>('release-studio-kind-$_detailsVersion'),
+              albumId: album.albumId,
+              service: organization,
+            ),
+          ],
+          const SizedBox(height: 16),
+          _StudioCard(
+            children: [
+              _ActionRow(
+                tileKey: const ValueKey<String>(
+                  'album-studio-search-musicbrainz',
+                ),
+                icon: Icons.travel_explore_rounded,
+                title: 'Look up on MusicBrainz',
+                subtitle: 'Find this release and review what would change.',
+                onTap:
+                    widget.metadataProvider != null &&
+                        widget.externalMetadataApplicationService != null &&
+                        widget.externalMetadataProposalService != null &&
+                        !_isApplyingMusicBrainz
+                    ? _searchMusicBrainz
+                    : null,
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'A match can fill in the name, release date, format, kind and '
+            'Live. Anything you set yourself is kept.',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+              color: SonusTheme.of(context).colors.textSecondary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Name and release date --------------------------------------------------
+
+  Widget _nameAndDate(BuildContext context) {
+    final canEdit = controller.canEditAlbumProfile(widget.userId);
     final edition = controller.selectedEdition;
     final perEdition = edition != null && controller.editions.length > 1;
     final releaseDate = _shownReleaseDate;
     final canEditDate = canEdit && !_isSavingDetails;
-    final dateRow = _DetailRow(
-      key: const ValueKey<String>('release-studio-date'),
-      label: perEdition
-          ? 'Release date of ${_editionDisplayLabel(edition)}'
-          : 'Release date',
-      value: releaseDate == null ? 'Not set' : releaseDate.label,
-      onEdit: canEditDate ? _editReleaseDate : null,
-      action: canEditDate
-          ? IconButton(
-              key: const ValueKey<String>('release-studio-date-calendar'),
-              tooltip: 'Choose the release day on a calendar',
-              icon: const Icon(Icons.calendar_month_rounded),
-              onPressed: _pickReleaseDay,
-            )
-          : null,
-    );
 
-    // The selected edition's title is the one name to edit (SN-50 A-Q4);
-    // the stored base title is never changed here.
-    final nameRow = _DetailRow(
-      key: const ValueKey<String>('release-studio-name'),
-      label: perEdition ? 'Name of ${_editionDisplayLabel(edition)}' : 'Name',
-      value: _shownName ?? '',
-      onEdit:
-          canEdit &&
-              !_isSavingDetails &&
-              edition != null &&
-              widget.editionManagement != null
-          ? _rename
-          : null,
-    );
-    final genres = _differingEditionGenres;
-
-    return ListView(
-      key: const ValueKey<String>('release-studio-details'),
-      padding: _tabPadding(context),
-      children: [
-        _StudioSummary(controller: controller),
-        const SizedBox(height: 16),
-        _StudioCard(
-          children: [
-            if (!perEdition) nameRow,
-            _DetailRow(
-              key: const ValueKey<String>('release-studio-owner'),
-              label: 'Artist or project',
-              value: album?.artistName ?? '',
-              onEdit: canEdit && !_isSavingDetails && widget.library != null
-                  ? _changeOwner
-                  : null,
-            ),
-            if (!perEdition) dateRow,
-            _DetailRow(
-              key: const ValueKey<String>('release-studio-genre'),
-              label: 'Genre',
-              value: (album?.genre ?? '').trim().isEmpty
-                  ? 'Not set'
-                  : album!.genre!,
-              onEdit: canEdit && !_isSavingDetails ? _editGenre : null,
-            ),
-          ],
-        ),
-        if (genres.length > 1) ...[
-          const SizedBox(height: 8),
-          _GenreReviewNote(genres: genres),
-        ],
-        if (perEdition) ...[
-          const SizedBox(height: 16),
-          const _SectionNote(
-            'Each edition keeps its own name and release date. Choose the '
-            'edition to change.',
+    return Padding(
+      padding: const EdgeInsets.only(top: 8, bottom: 8),
+      child: _StudioCard(
+        children: [
+          // The selected edition's title is the one name to edit (SN-50
+          // A-Q4); the stored base title is never changed here.
+          _DetailRow(
+            key: const ValueKey<String>('release-studio-name'),
+            label: perEdition
+                ? 'Name of ${_editionDisplayLabel(edition)}'
+                : 'Name',
+            value: _shownName ?? '',
+            onEdit:
+                canEdit &&
+                    !_isSavingDetails &&
+                    edition != null &&
+                    widget.editionManagement != null
+                ? _rename
+                : null,
           ),
-          const SizedBox(height: 8),
-          _EditionSelector(controller: controller),
-          const SizedBox(height: 8),
-          _StudioCard(children: [nameRow, dateRow]),
-        ],
-        if (_isSavingDetails) ...[
-          const SizedBox(height: 8),
-          const LinearProgressIndicator(
-            key: ValueKey<String>('release-studio-saving'),
+          _DetailRow(
+            key: const ValueKey<String>('release-studio-date'),
+            label: perEdition
+                ? 'Release date of ${_editionDisplayLabel(edition)}'
+                : 'Release date',
+            value: releaseDate == null ? 'Not set' : releaseDate.label,
+            onEdit: canEditDate ? _editReleaseDate : null,
+            action: canEditDate
+                ? IconButton(
+                    key: const ValueKey<String>('release-studio-date-calendar'),
+                    tooltip: 'Choose the release day on a calendar',
+                    icon: const Icon(Icons.calendar_month_rounded),
+                    onPressed: _pickReleaseDay,
+                  )
+                : null,
           ),
         ],
-        if (organization != null && album != null) ...[
-          const SizedBox(height: 16),
-          ReleaseStudioFormat(
-            key: ValueKey<String>('release-studio-format-$_detailsVersion'),
-            albumId: album.albumId,
-            service: organization,
-          ),
-          const SizedBox(height: 16),
-          ReleaseStudioLive(
-            key: ValueKey<String>('release-studio-live-$_detailsVersion'),
-            albumId: album.albumId,
-            service: organization,
-          ),
-          const SizedBox(height: 16),
-          ReleaseStudioLeaked(
-            key: ValueKey<String>('release-studio-leaked-$_detailsVersion'),
-            albumId: album.albumId,
-            service: organization,
-          ),
-          const SizedBox(height: 16),
-          AlbumStudioReleaseType(
-            key: ValueKey<String>('release-studio-kind-$_detailsVersion'),
-            albumId: album.albumId,
-            service: organization,
-          ),
-        ],
-        const SizedBox(height: 16),
-        _StudioCard(
-          children: [
-            _ActionRow(
-              tileKey: const ValueKey<String>(
-                'album-studio-search-musicbrainz',
-              ),
-              icon: Icons.travel_explore_rounded,
-              title: 'Look up on MusicBrainz',
-              subtitle: 'Find this release and review what would change.',
-              onTap:
-                  widget.metadataProvider != null &&
-                      widget.externalMetadataApplicationService != null &&
-                      widget.externalMetadataProposalService != null &&
-                      !_isApplyingMusicBrainz
-                  ? _searchMusicBrainz
-                  : null,
-            ),
-          ],
-        ),
-        const SizedBox(height: 6),
-        Text(
-          'A match can fill in the name, release date, format, kind and '
-          'Live. Anything you set yourself is kept.',
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-            color: SonusTheme.of(context).colors.textSecondary,
-          ),
-        ),
-      ],
+      ),
     );
   }
 
@@ -701,7 +808,7 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
 
   // Artwork ---------------------------------------------------------------
 
-  Widget _artworkTab(BuildContext context) {
+  Widget _artwork(BuildContext context) {
     final edition = controller.selectedEdition;
     final canSearch =
         !_isSearchingCoverArt &&
@@ -714,105 +821,98 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
     final hasOwnCover =
         edition == null || (edition.artworkPath ?? '').trim().isNotEmpty;
 
-    return ListView(
+    return Padding(
       key: const ValueKey<String>('release-studio-artwork'),
-      padding: _tabPadding(context),
-      children: [
-        if (controller.editions.length > 1) ...[
-          const _SectionNote(
-            'Each edition keeps its own cover. Choose the edition to change.',
-          ),
-          const SizedBox(height: 8),
-          _EditionSelector(controller: controller),
+      padding: const EdgeInsets.only(top: 12, bottom: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _CoverPreview(controller: controller),
           const SizedBox(height: 16),
-        ],
-        _CoverPreview(controller: controller),
-        const SizedBox(height: 16),
-        _StudioCard(
-          children: [
-            _ActionRow(
-              tileKey: const ValueKey<String>('album-studio-change-artwork'),
-              icon: Icons.add_photo_alternate_outlined,
-              title: 'Replace cover',
-              subtitle: 'Choose an image, then crop and position it.',
-              onTap: widget.onChangeArtwork,
-            ),
-            if (widget.onRepositionArtwork != null)
+          _StudioCard(
+            children: [
+              _ActionRow(
+                tileKey: const ValueKey<String>('album-studio-change-artwork'),
+                icon: Icons.add_photo_alternate_outlined,
+                title: 'Replace cover',
+                subtitle: 'Choose an image, then crop and position it.',
+                onTap: widget.onChangeArtwork,
+              ),
+              if (widget.onRepositionArtwork != null)
+                _ActionRow(
+                  tileKey: const ValueKey<String>(
+                    'album-studio-reposition-artwork',
+                  ),
+                  icon: Icons.crop_rounded,
+                  title: 'Crop, zoom or reposition',
+                  subtitle: 'Reset to the full original image from here too.',
+                  onTap: hasOwnCover ? widget.onRepositionArtwork : null,
+                ),
               _ActionRow(
                 tileKey: const ValueKey<String>(
-                  'album-studio-reposition-artwork',
+                  'album-studio-search-cover-art',
                 ),
-                icon: Icons.crop_rounded,
-                title: 'Crop, zoom or reposition',
-                subtitle: 'Reset to the full original image from here too.',
-                onTap: hasOwnCover ? widget.onRepositionArtwork : null,
+                icon: Icons.image_search_rounded,
+                title: 'Find on Cover Art Archive',
+                subtitle: 'Covers published for this release online.',
+                onTap: canSearch ? _searchCoverArt : null,
               ),
-            _ActionRow(
-              tileKey: const ValueKey<String>('album-studio-search-cover-art'),
-              icon: Icons.image_search_rounded,
-              title: 'Find on Cover Art Archive',
-              subtitle: 'Covers published for this release online.',
-              onTap: canSearch ? _searchCoverArt : null,
-            ),
-            _ActionRow(
-              tileKey: const ValueKey<String>('album-studio-clear-artwork'),
-              icon: Icons.hide_image_outlined,
-              title: 'Remove cover',
-              subtitle: 'Only for this edition.',
-              onTap: hasOwnCover ? widget.onClearArtwork : null,
-            ),
-          ],
-        ),
-      ],
+              _ActionRow(
+                tileKey: const ValueKey<String>('album-studio-clear-artwork'),
+                icon: Icons.hide_image_outlined,
+                title: 'Remove cover',
+                subtitle: 'Only for this edition.',
+                onTap: hasOwnCover ? widget.onClearArtwork : null,
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 
-  // Editions --------------------------------------------------------------
+  // Edition actions --------------------------------------------------------
 
-  Widget _editionsTab(BuildContext context) {
+  Widget _editions(BuildContext context) {
     final management = widget.editionManagement;
 
-    return ListView(
+    return Padding(
       key: const ValueKey<String>('release-studio-editions'),
-      padding: _tabPadding(context),
-      children: [
-        if (controller.editions.length > 1) ...[
-          _EditionSelector(controller: controller),
-          const SizedBox(height: 16),
-        ],
-        if (management == null)
-          const _SectionNote('Editions cannot be changed here.')
-        else
-          AlbumStudioEditionsSection(
-            controller: controller,
-            service: management,
-            dismissals: widget.editionFollowUpDismissals,
-            library: widget.library,
-            userId: widget.userId,
-            view: AlbumStudioEditionsView.editions,
-          ),
-      ],
+      padding: const EdgeInsets.only(top: 8, bottom: 8),
+      child: management == null
+          ? const _SectionNote('Editions cannot be changed here.')
+          : AlbumStudioEditionsSection(
+              controller: controller,
+              service: management,
+              dismissals: widget.editionFollowUpDismissals,
+              library: widget.library,
+              userId: widget.userId,
+              view: AlbumStudioEditionsView.editions,
+            ),
     );
   }
 
   // Tracklist -------------------------------------------------------------
 
-  Widget _tracklistTab(BuildContext context) {
+  /// What sits above the tracks: the edition's songs and the order tools.
+  Widget _tracklistHeader(BuildContext context) {
     final edition = controller.selectedEdition;
     final tracks = controller.tracks;
-    final gutter = SonusTheme.of(context).metrics.pageGutter;
     final management = widget.editionManagement;
 
-    final header = Padding(
-      padding: EdgeInsets.fromLTRB(gutter, 16, gutter, 4),
+    if (edition == null) {
+      return const Padding(
+        padding: EdgeInsets.all(24),
+        child: Center(child: Text('No album edition is available to edit.')),
+      );
+    }
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 8, bottom: 4),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (controller.editions.length > 1) ...[
-            _EditionSelector(controller: controller),
-            const SizedBox(height: 14),
-          ],
-          if (management != null && edition != null) ...[
+          if (management != null) ...[
             AlbumStudioEditionsSection(
               controller: controller,
               service: management,
@@ -823,64 +923,21 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
             ),
             const SizedBox(height: 14),
           ],
-          if (edition != null)
-            _TrackOrderSection(
-              count: tracks.length,
-              autoRenumber: _autoRenumber,
-              isSaving: _isSavingOrder || _isSorting,
-              onSortByDiscAndTrack: tracks.length < 2
-                  ? null
-                  : _sortByDiscAndTrack,
-              onAutoRenumberChanged: (value) {
-                setState(() {
-                  _autoRenumber = value;
-                });
-              },
-            ),
-        ],
-      ),
-    );
-
-    if (edition == null) {
-      return ListView(
-        key: const ValueKey<String>('album-studio-scroll'),
-        padding: EdgeInsets.only(bottom: _bottomPadding),
-        children: [
-          header,
-          const Padding(
-            padding: EdgeInsets.all(24),
-            child: Center(
-              child: Text('No album edition is available to edit.'),
-            ),
+          _TrackOrderSection(
+            count: tracks.length,
+            autoRenumber: _autoRenumber,
+            isSaving: _isSavingOrder || _isSorting,
+            onSortByDiscAndTrack: tracks.length < 2
+                ? null
+                : _sortByDiscAndTrack,
+            onAutoRenumberChanged: (value) {
+              setState(() {
+                _autoRenumber = value;
+              });
+            },
           ),
         ],
-      );
-    }
-
-    return _StudioTrackList(
-      controller: controller,
-      tracks: tracks,
-      header: header,
-      bottomPadding: _bottomPadding,
-      autoRenumber: _autoRenumber,
-      isBusy: _isSavingOrder,
-      userId: widget.userId,
-      bonusSongIds: _bonusSongIds(),
-      onReorderStarted: () {
-        setState(() {
-          _isSavingOrder = true;
-        });
-      },
-      onReorderFinished: () {
-        if (!mounted) {
-          return;
-        }
-
-        setState(() {
-          _isSavingOrder = false;
-        });
-      },
-      onEditPlacement: _editPlacement,
+      ),
     );
   }
 
@@ -1294,7 +1351,7 @@ class _StudioSummary extends StatelessWidget {
       child: Row(
         children: [
           SonusArtworkFrame(
-            key: const ValueKey<String>('album-studio-artwork'),
+            key: const ValueKey<String>('release-studio-summary-artwork'),
             size: size,
             child: path == null
                 ? const _ArtworkFallback()
@@ -1365,38 +1422,165 @@ class _ArtworkFallback extends StatelessWidget {
   }
 }
 
-class _EditionSelector extends StatelessWidget {
-  const _EditionSelector({required this.controller});
+/// A collapsible section's heading: one full-width button that says whether
+/// the section is open, for touch, keyboard and screen readers alike.
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader({
+    super.key,
+    required this.title,
+    required this.icon,
+    required this.expanded,
+    required this.onToggle,
+    this.subtitle,
+    this.anchorKey,
+  });
+
+  /// Lets the page scroll this heading into view.
+  final GlobalKey? anchorKey;
+  final String title;
+  final String? subtitle;
+  final IconData icon;
+  final bool expanded;
+  final VoidCallback onToggle;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = SonusTheme.of(context);
+    final colors = tokens.colors;
+    final theme = Theme.of(context);
+    final subtitle = this.subtitle;
+
+    return Padding(
+      key: anchorKey,
+      padding: const EdgeInsets.only(top: 8),
+      child: MergeSemantics(
+        child: Semantics(
+          expanded: expanded,
+          child: Material(
+            color: colors.surface,
+            clipBehavior: Clip.antiAlias,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(tokens.metrics.cardRadius),
+              side: BorderSide(color: colors.divider),
+            ),
+            child: ListTile(
+              minTileHeight: 56,
+              leading: Icon(icon, color: colors.textSecondary),
+              title: Semantics(
+                header: true,
+                child: Text(
+                  title,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    color: colors.textPrimary,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              subtitle: subtitle == null
+                  ? null
+                  : Text(
+                      subtitle,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: colors.textSecondary,
+                      ),
+                    ),
+              trailing: Icon(
+                expanded
+                    ? Icons.expand_less_rounded
+                    : Icons.expand_more_rounded,
+                color: colors.textSecondary,
+              ),
+              onTap: onToggle,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// The release's editions as tabs, the primary first and marked "Primary"
+/// (SN-50 A-Q6B). Choosing a tab shows that edition's sections below.
+class _EditionTabs extends StatelessWidget {
+  const _EditionTabs({required this.controller});
 
   final AlbumProfileController controller;
 
   @override
   Widget build(BuildContext context) {
-    final selectedEdition = controller.selectedEdition;
+    final colors = SonusTheme.of(context).colors;
+    final theme = Theme.of(context);
+    final editions = [
+      ...controller.editions.where((edition) => edition.isPrimary),
+      ...controller.editions.where((edition) => !edition.isPrimary),
+    ];
+    final selectedId = controller.selectedEdition?.editionId;
+    final selected = editions.indexWhere((e) => e.editionId == selectedId);
+    final height = MediaQuery.textScalerOf(context).scale(48);
 
-    if (selectedEdition == null || controller.editions.length < 2) {
-      return const SizedBox.shrink();
-    }
-
-    // Its own scroll storage, so it never shares a slot with the page.
-    return KeyedSubtree(
-      key: const PageStorageKey<String>('album-studio-edition-selector-scroll'),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: SonusSegmentedSelector<String>(
-          key: const ValueKey<String>('album-studio-edition-selector'),
-          segments: [
-            for (final edition in controller.editions)
-              SonusSegment<String>(
-                value: edition.editionId,
-                label: _editionDisplayLabel(edition),
+    // Keyed by the editions and the selection, so a selection made
+    // elsewhere (such as after a delete) always shows here.
+    return DefaultTabController(
+      key: ValueKey<String>(
+        '${[for (final e in editions) e.editionId].join('|')}#$selected',
+      ),
+      length: editions.length,
+      initialIndex: selected < 0 ? 0 : selected,
+      child: TabBar(
+        key: const ValueKey<String>('release-studio-edition-tabs'),
+        isScrollable: true,
+        tabAlignment: TabAlignment.start,
+        labelColor: colors.textPrimary,
+        unselectedLabelColor: colors.textSecondary,
+        onTap: (index) {
+          unawaited(controller.selectEdition(editions[index].editionId));
+        },
+        tabs: [
+          for (final edition in editions)
+            Tab(
+              key: ValueKey<String>(
+                'release-studio-edition-tab-${edition.editionId}',
               ),
-          ],
-          selected: selectedEdition.editionId,
-          onChanged: (editionId) {
-            unawaited(controller.selectEdition(editionId));
-          },
-        ),
+              height: height,
+              child: Semantics(
+                label: edition.isPrimary
+                    ? '${_editionDisplayLabel(edition)}, primary edition'
+                    : _editionDisplayLabel(edition),
+                excludeSemantics: true,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(_editionDisplayLabel(edition)),
+                    if (edition.isPrimary) ...[
+                      const SizedBox(width: 6),
+                      DecoratedBox(
+                        key: const ValueKey<String>(
+                          'release-studio-edition-tab-primary',
+                        ),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: colors.divider),
+                          borderRadius: BorderRadius.circular(6),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          child: Text(
+                            'Primary',
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: colors.textPrimary,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -1485,8 +1669,6 @@ class _StudioTrackList extends StatelessWidget {
   const _StudioTrackList({
     required this.controller,
     required this.tracks,
-    required this.header,
-    required this.bottomPadding,
     required this.autoRenumber,
     required this.isBusy,
     required this.userId,
@@ -1501,8 +1683,6 @@ class _StudioTrackList extends StatelessWidget {
 
   /// Songs this edition adds to the primary edition.
   final Set<String> bonusSongIds;
-  final Widget header;
-  final double bottomPadding;
   final bool autoRenumber;
   final bool isBusy;
   final String? userId;
@@ -1515,17 +1695,20 @@ class _StudioTrackList extends StatelessWidget {
     final multiDisc = _usesMultipleDiscs(tracks);
     final gutter = SonusTheme.of(context).metrics.pageGutter;
 
-    return ReorderableListView.builder(
+    if (tracks.isEmpty) {
+      return const SliverToBoxAdapter(
+        key: ValueKey<String>('album-studio-track-list'),
+        child: Padding(
+          padding: EdgeInsets.all(24),
+          child: Center(child: Text('No tracks in this edition.')),
+        ),
+      );
+    }
+
+    // A sliver of the page's own scroll view, so dragging a track near the
+    // edge scrolls the whole page and nothing scrolls inside it.
+    return SliverReorderableList(
       key: const ValueKey<String>('album-studio-track-list'),
-      buildDefaultDragHandles: false,
-      header: header,
-      footer: tracks.isEmpty
-          ? const Padding(
-              padding: EdgeInsets.all(24),
-              child: Center(child: Text('No tracks in this edition.')),
-            )
-          : null,
-      padding: EdgeInsets.only(bottom: bottomPadding),
       itemCount: tracks.length,
       onReorderItem: isBusy
           ? (_, _) {}

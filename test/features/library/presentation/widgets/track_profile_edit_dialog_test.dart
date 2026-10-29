@@ -3,11 +3,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sonus_next/features/library/application/models/library_artist.dart';
 import 'package:sonus_next/features/library/application/models/library_track.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
+import 'package:sonus_next/features/library/domain/entities/song_artist_credit.dart';
 import 'package:sonus_next/features/library/presentation/models/track_profile_edit_draft.dart';
 import 'package:sonus_next/features/library/presentation/widgets/track_profile_edit_dialog.dart';
 
 void main() {
-  LibraryTrack buildTrack() {
+  LibraryTrack buildTrack({
+    List<String> featuredArtists = const ['Guest One', 'Guest Two'],
+  }) {
     return LibraryTrack(
       songId: 'song-1',
       title: 'Original Song',
@@ -22,39 +25,59 @@ void main() {
       discNumber: 2,
       durationSeconds: 240,
       isSingle: false,
-      featuredArtists: const ['Guest One', 'Guest Two'],
+      featuredArtists: featuredArtists,
       dateAdded: DateTime(2026),
       isAvailable: true,
     );
   }
 
-  LibraryArtist buildExistingArtist() {
+  LibraryArtist buildArtist(String id, String name) {
     return LibraryArtist(
-      artistId: 'artist-1',
-      name: 'Artist',
+      artistId: id,
+      name: name,
       albumCount: 1,
       songCount: 1,
       dateAdded: DateTime(2026),
     );
   }
 
-  Future<void> pumpDialog(
-    WidgetTester tester,
-    LibraryTrack track, {
+  LibraryArtist buildExistingArtist() => buildArtist('artist-1', 'Artist');
+
+  /// The credits Import Review opens with for a song without structured
+  /// credits: its older featured names.
+  List<TrackProfileCreditDraft> legacyCredits(LibraryTrack track) {
+    return trackStudioInitialCredits(
+      credits: const [],
+      legacyFeaturedArtists: track.featuredArtists,
+      primaryArtistId: track.artistId,
+      primaryArtistName: track.artistName,
+    );
+  }
+
+  /// Opens the dialog and returns a getter for the draft it closes with.
+  Future<TrackProfileEditDraft? Function()> pumpDialog(
+    WidgetTester tester, {
+    LibraryTrack? track,
+    List<TrackProfileCreditDraft>? initialCredits,
     List<LibraryArtist> artists = const [],
     TrackArtistCreationCallback? onCreateArtist,
   }) async {
+    TrackProfileEditDraft? result;
+    final editedTrack = track ?? buildTrack();
+
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
           body: Builder(
             builder: (context) {
               return FilledButton(
-                onPressed: () {
-                  showDialog<TrackProfileEditDraft>(
+                onPressed: () async {
+                  result = await showDialog<TrackProfileEditDraft>(
                     context: context,
                     builder: (_) => TrackProfileEditDialog(
-                      track: track,
+                      track: editedTrack,
+                      initialAdditionalCredits:
+                          initialCredits ?? legacyCredits(editedTrack),
                       artists: artists,
                       onCreateArtist: onCreateArtist,
                     ),
@@ -70,6 +93,8 @@ void main() {
 
     await tester.tap(find.text('Open'));
     await tester.pumpAndSettle();
+
+    return () => result;
   }
 
   Future<void> ensureVisibleAndTap(WidgetTester tester, Finder finder) async {
@@ -82,8 +107,59 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('prepopulates existing track metadata', (tester) async {
-    await pumpDialog(tester, buildTrack());
+  Future<void> save(WidgetTester tester) {
+    return ensureVisibleAndTap(
+      tester,
+      find.byKey(const ValueKey<String>('track-edit-save-button')),
+    );
+  }
+
+  /// Adds a credit through the shared credit editor by typing [name]; picks
+  /// [pickArtistId] from the search list when given.
+  Future<void> addCredit(
+    WidgetTester tester,
+    String name, {
+    String? pickArtistId,
+    String? roleLabel,
+  }) async {
+    await ensureVisibleAndTap(
+      tester,
+      find.byKey(const ValueKey<String>('track-add-credit-button')),
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('track-credit-name-field')),
+      name,
+    );
+    await tester.pumpAndSettle();
+
+    if (pickArtistId != null) {
+      await tester.tap(
+        find.byKey(
+          ValueKey<String>('track-credit-artist-option-$pickArtistId'),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    if (roleLabel != null) {
+      await tester.tap(
+        find.byKey(const ValueKey<String>('track-credit-role-field')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(roleLabel).last);
+      await tester.pumpAndSettle();
+    }
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('track-credit-save-button')),
+    );
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('prepopulates existing track metadata and credits', (
+    tester,
+  ) async {
+    await pumpDialog(tester);
 
     expect(find.text('Edit song details'), findsOneWidget);
 
@@ -96,9 +172,6 @@ void main() {
     final discNumberField = tester.widget<TextFormField>(
       find.byKey(const ValueKey<String>('track-disc-number-field')),
     );
-    final featuredField = tester.widget<TextFormField>(
-      find.byKey(const ValueKey<String>('track-featured-artists-field')),
-    );
     final singleToggle = tester.widget<SwitchListTile>(
       find.byKey(const ValueKey<String>('track-single-toggle')),
     );
@@ -106,12 +179,30 @@ void main() {
     expect(titleField.controller!.text, 'Original Song');
     expect(numberField.controller!.text, '3');
     expect(discNumberField.controller!.text, '2');
-    expect(featuredField.controller!.text, 'Guest One, Guest Two');
     expect(singleToggle.value, isFalse);
+    expect(
+      find.byKey(const ValueKey<String>('track-featured-artists-field')),
+      findsNothing,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('track-credit-row-0')),
+        matching: find.text('Guest One'),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('track-credit-row-1')),
+        matching: find.text('Guest Two'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Featured'), findsNWidgets(2));
   });
 
   testWidgets('validates blank title', (tester) async {
-    await pumpDialog(tester, buildTrack());
+    await pumpDialog(tester);
 
     await tester.enterText(
       find.byKey(const ValueKey<String>('track-title-field')),
@@ -126,31 +217,8 @@ void main() {
     expect(find.text('Song title cannot be blank.'), findsOneWidget);
   });
 
-  testWidgets('returns normalized edited metadata', (tester) async {
-    TrackProfileEditDraft? result;
-
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          body: Builder(
-            builder: (context) {
-              return FilledButton(
-                onPressed: () async {
-                  result = await showDialog<TrackProfileEditDraft>(
-                    context: context,
-                    builder: (_) => TrackProfileEditDialog(track: buildTrack()),
-                  );
-                },
-                child: const Text('Open'),
-              );
-            },
-          ),
-        ),
-      ),
-    );
-
-    await tester.tap(find.text('Open'));
-    await tester.pumpAndSettle();
+  testWidgets('returns normalized edited metadata and credits', (tester) async {
+    final result = await pumpDialog(tester);
 
     await tester.enterText(
       find.byKey(const ValueKey<String>('track-title-field')),
@@ -164,31 +232,73 @@ void main() {
       find.byKey(const ValueKey<String>('track-disc-number-field')),
       '4',
     );
-    await tester.enterText(
-      find.byKey(const ValueKey<String>('track-featured-artists-field')),
-      ' Guest A, , Guest B ',
+    await ensureVisibleAndTap(
+      tester,
+      find.byKey(const ValueKey<String>('track-remove-credit-1')),
+    );
+    await addCredit(tester, ' Guest B ', roleLabel: 'Guest');
+    await ensureVisibleAndTap(
+      tester,
+      find.byKey(const ValueKey<String>('track-single-toggle')),
+    );
+    await save(tester);
+
+    final draft = result();
+    expect(draft, isNotNull);
+    expect(draft!.title, 'Edited Song');
+    expect(draft.trackNumber, 7);
+    expect(draft.discNumber, 4);
+    expect(draft.featuredArtists, ['Guest One']);
+    expect(
+      [
+        for (final credit in draft.additionalCredits)
+          (credit.creditedName, credit.role, credit.artistId),
+      ],
+      [
+        ('Guest One', SongArtistCreditRole.featured, null),
+        ('Guest B', SongArtistCreditRole.guest, null),
+      ],
+    );
+    expect(draft.isSingle, isTrue);
+  });
+
+  testWidgets('keeps stored co-primary and guest credits on save', (
+    tester,
+  ) async {
+    final result = await pumpDialog(
+      tester,
+      track: buildTrack(featuredArtists: const []),
+      initialCredits: const [
+        TrackProfileCreditDraft(
+          creditedName: 'Ada Vale',
+          role: SongArtistCreditRole.coPrimary,
+          artistId: 'artist-ada',
+        ),
+        TrackProfileCreditDraft(
+          creditedName: 'Ben Moor',
+          role: SongArtistCreditRole.guest,
+        ),
+      ],
     );
 
-    final singleToggleFinder = find.byKey(
-      const ValueKey<String>('track-single-toggle'),
-    );
-    await ensureVisibleAndTap(tester, singleToggleFinder);
+    expect(find.text('Co-primary'), findsOneWidget);
+    expect(find.text('Guest'), findsOneWidget);
 
-    final saveButton = find.byKey(
-      const ValueKey<String>('track-edit-save-button'),
-    );
-    await ensureVisibleAndTap(tester, saveButton);
+    await save(tester);
 
-    expect(result, isNotNull);
-    expect(result!.title, 'Edited Song');
-    expect(result!.trackNumber, 7);
-    expect(result!.discNumber, 4);
-    expect(result!.featuredArtists, ['Guest A', 'Guest B']);
-    expect(result!.isSingle, isTrue);
+    final credits = result()!.additionalCredits;
+    expect(
+      [for (final c in credits) (c.creditedName, c.role, c.artistId)],
+      [
+        ('Ada Vale', SongArtistCreditRole.coPrimary, 'artist-ada'),
+        ('Ben Moor', SongArtistCreditRole.guest, null),
+      ],
+    );
+    expect(result()!.featuredArtists, isEmpty);
   });
 
   testWidgets('artist creation is hidden without callback', (tester) async {
-    await pumpDialog(tester, buildTrack());
+    await pumpDialog(tester);
 
     expect(
       find.byKey(const ValueKey<String>('track-add-primary-artist-button')),
@@ -199,10 +309,7 @@ void main() {
   testWidgets(
     'created artist is selected and existing draft state is preserved',
     (tester) async {
-      TrackProfileEditDraft? result;
       String? requestedName;
-
-      final existingArtist = buildExistingArtist();
 
       final createdArtist = LibraryArtist(
         artistId: 'artist-created',
@@ -212,35 +319,15 @@ void main() {
         dateAdded: DateTime(2026),
       );
 
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: Builder(
-              builder: (context) {
-                return FilledButton(
-                  onPressed: () async {
-                    result = await showDialog<TrackProfileEditDraft>(
-                      context: context,
-                      builder: (_) => TrackProfileEditDialog(
-                        track: buildTrack(),
-                        artists: [existingArtist],
-                        onCreateArtist: (name) async {
-                          requestedName = name;
-                          return createdArtist;
-                        },
-                      ),
-                    );
-                  },
-                  child: const Text('Open'),
-                );
-              },
-            ),
-          ),
-        ),
+      final result = await pumpDialog(
+        tester,
+        track: buildTrack(featuredArtists: const []),
+        artists: [buildExistingArtist()],
+        onCreateArtist: (name) async {
+          requestedName = name;
+          return createdArtist;
+        },
       );
-
-      await tester.tap(find.text('Open'));
-      await tester.pumpAndSettle();
 
       await tester.enterText(
         find.byKey(const ValueKey<String>('track-title-field')),
@@ -254,20 +341,16 @@ void main() {
         find.byKey(const ValueKey<String>('track-disc-number-field')),
         '3',
       );
-      await tester.enterText(
-        find.byKey(const ValueKey<String>('track-featured-artists-field')),
-        'Ariana Grande',
+      await addCredit(tester, 'Mira Sol');
+      await ensureVisibleAndTap(
+        tester,
+        find.byKey(const ValueKey<String>('track-single-toggle')),
       );
 
-      final singleToggleFinder = find.byKey(
-        const ValueKey<String>('track-single-toggle'),
+      await ensureVisibleAndTap(
+        tester,
+        find.byKey(const ValueKey<String>('track-add-primary-artist-button')),
       );
-      await ensureVisibleAndTap(tester, singleToggleFinder);
-
-      final addArtistButton = find.byKey(
-        const ValueKey<String>('track-add-primary-artist-button'),
-      );
-      await ensureVisibleAndTap(tester, addArtistButton);
 
       expect(find.text('Add new artist'), findsOneWidget);
 
@@ -294,9 +377,6 @@ void main() {
       final discField = tester.widget<TextFormField>(
         find.byKey(const ValueKey<String>('track-disc-number-field')),
       );
-      final featuredField = tester.widget<TextFormField>(
-        find.byKey(const ValueKey<String>('track-featured-artists-field')),
-      );
       final singleToggle = tester.widget<SwitchListTile>(
         find.byKey(const ValueKey<String>('track-single-toggle')),
       );
@@ -304,21 +384,19 @@ void main() {
       expect(titleField.controller!.text, 'Draft Title');
       expect(numberField.controller!.text, '5');
       expect(discField.controller!.text, '3');
-      expect(featuredField.controller!.text, 'Ariana Grande');
+      expect(find.text('Mira Sol'), findsOneWidget);
       expect(singleToggle.value, isTrue);
 
-      final saveButton = find.byKey(
-        const ValueKey<String>('track-edit-save-button'),
-      );
-      await ensureVisibleAndTap(tester, saveButton);
+      await save(tester);
 
-      expect(result, isNotNull);
-      expect(result!.artistId, 'artist-created');
-      expect(result!.title, 'Draft Title');
-      expect(result!.trackNumber, 5);
-      expect(result!.discNumber, 3);
-      expect(result!.featuredArtists, ['Ariana Grande']);
-      expect(result!.isSingle, isTrue);
+      final draft = result();
+      expect(draft, isNotNull);
+      expect(draft!.artistId, 'artist-created');
+      expect(draft.title, 'Draft Title');
+      expect(draft.trackNumber, 5);
+      expect(draft.discNumber, 3);
+      expect(draft.featuredArtists, ['Mira Sol']);
+      expect(draft.isSingle, isTrue);
     },
   );
 
@@ -327,7 +405,6 @@ void main() {
 
     await pumpDialog(
       tester,
-      buildTrack(),
       artists: [buildExistingArtist()],
       onCreateArtist: (name) async {
         createCallCount++;
@@ -335,10 +412,10 @@ void main() {
       },
     );
 
-    final addArtistButton = find.byKey(
-      const ValueKey<String>('track-add-primary-artist-button'),
+    await ensureVisibleAndTap(
+      tester,
+      find.byKey(const ValueKey<String>('track-add-primary-artist-button')),
     );
-    await ensureVisibleAndTap(tester, addArtistButton);
 
     expect(find.text('Add new artist'), findsOneWidget);
 
@@ -352,105 +429,100 @@ void main() {
     expect(find.text('Add new artist'), findsOneWidget);
   });
 
-  group('names containing commas (SN-50 audit #13)', () {
-    Future<TrackProfileEditDraft?> saveDialog(
-      WidgetTester tester, {
-      required List<String> featuredArtists,
-      List<LibraryArtist> artists = const [],
-      String? typedFeatures,
-    }) async {
-      TrackProfileEditDraft? result;
-      final base = buildTrack();
-      final track = LibraryTrack(
-        songId: base.songId,
-        title: base.title,
-        artistId: base.artistId,
-        artistName: base.artistName,
-        albumId: base.albumId,
-        albumTitle: base.albumTitle,
-        albumEditionId: base.albumEditionId,
-        albumEditionTitle: base.albumEditionTitle,
-        albumEditionType: base.albumEditionType,
-        trackNumber: base.trackNumber,
-        durationSeconds: base.durationSeconds,
-        isSingle: base.isSingle,
-        featuredArtists: featuredArtists,
-        dateAdded: base.dateAdded,
-        isAvailable: base.isAvailable,
-      );
-
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(
-            body: Builder(
-              builder: (context) {
-                return FilledButton(
-                  onPressed: () async {
-                    result = await showDialog<TrackProfileEditDraft>(
-                      context: context,
-                      builder: (_) => TrackProfileEditDialog(
-                        track: track,
-                        artists: artists,
-                      ),
-                    );
-                  },
-                  child: const Text('Open'),
-                );
-              },
-            ),
-          ),
+  testWidgets('a credit that becomes the primary artist blocks saving', (
+    tester,
+  ) async {
+    final result = await pumpDialog(
+      tester,
+      track: buildTrack(featuredArtists: const []),
+      artists: [buildExistingArtist(), buildArtist('artist-ada', 'Ada Vale')],
+      initialCredits: const [
+        TrackProfileCreditDraft(
+          creditedName: 'Ada Vale',
+          role: SongArtistCreditRole.featured,
+          artistId: 'artist-ada',
         ),
-      );
+      ],
+    );
 
-      await tester.tap(find.text('Open'));
-      await tester.pumpAndSettle();
+    await ensureVisibleAndTap(
+      tester,
+      find.byKey(const ValueKey<String>('track-primary-artist-field')),
+    );
+    await tester.tap(find.text('Ada Vale').last);
+    await tester.pumpAndSettle();
+    await save(tester);
 
-      if (typedFeatures != null) {
-        await tester.enterText(
-          find.byKey(const ValueKey<String>('track-featured-artists-field')),
-          typedFeatures,
-        );
-      }
+    expect(result(), isNull);
+    expect(
+      find.byKey(const ValueKey<String>('track-credit-conflict')),
+      findsOneWidget,
+    );
+    expect(find.text('Edit song details'), findsOneWidget);
+  });
 
-      await ensureVisibleAndTap(
-        tester,
-        find.byKey(const ValueKey<String>('track-edit-save-button')),
-      );
-
-      return result;
-    }
-
+  group('names containing commas (SN-50 audit #13, C-Q5)', () {
     testWidgets('saving unchanged keeps a featured name with a comma whole', (
       tester,
     ) async {
-      final result = await saveDialog(
+      final result = await pumpDialog(
         tester,
-        featuredArtists: const ['Crane, The Lantern', 'Ada Vale'],
+        track: buildTrack(
+          featuredArtists: const ['Crane, The Lantern', 'Ada Vale'],
+        ),
       );
 
-      expect(result!.featuredArtists, ['Crane, The Lantern', 'Ada Vale']);
+      await save(tester);
+
+      expect(result()!.featuredArtists, ['Crane, The Lantern', 'Ada Vale']);
     });
 
-    testWidgets('a typed library artist name with a comma stays one artist', (
+    testWidgets('a typed name with a comma is one credit and is not linked', (
       tester,
     ) async {
-      final result = await saveDialog(
+      final result = await pumpDialog(
         tester,
-        featuredArtists: const [],
+        track: buildTrack(featuredArtists: const []),
         artists: [
           buildExistingArtist(),
-          LibraryArtist(
-            artistId: 'artist-moth',
-            name: 'Moth, Lamp',
-            albumCount: 0,
-            songCount: 0,
-            dateAdded: DateTime(2026),
-          ),
+          buildArtist('artist-crane', 'Crane, The Lantern'),
         ],
-        typedFeatures: 'moth,lamp, Ada Vale, Ben Moor',
       );
 
-      expect(result!.featuredArtists, ['moth, lamp', 'Ada Vale', 'Ben Moor']);
+      await addCredit(tester, 'Crane, The Lantern');
+      await save(tester);
+
+      final credits = result()!.additionalCredits;
+      expect(credits, hasLength(1));
+      expect(credits.single.creditedName, 'Crane, The Lantern');
+      expect(credits.single.artistId, isNull);
+      expect(credits.single.toInput().linkByName, isFalse);
+    });
+
+    testWidgets('picking the artist from the list links the credit', (
+      tester,
+    ) async {
+      final result = await pumpDialog(
+        tester,
+        track: buildTrack(featuredArtists: const []),
+        artists: [
+          buildExistingArtist(),
+          buildArtist('artist-crane', 'Crane, The Lantern'),
+        ],
+      );
+
+      await addCredit(
+        tester,
+        'Crane',
+        pickArtistId: 'artist-crane',
+        roleLabel: 'Co-primary',
+      );
+      await save(tester);
+
+      final credit = result()!.additionalCredits.single;
+      expect(credit.creditedName, 'Crane, The Lantern');
+      expect(credit.role, SongArtistCreditRole.coPrimary);
+      expect(credit.artistId, 'artist-crane');
     });
   });
 }

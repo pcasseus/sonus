@@ -1,22 +1,31 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import '../../../../core/identity/artist_credit_parser.dart';
+import '../../../../core/identity/text_normalizer.dart';
 import '../../application/models/library_album.dart';
 import '../../application/models/library_artist.dart';
 import '../../application/models/library_track.dart';
+import '../../application/services/track_profile_editing_service.dart';
+import '../../domain/entities/song_artist_credit.dart';
 import '../models/track_profile_edit_draft.dart';
+import 'track_credit_editor_dialog.dart';
 
 class TrackProfileEditDialog extends StatefulWidget {
   const TrackProfileEditDialog({
     super.key,
     required this.track,
+    required this.initialAdditionalCredits,
     this.artists = const [],
     this.albums = const [],
     this.onCreateArtist,
   });
 
   final LibraryTrack track;
+
+  /// The credits to start from, as [trackStudioInitialCredits] builds them.
+  /// Saving replaces every credit other than the primary artist with the
+  /// edited list.
+  final List<TrackProfileCreditDraft> initialAdditionalCredits;
   final List<LibraryArtist> artists;
   final List<LibraryAlbum> albums;
   final TrackArtistCreationCallback? onCreateArtist;
@@ -31,9 +40,10 @@ class _TrackProfileEditDialogState extends State<TrackProfileEditDialog> {
   late final TextEditingController _titleController;
   late final TextEditingController _trackNumberController;
   late final TextEditingController _discNumberController;
-  late final TextEditingController _featuredArtistsController;
 
   late List<LibraryArtist> _artists;
+  late List<TrackProfileCreditDraft> _additionalCredits;
+  String? _creditError;
   late String _artistId;
   late String _albumId;
   late bool _isSingle;
@@ -52,11 +62,10 @@ class _TrackProfileEditDialogState extends State<TrackProfileEditDialog> {
       text: widget.track.discNumber.toString(),
     );
 
-    _featuredArtistsController = TextEditingController(
-      text: widget.track.featuredArtists.join(', '),
-    );
-
     _artists = List<LibraryArtist>.from(widget.artists);
+    _additionalCredits = List<TrackProfileCreditDraft>.from(
+      widget.initialAdditionalCredits,
+    );
     _artistId = widget.track.artistId;
     _albumId = widget.track.albumId;
     _isSingle = widget.track.isSingle;
@@ -67,7 +76,6 @@ class _TrackProfileEditDialogState extends State<TrackProfileEditDialog> {
     _titleController.dispose();
     _trackNumberController.dispose();
     _discNumberController.dispose();
-    _featuredArtistsController.dispose();
     super.dispose();
   }
 
@@ -220,15 +228,40 @@ class _TrackProfileEditDialogState extends State<TrackProfileEditDialog> {
                 },
               ),
               const SizedBox(height: 12),
-              TextFormField(
-                key: const ValueKey<String>('track-featured-artists-field'),
-                controller: _featuredArtistsController,
-                textInputAction: TextInputAction.done,
-                decoration: const InputDecoration(
-                  labelText: 'Featured artists',
-                  helperText: 'Separate multiple artists with commas.',
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: Semantics(
+                  header: true,
+                  child: Text(
+                    'Credits',
+                    style: Theme.of(context).textTheme.titleSmall,
+                  ),
                 ),
               ),
+              const SizedBox(height: 8),
+              TrackCreditList(
+                credits: _additionalCredits,
+                artists: _artists,
+                primaryArtistId: _artistId,
+                primaryArtistName: _primaryArtistName,
+                onChanged: (credits) {
+                  setState(() {
+                    _additionalCredits = credits;
+                    _creditError = null;
+                  });
+                },
+              ),
+              if (_creditError != null)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    _creditError!,
+                    key: const ValueKey<String>('track-credit-conflict'),
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
+                ),
               const SizedBox(height: 8),
               SwitchListTile(
                 key: const ValueKey<String>('track-single-toggle'),
@@ -290,29 +323,53 @@ class _TrackProfileEditDialogState extends State<TrackProfileEditDialog> {
     });
   }
 
+  String get _primaryArtistName {
+    for (final artist in _artists) {
+      if (artist.artistId == _artistId) {
+        return artist.name;
+      }
+    }
+
+    return widget.track.artistName;
+  }
+
   void _submit() {
     if (!_formKey.currentState!.validate()) {
       return;
     }
 
-    final moveToEditionId = _moveToEditionId();
-
-    // A known name containing a comma, such as "Tyler, The Creator", stays
-    // one artist instead of being split in two.
-    final featuredArtists = const ArtistCreditParser().splitNameList(
-      _featuredArtistsController.text,
-      knownNames: [
-        ...widget.track.featuredArtists,
-        for (final artist in _artists) artist.name,
-      ],
+    // Changing the primary artist can make a credit repeat them; saving
+    // would drop it, so say so instead (same rule as Track Studio).
+    final redundantNames = TrackProfileEditingService.redundantCreditNames(
+      _additionalCredits.map((credit) => credit.toInput()),
+      primaryArtistId: _artistId,
+      primaryCanonicalName: TextNormalizer.canonicalize(_primaryArtistName),
     );
+
+    if (redundantNames.isNotEmpty) {
+      setState(() {
+        _creditError =
+            '${redundantNames.first} is already credited as the primary '
+            'artist or in another credit. Edit or remove that credit to save.';
+      });
+      return;
+    }
+
+    final moveToEditionId = _moveToEditionId();
 
     Navigator.of(context).pop(
       TrackProfileEditDraft(
         title: _titleController.text.trim(),
         trackNumber: int.parse(_trackNumberController.text.trim()),
         discNumber: int.parse(_discNumberController.text.trim()),
-        featuredArtists: featuredArtists,
+        featuredArtists: [
+          for (final credit in _additionalCredits)
+            if (credit.role == SongArtistCreditRole.featured)
+              credit.creditedName,
+        ],
+        additionalCredits: List<TrackProfileCreditDraft>.unmodifiable(
+          _additionalCredits,
+        ),
         isSingle: _isSingle,
         artistId: _artistId,
         albumId: _albumId,

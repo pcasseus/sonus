@@ -157,7 +157,7 @@ void main() {
       200,
       scrollable: find
           .descendant(
-            of: key('release-studio-details'),
+            of: key('release-studio-scroll'),
             matching: find.byType(Scrollable),
           )
           .first,
@@ -310,11 +310,29 @@ void main() {
     expect(key('album-studio-new-edition'), findsOneWidget);
     expect(key('album-studio-choose-songs'), findsNothing);
 
-    await tester.tap(key('release-studio-tab-tracklist'));
+    final tracklist = key('release-studio-section-tracklist');
+    await tester.ensureVisible(tracklist);
+    await tester.pumpAndSettle();
+    await tester.tap(tracklist);
     await tester.pumpAndSettle();
     expect(key('album-studio-choose-songs'), findsOneWidget);
-    expect(key('album-studio-new-edition'), findsNothing);
-    expect(key('album-studio-edit-edition'), findsNothing);
+    for (final action in ['new-edition', 'edit-edition']) {
+      expect(
+        find.descendant(
+          of: key('album-studio-edition-songs'),
+          matching: key('album-studio-$action'),
+        ),
+        findsNothing,
+        reason: action,
+      );
+    }
+    expect(
+      find.descendant(
+        of: key('album-studio-editions'),
+        matching: key('album-studio-choose-songs'),
+      ),
+      findsNothing,
+    );
   });
 
   testWidgets('creates an edition from the dialog', (tester) async {

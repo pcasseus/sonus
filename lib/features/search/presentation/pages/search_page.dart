@@ -18,6 +18,7 @@ import '../../../library/presentation/controllers/track_selection_controller.dar
 import '../../../library/presentation/pages/album_profile_page.dart';
 import '../../../library/presentation/pages/artist_profile_page.dart';
 import '../../../library/presentation/widgets/track_selection_bar.dart';
+import '../../../library/presentation/widgets/track_studio_launcher.dart';
 import '../../../player/application/controllers/playback_coordinator.dart';
 import '../../../playlists/presentation/widgets/add_to_playlist_sheet.dart';
 import '../../application/repositories/library_search_repository.dart';
@@ -250,6 +251,15 @@ class _SearchPageState extends State<SearchPage> {
     }
   }
 
+  Future<void> _editTrack(LibraryTrack track) {
+    return openTrackStudio(
+      context,
+      track: track,
+      userId: context.read<AccountController?>()?.user?.id,
+      onSaved: () async => _controller?.retry(),
+    );
+  }
+
   /// Plays [track] with the visible track results as the queue.
   Future<void> _playTrack(
     LibraryTrack track,
@@ -462,6 +472,7 @@ class _SearchPageState extends State<SearchPage> {
     bool shows(_SearchFilter kind) =>
         filter == _SearchFilter.all || filter == kind;
     final canSetBlocked = context.read<SongBlockService?>() != null;
+    final canEditTrack = canOpenTrackStudio(context);
     final gutter = SonusTheme.of(context).metrics.pageGutter;
     final selecting = _selection.isActive;
     final selectableTracks = shows(_SearchFilter.tracks)
@@ -503,6 +514,7 @@ class _SearchPageState extends State<SearchPage> {
             track: track,
             isPlayable: _isPlayable(track),
             canSetBlocked: canSetBlocked,
+            canEditTrack: canEditTrack,
             selected: selecting ? _selection.isSelected(track.songId) : null,
             onLongPress: selecting
                 ? () => _selection.toggle(track.songId)
@@ -526,6 +538,8 @@ class _SearchPageState extends State<SearchPage> {
                   _openTrackAlbum(track);
                 case _TrackSearchAction.toggleBlocked:
                   _setTrackBlocked(track, !track.isSongBlocked);
+                case _TrackSearchAction.trackStudio:
+                  _editTrack(track);
               }
             },
           ),
@@ -916,6 +930,7 @@ class _TrackResultTile extends StatelessWidget {
     required this.track,
     required this.isPlayable,
     required this.canSetBlocked,
+    required this.canEditTrack,
     required this.selected,
     required this.onLongPress,
     required this.onTap,
@@ -925,6 +940,7 @@ class _TrackResultTile extends StatelessWidget {
   final LibraryTrack track;
   final bool isPlayable;
   final bool canSetBlocked;
+  final bool canEditTrack;
 
   /// Null outside selection mode.
   final bool? selected;
@@ -984,6 +1000,15 @@ class _TrackResultTile extends StatelessWidget {
             ),
             const PopupMenuDivider(),
             PopupMenuItem<_TrackSearchAction>(
+              value: _TrackSearchAction.trackStudio,
+              enabled: canEditTrack,
+              child: const ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(Icons.edit_outlined),
+                title: Text('Track Studio'),
+              ),
+            ),
+            PopupMenuItem<_TrackSearchAction>(
               value: _TrackSearchAction.toggleBlocked,
               enabled: canSetBlocked,
               child: ListTile(
@@ -1040,4 +1065,5 @@ enum _TrackSearchAction {
   goToAlbum,
   select,
   toggleBlocked,
+  trackStudio,
 }
