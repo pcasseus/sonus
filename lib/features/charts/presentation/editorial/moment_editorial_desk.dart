@@ -75,10 +75,14 @@ class MomentStory {
 class MomentEditorialDesk {
   const MomentEditorialDesk({
     required this.lookups,
+    this.rules = ChartMomentRules.legacy,
     this.minorStoriesPerDay = 3,
   });
 
   final MomentLookups lookups;
+
+  /// Which stories follow the SN-50 rules; none without an activation.
+  final ChartMomentRules rules;
   final int minorStoriesPerDay;
 
   /// The weekly chart's largest climb worth a story.
@@ -91,7 +95,7 @@ class MomentEditorialDesk {
         final byTime = a.occurredAt.compareTo(b.occurredAt);
         return byTime != 0 ? byTime : a.id.compareTo(b.id);
       });
-    final gainers = _biggestGainers(chronological);
+    final gainers = _biggestGainers(chronological, rules);
     final planner = MomentStoryPlanner(chronological, biggestGainers: gainers);
 
     final minorPerDay = <String, int>{};
@@ -99,7 +103,11 @@ class MomentEditorialDesk {
     String? previousVariant;
 
     for (final item in chronological) {
-      final refined = ChartMomentRules.isRefined(item.occurredAt);
+      final refined = rules.appliesTo(
+        scope: item.scope,
+        occurredAt: item.occurredAt,
+        weekStartUtc: item.weekStartUtc,
+      );
       final planned = refined ? planner.plan(item) : _legacyPlan(item, gainers);
 
       for (final moment in planned) {
@@ -441,11 +449,19 @@ class MomentEditorialDesk {
 
   /// Per finalized week and chart, the story with the largest verified
   /// climb, when it climbed at least [biggestGainerMinimumPlaces].
-  static Set<String> _biggestGainers(List<ChartMomentFeedItem> items) {
+  static Set<String> _biggestGainers(
+    List<ChartMomentFeedItem> items,
+    ChartMomentRules rules,
+  ) {
     final best = <String, (ChartMomentFeedItem, int)>{};
     for (final item in items) {
       // SN-50: a climb counts even when a new peak or zone leads its story.
-      final climbed = ChartMomentRules.isRefined(item.occurredAt)
+      final climbed =
+          rules.appliesTo(
+            scope: item.scope,
+            occurredAt: item.occurredAt,
+            weekStartUtc: item.weekStartUtc,
+          )
           ? item.contains(ChartMomentEventType.rankRise)
           : item.dominantEventType == ChartMomentEventType.rankRise;
       if (item.scope != ChartMomentScope.finalized || !climbed) continue;

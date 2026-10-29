@@ -26,6 +26,7 @@ import 'package:sonus_next/features/charts/domain/models/chart_type.dart';
 import 'package:sonus_next/features/charts/domain/models/chart_view_size.dart';
 import 'package:sonus_next/features/charts/domain/moments/chart_moment_event.dart';
 import 'package:sonus_next/features/charts/domain/moments/chart_moment_event_type.dart';
+import 'package:sonus_next/features/charts/domain/moments/chart_moment_rules.dart';
 import 'package:sonus_next/features/charts/domain/moments/chart_moment_scope.dart';
 import 'package:sonus_next/features/charts/application/services/chart_moment_feed_pager.dart';
 import 'package:sonus_next/features/charts/application/services/moments_last_seen_store.dart';
@@ -1527,7 +1528,7 @@ void main() {
 
   testWidgets('F-Q26: Moments shows a dot and says "new stories" until it '
       'is opened', (tester) async {
-    final store = MemoryMomentsLastSeenStore(DateTime.utc(2026, 9, 1));
+    final store = MemoryMomentsLastSeenStore.at(DateTime.utc(2026, 9, 1));
     final controller = await _controller(
       momentsLastSeen: store,
       moments: [
@@ -1558,7 +1559,10 @@ void main() {
     await tester.tap(find.text('Moments'));
     await tester.pumpAndSettle();
     expect(dot, findsNothing);
-    expect(store.seen, controller.momentStories.first.occurredAt.toUtc());
+    expect(
+      store.seen?.occurredAtUtc,
+      controller.momentStories.first.occurredAt.toUtc(),
+    );
 
     await tester.tap(find.text('Charts'));
     await tester.pumpAndSettle();
@@ -1720,6 +1724,8 @@ Future<ChartsController> _controller({
     thisWeekCharts: thisWeek,
     momentsLastSeen: momentsLastSeen,
     momentPageSize: momentPageSize,
+    momentRules: () async =>
+        ChartMomentRules(activatedAtUtc: DateTime.utc(2026, 11, 1)),
   );
 
   await controller.load();

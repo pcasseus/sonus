@@ -7,6 +7,7 @@ import 'package:sonus_next/features/charts/domain/models/chart_entity_snapshot.d
 import 'package:sonus_next/features/charts/domain/models/chart_type.dart';
 import 'package:sonus_next/features/charts/domain/moments/chart_moment_event.dart';
 import 'package:sonus_next/features/charts/domain/moments/chart_moment_event_type.dart';
+import 'package:sonus_next/features/charts/domain/moments/chart_moment_rules.dart';
 import 'package:sonus_next/features/charts/domain/moments/chart_moment_scope.dart';
 import 'package:sonus_next/features/charts/presentation/editorial/moment_editorial_desk.dart';
 import 'package:sonus_next/features/charts/presentation/editorial/moment_facts.dart';
@@ -1042,11 +1043,13 @@ void main() {
   });
 
   group('SN-50 stories', () {
-    final desk = MomentEditorialDesk(
-      lookups: FakeLookups(
-        artists: {'artist-a': 'Name artist-a', 'artist-b': 'Name artist-b'},
-      ),
+    final activated = ChartMomentRules(
+      activatedAtUtc: DateTime.utc(2026, 11, 1),
     );
+    final lookups = FakeLookups(
+      artists: {'artist-a': 'Name artist-a', 'artist-b': 'Name artist-b'},
+    );
+    final desk = MomentEditorialDesk(lookups: lookups, rules: activated);
     final before = DateTime.utc(2026, 10, 26, 12);
     final after = DateTime.utc(2026, 11, 3, 12);
 
@@ -1073,6 +1076,33 @@ void main() {
       expect(debutAndTopArtist(before).map((story) => story.family), [
         MomentFamily.artistTopArtist,
       ]);
+    });
+
+    test('SN-50 R2: without an activation every story keeps the earlier '
+        'rules', () {
+      final stories = MomentEditorialDesk(lookups: lookups).compose(
+        items([
+          event(
+            ChartMomentEventType.debut,
+            entity: song('s1'),
+            rank: 30,
+            at: after,
+          ),
+          event(
+            ChartMomentEventType.artistBecomesTopArtist,
+            entity: artistEntity('artist-a'),
+            related: artistEntity('artist-b'),
+            rank: 1,
+            threshold: 1,
+            at: after,
+          ),
+        ]),
+      );
+
+      expect(stories.map((story) => story.family), [
+        MomentFamily.artistTopArtist,
+      ]);
+      expect(stories.single.facts.refined, isFalse);
     });
 
     test('a #1 never names the artist passed in the artist ranking as the '
@@ -1220,6 +1250,7 @@ void main() {
           covers: {'s-new': '/primary.jpg', 's-old': '/primary.jpg'},
           currentCovers: {'s-new': '/deluxe.jpg', 's-old': '/deluxe.jpg'},
         ),
+        rules: activated,
       );
       final stories = covered.compose(
         items([

@@ -12,6 +12,7 @@ import 'package:sonus_next/features/charts/domain/models/chart_view_size.dart';
 import 'package:sonus_next/features/charts/domain/models/chart_week.dart';
 import 'package:sonus_next/features/charts/domain/moments/chart_moment_event.dart';
 import 'package:sonus_next/features/charts/domain/moments/chart_moment_event_type.dart';
+import 'package:sonus_next/features/charts/domain/moments/chart_moment_rules.dart';
 import 'package:sonus_next/features/charts/domain/moments/chart_moment_scope.dart';
 import 'package:sonus_next/features/charts/domain/repositories/chart_moment_repository.dart';
 import 'package:sonus_next/features/charts/domain/repositories/chart_repository.dart';
@@ -140,10 +141,16 @@ void main() {
   });
 
   group('new-content dot', () {
+    Future<void> openMoments(ChartsController controller) async {
+      controller.selectPresentationMode(ChartsPresentationMode.moments);
+      await pumpEventQueue();
+      controller.selectPresentationMode(ChartsPresentationMode.charts);
+    }
+
     test(
       'shows for stories newer than the last visit, until Moments opens',
       () async {
-        final store = MemoryMomentsLastSeenStore(DateTime.utc(2026, 10, 1));
+        final store = MemoryMomentsLastSeenStore.at(DateTime.utc(2026, 10, 1));
         final loaded = await _controller(events: _mixedHistory(), store: store);
         final controller = loaded.controller;
 
@@ -153,7 +160,9 @@ void main() {
         await pumpEventQueue();
 
         expect(controller.hasNewMoments, isFalse);
-        expect(store.seen, controller.momentStories.first.occurredAt.toUtc());
+        final newest = controller.momentStories.first;
+        expect(store.seen?.occurredAtUtc, newest.occurredAt.toUtc());
+        expect(store.seen?.storyId, newest.id);
 
         controller.selectPresentationMode(ChartsPresentationMode.charts);
         expect(controller.hasNewMoments, isFalse);
@@ -161,7 +170,7 @@ void main() {
     );
 
     test('nothing newer than the last visit: no dot', () async {
-      final store = MemoryMomentsLastSeenStore(DateTime.utc(2027));
+      final store = MemoryMomentsLastSeenStore.at(DateTime.utc(2027));
       final loaded = await _controller(events: _mixedHistory(), store: store);
 
       expect(loaded.controller.hasNewMoments, isFalse);
@@ -172,6 +181,130 @@ void main() {
       final loaded = await _controller(events: _mixedHistory());
 
       expect(loaded.controller.hasNewMoments, isFalse);
+    });
+
+    test('R6: the first visit records a mark without a dot, even with '
+        'older stories', () async {
+      final store = MemoryMomentsLastSeenStore();
+      final loaded = await _controller(events: _mixedHistory(), store: store);
+      final controller = loaded.controller;
+
+      expect(controller.momentStories, isNotEmpty);
+      expect(controller.hasNewMoments, isFalse);
+      expect(store.writes, 0);
+
+      await openMoments(controller);
+
+      expect(store.seen?.storyId, controller.momentStories.first.id);
+      expect(controller.hasNewMoments, isFalse);
+    });
+
+    test('R6: a later story shows the dot; opening Moments clears it and '
+        'reopening writes nothing more', () async {
+      final store = MemoryMomentsLastSeenStore();
+      final loaded = await _controller(events: _mixedHistory(), store: store);
+      final controller = loaded.controller;
+      await openMoments(controller);
+
+      loaded.moments.events.add(
+        _debut('later', at: DateTime(2026, 11, 5, 9), rank: 14),
+      );
+      await controller.refresh();
+      expect(controller.hasNewMoments, isTrue);
+
+      await openMoments(controller);
+      expect(controller.hasNewMoments, isFalse);
+      expect(store.seen?.occurredAtUtc, DateTime(2026, 11, 5, 9).toUtc());
+      final writes = store.writes;
+
+      await openMoments(controller);
+      await controller.refresh();
+      expect(store.writes, writes);
+      expect(controller.hasNewMoments, isFalse);
+    });
+
+    test('R6: stories at one instant are ordered by id, so the mark is '
+        'the same whichever order they are read in', () async {
+      final at = DateTime(2026, 11, 4, 9);
+      Future<MomentsSeenMark?> markOf(List<ChartMomentEvent> events) async {
+        final store = MemoryMomentsLastSeenStore();
+        final loaded = await _controller(events: events, store: store);
+        await openMoments(loaded.controller);
+        return store.seen;
+      }
+
+      final forward = await markOf([
+        _debut('a', at: at, rank: 14),
+        _debut('b', at: at, rank: 16),
+      ]);
+      final backward = await markOf([
+        _debut('b', at: at, rank: 16),
+        _debut('a', at: at, rank: 14),
+      ]);
+
+      expect(forward?.occurredAtUtc, at.toUtc());
+      expect(backward?.storyId, forward?.storyId);
+      expect(forward!.isOlderThan(at, '${forward.storyId}~'), isTrue);
+      expect(forward.isOlderThan(at, forward.storyId), isFalse);
+      expect(forward.isOlderThan(at, ''), isFalse);
+    });
+
+    test('R6: a story synced in with an earlier time than the mark shows '
+        'no dot', () async {
+      final store = MemoryMomentsLastSeenStore();
+      final loaded = await _controller(events: _mixedHistory(), store: store);
+      final controller = loaded.controller;
+      await openMoments(controller);
+      final mark = store.seen;
+
+      loaded.moments.events.add(
+        _debut('backdated', at: DateTime(2026, 11, 2, 23), rank: 14),
+      );
+      await controller.refresh();
+
+      expect(
+        controller.momentStories.map((story) => story.facts.title),
+        contains('Song backdated'),
+      );
+      expect(controller.hasNewMoments, isFalse);
+      expect(store.seen, same(mark));
+    });
+
+    test('R6: a mark lost to a preferences restore shows no dot and is '
+        'recorded again on the next visit', () async {
+      final store = MemoryMomentsLastSeenStore();
+      final first = await _controller(events: _mixedHistory(), store: store);
+      await openMoments(first.controller);
+
+      store.seen = null;
+      final restored = await _controller(
+        events: [
+          ..._mixedHistory(),
+          _debut('after-restore', at: DateTime(2026, 11, 5, 9), rank: 14),
+        ],
+        store: store,
+      );
+
+      expect(restored.controller.hasNewMoments, isFalse);
+      await openMoments(restored.controller);
+      expect(store.seen?.occurredAtUtc, DateTime(2026, 11, 5, 9).toUtc());
+    });
+
+    test('R6: a feed first seen empty shows the dot for its first '
+        'story', () async {
+      final store = MemoryMomentsLastSeenStore();
+      final loaded = await _controller(events: [], store: store);
+      final controller = loaded.controller;
+      await openMoments(controller);
+
+      expect(store.seen?.occurredAtUtc, isNull);
+      expect(controller.hasNewMoments, isFalse);
+
+      loaded.moments.events.add(
+        _debut('first', at: DateTime(2026, 11, 5, 9), rank: 14),
+      );
+      await controller.refresh();
+      expect(controller.hasNewMoments, isTrue);
     });
   });
 
@@ -401,6 +534,8 @@ Future<({ChartsController controller, _PagedMoments moments})> _controller({
     momentsLastSeen: store,
     playEdition: (playId) async => playEditions[playId],
     momentPageSize: pageSize,
+    momentRules: () async =>
+        ChartMomentRules(activatedAtUtc: DateTime.utc(2026, 11, 1)),
   );
   addTearDown(controller.dispose);
 

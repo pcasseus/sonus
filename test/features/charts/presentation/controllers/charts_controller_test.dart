@@ -26,6 +26,7 @@ import 'package:sonus_next/features/charts/presentation/controllers/charts_contr
 import 'package:sonus_next/features/charts/domain/models/chart_week.dart';
 import 'package:sonus_next/features/charts/domain/moments/chart_moment_event.dart';
 import 'package:sonus_next/features/charts/domain/moments/chart_moment_event_type.dart';
+import 'package:sonus_next/features/charts/domain/moments/chart_moment_rules.dart';
 import 'package:sonus_next/features/charts/domain/moments/chart_moment_scope.dart';
 import 'package:sonus_next/features/charts/domain/repositories/chart_moment_repository.dart';
 
@@ -575,6 +576,61 @@ void main() {
 
     expect(log, ['record', 'read', 'record', 'read']);
     expect(allTimeMoments.lastReferenceLocal, referenceLocal);
+  });
+
+  group('SN-50 R2 Moments rules', () {
+    ChartsController controllerWith(
+      _FakeAllTimeMomentService allTimeMoments,
+      MomentRulesLoader? rules,
+    ) => ChartsController(
+      allTimeCharts: _FakeAllTimeChartService(
+        snapshot: _snapshot(
+          id: 'live',
+          chartType: ChartType.songs,
+          weekStartUtc: DateTime.utc(2026, 9, 27),
+        ),
+      ),
+      finalization: _FakeChartFinalizationService(),
+      charts: _FakeChartRepository(),
+      library: _FakeLibraryQueryRepository(),
+      moments: _FakeChartMomentRepository(),
+      allTimeMoments: allTimeMoments,
+      now: () => referenceLocal,
+      momentRules: rules,
+    );
+
+    test('are read before all-time Moments are recorded, and passed to '
+        'them', () async {
+      final log = <String>[];
+      final activated = ChartMomentRules(
+        activatedAtUtc: DateTime.utc(2026, 10, 2),
+      );
+      final allTimeMoments = _FakeAllTimeMomentService(
+        onRecord: () => log.add('record'),
+      );
+
+      await controllerWith(allTimeMoments, () async {
+        log.add('rules');
+        return activated;
+      }).load();
+
+      expect(log, ['rules', 'record']);
+      expect(allTimeMoments.lastRules, same(activated));
+    });
+
+    test('without a loader, or when it fails, Moments keep the earlier '
+        'rules', () async {
+      final unset = _FakeAllTimeMomentService();
+      await controllerWith(unset, null).load();
+      expect(unset.lastRules?.activatedAtUtc, isNull);
+
+      final failing = _FakeAllTimeMomentService();
+      await controllerWith(
+        failing,
+        () async => throw StateError('preferences unavailable'),
+      ).load();
+      expect(failing.lastRules?.activatedAtUtc, isNull);
+    });
   });
 
   test('an all-time Moments failure does not fail the chart', () async {
@@ -1346,12 +1402,15 @@ class _FakeAllTimeMomentService implements AllTimeMomentService {
   final void Function()? onRecord;
   final Object? error;
   DateTime? lastReferenceLocal;
+  ChartMomentRules? lastRules;
 
   @override
   Future<List<ChartMomentEvent>> record({
     required DateTime referenceLocal,
+    ChartMomentRules rules = ChartMomentRules.legacy,
   }) async {
     lastReferenceLocal = referenceLocal;
+    lastRules = rules;
     onRecord?.call();
     final error = this.error;
     if (error != null) throw error;

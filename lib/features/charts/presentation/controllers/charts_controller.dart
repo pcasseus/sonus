@@ -51,6 +51,9 @@ typedef DeluxeEditionsLoader = Future<List<LibraryAlbumEdition>> Function();
 /// The album edition a qualified play was of, or null if the play is gone.
 typedef PlayEditionLoader = Future<String?> Function(String playId);
 
+/// Which Moments rules this run uses (SN-50 R2).
+typedef MomentRulesLoader = Future<ChartMomentRules> Function();
+
 /// Where a Moment's release link opens.
 class MomentReleaseTarget {
   const MomentReleaseTarget({
@@ -85,6 +88,7 @@ class ChartsController extends ChangeNotifier {
     ThisWeekChartService? thisWeekCharts,
     MomentsLastSeenStore? momentsLastSeen,
     PlayEditionLoader? playEdition,
+    MomentRulesLoader? momentRules,
     int momentPageSize = ChartMomentFeedPager.defaultPageSize,
   }) : _allTimeCharts = allTimeCharts,
        _finalization = finalization,
@@ -99,6 +103,7 @@ class ChartsController extends ChangeNotifier {
        _thisWeekCharts = thisWeekCharts,
        _momentsLastSeen = momentsLastSeen,
        _loadPlayEdition = playEdition,
+       _loadMomentRules = momentRules,
        _momentPageSize = momentPageSize;
 
   final AllTimeChartService _allTimeCharts;
@@ -134,14 +139,22 @@ class ChartsController extends ChangeNotifier {
   MomentCategory? _momentCategory;
   MomentPublisher? _momentPublisher;
 
-  /// The newest story shown when Moments was last open (F-Q26). Without a
-  /// store, or until it is read, there is no new-content dot.
+  /// The newest story when Moments was last open (F-Q26, R6). Without a
+  /// store, until it is read, or before the first visit, there is no
+  /// new-content dot.
   final MomentsLastSeenStore? _momentsLastSeen;
   bool _requestedMomentsLastSeen = false;
   bool _hasReadMomentsLastSeen = false;
-  DateTime? _momentsLastSeenUtc;
+  MomentsSeenMark? _momentsSeen;
+
+  /// The newest composed story, loaded or context, by time then id.
+  MomentStory? _newestMomentStory;
 
   final PlayEditionLoader? _loadPlayEdition;
+
+  /// Without it, or until it is read, Moments follow the earlier rules.
+  final MomentRulesLoader? _loadMomentRules;
+  ChartMomentRules _momentRules = ChartMomentRules.legacy;
 
   ChartType _chartType = ChartType.songs;
   ChartViewSize _viewSize = ChartViewSize.top100;
@@ -230,10 +243,15 @@ class ChartsController extends ChangeNotifier {
       _momentStories ??= _composeMomentStories();
 
   List<MomentStory> _composeMomentStories() {
-    final stories = MomentEditorialDesk(lookups: momentLookups).compose([
-      for (final item in _momentFeedItems)
-        if (!_offReleaseChart(item)) item,
-    ]);
+    final stories =
+        MomentEditorialDesk(
+          lookups: momentLookups,
+          rules: _momentRules,
+        ).compose([
+          for (final item in _momentFeedItems)
+            if (!_offReleaseChart(item)) item,
+        ]);
+    _newestMomentStory = _newestOf(stories);
     final pager = _momentPager;
     final contextDay = pager != null && pager.hasMore ? pager.oldestDay : null;
 
@@ -245,6 +263,22 @@ class ChartsController extends ChangeNotifier {
           story,
     ]);
   }
+
+  static MomentStory? _newestOf(List<MomentStory> stories) {
+    MomentStory? newest;
+    for (final story in stories) {
+      if (newest == null ||
+          _markOf(newest).isOlderThan(story.occurredAt, story.id)) {
+        newest = story;
+      }
+    }
+    return newest;
+  }
+
+  static MomentsSeenMark _markOf(MomentStory story) => MomentsSeenMark(
+    occurredAtUtc: story.occurredAt.toUtc(),
+    storyId: story.id,
+  );
 
   /// [momentStories] in the selected category and by the selected
   /// publisher; null selections show everything.
@@ -290,16 +324,18 @@ class ChartsController extends ChangeNotifier {
   /// Why the last read of older Moments failed, until the next attempt.
   Object? get momentPageError => _momentPageError;
 
-  /// Stories newer than the newest one shown when Moments was last open
-  /// (SN-50 F-Q26). Never while Moments is on screen.
+  /// Stories newer than the newest one when Moments was last open (SN-50
+  /// F-Q26, R6). Never while Moments is on screen, nor before the first
+  /// visit records a mark.
   bool get hasNewMoments {
-    if (!_hasReadMomentsLastSeen || isShowingMoments) return false;
+    final seen = _momentsSeen;
+    if (!_hasReadMomentsLastSeen || isShowingMoments || seen == null) {
+      return false;
+    }
 
-    final stories = momentStories;
-    if (stories.isEmpty) return false;
-
-    final seen = _momentsLastSeenUtc;
-    return seen == null || stories.first.occurredAt.isAfter(seen);
+    momentStories;
+    final newest = _newestMomentStory;
+    return newest != null && seen.isOlderThan(newest.occurredAt, newest.id);
   }
 
   bool _offReleaseChart(ChartMomentFeedItem item) {
@@ -471,28 +507,38 @@ class ChartsController extends ChangeNotifier {
   /// Remembers the newest story as seen while Moments is on screen.
   void _markMomentsSeen() {
     final store = _momentsLastSeen;
-    if (store == null || !isShowingMoments) return;
+    if (store == null ||
+        !_hasReadMomentsLastSeen ||
+        !isShowingMoments ||
+        _momentPager == null) {
+      return;
+    }
 
-    final stories = momentStories;
-    if (stories.isEmpty) return;
+    momentStories;
+    final newestStory = _newestMomentStory;
+    final newest = newestStory == null
+        ? const MomentsSeenMark.empty()
+        : _markOf(newestStory);
+    final seen = _momentsSeen;
+    if (seen != null &&
+        (newestStory == null ||
+            !seen.isOlderThan(newestStory.occurredAt, newestStory.id))) {
+      return;
+    }
 
-    final newest = stories.first.occurredAt.toUtc();
-    final seen = _momentsLastSeenUtc;
-    if (seen != null && !newest.isAfter(seen)) return;
-
-    _momentsLastSeenUtc = newest;
+    _momentsSeen = newest;
     unawaited(_writeMomentsLastSeen(store, newest));
   }
 
   Future<void> _writeMomentsLastSeen(
     MomentsLastSeenStore store,
-    DateTime newest,
+    MomentsSeenMark newest,
   ) async {
     try {
       await store.write(newest);
     } catch (error, stackTrace) {
       developer.log(
-        'The Moments last-seen time could not be saved '
+        'The Moments last-seen mark could not be saved '
         '(${error.runtimeType}); the dot may show again',
         name: 'sonus.charts',
         level: 900,
@@ -502,23 +548,17 @@ class ChartsController extends ChangeNotifier {
     }
   }
 
-  /// Read once, beside the first load rather than in its way. A story seen
-  /// meanwhile is kept if it is newer than the stored one.
+  /// Read once, beside the first load rather than in its way. Moments
+  /// opened meanwhile are marked seen once it is read.
   Future<void> _readMomentsLastSeen(MomentsLastSeenStore store) async {
     try {
-      final stored = (await store.read())?.toUtc();
-      final seenMeanwhile = _momentsLastSeenUtc;
-
-      _momentsLastSeenUtc =
-          seenMeanwhile != null &&
-              (stored == null || seenMeanwhile.isAfter(stored))
-          ? seenMeanwhile
-          : stored;
+      _momentsSeen = await store.read();
       _hasReadMomentsLastSeen = true;
+      _markMomentsSeen();
       _notify();
     } catch (error, stackTrace) {
       developer.log(
-        'The Moments last-seen time could not be read '
+        'The Moments last-seen mark could not be read '
         '(${error.runtimeType}); no new-content dot',
         name: 'sonus.charts',
         level: 900,
@@ -611,7 +651,12 @@ class ChartsController extends ChangeNotifier {
     if (item.chartType == ChartType.albums) {
       return MomentReleaseTarget(
         album: album,
-        editionId: ChartMomentRules.isRefined(item.occurredAt)
+        editionId:
+            _momentRules.appliesTo(
+              scope: item.scope,
+              occurredAt: item.occurredAt,
+              weekStartUtc: item.weekStartUtc,
+            )
             ? _albumPresentations[album.albumId]?.editionId
             : null,
       );
@@ -748,6 +793,26 @@ class ChartsController extends ChangeNotifier {
     }
 
     return _startFinalizingLoad();
+  }
+
+  /// Fails closed: a loader that throws leaves the earlier rules.
+  Future<ChartMomentRules> _readMomentRules() async {
+    final load = _loadMomentRules;
+    if (load == null) return ChartMomentRules.legacy;
+
+    try {
+      return await load();
+    } catch (error, stackTrace) {
+      developer.log(
+        'The Moments rules could not be read (${error.runtimeType}); '
+        'Moments keep the earlier rules',
+        name: 'sonus.charts',
+        level: 900,
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return ChartMomentRules.legacy;
+    }
   }
 
   /// Fails open: without formats every release reads as an Album.
@@ -957,6 +1022,12 @@ class ChartsController extends ChangeNotifier {
 
     try {
       final referenceLocal = _now();
+      // Read before anything is recorded or told under them.
+      final momentRules = await _readMomentRules();
+
+      if (isStale()) {
+        return;
+      }
 
       if (finalizeCompletedWeeks) {
         await _finalization.finalizeCompletedWeeks(
@@ -973,7 +1044,10 @@ class ChartsController extends ChangeNotifier {
 
       if (finalizeCompletedWeeks && allTimeMoments != null) {
         try {
-          await allTimeMoments.record(referenceLocal: referenceLocal);
+          await allTimeMoments.record(
+            referenceLocal: referenceLocal,
+            rules: momentRules,
+          );
         } catch (error) {
           allTimeMomentsError = error;
         }
@@ -1050,6 +1124,7 @@ class ChartsController extends ChangeNotifier {
       _artistsById = {for (final artist in artists) artist.artistId: artist};
       _releaseFormats = formats;
 
+      _momentRules = momentRules;
       _momentFeedItems = List<ChartMomentFeedItem>.unmodifiable(
         momentFeedItems,
       );

@@ -26,6 +26,15 @@ and fill them in. Without them, Sonus works fully but sign-in is off.
 - Do not run `flutter test` while a release build is running; it rewrites
   the generated plugin registrant and breaks the build.
 
+The SN-50 Moments rules are off unless the build is compiled with
+`--dart-define=SONUS_MOMENTS_REFINED_APPROVED=true` (or the same key set to
+`true` in the `--dart-define-from-file` config). Only add it once the rules
+are approved for release. On its first run, such a build stores the
+activation time in device preferences, and only Moments from then on use the
+new rules. Development and test builds never activate them. If the stored
+time is lost (reinstall or cleared app data without a platform restore), the
+next approved run starts the new rules again from that run.
+
 ## Google sign-in on Android
 
 Android sign-in works only for an app whose package name

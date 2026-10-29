@@ -12,10 +12,12 @@ import '../../application/services/all_time_chart_service.dart';
 import '../../application/services/all_time_moment_service.dart';
 import '../../application/services/chart_finalization_service.dart';
 import '../../application/services/chart_snapshot_builder_service.dart';
+import '../../application/services/moment_rules_activation.dart';
 import '../../application/services/this_week_chart_service.dart';
 import '../../application/services/moments_last_seen_store.dart';
 import '../../data/repositories/sqlite_chart_moment_repository.dart';
 import '../../data/repositories/sqlite_chart_repository.dart';
+import '../../data/services/shared_preferences_moment_rules_activation_store.dart';
 import '../../data/services/shared_preferences_moments_last_seen_store.dart';
 import '../controllers/charts_controller.dart';
 import '../../../library/application/services/library_organization_service.dart';
@@ -30,6 +32,7 @@ class ChartsScope extends StatefulWidget {
     this.now,
     this.changes,
     this.momentsLastSeen,
+    this.momentRulesActivation,
   });
 
   final Widget child;
@@ -41,6 +44,10 @@ class ChartsScope extends StatefulWidget {
 
   /// Remembers when Moments was last open; device preferences if null.
   final MomentsLastSeenStore? momentsLastSeen;
+
+  /// Which Moments rules apply; device preferences and the build's
+  /// approval if null.
+  final MomentRulesActivation? momentRulesActivation;
 
   @override
   State<ChartsScope> createState() => _ChartsScopeState();
@@ -54,6 +61,13 @@ class _ChartsScopeState extends State<ChartsScope> {
 
   ChartsController? _controller;
   LibraryChangeRefresher? _refresher;
+
+  /// One per process, so its instant is recorded once however often
+  /// scopes and controllers are recreated.
+  static final MomentRulesActivation _deviceRulesActivation =
+      MomentRulesActivation(
+        store: SharedPreferencesMomentRulesActivationStore(),
+      );
 
   @override
   void didChangeDependencies() {
@@ -170,6 +184,7 @@ class _ChartsScopeState extends State<ChartsScope> {
       qualifiedPlays: qualifiedPlays,
       library: library,
       moments: moments,
+      playbackSessions: playbackSessions,
       // SN-45 release week: earlier achievements are never told as news.
       activationUtc: DateTime(2026, 10, 25).toUtc(),
       restoreGeneration: () => database.mutationCoordinator.restoreGeneration,
@@ -199,6 +214,8 @@ class _ChartsScopeState extends State<ChartsScope> {
           widget.momentsLastSeen ?? SharedPreferencesMomentsLastSeenStore(),
       playEdition: (playId) async =>
           (await qualifiedPlays.getById(playId))?.albumEditionId,
+      momentRules:
+          (widget.momentRulesActivation ?? _deviceRulesActivation).rules,
     );
 
     _controller = controller;

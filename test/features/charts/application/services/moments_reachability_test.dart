@@ -23,6 +23,7 @@ import 'package:sonus_next/features/charts/domain/moments/chart_moment_event_typ
 import 'package:sonus_next/features/charts/domain/moments/chart_moment_finalized_detector.dart';
 import 'package:sonus_next/features/charts/domain/moments/chart_moment_longevity_calculator.dart';
 import 'package:sonus_next/features/charts/domain/moments/chart_moment_milestone_detector.dart';
+import 'package:sonus_next/features/charts/domain/moments/chart_moment_rules.dart';
 import 'package:sonus_next/features/charts/domain/moments/chart_moment_scope.dart';
 import 'package:sonus_next/features/charts/presentation/editorial/moment_editorial_desk.dart';
 import 'package:sonus_next/features/charts/presentation/editorial/moment_facts.dart';
@@ -352,6 +353,9 @@ class _Era {
 final _legacy = _Era(DateTime.utc(2026, 8, 16), DateTime(2026, 10, 27));
 final _refined = _Era(DateTime.utc(2026, 11, 1), DateTime(2026, 11, 17));
 
+/// An approved build first ran as the refined era began (SN-50 R2).
+final _activated = ChartMomentRules(activatedAtUtc: DateTime.utc(2026, 11, 1));
+
 void main() {
   sqfliteFfiInit();
 
@@ -387,7 +391,7 @@ void main() {
 
   /// A deep chart (5 songs with 30 plays, 115 with 10), then plays of one
   /// song that debuts at #121 and jumps to #6 with one play.
-  Future<void> recordDeepClimb(_Era era) async {
+  Future<void> recordDeepClimb(_Era era, ChartMomentRules rules) async {
     final library = _Library();
     final plays = _Plays();
     final early = era.playsOn.subtract(const Duration(days: 30));
@@ -397,15 +401,14 @@ void main() {
     }
     final climber = library.add('lantern-light', 'Lantern Light', 'mira');
     plays.add(climber, era.playsOn, times: 11);
-    await _service(
-      plays,
-      library,
-      moments,
-    ).record(referenceLocal: era.playsOn.add(const Duration(days: 1)));
+    await _service(plays, library, moments).record(
+      referenceLocal: era.playsOn.add(const Duration(days: 1)),
+      rules: rules,
+    );
   }
 
   /// Three songs racing to #1, two by one artist.
-  Future<void> recordRace(_Era era) async {
+  Future<void> recordRace(_Era era, [ChartMomentRules? rules]) async {
     final library = _Library();
     final plays = _Plays();
     final first = library.add('first-steps', 'First Steps', 'juno');
@@ -423,26 +426,31 @@ void main() {
     for (var i = 0; i < 4; i++) {
       play(rival);
     }
-    await _service(
-      plays,
-      library,
-      moments,
-    ).record(referenceLocal: era.playsOn.add(const Duration(days: 1)));
+    await _service(plays, library, moments).record(
+      referenceLocal: era.playsOn.add(const Duration(days: 1)),
+      rules: rules ?? _activated,
+    );
   }
 
-  Future<List<MomentStory>> stories({Map<String, String> covers = const {}}) =>
-      moments.getRecent().then(
-        (events) => MomentEditorialDesk(
-          lookups: _Lookups(covers: covers),
-        ).compose(const ChartMomentFeedAggregator().aggregate(events)),
-      );
+  Future<List<MomentStory>> stories({
+    Map<String, String> covers = const {},
+    ChartMomentRules? rules,
+  }) => moments.getRecent().then(
+    (events) => MomentEditorialDesk(
+      lookups: _Lookups(covers: covers),
+      rules: rules ?? _activated,
+    ).compose(const ChartMomentFeedAggregator().aggregate(events)),
+  );
 
-  Future<Set<MomentFamily>> reachable(_Era era) async {
+  Future<Set<MomentFamily>> reachable(
+    _Era era, {
+    ChartMomentRules? rules,
+  }) async {
     await publishWeeks(ChartType.songs, era.weeksFromUtc, _songWeeks);
     await publishWeeks(ChartType.albums, era.weeksFromUtc, _releaseWeeks);
-    await recordDeepClimb(era);
-    await recordRace(era);
-    return {for (final story in await stories()) story.family};
+    await recordDeepClimb(era, rules ?? _activated);
+    await recordRace(era, rules);
+    return {for (final story in await stories(rules: rules)) story.family};
   }
 
   test('before the SN-50 rules: 17 families publish, as first '
@@ -586,11 +594,10 @@ void main() {
         final track = library.add('$tag-new-$i', 'New $i', 'ode');
         plays.add(track, era.playsOn.add(Duration(minutes: i)));
       }
-      await _service(
-        plays,
-        library,
-        moments,
-      ).record(referenceLocal: era.playsOn.add(const Duration(days: 1)));
+      await _service(plays, library, moments).record(
+        referenceLocal: era.playsOn.add(const Duration(days: 1)),
+        rules: _activated,
+      );
       return (await stories())
           .where(
             (story) =>
@@ -677,6 +684,89 @@ void main() {
     expect(repeat.facts.ordinal, 2);
     expect(repeat.item.entity.entityId, _q3.entityId);
     expect(repeat.headline, contains('the weekly Sonus Hot 100'));
+  });
+
+  group('SN-50 R2 activation', () {
+    test('without an activation the refined-era scenarios keep the earlier '
+        'families and record no zone entries', () async {
+      final families = await reachable(
+        _refined,
+        rules: ChartMomentRules.legacy,
+      );
+
+      expect(
+        families,
+        isNot(
+          anyOf(
+            contains(MomentFamily.songFirstThreshold),
+            contains(MomentFamily.songThresholds),
+            contains(MomentFamily.songSelfReplacement),
+            contains(MomentFamily.artistRepeatNumberOne),
+          ),
+        ),
+      );
+      final told = await stories(rules: ChartMomentRules.legacy);
+      expect(told.where((story) => story.facts.refined), isEmpty);
+      final allTimeZones = (await moments.getRecent()).where(
+        (event) =>
+            event.scope == ChartMomentScope.allTime &&
+            event.eventType == ChartMomentEventType.firstThresholdEntry,
+      );
+      expect(allTimeZones.map((event) => event.threshold).toSet(), {100});
+    });
+
+    test('the chart week running at activation keeps the earlier rules; '
+        'later weeks use the new ones', () async {
+      final activatedAt = _refined.weeksFromUtc.add(const Duration(days: 3));
+      final rules = ChartMomentRules(activatedAtUtc: activatedAt);
+      await publishWeeks(ChartType.songs, _refined.weeksFromUtc, _songWeeks);
+
+      final weekly = (await stories(
+        rules: rules,
+      )).where((story) => story.facts.weekly).toList();
+
+      final running = weekly.where(
+        (story) => story.item.weekStartUtc == _refined.weeksFromUtc,
+      );
+      expect(running, isNotEmpty);
+      expect(running.where((story) => story.facts.refined), isEmpty);
+      final later = weekly.where(
+        (story) => story.item.weekStartUtc.isAfter(activatedAt),
+      );
+      expect(later, isNotEmpty);
+      expect(later.every((story) => story.facts.refined), isTrue);
+    });
+
+    test('real-time stories and zone entries use the new rules only from '
+        'the activation instant', () async {
+      final activatedAt = _refined.playsOn
+          .add(const Duration(minutes: 4, seconds: 30))
+          .toUtc();
+      final rules = ChartMomentRules(activatedAtUtc: activatedAt);
+      await recordDeepClimb(_refined, rules);
+      await recordRace(_refined, rules);
+
+      final told = await stories(rules: rules);
+      expect(told.where((story) => story.facts.refined), isNotEmpty);
+      expect(told.where((story) => !story.facts.refined), isNotEmpty);
+      for (final story in told) {
+        expect(
+          story.facts.refined,
+          !story.occurredAt.isBefore(activatedAt),
+          reason: story.id,
+        );
+      }
+      final zones = (await moments.getRecent()).where(
+        (event) =>
+            event.scope == ChartMomentScope.allTime &&
+            event.eventType == ChartMomentEventType.firstThresholdEntry &&
+            event.threshold != 100,
+      );
+      expect(
+        zones.where((event) => event.occurredAt.isBefore(activatedAt)),
+        isEmpty,
+      );
+    });
   });
 }
 

@@ -1,8 +1,11 @@
 // ignore_for_file: prefer_initializing_formals
 
+import 'dart:developer' as developer;
+
 import '../../../../core/database/library_mutation_coordinator.dart';
 import '../../../analytics/application/services/listening_artist_attribution.dart';
 import '../../../analytics/domain/entities/qualified_play.dart';
+import '../../../analytics/domain/repositories/playback_session_repository.dart';
 import '../../../analytics/domain/repositories/qualified_play_repository.dart';
 import '../../../library/application/repositories/library_query_repository.dart';
 import '../../domain/models/chart_entity_snapshot.dart';
@@ -17,6 +20,7 @@ import '../../domain/services/chart_ranking_engine.dart';
 import '../../domain/services/chart_week_resolver.dart';
 import '../../domain/services/release_chart_eligibility.dart';
 import 'chart_finalization_service.dart' show ChartRestoreGeneration;
+import 'play_time_identity.dart';
 
 typedef AllTimeMomentNow = DateTime Function();
 
@@ -38,12 +42,16 @@ typedef AllTimeMomentNow = DateTime Function();
 ///   for the artist each song belongs to (a soundtrack contributor's songs
 ///   count for the soundtrack's owner);
 /// - an artist passing the previous most-streamed artist.
+///
+/// Under the SN-50 rules a song or release no longer in the library still
+/// gets its stories, as it was heard (R1); blocked songs never do.
 class AllTimeMomentService {
   AllTimeMomentService({
     required QualifiedPlayRepository qualifiedPlays,
     required LibraryQueryRepository library,
     required ChartMomentRepository moments,
     required DateTime activationUtc,
+    PlaybackSessionRepository? playbackSessions,
     AllTimeHistoryReplay replay = const AllTimeHistoryReplay(),
     ChartWeekResolver weekResolver = const ChartWeekResolver(),
     AllTimeMomentNow? now,
@@ -53,6 +61,7 @@ class AllTimeMomentService {
   }) : _qualifiedPlays = qualifiedPlays,
        _library = library,
        _moments = moments,
+       _playbackSessions = playbackSessions,
        _activationUtc = activationUtc.toUtc(),
        _replay = replay,
        _weeks = weekResolver,
@@ -64,6 +73,9 @@ class AllTimeMomentService {
   final QualifiedPlayRepository _qualifiedPlays;
   final LibraryQueryRepository _library;
   final ChartMomentRepository _moments;
+
+  /// Play-time identities of songs and releases missing from the library.
+  final PlaybackSessionRepository? _playbackSessions;
   final DateTime _activationUtc;
   final AllTimeHistoryReplay _replay;
   final ChartWeekResolver _weeks;
@@ -111,35 +123,41 @@ class AllTimeMomentService {
   ];
 
   /// Saves new achievements on both all-time charts and the artist
-  /// ranking, and returns them.
+  /// ranking, and returns them. [rules] decide which plays also record
+  /// first zone entries and which stories include missing music.
   Future<List<ChartMomentEvent>> record({
     required DateTime referenceLocal,
+    ChartMomentRules rules = ChartMomentRules.legacy,
   }) async {
     final generation = _restoreGeneration?.call();
     final plays = await _qualifiedPlays.getAll();
     final attributor = await ArtistAttributor.of(_artistAttribution);
-    final entities = await _entities(attributor);
+    final (:entities, :blockedSongIds) = await _entities(attributor);
     final singles = await excludedReleaseIds(_releaseEligibility);
     entities[ChartType.albums]!.removeWhere((id, _) => singles.contains(id));
     final from = _storiesFrom(referenceLocal);
     final createdAt = _now().toUtc();
 
     final events = <ChartMomentEvent>[
-      ..._eventsFor(
+      ...await _eventsFor(
         ChartType.songs,
         plays: plays,
         entities: entities[ChartType.songs]!,
+        blockedIds: blockedSongIds,
+        rules: rules,
         referenceLocal: referenceLocal,
         from: from,
         createdAt: createdAt,
       ),
-      ..._eventsFor(
+      ...await _eventsFor(
         ChartType.albums,
         plays: [
           for (final play in plays)
             if (!singles.contains(play.albumId)) play,
         ],
         entities: entities[ChartType.albums]!,
+        blockedIds: const {},
+        rules: rules,
         referenceLocal: referenceLocal,
         from: from,
         createdAt: createdAt,
@@ -174,29 +192,28 @@ class AllTimeMomentService {
     return start.isAfter(_activationUtc) ? start : _activationUtc;
   }
 
-  Iterable<ChartMomentEvent> _eventsFor(
+  Future<List<ChartMomentEvent>> _eventsFor(
     ChartType chartType, {
     required List<QualifiedPlay> plays,
     required Map<String, ChartEntitySnapshot> entities,
+    required Set<String> blockedIds,
+    required ChartMomentRules rules,
     required DateTime referenceLocal,
     required DateTime from,
     required DateTime createdAt,
-  }) sync* {
+  }) async {
     final result = _replay.run(
       events: [
         for (final play in plays)
           ChartRankingEvent(
-            entityId: switch (chartType) {
-              ChartType.songs => play.songId,
-              ChartType.albums => play.albumId,
-            },
+            entityId: _entityIdOf(play, chartType),
             qualifiedAt: play.qualifiedAt,
             sourceEventId: play.id,
           ),
       ],
       referenceLocal: referenceLocal,
       achievementsFromUtc: from,
-      thresholdEntriesFromUtc: ChartMomentRules.refinedFromUtc,
+      thresholdEntriesFromUtc: rules.activatedAtUtc,
       streamMilestones: switch (chartType) {
         ChartType.songs => songStreamMilestones,
         ChartType.albums => releaseStreamMilestones,
@@ -204,18 +221,78 @@ class AllTimeMomentService {
       groupOf: (entityId) => entities[entityId]?.artistId,
     );
 
+    final refined = {
+      for (final achievement in result.achievements)
+        if (rules.appliesTo(
+          scope: ChartMomentScope.allTime,
+          occurredAt: achievement.occurredAt,
+          weekStartUtc: _weeks
+              .resolve(achievement.occurredAt.toLocal())
+              .startUtc,
+        ))
+          achievement,
+    };
+    final missingIds = {
+      for (final achievement in refined) ...[
+        achievement.entityId,
+        ?achievement.displacedEntityId,
+      ],
+    }..removeWhere((id) => entities.containsKey(id) || blockedIds.contains(id));
+    final withMissing = {
+      ...await _missingIdentities(chartType, plays: plays, ids: missingIds),
+      ...entities,
+    };
+
+    final events = <ChartMomentEvent>[];
     for (final achievement in result.achievements) {
-      final entity = entities[achievement.entityId];
+      final known = refined.contains(achievement) ? withMissing : entities;
+      final entity = known[achievement.entityId];
       if (entity == null) continue;
-      yield _eventFor(
-        chartType,
-        achievement,
-        entity,
-        createdAt,
-        related: entities[achievement.displacedEntityId],
+      events.add(
+        _eventFor(
+          chartType,
+          achievement,
+          entity,
+          createdAt,
+          related: known[achievement.displacedEntityId],
+        ),
       );
     }
+    return events;
   }
+
+  /// How songs or releases missing from the library were heard. Without
+  /// playback sessions they can't be named, so they are left out.
+  Future<Map<String, ChartEntitySnapshot>> _missingIdentities(
+    ChartType chartType, {
+    required List<QualifiedPlay> plays,
+    required Set<String> ids,
+  }) async {
+    if (ids.isEmpty) return const {};
+
+    final sessions = _playbackSessions;
+    if (sessions == null) {
+      developer.log(
+        'Left out Moments of ${ids.length} ${chartType.name} entities '
+        'missing from the library: no playback sessions to name them',
+        name: 'sonus.charts',
+        level: 900,
+      );
+      return const {};
+    }
+
+    return loadPlayTimeIdentities(
+      sessions: sessions,
+      plays: plays.where((play) => ids.contains(_entityIdOf(play, chartType))),
+      chartType: chartType,
+    );
+  }
+
+  static String _entityIdOf(QualifiedPlay play, ChartType chartType) =>
+      switch (chartType) {
+        ChartType.songs => play.songId,
+        ChartType.albums => play.albumId,
+      };
 
   ChartMomentEvent _eventFor(
     ChartType chartType,
@@ -418,14 +495,19 @@ class AllTimeMomentService {
     );
   }
 
-  /// Songs (not blocked) and releases by id. A song's artist is the
-  /// artist its plays count for; its credit stays as tagged.
-  Future<Map<ChartType, Map<String, ChartEntitySnapshot>>> _entities(
-    ArtistAttributor attributor,
-  ) async {
+  /// Songs (not blocked) and releases by id, and the blocked song ids. A
+  /// song's artist is the artist its plays count for; its credit stays as
+  /// tagged.
+  Future<
+    ({
+      Map<ChartType, Map<String, ChartEntitySnapshot>> entities,
+      Set<String> blockedSongIds,
+    })
+  >
+  _entities(ArtistAttributor attributor) async {
     final tracks = await _library.getTracks();
     final albums = await _library.getAlbums();
-    return {
+    final entities = {
       ChartType.songs: {
         for (final track in tracks)
           if (!track.isBlocked)
@@ -450,6 +532,13 @@ class AllTimeMomentService {
           ),
       },
     };
+    return (
+      entities: entities,
+      blockedSongIds: {
+        for (final track in tracks)
+          if (track.isBlocked) track.songId,
+      },
+    );
   }
 
   Future<Map<String, String>> _artistNames() async => {

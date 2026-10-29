@@ -28,19 +28,23 @@ List<ChartMomentEvent> momentPageOf(
   );
 }
 
-/// Keeps the Moments last-seen time in memory.
+/// Keeps the Moments last-seen mark in memory.
 class MemoryMomentsLastSeenStore implements MomentsLastSeenStore {
   MemoryMomentsLastSeenStore([this.seen]);
 
-  DateTime? seen;
+  /// A mark at [occurredAtUtc] that every story at that instant follows.
+  MemoryMomentsLastSeenStore.at(DateTime occurredAtUtc)
+    : seen = MomentsSeenMark(occurredAtUtc: occurredAtUtc, storyId: '');
+
+  MomentsSeenMark? seen;
   int writes = 0;
 
   @override
-  Future<DateTime?> read() async => seen;
+  Future<MomentsSeenMark?> read() async => seen;
 
   @override
-  Future<void> write(DateTime newestSeenUtc) async {
+  Future<void> write(MomentsSeenMark newestSeen) async {
     writes++;
-    seen = newestSeenUtc;
+    seen = newestSeen;
   }
 }

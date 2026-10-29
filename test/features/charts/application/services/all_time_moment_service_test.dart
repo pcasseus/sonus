@@ -10,6 +10,7 @@ import 'package:sonus_next/features/charts/data/repositories/sqlite_chart_moment
 import 'package:sonus_next/features/charts/domain/models/chart_type.dart';
 import 'package:sonus_next/features/charts/domain/moments/chart_moment_event.dart';
 import 'package:sonus_next/features/charts/domain/moments/chart_moment_event_type.dart';
+import 'package:sonus_next/features/charts/domain/moments/chart_moment_rules.dart';
 import 'package:sonus_next/features/charts/domain/moments/chart_moment_scope.dart';
 import 'package:sonus_next/features/library/application/models/library_album.dart';
 import 'package:sonus_next/features/library/application/models/library_artist.dart';
@@ -17,6 +18,8 @@ import 'package:sonus_next/features/library/application/models/library_track.dar
 import 'package:sonus_next/features/library/application/models/library_track_order.dart';
 import 'package:sonus_next/features/library/application/repositories/library_query_repository.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
+
+import '../../support/all_time_chart_fakes.dart';
 
 /// Tuesday 2026-10-27, mid-morning in the test's local zone.
 final _today = DateTime(2026, 10, 27, 10);
@@ -241,6 +244,71 @@ void main() {
       (await saved()).every((e) => e.scope == ChartMomentScope.allTime),
       isTrue,
     );
+  });
+
+  group('SN-50 R1: music missing from the library', () {
+    AllTimeMomentService withSessions() => AllTimeMomentService(
+      qualifiedPlays: plays,
+      library: library,
+      moments: moments,
+      playbackSessions: FakePlaybackSessions(plays.all),
+      activationUtc: DateTime.utc(2026, 1, 1),
+      now: () => _today,
+    );
+
+    Iterable<ChartMomentEvent> about(
+      List<ChartMomentEvent> events,
+      String entityId,
+    ) => events.where((event) => event.entity.entityId == entityId);
+
+    test('under the new rules it gets its stories as it was heard; blocked '
+        'songs still do not', () async {
+      library.add('kept');
+      library.add('hidden', blocked: true);
+      plays.add('gone', _today.subtract(const Duration(hours: 2)));
+      plays.add('hidden', _today.subtract(const Duration(hours: 1)));
+      plays.add('kept', _today.subtract(const Duration(minutes: 30)));
+
+      await withSessions().record(
+        referenceLocal: _today,
+        rules: ChartMomentRules(
+          activatedAtUtc: _today.subtract(const Duration(days: 1)).toUtc(),
+        ),
+      );
+
+      final events = await saved();
+      final gone = about(events, 'song-gone');
+      expect(gone, isNotEmpty);
+      expect(gone.map((event) => event.entity.title).toSet(), {
+        'Heard song-gone',
+      });
+      expect(gone.first.entity.artistName, 'Heard artist-gone');
+      expect(
+        about(events, 'album-gone').first.entity.title,
+        'Heard album-gone',
+      );
+      expect(about(events, 'song-hidden'), isEmpty);
+      expect(about(events, 'song-kept'), isNotEmpty);
+    });
+
+    test('before activation, or without one, it stays left out', () async {
+      library.add('kept');
+      plays.add('gone', _today.subtract(const Duration(hours: 2)));
+      plays.add('kept', _today.subtract(const Duration(minutes: 30)));
+
+      await withSessions().record(referenceLocal: _today);
+      await withSessions().record(
+        referenceLocal: _today,
+        rules: ChartMomentRules(
+          activatedAtUtc: _today.subtract(const Duration(hours: 1)).toUtc(),
+        ),
+      );
+
+      final events = await saved();
+      expect(about(events, 'song-gone'), isEmpty);
+      expect(about(events, 'album-gone'), isEmpty);
+      expect(about(events, 'song-kept'), isNotEmpty);
+    });
   });
 
   test('a pass that spans a restore writes nothing', () async {
