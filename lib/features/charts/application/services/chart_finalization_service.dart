@@ -216,6 +216,12 @@ class ChartFinalizationService {
     }
   }
 
+  /// A finalized week is frozen: once stored, it is returned as stored and
+  /// never re-derived, whatever later plays, edits, blocks, restores or
+  /// engine changes would now produce. Only a missing week is built. Its
+  /// Moments are published before the snapshot, so a pass interrupted
+  /// between the two writes finishes on the next pass without duplicating
+  /// or replacing any published Moment.
   Future<ChartSnapshot> _reconcileType({
     required ChartType chartType,
     required ChartWeek week,
@@ -226,6 +232,10 @@ class ChartFinalizationService {
       weekStartUtc: week.startUtc,
     );
 
+    if (existing != null && existing.isFinalized) {
+      return existing;
+    }
+
     final candidate = await _builder.build(
       chartType: chartType,
       weekStartUtc: week.startUtc,
@@ -233,31 +243,19 @@ class ChartFinalizationService {
       finalizedAt: week.endUtc,
       revision: existing == null ? 1 : existing.revision + 1,
       excludedAlbumIds: chartType == ChartType.albums
-          ? {
-              for (final id in await excludedReleaseIds(_releaseEligibility))
-                if (existing == null ||
-                    !existing.entries.any((e) => e.entity.entityId == id))
-                  id,
-            }
+          ? await excludedReleaseIds(_releaseEligibility)
           : const {},
     );
 
-    late final ChartSnapshot canonical;
+    await _publishFinalizedMoments(candidate, generation);
 
-    if (existing != null && _sameChartContent(existing, candidate)) {
-      canonical = existing;
-    } else {
-      _ensureNoRestoreSince(generation);
-      await _charts.replaceSnapshot(candidate);
-      canonical = candidate;
-    }
+    _ensureNoRestoreSince(generation);
+    await _charts.replaceSnapshot(candidate);
 
-    await _reconcileFinalizedMoments(canonical, generation);
-
-    return canonical;
+    return candidate;
   }
 
-  Future<void> _reconcileFinalizedMoments(
+  Future<void> _publishFinalizedMoments(
     ChartSnapshot snapshot,
     int? generation,
   ) async {
@@ -330,7 +328,7 @@ class ChartFinalizationService {
     }
 
     _ensureNoRestoreSince(generation);
-    await moments.replaceFinalizedForWeek(
+    await moments.publishFinalizedForWeek(
       chartType: snapshot.chartType,
       weekStartUtc: snapshot.weekStartUtc,
       events: events,
@@ -375,42 +373,5 @@ class ChartFinalizationService {
       finalizedAt: weekEndUtc,
       entries: const [],
     );
-  }
-
-  static bool _sameChartContent(
-    ChartSnapshot existing,
-    ChartSnapshot candidate,
-  ) {
-    if (existing.id != candidate.id ||
-        existing.chartType != candidate.chartType ||
-        existing.weekStartUtc.toUtc() != candidate.weekStartUtc.toUtc() ||
-        existing.weekEndUtc.toUtc() != candidate.weekEndUtc.toUtc() ||
-        existing.entries.length != candidate.entries.length) {
-      return false;
-    }
-
-    for (var index = 0; index < existing.entries.length; index++) {
-      if (!_sameEntry(existing.entries[index], candidate.entries[index])) {
-        return false;
-      }
-    }
-
-    return true;
-  }
-
-  static bool _sameEntry(ChartEntry existing, ChartEntry candidate) {
-    return existing.entity.entityId == candidate.entity.entityId &&
-        existing.entity.title == candidate.entity.title &&
-        existing.entity.artistId == candidate.entity.artistId &&
-        existing.entity.artistName == candidate.entity.artistName &&
-        existing.entity.albumTitle == candidate.entity.albumTitle &&
-        existing.rank == candidate.rank &&
-        existing.qualifiedStreamCount == candidate.qualifiedStreamCount &&
-        existing.lastQualifiedAt.toUtc() == candidate.lastQualifiedAt.toUtc() &&
-        existing.previousFinalRank == candidate.previousFinalRank &&
-        existing.peakRank == candidate.peakRank &&
-        existing.peakAchievedAt.toUtc() == candidate.peakAchievedAt.toUtc() &&
-        existing.weeksOnChart == candidate.weeksOnChart &&
-        existing.movement == candidate.movement;
   }
 }

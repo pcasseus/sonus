@@ -1157,11 +1157,11 @@ class _FakeChartMomentRepository implements ChartMomentRepository {
   Future<void> saveAll(Iterable<ChartMomentEvent> events) async {}
 
   @override
-  Future<void> replaceFinalizedForWeek({
+  Future<bool> publishFinalizedForWeek({
     required ChartType chartType,
     required DateTime weekStartUtc,
     required Iterable<ChartMomentEvent> events,
-  }) async {}
+  }) async => false;
 }
 
 class _FakeAllTimeMomentService implements AllTimeMomentService {

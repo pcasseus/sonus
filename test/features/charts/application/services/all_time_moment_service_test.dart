@@ -230,7 +230,7 @@ void main() {
     plays.add('a', _today.subtract(const Duration(hours: 1)));
     await service().record(referenceLocal: _today);
 
-    await moments.replaceFinalizedForWeek(
+    await moments.publishFinalizedForWeek(
       chartType: ChartType.songs,
       weekStartUtc: DateTime.utc(2026, 10, 18, 4),
       events: const [],

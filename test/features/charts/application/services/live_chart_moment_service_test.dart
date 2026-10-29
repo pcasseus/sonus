@@ -706,23 +706,30 @@ class _ChartMomentRepository implements ChartMomentRepository {
   }
 
   @override
-  Future<void> replaceFinalizedForWeek({
+  Future<bool> publishFinalizedForWeek({
     required ChartType chartType,
     required DateTime weekStartUtc,
     required Iterable<ChartMomentEvent> events,
   }) async {
     final normalizedWeekStart = weekStartUtc.toUtc();
 
-    _eventsByDeduplicationKey.removeWhere(
-      (_, event) =>
+    if (_eventsByDeduplicationKey.values.any(
+      (event) =>
           event.scope == ChartMomentScope.finalized &&
           event.chartType == chartType &&
           event.weekStartUtc.toUtc() == normalizedWeekStart,
-    );
+    )) {
+      return false;
+    }
 
     for (final event in events) {
-      _eventsByDeduplicationKey[event.deduplicationKey] = event;
+      _eventsByDeduplicationKey.putIfAbsent(
+        event.deduplicationKey,
+        () => event,
+      );
     }
+
+    return true;
   }
 
   @override

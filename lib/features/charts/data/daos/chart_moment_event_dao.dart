@@ -30,19 +30,23 @@ class ChartMomentEventDao {
     );
   }
 
-  Future<void> deleteFinalizedForWeek({
+  Future<bool> hasFinalizedForWeek({
     required String chartType,
     required DateTime weekStartUtc,
-  }) {
-    return db.delete(
+  }) async {
+    final rows = await db.query(
       DatabaseTables.chartMomentEvents,
+      columns: const ['id'],
       where: 'chart_type = ? AND scope = ? AND week_start_utc = ?',
       whereArgs: [
         chartType,
         'finalized',
         weekStartUtc.toUtc().toIso8601String(),
       ],
+      limit: 1,
     );
+
+    return rows.isNotEmpty;
   }
 
   Future<Map<String, Object?>?> findById(String id) async {

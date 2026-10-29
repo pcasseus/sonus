@@ -138,9 +138,9 @@ void main() {
     ).reconcileCompletedWeek(week);
 
     final artistEvents = [
-      for (final replacement in moments.replacements)
-        if (replacement.chartType == ChartType.songs)
-          for (final event in replacement.events)
+      for (final publication in moments.publications)
+        if (publication.chartType == ChartType.songs)
+          for (final event in publication.events)
             if (event.eventType.name.startsWith('artist')) event,
     ];
     expect(artistEvents, isNotEmpty);
@@ -282,8 +282,8 @@ void main() {
 
       expect(guardedCharts.replaceCalls, plainCharts.replaceCalls);
       expect(
-        guardedMoments.replacements.length,
-        plainMoments.replacements.length,
+        guardedMoments.publications.length,
+        plainMoments.publications.length,
       );
 
       for (var index = 0; index < plain.length; index++) {
@@ -330,7 +330,7 @@ void main() {
 
       await expectLater(pass, throwsA(isA<LibraryMutationUnavailable>()));
       expect(charts.replaceCalls, 0);
-      expect(moments.replacements, isEmpty);
+      expect(moments.publications, isEmpty);
     });
   });
 
@@ -443,7 +443,7 @@ void main() {
   });
 
   test(
-    'late qualified play rebuilds finalized week with next revision',
+    'SN-50: a late qualified play never rewrites a finalized week',
     () async {
       final qualifiedPlays = _MutableQualifiedPlayRepository([
         play(
@@ -466,7 +466,7 @@ void main() {
         endUtc: DateTime.utc(2026, 10, 4),
       );
 
-      await service.reconcileCompletedWeek(week);
+      final first = await service.reconcileCompletedWeek(week);
 
       qualifiedPlays.plays.add(
         play(
@@ -477,23 +477,14 @@ void main() {
         ),
       );
 
-      final rebuilt = await service.reconcileCompletedWeek(week);
+      final again = await service.reconcileCompletedWeek(week);
 
-      final songs = rebuilt.singleWhere(
-        (snapshot) => snapshot.chartType == ChartType.songs,
-      );
-
-      final albums = rebuilt.singleWhere(
-        (snapshot) => snapshot.chartType == ChartType.albums,
-      );
-
-      expect(songs.revision, 2);
-      expect(albums.revision, 2);
-
-      expect(songs.entries.single.qualifiedStreamCount, 2);
-      expect(albums.entries.single.qualifiedStreamCount, 2);
-
-      expect(charts.replaceCalls, 4);
+      expect(again, first);
+      for (final snapshot in again) {
+        expect(snapshot.revision, 1);
+        expect(snapshot.entries.single.qualifiedStreamCount, 1);
+      }
+      expect(charts.replaceCalls, 2);
     },
   );
 
@@ -592,85 +583,71 @@ void main() {
         ),
       );
 
-      expect(moments.replacements, hasLength(2));
+      expect(moments.publications, hasLength(2));
 
       expect(
-        moments.replacements
-            .map((replacement) => replacement.chartType)
+        moments.publications
+            .map((publication) => publication.chartType)
             .toList(),
         [ChartType.songs, ChartType.albums],
       );
 
-      for (final replacement in moments.replacements) {
-        expect(replacement.weekStartUtc, DateTime.utc(2026, 9, 27));
-        expect(replacement.events, isNotEmpty);
+      for (final publication in moments.publications) {
+        expect(publication.weekStartUtc, DateTime.utc(2026, 9, 27));
+        expect(publication.events, isNotEmpty);
 
         expect(
-          replacement.events.every(
+          publication.events.every(
             (event) => event.scope == ChartMomentScope.finalized,
           ),
           isTrue,
         );
 
         expect(
-          replacement.events.every((event) => event.sourceId != null),
+          publication.events.every((event) => event.sourceId != null),
           isTrue,
         );
       }
     },
   );
 
-  test(
-    'unchanged chart still reconciles finalized Moments for self-healing',
-    () async {
-      final qualifiedPlays = _MutableQualifiedPlayRepository([
-        play(
-          id: '1',
-          songId: 'song-a',
-          albumId: 'album-a',
-          qualifiedAt: DateTime.utc(2026, 9, 28, 10),
-        ),
-      ]);
+  test('SN-50: a stored week publishes its Moments exactly once', () async {
+    final qualifiedPlays = _MutableQualifiedPlayRepository([
+      play(
+        id: '1',
+        songId: 'song-a',
+        albumId: 'album-a',
+        qualifiedAt: DateTime.utc(2026, 9, 28, 10),
+      ),
+    ]);
 
-      final charts = _RecordingChartRepository();
-      final moments = _RecordingMomentRepository();
+    final charts = _RecordingChartRepository();
+    final moments = _RecordingMomentRepository();
 
-      final service = createService(
-        qualifiedPlays: qualifiedPlays,
-        charts: charts,
-        moments: moments,
-        momentsActivationWeekStartUtc: DateTime.utc(2026, 9, 27),
-      );
+    final service = createService(
+      qualifiedPlays: qualifiedPlays,
+      charts: charts,
+      moments: moments,
+      momentsActivationWeekStartUtc: DateTime.utc(2026, 9, 27),
+    );
 
-      final week = ChartWeek(
-        startUtc: DateTime.utc(2026, 9, 27),
-        endUtc: DateTime.utc(2026, 10, 4),
-      );
+    final week = ChartWeek(
+      startUtc: DateTime.utc(2026, 9, 27),
+      endUtc: DateTime.utc(2026, 10, 4),
+    );
 
-      await service.reconcileCompletedWeek(week);
+    await service.reconcileCompletedWeek(week);
 
-      expect(charts.replaceCalls, 2);
-      expect(moments.replacements, hasLength(2));
+    expect(charts.replaceCalls, 2);
+    expect(moments.publications, hasLength(2));
+    expect(moments.publishCalls, 2);
 
-      await service.reconcileCompletedWeek(week);
+    await service.reconcileCompletedWeek(week);
 
-      // Canonical chart snapshots are unchanged.
-      expect(charts.replaceCalls, 2);
-
-      // FINAL Moment slices are deliberately rebuilt anyway.
-      expect(moments.replacements, hasLength(4));
-
-      expect(
-        moments.replacements[0].events.map((event) => event.id).toList(),
-        moments.replacements[2].events.map((event) => event.id).toList(),
-      );
-
-      expect(
-        moments.replacements[1].events.map((event) => event.id).toList(),
-        moments.replacements[3].events.map((event) => event.id).toList(),
-      );
-    },
-  );
+    expect(charts.replaceCalls, 2);
+    expect(moments.publications, hasLength(2));
+    expect(moments.publishCalls, 2, reason: 'a stored week is not re-read');
+  });
 
   test('pre-activation finalized weeks do not backfill Moments', () async {
     final qualifiedPlays = _MutableQualifiedPlayRepository([
@@ -700,11 +677,11 @@ void main() {
     );
 
     expect(charts.replaceCalls, 2);
-    expect(moments.replacements, isEmpty);
+    expect(moments.publications, isEmpty);
   });
 
   test(
-    'late chart revision replaces the same finalized Moment slices',
+    'SN-50: a late play neither rewrites a week nor its published Moments',
     () async {
       final qualifiedPlays = _MutableQualifiedPlayRepository([
         play(
@@ -730,43 +707,28 @@ void main() {
         endUtc: DateTime.utc(2026, 10, 4),
       );
 
-      final first = await service.reconcileCompletedWeek(week);
+      await service.reconcileCompletedWeek(week);
+      final published = [
+        for (final publication in moments.publications)
+          for (final event in publication.events) event.id,
+      ];
 
       qualifiedPlays.plays.add(
         play(
           id: '2',
-          songId: 'song-a',
-          albumId: 'album-a',
+          songId: 'song-b',
+          albumId: 'album-b',
           qualifiedAt: DateTime.utc(2026, 9, 30, 10),
         ),
       );
 
-      final second = await service.reconcileCompletedWeek(week);
+      await service.reconcileCompletedWeek(week);
 
-      expect(
-        first
-            .singleWhere((snapshot) => snapshot.chartType == ChartType.songs)
-            .revision,
-        1,
-      );
-
-      expect(
-        second
-            .singleWhere((snapshot) => snapshot.chartType == ChartType.songs)
-            .revision,
-        2,
-      );
-
-      expect(charts.replaceCalls, 4);
-      expect(moments.replacements, hasLength(4));
-
-      expect(
-        moments.replacements.every(
-          (replacement) =>
-              replacement.weekStartUtc == DateTime.utc(2026, 9, 27),
-        ),
-        isTrue,
-      );
+      expect(charts.replaceCalls, 2);
+      expect([
+        for (final publication in moments.publications)
+          for (final event in publication.events) event.id,
+      ], published);
     },
   );
 
@@ -806,12 +768,12 @@ void main() {
       expect(charts.replaceCalls, 4);
 
       // Only the activation week receives FINAL Moment reconstruction.
-      expect(moments.replacements, hasLength(2));
+      expect(moments.publications, hasLength(2));
 
       expect(
-        moments.replacements.every(
-          (replacement) =>
-              replacement.weekStartUtc == DateTime(2026, 9, 27).toUtc(),
+        moments.publications.every(
+          (publication) =>
+              publication.weekStartUtc == DateTime(2026, 9, 27).toUtc(),
         ),
         isTrue,
       );
@@ -849,8 +811,8 @@ void main() {
         ),
       );
 
-      final songs = moments.replacements.singleWhere(
-        (replacement) => replacement.chartType == ChartType.songs,
+      final songs = moments.publications.singleWhere(
+        (publication) => publication.chartType == ChartType.songs,
       );
 
       expect(
@@ -919,8 +881,8 @@ void main() {
         ),
       );
 
-      final songs = moments.replacements.singleWhere(
-        (replacement) => replacement.chartType == ChartType.songs,
+      final songs = moments.publications.singleWhere(
+        (publication) => publication.chartType == ChartType.songs,
       );
 
       final streamMilestones = songs.events
@@ -975,10 +937,10 @@ void main() {
       ),
     );
 
-    final secondWeekSongs = moments.replacements.lastWhere(
-      (replacement) =>
-          replacement.chartType == ChartType.songs &&
-          replacement.weekStartUtc == DateTime.utc(2026, 10, 4),
+    final secondWeekSongs = moments.publications.lastWhere(
+      (publication) =>
+          publication.chartType == ChartType.songs &&
+          publication.weekStartUtc == DateTime.utc(2026, 10, 4),
     );
 
     expect(
@@ -1029,12 +991,12 @@ void main() {
         ),
       );
 
-      final songs = moments.replacements.singleWhere(
-        (replacement) => replacement.chartType == ChartType.songs,
+      final songs = moments.publications.singleWhere(
+        (publication) => publication.chartType == ChartType.songs,
       );
 
-      final albums = moments.replacements.singleWhere(
-        (replacement) => replacement.chartType == ChartType.albums,
+      final albums = moments.publications.singleWhere(
+        (publication) => publication.chartType == ChartType.albums,
       );
 
       expect(
@@ -1121,10 +1083,10 @@ void main() {
         ),
       );
 
-      final secondWeekSongs = moments.replacements.lastWhere(
-        (replacement) =>
-            replacement.chartType == ChartType.songs &&
-            replacement.weekStartUtc == DateTime.utc(2026, 10, 4),
+      final secondWeekSongs = moments.publications.lastWhere(
+        (publication) =>
+            publication.chartType == ChartType.songs &&
+            publication.weekStartUtc == DateTime.utc(2026, 10, 4),
       );
 
       expect(
@@ -1183,8 +1145,8 @@ void main() {
         ),
       );
 
-      final songs = moments.replacements.singleWhere(
-        (replacement) => replacement.chartType == ChartType.songs,
+      final songs = moments.publications.singleWhere(
+        (publication) => publication.chartType == ChartType.songs,
       );
 
       final firstTop100 = songs.events
@@ -1238,61 +1200,47 @@ void main() {
     },
   );
 
-  test('artist achievement Moments self-heal with stable identities', () async {
-    final qualifiedPlays = _MutableQualifiedPlayRepository([
-      play(
-        id: '1',
-        songId: 'song-a',
-        albumId: 'album-a',
-        artistId: 'artist-shared',
-        qualifiedAt: DateTime.utc(2026, 9, 28, 10),
-      ),
-    ]);
+  test('artist achievement Moments have stable identities', () async {
+    List<String> artistIds(_RecordingMomentRepository moments) => [
+      for (final publication in moments.publications)
+        if (publication.chartType == ChartType.songs)
+          for (final event in publication.events)
+            if (event.eventType ==
+                    ChartMomentEventType.artistFirstThresholdSong ||
+                event.eventType ==
+                    ChartMomentEventType.artistHighestChartingSong)
+              event.id,
+    ];
 
-    final charts = _RecordingChartRepository();
-    final moments = _RecordingMomentRepository();
+    Future<_RecordingMomentRepository> finalize() async {
+      final moments = _RecordingMomentRepository();
+      await createService(
+        qualifiedPlays: _MutableQualifiedPlayRepository([
+          play(
+            id: '1',
+            songId: 'song-a',
+            albumId: 'album-a',
+            artistId: 'artist-shared',
+            qualifiedAt: DateTime.utc(2026, 9, 28, 10),
+          ),
+        ]),
+        charts: _RecordingChartRepository(),
+        moments: moments,
+        momentsActivationWeekStartUtc: DateTime.utc(2026, 9, 27),
+      ).reconcileCompletedWeek(
+        ChartWeek(
+          startUtc: DateTime.utc(2026, 9, 27),
+          endUtc: DateTime.utc(2026, 10, 4),
+        ),
+      );
+      return moments;
+    }
 
-    final service = createService(
-      qualifiedPlays: qualifiedPlays,
-      charts: charts,
-      moments: moments,
-      momentsActivationWeekStartUtc: DateTime.utc(2026, 9, 27),
-    );
-
-    final week = ChartWeek(
-      startUtc: DateTime.utc(2026, 9, 27),
-      endUtc: DateTime.utc(2026, 10, 4),
-    );
-
-    await service.reconcileCompletedWeek(week);
-    await service.reconcileCompletedWeek(week);
-
-    final firstSongs = moments.replacements[0];
-    final rebuiltSongs = moments.replacements[2];
-
-    final firstArtistIds = firstSongs.events
-        .where(
-          (event) =>
-              event.eventType ==
-                  ChartMomentEventType.artistFirstThresholdSong ||
-              event.eventType == ChartMomentEventType.artistHighestChartingSong,
-        )
-        .map((event) => event.id)
-        .toList();
-
-    final rebuiltArtistIds = rebuiltSongs.events
-        .where(
-          (event) =>
-              event.eventType ==
-                  ChartMomentEventType.artistFirstThresholdSong ||
-              event.eventType == ChartMomentEventType.artistHighestChartingSong,
-        )
-        .map((event) => event.id)
-        .toList();
-
-    expect(firstArtistIds, isNotEmpty);
-    expect(firstArtistIds, rebuiltArtistIds);
+    final first = artistIds(await finalize());
+    expect(first, isNotEmpty);
+    expect(artistIds(await finalize()), first);
   });
+
   test('previous completed week resolves from local reference date', () async {
     final qualifiedPlays = _MutableQualifiedPlayRepository([
       play(
@@ -1453,9 +1401,14 @@ class _RecordingChartRepository implements ChartRepository {
   final List<ChartSnapshot> _snapshots = [];
 
   int replaceCalls = 0;
+  bool failNextReplace = false;
 
   @override
   Future<void> replaceSnapshot(ChartSnapshot snapshot) async {
+    if (failNextReplace) {
+      failNextReplace = false;
+      throw StateError('interrupted');
+    }
     replaceCalls++;
 
     _snapshots.removeWhere(
@@ -1515,8 +1468,8 @@ class _RecordingChartRepository implements ChartRepository {
   }
 }
 
-class _FinalizedReplacement {
-  const _FinalizedReplacement({
+class _FinalizedPublication {
+  const _FinalizedPublication({
     required this.chartType,
     required this.weekStartUtc,
     required this.events,
@@ -1528,21 +1481,31 @@ class _FinalizedReplacement {
 }
 
 class _RecordingMomentRepository implements ChartMomentRepository {
-  final List<_FinalizedReplacement> replacements = [];
+  final List<_FinalizedPublication> publications = [];
+  int publishCalls = 0;
 
   @override
-  Future<void> replaceFinalizedForWeek({
+  Future<bool> publishFinalizedForWeek({
     required ChartType chartType,
     required DateTime weekStartUtc,
     required Iterable<ChartMomentEvent> events,
   }) async {
-    replacements.add(
-      _FinalizedReplacement(
+    publishCalls++;
+    if (publications.any(
+      (published) =>
+          published.chartType == chartType &&
+          published.weekStartUtc == weekStartUtc.toUtc(),
+    )) {
+      return false;
+    }
+    publications.add(
+      _FinalizedPublication(
         chartType: chartType,
         weekStartUtc: weekStartUtc.toUtc(),
         events: List<ChartMomentEvent>.unmodifiable(events),
       ),
     );
+    return true;
   }
 
   @override

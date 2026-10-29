@@ -23,20 +23,20 @@ class SqliteChartMomentRepository implements ChartMomentRepository {
   }
 
   @override
-  Future<void> replaceFinalizedForWeek({
+  Future<bool> publishFinalizedForWeek({
     required ChartType chartType,
     required DateTime weekStartUtc,
     required Iterable<ChartMomentEvent> events,
   }) async {
     final normalizedWeekStartUtc = weekStartUtc.toUtc();
-    final replacement = List<ChartMomentEvent>.unmodifiable(events);
+    final publication = List<ChartMomentEvent>.unmodifiable(events);
 
-    for (final event in replacement) {
+    for (final event in publication) {
       if (event.scope != ChartMomentScope.finalized) {
         throw ArgumentError.value(
           event.scope,
           'events',
-          'FINAL Moment replacement cannot contain live events.',
+          'FINAL Moment publication cannot contain live events.',
         );
       }
 
@@ -44,7 +44,7 @@ class SqliteChartMomentRepository implements ChartMomentRepository {
         throw ArgumentError.value(
           event.chartType,
           'events',
-          'FINAL Moment replacement cannot contain another chart type.',
+          'FINAL Moment publication cannot contain another chart type.',
         );
       }
 
@@ -52,22 +52,26 @@ class SqliteChartMomentRepository implements ChartMomentRepository {
         throw ArgumentError.value(
           event.weekStartUtc,
           'events',
-          'FINAL Moment replacement cannot contain another chart week.',
+          'FINAL Moment publication cannot contain another chart week.',
         );
       }
     }
 
-    await database.transaction((transaction) async {
+    return database.transaction((transaction) async {
       final dao = ChartMomentEventDao(transaction);
 
-      await dao.deleteFinalizedForWeek(
+      if (await dao.hasFinalizedForWeek(
         chartType: chartType.name,
         weekStartUtc: normalizedWeekStartUtc,
-      );
+      )) {
+        return false;
+      }
 
-      for (final event in replacement) {
+      for (final event in publication) {
         await dao.insertIgnoreDuplicate(ChartMomentEventRowMapper.toRow(event));
       }
+
+      return true;
     });
   }
 

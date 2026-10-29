@@ -271,169 +271,128 @@ void main() {
     expect(events.map((event) => event.id).toList(), ['third', 'second']);
   });
 
-  test(
-    'replaces only finalized Moments for matching chart type and week',
-    () async {
-      final weekStart = DateTime.utc(2026, 9, 27);
-      final weekEnd = DateTime.utc(2026, 10, 4);
-
-      final obsoleteFinal = createEvent(
-        id: 'obsolete-final',
-        deduplicationKey: 'obsolete-final-dedupe',
-        sourceId: 'chart-songs-week',
-        occurredAt: weekEnd,
-        scope: ChartMomentScope.finalized,
-        chartType: ChartType.songs,
-        weekStartUtc: weekStart,
-        weekEndUtc: weekEnd,
-      );
-
-      final liveSameWeek = createEvent(
-        id: 'live-same-week',
-        deduplicationKey: 'live-same-week-dedupe',
-        sourceId: 'play-live',
-        occurredAt: DateTime.utc(2026, 9, 30),
-        scope: ChartMomentScope.live,
-        chartType: ChartType.songs,
-        weekStartUtc: weekStart,
-        weekEndUtc: weekEnd,
-      );
-
-      final otherTypeFinal = createEvent(
-        id: 'album-final',
-        deduplicationKey: 'album-final-dedupe',
-        sourceId: 'chart-albums-week',
-        occurredAt: weekEnd,
-        scope: ChartMomentScope.finalized,
-        chartType: ChartType.albums,
-        weekStartUtc: weekStart,
-        weekEndUtc: weekEnd,
-      );
-
-      final otherWeekFinal = createEvent(
-        id: 'other-week-final',
-        deduplicationKey: 'other-week-final-dedupe',
-        sourceId: 'chart-songs-other-week',
-        occurredAt: DateTime.utc(2026, 10, 11),
-        scope: ChartMomentScope.finalized,
-        chartType: ChartType.songs,
-        weekStartUtc: DateTime.utc(2026, 10, 4),
-        weekEndUtc: DateTime.utc(2026, 10, 11),
-      );
-
-      await repository.saveAll([
-        obsoleteFinal,
-        liveSameWeek,
-        otherTypeFinal,
-        otherWeekFinal,
-      ]);
-
-      final replacement = createEvent(
-        id: 'replacement-final',
-        deduplicationKey: 'replacement-final-dedupe',
-        sourceId: 'chart-songs-week',
-        occurredAt: weekEnd,
-        scope: ChartMomentScope.finalized,
-        chartType: ChartType.songs,
-        weekStartUtc: weekStart,
-        weekEndUtc: weekEnd,
-        previousRank: 14,
-        currentRank: 3,
-        eventType: ChartMomentEventType.newPeak,
-      );
-
-      await repository.replaceFinalizedForWeek(
-        chartType: ChartType.songs,
-        weekStartUtc: weekStart,
-        events: [replacement],
-      );
-
-      final events = await repository.getRecent();
-      final ids = events.map((event) => event.id).toSet();
-
-      expect(ids, contains('replacement-final'));
-
-      expect(ids, isNot(contains('obsolete-final')));
-
-      expect(ids, contains('live-same-week'));
-      expect(ids, contains('album-final'));
-      expect(ids, contains('other-week-final'));
-    },
-  );
-
-  test('empty finalized replacement clears only the canonical slice', () async {
+  test('a published finalized week is never replaced or removed', () async {
     final weekStart = DateTime.utc(2026, 9, 27);
     final weekEnd = DateTime.utc(2026, 10, 4);
 
-    final finalized = createEvent(
-      id: 'final-to-clear',
-      deduplicationKey: 'final-to-clear-dedupe',
+    final published = createEvent(
+      id: 'published-final',
+      deduplicationKey: 'published-final-dedupe',
       sourceId: 'chart-songs-week',
       occurredAt: weekEnd,
       scope: ChartMomentScope.finalized,
+      chartType: ChartType.songs,
       weekStartUtc: weekStart,
       weekEndUtc: weekEnd,
     );
 
-    final live = createEvent(
-      id: 'live-to-preserve',
-      deduplicationKey: 'live-to-preserve-dedupe',
-      sourceId: 'play-live',
-      occurredAt: DateTime.utc(2026, 9, 30),
-      scope: ChartMomentScope.live,
+    await repository.saveAll([published]);
+
+    final later = createEvent(
+      id: 'later-final',
+      deduplicationKey: 'later-final-dedupe',
+      sourceId: 'chart-songs-week',
+      occurredAt: weekEnd,
+      scope: ChartMomentScope.finalized,
+      chartType: ChartType.songs,
       weekStartUtc: weekStart,
       weekEndUtc: weekEnd,
+      previousRank: 14,
+      currentRank: 3,
+      eventType: ChartMomentEventType.newPeak,
     );
 
-    await repository.saveAll([finalized, live]);
+    final wrote = await repository.publishFinalizedForWeek(
+      chartType: ChartType.songs,
+      weekStartUtc: weekStart,
+      events: [later],
+    );
 
-    await repository.replaceFinalizedForWeek(
+    expect(wrote, isFalse);
+    expect((await repository.getRecent()).map((event) => event.id), [
+      'published-final',
+    ]);
+
+    final cleared = await repository.publishFinalizedForWeek(
       chartType: ChartType.songs,
       weekStartUtc: weekStart,
       events: const [],
     );
 
-    final events = await repository.getRecent();
-
-    expect(events.map((event) => event.id).toList(), ['live-to-preserve']);
-  });
-
-  test('repeating identical finalized replacement is idempotent', () async {
-    final weekStart = DateTime.utc(2026, 9, 27);
-    final weekEnd = DateTime.utc(2026, 10, 4);
-
-    final event = createEvent(
-      id: 'canonical-final',
-      deduplicationKey: 'canonical-final-dedupe',
-      sourceId: 'chart-songs-week',
-      occurredAt: weekEnd,
-      scope: ChartMomentScope.finalized,
-      weekStartUtc: weekStart,
-      weekEndUtc: weekEnd,
-      eventType: ChartMomentEventType.newPeak,
-    );
-
-    await repository.replaceFinalizedForWeek(
-      chartType: ChartType.songs,
-      weekStartUtc: weekStart,
-      events: [event],
-    );
-
-    await repository.replaceFinalizedForWeek(
-      chartType: ChartType.songs,
-      weekStartUtc: weekStart,
-      events: [event],
-    );
-
-    final events = await repository.getRecent();
-
-    expect(events, hasLength(1));
-    expect(events.single.id, 'canonical-final');
-    expect(events.single.scope, ChartMomentScope.finalized);
+    expect(cleared, isFalse);
+    expect((await repository.getRecent()).map((event) => event.id), [
+      'published-final',
+    ]);
   });
 
   test(
-    'invalid finalized replacement does not delete existing facts',
+    'publishes a week whose slice is empty, beside other weeks and scopes',
+    () async {
+      final weekStart = DateTime.utc(2026, 9, 27);
+      final weekEnd = DateTime.utc(2026, 10, 4);
+
+      await repository.saveAll([
+        createEvent(
+          id: 'live-same-week',
+          deduplicationKey: 'live-same-week-dedupe',
+          sourceId: 'play-live',
+          occurredAt: DateTime.utc(2026, 9, 30),
+          scope: ChartMomentScope.live,
+          chartType: ChartType.songs,
+          weekStartUtc: weekStart,
+          weekEndUtc: weekEnd,
+        ),
+        createEvent(
+          id: 'album-final',
+          deduplicationKey: 'album-final-dedupe',
+          sourceId: 'chart-albums-week',
+          occurredAt: weekEnd,
+          scope: ChartMomentScope.finalized,
+          chartType: ChartType.albums,
+          weekStartUtc: weekStart,
+          weekEndUtc: weekEnd,
+        ),
+        createEvent(
+          id: 'other-week-final',
+          deduplicationKey: 'other-week-final-dedupe',
+          sourceId: 'chart-songs-other-week',
+          occurredAt: DateTime.utc(2026, 10, 11),
+          scope: ChartMomentScope.finalized,
+          chartType: ChartType.songs,
+          weekStartUtc: DateTime.utc(2026, 10, 4),
+          weekEndUtc: DateTime.utc(2026, 10, 11),
+        ),
+      ]);
+
+      final wrote = await repository.publishFinalizedForWeek(
+        chartType: ChartType.songs,
+        weekStartUtc: weekStart,
+        events: [
+          createEvent(
+            id: 'new-final',
+            deduplicationKey: 'new-final-dedupe',
+            sourceId: 'chart-songs-week',
+            occurredAt: weekEnd,
+            scope: ChartMomentScope.finalized,
+            chartType: ChartType.songs,
+            weekStartUtc: weekStart,
+            weekEndUtc: weekEnd,
+          ),
+        ],
+      );
+
+      expect(wrote, isTrue);
+      expect((await repository.getRecent()).map((event) => event.id).toSet(), {
+        'new-final',
+        'live-same-week',
+        'album-final',
+        'other-week-final',
+      });
+    },
+  );
+
+  test(
+    'an invalid finalized publication does not delete existing facts',
     () async {
       final weekStart = DateTime.utc(2026, 9, 27);
       final weekEnd = DateTime.utc(2026, 10, 4);
@@ -461,7 +420,7 @@ void main() {
       await repository.saveAll([existing]);
 
       await expectLater(
-        repository.replaceFinalizedForWeek(
+        repository.publishFinalizedForWeek(
           chartType: ChartType.songs,
           weekStartUtc: weekStart,
           events: [invalidLive],
