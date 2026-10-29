@@ -23,10 +23,13 @@ enum AlbumEditionRefusal {
   /// Every song stays on at least one edition of its album.
   lastEditionOfSong,
 
-  /// Only an empty, non-primary edition can be deleted, and never an
-  /// album's only edition.
-  editionNotEmpty,
+  /// Deleting an edition: songs no other edition lists block it
+  /// ([AlbumEditionManagementException.songCount] says how many); the
+  /// primary edition needs a replacement, and cannot go once it is in the
+  /// cloud; an album's only edition never goes.
+  exclusiveSongs,
   primaryEdition,
+  primaryInCloud,
   onlyEdition,
 }
 
@@ -50,16 +53,19 @@ class AlbumEditionTrackListResult {
 }
 
 class AlbumEditionManagementException implements Exception {
-  const AlbumEditionManagementException(this.refusal);
+  const AlbumEditionManagementException(this.refusal, {this.songCount = 0});
 
   final AlbumEditionRefusal refusal;
+
+  /// For [AlbumEditionRefusal.exclusiveSongs]: the songs to move first.
+  final int songCount;
 
   @override
   String toString() => 'AlbumEditionManagementException(${refusal.name})';
 }
 
 /// Album Studio's edition operations: create, rename or retype, choose the
-/// primary edition, assign and remove tracks, and delete empty editions.
+/// primary edition, assign and remove tracks, and delete editions.
 ///
 /// Each operation is one transaction and either completes or changes
 /// nothing. Songs, their recordings and listening history are never
@@ -224,17 +230,27 @@ class AlbumEditionManagementService {
         target.albumId,
       );
 
-      for (final edition in editions) {
-        final shouldBePrimary = edition.id == target.id;
-
-        if (edition.isPrimary != shouldBePrimary) {
-          await context.albumEditionRepository.save(
-            edition.copyWith(isPrimary: shouldBePrimary, updatedAt: timestamp),
-          );
-          await _recordEdition(context, userId, edition.id);
-        }
-      }
+      await _makePrimary(context, editions, target.id, userId, timestamp);
     });
+  }
+
+  static Future<void> _makePrimary(
+    SyncMutationContext context,
+    List<AlbumEdition> editions,
+    String primaryId,
+    String? userId,
+    DateTime timestamp,
+  ) async {
+    for (final edition in editions) {
+      final shouldBePrimary = edition.id == primaryId;
+
+      if (edition.isPrimary != shouldBePrimary) {
+        await context.albumEditionRepository.save(
+          edition.copyWith(isPrimary: shouldBePrimary, updatedAt: timestamp),
+        );
+        await _recordEdition(context, userId, edition.id);
+      }
+    }
   }
 
   /// Lists [songIds] on the edition. A song already listed is left as it
@@ -449,31 +465,7 @@ class AlbumEditionManagementService {
     }
 
     if (song.albumEditionId == edition.id) {
-      final editions = await context.albumEditionRepository.getByAlbumId(
-        edition.albumId,
-      );
-      final primaryId = editions
-          .where((e) => e.isPrimary)
-          .map((e) => e.id)
-          .firstOrNull;
-      final newHome = others.firstWhere(
-        (m) => m.albumEditionId == primaryId,
-        orElse: () => others.first,
-      );
-
-      await context.songRepository.save(
-        song.copyWith(
-          albumEditionId: newHome.albumEditionId,
-          discNumber: newHome.discNumber,
-          trackNumber: newHome.trackNumber,
-          updatedAt: timestamp,
-        ),
-      );
-      await context.localSyncRepository.recordUpsert(
-        userId: userId?.trim(),
-        entityType: CloudDataEntity.song,
-        entityId: song.id,
-      );
+      await _rehome(context, song, others, userId, timestamp);
     }
 
     await context.albumEditionTrackRepository.delete(
@@ -484,19 +476,78 @@ class AlbumEditionManagementService {
     return true;
   }
 
-  /// Deletes an edition that lists no tracks, is not primary and is not
-  /// the album's only edition.
-  Future<void> deleteEdition({required String editionId, String? userId}) {
+  /// Moves the song's home to one of [others], its listings on other
+  /// editions, preferring the primary edition.
+  static Future<void> _rehome(
+    SyncMutationContext context,
+    Song song,
+    List<AlbumEditionTrack> others,
+    String? userId,
+    DateTime timestamp,
+  ) async {
+    final editions = await context.albumEditionRepository.getByAlbumId(
+      song.albumId,
+    );
+    final primaryId = editions
+        .where((e) => e.isPrimary)
+        .map((e) => e.id)
+        .firstOrNull;
+    final newHome = others.firstWhere(
+      (m) => m.albumEditionId == primaryId,
+      orElse: () => others.first,
+    );
+
+    await context.songRepository.save(
+      song.copyWith(
+        albumEditionId: newHome.albumEditionId,
+        discNumber: newHome.discNumber,
+        trackNumber: newHome.trackNumber,
+        updatedAt: timestamp,
+      ),
+    );
+    await _recordSong(context, userId, song.id);
+  }
+
+  /// Whether the edition has reached [userId]'s cloud. Without a way to
+  /// tell, it is treated as there.
+  static Future<bool> _inCloud(
+    SyncMutationContext context,
+    String? userId,
+    String editionId,
+  ) async {
+    final owner = userId?.trim();
+    if (owner == null || owner.isEmpty) return false;
+    final baselines = context.cloudRevisionBaselineRepository;
+    if (baselines == null) return true;
+    return await baselines.getRevision(
+          userId: owner,
+          entityType: CloudDataEntity.albumEdition,
+          entityId: editionId,
+        ) !=
+        null;
+  }
+
+  /// Deletes an edition (SN-50 A5), never the album's last one (A-Q24).
+  ///
+  /// The primary edition goes only with [replacementPrimaryId], which
+  /// becomes primary in the same transaction (A-Q23). Songs no other
+  /// edition lists block the delete until they are added to one (A-Q15,
+  /// A-Q25, A-Q26). Other listings go with the edition; a song whose home
+  /// it was moves to another edition that lists it, preferring the primary.
+  ///
+  /// A primary edition already in the cloud is refused: other devices keep
+  /// a deleted edition (A-Q16), so they would end up with two primaries.
+  Future<void> deleteEdition({
+    required String editionId,
+    String? replacementPrimaryId,
+    String? userId,
+    DateTime? now,
+  }) {
+    final timestamp = now ?? DateTime.now();
+
     return mutationRunner.run((context) async {
       final edition = await _edition(context, editionId);
       final repository = context.albumEditionRepository;
-
-      if (edition.isPrimary) {
-        throw const AlbumEditionManagementException(
-          AlbumEditionRefusal.primaryEdition,
-        );
-      }
-
       final editions = await repository.getByAlbumId(edition.albumId);
 
       if (editions.length <= 1) {
@@ -505,20 +556,63 @@ class AlbumEditionManagementService {
         );
       }
 
-      final memberships = await context.albumEditionTrackRepository
-          .getByEditionId(edition.id);
-      final homeSongs = (await context.songRepository.getByEditionId(
-        edition.id,
-      ));
+      if (edition.isPrimary) {
+        final replacementId = replacementPrimaryId?.trim();
+        if (!editions.any((e) => e.id == replacementId && e.id != edition.id)) {
+          throw const AlbumEditionManagementException(
+            AlbumEditionRefusal.primaryEdition,
+          );
+        }
+        if (await _inCloud(context, userId, edition.id)) {
+          throw const AlbumEditionManagementException(
+            AlbumEditionRefusal.primaryInCloud,
+          );
+        }
+      }
 
-      if (memberships.isNotEmpty || homeSongs.isNotEmpty) {
-        throw const AlbumEditionManagementException(
-          AlbumEditionRefusal.editionNotEmpty,
+      final tracks = context.albumEditionTrackRepository;
+      final memberships = await tracks.getByEditionId(edition.id);
+      final listed = {for (final m in memberships) m.songId};
+      final homedOnly = [
+        for (final song in await context.songRepository.getByEditionId(
+          edition.id,
+        ))
+          if (!listed.contains(song.id)) song,
+      ];
+      final elsewhere = <String, List<AlbumEditionTrack>>{
+        for (final songId in {...listed, for (final s in homedOnly) s.id})
+          songId: [
+            for (final m in await tracks.getBySongId(songId))
+              if (m.albumEditionId != edition.id) m,
+          ],
+      };
+      final exclusive = elsewhere.values.where((m) => m.isEmpty).length;
+
+      if (exclusive > 0) {
+        throw AlbumEditionManagementException(
+          AlbumEditionRefusal.exclusiveSongs,
+          songCount: exclusive,
         );
       }
 
       if (repository is! AlbumEditionDeletionRepository) {
         throw StateError('Edition deletion is not available here.');
+      }
+
+      if (edition.isPrimary) {
+        await _makePrimary(
+          context,
+          editions,
+          replacementPrimaryId!.trim(),
+          userId,
+          timestamp,
+        );
+      }
+      for (final songId in listed) {
+        await _remove(context, edition, songId, userId, timestamp);
+      }
+      for (final song in homedOnly) {
+        await _rehome(context, song, elsewhere[song.id]!, userId, timestamp);
       }
 
       await (repository as AlbumEditionDeletionRepository).delete(edition.id);

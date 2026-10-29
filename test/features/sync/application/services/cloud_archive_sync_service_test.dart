@@ -8,6 +8,7 @@ import 'package:sonus_next/core/database/schema/sync_schema.dart';
 import 'package:sonus_next/core/events/library_change_signal.dart';
 import 'package:sonus_next/features/sync/application/services/cloud_archive_sync_service.dart';
 import 'package:sonus_next/features/sync/data/services/sqlite_cloud_archive_store.dart';
+import 'package:sonus_next/features/sync/domain/models/cloud_archive_record.dart';
 
 import '../../../../support/in_memory_cloud_archive.dart';
 import '../../../../support/recovery_fixtures.dart';
@@ -231,6 +232,73 @@ void main() {
       ['item-a', 'item-a2'],
       reason: 'playlist order is kept',
     );
+  });
+
+  group('SN-50 release-level Leaked in the local archive row', () {
+    test('a release marked as leaked travels with its row', () async {
+      final a = await device('a');
+      await (await a.db).insert(DatabaseTables.albumReleaseClassifications, {
+        'album_id': 'album-a',
+        'leaked': 1,
+        'created_at': fixtureTimestamp,
+        'updated_at': fixtureTimestamp,
+      });
+      final b = await emptyDevice('b');
+
+      final collected = await a.store.collect();
+      expect(
+        collected
+            .singleWhere(
+              (r) => r.kind == CloudArchiveKind.releaseClassification,
+            )
+            .payload['leaked'],
+        1,
+      );
+
+      await a.sync();
+      await b.sync();
+      expect(
+        (await b.rows(
+          DatabaseTables.albumReleaseClassifications,
+          'album_id',
+        )).single['leaked'],
+        1,
+      );
+    });
+
+    test('a row written before Leaked existed arrives as not leaked', () async {
+      final b = await emptyDevice('b');
+
+      final outcome = await b.store.apply(
+        CloudArchiveRecord(
+          kind: CloudArchiveKind.releaseClassification,
+          key: 'album-a',
+          payload: const {
+            'album_id': 'album-a',
+            'kind': 'soundtrack',
+            'authority': 'manual',
+            'source_reference': null,
+            'format': null,
+            'format_authority': null,
+            'format_source_reference': null,
+            'live': null,
+            'live_authority': null,
+            'live_source_reference': null,
+            'created_at': fixtureTimestamp,
+            'updated_at': fixtureTimestamp,
+          },
+          clientUpdatedAt: DateTime.parse(fixtureTimestamp),
+        ),
+      );
+
+      expect(outcome, CloudArchiveApplyOutcome.applied);
+      final row = (await b.rows(
+        DatabaseTables.albumReleaseClassifications,
+        'album_id',
+      )).single;
+      expect(row['kind'], 'soundtrack');
+      expect(row['leaked'], isNull);
+    });
   });
 
   test('syncing again writes nothing and duplicates nothing', () async {

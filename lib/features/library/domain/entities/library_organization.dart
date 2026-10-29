@@ -135,6 +135,20 @@ class AlbumLiveClassification {
   final DateTime updatedAt;
 }
 
+/// SN-50: the user marked the whole release as leaked. Only the user sets
+/// it; it never follows, and never sets, the songs' own leak flags.
+class AlbumLeakedClassification {
+  const AlbumLeakedClassification({
+    required this.albumId,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  final String albumId;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+}
+
 /// A user's choice of where an artist appears in the Library.
 enum ArtistProjectAssignmentMode {
   /// Shown under a project's collaborators instead of as a Library entry.

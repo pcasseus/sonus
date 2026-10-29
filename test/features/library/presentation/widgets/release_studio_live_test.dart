@@ -54,6 +54,10 @@ class _Organization implements LibraryOrganizationRepository {
       lives.values.toList();
 
   @override
+  Future<List<AlbumLeakedClassification>> getLeakedClassifications() async =>
+      const [];
+
+  @override
   Future<void> saveLiveClassification(AlbumLiveClassification live) async =>
       lives[live.albumId] = live;
 

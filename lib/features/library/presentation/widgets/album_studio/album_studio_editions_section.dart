@@ -16,7 +16,7 @@ import 'album_studio_edition_follow_up.dart';
 
 /// Album Studio's edition management (Standard, Deluxe and other
 /// editions): create, rename or retype, choose the primary edition, choose
-/// which of the album's songs an edition lists, and delete an empty one.
+/// which of the album's songs an edition lists, and delete one.
 ///
 /// Every operation goes through [AlbumEditionManagementService], which
 /// runs it as one transaction and refuses unsafe changes (for example the
@@ -52,18 +52,30 @@ class AlbumStudioEditionsSection extends StatefulWidget {
   final EditionFollowUpDismissals? dismissals;
 
   /// Plain wording for each refusal.
-  static String messageFor(AlbumEditionRefusal refusal) => switch (refusal) {
+  static String messageFor(
+    AlbumEditionRefusal refusal, {
+    int songCount = 0,
+  }) => switch (refusal) {
     AlbumEditionRefusal.blankTitle => 'Enter an edition name.',
     AlbumEditionRefusal.duplicateTitle =>
       'This album already has an edition with that name.',
     AlbumEditionRefusal.lastEditionOfSong =>
       'Every song stays on at least one edition, so a song only on this '
           'edition was kept.',
-    AlbumEditionRefusal.editionNotEmpty =>
-      'Only an empty edition can be deleted. Choose no songs for it first.',
+    AlbumEditionRefusal.exclusiveSongs =>
+      songCount == 1
+          ? 'One song is only on this edition. Add it to another edition '
+                'first, then delete this one.'
+          : '$songCount songs are only on this edition. Add them to another '
+                'edition first, then delete this one.',
     AlbumEditionRefusal.primaryEdition =>
-      'Make another edition primary before deleting this one.',
-    AlbumEditionRefusal.onlyEdition => 'An album needs at least one edition.',
+      'Choose the edition that becomes primary before deleting this one.',
+    AlbumEditionRefusal.primaryInCloud =>
+      'This edition is in your cloud library. Make another edition primary '
+          'first, then delete it.',
+    AlbumEditionRefusal.onlyEdition =>
+      'A release keeps at least one edition. Removing the whole release '
+          'will be a separate option.',
     AlbumEditionRefusal.albumNotFound ||
     AlbumEditionRefusal.editionNotFound ||
     AlbumEditionRefusal.songNotOnAlbum =>
@@ -296,7 +308,12 @@ class _AlbumStudioEditionsSectionState
     } on AlbumEditionManagementException catch (error) {
       messenger.showSnackBar(
         SnackBar(
-          content: Text(AlbumStudioEditionsSection.messageFor(error.refusal)),
+          content: Text(
+            AlbumStudioEditionsSection.messageFor(
+              error.refusal,
+              songCount: error.songCount,
+            ),
+          ),
         ),
       );
       return false;
@@ -547,29 +564,89 @@ class _AlbumStudioEditionsSectionState
     );
   }
 
+  /// Deletes the edition after the checks the service also makes (SN-50
+  /// A5): never the last edition, never while songs are only on it, and
+  /// the primary edition only with a chosen replacement.
   Future<void> _delete(LibraryAlbumEdition edition) async {
-    final confirmed = await _confirm(
-      title: 'Delete "${edition.title}"?',
-      message:
-          'This empty edition is removed. No songs or listening history are '
-          'affected.',
-      action: 'Delete edition',
-      key: 'album-studio-confirm-delete-edition',
-      destructive: true,
-    );
-    if (!confirmed) return;
+    final others = [
+      for (final other in _controller.editions)
+        if (other.editionId != edition.editionId) other,
+    ];
+    final exclusive = _exclusiveSongCount(edition);
+    final refusal = others.isEmpty
+        ? AlbumEditionRefusal.onlyEdition
+        : exclusive > 0
+        ? AlbumEditionRefusal.exclusiveSongs
+        : null;
+    if (refusal != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            AlbumStudioEditionsSection.messageFor(
+              refusal,
+              songCount: exclusive,
+            ),
+          ),
+        ),
+      );
+      return;
+    }
+
+    final songs = _controller.tracks.length;
+    final kept = songs == 0
+        ? 'No songs or listening history are affected.'
+        : songs == 1
+        ? 'Its one song is also on another edition and stays there.'
+        : 'Its $songs songs are also on other editions and stay there.';
+
+    String? replacementId;
+    if (edition.isPrimary) {
+      replacementId = await showDialog<String>(
+        context: context,
+        builder: (_) => _ReplacementPrimaryDialog(
+          edition: edition,
+          others: others,
+          kept: kept,
+        ),
+      );
+      if (replacementId == null) return;
+    } else {
+      final confirmed = await _confirm(
+        title: 'Delete "${edition.title}"?',
+        message: 'This edition is removed. $kept',
+        action: 'Delete edition',
+        key: 'album-studio-confirm-delete-edition',
+        destructive: true,
+      );
+      if (!confirmed) return;
+    }
 
     final primary = _controller.editions.where((e) => e.isPrimary).firstOrNull;
     final deleted = await _run(
       () => widget.service.deleteEdition(
         editionId: edition.editionId,
+        replacementPrimaryId: replacementId,
         userId: widget.userId,
       ),
       done: 'Edition deleted.',
     );
-    if (deleted && primary != null) {
-      await _controller.selectEdition(primary.editionId);
+    final next = replacementId ?? primary?.editionId;
+    if (deleted && next != null) {
+      await _controller.selectEdition(next);
     }
+  }
+
+  /// Songs the edition lists that no other edition does; 0 when the
+  /// listings are not known (the service checks again either way).
+  int _exclusiveSongCount(LibraryAlbumEdition edition) {
+    final own = _listings[edition.editionId];
+    if (own == null) return 0;
+    final elsewhere = {
+      for (final entry in _listings.entries)
+        if (entry.key != edition.editionId)
+          for (final track in entry.value) track.songId,
+    };
+    return own.where((track) => !elsewhere.contains(track.songId)).length;
   }
 
   Future<bool> _confirm({
@@ -595,13 +672,6 @@ class _AlbumStudioEditionsSectionState
     final colors = tokens.colors;
     final theme = Theme.of(context);
     final edition = _controller.selectedEdition;
-    final editions = _controller.editions;
-
-    final canDelete =
-        edition != null &&
-        !edition.isPrimary &&
-        editions.length > 1 &&
-        _controller.tracks.isEmpty;
     final songsView = widget.view == AlbumStudioEditionsView.tracklist;
 
     return Material(
@@ -725,13 +795,12 @@ class _AlbumStudioEditionsSectionState
                       label: 'Make primary',
                       onPressed: () => _makePrimary(edition),
                     ),
-                  if (canDelete)
-                    _action(
-                      key: 'album-studio-delete-edition',
-                      icon: Icons.delete_outline_rounded,
-                      label: 'Delete edition',
-                      onPressed: () => _delete(edition),
-                    ),
+                  _action(
+                    key: 'album-studio-delete-edition',
+                    icon: Icons.delete_outline_rounded,
+                    label: 'Delete edition',
+                    onPressed: () => _delete(edition),
+                  ),
                 ],
               ],
             ),
@@ -820,6 +889,86 @@ Future<bool> _confirmDialog(
     ),
   );
   return result == true;
+}
+
+/// Deleting the primary edition: the user chooses the edition that
+/// becomes primary (SN-50 A-Q23). Returns its id, or null when cancelled.
+class _ReplacementPrimaryDialog extends StatefulWidget {
+  const _ReplacementPrimaryDialog({
+    required this.edition,
+    required this.others,
+    required this.kept,
+  });
+
+  final LibraryAlbumEdition edition;
+  final List<LibraryAlbumEdition> others;
+
+  /// What happens to the edition's songs.
+  final String kept;
+
+  @override
+  State<_ReplacementPrimaryDialog> createState() =>
+      _ReplacementPrimaryDialogState();
+}
+
+class _ReplacementPrimaryDialogState extends State<_ReplacementPrimaryDialog> {
+  late String _replacementId = widget.others.first.editionId;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
+    return AlertDialog(
+      title: Text('Delete "${widget.edition.title}"?'),
+      scrollable: true,
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'This is the primary edition. Choose the edition Sonus shows '
+            'first instead. ${widget.kept}',
+          ),
+          const SizedBox(height: 16),
+          DropdownButtonFormField<String>(
+            key: const ValueKey<String>('album-studio-replacement-primary'),
+            initialValue: _replacementId,
+            isExpanded: true,
+            decoration: const InputDecoration(labelText: 'New primary edition'),
+            items: [
+              for (final other in widget.others)
+                DropdownMenuItem(
+                  value: other.editionId,
+                  child: Text(
+                    other.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+            ],
+            onChanged: (value) {
+              if (value != null) setState(() => _replacementId = value);
+            },
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          key: const ValueKey<String>('album-studio-confirm-delete-edition'),
+          style: FilledButton.styleFrom(
+            backgroundColor: scheme.error,
+            foregroundColor: scheme.onError,
+          ),
+          onPressed: () => Navigator.of(context).pop(_replacementId),
+          child: const Text('Delete edition'),
+        ),
+      ],
+    );
+  }
 }
 
 class _Badge extends StatelessWidget {

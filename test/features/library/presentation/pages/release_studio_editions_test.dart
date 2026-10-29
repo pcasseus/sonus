@@ -7,6 +7,11 @@ import 'package:sonus_next/features/library/application/services/album_edition_m
 import 'package:sonus_next/features/library/application/services/album_edition_track_ordering_service.dart';
 import 'package:sonus_next/features/library/application/services/album_profile_editing_service.dart';
 import 'package:sonus_next/features/library/application/services/edition_track_numbering.dart';
+import 'package:sonus_next/features/library/application/services/library_organization_service.dart';
+import 'package:sonus_next/features/library/application/models/project_collaborator.dart';
+import 'package:sonus_next/features/library/application/repositories/library_query_repository.dart';
+import 'package:sonus_next/features/library/domain/entities/library_organization.dart';
+import 'package:sonus_next/features/library/domain/repositories/library_organization_repository.dart';
 import 'package:sonus_next/features/library/data/services/edition_follow_up_dismissals.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/domain/entities/entity_factory.dart';
@@ -72,6 +77,7 @@ void main() {
     ReleaseStudioSection section = ReleaseStudioSection.editions,
     AlbumProfileEditingService? editing,
     _SortingService? ordering,
+    LibraryOrganizationService? organization,
   }) async {
     await tester.binding.setSurfaceSize(size);
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -104,6 +110,7 @@ void main() {
           library: repo,
           editionFollowUpDismissals: dismissals ?? _MemoryDismissals(),
           initialSection: section,
+          organization: organization,
         ),
       ),
     );
@@ -121,17 +128,179 @@ void main() {
 
     expect(key('album-studio-editions'), findsOneWidget);
     expect(key('album-studio-edition-primary'), findsOneWidget);
-    // The primary edition can't be made primary again or deleted.
+    // The primary edition can't be made primary again.
     expect(key('album-studio-make-primary'), findsNothing);
-    expect(key('album-studio-delete-edition'), findsNothing);
 
     await controller.selectEdition('edition-deluxe');
     await tester.pumpAndSettle();
 
     expect(key('album-studio-edition-primary'), findsNothing);
     expect(key('album-studio-make-primary'), findsOneWidget);
-    // Not empty, so it can't be deleted.
-    expect(key('album-studio-delete-edition'), findsNothing);
+  });
+
+  testWidgets('SN-50 A-Q2C: Shared Details shows Leaked next to Live', (
+    tester,
+  ) async {
+    final library = repository();
+    await pump(
+      tester,
+      library: library,
+      section: ReleaseStudioSection.details,
+      organization: LibraryOrganizationService(
+        library: library,
+        collaborators: _NoCollaborators(),
+        organization: _NoOrganization(),
+      ),
+    );
+    await tester.scrollUntilVisible(
+      key('release-studio-leaked'),
+      200,
+      scrollable: find
+          .descendant(
+            of: key('release-studio-details'),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+
+    expect(
+      tester.getTopLeft(key('release-studio-leaked')).dy,
+      greaterThan(tester.getTopLeft(key('release-studio-live')).dy),
+    );
+    expect(
+      find.text(
+        'Mark the whole release as leaked. Song leak labels are set per song.',
+      ),
+      findsOneWidget,
+    );
+  });
+
+  group('SN-50 A5: deleting an edition', () {
+    /// Standard lists [standard]; Deluxe lists [deluxe].
+    base.FakeEditionAwareLibraryQueryRepository listing({
+      required List<String> standard,
+      List<String>? deluxe,
+    }) => base.FakeEditionAwareLibraryQueryRepository(
+      album: base.createAlbum(
+        title: 'Harbor Lights',
+        primaryEditionId: 'edition-standard',
+        primaryEditionTitle: 'Standard',
+      ),
+      tracks: [
+        for (final (i, id) in {...standard, ...?deluxe}.indexed)
+          track(id, i + 1),
+      ],
+      editions: [
+        base.createLibraryEdition(
+          editionId: 'edition-standard',
+          title: 'Standard',
+          type: AlbumEditionType.standard,
+          isPrimary: true,
+        ),
+        if (deluxe != null)
+          base.createLibraryEdition(
+            editionId: 'edition-deluxe',
+            title: 'Deluxe',
+            type: AlbumEditionType.deluxe,
+          ),
+      ],
+      editionTracks: {
+        'edition-standard': [
+          for (final (i, id) in standard.indexed) track(id, i + 1),
+        ],
+        if (deluxe != null)
+          'edition-deluxe': [
+            for (final (i, id) in deluxe.indexed)
+              track(id, i + 1, edition: 'edition-deluxe'),
+          ],
+      },
+    );
+
+    testWidgets('the only edition is never deleted (A-Q24)', (tester) async {
+      final (_, service, _) = await pump(
+        tester,
+        library: listing(standard: ['s1']),
+      );
+
+      await tester.tap(key('album-studio-delete-edition'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('keeps at least one edition'), findsOne);
+      expect(key('album-studio-confirm-delete-edition'), findsNothing);
+      expect(service.calls, isEmpty);
+    });
+
+    testWidgets('songs only on the edition block it, with their count '
+        '(A-Q15, A-Q25)', (tester) async {
+      final (controller, service, _) = await pump(
+        tester,
+        library: listing(standard: ['s1'], deluxe: ['s1', 'b1', 'b2']),
+      );
+      await controller.selectEdition('edition-deluxe');
+      await tester.pumpAndSettle();
+
+      await tester.tap(key('album-studio-delete-edition'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text(
+          '2 songs are only on this edition. Add them to another edition '
+          'first, then delete this one.',
+        ),
+        findsOne,
+      );
+      expect(key('album-studio-confirm-delete-edition'), findsNothing);
+      expect(service.calls, isEmpty);
+    });
+
+    testWidgets('an edition whose songs are all elsewhere goes after a '
+        'confirm that counts them', (tester) async {
+      final (controller, service, _) = await pump(
+        tester,
+        library: listing(standard: ['s1', 's2'], deluxe: ['s1', 's2']),
+      );
+      await controller.selectEdition('edition-deluxe');
+      await tester.pumpAndSettle();
+
+      await tester.tap(key('album-studio-delete-edition'));
+      await tester.pumpAndSettle();
+      expect(
+        find.textContaining(
+          'Its 2 songs are also on other editions and stay there.',
+        ),
+        findsOne,
+      );
+      await tester.tap(key('album-studio-confirm-delete-edition'));
+      await tester.pumpAndSettle();
+
+      expect(service.calls, ['delete edition-deluxe primary=null user-1']);
+    });
+
+    testWidgets('the primary edition goes only with a chosen replacement '
+        '(A-Q23)', (tester) async {
+      final (_, service, _) = await pump(
+        tester,
+        library: listing(standard: ['s1'], deluxe: ['s1', 'b1']),
+      );
+
+      await tester.tap(key('album-studio-delete-edition'));
+      await tester.pumpAndSettle();
+      expect(key('album-studio-replacement-primary'), findsOne);
+      expect(find.textContaining('This is the primary edition.'), findsOne);
+
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(service.calls, isEmpty);
+
+      await tester.tap(key('album-studio-delete-edition'));
+      await tester.pumpAndSettle();
+      await tester.tap(key('album-studio-confirm-delete-edition'));
+      await tester.pumpAndSettle();
+
+      expect(service.calls, [
+        'delete edition-standard primary=edition-deluxe user-1',
+      ]);
+    });
   });
 
   testWidgets('edition actions and song membership never share a section', (
@@ -1111,10 +1280,45 @@ class _FakeEditions implements AlbumEditionManagementService {
   @override
   Future<void> deleteEdition({
     required String editionId,
+    String? replacementPrimaryId,
     String? userId,
+    DateTime? now,
   }) async {
-    calls.add('delete $editionId');
+    calls.add('delete $editionId primary=$replacementPrimaryId $userId');
   }
+}
+
+class _NoCollaborators implements ProjectCollaboratorQueryRepository {
+  @override
+  Future<List<ProjectCollaborator>> getProjectCollaborators({
+    String? albumId,
+  }) async => const [];
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _NoOrganization implements LibraryOrganizationRepository {
+  @override
+  Future<List<AlbumReleaseClassification>> getClassifications() async =>
+      const [];
+
+  @override
+  Future<List<AlbumReleaseFormat>> getFormats() async => const [];
+
+  @override
+  Future<List<ArtistProjectAssignment>> getAssignments() async => const [];
+
+  @override
+  Future<List<AlbumLiveClassification>> getLiveClassifications() async =>
+      const [];
+
+  @override
+  Future<List<AlbumLeakedClassification>> getLeakedClassifications() async =>
+      const [];
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 class _DateRecorder extends base.FakeAlbumProfileEditingService {

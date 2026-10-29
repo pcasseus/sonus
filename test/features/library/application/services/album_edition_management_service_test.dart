@@ -11,7 +11,9 @@ import 'package:sonus_next/features/library/data/daos/album_edition_dao.dart';
 import 'package:sonus_next/features/library/data/daos/album_edition_track_dao.dart';
 import 'package:sonus_next/features/library/data/daos/song_dao.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
+import 'package:sonus_next/features/sync/data/daos/cloud_revision_baseline_dao.dart';
 import 'package:sonus_next/features/sync/data/repositories/sync_mutation_transaction_runner.dart';
+import 'package:sonus_next/features/sync/domain/models/sync_data_contract.dart';
 
 void main() {
   sqfliteFfiInit();
@@ -430,34 +432,231 @@ void main() {
       );
     });
 
-    test('is refused while it lists tracks, and nothing changes', () async {
-      final (album, _, songs) = await standardAlbum();
+    test('SN-50 A-Q24: never the only edition, even primary with no '
+        'replacement', () async {
+      final (album, standard, _) = await standardAlbum();
+
+      await expectLater(
+        editions.deleteEdition(editionId: standard),
+        refused(AlbumEditionRefusal.onlyEdition),
+      );
+      expect((await editionsOf(album)).single.id, standard);
+    });
+
+    /// A Deluxe built on Standard (every Standard song), plus [bonus]
+    /// songs imported straight onto Deluxe as their home.
+    Future<(String, String, AlbumEdition, Map<String, String>)> withDeluxe({
+      List<String> bonus = const [],
+    }) async {
+      final (album, standard, songs) = await standardAlbum();
       final deluxe = await editions.createEdition(
         albumId: album,
-        title: 'locket (Deluxe)',
+        title: 'Harbor Lights (Deluxe)',
         type: AlbumEditionType.deluxe,
+        includeSongsFrom: standard,
         now: now,
       );
-      await editions.assignTracks(
-        editionId: deluxe.id,
-        songIds: [songs['One']!],
-        now: now,
+      final db = await appDatabase.database;
+      for (final (i, title) in bonus.indexed) {
+        final id = 'song-bonus-$i';
+        final template = (await db.query(
+          DatabaseTables.songs,
+          where: 'id = ?',
+          whereArgs: [songs['One']],
+        )).single;
+        await db.insert(DatabaseTables.songs, {
+          ...template,
+          'id': id,
+          'title': title,
+          'canonical_title': title.toLowerCase(),
+          'album_edition_id': deluxe.id,
+          'track_number': 4 + i,
+        });
+        await db.insert(DatabaseTables.albumEditionTracks, {
+          'album_edition_id': deluxe.id,
+          'song_id': id,
+          'disc_number': 1,
+          'track_number': 4 + i,
+          'sort_position': 3 + i,
+          'created_at': now.toIso8601String(),
+          'updated_at': now.toIso8601String(),
+        });
+        songs[title] = id;
+      }
+      return (album, standard, deluxe, songs);
+    }
+
+    Future<String> homeOf(String songId) async {
+      final db = await appDatabase.database;
+      return (await SongDao(db).findById(songId))!.albumEditionId;
+    }
+
+    test('SN-50 A-Q15/A-Q25: songs only on the edition block it, with '
+        'their count, and nothing changes', () async {
+      final (album, _, deluxe, songs) = await withDeluxe(
+        bonus: ['Bonus A', 'Bonus B'],
       );
+      final listedBefore = await listedOn(deluxe.id);
 
       await expectLater(
         editions.deleteEdition(editionId: deluxe.id),
-        refused(AlbumEditionRefusal.editionNotEmpty),
+        throwsA(
+          isA<AlbumEditionManagementException>()
+              .having(
+                (e) => e.refusal,
+                'refusal',
+                AlbumEditionRefusal.exclusiveSongs,
+              )
+              .having((e) => e.songCount, 'songCount', 2),
+        ),
       );
-      expect(await listedOn(deluxe.id), [songs['One']]);
+      expect(await listedOn(deluxe.id), listedBefore);
+      expect(await editionsOf(album), hasLength(2));
+      expect(await homeOf(songs['Bonus A']!), deluxe.id);
     });
 
-    test('is refused for the primary or only edition', () async {
-      final (_, standard, _) = await standardAlbum();
+    test('SN-50 A5: a non-primary edition whose songs are all elsewhere '
+        'goes, and songs it was home to move to the primary', () async {
+      final (album, standard, deluxe, songs) = await withDeluxe();
+      // One is homed on Deluxe but still listed on Standard.
+      final db = await appDatabase.database;
+      await db.update(
+        DatabaseTables.songs,
+        {'album_edition_id': deluxe.id},
+        where: 'id = ?',
+        whereArgs: [songs['One']],
+      );
+      final songsBefore = (await SongDao(db).findAll()).map((s) => s.id);
+
+      await editions.deleteEdition(editionId: deluxe.id, now: now);
+
+      expect((await editionsOf(album)).map((e) => e.id), [standard]);
+      expect(await homeOf(songs['One']!), standard);
+      expect(await listedOn(standard), hasLength(3));
+      expect(
+        (await SongDao(db).findAll()).map((s) => s.id),
+        unorderedEquals(songsBefore),
+      );
+    });
+
+    test('SN-50 A-Q23: the primary edition needs a replacement', () async {
+      final (album, standard, deluxe, _) = await withDeluxe();
 
       await expectLater(
         editions.deleteEdition(editionId: standard),
         refused(AlbumEditionRefusal.primaryEdition),
       );
+      await expectLater(
+        editions.deleteEdition(
+          editionId: standard,
+          replacementPrimaryId: standard,
+        ),
+        refused(AlbumEditionRefusal.primaryEdition),
+        reason: 'it cannot replace itself',
+      );
+      await expectLater(
+        editions.deleteEdition(
+          editionId: standard,
+          replacementPrimaryId: 'edition-elsewhere',
+        ),
+        refused(AlbumEditionRefusal.primaryEdition),
+      );
+      final after = await editionsOf(album);
+      expect(after, hasLength(2));
+      expect(after.singleWhere((e) => e.isPrimary).id, standard);
+      expect(deluxe.isPrimary, isFalse);
+    });
+
+    test('SN-50 A-Q23: with a replacement, the primary edition goes and '
+        'its songs move home to the new primary in one step', () async {
+      final (album, standard, deluxe, songs) = await withDeluxe(
+        bonus: ['Bonus A'],
+      );
+
+      await editions.deleteEdition(
+        editionId: standard,
+        replacementPrimaryId: deluxe.id,
+        now: now,
+      );
+
+      final after = await editionsOf(album);
+      expect(after.single.id, deluxe.id);
+      expect(after.single.isPrimary, isTrue);
+      for (final title in ['One', 'Two', 'Three', 'Bonus A']) {
+        expect(await homeOf(songs[title]!), deluxe.id, reason: title);
+      }
+      expect(await listedOn(deluxe.id), hasLength(4));
+    });
+
+    test('SN-50 A-Q26: a primary with songs only on it is refused even '
+        'with a replacement, and stays primary', () async {
+      final (album, standard, songs) = await standardAlbum();
+      final extra = await editions.createEdition(
+        albumId: album,
+        title: 'Harbor Lights (Sped Up)',
+        type: AlbumEditionType.other,
+        now: now,
+      );
+      await editions.assignTracks(
+        editionId: extra.id,
+        songIds: [songs['One']!],
+        now: now,
+      );
+
+      await expectLater(
+        editions.deleteEdition(
+          editionId: standard,
+          replacementPrimaryId: extra.id,
+        ),
+        throwsA(
+          isA<AlbumEditionManagementException>()
+              .having(
+                (e) => e.refusal,
+                'refusal',
+                AlbumEditionRefusal.exclusiveSongs,
+              )
+              .having((e) => e.songCount, 'songCount', 2),
+        ),
+      );
+      expect(
+        (await editionsOf(album)).singleWhere((e) => e.isPrimary).id,
+        standard,
+      );
+    });
+
+    test('SN-50 A-Q16: a primary edition already in the cloud is refused; '
+        'deletes stay queued as before', () async {
+      final (album, standard, deluxe, _) = await withDeluxe();
+      final db = await appDatabase.database;
+      await CloudRevisionBaselineDao(db).saveObservedRevision(
+        userId: 'user-1',
+        entityType: CloudDataEntity.albumEdition,
+        entityId: standard,
+        serverRevision: 3,
+      );
+
+      await expectLater(
+        editions.deleteEdition(
+          editionId: standard,
+          replacementPrimaryId: deluxe.id,
+          userId: 'user-1',
+        ),
+        refused(AlbumEditionRefusal.primaryInCloud),
+      );
+      expect(await editionsOf(album), hasLength(2));
+
+      // A non-primary edition is deleted and queued exactly as before.
+      await editions.deleteEdition(
+        editionId: deluxe.id,
+        userId: 'user-1',
+        now: now,
+      );
+      final queued = await db.query(
+        DatabaseTables.syncOutbox,
+        where: 'user_id = ? AND entity_id = ?',
+        whereArgs: ['user-1', deluxe.id],
+      );
+      expect(queued.single['operation'], 'delete');
     });
   });
 

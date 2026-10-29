@@ -490,6 +490,12 @@ abstract final class DatabaseMigrations {
         await OrganizationSchema.addLiveClassification(db);
         return;
 
+      case 41:
+        // SN-50: Leaked, set only by the user, beside the other release
+        // facts. Every classification row is kept as it was.
+        await OrganizationSchema.addLeakedClassification(db);
+        return;
+
       default:
         throw UnsupportedError(
           'No Sonus database migration exists for version $targetVersion.',

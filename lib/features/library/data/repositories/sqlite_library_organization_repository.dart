@@ -73,7 +73,7 @@ class SqliteLibraryOrganizationRepository
         transaction,
         albumId,
         const ['kind', 'authority', 'source_reference'],
-        others: const ['format', 'live'],
+        others: const ['format', 'live', 'leaked'],
       ),
     );
   }
@@ -126,7 +126,7 @@ class SqliteLibraryOrganizationRepository
         transaction,
         albumId,
         const ['format', 'format_authority', 'format_source_reference'],
-        others: const ['kind', 'live'],
+        others: const ['kind', 'live', 'leaked'],
       ),
     );
   }
@@ -179,7 +179,51 @@ class SqliteLibraryOrganizationRepository
         transaction,
         albumId,
         const ['live', 'live_authority', 'live_source_reference'],
-        others: const ['kind', 'format'],
+        others: const ['kind', 'format', 'leaked'],
+      ),
+    );
+  }
+
+  @override
+  Future<List<AlbumLeakedClassification>> getLeakedClassifications() async {
+    final db = await appDatabase.database;
+    final rows = await db.query(
+      DatabaseTables.albumReleaseClassifications,
+      where: 'leaked = 1',
+      orderBy: 'album_id ASC',
+    );
+
+    return [
+      for (final row in rows)
+        AlbumLeakedClassification(
+          albumId: row['album_id']! as String,
+          createdAt: DateTime.parse(row['created_at']! as String),
+          updatedAt: DateTime.parse(row['updated_at']! as String),
+        ),
+    ];
+  }
+
+  @override
+  Future<void> saveLeakedClassification(AlbumLeakedClassification leaked) {
+    return _write(
+      (transaction) => _upsert(
+        transaction,
+        albumId: leaked.albumId,
+        values: const {'leaked': 1},
+        createdAt: leaked.createdAt,
+        updatedAt: leaked.updatedAt,
+      ),
+    );
+  }
+
+  @override
+  Future<void> deleteLeakedClassification(String albumId) {
+    return _write(
+      (transaction) => _clear(
+        transaction,
+        albumId,
+        const ['leaked'],
+        others: const ['kind', 'format', 'live'],
       ),
     );
   }
