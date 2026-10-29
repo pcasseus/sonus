@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:sonus_next/core/database/app_database.dart';
+import 'package:sonus_next/core/database/database_tables.dart';
 import 'package:sonus_next/features/artwork/data/daos/artwork_asset_dao.dart';
 import 'package:sonus_next/features/artwork/domain/entities/artwork_asset.dart';
 import 'package:sonus_next/features/import/data/daos/media_file_binding_dao.dart';
@@ -1104,6 +1105,139 @@ void main() {
       );
     });
   });
+  // SN-50 C-Q1/C-Q6/C-Q9: track rows carry every credit role and search
+  // finds version qualifiers the importer moved out of the title.
+  group('role-aware credits and version search', () {
+    Future<void> credit(
+      Database db, {
+      required String songId,
+      required String name,
+      required String role,
+      required int position,
+    }) {
+      final timestamp = DateTime.utc(2026, 10, 29).toIso8601String();
+
+      return db.insert(DatabaseTables.songArtistCredits, {
+        'id': 'credit_${songId}_$position',
+        'song_id': songId,
+        'artist_id': null,
+        'credited_name': name,
+        'canonical_credited_name': name.toLowerCase(),
+        'role': role,
+        'position': position,
+        'created_at': timestamp,
+        'updated_at': timestamp,
+      });
+    }
+
+    test('track rows list co-primary and guest names in credit order', () async {
+      final fixture = await _createFixture(appDatabase);
+      final db = fixture.db;
+      final songId = fixture.alphaSong.id;
+
+      await credit(
+        db,
+        songId: songId,
+        name: 'Guest Two',
+        role: 'guest',
+        position: 4,
+      );
+      await credit(
+        db,
+        songId: songId,
+        name: 'Crane, The Lantern',
+        role: 'coPrimary',
+        position: 2,
+      );
+      await credit(
+        db,
+        songId: songId,
+        name: 'Guest One',
+        role: 'guest',
+        position: 3,
+      );
+      await credit(
+        db,
+        songId: songId,
+        name: 'Ben Moor',
+        role: 'coPrimary',
+        position: 1,
+      );
+      await credit(
+        db,
+        songId: songId,
+        name: 'Featured Artist',
+        role: 'featured',
+        position: 5,
+      );
+
+      final dao = LibraryQueryDao(db);
+      final fromList = (await dao.findTracks()).firstWhere(
+        (track) => track.songId == songId,
+      );
+      final byId = await dao.findTrackById(songId);
+      final byAlbum = (await dao.findTracksByAlbumId(
+        fixture.album.id,
+      )).firstWhere((track) => track.songId == songId);
+
+      for (final track in [fromList, byId!, byAlbum]) {
+        expect(track.coPrimaryArtists, ['Ben Moor', 'Crane, The Lantern']);
+        expect(track.guestArtists, ['Guest One', 'Guest Two']);
+        expect(
+          track.creditLine,
+          'Query Artist & Ben Moor & Crane, The Lantern feat. Featured Artist '
+          'with Guest One, Guest Two',
+        );
+      }
+
+      final beta = (await dao.findTracks()).firstWhere(
+        (track) => track.songId == fixture.betaSong.id,
+      );
+      expect(beta.coPrimaryArtists, isEmpty);
+      expect(beta.guestArtists, isEmpty);
+    });
+
+    test('search matches version labels, characteristics and every credit '
+        'role', () async {
+      final fixture = await _createFixture(appDatabase);
+      final db = fixture.db;
+
+      await db.update(
+        DatabaseTables.songs,
+        {'version_label': 'Live', 'version_characteristics': '["live"]'},
+        where: 'id = ?',
+        whereArgs: [fixture.betaSong.id],
+      );
+      await db.update(
+        DatabaseTables.songs,
+        {'version_characteristics': '["remix","acoustic"]'},
+        where: 'id = ?',
+        whereArgs: [fixture.zuluSong.id],
+      );
+      await credit(
+        db,
+        songId: fixture.alphaSong.id,
+        name: 'Lantern Guest',
+        role: 'guest',
+        position: 1,
+      );
+
+      final dao = LibraryQueryDao(db);
+      Future<List<String>> songIds(String query) async => (await dao.search(
+        query,
+      )).tracks.map((track) => track.songId).toList();
+
+      expect(await songIds('live'), [fixture.betaSong.id]);
+      expect(await songIds('beta track (live'), [fixture.betaSong.id]);
+      expect(await songIds('acoustic remix'), [fixture.zuluSong.id]);
+      expect(await songIds('lantern guest'), [fixture.alphaSong.id]);
+
+      final beta = (await dao.findTrackById(fixture.betaSong.id))!;
+      expect(beta.title, 'Beta Track');
+      expect(beta.displayTitle, 'Beta Track (Live)');
+    });
+  });
+
   // SN-50 A-Q3: the shown release title is the primary edition's; the
   // stored base title stays what charts, history and import matching use.
   group('displayed release title', () {

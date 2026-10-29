@@ -154,8 +154,8 @@ abstract final class MediaSessionStateMapper {
 
     return media.MediaItem(
       id: track.songId,
-      title: track.title,
-      artist: track.artistName,
+      title: track.displayTitle,
+      artist: track.displayArtist,
       album: track.albumTitle,
       duration: knownDuration,
       artUri: hasArtwork ? Uri.file(artworkPath) : null,
@@ -174,8 +174,8 @@ abstract final class MediaSessionStateMapper {
   }) {
     return media.MediaItem(
       id: track.songId,
-      title: track.title,
-      artist: track.artistName,
+      title: track.displayTitle,
+      artist: track.displayArtist,
       album: track.albumTitle,
       duration: track.duration > Duration.zero ? track.duration : null,
       artUri: carArtworkUri?.call(track.artworkPath),

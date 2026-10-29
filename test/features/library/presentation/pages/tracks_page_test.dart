@@ -1121,6 +1121,120 @@ void main() {
       expect(submitted[2].role, SongArtistCreditRole.featured);
       expect(submitted[2].artistId, isNull);
     });
+
+    testWidgets('Track Studio shows and keeps older featured names '
+        '(SN-50 C-Q4)', (tester) async {
+      final repository = FakeLibraryQueryRepository(
+        tracks: [
+          createTrack(
+            songId: 'song-legacy',
+            title: 'Legacy Song',
+            featuredArtists: const ['Legacy Feat', 'Crane, The Lantern'],
+          ),
+        ],
+      );
+      final editingService = FakeTrackStudioEditingService();
+
+      await tester.pumpWidget(
+        buildSubject(
+          repository: repository,
+          trackProfileEditingService: editingService,
+          songArtistCreditRepository: FakeSongArtistCreditRepository(),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('track-menu-song-legacy')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Track Studio'));
+      await tester.pumpAndSettle();
+
+      final firstCredit = find.byKey(
+        const ValueKey<String>('track-credit-row-0'),
+      );
+      await tester.scrollUntilVisible(
+        firstCredit,
+        200,
+        scrollable: find
+            .descendant(
+              of: find.byKey(const ValueKey<String>('track-studio-page')),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+
+      expect(
+        find.descendant(of: firstCredit, matching: find.text('Legacy Feat')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey<String>('track-credit-row-1')),
+          matching: find.text('Crane, The Lantern'),
+        ),
+        findsOneWidget,
+      );
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('track-studio-save-button')),
+      );
+      await tester.pumpAndSettle();
+
+      final submitted = editingService.lastAdditionalCredits!;
+      expect(submitted.map((credit) => credit.creditedName), [
+        'Legacy Feat',
+        'Crane, The Lantern',
+      ]);
+      expect(
+        submitted.every(
+          (credit) =>
+              credit.role == SongArtistCreditRole.featured &&
+              !credit.linkByName,
+        ),
+        isTrue,
+      );
+    });
+
+    testWidgets('rows show every credit role and the version suffix '
+        '(SN-50 C-Q1/C-Q6)', (tester) async {
+      final repository = FakeLibraryQueryRepository(
+        tracks: [
+          LibraryTrack(
+            songId: 'song-roles',
+            title: 'Paper Boats',
+            artistId: 'artist-1',
+            artistName: 'Artist',
+            albumId: 'album-1',
+            albumTitle: 'Album',
+            albumEditionId: 'edition-1',
+            albumEditionTitle: 'Standard',
+            albumEditionType: AlbumEditionType.standard,
+            trackNumber: 1,
+            durationSeconds: 180,
+            isSingle: false,
+            featuredArtists: const ['Cy Lark'],
+            coPrimaryArtists: const ['Ben Moor'],
+            guestArtists: const ['Eve Shore'],
+            versionCharacteristics: const [SongVersionCharacteristic.live],
+            dateAdded: DateTime(2026),
+            filePath: '/music/song.mp3',
+            isAvailable: true,
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(buildSubject(repository: repository));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Paper Boats (Live)'), findsOneWidget);
+      expect(
+        find.text('Artist & Ben Moor feat. Cy Lark with Eve Shore'),
+        findsOneWidget,
+      );
+    });
+
     testWidgets(
       'Track Studio closes and warns when refresh callback throws after apply',
       (tester) async {

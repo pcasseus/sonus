@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../../core/design/sonus_theme.dart';
 import '../../../application/models/library_track.dart';
+import '../../../application/models/song_credit_line.dart';
 
 /// Text scale above which rows switch to their large-text layout, as in
 /// the shared Sonus data components.
@@ -191,7 +192,7 @@ class _TrackTile extends StatelessWidget {
           ],
         ),
         title: Text(
-          track.title,
+          track.displayTitle,
           maxLines: largeText ? 3 : 1,
           overflow: TextOverflow.ellipsis,
           style: theme.textTheme.bodyLarge?.copyWith(
@@ -322,10 +323,16 @@ class _TrackTile extends StatelessWidget {
       parts.add(streamCount == 1 ? '1 stream' : '$streamCount streams');
     }
 
-    final artistName = track.artistName.trim();
+    final credit = songCreditLine(
+      primaryArtistName: track.artistName,
+      coPrimaryArtists: track.coPrimaryArtists,
+      featuredArtists: track.featuredArtists,
+      guestArtists: track.guestArtists,
+      omitPrimary: !showArtist,
+    );
 
-    if (showArtist && artistName.isNotEmpty) {
-      parts.add(artistName);
+    if (credit.isNotEmpty) {
+      parts.add(credit);
     }
 
     final albumTitle = track.albumDisplayTitle.trim();

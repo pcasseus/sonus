@@ -28,6 +28,7 @@ import '../../application/models/library_album.dart';
 import '../../application/models/library_album_edition.dart';
 import '../../application/models/library_track.dart';
 import '../../application/models/release_display_title.dart';
+import '../../application/models/song_credit_line.dart';
 import '../../application/repositories/library_query_repository.dart';
 import '../../application/services/album_profile_editing_service.dart';
 import '../../application/services/external_metadata_application_service.dart';
@@ -35,7 +36,6 @@ import '../../application/services/external_metadata_proposal_service.dart';
 import '../../application/services/metadata_provider.dart';
 import '../../application/services/album_edition_track_ordering_service.dart';
 import '../../application/services/song_block_service.dart';
-import '../../application/services/song_artist_credit_service.dart';
 import '../../application/services/album_edition_management_service.dart';
 import '../../application/services/artist_creation_service.dart';
 import '../../application/services/library_organization_service.dart';
@@ -573,15 +573,12 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
         return;
       }
 
-      final initialAdditionalCredits = structuredCredits
-          .map(
-            (credit) => TrackProfileCreditDraft(
-              creditedName: credit.creditedName,
-              role: credit.role,
-              artistId: credit.artistId,
-            ),
-          )
-          .toList(growable: false);
+      final initialAdditionalCredits = trackStudioInitialCredits(
+        credits: structuredCredits,
+        legacyFeaturedArtists: track.featuredArtists,
+        primaryArtistId: track.artistId,
+        primaryArtistName: track.artistName,
+      );
       final metadataProvider = context.read<MetadataProvider?>();
       final externalMetadataApplicationService = context
           .read<ExternalMetadataApplicationService?>();
@@ -625,11 +622,7 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
         trackNumber: draft.trackNumber,
         discNumber: draft.discNumber,
         additionalCredits: draft.additionalCredits.map(
-          (credit) => SongArtistCreditInput(
-            creditedName: credit.creditedName,
-            role: credit.role,
-            artistId: credit.artistId,
-          ),
+          (credit) => credit.toInput(),
         ),
         isSingle: draft.isSingle,
         versionLabel: draft.versionLabel,
@@ -1674,7 +1667,7 @@ class _TrackTile extends StatelessWidget {
               ),
       ),
       title: Text(
-        track.title,
+        track.displayTitle,
         maxLines: largeText ? 3 : 2,
         overflow: TextOverflow.ellipsis,
         style: theme.textTheme.bodyLarge?.copyWith(
@@ -1793,8 +1786,16 @@ class _TrackTile extends StatelessWidget {
       parts.add('Unavailable');
     }
 
-    if (track.featuredArtists.isNotEmpty) {
-      parts.add('feat. ${track.featuredArtists.join(', ')}');
+    final credit = songCreditLine(
+      primaryArtistName: track.artistName,
+      coPrimaryArtists: track.coPrimaryArtists,
+      featuredArtists: track.featuredArtists,
+      guestArtists: track.guestArtists,
+      omitPrimary: true,
+    );
+
+    if (credit.isNotEmpty) {
+      parts.add(credit);
     }
 
     final editionTitle = track.albumEditionTitle.trim();

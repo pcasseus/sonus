@@ -257,6 +257,155 @@ void main() {
 
     expect(credits, isEmpty);
   });
+
+  test('a featured-only edit keeps co-primary and guest credits '
+      '(SN-50 C-Q4)', () async {
+    await service.updateTrackWithCredits(
+      userId: null,
+      songId: 'song_1',
+      title: 'Test Song',
+      trackNumber: 1,
+      discNumber: 1,
+      additionalCredits: const [
+        SongArtistCreditInput(
+          creditedName: 'Second Artist',
+          role: SongArtistCreditRole.coPrimary,
+          artistId: 'artist_second',
+        ),
+        SongArtistCreditInput(
+          creditedName: 'Old Feature',
+          role: SongArtistCreditRole.featured,
+        ),
+        SongArtistCreditInput(
+          creditedName: 'Lantern Guest',
+          role: SongArtistCreditRole.guest,
+        ),
+      ],
+      isSingle: false,
+    );
+
+    final result = await service.updateTrack(
+      userId: null,
+      songId: 'song_1',
+      title: 'Test Song',
+      trackNumber: 1,
+      discNumber: 1,
+      featuredArtists: const ['Crane, The Lantern'],
+      isSingle: false,
+    );
+
+    expect(result.changed, isTrue);
+
+    final credits = await db.query(
+      DatabaseTables.songArtistCredits,
+      where: 'song_id = ?',
+      whereArgs: ['song_1'],
+      orderBy: 'position ASC',
+    );
+
+    expect(
+      [
+        for (final credit in credits)
+          '${credit['role']}:${credit['credited_name']}',
+      ],
+      [
+        'primary:Primary Artist',
+        'coPrimary:Second Artist',
+        'featured:Crane, The Lantern',
+        'guest:Lantern Guest',
+      ],
+    );
+    expect(credits[1]['artist_id'], 'artist_second');
+  });
+
+  test('a co-primary sharing the primary name but chosen as another artist '
+      'is saved and reported as changed (SN-50 C-Q4)', () async {
+    await _insertArtist(
+      db,
+      id: 'artist_primary_namesake',
+      name: 'primary artist',
+      canonicalName: 'primary artist',
+    );
+
+    final result = await service.updateTrackWithCredits(
+      userId: null,
+      songId: 'song_1',
+      title: 'Test Song',
+      trackNumber: 1,
+      discNumber: 1,
+      additionalCredits: const [
+        SongArtistCreditInput(
+          creditedName: 'primary artist',
+          role: SongArtistCreditRole.coPrimary,
+          artistId: 'artist_primary_namesake',
+          linkByName: false,
+        ),
+      ],
+      isSingle: false,
+    );
+
+    expect(result.changed, isTrue);
+
+    final credits = await db.query(
+      DatabaseTables.songArtistCredits,
+      where: 'song_id = ?',
+      whereArgs: ['song_1'],
+      orderBy: 'position ASC',
+    );
+
+    expect(credits.map((credit) => credit['artist_id']), [
+      'artist_primary',
+      'artist_primary_namesake',
+    ]);
+  });
+
+  test('a credit repeating the primary artist reports no change', () async {
+    final result = await service.updateTrackWithCredits(
+      userId: null,
+      songId: 'song_1',
+      title: 'Test Song',
+      trackNumber: 1,
+      discNumber: 1,
+      additionalCredits: const [
+        SongArtistCreditInput(
+          creditedName: 'PRIMARY artist',
+          role: SongArtistCreditRole.featured,
+        ),
+      ],
+      isSingle: false,
+    );
+
+    expect(result.changed, isFalse);
+  });
+
+  test('redundantCreditNames lists repeats of the primary or earlier '
+      'credits', () {
+    final names = TrackProfileEditingService.redundantCreditNames(
+      const [
+        SongArtistCreditInput(
+          creditedName: 'Primary Artist ',
+          role: SongArtistCreditRole.featured,
+        ),
+        SongArtistCreditInput(
+          creditedName: 'Second Artist',
+          role: SongArtistCreditRole.featured,
+        ),
+        SongArtistCreditInput(
+          creditedName: 'second  artist',
+          role: SongArtistCreditRole.guest,
+        ),
+        SongArtistCreditInput(
+          creditedName: 'Primary Artist',
+          role: SongArtistCreditRole.coPrimary,
+          artistId: 'artist_namesake',
+        ),
+      ],
+      primaryArtistId: 'artist_primary',
+      primaryCanonicalName: 'primary artist',
+    );
+
+    expect(names, ['Primary Artist', 'second  artist']);
+  });
 }
 
 Future<Map<String, Object?>> _songRow(Database db) async {

@@ -26,7 +26,6 @@ import '../widgets/alphabet_rail.dart';
 import '../../application/repositories/library_query_repository.dart';
 import '../../application/services/artist_creation_service.dart';
 import '../../application/services/song_block_service.dart';
-import '../../application/services/song_artist_credit_service.dart';
 import '../../application/services/track_profile_editing_service.dart';
 import '../../domain/repositories/song_artist_credit_repository.dart';
 import '../controllers/library_tracks_controller.dart';
@@ -332,15 +331,12 @@ class _TracksPageState extends State<TracksPage> {
         return;
       }
 
-      final initialAdditionalCredits = structuredCredits
-          .map(
-            (credit) => TrackProfileCreditDraft(
-              creditedName: credit.creditedName,
-              role: credit.role,
-              artistId: credit.artistId,
-            ),
-          )
-          .toList(growable: false);
+      final initialAdditionalCredits = trackStudioInitialCredits(
+        credits: structuredCredits,
+        legacyFeaturedArtists: track.featuredArtists,
+        primaryArtistId: track.artistId,
+        primaryArtistName: track.artistName,
+      );
       final artistCreationService = context.read<ArtistCreationService?>();
       final metadataProvider = context.read<MetadataProvider?>();
       final externalMetadataApplicationService = context
@@ -400,11 +396,7 @@ class _TracksPageState extends State<TracksPage> {
         trackNumber: draft.trackNumber,
         discNumber: draft.discNumber,
         additionalCredits: draft.additionalCredits.map(
-          (credit) => SongArtistCreditInput(
-            creditedName: credit.creditedName,
-            role: credit.role,
-            artistId: credit.artistId,
-          ),
+          (credit) => credit.toInput(),
         ),
         isSingle: draft.isSingle,
         versionLabel: draft.versionLabel,
@@ -724,17 +716,12 @@ class _TrackTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final tokens = SonusTheme.of(context);
     final theme = Theme.of(context);
-    final credit = [
-      track.artistName,
-      if (track.featuredArtists.isNotEmpty)
-        'feat. ${track.featuredArtists.join(', ')}',
-    ].join(' ');
     final albumTitle = track.albumDisplayTitle.trim();
 
     return SonusTrackTile(
       inkKey: ValueKey<String>('track-${track.songId}'),
-      title: track.title,
-      subtitle: credit,
+      title: track.displayTitle,
+      subtitle: track.creditLine,
       detail: albumTitle,
       artworkPath: track.artworkPath,
       duration: sonusFormatDuration(track.durationSeconds),

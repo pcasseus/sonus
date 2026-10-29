@@ -31,7 +31,6 @@ import '../../application/services/external_metadata_application_service.dart';
 import '../../application/services/external_metadata_proposal_service.dart';
 import '../../application/services/metadata_provider.dart';
 import '../../application/services/song_block_service.dart';
-import '../../application/services/song_artist_credit_service.dart';
 import '../../application/services/library_organization_service.dart';
 import 'package:sonus_next/features/library/application/services/track_profile_editing_service.dart';
 import '../controllers/artist_profile_controller.dart';
@@ -1357,15 +1356,12 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
         return;
       }
 
-      final initialAdditionalCredits = structuredCredits
-          .map(
-            (credit) => TrackProfileCreditDraft(
-              creditedName: credit.creditedName,
-              role: credit.role,
-              artistId: credit.artistId,
-            ),
-          )
-          .toList(growable: false);
+      final initialAdditionalCredits = trackStudioInitialCredits(
+        credits: structuredCredits,
+        legacyFeaturedArtists: track.featuredArtists,
+        primaryArtistId: track.artistId,
+        primaryArtistName: track.artistName,
+      );
       final metadataProvider = context.read<MetadataProvider?>();
       final externalMetadataApplicationService = context
           .read<ExternalMetadataApplicationService?>();
@@ -1414,11 +1410,7 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
         trackNumber: draft.trackNumber,
         discNumber: draft.discNumber,
         additionalCredits: draft.additionalCredits.map(
-          (credit) => SongArtistCreditInput(
-            creditedName: credit.creditedName,
-            role: credit.role,
-            artistId: credit.artistId,
-          ),
+          (credit) => credit.toInput(),
         ),
         isSingle: draft.isSingle,
         versionLabel: draft.versionLabel,

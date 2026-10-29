@@ -963,6 +963,37 @@ void main() {
       await engine.dispose();
     },
   );
+
+  test('updateTrackWithCredits reports when nothing was saved, so the page '
+      'never claims an update (SN-50 C-Q4)', () async {
+    final repository = FakeLibraryQueryRepository();
+    repository.tracks = [track(id: 'song-unchanged', title: 'Same Title')];
+
+    final service = FakeTrackProfileEditingService()..reportsChange = false;
+    final engine = FakePlaybackEngine();
+
+    final controller = LibraryTracksController(
+      repository: repository,
+      playbackCoordinator: PlaybackCoordinator(engine: engine),
+      trackProfileEditingService: service,
+    );
+
+    await controller.load();
+
+    final changed = await controller.updateTrackWithCredits(
+      track: controller.tracks.single,
+      title: 'Same Title',
+      trackNumber: 1,
+      discNumber: 1,
+      additionalCredits: const [],
+      isSingle: false,
+    );
+
+    expect(service.structuredUpdateCallCount, 1);
+    expect(changed, isFalse);
+
+    await engine.dispose();
+  });
   test(
     'getTrackAdditionalCredits excludes primary and returns structured credits in position order',
     () async {
@@ -1400,6 +1431,7 @@ class FakeTrackProfileEditingService extends TrackProfileEditingService {
   int updateCallCount = 0;
   int structuredUpdateCallCount = 0;
   List<SongArtistCreditInput>? lastAdditionalCredits;
+  bool reportsChange = true;
 
   String? lastUserId;
   String? lastSongId;
@@ -1452,7 +1484,7 @@ class FakeTrackProfileEditingService extends TrackProfileEditingService {
         createdAt: timestamp,
         updatedAt: timestamp,
       ),
-      changed: true,
+      changed: reportsChange,
     );
   }
 

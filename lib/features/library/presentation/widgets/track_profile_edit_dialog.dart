@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../../../core/identity/artist_credit_parser.dart';
 import '../../application/models/library_album.dart';
 import '../../application/models/library_artist.dart';
 import '../../application/models/library_track.dart';
@@ -296,11 +297,15 @@ class _TrackProfileEditDialogState extends State<TrackProfileEditDialog> {
 
     final moveToEditionId = _moveToEditionId();
 
-    final featuredArtists = _featuredArtistsController.text
-        .split(',')
-        .map((artist) => artist.trim())
-        .where((artist) => artist.isNotEmpty)
-        .toList(growable: false);
+    // A known name containing a comma, such as "Tyler, The Creator", stays
+    // one artist instead of being split in two.
+    final featuredArtists = const ArtistCreditParser().splitNameList(
+      _featuredArtistsController.text,
+      knownNames: [
+        ...widget.track.featuredArtists,
+        for (final artist in _artists) artist.name,
+      ],
+    );
 
     Navigator.of(context).pop(
       TrackProfileEditDraft(

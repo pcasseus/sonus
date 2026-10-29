@@ -87,8 +87,8 @@ class _NowPlayingContent extends StatelessWidget {
 
     return SonusNowPlayingView(
       keyPrefix: 'now-playing',
-      title: track.title,
-      artist: track.artistName,
+      title: track.displayTitle,
+      artist: track.displayArtist,
       album: track.albumTitle,
       artworkPath: track.artworkPath,
       position: state.position,

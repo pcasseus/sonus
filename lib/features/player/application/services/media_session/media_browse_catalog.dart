@@ -317,10 +317,10 @@ class MediaBrowseCatalog {
   }) {
     return media.MediaItem(
       id: MediaBrowsePlayableId(container, track.songId).mediaId,
-      title: track.title,
-      artist: track.artistName,
+      title: track.displayTitle,
+      artist: track.creditLine,
       album: track.albumTitle,
-      displaySubtitle: '${track.artistName} · ${track.albumTitle}',
+      displaySubtitle: '${track.creditLine} · ${track.albumTitle}',
       duration: track.durationSeconds > 0
           ? Duration(seconds: track.durationSeconds)
           : null,

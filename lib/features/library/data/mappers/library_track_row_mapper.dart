@@ -5,6 +5,9 @@ import '../../domain/entities/album_edition.dart';
 import '../../domain/entities/song.dart';
 
 abstract final class LibraryTrackRowMapper {
+  /// Separates the credit names a track query concatenates (`char(31)`).
+  static const String _creditNameSeparator = '\u001f';
+
   static LibraryTrack fromRow(Map<String, Object?> row) {
     final decodedFeaturedArtists = jsonDecode(
       row['featured_artists'] as String? ?? '[]',
@@ -41,6 +44,8 @@ abstract final class LibraryTrackRowMapper {
       featuredArtists: List<String>.unmodifiable(
         (decodedFeaturedArtists as List<dynamic>).cast<String>(),
       ),
+      coPrimaryArtists: _creditNames(row['co_primary_artists']),
+      guestArtists: _creditNames(row['guest_artists']),
       versionLabel: row['version_label'] as String?,
       versionCharacteristics: (decodedVersionCharacteristics as List<dynamic>)
           .cast<String>()
@@ -55,5 +60,15 @@ abstract final class LibraryTrackRowMapper {
       isAvailable: (row['is_available'] as int? ?? 0) == 1,
       isSongBlocked: (row['song_is_blocked'] as int? ?? 0) == 1,
     );
+  }
+
+  static List<String> _creditNames(Object? value) {
+    final names = value as String?;
+
+    if (names == null || names.isEmpty) {
+      return const [];
+    }
+
+    return List<String>.unmodifiable(names.split(_creditNameSeparator));
   }
 }

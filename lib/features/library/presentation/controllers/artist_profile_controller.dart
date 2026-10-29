@@ -357,7 +357,7 @@ class ArtistProfileController extends ChangeNotifier {
       return false;
     }
 
-    await service.updateTrackWithCredits(
+    final result = await service.updateTrackWithCredits(
       userId: userId,
       songId: track.songId,
       title: title,
@@ -378,7 +378,7 @@ class ArtistProfileController extends ChangeNotifier {
 
     await refresh();
 
-    return true;
+    return result.changed;
   }
 
   bool canEditArtist(String? userId) {

@@ -148,7 +148,7 @@ class _CurrentTrackSummary extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  track.title,
+                  track.displayTitle,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.titleMedium?.copyWith(
@@ -158,7 +158,7 @@ class _CurrentTrackSummary extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  '${track.artistName} · ${currentIndex + 1} of '
+                  '${track.displayArtist} · ${currentIndex + 1} of '
                   '$totalTracks',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -252,7 +252,7 @@ class _QueueTrackRow extends StatelessWidget {
                             ],
                             Expanded(
                               child: Text(
-                                track.title,
+                                track.displayTitle,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: theme.textTheme.bodyLarge?.copyWith(
@@ -267,7 +267,7 @@ class _QueueTrackRow extends StatelessWidget {
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          track.artistName,
+                          track.displayArtist,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodyMedium?.copyWith(
@@ -279,7 +279,7 @@ class _QueueTrackRow extends StatelessWidget {
                   ),
                   IconButton(
                     key: ValueKey<String>('queue-remove-${track.songId}'),
-                    tooltip: 'Remove ${track.title} from queue',
+                    tooltip: 'Remove ${track.displayTitle} from queue',
                     color: colors.textSecondary,
                     onPressed: () {
                       unawaited(coordinator.removeFromQueue(index));

@@ -15,13 +15,26 @@ class PlaybackTrack {
     this.artworkId,
     this.artworkPath,
     this.isSongBlocked = false,
-  });
+    String? displayTitle,
+    String? displayArtist,
+  }) : displayTitle = displayTitle ?? title,
+       displayArtist = displayArtist ?? artistName;
 
   final String songId;
+
+  /// The stored song title. Listening history records this one.
   final String title;
 
   final String artistId;
+
+  /// The primary artist's name. Listening history records this one.
   final String artistName;
+
+  /// The title with its version qualifier, shown while playing (SN-50 C-Q8).
+  final String displayTitle;
+
+  /// The role-aware performer line, shown while playing (SN-50 C-Q1).
+  final String displayArtist;
 
   final String albumId;
   final String albumTitle;
@@ -58,6 +71,8 @@ class PlaybackTrack {
     String? filePath,
     Duration? duration,
     bool? isSongBlocked,
+    String? displayTitle,
+    String? displayArtist,
   }) {
     return PlaybackTrack(
       songId: songId ?? this.songId,
@@ -81,6 +96,9 @@ class PlaybackTrack {
       filePath: filePath ?? this.filePath,
       duration: duration ?? this.duration,
       isSongBlocked: isSongBlocked ?? this.isSongBlocked,
+      displayTitle: displayTitle ?? (title == null ? this.displayTitle : null),
+      displayArtist:
+          displayArtist ?? (artistName == null ? this.displayArtist : null),
     );
   }
 

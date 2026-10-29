@@ -912,14 +912,14 @@ class _TrackResultTile extends StatelessWidget {
       onTap: onTap,
       enabled: isPlayable,
       artworkPath: track.artworkPath,
-      title: track.title,
+      title: track.displayTitle,
       subtitle: track.isBlocked
-          ? '${track.artistName} • Blacklisted'
+          ? '${track.creditLine} • Blacklisted'
           : !track.isAvailable ||
                 track.filePath == null ||
                 track.filePath!.trim().isEmpty
-          ? '${track.artistName} • Unavailable'
-          : '${track.artistName} • ${track.albumDisplayTitle}',
+          ? '${track.creditLine} • Unavailable'
+          : '${track.creditLine} • ${track.albumDisplayTitle}',
       duration: sonusFormatDuration(track.durationSeconds),
       trailing: PopupMenuButton<_TrackSearchAction>(
         key: ValueKey<String>('search-track-menu-${track.songId}'),

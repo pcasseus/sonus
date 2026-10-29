@@ -351,4 +351,106 @@ void main() {
     expect(createCallCount, 0);
     expect(find.text('Add new artist'), findsOneWidget);
   });
+
+  group('names containing commas (SN-50 audit #13)', () {
+    Future<TrackProfileEditDraft?> saveDialog(
+      WidgetTester tester, {
+      required List<String> featuredArtists,
+      List<LibraryArtist> artists = const [],
+      String? typedFeatures,
+    }) async {
+      TrackProfileEditDraft? result;
+      final base = buildTrack();
+      final track = LibraryTrack(
+        songId: base.songId,
+        title: base.title,
+        artistId: base.artistId,
+        artistName: base.artistName,
+        albumId: base.albumId,
+        albumTitle: base.albumTitle,
+        albumEditionId: base.albumEditionId,
+        albumEditionTitle: base.albumEditionTitle,
+        albumEditionType: base.albumEditionType,
+        trackNumber: base.trackNumber,
+        durationSeconds: base.durationSeconds,
+        isSingle: base.isSingle,
+        featuredArtists: featuredArtists,
+        dateAdded: base.dateAdded,
+        isAvailable: base.isAvailable,
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) {
+                return FilledButton(
+                  onPressed: () async {
+                    result = await showDialog<TrackProfileEditDraft>(
+                      context: context,
+                      builder: (_) => TrackProfileEditDialog(
+                        track: track,
+                        artists: artists,
+                      ),
+                    );
+                  },
+                  child: const Text('Open'),
+                );
+              },
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('Open'));
+      await tester.pumpAndSettle();
+
+      if (typedFeatures != null) {
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('track-featured-artists-field')),
+          typedFeatures,
+        );
+      }
+
+      await ensureVisibleAndTap(
+        tester,
+        find.byKey(const ValueKey<String>('track-edit-save-button')),
+      );
+
+      return result;
+    }
+
+    testWidgets('saving unchanged keeps a featured name with a comma whole', (
+      tester,
+    ) async {
+      final result = await saveDialog(
+        tester,
+        featuredArtists: const ['Crane, The Lantern', 'Ada Vale'],
+      );
+
+      expect(result!.featuredArtists, ['Crane, The Lantern', 'Ada Vale']);
+    });
+
+    testWidgets('a typed library artist name with a comma stays one artist', (
+      tester,
+    ) async {
+      final result = await saveDialog(
+        tester,
+        featuredArtists: const [],
+        artists: [
+          buildExistingArtist(),
+          LibraryArtist(
+            artistId: 'artist-moth',
+            name: 'Moth, Lamp',
+            albumCount: 0,
+            songCount: 0,
+            dateAdded: DateTime(2026),
+          ),
+        ],
+        typedFeatures: 'moth,lamp, Ada Vale, Ben Moor',
+      );
+
+      expect(result!.featuredArtists, ['moth, lamp', 'Ada Vale', 'Ben Moor']);
+    });
+  });
 }

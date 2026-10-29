@@ -432,7 +432,7 @@ class AlbumProfileController extends ChangeNotifier {
       return false;
     }
 
-    await service.updateTrackWithCredits(
+    final result = await service.updateTrackWithCredits(
       userId: userId,
       songId: track.songId,
       title: title,
@@ -453,7 +453,7 @@ class AlbumProfileController extends ChangeNotifier {
 
     await refresh();
 
-    return true;
+    return result.changed;
   }
 
   bool canSetTrackBlocked(String? userId) {

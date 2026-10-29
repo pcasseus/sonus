@@ -144,6 +144,38 @@ void main() {
       expect(find.text('4:05'), findsOneWidget);
     });
 
+    testWidgets('track rows show co-primary, featured and guest credits and '
+        'the version suffix (SN-50 C-Q1/C-Q6)', (tester) async {
+      final repository = FakeLibraryQueryRepository(
+        album: createAlbum(primaryEditionTitle: 'Standard'),
+        tracks: [
+          createTrack(
+            songId: 'song-1',
+            title: 'First Song',
+            coPrimaryArtists: const ['Ben Moor'],
+            versionLabel: 'Acoustic',
+          ),
+          createTrack(
+            songId: 'song-2',
+            title: 'Second Song',
+            trackNumber: 2,
+            featuredArtists: const ['Cy Lark'],
+            guestArtists: const ['Eve Shore'],
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(buildSubject(repository: repository));
+      await tester.pumpAndSettle();
+
+      expect(find.text('First Song (Acoustic)'), findsOneWidget);
+      expect(find.textContaining('Test Artist & Ben Moor'), findsOneWidget);
+      expect(
+        find.textContaining('feat. Cy Lark with Eve Shore'),
+        findsOneWidget,
+      );
+    });
+
     testWidgets('shows edition count for multi-edition album', (tester) async {
       final repository = FakeLibraryQueryRepository(
         album: createAlbum(
@@ -3314,6 +3346,9 @@ LibraryTrack createTrack({
   int discNumber = 1,
   int durationSeconds = 180,
   List<String> featuredArtists = const [],
+  List<String> coPrimaryArtists = const [],
+  List<String> guestArtists = const [],
+  String? versionLabel,
   String? filePath,
   bool isAvailable = true,
   bool isSongBlocked = false,
@@ -3333,6 +3368,9 @@ LibraryTrack createTrack({
     durationSeconds: durationSeconds,
     isSingle: false,
     featuredArtists: featuredArtists,
+    coPrimaryArtists: coPrimaryArtists,
+    guestArtists: guestArtists,
+    versionLabel: versionLabel,
     dateAdded: DateTime(2026, 1, 1),
     filePath: filePath ?? '/music/$songId.mp3',
     isAvailable: isAvailable,

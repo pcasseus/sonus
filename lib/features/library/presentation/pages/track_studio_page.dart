@@ -7,17 +7,21 @@ import '../../../../core/design/sonus_theme.dart';
 import '../../../../core/design/widgets/sonus_artwork_image.dart';
 import '../../../../core/design/widgets/sonus_form_section.dart';
 import '../../../../core/design/widgets/sonus_track_tile.dart';
+import '../../../../core/identity/text_normalizer.dart';
 import '../../application/models/external_metadata_search_query.dart';
 import '../../application/models/library_album.dart';
 import '../../application/models/library_artist.dart';
 import '../../application/models/library_track.dart';
+import '../../application/models/song_display_title.dart';
 import '../../application/services/external_metadata_application_service.dart';
 import '../../application/services/external_metadata_proposal_service.dart';
 import '../../application/services/metadata_provider.dart';
+import '../../application/services/track_profile_editing_service.dart';
 import '../../domain/entities/song.dart';
 import '../../domain/entities/song_artist_credit.dart';
 import '../models/track_profile_edit_draft.dart';
 import '../widgets/musicbrainz_search_dialog.dart';
+import '../widgets/track_credit_editor_dialog.dart';
 
 class TrackStudioPage extends StatefulWidget {
   const TrackStudioPage({
@@ -441,7 +445,7 @@ class _TrackStudioPageState extends State<TrackStudioPage> {
                             'track-version-${characteristic.name}',
                           ),
                           label: Text(
-                            _versionCharacteristicLabel(characteristic),
+                            songVersionCharacteristicLabel(characteristic),
                           ),
                           selected: _versionCharacteristics.contains(
                             characteristic,
@@ -804,31 +808,6 @@ class _TrackStudioPageState extends State<TrackStudioPage> {
     }
   }
 
-  String _versionCharacteristicLabel(SongVersionCharacteristic characteristic) {
-    switch (characteristic) {
-      case SongVersionCharacteristic.remix:
-        return 'Remix';
-      case SongVersionCharacteristic.live:
-        return 'Live';
-      case SongVersionCharacteristic.acoustic:
-        return 'Acoustic';
-      case SongVersionCharacteristic.demo:
-        return 'Demo';
-      case SongVersionCharacteristic.instrumental:
-        return 'Instrumental';
-      case SongVersionCharacteristic.edit:
-        return 'Edit';
-      case SongVersionCharacteristic.radioEdit:
-        return 'Radio Edit';
-      case SongVersionCharacteristic.extended:
-        return 'Extended';
-      case SongVersionCharacteristic.remaster:
-        return 'Remaster';
-      case SongVersionCharacteristic.alternate:
-        return 'Alternate';
-    }
-  }
-
   String _creditRoleLabel(SongArtistCreditRole role) {
     switch (role) {
       case SongArtistCreditRole.coPrimary:
@@ -855,8 +834,7 @@ class _TrackStudioPageState extends State<TrackStudioPage> {
   }
 
   Future<void> _editCredit(int index) async {
-    final original = _additionalCredits[index];
-    final updated = await _showCreditEditor(initialCredit: original);
+    final updated = await _showCreditEditor(editingIndex: index);
 
     if (!mounted || updated == null) {
       return;
@@ -873,105 +851,54 @@ class _TrackStudioPageState extends State<TrackStudioPage> {
     });
   }
 
-  Future<TrackProfileCreditDraft?> _showCreditEditor({
-    TrackProfileCreditDraft? initialCredit,
-  }) async {
-    var creditedName = initialCredit?.creditedName ?? '';
-    var role = initialCredit?.role ?? SongArtistCreditRole.featured;
-
-    return showDialog<TrackProfileCreditDraft>(
+  Future<TrackProfileCreditDraft?> _showCreditEditor({int? editingIndex}) {
+    return showTrackCreditEditor(
       context: context,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              title: Text(initialCredit == null ? 'Add credit' : 'Edit credit'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextFormField(
-                    key: const ValueKey<String>('track-credit-name-field'),
-                    initialValue: creditedName,
-                    autofocus: true,
-                    decoration: const InputDecoration(labelText: 'Artist name'),
-                    onChanged: (value) {
-                      creditedName = value;
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  DropdownButtonFormField<SongArtistCreditRole>(
-                    key: const ValueKey<String>('track-credit-role-field'),
-                    initialValue: role,
-                    decoration: const InputDecoration(labelText: 'Role'),
-                    items: const [
-                      DropdownMenuItem(
-                        value: SongArtistCreditRole.coPrimary,
-                        child: Text('Co-primary'),
-                      ),
-                      DropdownMenuItem(
-                        value: SongArtistCreditRole.featured,
-                        child: Text('Featured'),
-                      ),
-                      DropdownMenuItem(
-                        value: SongArtistCreditRole.guest,
-                        child: Text('Guest'),
-                      ),
-                    ],
-                    onChanged: (value) {
-                      if (value == null) {
-                        return;
-                      }
-
-                      setDialogState(() {
-                        role = value;
-                      });
-                    },
-                  ),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton(
-                  key: const ValueKey<String>('track-credit-save-button'),
-                  onPressed: () {
-                    final name = creditedName.trim();
-
-                    if (name.isEmpty) {
-                      return;
-                    }
-
-                    final originalName = initialCredit?.creditedName
-                        .trim()
-                        .toLowerCase();
-                    final preservesIdentity =
-                        originalName != null &&
-                        originalName == name.toLowerCase();
-
-                    Navigator.of(dialogContext).pop(
-                      TrackProfileCreditDraft(
-                        creditedName: name,
-                        role: role,
-                        artistId: preservesIdentity
-                            ? initialCredit!.artistId
-                            : null,
-                      ),
-                    );
-                  },
-                  child: const Text('Save'),
-                ),
-              ],
-            );
-          },
-        );
-      },
+      artists: _artists,
+      primaryArtistId: _artistId,
+      primaryArtistName: _primaryArtistName,
+      otherCredits: [
+        for (var index = 0; index < _additionalCredits.length; index++)
+          if (index != editingIndex) _additionalCredits[index],
+      ],
+      initialCredit: editingIndex == null
+          ? null
+          : _additionalCredits[editingIndex],
     );
+  }
+
+  String get _primaryArtistName {
+    for (final artist in _artists) {
+      if (artist.artistId == _artistId) {
+        return artist.name;
+      }
+    }
+
+    return widget.track.artistName;
   }
 
   void _submit() {
     if (!_formKey.currentState!.validate()) {
+      return;
+    }
+
+    // Changing the primary artist can make a credit repeat them; saving
+    // would drop it, so say so instead of reporting a full save.
+    final redundantNames = TrackProfileEditingService.redundantCreditNames(
+      _additionalCredits.map((credit) => credit.toInput()),
+      primaryArtistId: _artistId,
+      primaryCanonicalName: TextNormalizer.canonicalize(_primaryArtistName),
+    );
+
+    if (redundantNames.isNotEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '${redundantNames.first} is already credited as the primary '
+            'artist or in another credit. Edit or remove that credit to save.',
+          ),
+        ),
+      );
       return;
     }
 

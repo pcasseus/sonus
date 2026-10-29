@@ -81,11 +81,11 @@ class _MiniPlayer extends StatelessWidget {
 
     return Semantics(
       container: true,
-      label: 'Now playing ${track.title} by ${track.artistName}',
+      label: 'Now playing ${track.displayTitle} by ${track.displayArtist}',
       child: SonusMiniPlayer(
         keyPrefix: 'mini-player',
-        title: track.title,
-        artist: track.artistName,
+        title: track.displayTitle,
+        artist: track.displayArtist,
         artworkPath: hasArtwork ? path : null,
         artwork: hasArtwork
             ? null

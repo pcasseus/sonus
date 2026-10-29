@@ -7,6 +7,7 @@ import '../../application/models/library_artist.dart';
 import '../../application/models/library_track.dart';
 import '../../application/models/library_track_order.dart';
 import '../../application/models/project_collaborator.dart';
+import '../../application/models/song_display_title.dart';
 import '../../domain/entities/song_artist_credit.dart';
 import '../../../search/application/models/library_search_results.dart';
 import '../mappers/library_album_row_mapper.dart';
@@ -55,6 +56,22 @@ class LibraryQueryDao {
       LEFT JOIN ${DatabaseTables.artworkAssets} tpa
         ON tpa.id = tpe.artwork_id''';
 
+  /// A song's structured credit names for one [role], in credit order,
+  /// separated by the ASCII unit separator (`char(31)`), which
+  /// [LibraryTrackRowMapper] splits on. Used with `s` (songs) joined.
+  static String _creditNames(String role) =>
+      '''
+        (
+          SELECT group_concat(cn.credited_name, char(31))
+          FROM (
+            SELECT sc.credited_name
+            FROM ${DatabaseTables.songArtistCredits} sc
+            WHERE sc.song_id = s.id
+              AND sc.role = '$role'
+            ORDER BY sc.position
+          ) cn
+        )''';
+
   /// A song's artwork outside any edition view (SN-50 A-Q12): its own
   /// artwork, then the primary edition's cover when the song is listed
   /// there, then its home edition's cover, then the primary edition's cover.
@@ -96,6 +113,8 @@ class LibraryQueryDao {
         s.is_single AS is_single,
         s.is_blocked AS song_is_blocked,
         s.featured_artists AS featured_artists,
+        ${_creditNames('coPrimary')} AS co_primary_artists,
+        ${_creditNames('guest')} AS guest_artists,
         s.version_label AS version_label,
         s.version_characteristics AS version_characteristics,
         s.release_status AS release_status,
@@ -151,6 +170,8 @@ class LibraryQueryDao {
         s.is_single AS is_single,
         s.is_blocked AS song_is_blocked,
         s.featured_artists AS featured_artists,
+        ${_creditNames('coPrimary')} AS co_primary_artists,
+        ${_creditNames('guest')} AS guest_artists,
         s.version_label AS version_label,
         s.version_characteristics AS version_characteristics,
         s.release_status AS release_status,
@@ -277,6 +298,8 @@ class LibraryQueryDao {
         s.is_single AS is_single,
         s.is_blocked AS song_is_blocked,
         s.featured_artists AS featured_artists,
+        ${_creditNames('coPrimary')} AS co_primary_artists,
+        ${_creditNames('guest')} AS guest_artists,
         s.version_label AS version_label,
         s.version_characteristics AS version_characteristics,
         s.release_status AS release_status,
@@ -341,6 +364,8 @@ class LibraryQueryDao {
         s.is_single AS is_single,
         s.is_blocked AS song_is_blocked,
         s.featured_artists AS featured_artists,
+        ${_creditNames('coPrimary')} AS co_primary_artists,
+        ${_creditNames('guest')} AS guest_artists,
         s.version_label AS version_label,
         s.version_characteristics AS version_characteristics,
         s.release_status AS release_status,
@@ -431,6 +456,8 @@ class LibraryQueryDao {
         s.is_single AS is_single,
         s.is_blocked AS song_is_blocked,
         s.featured_artists AS featured_artists,
+        ${_creditNames('coPrimary')} AS co_primary_artists,
+        ${_creditNames('guest')} AS guest_artists,
         s.version_label AS version_label,
         s.version_characteristics AS version_characteristics,
         s.release_status AS release_status,
@@ -495,6 +522,8 @@ class LibraryQueryDao {
         s.is_single AS is_single,
         s.is_blocked AS song_is_blocked,
         s.featured_artists AS featured_artists,
+        ${_creditNames('coPrimary')} AS co_primary_artists,
+        ${_creditNames('guest')} AS guest_artists,
         s.version_label AS version_label,
         s.version_characteristics AS version_characteristics,
         s.release_status AS release_status,
@@ -595,6 +624,8 @@ class LibraryQueryDao {
         s.is_single AS is_single,
         s.is_blocked AS song_is_blocked,
         s.featured_artists AS featured_artists,
+        ${_creditNames('coPrimary')} AS co_primary_artists,
+        ${_creditNames('guest')} AS guest_artists,
         s.version_label AS version_label,
         s.version_characteristics AS version_characteristics,
         s.release_status AS release_status,
@@ -1030,9 +1061,17 @@ class LibraryQueryDao {
                 return true;
               }
 
-              return track.featuredArtists.any(
-                (artist) =>
-                    _normalizeSearchText(artist).contains(normalizedQuery),
+              return [
+                track.displayTitle,
+                ?track.versionLabel,
+                for (final characteristic in track.versionCharacteristics)
+                  songVersionCharacteristicLabel(characteristic),
+                ...track.coPrimaryArtists,
+                ...track.featuredArtists,
+                ...track.guestArtists,
+              ].any(
+                (value) =>
+                    _normalizeSearchText(value).contains(normalizedQuery),
               );
             })
             .toList(growable: false)

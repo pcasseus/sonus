@@ -1,6 +1,8 @@
 import '../../domain/entities/album_edition.dart';
 import '../../domain/entities/song.dart';
 import 'release_display_title.dart';
+import 'song_credit_line.dart';
+import 'song_display_title.dart';
 
 class LibraryTrack {
   const LibraryTrack({
@@ -19,6 +21,8 @@ class LibraryTrack {
     required this.durationSeconds,
     required this.isSingle,
     required this.featuredArtists,
+    this.coPrimaryArtists = const [],
+    this.guestArtists = const [],
     this.versionLabel,
     this.versionCharacteristics = const [],
     this.releaseStatus = SongReleaseStatus.released,
@@ -61,6 +65,25 @@ class LibraryTrack {
   final int durationSeconds;
   final bool isSingle;
   final List<String> featuredArtists;
+
+  /// Structured co-primary and guest credit names, in credit order.
+  final List<String> coPrimaryArtists;
+  final List<String> guestArtists;
+
+  /// The role-aware performer line shown in lists and playback.
+  String get creditLine => songCreditLine(
+    primaryArtistName: artistName,
+    coPrimaryArtists: coPrimaryArtists,
+    featuredArtists: featuredArtists,
+    guestArtists: guestArtists,
+  );
+
+  /// The title with its version qualifier, for current surfaces only.
+  String get displayTitle => songDisplayTitle(
+    title: title,
+    versionLabel: versionLabel,
+    characteristics: versionCharacteristics,
+  );
 
   final String? versionLabel;
   final List<SongVersionCharacteristic> versionCharacteristics;

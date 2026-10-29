@@ -54,7 +54,10 @@ class TrackProfileEditingService {
     String? placementEditionId,
     DateTime? now,
   }) {
-    return updateTrackWithCredits(
+    return _updateTrack(
+      // Only featured names are given: the song's co-primary and guest
+      // credits are kept as they are.
+      keepOtherRoles: true,
       userId: userId,
       songId: songId,
       title: title,
@@ -89,7 +92,81 @@ class TrackProfileEditingService {
   /// listing the editor was opened from); it defaults to the song's
   /// compatibility edition. Numbers edited for another listing change only
   /// that listing, never the song's own numbers or the other listings.
+  ///
+  /// [additionalCredits] replace every non-primary credit. A credit that
+  /// repeats someone already credited (see [SongCreditIdentitySet]) is not
+  /// saved, so editors check with [redundantCreditNames] first.
   Future<TrackProfileEditResult> updateTrackWithCredits({
+    required String? userId,
+    required String songId,
+    required String title,
+    required int trackNumber,
+    required int discNumber,
+    required Iterable<SongArtistCreditInput> additionalCredits,
+    required bool isSingle,
+    String? versionLabel,
+    List<SongVersionCharacteristic> versionCharacteristics = const [],
+    SongReleaseStatus releaseStatus = SongReleaseStatus.released,
+    bool isLeak = false,
+    bool updateVersionMetadata = false,
+    String? artistId,
+    String? albumId,
+    String? albumEditionId,
+    String? placementEditionId,
+    DateTime? now,
+  }) {
+    return _updateTrack(
+      keepOtherRoles: false,
+      userId: userId,
+      songId: songId,
+      title: title,
+      trackNumber: trackNumber,
+      discNumber: discNumber,
+      additionalCredits: additionalCredits,
+      isSingle: isSingle,
+      versionLabel: versionLabel,
+      versionCharacteristics: versionCharacteristics,
+      releaseStatus: releaseStatus,
+      isLeak: isLeak,
+      updateVersionMetadata: updateVersionMetadata,
+      artistId: artistId,
+      albumId: albumId,
+      albumEditionId: albumEditionId,
+      placementEditionId: placementEditionId,
+      now: now,
+    );
+  }
+
+  /// The names in [credits] that would not be saved because they repeat
+  /// the primary artist or an earlier credit, in order.
+  static List<String> redundantCreditNames(
+    Iterable<SongArtistCreditInput> credits, {
+    required String primaryArtistId,
+    required String primaryCanonicalName,
+  }) {
+    final identities = SongCreditIdentitySet(
+      primaryArtistId: primaryArtistId,
+      primaryCanonicalName: primaryCanonicalName,
+    );
+    final redundant = <String>[];
+
+    for (final credit in credits) {
+      final canonicalName = TextNormalizer.canonicalize(credit.creditedName);
+
+      if (canonicalName.isNotEmpty &&
+          !identities.add(
+            canonicalName: canonicalName,
+            artistId: credit.artistId?.trim(),
+          )) {
+        redundant.add(credit.creditedName.trim());
+      }
+    }
+
+    return List<String>.unmodifiable(redundant);
+  }
+
+  Future<TrackProfileEditResult> _updateTrack({
+    required bool keepOtherRoles,
     required String? userId,
     required String songId,
     required String title,
@@ -209,8 +286,14 @@ class TrackProfileEditingService {
         throw StateError('Artist not found: $targetArtistId');
       }
 
+      final existingStructuredCredits = await context.songArtistCreditRepository
+          .getBySongId(song.id);
+
       final normalizedAdditionalCredits = _normalizeAdditionalCredits(
-        additionalCredits,
+        keepOtherRoles
+            ? _keepingOtherRoles(additionalCredits, existingStructuredCredits)
+            : additionalCredits,
+        primaryArtistId: targetArtistId,
         primaryCanonicalName: targetArtist.canonicalName,
       );
 
@@ -280,9 +363,6 @@ class TrackProfileEditingService {
               placementMembership.discNumber != discNumber);
 
       final canonicalTitle = TextNormalizer.canonicalize(trimmedTitle);
-
-      final existingStructuredCredits = await context.songArtistCreditRepository
-          .getBySongId(song.id);
 
       final structuredCreditsChanged = _structuredCreditsChanged(
         existingCredits: existingStructuredCredits,
@@ -606,11 +686,42 @@ class TrackProfileEditingService {
     }
   }
 
+  /// [featuredCredits] in place of the song's featured credits, with its
+  /// co-primary credits before them and its guest credits after.
+  static List<SongArtistCreditInput> _keepingOtherRoles(
+    Iterable<SongArtistCreditInput> featuredCredits,
+    List<SongArtistCredit> existingCredits,
+  ) {
+    final ordered = List<SongArtistCredit>.from(existingCredits)
+      ..sort((left, right) => left.position.compareTo(right.position));
+
+    SongArtistCreditInput kept(SongArtistCredit credit) {
+      return SongArtistCreditInput(
+        creditedName: credit.creditedName,
+        role: credit.role,
+        artistId: credit.artistId,
+        linkByName: false,
+      );
+    }
+
+    return [
+      for (final credit in ordered)
+        if (credit.role == SongArtistCreditRole.coPrimary) kept(credit),
+      ...featuredCredits,
+      for (final credit in ordered)
+        if (credit.role == SongArtistCreditRole.guest) kept(credit),
+    ];
+  }
+
   List<SongArtistCreditInput> _normalizeAdditionalCredits(
     Iterable<SongArtistCreditInput> credits, {
+    required String primaryArtistId,
     required String primaryCanonicalName,
   }) {
-    final seenCanonicalNames = <String>{primaryCanonicalName};
+    final identities = SongCreditIdentitySet(
+      primaryArtistId: primaryArtistId,
+      primaryCanonicalName: primaryCanonicalName,
+    );
     final normalized = <SongArtistCreditInput>[];
 
     for (final credit in credits) {
@@ -625,12 +736,15 @@ class TrackProfileEditingService {
       }
 
       final canonicalName = TextNormalizer.canonicalize(creditedName);
+      final normalizedArtistId = credit.artistId?.trim();
 
-      if (canonicalName.isEmpty || !seenCanonicalNames.add(canonicalName)) {
+      if (canonicalName.isEmpty ||
+          !identities.add(
+            canonicalName: canonicalName,
+            artistId: normalizedArtistId,
+          )) {
         continue;
       }
-
-      final normalizedArtistId = credit.artistId?.trim();
 
       normalized.add(
         SongArtistCreditInput(
@@ -639,6 +753,7 @@ class TrackProfileEditingService {
           artistId: normalizedArtistId == null || normalizedArtistId.isEmpty
               ? null
               : normalizedArtistId,
+          linkByName: credit.linkByName,
         ),
       );
     }
@@ -654,13 +769,17 @@ class TrackProfileEditingService {
     required List<SongArtistCreditInput> desiredAdditionalCredits,
   }) {
     if (existingCredits.isEmpty) {
-      final legacyAdditionalCredits = _normalizeAdditionalCredits([
-        for (final featuredArtist in song.featuredArtists)
-          SongArtistCreditInput(
-            creditedName: featuredArtist,
-            role: SongArtistCreditRole.featured,
-          ),
-      ], primaryCanonicalName: primaryCanonicalName);
+      final legacyAdditionalCredits = _normalizeAdditionalCredits(
+        [
+          for (final featuredArtist in song.featuredArtists)
+            SongArtistCreditInput(
+              creditedName: featuredArtist,
+              role: SongArtistCreditRole.featured,
+            ),
+        ],
+        primaryArtistId: primaryArtistId,
+        primaryCanonicalName: primaryCanonicalName,
+      );
 
       return !_additionalCreditInputsEqual(
         legacyAdditionalCredits,

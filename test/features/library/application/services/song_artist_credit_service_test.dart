@@ -391,6 +391,182 @@ void main() {
     expect(credits[1].artistId, 'artist_guest');
     expect(credits[1].creditedName, 'Displayed Guest Credit');
   });
+
+  group('SN-50 C-Q2/C-Q4 credit identity', () {
+    test(
+      'keeps two chosen artists who share a name, including the primary',
+      () async {
+        await _insertArtist(
+          db,
+          id: 'artist_madison_two',
+          name: 'madison beer',
+          canonicalName: 'madison beer',
+        );
+        await _insertArtist(
+          db,
+          id: 'artist_twin',
+          name: 'Twin',
+          canonicalName: 'twin',
+        );
+        await _insertArtist(
+          db,
+          id: 'artist_twin_two',
+          name: 'twin',
+          canonicalName: 'twin',
+        );
+
+        final credits = await service.replaceCredits(
+          userId: null,
+          songId: 'song_1',
+          primaryArtistId: 'artist_madison',
+          additionalCredits: const [
+            SongArtistCreditInput(
+              creditedName: 'madison beer',
+              role: SongArtistCreditRole.coPrimary,
+              artistId: 'artist_madison_two',
+            ),
+            SongArtistCreditInput(
+              creditedName: 'Twin',
+              role: SongArtistCreditRole.featured,
+              artistId: 'artist_twin',
+            ),
+            SongArtistCreditInput(
+              creditedName: 'twin',
+              role: SongArtistCreditRole.guest,
+              artistId: 'artist_twin_two',
+            ),
+          ],
+        );
+
+        expect(credits.map((credit) => credit.artistId), [
+          'artist_madison',
+          'artist_madison_two',
+          'artist_twin',
+          'artist_twin_two',
+        ]);
+      },
+    );
+
+    test('still drops a repeat of the same chosen artist', () async {
+      await _insertArtist(
+        db,
+        id: 'artist_tate',
+        name: 'Tate McRae',
+        canonicalName: 'tate mcrae',
+      );
+
+      final credits = await service.replaceCredits(
+        userId: null,
+        songId: 'song_1',
+        primaryArtistId: 'artist_madison',
+        additionalCredits: const [
+          SongArtistCreditInput(
+            creditedName: 'Tate McRae',
+            role: SongArtistCreditRole.featured,
+            artistId: 'artist_tate',
+          ),
+          SongArtistCreditInput(
+            creditedName: 'Tate',
+            role: SongArtistCreditRole.guest,
+            artistId: 'artist_tate',
+          ),
+          SongArtistCreditInput(
+            creditedName: 'Madison',
+            role: SongArtistCreditRole.guest,
+            artistId: 'artist_madison',
+          ),
+        ],
+      );
+
+      expect(credits, hasLength(2));
+      expect(credits[1].creditedName, 'Tate McRae');
+    });
+
+    test('a name-only credit linking to an already credited artist is '
+        'dropped', () async {
+      await _insertArtist(
+        db,
+        id: 'artist_tate',
+        name: 'Tate McRae',
+        canonicalName: 'tate mcrae',
+      );
+
+      final credits = await service.replaceCredits(
+        userId: null,
+        songId: 'song_1',
+        primaryArtistId: 'artist_madison',
+        additionalCredits: const [
+          SongArtistCreditInput(
+            creditedName: 'T. McRae',
+            role: SongArtistCreditRole.featured,
+            artistId: 'artist_tate',
+          ),
+          SongArtistCreditInput(
+            creditedName: 'Tate McRae',
+            role: SongArtistCreditRole.guest,
+          ),
+        ],
+      );
+
+      expect(credits, hasLength(2));
+      expect(credits[1].creditedName, 'T. McRae');
+    });
+
+    test('a credit the person chose not to link stays unlinked', () async {
+      await _insertArtist(
+        db,
+        id: 'artist_tate',
+        name: 'Tate McRae',
+        canonicalName: 'tate mcrae',
+      );
+
+      final credits = await service.replaceCredits(
+        userId: null,
+        songId: 'song_1',
+        primaryArtistId: 'artist_madison',
+        additionalCredits: const [
+          SongArtistCreditInput(
+            creditedName: 'Tate McRae',
+            role: SongArtistCreditRole.featured,
+            linkByName: false,
+          ),
+        ],
+      );
+
+      expect(credits[1].artistId, isNull);
+    });
+
+    test(
+      'an unchosen co-primary matching an existing artist is refused',
+      () async {
+        await _insertArtist(
+          db,
+          id: 'artist_tate',
+          name: 'Tate McRae',
+          canonicalName: 'tate mcrae',
+        );
+
+        await expectLater(
+          service.replaceCredits(
+            userId: null,
+            songId: 'song_1',
+            primaryArtistId: 'artist_madison',
+            additionalCredits: const [
+              SongArtistCreditInput(
+                creditedName: 'Tate McRae',
+                role: SongArtistCreditRole.coPrimary,
+                linkByName: false,
+              ),
+            ],
+          ),
+          throwsStateError,
+        );
+
+        final artists = await db.query(DatabaseTables.artists);
+        expect(artists, hasLength(2));
+      },
+    );
+  });
 }
 
 Future<void> _insertArtist(
