@@ -7,17 +7,21 @@ import 'chart_extended_divider.dart';
 /// SN-49: what the chart's positions, badges and numbers mean, opened from
 /// the information button beside the chart's name instead of taking room
 /// above the chart. Every line describes how Sonus actually ranks, for the
-/// view on screen (SN-50 E-Q3, E-Q4, E-Q7).
+/// view on screen (SN-50 E-Q3, E-Q4, E-Q5, E-Q7, E-Q18).
 Future<void> showChartInfoSheet(
   BuildContext context,
   ChartType chartType, {
   bool isWeeklyHistory = false,
+  bool isThisWeek = false,
 }) => showModalBottomSheet<void>(
   context: context,
   isScrollControlled: true,
   showDragHandle: true,
-  builder: (_) =>
-      ChartInfoSheet(chartType: chartType, isWeeklyHistory: isWeeklyHistory),
+  builder: (_) => ChartInfoSheet(
+    chartType: chartType,
+    isWeeklyHistory: isWeeklyHistory,
+    isThisWeek: isThisWeek,
+  ),
 );
 
 class ChartInfoSheet extends StatelessWidget {
@@ -25,6 +29,7 @@ class ChartInfoSheet extends StatelessWidget {
     super.key,
     required this.chartType,
     this.isWeeklyHistory = false,
+    this.isThisWeek = false,
   });
 
   final ChartType chartType;
@@ -32,6 +37,9 @@ class ChartInfoSheet extends StatelessWidget {
   /// Whether a final weekly chart is on screen rather than the career
   /// standings.
   final bool isWeeklyHistory;
+
+  /// Whether the provisional chart of the week in progress is on screen.
+  final bool isThisWeek;
 
   @override
   Widget build(BuildContext context) {
@@ -61,7 +69,8 @@ class ChartInfoSheet extends StatelessWidget {
           ),
           for (final (title, body) in _sections(
             chartType,
-            isWeeklyHistory,
+            isWeeklyHistory: isWeeklyHistory,
+            isThisWeek: isThisWeek,
           )) ...[
             const SizedBox(height: 18),
             Semantics(
@@ -89,9 +98,10 @@ class ChartInfoSheet extends StatelessWidget {
   }
 
   static List<(String, String)> _sections(
-    ChartType chartType,
-    bool isWeeklyHistory,
-  ) => [
+    ChartType chartType, {
+    required bool isWeeklyHistory,
+    required bool isThisWeek,
+  }) => [
     switch (chartType) {
       ChartType.songs => (
         'Positions',
@@ -123,19 +133,37 @@ class ChartInfoSheet extends StatelessWidget {
           'kept as a final weekly chart you can open with the week controls. '
           'A final weekly chart never changes afterwards.',
     ),
-    if (isWeeklyHistory) ...[
+    if (isThisWeek)
+      (
+        'This week',
+        'This week is in progress: it ranks the qualified streams of the '
+            'current chart week and updates as you listen. Nothing on it is '
+            'final until the week ends and its final weekly chart is kept. '
+            'Best so far is the highest position reached this week; it '
+            'becomes a peak only if the final weekly chart confirms it.',
+      ),
+    if (isWeeklyHistory || isThisWeek) ...[
       (
         'NEW and RE-ENTRY',
-        'On a final weekly chart, NEW means a first week in any weekly '
-            'Top 100. RE-ENTRY means back in the Top 100 after charting in '
-            'an earlier week but not the week before, or after dropping out '
-            'of the Top 100 during the week. Both are kept with the week.',
+        isThisWeek
+            ? 'NEW means a first week in any weekly Top 100. RE-ENTRY means '
+                  'back in the Top 100 after charting in an earlier week but '
+                  'not last week, or, for a first week, after dropping out '
+                  'of the Top 100 earlier this week. Both can still change '
+                  'before the week ends.'
+            : 'On a final weekly chart, NEW means a first week in any weekly '
+                  'Top 100. RE-ENTRY means back in the Top 100 after charting '
+                  'in an earlier week but not the week before, or, for a '
+                  'first week, after dropping out of the Top 100 during the '
+                  'week. Both are kept with the week.',
       ),
       (
         'Movement',
         'Arrows compare a position with its official Top 100 position on '
-            'the previous final weekly chart. A position in #101–200 last '
-            'week is shown for context only and never counts as movement.',
+            'the previous final weekly chart, even if it dropped out of the '
+            'Top 100 for a while during the week. A position in #101–200 '
+            'last week is shown for context only and never counts as '
+            'movement.',
       ),
     ] else ...[
       (
@@ -164,7 +192,7 @@ class ChartInfoSheet extends StatelessWidget {
       'Weeks at #1, the longest #1 run, the current Top 10 streak, the '
           'debut and official weeks all come from final weekly charts.',
     ),
-    if (!isWeeklyHistory) ...[
+    if (!isWeeklyHistory && !isThisWeek) ...[
       (
         'Percentage change',
         'Compares streams so far this week with streams at the same time '

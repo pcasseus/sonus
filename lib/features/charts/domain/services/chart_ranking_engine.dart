@@ -261,15 +261,15 @@ class ChartRankingEngine {
     return fallbackAt.toUtc();
   }
 
+  /// Last week's final official rank always decides the arrow; a dip out of
+  /// the Top 100 during the week never overrides it (SN-50 E-Q2). Returning
+  /// within the week makes RE-ENTRY only for an entity with no official
+  /// history that is back in the Top 100.
   static ChartMovement _movementFor({
     required _MutableChartState state,
     required int currentRank,
     required ChartRankingHistory? history,
   }) {
-    if (state.hasReenteredOfficialChartThisWeek) {
-      return ChartMovement.reentry;
-    }
-
     final previousFinalRank = history?.previousFinalRank;
 
     if (previousFinalRank != null) {
@@ -285,6 +285,11 @@ class ChartRankingEngine {
     }
 
     if (history?.hasEverCharted == true) {
+      return ChartMovement.reentry;
+    }
+
+    if (currentRank <= officialChartLimit &&
+        state.hasReenteredOfficialChartThisWeek) {
       return ChartMovement.reentry;
     }
 

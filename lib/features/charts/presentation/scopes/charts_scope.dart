@@ -12,6 +12,7 @@ import '../../application/services/all_time_chart_service.dart';
 import '../../application/services/all_time_moment_service.dart';
 import '../../application/services/chart_finalization_service.dart';
 import '../../application/services/chart_snapshot_builder_service.dart';
+import '../../application/services/this_week_chart_service.dart';
 import '../../data/repositories/sqlite_chart_moment_repository.dart';
 import '../../data/repositories/sqlite_chart_repository.dart';
 import '../controllers/charts_controller.dart';
@@ -178,6 +179,10 @@ class _ChartsScopeState extends State<ChartsScope> {
           editions.getDeluxeEditions,
         _ => null,
       },
+      thisWeekCharts: ThisWeekChartService(
+        builder: builder,
+        releaseEligibility: releaseEligibility,
+      ),
     );
 
     _controller = controller;

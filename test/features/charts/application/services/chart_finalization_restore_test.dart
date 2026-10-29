@@ -17,13 +17,21 @@ import 'package:sonus_next/features/charts/application/services/chart_finalizati
 import 'package:sonus_next/features/charts/application/services/chart_snapshot_builder_service.dart';
 import 'package:sonus_next/features/charts/data/repositories/sqlite_chart_moment_repository.dart';
 import 'package:sonus_next/features/charts/data/repositories/sqlite_chart_repository.dart';
+import 'package:sonus_next/features/charts/domain/entities/chart_entry.dart';
 import 'package:sonus_next/features/charts/domain/entities/chart_snapshot.dart';
+import 'package:sonus_next/features/charts/domain/models/chart_entity_snapshot.dart';
+import 'package:sonus_next/features/charts/domain/models/chart_movement.dart';
 import 'package:sonus_next/features/charts/domain/models/chart_type.dart';
 import 'package:sonus_next/features/charts/domain/moments/chart_moment_event.dart';
 import 'package:sonus_next/features/charts/domain/repositories/chart_moment_repository.dart';
 import 'package:sonus_next/features/charts/domain/repositories/chart_repository.dart';
 import 'package:sonus_next/features/charts/domain/services/chart_week_resolver.dart';
+import 'package:sonus_next/features/library/application/models/library_album.dart';
+import 'package:sonus_next/features/library/application/models/library_track.dart';
+import 'package:sonus_next/features/library/application/models/library_track_order.dart';
+import 'package:sonus_next/features/library/application/repositories/library_query_repository.dart';
 import 'package:sonus_next/features/library/data/daos/library_query_dao.dart';
+import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/data/repositories/sqlite_library_query_repository.dart';
 
 import '../../../../support/library_seed.dart';
@@ -67,11 +75,14 @@ void main() {
   });
 
   /// Composed as ChartsScope composes it.
-  ChartFinalizationService service({bool guarded = true}) {
+  ChartFinalizationService service({
+    bool guarded = true,
+    LibraryQueryRepository? library,
+  }) {
     return ChartFinalizationService(
       builder: ChartSnapshotBuilderService(
         qualifiedPlays: plays,
-        library: SqliteLibraryQueryRepository(LibraryQueryDao(db)),
+        library: library ?? SqliteLibraryQueryRepository(LibraryQueryDao(db)),
         charts: charts.inner,
         playbackSessions: SqlitePlaybackSessionRepository(
           PlaybackSessionDao(db),
@@ -430,7 +441,172 @@ void main() {
       expect(await snapshotsFor(w3), hasLength(2));
       expect(await songMoments(), published);
     });
+
+    test('engine and builder corrections apply to new weeks only; a stored '
+        'week stays byte-identical', () async {
+      final w4 = DateTime.utc(2026, 10, 14, 12);
+
+      // W3 as an earlier engine finalized it: RE-ENTRY beside "last week
+      // #5" (C-4), a song blocked since, and a release credited to the
+      // artist of its last song played (C-24).
+      await listen('1', 'song-a', w3);
+      await listen('2', 'song-b', w3);
+      await listen('3', 'song-b', w3.add(const Duration(hours: 1)));
+      ChartEntry stored(
+        String id,
+        int rank,
+        ChartMovement movement, {
+        int? previousFinalRank,
+        String artist = 'Artist song-a',
+      }) => ChartEntry(
+        entity: ChartEntitySnapshot(
+          entityId: id,
+          title: 'Stored $id',
+          artistId: 'artist-song-a',
+          artistName: artist,
+        ),
+        rank: rank,
+        qualifiedStreamCount: 1,
+        lastQualifiedAt: w3,
+        previousFinalRank: previousFinalRank,
+        peakRank: rank,
+        peakAchievedAt: w3,
+        weeksOnChart: 1,
+        movement: movement,
+      );
+      for (final (type, entries) in [
+        (
+          ChartType.songs,
+          [
+            stored('song-b', 1, ChartMovement.reentry, previousFinalRank: 5),
+            stored('song-a', 2, ChartMovement.newEntry),
+          ],
+        ),
+        (ChartType.albums, [stored('album-song-a', 1, ChartMovement.newEntry)]),
+      ]) {
+        await charts.inner.replaceSnapshot(
+          ChartSnapshot(
+            id: 'chart_${type.name}_${weekStart(w3).millisecondsSinceEpoch}',
+            chartType: type,
+            weekStartUtc: weekStart(w3),
+            weekEndUtc: weekEnd(w3),
+            finalizedAt: weekEnd(w3),
+            entries: entries,
+          ),
+        );
+      }
+
+      Future<Map<String, List<Map<String, Object?>>>> storedW3() async {
+        final start = weekStart(w3).toIso8601String();
+        return {
+          'snapshots': await db.query(
+            DatabaseTables.chartSnapshots,
+            where: 'week_start_utc = ?',
+            whereArgs: [start],
+            orderBy: 'id',
+          ),
+          'entries': await db.rawQuery(
+            'SELECT * FROM ${DatabaseTables.chartEntries} WHERE '
+            'chart_snapshot_id IN (SELECT id FROM '
+            '${DatabaseTables.chartSnapshots} WHERE week_start_utc = ?) '
+            'ORDER BY id',
+            [start],
+          ),
+          'moments': await db.query(
+            DatabaseTables.chartMomentEvents,
+            where: 'week_start_utc = ?',
+            whereArgs: [start],
+            orderBy: 'id',
+          ),
+        };
+      }
+
+      final frozen = await storedW3();
+      expect(frozen['entries'], hasLength(3));
+
+      // Now song-b is blocked and the release has its own owner.
+      await listen('4', 'song-a', w4);
+      await listen('5', 'song-b', w4.add(const Duration(hours: 1)));
+      await listen('6', 'song-b', w4.add(const Duration(hours: 2)));
+      final library = _Library(
+        tracks: [_track('song-a'), _track('song-b', blocked: true)],
+        albums: [
+          LibraryAlbum(
+            albumId: 'album-song-a',
+            title: 'Album song-a',
+            artistId: 'artist-owner',
+            artistName: 'Album Owner',
+            trackCount: 1,
+            dateAdded: DateTime.utc(2026, 9, 1),
+          ),
+        ],
+      );
+
+      for (var pass = 0; pass < 3; pass++) {
+        await service(
+          library: library,
+        ).finalizeCompletedWeeks(referenceLocal: referenceLocal);
+      }
+
+      expect(await storedW3(), frozen);
+
+      final songs = (await charts.getForWeek(
+        chartType: ChartType.songs,
+        weekStartUtc: weekStart(w4),
+      ))!;
+      expect(songs.entries.map((entry) => entry.entity.entityId), ['song-a']);
+      expect(songs.entries.single.previousFinalRank, 2);
+      expect(songs.entries.single.movement, ChartMovement.up);
+
+      final albums = (await charts.getForWeek(
+        chartType: ChartType.albums,
+        weekStartUtc: weekStart(w4),
+      ))!;
+      final owner = albums.entries
+          .firstWhere((entry) => entry.entity.entityId == 'album-song-a')
+          .entity;
+      expect(owner.artistId, 'artist-owner');
+      expect(owner.artistName, 'Album Owner');
+    });
   });
+}
+
+LibraryTrack _track(String song, {bool blocked = false}) => LibraryTrack(
+  songId: song,
+  title: 'Title $song',
+  artistId: 'artist-$song',
+  artistName: 'Artist $song',
+  albumId: 'album-$song',
+  albumTitle: 'Album $song',
+  albumEditionId: 'edition-$song',
+  albumEditionTitle: 'Album $song',
+  albumEditionType: AlbumEditionType.standard,
+  trackNumber: 1,
+  durationSeconds: 180,
+  isSingle: false,
+  featuredArtists: const [],
+  dateAdded: DateTime.utc(2026, 9, 1),
+  isAvailable: true,
+  isSongBlocked: blocked,
+);
+
+/// The library as it is when a later week is finalized.
+class _Library implements LibraryQueryRepository {
+  _Library({required this.tracks, required this.albums});
+
+  final List<LibraryTrack> tracks;
+  final List<LibraryAlbum> albums;
+
+  @override
+  Future<List<LibraryTrack>> getTracks({
+    LibraryTrackOrder order = LibraryTrackOrder.title,
+  }) async => tracks;
+
+  @override
+  Future<List<LibraryAlbum>> getAlbums() async => albums;
+
+  @override
+  Object? noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 /// A pause point inside a finalization pass.

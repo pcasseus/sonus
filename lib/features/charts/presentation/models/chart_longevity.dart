@@ -80,6 +80,14 @@ class ChartLongevityIndex {
 
     final last = weeks.length - 1;
 
+    // The week in progress follows the latest finalized one.
+    if (weeks.isNotEmpty) {
+      extendedByWeek[weeks[last].weekEndUtc.toUtc()] = {
+        for (final entry in weeks[last].entries)
+          if (entry.isOffChartStanding) entry.entity.entityId: entry.rank,
+      };
+    }
+
     return ChartLongevityIndex._(byWeek, {
       for (final MapEntry(:key, :value) in states.entries)
         key: value.asOf(last),

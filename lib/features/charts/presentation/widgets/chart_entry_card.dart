@@ -45,6 +45,7 @@ class ChartEntryCard extends StatefulWidget {
     this.weeklyPeakRank,
     this.longevity,
     this.previousExtendedRank,
+    this.bestSoFarRank,
   });
 
   /// Displayed artwork size. Images are decoded at this size so a 200-row
@@ -73,8 +74,8 @@ class ChartEntryCard extends StatefulWidget {
   /// the start of this week, and there are no chart weeks to count.
   final bool isAllTime;
 
-  /// On the career standings, the best position reached on a finalized
-  /// weekly chart, shown apart from the career peak.
+  /// On the career standings and This Week, the best position reached on a
+  /// finalized weekly chart, shown apart from the career or in-week peak.
   final int? weeklyPeakRank;
 
   /// Official longevity from finalized weeks, derived at load.
@@ -83,6 +84,11 @@ class ChartEntryCard extends StatefulWidget {
   /// On a weekly chart, last week's #101–200 position when the entry had no
   /// official one: context only, it never changes movement (E-Q1).
   final int? previousExtendedRank;
+
+  /// On the provisional This Week chart, the best position so far this
+  /// week. It replaces the peak, which there reads as the official weekly
+  /// peak from finalized weeks in [weeklyPeakRank] (SN-50 E-Q18).
+  final int? bestSoFarRank;
 
   /// Visible text for the position being compared with: last week's official
   /// rank on a weekly chart, or the standings rank at the start of this
@@ -132,6 +138,7 @@ class ChartEntryCard extends StatefulWidget {
     int? weeklyPeakRank,
     ChartLongevity? longevity,
     int? previousExtendedRank,
+    int? bestSoFarRank,
     String? title,
   }) {
     final previous = entry.previousFinalRank;
@@ -146,9 +153,13 @@ class ChartEntryCard extends StatefulWidget {
       isAllTime
           ? '${entry.qualifiedStreamCount} lifetime ${sonusCountNoun(entry.qualifiedStreamCount, 'stream')}'
           : '${entry.qualifiedStreamCount} ${sonusCountNoun(entry.qualifiedStreamCount, 'stream')}',
-      isAllTime
-          ? 'career peak number ${entry.peakRank}'
-          : 'peak number ${entry.peakRank}',
+      if (bestSoFarRank != null) ...[
+        'best so far this week number $bestSoFarRank',
+        if (weeklyPeakRank != null) 'official peak number $weeklyPeakRank',
+      ] else
+        isAllTime
+            ? 'career peak number ${entry.peakRank}'
+            : 'peak number ${entry.peakRank}',
       if (isAllTime && weeklyPeakRank != null)
         'weekly chart peak number $weeklyPeakRank',
       if (isAllTime)
@@ -214,6 +225,7 @@ class _ChartEntryCardState extends State<ChartEntryCard> {
       weeklyPeakRank: widget.weeklyPeakRank,
       longevity: widget.longevity,
       previousExtendedRank: widget.previousExtendedRank,
+      bestSoFarRank: widget.bestSoFarRank,
     );
     final rank = _RankColumn(entry: entry, color: tier.rankColor);
     final artwork = _ChartArtwork(
@@ -265,6 +277,7 @@ class _ChartEntryCardState extends State<ChartEntryCard> {
                 weeklyPeakRank: widget.weeklyPeakRank,
                 longevity: widget.longevity,
                 previousExtendedRank: widget.previousExtendedRank,
+                bestSoFarRank: widget.bestSoFarRank,
               ),
               excludeSemantics: true,
               child: Stack(
@@ -423,6 +436,7 @@ class _EntryDetails extends StatelessWidget {
     required this.weeklyPeakRank,
     required this.longevity,
     required this.previousExtendedRank,
+    required this.bestSoFarRank,
   });
 
   final ChartEntry entry;
@@ -433,6 +447,7 @@ class _EntryDetails extends StatelessWidget {
   final int? weeklyPeakRank;
   final ChartLongevity? longevity;
   final int? previousExtendedRank;
+  final int? bestSoFarRank;
 
   @override
   Widget build(BuildContext context) {
@@ -480,12 +495,23 @@ class _EntryDetails extends StatelessWidget {
                 fontWeight: FontWeight.w700,
               ),
             ),
-            Text(
-              isAllTime
-                  ? 'Career peak #${entry.peakRank}'
-                  : 'Peak #${entry.peakRank}',
-              style: statStyle,
-            ),
+            if (bestSoFarRank case final best?) ...[
+              Text(
+                'Best so far #$best',
+                key: ValueKey<String>(
+                  'charts-best-so-far-${entry.entity.entityId}',
+                ),
+                style: statStyle,
+              ),
+              if (weeklyPeakRank != null)
+                Text('Peak #$weeklyPeakRank', style: statStyle),
+            ] else
+              Text(
+                isAllTime
+                    ? 'Career peak #${entry.peakRank}'
+                    : 'Peak #${entry.peakRank}',
+                style: statStyle,
+              ),
             if (isAllTime && weeklyPeakRank != null)
               Text('Weekly peak #$weeklyPeakRank', style: statStyle),
             Text(

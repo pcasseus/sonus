@@ -1,5 +1,7 @@
 // ignore_for_file: prefer_initializing_formals
 
+import 'dart:developer' as developer;
+
 import 'package:flutter/foundation.dart';
 
 import '../../../library/application/models/library_album.dart';
@@ -13,6 +15,7 @@ import '../../application/services/chart_finalization_service.dart';
 import '../../application/services/chart_moment_feed_aggregator.dart';
 import '../../application/services/all_time_chart_service.dart';
 import '../../application/services/all_time_moment_service.dart';
+import '../../application/services/this_week_chart_service.dart';
 import '../../domain/entities/all_time_chart.dart';
 import '../../domain/entities/chart_entry.dart';
 import '../../domain/entities/chart_snapshot.dart';
@@ -49,6 +52,7 @@ class ChartsController extends ChangeNotifier {
     ChartsControllerNow? now,
     ReleaseFormatsLoader? releaseFormats,
     DeluxeEditionsLoader? deluxeEditions,
+    ThisWeekChartService? thisWeekCharts,
   }) : _allTimeCharts = allTimeCharts,
        _finalization = finalization,
        _charts = charts,
@@ -58,7 +62,8 @@ class ChartsController extends ChangeNotifier {
        _momentFeedAggregator = momentFeedAggregator,
        _now = now ?? DateTime.now,
        _loadReleaseFormats = releaseFormats,
-       _loadDeluxeEditions = deluxeEditions;
+       _loadDeluxeEditions = deluxeEditions,
+       _thisWeekCharts = thisWeekCharts;
 
   final AllTimeChartService _allTimeCharts;
   final ChartFinalizationService _finalization;
@@ -68,6 +73,11 @@ class ChartsController extends ChangeNotifier {
   final AllTimeMomentService? _allTimeMoments;
   final ChartMomentFeedAggregator _momentFeedAggregator;
   final ChartsControllerNow _now;
+
+  /// Without it there is no This Week view.
+  final ThisWeekChartService? _thisWeekCharts;
+  ProvisionalWeekChart? _thisWeek;
+  bool _isViewingThisWeek = false;
 
   /// Formats name releases correctly in Moments; Albums without it.
   final ReleaseFormatsLoader? _loadReleaseFormats;
@@ -130,9 +140,14 @@ class ChartsController extends ChangeNotifier {
 
   bool get isViewingHistory => _historyIndex != null;
 
-  /// The default view: the permanent career standings. Older weeks are the
-  /// finalized weekly charts, kept as history.
-  bool get isViewingAllTime => _historyIndex == null;
+  /// The provisional chart of the week in progress (SN-50 E-Q5).
+  bool get isViewingThisWeek => _isViewingThisWeek;
+
+  /// The default view: the permanent career standings. Older views are This
+  /// Week, when offered, then the finalized weekly charts kept as history.
+  bool get isViewingAllTime => _historyIndex == null && !_isViewingThisWeek;
+
+  bool get _offersThisWeek => _thisWeekCharts != null;
 
   List<ChartSnapshot> get history => _history;
 
@@ -178,26 +193,50 @@ class ChartsController extends ChangeNotifier {
     return _history[index];
   }
 
-  /// The selected finalized week, limited to the view size. Null while the
-  /// all-time chart is shown.
+  /// The selected finalized week, limited to the view size. Null unless a
+  /// finalized week is shown.
   ChartSnapshot? get snapshot {
     final selected = selectedHistoricalSnapshot;
 
     return selected == null ? null : _limitSnapshot(selected);
   }
 
-  /// Whether there is a chart to show, all-time or historical.
-  bool get hasChart =>
-      isViewingAllTime ? _allTimeChart != null : snapshot != null;
+  /// The week in progress, limited to the view size. Null unless This Week
+  /// is shown. Never finalized and never stored.
+  ChartSnapshot? get thisWeekSnapshot {
+    final thisWeek = _thisWeek;
+
+    return _isViewingThisWeek && thisWeek != null
+        ? _limitSnapshot(thisWeek.snapshot)
+        : null;
+  }
+
+  /// Whether there is a chart to show: career, This Week or historical.
+  bool get hasChart => isViewingAllTime
+      ? _allTimeChart != null
+      : _isViewingThisWeek
+      ? _thisWeek != null
+      : snapshot != null;
 
   /// The entries of the chart on screen.
   List<ChartEntry> get entries => isViewingAllTime
       ? _allTimeChart?.entries ?? const []
+      : _isViewingThisWeek
+      ? thisWeekSnapshot?.entries ?? const []
       : snapshot?.entries ?? const [];
+
+  /// On This Week, the entry's best position so far this week.
+  int? bestSoFarRankFor(ChartEntry entry) => _isViewingThisWeek
+      ? _thisWeek?.bestSoFarRank(entry.entity.entityId)
+      : null;
 
   bool get isEmpty => !_isLoading && _error == null && entries.isEmpty;
 
   bool get canGoToOlderWeek {
+    if (isViewingAllTime && _offersThisWeek) {
+      return true;
+    }
+
     if (_history.isEmpty) {
       return false;
     }
@@ -211,15 +250,7 @@ class ChartsController extends ChangeNotifier {
     return index + 1 < _history.length;
   }
 
-  bool get canGoToNewerWeek {
-    final index = _historyIndex;
-
-    if (index == null) {
-      return false;
-    }
-
-    return index >= 0;
-  }
+  bool get canGoToNewerWeek => !isViewingAllTime;
 
   /// Best official position the entity reached on a finalized weekly
   /// chart, or null if it never made a weekly Top 100.
@@ -239,7 +270,7 @@ class ChartsController extends ChangeNotifier {
   /// On a weekly chart, last week's #101–200 position of an entry with no
   /// official position last week; context only (SN-50 E-Q1).
   int? previousExtendedRankFor(ChartEntry entry) {
-    final week = selectedHistoricalSnapshot;
+    final week = selectedHistoricalSnapshot ?? thisWeekSnapshot;
 
     if (week == null || entry.previousFinalRank != null) {
       return null;
@@ -379,8 +410,36 @@ class ChartsController extends ChangeNotifier {
   Future<List<LibraryAlbumEdition>> _readDeluxeEditions() async {
     try {
       return await _loadDeluxeEditions?.call() ?? const [];
-    } catch (_) {
+    } catch (error, stackTrace) {
+      developer.log(
+        'Deluxe editions could not be read (${error.runtimeType}); '
+        'albums show their primary edition',
+        name: 'sonus.charts',
+        level: 900,
+        error: error,
+        stackTrace: stackTrace,
+      );
       return const [];
+    }
+  }
+
+  /// The provisional week is optional: if it can't be built, the other
+  /// views still load and the page returns to the career standings.
+  Future<ProvisionalWeekChart?> _readThisWeek(DateTime referenceLocal) async {
+    try {
+      return await _thisWeekCharts?.load(
+        chartType: _chartType,
+        referenceLocal: referenceLocal,
+      );
+    } catch (error, stackTrace) {
+      developer.log(
+        'The provisional week could not be built (${error.runtimeType})',
+        name: 'sonus.charts',
+        level: 900,
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return null;
     }
   }
 
@@ -409,6 +468,7 @@ class ChartsController extends ChangeNotifier {
 
     _chartType = value;
     _historyIndex = null;
+    _isViewingThisWeek = false;
 
     await _load(finalizeCompletedWeeks: false);
   }
@@ -420,7 +480,7 @@ class ChartsController extends ChangeNotifier {
 
     _viewSize = value;
 
-    if (isViewingHistory) {
+    if (!isViewingAllTime) {
       _notify();
       return;
     }
@@ -429,15 +489,22 @@ class ChartsController extends ChangeNotifier {
   }
 
   void showAllTime() {
-    if (_historyIndex == null) {
+    if (isViewingAllTime) {
       return;
     }
 
     _historyIndex = null;
+    _isViewingThisWeek = false;
     _notify();
   }
 
   void showOlderWeek() {
+    if (isViewingAllTime && _offersThisWeek) {
+      _isViewingThisWeek = true;
+      _notify();
+      return;
+    }
+
     if (_history.isEmpty) {
       return;
     }
@@ -445,6 +512,7 @@ class ChartsController extends ChangeNotifier {
     final index = _historyIndex;
 
     if (index == null) {
+      _isViewingThisWeek = false;
       _historyIndex = 0;
       _notify();
       return;
@@ -462,11 +530,16 @@ class ChartsController extends ChangeNotifier {
     final index = _historyIndex;
 
     if (index == null) {
+      if (_isViewingThisWeek) {
+        _isViewingThisWeek = false;
+        _notify();
+      }
       return;
     }
 
     if (index == 0) {
       _historyIndex = null;
+      _isViewingThisWeek = _offersThisWeek;
       _notify();
       return;
     }
@@ -487,6 +560,7 @@ class ChartsController extends ChangeNotifier {
     }
 
     _historyIndex = index;
+    _isViewingThisWeek = false;
     _notify();
 
     return true;
@@ -568,6 +642,10 @@ class ChartsController extends ChangeNotifier {
 
       final history = await _charts.getHistory(_chartType);
 
+      // Once per load, after completed weeks are finalized, so its movement
+      // compares with the latest finalized week.
+      final thisWeek = await _readThisWeek(referenceLocal);
+
       final tracks = await _library.getTracks();
       final albums = await _library.getAlbums();
       final artists = await _library.getArtists();
@@ -595,6 +673,10 @@ class ChartsController extends ChangeNotifier {
 
       _allTimeChart = allTime;
       _history = List<ChartSnapshot>.unmodifiable(history);
+      _thisWeek = thisWeek;
+      if (thisWeek == null) {
+        _isViewingThisWeek = false;
+      }
       _weeklyPeaks = _weeklyPeaksOf(history);
       _longevity = ChartLongevityIndex.fromHistory(history);
 

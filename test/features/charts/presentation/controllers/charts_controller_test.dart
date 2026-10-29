@@ -11,6 +11,7 @@ import 'package:sonus_next/features/library/application/repositories/library_que
 import 'package:sonus_next/features/charts/application/services/chart_finalization_service.dart';
 import 'package:sonus_next/features/charts/application/services/all_time_chart_service.dart';
 import 'package:sonus_next/features/charts/application/services/all_time_moment_service.dart';
+import 'package:sonus_next/features/charts/application/services/this_week_chart_service.dart';
 import 'package:sonus_next/features/charts/domain/entities/all_time_chart.dart';
 import 'package:sonus_next/features/charts/domain/entities/chart_entry.dart';
 import 'package:sonus_next/features/charts/domain/entities/chart_snapshot.dart';
@@ -292,6 +293,143 @@ void main() {
     await controller.selectViewSize(ChartViewSize.top25);
 
     expect(controller.snapshot?.entries.length, 25);
+  });
+
+  group('SN-50 This Week', () {
+    final provisional = _snapshot(
+      id: 'this-week',
+      chartType: ChartType.songs,
+      weekStartUtc: DateTime.utc(2026, 9, 27),
+      entries: List.generate(40, (index) => _entry(index + 1)),
+    );
+    final history = _snapshot(
+      id: 'last-week',
+      chartType: ChartType.songs,
+      weekStartUtc: DateTime.utc(2026, 9, 20),
+      finalized: true,
+    );
+
+    ({
+      ChartsController controller,
+      _FakeThisWeekChartService thisWeek,
+      _FakeChartFinalizationService finalization,
+    })
+    build() {
+      final finalization = _FakeChartFinalizationService();
+      final thisWeek = _FakeThisWeekChartService(
+        provisional,
+        finalization: finalization,
+      );
+      final controller = ChartsController(
+        allTimeCharts: _FakeAllTimeChartService(
+          snapshot: _snapshot(
+            id: 'career',
+            chartType: ChartType.songs,
+            weekStartUtc: DateTime.utc(2026, 9, 27),
+          ),
+        ),
+        finalization: finalization,
+        charts: _FakeChartRepository(
+          historyByType: {
+            ChartType.songs: [history],
+          },
+        ),
+        library: _FakeLibraryQueryRepository(),
+        now: () => referenceLocal,
+        thisWeekCharts: thisWeek,
+      );
+      return (
+        controller: controller,
+        thisWeek: thisWeek,
+        finalization: finalization,
+      );
+    }
+
+    test('is built once per load, after completed weeks are finalized, and '
+        'never replaces the default career view', () async {
+      final (:controller, :thisWeek, :finalization) = build();
+
+      await controller.load();
+
+      expect(thisWeek.callCount, 1);
+      expect(thisWeek.finalizedBeforeLoad, isTrue);
+      expect(thisWeek.lastChartType, ChartType.songs);
+      expect(thisWeek.lastReferenceLocal, referenceLocal);
+      expect(controller.isViewingAllTime, isTrue);
+      expect(controller.isViewingThisWeek, isFalse);
+      expect(controller.thisWeekSnapshot, isNull);
+      expect(controller.bestSoFarRankFor(provisional.entries.first), isNull);
+
+      controller.showOlderWeek();
+      await controller.selectViewSize(ChartViewSize.top25);
+
+      expect(thisWeek.callCount, 1);
+      expect(finalization.callCount, 1);
+    });
+
+    test('a failed provisional week leaves the other views loaded', () async {
+      final (:controller, :thisWeek, finalization: _) = build();
+      await controller.load();
+      controller.showOlderWeek();
+      expect(controller.isViewingThisWeek, isTrue);
+
+      thisWeek.error = StateError('provisional build failed');
+      await controller.refresh();
+
+      expect(controller.error, isNull);
+      expect(controller.isViewingThisWeek, isFalse);
+      expect(controller.isViewingAllTime, isTrue);
+      expect(controller.thisWeekSnapshot, isNull);
+    });
+
+    test('sits between the career standings and the finalized weeks', () async {
+      final (:controller, thisWeek: _, finalization: _) = build();
+      await controller.load();
+
+      expect(controller.canGoToNewerWeek, isFalse);
+      expect(controller.canGoToOlderWeek, isTrue);
+
+      controller.showOlderWeek();
+
+      expect(controller.isViewingThisWeek, isTrue);
+      expect(controller.isViewingAllTime, isFalse);
+      expect(controller.isViewingHistory, isFalse);
+      expect(controller.snapshot, isNull);
+      expect(controller.thisWeekSnapshot?.isFinalized, isFalse);
+      expect(controller.entries, hasLength(40));
+      expect(controller.bestSoFarRankFor(provisional.entries.first), 1);
+      expect(controller.canGoToNewerWeek, isTrue);
+
+      await controller.selectViewSize(ChartViewSize.top25);
+      expect(controller.entries, hasLength(25));
+
+      controller.showOlderWeek();
+      expect(controller.isViewingThisWeek, isFalse);
+      expect(controller.snapshot?.id, 'last-week');
+      expect(controller.bestSoFarRankFor(controller.entries.first), isNull);
+
+      controller.showNewerWeek();
+      expect(controller.isViewingThisWeek, isTrue);
+
+      controller.showNewerWeek();
+      expect(controller.isViewingAllTime, isTrue);
+
+      controller.showOlderWeek();
+      controller.showAllTime();
+      expect(controller.isViewingAllTime, isTrue);
+    });
+
+    test('switching chart type returns to the career standings', () async {
+      final (:controller, :thisWeek, finalization: _) = build();
+      await controller.load();
+      controller.showOlderWeek();
+
+      await controller.selectChartType(ChartType.albums);
+
+      expect(controller.isViewingAllTime, isTrue);
+      expect(thisWeek.callCount, 2);
+      expect(thisWeek.lastChartType, ChartType.albums);
+    });
   });
 
   test('loads raw Moments and exposes aggregated feed items', () async {
@@ -1068,6 +1206,39 @@ class _FakeAllTimeChartService implements AllTimeChartService {
       chartType: source.chartType,
       comparisonStartUtc: source.weekStartUtc,
       entries: source.entries,
+    );
+  }
+}
+
+class _FakeThisWeekChartService implements ThisWeekChartService {
+  _FakeThisWeekChartService(this.snapshot, {required this.finalization});
+
+  final ChartSnapshot snapshot;
+  final _FakeChartFinalizationService finalization;
+
+  int callCount = 0;
+  ChartType? lastChartType;
+  DateTime? lastReferenceLocal;
+  bool finalizedBeforeLoad = false;
+  Object? error;
+
+  @override
+  Future<ProvisionalWeekChart> load({
+    required ChartType chartType,
+    required DateTime referenceLocal,
+  }) async {
+    callCount++;
+    final failure = error;
+    if (failure != null) throw failure;
+    lastChartType = chartType;
+    lastReferenceLocal = referenceLocal;
+    finalizedBeforeLoad = finalization.callCount > 0;
+
+    return ProvisionalWeekChart(
+      snapshot: snapshot,
+      bestSoFarRanks: {
+        for (final entry in snapshot.entries) entry.entity.entityId: entry.rank,
+      },
     );
   }
 }

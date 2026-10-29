@@ -6,12 +6,15 @@ import 'package:sonus_next/features/analytics/domain/models/listening_history_cu
 import 'package:sonus_next/features/analytics/domain/repositories/playback_session_repository.dart';
 import 'package:sonus_next/features/analytics/domain/repositories/qualified_play_repository.dart';
 import 'package:sonus_next/features/charts/application/services/chart_snapshot_builder_service.dart';
+import 'package:sonus_next/features/charts/application/services/this_week_chart_service.dart';
 import 'package:sonus_next/features/charts/domain/entities/chart_entry.dart';
 import 'package:sonus_next/features/charts/domain/entities/chart_snapshot.dart';
 import 'package:sonus_next/features/charts/domain/models/chart_entity_snapshot.dart';
 import 'package:sonus_next/features/charts/domain/models/chart_movement.dart';
 import 'package:sonus_next/features/charts/domain/models/chart_type.dart';
 import 'package:sonus_next/features/charts/domain/repositories/chart_repository.dart';
+import 'package:sonus_next/features/charts/domain/services/chart_week_resolver.dart';
+import 'package:sonus_next/features/charts/domain/services/release_chart_eligibility.dart';
 import 'package:sonus_next/features/library/application/models/library_album.dart';
 import 'package:sonus_next/features/library/application/models/library_artist.dart';
 import 'package:sonus_next/features/library/application/models/library_track.dart';
@@ -734,6 +737,323 @@ void main() {
     expect(first.id, second.id);
     expect(first.id, contains('songs'));
   });
+
+  group('SN-50 one eligibility policy (E-Q19)', () {
+    final weekStart = DateTime.utc(2026, 9, 27);
+    final weekEnd = DateTime.utc(2026, 10, 4);
+
+    final plays = [
+      play(
+        id: '1',
+        songId: 'song-a',
+        albumId: 'album-a',
+        qualifiedAt: DateTime.utc(2026, 9, 28, 10),
+      ),
+      play(
+        id: '2',
+        songId: 'blocked-song',
+        albumId: 'album-b',
+        qualifiedAt: DateTime.utc(2026, 9, 28, 11),
+      ),
+      play(
+        id: '3',
+        songId: 'blocked-song',
+        albumId: 'album-b',
+        qualifiedAt: DateTime.utc(2026, 9, 28, 12),
+      ),
+      play(
+        id: '4',
+        songId: 'song-c',
+        albumId: 'album-c',
+        qualifiedAt: DateTime.utc(2026, 9, 28, 13),
+      ),
+    ];
+
+    ChartSnapshotBuilderService builderFor() => ChartSnapshotBuilderService(
+      qualifiedPlays: _FakeQualifiedPlayRepository(plays),
+      library: _FakeLibraryQueryRepository(
+        tracks: [
+          track(songId: 'song-a', albumId: 'album-a'),
+          track(songId: 'blocked-song', albumId: 'album-b', blocked: true),
+          track(songId: 'song-c', albumId: 'album-c'),
+        ],
+        albums: [album('album-a'), album('album-b'), album('album-c')],
+      ),
+      charts: _FakeChartRepository(),
+      playbackSessions: _FakePlaybackSessionRepository([
+        for (final qualified in plays)
+          playbackSession(
+            id: qualified.playbackSessionId,
+            songId: qualified.songId,
+            albumId: qualified.albumId,
+          ),
+      ]),
+    );
+
+    test('a song blocked when the week is finalized is left out', () async {
+      final finalized = await builderFor().build(
+        chartType: ChartType.songs,
+        weekStartUtc: weekStart,
+        weekEndUtc: weekEnd,
+        finalizedAt: weekEnd,
+      );
+
+      expect(finalized.entries.map((entry) => entry.entity.entityId), [
+        'song-c',
+        'song-a',
+      ]);
+      expect(finalized.entries.map((entry) => entry.rank), [1, 2]);
+    });
+
+    test(
+      'provisional and finalized builds rank the same plays alike',
+      () async {
+        final builder = builderFor();
+
+        for (final chartType in ChartType.values) {
+          final provisional = await builder.build(
+            chartType: chartType,
+            weekStartUtc: weekStart,
+            weekEndUtc: weekEnd,
+          );
+          final finalized = await builder.build(
+            chartType: chartType,
+            weekStartUtc: weekStart,
+            weekEndUtc: weekEnd,
+            finalizedAt: weekEnd,
+          );
+
+          List<(String, int, ChartMovement)> ranking(ChartSnapshot snapshot) =>
+              [
+                for (final entry in snapshot.entries)
+                  (entry.entity.entityId, entry.rank, entry.movement),
+              ];
+
+          expect(
+            ranking(provisional),
+            ranking(finalized),
+            reason: '$chartType',
+          );
+        }
+      },
+    );
+  });
+
+  group('SN-50 future album owner attribution (E-Q13)', () {
+    final weekStart = DateTime.utc(2026, 9, 27);
+    final weekEnd = DateTime.utc(2026, 10, 4);
+
+    // A made-up soundtrack whose songs are sung by different artists.
+    final plays = [
+      play(
+        id: '1',
+        songId: 'song-one',
+        albumId: 'soundtrack',
+        qualifiedAt: DateTime.utc(2026, 9, 28, 10),
+      ),
+      play(
+        id: '2',
+        songId: 'song-two',
+        albumId: 'soundtrack',
+        qualifiedAt: DateTime.utc(2026, 9, 28, 11),
+      ),
+    ];
+    final sessions = _FakePlaybackSessionRepository([
+      playbackSession(
+        id: 'session-1',
+        songId: 'song-one',
+        albumId: 'soundtrack',
+        artistName: 'Lead Singer',
+        albumTitle: 'Harbor Lights (Original Soundtrack)',
+      ),
+      playbackSession(
+        id: 'session-2',
+        songId: 'song-two',
+        albumId: 'soundtrack',
+        artistName: 'Duet Partner',
+        albumTitle: 'Harbor Lights (Original Soundtrack)',
+      ),
+    ]);
+
+    Future<ChartSnapshot> finalizedAlbums(List<LibraryAlbum> albums) {
+      return ChartSnapshotBuilderService(
+        qualifiedPlays: _FakeQualifiedPlayRepository(plays),
+        library: _FakeLibraryQueryRepository(tracks: const [], albums: albums),
+        charts: _FakeChartRepository(),
+        playbackSessions: sessions,
+      ).build(
+        chartType: ChartType.albums,
+        weekStartUtc: weekStart,
+        weekEndUtc: weekEnd,
+        finalizedAt: weekEnd,
+      );
+    }
+
+    test('a newly finalized album entry credits the album artist, not the '
+        'last song played', () async {
+      final snapshot = await finalizedAlbums([
+        LibraryAlbum(
+          albumId: 'soundtrack',
+          title: 'Harbor Lights (Original Soundtrack)',
+          artistId: 'artist-cast',
+          artistName: 'Harbor Lights Cast',
+          trackCount: 2,
+          dateAdded: DateTime.utc(2026, 9, 1),
+        ),
+      ]);
+
+      final entity = snapshot.entries.single.entity;
+      expect(entity.artistId, 'artist-cast');
+      expect(entity.artistName, 'Harbor Lights Cast');
+      expect(entity.title, 'Harbor Lights (Original Soundtrack)');
+    });
+
+    test('an album no longer in the library keeps the artist recorded at '
+        'play time', () async {
+      final entity = (await finalizedAlbums(const [])).entries.single.entity;
+
+      expect(entity.artistId, 'artist-soundtrack');
+      expect(entity.artistName, 'Duet Partner');
+    });
+  });
+
+  group('SN-50 This Week (E-Q5, E-Q18)', () {
+    final now = DateTime(2026, 10, 7, 12);
+    final week = const ChartWeekResolver().resolve(now);
+
+    ChartSnapshot finalizedLastWeek(List<(String, int)> ranks) {
+      final start = week.startUtc.subtract(const Duration(days: 7));
+      return ChartSnapshot(
+        id: 'last-week',
+        chartType: ChartType.songs,
+        weekStartUtc: start,
+        weekEndUtc: week.startUtc,
+        finalizedAt: week.startUtc,
+        entries: [
+          for (final (songId, rank) in ranks)
+            ChartEntry(
+              entity: ChartEntitySnapshot(
+                entityId: songId,
+                title: 'Stored $songId',
+                artistName: 'Stored Artist',
+              ),
+              rank: rank,
+              qualifiedStreamCount: 1,
+              lastQualifiedAt: start,
+              peakRank: rank,
+              peakAchievedAt: start,
+              weeksOnChart: 1,
+              movement: ChartMovement.newEntry,
+            ),
+        ],
+      );
+    }
+
+    test('is provisional, compares with the last finalized week and keeps '
+        'its best so far apart from the peak', () async {
+      DateTime at(int hours) => week.startUtc.add(Duration(hours: hours));
+      final plays = [
+        play(id: '1', songId: 'song-a', albumId: 'album-a', qualifiedAt: at(1)),
+        play(id: '2', songId: 'song-b', albumId: 'album-b', qualifiedAt: at(2)),
+        play(id: '3', songId: 'song-b', albumId: 'album-b', qualifiedAt: at(3)),
+        play(
+          id: '4',
+          songId: 'blocked',
+          albumId: 'album-x',
+          qualifiedAt: at(4),
+        ),
+      ];
+
+      final service = ThisWeekChartService(
+        // Its chart repository refuses every write.
+        builder: ChartSnapshotBuilderService(
+          qualifiedPlays: _FakeQualifiedPlayRepository(plays),
+          library: _FakeLibraryQueryRepository(
+            tracks: [
+              track(songId: 'song-a', albumId: 'album-a'),
+              track(songId: 'song-b', albumId: 'album-b'),
+              track(songId: 'blocked', albumId: 'album-x', blocked: true),
+            ],
+            albums: [album('album-a'), album('album-b')],
+          ),
+          charts: _FakeChartRepository(
+            history: [
+              finalizedLastWeek([('song-a', 3), ('song-b', 1)]),
+            ],
+          ),
+        ),
+      );
+
+      final thisWeek = await service.load(
+        chartType: ChartType.songs,
+        referenceLocal: now,
+      );
+      final snapshot = thisWeek.snapshot;
+
+      expect(snapshot.isFinalized, isFalse);
+      expect(snapshot.weekStartUtc, week.startUtc);
+      expect(snapshot.weekEndUtc, week.endUtc);
+      expect(snapshot.entries.map((entry) => entry.entity.entityId), [
+        'song-b',
+        'song-a',
+      ]);
+
+      final songA = snapshot.entries[1];
+      expect(songA.previousFinalRank, 3);
+      expect(songA.movement, ChartMovement.up);
+      expect(snapshot.entries[0].movement, ChartMovement.same);
+
+      // song-a led after the first play of the week.
+      expect(thisWeek.bestSoFarRank('song-a'), 1);
+      expect(thisWeek.bestSoFarRank('song-b'), 1);
+      expect(thisWeek.bestSoFarRank('blocked'), isNull);
+    });
+
+    test('Singles stay off the provisional release chart', () async {
+      final service = ThisWeekChartService(
+        builder: ChartSnapshotBuilderService(
+          qualifiedPlays: _FakeQualifiedPlayRepository([
+            play(
+              id: '1',
+              songId: 'song-a',
+              albumId: 'album-a',
+              qualifiedAt: week.startUtc.add(const Duration(hours: 1)),
+            ),
+            play(
+              id: '2',
+              songId: 'single-song',
+              albumId: 'single',
+              qualifiedAt: week.startUtc.add(const Duration(hours: 2)),
+            ),
+          ]),
+          library: _FakeLibraryQueryRepository(
+            tracks: const [],
+            albums: [album('album-a'), album('single')],
+          ),
+          charts: _FakeChartRepository(),
+        ),
+        releaseEligibility: const _Singles({'single'}),
+      );
+
+      final thisWeek = await service.load(
+        chartType: ChartType.albums,
+        referenceLocal: now,
+      );
+
+      expect(thisWeek.snapshot.entries.map((entry) => entry.entity.entityId), [
+        'album-a',
+      ]);
+    });
+  });
+}
+
+class _Singles implements ReleaseChartEligibility {
+  const _Singles(this.ids);
+
+  final Set<String> ids;
+
+  @override
+  Future<Set<String>> excludedAlbumIds() async => ids;
 }
 
 class _FakeQualifiedPlayRepository implements QualifiedPlayRepository {

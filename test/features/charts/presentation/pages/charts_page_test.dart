@@ -16,6 +16,7 @@ import 'package:sonus_next/features/library/presentation/pages/album_profile_pag
 import 'package:provider/provider.dart';
 import 'package:sonus_next/features/charts/application/services/chart_finalization_service.dart';
 import 'package:sonus_next/features/charts/application/services/all_time_chart_service.dart';
+import 'package:sonus_next/features/charts/application/services/this_week_chart_service.dart';
 import 'package:sonus_next/features/charts/domain/entities/all_time_chart.dart';
 import 'package:sonus_next/features/charts/domain/entities/chart_entry.dart';
 import 'package:sonus_next/features/charts/domain/entities/chart_snapshot.dart';
@@ -29,6 +30,7 @@ import 'package:sonus_next/features/charts/domain/moments/chart_moment_scope.dar
 import 'package:sonus_next/features/charts/domain/repositories/chart_moment_repository.dart';
 import 'package:sonus_next/features/charts/domain/repositories/chart_repository.dart';
 import 'package:sonus_next/features/charts/domain/models/chart_week.dart';
+import 'package:sonus_next/features/charts/domain/services/chart_week_resolver.dart';
 import 'package:sonus_next/features/charts/presentation/controllers/charts_controller.dart';
 import 'package:sonus_next/features/charts/presentation/news/moment_post_card.dart';
 import 'package:sonus_next/features/charts/presentation/pages/charts_page.dart';
@@ -903,6 +905,139 @@ void main() {
     });
   });
 
+  group('SN-50 This Week', () {
+    Future<ChartsController> withThisWeek() => _controller(
+      history: [_finalizedWeek(DateTime.utc(2026, 9, 20), ranks: 3)],
+      thisWeek: _FakeThisWeekChartService(),
+    );
+
+    testWidgets('the default view stays the career standings', (tester) async {
+      await _pumpPage(tester, await withThisWeek());
+
+      expect(find.text('Career standings'), findsOneWidget);
+      expect(find.text('CURRENT'), findsOneWidget);
+      expect(find.text('IN PROGRESS'), findsNothing);
+      expect(find.textContaining('Best so far'), findsNothing);
+    });
+
+    testWidgets('is clearly provisional, with its best so far apart from the '
+        'official peak', (tester) async {
+      final semantics = tester.ensureSemantics();
+      final controller = await withThisWeek();
+      await _pumpPage(tester, controller);
+
+      await tester.tap(find.byKey(const ValueKey<String>('charts-older-week')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Hot 100'), findsOneWidget);
+      expect(find.text('This week'), findsOneWidget);
+      expect(find.text('IN PROGRESS'), findsOneWidget);
+      expect(find.text('CURRENT'), findsNothing);
+      expect(find.text('FINAL'), findsNothing);
+      expect(
+        find.text('Updates as you listen. Final after Oct 3, 2026.'),
+        findsOneWidget,
+      );
+
+      // songs_2 led earlier this week; its official peak is last week's #2.
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey<String>('charts-entry-songs_2')),
+          matching: find.text('Best so far #1'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey<String>('charts-entry-songs_2')),
+          matching: find.text('Peak #2'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey<String>('charts-last-week-songs_1')),
+        findsOneWidget,
+      );
+      expect(find.text('Last week #3'), findsOneWidget);
+      expect(
+        find.bySemanticsLabel(RegExp('best so far this week number 1')),
+        findsWidgets,
+      );
+
+      expect(find.byTooltip('Older chart week'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey<String>('charts-older-week')));
+      await tester.pumpAndSettle();
+      expect(find.text('FINAL'), findsOneWidget);
+      expect(find.textContaining('Best so far'), findsNothing);
+
+      await tester.tap(find.byKey(const ValueKey<String>('charts-newer-week')));
+      await tester.pumpAndSettle();
+      expect(find.text('IN PROGRESS'), findsOneWidget);
+      semantics.dispose();
+    });
+
+    testWidgets('its information sheet explains This Week', (tester) async {
+      final controller = await withThisWeek();
+      await _pumpPage(tester, controller);
+      controller.showOlderWeek();
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('charts-info-button')),
+      );
+      await tester.pumpAndSettle();
+
+      final scrollable = find.descendant(
+        of: find.byKey(const ValueKey<String>('charts-info-sheet')),
+        matching: find.byType(Scrollable),
+      );
+      for (final text in [
+        'updates as you listen',
+        'Best so far is the highest position reached this week',
+        'even if it dropped out of the Top 100',
+        'most recent qualifying stream',
+      ]) {
+        await tester.scrollUntilVisible(
+          find.textContaining(text),
+          200,
+          scrollable: scrollable,
+        );
+        expect(find.textContaining(text), findsOneWidget, reason: text);
+      }
+      expect(find.text('Percentage change'), findsNothing);
+      expect(find.textContaining('start of this chart week'), findsNothing);
+    });
+
+    for (final id in SonusThemeId.values) {
+      testWidgets('${id.label} renders This Week at 320px with 2x text', (
+        tester,
+      ) async {
+        final controller = await withThisWeek();
+        await _pumpPage(
+          tester,
+          controller,
+          theme: SonusThemeFactory.build(SonusAppearanceSpec(themeId: id)),
+          size: const Size(320, 8000),
+          textScale: 2,
+        );
+
+        controller.showOlderWeek();
+        await tester.pumpAndSettle();
+
+        expect(tester.takeException(), isNull);
+        expect(find.text('IN PROGRESS'), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey<String>('charts-this-week-note')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey<String>('charts-best-so-far-songs_3')),
+          findsOneWidget,
+        );
+      });
+    }
+  });
+
   testWidgets('calendar opens when finalized chart weeks exist', (
     tester,
   ) async {
@@ -1320,6 +1455,7 @@ Future<ChartsController> _controller({
   List<ChartMomentEvent> moments = const [],
   ReleaseFormatsLoader? releaseFormats,
   DeluxeEditionsLoader? deluxeEditions,
+  ThisWeekChartService? thisWeek,
 }) async {
   final resolvedLive =
       live ?? _snapshot(id: 'live', start: DateTime.utc(2026, 9, 27));
@@ -1344,6 +1480,7 @@ Future<ChartsController> _controller({
     now: () => DateTime(2026, 9, 28, 12),
     releaseFormats: releaseFormats,
     deluxeEditions: deluxeEditions,
+    thisWeekCharts: thisWeek,
   );
 
   await controller.load();
@@ -1514,6 +1651,49 @@ ChartMomentEvent _momentEvent({
 }
 
 /// A finalized songs week of positions 1 to [ranks], each at its own rank.
+/// The week in progress: #1 rose from #3, #2 led earlier in the week.
+class _FakeThisWeekChartService implements ThisWeekChartService {
+  @override
+  Future<ProvisionalWeekChart> load({
+    required ChartType chartType,
+    required DateTime referenceLocal,
+  }) async {
+    final week = const ChartWeekResolver().resolve(referenceLocal);
+
+    ChartEntry entry(String id, int rank, int previous) => ChartEntry(
+      entity: ChartEntitySnapshot(
+        entityId: id,
+        title: 'Song ${id.split('_').last}',
+        artistName: 'Artist 1',
+        albumTitle: 'Album 1',
+      ),
+      rank: rank,
+      qualifiedStreamCount: 30 - rank,
+      lastQualifiedAt: week.startUtc,
+      previousFinalRank: previous,
+      peakRank: 1,
+      peakAchievedAt: week.startUtc,
+      weeksOnChart: 1,
+      movement: rank < previous ? ChartMovement.up : ChartMovement.down,
+    );
+
+    return ProvisionalWeekChart(
+      snapshot: ChartSnapshot(
+        id: 'this-week',
+        chartType: chartType,
+        weekStartUtc: week.startUtc,
+        weekEndUtc: week.endUtc,
+        entries: [
+          entry('songs_1', 1, 3),
+          entry('songs_2', 2, 1),
+          entry('songs_3', 3, 2),
+        ],
+      ),
+      bestSoFarRanks: const {'songs_1': 1, 'songs_2': 1, 'songs_3': 2},
+    );
+  }
+}
+
 ChartSnapshot _finalizedWeek(DateTime start, {required int ranks}) {
   final end = start.add(const Duration(days: 7));
 

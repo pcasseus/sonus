@@ -98,18 +98,27 @@ class ChartsPage extends StatelessWidget {
                   ],
 
                   if (entries.isEmpty)
-                    const _ChartsMessage(
-                      key: ValueKey<String>('charts-empty'),
-                      icon: Icons.leaderboard_outlined,
-                      title: 'No chart entries yet',
-                      message:
-                          'Every qualified listen counts toward your Sonus Hot 100 career standings.',
-                    )
+                    controller.isViewingThisWeek
+                        ? const _ChartsMessage(
+                            key: ValueKey<String>('charts-empty'),
+                            icon: Icons.leaderboard_outlined,
+                            title: 'No chart entries this week yet',
+                            message:
+                                'Qualified listens this week will appear here as you listen.',
+                          )
+                        : const _ChartsMessage(
+                            key: ValueKey<String>('charts-empty'),
+                            icon: Icons.leaderboard_outlined,
+                            title: 'No chart entries yet',
+                            message:
+                                'Every qualified listen counts toward your Sonus Hot 100 career standings.',
+                          )
                   else ...[
                     _ChartSummary(
                       chartType: controller.chartType,
                       positionCount: entries.length,
                       isWeeklyHistory: controller.isViewingHistory,
+                      isThisWeek: controller.isViewingThisWeek,
                     ),
                     const SizedBox(height: 14),
                   ],
@@ -426,10 +435,17 @@ class _WeekNavigator extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final snapshot = controller.snapshot;
+    final thisWeek = controller.thisWeekSnapshot;
 
     if (!controller.hasChart) {
       return const SizedBox.shrink();
     }
+
+    final status = snapshot != null
+        ? _ChartStatus.finalized
+        : thisWeek != null
+        ? _ChartStatus.inProgress
+        : _ChartStatus.current;
 
     return Row(
       key: const ValueKey<String>('charts-week-navigation'),
@@ -446,12 +462,14 @@ class _WeekNavigator extends StatelessWidget {
           child: Column(
             children: [
               Text(
-                snapshot == null
-                    ? 'Career standings'
-                    : chartWeekLabel(
-                        snapshot.weekStartUtc,
-                        snapshot.weekEndUtc,
-                      ),
+                switch (status) {
+                  _ChartStatus.current => 'Career standings',
+                  _ChartStatus.inProgress => 'This week',
+                  _ChartStatus.finalized => chartWeekLabel(
+                    snapshot!.weekStartUtc,
+                    snapshot.weekEndUtc,
+                  ),
+                },
                 key: const ValueKey<String>('charts-week-label'),
                 textAlign: TextAlign.center,
                 style: Theme.of(
@@ -459,7 +477,18 @@ class _WeekNavigator extends StatelessWidget {
                 ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
               ),
               const SizedBox(height: 6),
-              _ChartStatusBadge(isCurrent: snapshot == null),
+              _ChartStatusBadge(status: status),
+              if (thisWeek != null) ...[
+                const SizedBox(height: 6),
+                Text(
+                  _provisionalNote(thisWeek.weekEndUtc),
+                  key: const ValueKey<String>('charts-this-week-note'),
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: SonusTheme.of(context).colors.textSecondary,
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -484,33 +513,73 @@ class _WeekNavigator extends StatelessWidget {
   }
 }
 
-/// CURRENT for the career standings; FINAL for a finalized weekly chart.
-class _ChartStatusBadge extends StatelessWidget {
-  const _ChartStatusBadge({required this.isCurrent});
+/// "Updates as you listen. Final after Oct 31, 2026.": the week's last
+/// local day, as the week label reads it.
+String _provisionalNote(DateTime weekEndUtc) {
+  final end = weekEndUtc.toLocal();
+  final lastDay = DateTime(end.year, end.month, end.day - 1);
 
-  final bool isCurrent;
+  return 'Updates as you listen. Final after ${chartShortDate(lastDay)}.';
+}
+
+enum _ChartStatus { current, inProgress, finalized }
+
+/// CURRENT for the career standings, IN PROGRESS for This Week, FINAL for
+/// a finalized weekly chart.
+class _ChartStatusBadge extends StatelessWidget {
+  const _ChartStatusBadge({required this.status});
+
+  final _ChartStatus status;
 
   @override
   Widget build(BuildContext context) {
     final colors = SonusTheme.of(context).colors;
+    final isCurrent = status == _ChartStatus.current;
+    final isInProgress = status == _ChartStatus.inProgress;
+    final foreground = isCurrent
+        ? colors.onAccentPrimary
+        : isInProgress
+        ? colors.textPrimary
+        : colors.textSecondary;
 
-    // CURRENT is filled with the accent and FINAL is outlined, so the two
-    // read differently by shape as well as colour.
+    // CURRENT is filled with the accent, IN PROGRESS is outlined in the
+    // accent with a clock, and FINAL is outlined plainly, so the three read
+    // differently by shape and text as well as colour.
     return Container(
       key: const ValueKey<String>('charts-snapshot-status'),
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
       decoration: BoxDecoration(
         color: isCurrent ? colors.accentPrimary : Colors.transparent,
-        border: isCurrent ? null : Border.all(color: colors.border),
+        border: isCurrent
+            ? null
+            : Border.all(
+                color: isInProgress ? colors.accentPrimary : colors.border,
+                width: isInProgress ? 1.5 : 1,
+              ),
         borderRadius: BorderRadius.circular(999),
       ),
-      child: Text(
-        isCurrent ? 'CURRENT' : 'FINAL',
-        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-          fontWeight: FontWeight.w900,
-          letterSpacing: 1.2,
-          color: isCurrent ? colors.onAccentPrimary : colors.textSecondary,
-        ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (isInProgress) ...[
+            Icon(Icons.schedule_rounded, size: 14, color: foreground),
+            const SizedBox(width: 4),
+          ],
+          Flexible(
+            child: Text(
+              switch (status) {
+                _ChartStatus.current => 'CURRENT',
+                _ChartStatus.inProgress => 'IN PROGRESS',
+                _ChartStatus.finalized => 'FINAL',
+              },
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                fontWeight: FontWeight.w900,
+                letterSpacing: 1.2,
+                color: foreground,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -578,11 +647,13 @@ class _ChartSummary extends StatelessWidget {
     required this.chartType,
     required this.positionCount,
     required this.isWeeklyHistory,
+    required this.isThisWeek,
   });
 
   final ChartType chartType;
   final int positionCount;
   final bool isWeeklyHistory;
+  final bool isThisWeek;
 
   @override
   Widget build(BuildContext context) {
@@ -631,6 +702,7 @@ class _ChartSummary extends StatelessWidget {
             context,
             chartType,
             isWeeklyHistory: isWeeklyHistory,
+            isThisWeek: isThisWeek,
           ),
         ),
       ],
@@ -666,7 +738,7 @@ class _ChartEntryItem extends StatelessWidget {
     final longevity = controller.longevityFor(entry);
 
     final unavailableLiveTrack =
-        controller.isViewingAllTime &&
+        !controller.isViewingHistory &&
         chartType == ChartType.songs &&
         track != null &&
         !controller.isTrackInteractive(entry);
@@ -740,6 +812,10 @@ class _ChartEntryItem extends StatelessWidget {
       status: status,
       longevity: longevity,
       previousExtendedRank: controller.previousExtendedRankFor(entry),
+      bestSoFarRank: controller.bestSoFarRankFor(entry),
+      weeklyPeakRank: controller.isViewingThisWeek
+          ? controller.weeklyPeakFor(entry)
+          : null,
       onTap: onTap,
     );
   }

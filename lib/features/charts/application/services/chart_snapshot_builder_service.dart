@@ -115,6 +115,7 @@ class ChartSnapshotBuilderService {
         if (isHistoricalBuild) {
           return _buildHistoricalSongSnapshot(
             plays: plays,
+            tracks: await _library.getTracks(),
             sessionsById: sessionsById,
             historyByEntityId: historyByEntityId,
             weekStartUtc: startUtc,
@@ -137,6 +138,7 @@ class ChartSnapshotBuilderService {
         if (isHistoricalBuild) {
           return _buildHistoricalAlbumSnapshot(
             plays: plays,
+            albums: await _library.getAlbums(),
             sessionsById: sessionsById,
             historyByEntityId: historyByEntityId,
             weekStartUtc: startUtc,
@@ -271,8 +273,11 @@ class ChartSnapshotBuilderService {
     );
   }
 
+  /// Blocked songs are left out as on the live chart, judged when the week
+  /// is finalized; the stored week then never changes (SN-50 E-Q19).
   ChartSnapshot _buildHistoricalSongSnapshot({
     required List<QualifiedPlay> plays,
+    required List<LibraryTrack> tracks,
     required Map<String, PlaybackSession> sessionsById,
     required Map<String, ChartRankingHistory> historyByEntityId,
     required DateTime weekStartUtc,
@@ -286,9 +291,17 @@ class ChartSnapshotBuilderService {
       chartType: ChartType.songs,
     );
 
+    final blockedSongIds = {
+      for (final track in tracks)
+        if (track.isBlocked) track.songId,
+    };
+
     final ranked = _rankingEngine.rank(
       events: _eventsFor(plays: plays, chartType: ChartType.songs),
       historyByEntityId: historyByEntityId,
+      eligibleEntityIds: identityBySongId.keys
+          .where((songId) => !blockedSongIds.contains(songId))
+          .toSet(),
       includeObservedPeakInResult: false,
     );
 
@@ -314,6 +327,7 @@ class ChartSnapshotBuilderService {
 
   ChartSnapshot _buildHistoricalAlbumSnapshot({
     required List<QualifiedPlay> plays,
+    required List<LibraryAlbum> albums,
     required Map<String, PlaybackSession> sessionsById,
     required Map<String, ChartRankingHistory> historyByEntityId,
     required DateTime weekStartUtc,
@@ -325,6 +339,7 @@ class ChartSnapshotBuilderService {
       plays: plays,
       sessionsById: sessionsById,
       chartType: ChartType.albums,
+      albumsById: {for (final album in albums) album.albumId: album},
     );
 
     final ranked = _rankingEngine.rank(
@@ -371,10 +386,14 @@ class ChartSnapshotBuilderService {
         .toList(growable: false);
   }
 
+  /// Identity as recorded at play time, last play winning. A release is
+  /// credited to its own artist while it is in the library, never to the
+  /// artist of a song on it (SN-50 E-Q13).
   static Map<String, ChartEntitySnapshot> _historicalIdentityByEntity({
     required List<QualifiedPlay> plays,
     required Map<String, PlaybackSession> sessionsById,
     required ChartType chartType,
+    Map<String, LibraryAlbum> albumsById = const {},
   }) {
     final ordered = [...plays]
       ..sort((a, b) {
@@ -405,11 +424,12 @@ class ChartSnapshotBuilderService {
           );
 
         case ChartType.albums:
+          final album = albumsById[play.albumId];
           identities[play.albumId] = ChartEntitySnapshot(
             entityId: play.albumId,
             title: session.albumTitle,
-            artistId: session.artistId,
-            artistName: session.artistName,
+            artistId: album?.artistId ?? session.artistId,
+            artistName: album?.artistName ?? session.artistName,
           );
       }
     }
