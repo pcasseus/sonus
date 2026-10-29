@@ -1,5 +1,6 @@
 import '../../domain/entities/album_edition.dart';
 import '../../domain/entities/song.dart';
+import 'release_display_title.dart';
 
 class LibraryTrack {
   const LibraryTrack({
@@ -9,6 +10,7 @@ class LibraryTrack {
     required this.artistName,
     required this.albumId,
     required this.albumTitle,
+    this.primaryEditionTitle,
     required this.albumEditionId,
     required this.albumEditionTitle,
     required this.albumEditionType,
@@ -36,7 +38,19 @@ class LibraryTrack {
   final String artistName;
 
   final String albumId;
+
+  /// The release's stored base title. Charts and listening history record
+  /// this one, so it must not follow the primary edition.
   final String albumTitle;
+
+  /// The release's primary edition title, when read.
+  final String? primaryEditionTitle;
+
+  /// The release title shown in current lists (SN-50 A-Q3).
+  String get albumDisplayTitle => releaseDisplayTitle(
+    baseTitle: albumTitle,
+    editionTitle: primaryEditionTitle,
+  );
 
   final String albumEditionId;
   final String albumEditionTitle;

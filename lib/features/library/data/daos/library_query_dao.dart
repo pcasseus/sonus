@@ -36,6 +36,45 @@ class LibraryQueryDao {
           )
         END''';
 
+  /// The song's release's primary edition as `tpe` and its cover as `tpa`,
+  /// for track rows with `s` (songs) joined.
+  static final String _trackPrimaryEditionJoins =
+      '''
+      LEFT JOIN ${DatabaseTables.albumEditions} tpe
+        ON tpe.id = (
+          SELECT pae.id
+          FROM ${DatabaseTables.albumEditions} pae
+          WHERE pae.album_id = s.album_id
+            AND pae.is_primary = 1
+          ORDER BY
+            pae.release_date ASC,
+            pae.title COLLATE NOCASE ASC,
+            pae.id ASC
+          LIMIT 1
+        )
+      LEFT JOIN ${DatabaseTables.artworkAssets} tpa
+        ON tpa.id = tpe.artwork_id''';
+
+  /// A song's artwork outside any edition view (SN-50 A-Q12): its own
+  /// artwork, then the primary edition's cover when the song is listed
+  /// there, then its home edition's cover, then the primary edition's cover.
+  static String _standaloneArtwork(String column) =>
+      '''
+        COALESCE(
+          sa.$column,
+          CASE
+            WHEN EXISTS (
+              SELECT 1
+              FROM ${DatabaseTables.albumEditionTracks} ptl
+              WHERE ptl.album_edition_id = tpe.id
+                AND ptl.song_id = s.id
+            )
+            THEN tpa.$column
+          END,
+          ea.$column,
+          tpa.$column
+        )''';
+
   Future<List<LibraryTrack>> findTracks({
     LibraryTrackOrder order = LibraryTrackOrder.title,
   }) async {
@@ -47,6 +86,7 @@ class LibraryQueryDao {
         ar.name AS artist_name,
         s.album_id AS album_id,
         al.title AS album_title,
+        tpe.title AS primary_edition_title,
         s.album_edition_id AS album_edition_id,
         ae.title AS album_edition_title,
         ae.type AS edition_type,
@@ -63,8 +103,8 @@ class LibraryQueryDao {
         s.created_at AS created_at,
         m.file_path AS file_path,
         COALESCE(m.is_available, 0) AS is_available,
-        COALESCE(sa.id, ea.id) AS artwork_id,
-        COALESCE(sa.file_path, ea.file_path) AS artwork_path
+        ${_standaloneArtwork('id')} AS artwork_id,
+        ${_standaloneArtwork('file_path')} AS artwork_path
       FROM ${DatabaseTables.songs} s
       INNER JOIN ${DatabaseTables.artists} ar
         ON ar.id = s.artist_id
@@ -76,6 +116,7 @@ class LibraryQueryDao {
         ON sa.id = s.artwork_id
       LEFT JOIN ${DatabaseTables.artworkAssets} ea
         ON ea.id = ae.artwork_id
+      $_trackPrimaryEditionJoins
       LEFT JOIN ${DatabaseTables.mediaFileBindings} m
         ON m.id = (
           SELECT mb.id
@@ -100,6 +141,7 @@ class LibraryQueryDao {
         ar.name AS artist_name,
         s.album_id AS album_id,
         al.title AS album_title,
+        tpe.title AS primary_edition_title,
         s.album_edition_id AS album_edition_id,
         ae.title AS album_edition_title,
         ae.type AS edition_type,
@@ -116,8 +158,8 @@ class LibraryQueryDao {
         s.created_at AS created_at,
         m.file_path AS file_path,
         COALESCE(m.is_available, 0) AS is_available,
-        COALESCE(sa.id, ea.id) AS artwork_id,
-        COALESCE(sa.file_path, ea.file_path) AS artwork_path
+        ${_standaloneArtwork('id')} AS artwork_id,
+        ${_standaloneArtwork('file_path')} AS artwork_path
       FROM ${DatabaseTables.songs} s
       INNER JOIN ${DatabaseTables.artists} ar
         ON ar.id = s.artist_id
@@ -129,6 +171,7 @@ class LibraryQueryDao {
         ON sa.id = s.artwork_id
       LEFT JOIN ${DatabaseTables.artworkAssets} ea
         ON ea.id = ae.artwork_id
+      $_trackPrimaryEditionJoins
       LEFT JOIN ${DatabaseTables.mediaFileBindings} m
         ON m.id = (
           SELECT mb.id
@@ -224,6 +267,7 @@ class LibraryQueryDao {
         ar.name AS artist_name,
         s.album_id AS album_id,
         al.title AS album_title,
+        tpe.title AS primary_edition_title,
         s.album_edition_id AS album_edition_id,
         ae.title AS album_edition_title,
         ae.type AS edition_type,
@@ -240,8 +284,8 @@ class LibraryQueryDao {
         s.created_at AS created_at,
         m.file_path AS file_path,
         COALESCE(m.is_available, 0) AS is_available,
-        COALESCE(sa.id, ea.id) AS artwork_id,
-        COALESCE(sa.file_path, ea.file_path) AS artwork_path
+        ${_standaloneArtwork('id')} AS artwork_id,
+        ${_standaloneArtwork('file_path')} AS artwork_path
       FROM ${DatabaseTables.songs} s
       INNER JOIN ${DatabaseTables.artists} ar
         ON ar.id = s.artist_id
@@ -253,6 +297,7 @@ class LibraryQueryDao {
         ON sa.id = s.artwork_id
       LEFT JOIN ${DatabaseTables.artworkAssets} ea
         ON ea.id = ae.artwork_id
+      $_trackPrimaryEditionJoins
       LEFT JOIN ${DatabaseTables.mediaFileBindings} m
         ON m.id = (
           SELECT mb.id
@@ -286,6 +331,7 @@ class LibraryQueryDao {
         ar.name AS artist_name,
         s.album_id AS album_id,
         al.title AS album_title,
+        tpe.title AS primary_edition_title,
         s.album_edition_id AS album_edition_id,
         ae.title AS album_edition_title,
         ae.type AS edition_type,
@@ -302,8 +348,8 @@ class LibraryQueryDao {
         s.created_at AS created_at,
         m.file_path AS file_path,
         COALESCE(m.is_available, 0) AS is_available,
-        COALESCE(sa.id, ea.id) AS artwork_id,
-        COALESCE(sa.file_path, ea.file_path) AS artwork_path
+        ${_standaloneArtwork('id')} AS artwork_id,
+        ${_standaloneArtwork('file_path')} AS artwork_path
       FROM ${DatabaseTables.songs} s
       INNER JOIN ${DatabaseTables.artists} ar
         ON ar.id = s.artist_id
@@ -315,6 +361,7 @@ class LibraryQueryDao {
         ON sa.id = s.artwork_id
       LEFT JOIN ${DatabaseTables.artworkAssets} ea
         ON ea.id = ae.artwork_id
+      $_trackPrimaryEditionJoins
       LEFT JOIN ${DatabaseTables.mediaFileBindings} m
         ON m.id = (
           SELECT mb.id
@@ -374,6 +421,7 @@ class LibraryQueryDao {
         ar.name AS artist_name,
         s.album_id AS album_id,
         al.title AS album_title,
+        tpe.title AS primary_edition_title,
         s.album_edition_id AS album_edition_id,
         ae.title AS album_edition_title,
         ae.type AS edition_type,
@@ -390,8 +438,8 @@ class LibraryQueryDao {
         s.created_at AS created_at,
         m.file_path AS file_path,
         COALESCE(m.is_available, 0) AS is_available,
-        COALESCE(sa.id, ea.id) AS artwork_id,
-        COALESCE(sa.file_path, ea.file_path) AS artwork_path
+        ${_standaloneArtwork('id')} AS artwork_id,
+        ${_standaloneArtwork('file_path')} AS artwork_path
       FROM ${DatabaseTables.songs} s
       INNER JOIN ${DatabaseTables.songArtistCredits} sac
         ON sac.song_id = s.id
@@ -405,6 +453,7 @@ class LibraryQueryDao {
         ON sa.id = s.artwork_id
       LEFT JOIN ${DatabaseTables.artworkAssets} ea
         ON ea.id = ae.artwork_id
+      $_trackPrimaryEditionJoins
       LEFT JOIN ${DatabaseTables.mediaFileBindings} m
         ON m.id = (
           SELECT mb.id
@@ -436,6 +485,7 @@ class LibraryQueryDao {
         ar.name AS artist_name,
         s.album_id AS album_id,
         al.title AS album_title,
+        tpe.title AS primary_edition_title,
         s.album_edition_id AS album_edition_id,
         ae.title AS album_edition_title,
         ae.type AS edition_type,
@@ -452,8 +502,8 @@ class LibraryQueryDao {
         s.created_at AS created_at,
         m.file_path AS file_path,
         COALESCE(m.is_available, 0) AS is_available,
-        COALESCE(sa.id, ea.id) AS artwork_id,
-        COALESCE(sa.file_path, ea.file_path) AS artwork_path
+        ${_standaloneArtwork('id')} AS artwork_id,
+        ${_standaloneArtwork('file_path')} AS artwork_path
       FROM ${DatabaseTables.songs} s
       INNER JOIN ${DatabaseTables.artists} ar
         ON ar.id = s.artist_id
@@ -465,6 +515,7 @@ class LibraryQueryDao {
         ON sa.id = s.artwork_id
       LEFT JOIN ${DatabaseTables.artworkAssets} ea
         ON ea.id = ae.artwork_id
+      $_trackPrimaryEditionJoins
       LEFT JOIN ${DatabaseTables.mediaFileBindings} m
         ON m.id = (
           SELECT mb.id
@@ -534,6 +585,7 @@ class LibraryQueryDao {
         ar.name AS artist_name,
         s.album_id AS album_id,
         al.title AS album_title,
+        tpe.title AS primary_edition_title,
         aet.album_edition_id AS album_edition_id,
         ae.title AS album_edition_title,
         ae.type AS edition_type,
@@ -550,8 +602,8 @@ class LibraryQueryDao {
         s.created_at AS created_at,
         m.file_path AS file_path,
         COALESCE(m.is_available, 0) AS is_available,
-        COALESCE(sa.id, ea.id) AS artwork_id,
-        COALESCE(sa.file_path, ea.file_path) AS artwork_path
+        COALESCE(sa.id, ea.id, tpa.id) AS artwork_id,
+        COALESCE(sa.file_path, ea.file_path, tpa.file_path) AS artwork_path
       FROM ${DatabaseTables.albumEditionTracks} aet
       INNER JOIN ${DatabaseTables.songs} s
         ON s.id = aet.song_id
@@ -566,6 +618,7 @@ class LibraryQueryDao {
         ON sa.id = s.artwork_id
       LEFT JOIN ${DatabaseTables.artworkAssets} ea
         ON ea.id = ae.artwork_id
+      $_trackPrimaryEditionJoins
       LEFT JOIN ${DatabaseTables.mediaFileBindings} m
         ON m.id = (
           SELECT mb.id
@@ -933,6 +986,9 @@ class LibraryQueryDao {
                     album.title,
                   ).contains(normalizedQuery) ||
                   _normalizeSearchText(
+                    album.displayTitle,
+                  ).contains(normalizedQuery) ||
+                  _normalizeSearchText(
                     album.artistName,
                   ).contains(normalizedQuery);
             })
@@ -940,8 +996,8 @@ class LibraryQueryDao {
           ..sort(
             (a, b) => _compareSearchCandidates(
               query: normalizedQuery,
-              aPrimary: a.title,
-              bPrimary: b.title,
+              aPrimary: a.displayTitle,
+              bPrimary: b.displayTitle,
               aSecondary: a.artistName,
               bSecondary: b.artistName,
               aTieBreaker: a.albumId,
@@ -964,6 +1020,12 @@ class LibraryQueryDao {
 
               if (_normalizeSearchText(
                 track.albumTitle,
+              ).contains(normalizedQuery)) {
+                return true;
+              }
+
+              if (_normalizeSearchText(
+                track.albumDisplayTitle,
               ).contains(normalizedQuery)) {
                 return true;
               }

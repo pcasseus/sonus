@@ -28,6 +28,7 @@ abstract final class LibraryTrackRowMapper {
       artistName: row['artist_name'] as String,
       albumId: row['album_id'] as String,
       albumTitle: row['album_title'] as String,
+      primaryEditionTitle: row['primary_edition_title'] as String?,
       albumEditionId: row['album_edition_id'] as String,
       albumEditionTitle: row['album_edition_title'] as String,
       albumEditionType: editionType,

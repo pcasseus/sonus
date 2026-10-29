@@ -159,7 +159,7 @@ class _SearchPageState extends State<SearchPage> {
       MaterialPageRoute<void>(
         builder: (_) => AlbumProfilePage(
           albumId: album.albumId,
-          initialAlbumTitle: album.title,
+          initialAlbumTitle: album.displayTitle,
         ),
       ),
     );
@@ -181,7 +181,7 @@ class _SearchPageState extends State<SearchPage> {
       MaterialPageRoute<void>(
         builder: (_) => AlbumProfilePage(
           albumId: track.albumId,
-          initialAlbumTitle: track.albumTitle,
+          initialAlbumTitle: track.albumDisplayTitle,
           initialEditionId: track.albumEditionId,
         ),
       ),
@@ -882,7 +882,7 @@ class _AlbumResultTile extends StatelessWidget {
         size: 52,
         placeholderIcon: Icons.album_rounded,
       ),
-      title: album.title,
+      title: album.displayTitle,
       subtitle:
           '${album.artistName} • '
           '${album.trackCount} ${album.trackCount == 1 ? 'track' : 'tracks'}',
@@ -919,7 +919,7 @@ class _TrackResultTile extends StatelessWidget {
                 track.filePath == null ||
                 track.filePath!.trim().isEmpty
           ? '${track.artistName} • Unavailable'
-          : '${track.artistName} • ${track.albumTitle}',
+          : '${track.artistName} • ${track.albumDisplayTitle}',
       duration: sonusFormatDuration(track.durationSeconds),
       trailing: PopupMenuButton<_TrackSearchAction>(
         key: ValueKey<String>('search-track-menu-${track.songId}'),

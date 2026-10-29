@@ -729,7 +729,7 @@ class _TrackTile extends StatelessWidget {
       if (track.featuredArtists.isNotEmpty)
         'feat. ${track.featuredArtists.join(', ')}',
     ].join(' ');
-    final albumTitle = track.albumTitle.trim();
+    final albumTitle = track.albumDisplayTitle.trim();
 
     return SonusTrackTile(
       inkKey: ValueKey<String>('track-${track.songId}'),

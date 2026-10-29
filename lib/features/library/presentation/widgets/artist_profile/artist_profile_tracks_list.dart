@@ -328,7 +328,7 @@ class _TrackTile extends StatelessWidget {
       parts.add(artistName);
     }
 
-    final albumTitle = track.albumTitle.trim();
+    final albumTitle = track.albumDisplayTitle.trim();
 
     if (albumTitle.isNotEmpty) {
       parts.add(albumTitle);

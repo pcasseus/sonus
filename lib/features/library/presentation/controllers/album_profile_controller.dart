@@ -313,7 +313,10 @@ class AlbumProfileController extends ChangeNotifier {
     return true;
   }
 
-  Future<bool> updateSelectedEditionTrackPlacement({
+  /// Saves [track]'s placement on the selected edition. Returns null when
+  /// nothing changed.
+  Future<AlbumEditionTrackPlacementResult?>
+  updateSelectedEditionTrackPlacement({
     String? userId,
     required LibraryTrack track,
     required int discNumber,
@@ -326,7 +329,7 @@ class AlbumProfileController extends ChangeNotifier {
         selectedEdition == null ||
         _repository is! AlbumEditionQueryRepository ||
         track.albumEditionId != selectedEdition.editionId) {
-      return false;
+      return null;
     }
 
     final result = await service.updateTrackPlacement(
@@ -338,12 +341,12 @@ class AlbumProfileController extends ChangeNotifier {
     );
 
     if (!result.changed) {
-      return false;
+      return null;
     }
 
     await refresh();
 
-    return true;
+    return result;
   }
 
   Future<List<SongArtistCredit>> getTrackAdditionalCredits(

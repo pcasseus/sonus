@@ -751,7 +751,7 @@ void main() {
           trackNumber: 12,
         );
 
-        expect(changed, isTrue);
+        expect(changed, isNotNull);
         expect(service.placementCallCount, 1);
         expect(service.lastEditionId, 'edition-deluxe');
         expect(service.lastSongId, 'shared-song');

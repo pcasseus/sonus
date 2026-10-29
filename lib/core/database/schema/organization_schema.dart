@@ -5,9 +5,10 @@ import '../database_tables.dart';
 /// How the library is organized beyond the credits themselves: what kind of
 /// release an album is, and where an artist is shown.
 ///
-/// Both tables are device-local (not in backups, not synced). Their rows
-/// cascade away with their album or artist, and survive restores, which
-/// update albums and artists in place.
+/// Both tables are in backups and travel in the cloud archive, but their
+/// writes are not queued as sync mutations. Their rows cascade away with
+/// their album or artist, and survive restores, which update albums and
+/// artists in place.
 abstract final class OrganizationSchema {
   static Future<void> create(DatabaseExecutor db) async {
     await createAlbumReleaseClassifications(db);

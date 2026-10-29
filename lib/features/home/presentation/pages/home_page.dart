@@ -731,7 +731,7 @@ class _AlbumsRail extends StatelessWidget {
         return _RailCard(
           cardKey: ValueKey<String>('home-new-album-${album.albumId}'),
           width: cardWidth,
-          title: album.title,
+          title: album.displayTitle,
           subtitle: album.artistName,
           artwork: _AlbumArtwork(album: album, size: cardWidth),
           onTap: () {
@@ -739,7 +739,7 @@ class _AlbumsRail extends StatelessWidget {
               MaterialPageRoute<void>(
                 builder: (_) => AlbumProfilePage(
                   albumId: album.albumId,
-                  initialAlbumTitle: album.title,
+                  initialAlbumTitle: album.displayTitle,
                 ),
               ),
             );
@@ -1074,7 +1074,7 @@ Future<void> _showTrackContext(
                   overflow: TextOverflow.ellipsis,
                 ),
                 subtitle: Text(
-                  '${track.artistName} · ${track.albumTitle}',
+                  '${track.artistName} · ${track.albumDisplayTitle}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -1131,7 +1131,7 @@ Future<void> _showTrackContext(
                     MaterialPageRoute<void>(
                       builder: (_) => AlbumProfilePage(
                         albumId: track.albumId,
-                        initialAlbumTitle: track.albumTitle,
+                        initialAlbumTitle: track.albumDisplayTitle,
                         initialEditionId: track.albumEditionId,
                       ),
                     ),

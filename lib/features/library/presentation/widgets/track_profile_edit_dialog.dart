@@ -166,7 +166,7 @@ class _TrackProfileEditDialogState extends State<TrackProfileEditDialog> {
                       DropdownMenuItem(
                         value: album.albumId,
                         child: Text(
-                          '${album.title} \u2014 ${album.artistName}',
+                          '${album.displayTitle} \u2014 ${album.artistName}',
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),

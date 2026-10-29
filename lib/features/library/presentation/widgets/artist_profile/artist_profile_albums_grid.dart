@@ -107,7 +107,7 @@ class _AlbumCard extends StatelessWidget {
             ),
             const SizedBox(height: 10),
             Text(
-              album.title,
+              album.displayTitle,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: theme.textTheme.titleSmall?.copyWith(
@@ -157,7 +157,7 @@ class _AlbumArtworkThumbnail extends StatelessWidget {
       fit: BoxFit.cover,
       // Decoded at its display size, never at the cover's full resolution.
       cacheWidth: (size * MediaQuery.devicePixelRatioOf(context)).round(),
-      semanticLabel: album.title,
+      semanticLabel: album.displayTitle,
       errorBuilder: (context, error, stackTrace) {
         return _fallback(context);
       },

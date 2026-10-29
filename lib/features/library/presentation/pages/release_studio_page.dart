@@ -15,8 +15,10 @@ import '../../application/models/external_metadata_search_query.dart';
 import '../../application/models/library_album_edition.dart';
 import '../../application/models/library_artist.dart';
 import '../../application/models/library_track.dart';
+import '../../application/models/release_display_title.dart';
 import '../../application/repositories/library_query_repository.dart';
 import '../../application/services/album_edition_management_service.dart';
+import '../../application/services/album_edition_track_ordering_service.dart';
 import '../../application/services/artist_creation_service.dart';
 import '../../application/services/external_metadata_application_service.dart';
 import '../../application/services/external_metadata_proposal_service.dart';
@@ -25,6 +27,7 @@ import '../../application/services/metadata_provider.dart';
 import '../../data/services/edition_follow_up_dismissals.dart';
 import '../../domain/entities/album_edition.dart';
 import '../../domain/entities/release_date.dart';
+import '../../domain/services/album_edition_track_order.dart';
 import '../controllers/album_profile_controller.dart';
 import '../widgets/album_studio/album_studio_editions_section.dart';
 import '../widgets/album_studio/album_studio_release_type.dart';
@@ -213,6 +216,22 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
           : null,
     );
 
+    // The selected edition's title is the one name to edit (SN-50 A-Q4);
+    // the stored base title is never changed here.
+    final nameRow = _DetailRow(
+      key: const ValueKey<String>('release-studio-name'),
+      label: perEdition ? 'Name of ${_editionDisplayLabel(edition)}' : 'Name',
+      value: _shownName ?? '',
+      onEdit:
+          canEdit &&
+              !_isSavingDetails &&
+              edition != null &&
+              widget.editionManagement != null
+          ? _rename
+          : null,
+    );
+    final genres = _differingEditionGenres;
+
     return ListView(
       key: const ValueKey<String>('release-studio-details'),
       padding: _tabPadding(context),
@@ -221,12 +240,7 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
         const SizedBox(height: 16),
         _StudioCard(
           children: [
-            _DetailRow(
-              key: const ValueKey<String>('release-studio-name'),
-              label: 'Name',
-              value: album?.title ?? '',
-              onEdit: canEdit && !_isSavingDetails ? _rename : null,
-            ),
+            if (!perEdition) nameRow,
             _DetailRow(
               key: const ValueKey<String>('release-studio-owner'),
               label: 'Artist or project',
@@ -246,16 +260,20 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
             ),
           ],
         ),
+        if (genres.length > 1) ...[
+          const SizedBox(height: 8),
+          _GenreReviewNote(genres: genres),
+        ],
         if (perEdition) ...[
           const SizedBox(height: 16),
           const _SectionNote(
-            'Each edition keeps its own release date. Choose the edition to '
-            'change.',
+            'Each edition keeps its own name and release date. Choose the '
+            'edition to change.',
           ),
           const SizedBox(height: 8),
           _EditionSelector(controller: controller),
           const SizedBox(height: 8),
-          _StudioCard(children: [dateRow]),
+          _StudioCard(children: [nameRow, dateRow]),
         ],
         if (_isSavingDetails) ...[
           const SizedBox(height: 8),
@@ -317,7 +335,6 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
 
   /// Saves one release-level field; the others keep their values.
   Future<void> _saveDetails({
-    String? title,
     String? artistId,
     Object? releaseDate = _unchanged,
     Object? genre = _unchanged,
@@ -335,7 +352,7 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
     try {
       final changed = await controller.updateProfile(
         userId: widget.userId,
-        title: title ?? album.title,
+        title: album.title,
         artistId: artistId ?? album.artistId,
         editionTitle: album.primaryEditionTitle ?? album.title,
         editionType: album.primaryEditionType ?? AlbumEditionType.standard,
@@ -361,20 +378,79 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
 
   static const Object _unchanged = Object();
 
-  Future<void> _rename() async {
+  /// The selected edition's name as the release shows it.
+  String? get _shownName {
     final album = controller.album;
-    if (album == null) return;
+    final edition = controller.selectedEdition;
+    if (album == null) return null;
+    if (edition == null) return album.displayTitle;
+    return releaseDisplayTitle(
+      baseTitle: album.displayTitle,
+      editionTitle: edition.title,
+    );
+  }
+
+  /// Genre is shared by the release (SN-50 A1); editions that still hold
+  /// different genres are pointed out, never rewritten (A-Q17B).
+  List<String> get _differingEditionGenres {
+    final genres = <String, String>{};
+    for (final edition in controller.editions) {
+      final genre = edition.genre?.trim() ?? '';
+      if (genre.isEmpty) continue;
+      genres.putIfAbsent(genre.toLowerCase(), () => genre);
+    }
+    return genres.values.toList(growable: false);
+  }
+
+  Future<void> _rename() async {
+    final edition = controller.selectedEdition;
+    final management = widget.editionManagement;
+    final current = _shownName;
+    if (edition == null || management == null || current == null) return;
 
     final name = await _askForText(
-      title: 'Rename release',
+      title: controller.editions.length > 1
+          ? 'Rename ${_editionDisplayLabel(edition)}'
+          : 'Rename release',
       label: 'Release name',
-      initial: album.title,
+      initial: current,
       fieldKey: 'release-studio-name-field',
       saveKey: 'release-studio-save-name',
       required: true,
     );
-    if (name == null || name == album.title) return;
-    await _saveDetails(title: name, message: 'Release renamed.');
+    if (name == null || name.trim() == current.trim() || !mounted) return;
+
+    setState(() => _isSavingDetails = true);
+    final messenger = ScaffoldMessenger.of(context);
+
+    try {
+      await management.updateEdition(
+        editionId: edition.editionId,
+        title: name,
+        userId: widget.userId,
+      );
+      await controller.refresh();
+      messenger.showSnackBar(const SnackBar(content: Text('Release renamed.')));
+    } on AlbumEditionManagementException catch (error) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(AlbumStudioEditionsSection.messageFor(error.refusal)),
+        ),
+      );
+    } catch (error, stackTrace) {
+      developer.log(
+        'Release name could not be saved (${error.runtimeType})',
+        name: 'sonus.library.release_studio',
+        level: 900,
+        error: error,
+        stackTrace: stackTrace,
+      );
+      messenger.showSnackBar(
+        const SnackBar(content: Text('The name could not be saved.')),
+      );
+    } finally {
+      if (mounted) setState(() => _isSavingDetails = false);
+    }
   }
 
   Future<void> _editGenre() async {
@@ -1103,28 +1179,85 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
       return;
     }
 
+    final edition = controller.selectedEdition;
+    final AlbumEditionTrackPlacementResult? result;
     try {
-      final changed = await controller.updateSelectedEditionTrackPlacement(
+      result = await controller.updateSelectedEditionTrackPlacement(
         userId: widget.userId,
         track: track,
         discNumber: draft.discNumber,
         trackNumber: draft.trackNumber,
       );
-
-      if (!mounted || !changed) {
-        return;
-      }
-
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Track placement updated.')));
-    } catch (_) {
+    } catch (error, stackTrace) {
+      developer.log(
+        'Track placement could not be saved (${error.runtimeType})',
+        name: 'sonus.library.release_studio',
+        level: 900,
+        error: error,
+        stackTrace: stackTrace,
+      );
       if (!mounted) {
         return;
       }
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Could not update track placement.')),
+      );
+      return;
+    }
+
+    if (!mounted || result == null) {
+      return;
+    }
+
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(const SnackBar(content: Text('Track placement updated.')));
+
+    if (result.manualNumbersKept > 0 && edition != null) {
+      await _offerManualRenumber(edition, result.manualNumbersKept);
+    }
+  }
+
+  /// A disc move renumbers only inferred numbers; hand-set ones change
+  /// only after the user agrees (SN-50 A-Q7A), as in Choose songs.
+  Future<void> _offerManualRenumber(
+    LibraryAlbumEdition edition,
+    int count,
+  ) async {
+    final management = widget.editionManagement;
+    if (management == null) return;
+
+    final confirmed = await confirmManualRenumber(
+      context,
+      editionTitle: edition.title,
+      count: count,
+    );
+    if (!confirmed || !mounted) return;
+
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await management.renumberEdition(
+        editionId: edition.editionId,
+        overwriteManual: true,
+        userId: widget.userId,
+      );
+      await controller.refresh();
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Tracks renumbered.')),
+      );
+    } catch (error, stackTrace) {
+      developer.log(
+        'Edition renumbering failed (${error.runtimeType})',
+        name: 'sonus.library.release_studio',
+        level: 900,
+        error: error,
+        stackTrace: stackTrace,
+      );
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('The tracks could not be renumbered. Nothing changed.'),
+        ),
       );
     }
   }
@@ -1175,7 +1308,7 @@ class _StudioSummary extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  album?.title ?? 'Album',
+                  album?.displayTitle ?? 'Album',
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.titleLarge?.copyWith(
@@ -1717,15 +1850,8 @@ class _TrackPlacementDraft {
   final int discNumber;
 }
 
-bool _usesMultipleDiscs(List<LibraryTrack> tracks) {
-  if (tracks.isEmpty) {
-    return false;
-  }
-
-  final discs = <int>{for (final track in tracks) track.discNumber};
-
-  return discs.length > 1 || discs.any((disc) => disc != 1);
-}
+bool _usesMultipleDiscs(List<LibraryTrack> tracks) =>
+    spansMultipleDiscs(tracks.map((track) => track.discNumber));
 
 String _editionDisplayLabel(LibraryAlbumEdition edition) {
   final title = edition.title.trim();
@@ -1854,6 +1980,44 @@ class _ActionRow extends StatelessWidget {
       title: Text(title),
       subtitle: Text(subtitle),
       onTap: onTap == null ? null : () => unawaited(onTap()),
+    );
+  }
+}
+
+/// Points out editions that hold different genres (SN-50 A-Q6F). Text and
+/// an icon carry the message; nothing is blocked or rewritten.
+class _GenreReviewNote extends StatelessWidget {
+  const _GenreReviewNote({required this.genres});
+
+  final List<String> genres;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = SonusTheme.of(context).colors;
+
+    return MergeSemantics(
+      child: Row(
+        key: const ValueKey<String>('release-studio-genre-review'),
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            Icons.rule_rounded,
+            size: 20,
+            color: colors.textSecondary,
+            semanticLabel: 'Review',
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Editions have different genres: ${genres.join(', ')}. '
+              'Pick one to use for the release.',
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: colors.textSecondary),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

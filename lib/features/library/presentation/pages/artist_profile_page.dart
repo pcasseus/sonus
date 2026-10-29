@@ -628,7 +628,7 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
                                       _pushAndRefresh(
                                         AlbumProfilePage(
                                           albumId: album.albumId,
-                                          initialAlbumTitle: album.title,
+                                          initialAlbumTitle: album.displayTitle,
                                         ),
                                       ),
                                     );
@@ -839,7 +839,7 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
                       title: 'On ${appearance.ownerName}',
                       count: appearance.tracks.length,
                       subtitle: appearance.albums
-                          .map((album) => album.title)
+                          .map((album) => album.displayTitle)
                           .join(' · '),
                     ),
                     const SizedBox(height: 8),

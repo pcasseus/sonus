@@ -350,8 +350,14 @@ class TrackProfileEditingService {
       }
 
       if (!changed) {
-        // Only another edition's listing changed. Listings are local data
-        // (not synced), so there is no song mutation to record.
+        // Only another edition's listing changed. Listings travel with the
+        // song's cloud record, so queue the song or the next inbound copy
+        // would put the old placement back.
+        await context.localSyncRepository.recordUpsert(
+          userId: normalizedUserId,
+          entityType: CloudDataEntity.song,
+          entityId: song.id,
+        );
         return TrackProfileEditResult(song: song, changed: true);
       }
 

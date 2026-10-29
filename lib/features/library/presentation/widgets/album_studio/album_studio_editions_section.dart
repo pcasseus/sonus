@@ -332,6 +332,8 @@ class _AlbumStudioEditionsSectionState
     final defaultSource =
         sources.where((e) => e.isPrimary).firstOrNull ?? sources.firstOrNull;
 
+    final primary = _controller.editions.where((e) => e.isPrimary).firstOrNull;
+
     final draft = await showDialog<_EditionDraft>(
       context: context,
       builder: (_) => _EditionDialog(
@@ -357,9 +359,39 @@ class _AlbumStudioEditionsSectionState
     }, done: 'Edition "${draft.title.trim()}" created.');
 
     final id = createdId;
-    if (created && id != null) {
-      await _controller.selectEdition(id);
+    if (!created || id == null) return;
+
+    if (draft.type == AlbumEditionType.standard &&
+        primary?.type == AlbumEditionType.deluxe &&
+        mounted) {
+      await _offerStandardAsPrimary(id, draft.title.trim());
     }
+    await _controller.selectEdition(id);
+  }
+
+  /// A Standard added to a release led by its Deluxe may take over as
+  /// primary, only if the user says so (SN-50 A-Q5F). The Deluxe edition
+  /// itself is left exactly as it was (A-Q20).
+  Future<void> _offerStandardAsPrimary(String editionId, String title) async {
+    final confirmed = await _confirm(
+      title: 'Make the Standard edition primary?',
+      message:
+          'The primary edition is the one Sonus shows first for this '
+          'release: its name, cover and release date. The Deluxe edition '
+          'stays as it is either way.',
+      action: 'Make primary',
+      cancel: 'Not now',
+      key: 'album-studio-confirm-standard-primary',
+    );
+    if (!confirmed || !mounted) return;
+
+    await _run(
+      () => widget.service.setPrimary(
+        editionId: editionId,
+        userId: widget.userId,
+      ),
+      done: '"$title" is now the primary edition.',
+    );
   }
 
   Future<void> _edit(LibraryAlbumEdition edition) async {
@@ -498,17 +530,10 @@ class _AlbumStudioEditionsSectionState
     LibraryAlbumEdition edition,
     int count,
   ) async {
-    final confirmed = await _confirm(
-      title: 'Renumber tracks you numbered yourself?',
-      message: count == 1
-          ? 'One track on "${edition.title}" has a number you set yourself, '
-                'so it was not renumbered. Renumber it too, so each disc '
-                'counts 1, 2, 3 in the order shown?'
-          : '$count tracks on "${edition.title}" have numbers you set '
-                'yourself, so they were not renumbered. Renumber them too, so '
-                'each disc counts 1, 2, 3 in the order shown?',
-      action: 'Renumber',
-      key: 'album-studio-confirm-renumber',
+    final confirmed = await confirmManualRenumber(
+      context,
+      editionTitle: edition.title,
+      count: count,
     );
     if (!confirmed || !mounted) return;
 
@@ -552,35 +577,17 @@ class _AlbumStudioEditionsSectionState
     required String message,
     required String action,
     required String key,
+    String cancel = 'Cancel',
     bool destructive = false,
-  }) async {
-    final scheme = Theme.of(context).colorScheme;
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(title),
-        content: Text(message),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            key: ValueKey<String>(key),
-            style: destructive
-                ? FilledButton.styleFrom(
-                    backgroundColor: scheme.error,
-                    foregroundColor: scheme.onError,
-                  )
-                : null,
-            onPressed: () => Navigator.of(context).pop(true),
-            child: Text(action),
-          ),
-        ],
-      ),
-    );
-    return result == true;
-  }
+  }) => _confirmDialog(
+    context,
+    title: title,
+    message: message,
+    action: action,
+    key: key,
+    cancel: cancel,
+    destructive: destructive,
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -754,6 +761,65 @@ class _AlbumStudioEditionsSectionState
       label: Text(label),
     );
   }
+}
+
+/// Asks before renumbering tracks whose numbers were set by hand
+/// (SN-50 A-Q7A). Declining keeps every number as it is.
+Future<bool> confirmManualRenumber(
+  BuildContext context, {
+  required String editionTitle,
+  required int count,
+}) {
+  return _confirmDialog(
+    context,
+    title: 'Renumber tracks you numbered yourself?',
+    message: count == 1
+        ? 'One track on "$editionTitle" has a number you set yourself, '
+              'so it was not renumbered. Renumber it too, so each disc '
+              'counts 1, 2, 3 in the order shown?'
+        : '$count tracks on "$editionTitle" have numbers you set '
+              'yourself, so they were not renumbered. Renumber them too, so '
+              'each disc counts 1, 2, 3 in the order shown?',
+    action: 'Renumber',
+    key: 'album-studio-confirm-renumber',
+  );
+}
+
+Future<bool> _confirmDialog(
+  BuildContext context, {
+  required String title,
+  required String message,
+  required String action,
+  required String key,
+  String cancel = 'Cancel',
+  bool destructive = false,
+}) async {
+  final scheme = Theme.of(context).colorScheme;
+  final result = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: Text(title),
+      content: Text(message),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: Text(cancel),
+        ),
+        FilledButton(
+          key: ValueKey<String>(key),
+          style: destructive
+              ? FilledButton.styleFrom(
+                  backgroundColor: scheme.error,
+                  foregroundColor: scheme.onError,
+                )
+              : null,
+          onPressed: () => Navigator.of(context).pop(true),
+          child: Text(action),
+        ),
+      ],
+    ),
+  );
+  return result == true;
 }
 
 class _Badge extends StatelessWidget {

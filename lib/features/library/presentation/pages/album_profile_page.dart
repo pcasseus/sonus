@@ -27,6 +27,7 @@ import '../../../playlists/presentation/widgets/add_to_playlist_sheet.dart';
 import '../../application/models/library_album.dart';
 import '../../application/models/library_album_edition.dart';
 import '../../application/models/library_track.dart';
+import '../../application/models/release_display_title.dart';
 import '../../application/repositories/library_query_repository.dart';
 import '../../application/services/album_profile_editing_service.dart';
 import '../../application/services/external_metadata_application_service.dart';
@@ -39,6 +40,7 @@ import '../../application/services/album_edition_management_service.dart';
 import '../../application/services/artist_creation_service.dart';
 import '../../application/services/library_organization_service.dart';
 import '../../domain/entities/album_edition.dart';
+import '../../domain/services/album_edition_track_order.dart';
 import 'package:sonus_next/features/library/application/services/track_profile_editing_service.dart';
 import '../controllers/album_profile_controller.dart';
 import '../models/track_profile_edit_draft.dart';
@@ -950,7 +952,8 @@ class _AlbumHero extends StatelessWidget {
       parts.add(releaseDate.label);
     }
 
-    final genre = (selectedEdition?.genre ?? album.genre)?.trim();
+    // Genre is shared by the release: the primary edition's (SN-50 A1).
+    final genre = album.genre?.trim();
 
     if (genre != null && genre.isNotEmpty) {
       parts.add(genre);
@@ -1307,22 +1310,19 @@ String _presentationAlbumTitle(
   LibraryAlbumEdition? edition,
 ) {
   if (edition == null) {
-    return album.title;
+    return album.displayTitle;
   }
 
-  final editionTitle = edition.title.trim();
-
-  if (editionTitle.isEmpty || _isGenericEditionTitle(editionTitle)) {
-    return album.title;
-  }
-
-  return editionTitle;
+  return releaseDisplayTitle(
+    baseTitle: album.displayTitle,
+    editionTitle: edition.title,
+  );
 }
 
 String _editionDisplayLabel(LibraryAlbumEdition edition) {
   final title = edition.title.trim();
 
-  if (title.isNotEmpty && _isGenericEditionTitle(title)) {
+  if (title.isNotEmpty && isGenericEditionTitle(title)) {
     return title;
   }
 
@@ -1333,18 +1333,6 @@ String _editionDisplayLabel(LibraryAlbumEdition edition) {
     AlbumEditionType.anniversary => 'Anniversary',
     AlbumEditionType.remaster => 'Remaster',
     AlbumEditionType.other => title.isEmpty ? 'Other' : title,
-  };
-}
-
-bool _isGenericEditionTitle(String title) {
-  return switch (title.trim().toLowerCase()) {
-    'standard' ||
-    'deluxe' ||
-    'expanded' ||
-    'anniversary' ||
-    'remaster' ||
-    'other' => true,
-    _ => false,
   };
 }
 
@@ -1516,8 +1504,9 @@ class _TracksList extends StatelessWidget {
 
     // Disc headings only when the edition really spans several discs. They
     // follow the list's existing order; nothing is re-sorted here.
-    final multiDisc =
-        tracks.map((track) => track.discNumber).toSet().length > 1;
+    final multiDisc = spansMultipleDiscs(
+      tracks.map((track) => track.discNumber),
+    );
     final coordinator = context.read<PlaybackCoordinator?>();
 
     return StreamBuilder<NowPlayingMark>(

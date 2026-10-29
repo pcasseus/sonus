@@ -188,7 +188,7 @@ void main() {
       },
     );
 
-    test('a Deluxe-only placement edit records no song mutation', () async {
+    test('a Deluxe-only placement edit queues the song for sync', () async {
       await save(
         library.shared,
         trackNumber: 9,
@@ -198,8 +198,14 @@ void main() {
       final outbox = await LocalSyncDao(
         await appDatabase.database,
       ).findPending('user_1');
-      // Listings are local; the song itself did not change.
-      expect(outbox, isEmpty);
+      // Listings travel with the song's cloud record; without this the next
+      // inbound copy of the song would revert the Deluxe placement.
+      expect(outbox.map((entry) => entry.entityType).toSet(), {
+        CloudDataEntity.song,
+      });
+      expect(outbox.map((entry) => entry.entityId).toSet(), {
+        library.shared.id,
+      });
     });
 
     test(

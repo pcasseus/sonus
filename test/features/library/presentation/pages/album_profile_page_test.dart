@@ -278,7 +278,8 @@ void main() {
       expect(find.text('Deluxe Song'), findsOneWidget);
       expect(find.text('Bonus Song'), findsOneWidget);
 
-      expect(find.text('June 20, 2025 • Alternative'), findsOneWidget);
+      // The Deluxe date is its own; genre is the release's (SN-50 A1).
+      expect(find.text('June 20, 2025 • Pop'), findsOneWidget);
 
       expect(find.text('2 tracks • 6 min'), findsOneWidget);
     });
@@ -658,37 +659,33 @@ void main() {
         await tester.pumpAndSettle();
       }
 
-      await edit('name', 'name', 'Renamed Album');
+      await edit('date', 'date', '2025-06-20');
       expect(editingService.updateCallCount, 1);
       expect(editingService.lastUserId, 'user-1');
       expect(editingService.lastAlbumId, 'album-1');
       expect(editingService.lastPrimaryEditionId, 'edition-1');
-      expect(editingService.lastTitle, 'Renamed Album');
-      // The edition is named in Editions, never here.
+      // The stored base title and the edition's name are never changed by
+      // release details (SN-50 A-Q4).
+      expect(editingService.lastTitle, 'Test Album');
       expect(editingService.lastEditionTitle, 'Standard');
       expect(editingService.lastEditionType, AlbumEditionType.standard);
-      expect(editingService.lastReleaseDate, DateTime(2024, 5, 17));
-      expect(editingService.lastGenre, 'Pop');
-      expect(find.text('Release renamed.'), findsOneWidget);
-
-      await edit('date', 'date', '2025-06-20');
       expect(editingService.lastReleaseDate, DateTime.utc(2025, 6, 20));
       expect(editingService.lastReleaseDatePrecision, ReleaseDatePrecision.day);
-      expect(editingService.lastTitle, 'Renamed Album');
+      expect(editingService.lastGenre, 'Pop');
 
       await edit('genre', 'genre', 'Alternative');
       expect(editingService.lastGenre, 'Alternative');
-      expect(editingService.updateCallCount, 3);
+      expect(editingService.updateCallCount, 2);
 
       // A year alone is saved as a year, after confirming the day is lost.
       await edit('date', 'date', '2025');
       expect(find.text('Use a less exact date?'), findsOneWidget);
-      expect(editingService.updateCallCount, 3);
+      expect(editingService.updateCallCount, 2);
       await tester.tap(
         find.byKey(const ValueKey<String>('release-date-confirm-less-precise')),
       );
       await tester.pumpAndSettle();
-      expect(editingService.updateCallCount, 4);
+      expect(editingService.updateCallCount, 3);
       expect(editingService.lastReleaseDate, DateTime.utc(2025));
       expect(
         editingService.lastReleaseDatePrecision,
@@ -702,7 +699,7 @@ void main() {
         find.byKey(const ValueKey<String>('release-studio-page')),
         findsNothing,
       );
-      expect(find.text('Renamed Album'), findsWidgets);
+      expect(find.text('Test Album'), findsWidgets);
     });
 
     testWidgets('the release can move to another artist or project', (
@@ -885,9 +882,7 @@ void main() {
       );
     });
 
-    testWidgets('a blank name and an impossible date are refused', (
-      tester,
-    ) async {
+    testWidgets('an impossible date is refused', (tester) async {
       final editingService = FakeAlbumProfileEditingService();
 
       await tester.pumpWidget(
@@ -909,22 +904,6 @@ void main() {
       );
       await tester.pumpAndSettle();
       await tester.tap(find.text('Edit Release'));
-      await tester.pumpAndSettle();
-
-      await tester.tap(
-        find.byKey(const ValueKey<String>('release-studio-name')),
-      );
-      await tester.pumpAndSettle();
-      await tester.enterText(
-        find.byKey(const ValueKey<String>('release-studio-name-field')),
-        '   ',
-      );
-      await tester.tap(
-        find.byKey(const ValueKey<String>('release-studio-save-name')),
-      );
-      await tester.pump();
-      expect(find.text('Enter a name.'), findsOneWidget);
-      await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();
 
       await tester.tap(
@@ -1034,15 +1013,15 @@ void main() {
       await tester.pumpAndSettle();
 
       await tester.tap(
-        find.byKey(const ValueKey<String>('release-studio-name')),
+        find.byKey(const ValueKey<String>('release-studio-genre')),
       );
       await tester.pumpAndSettle();
       await tester.enterText(
-        find.byKey(const ValueKey<String>('release-studio-name-field')),
-        'Anonymous Album Edit',
+        find.byKey(const ValueKey<String>('release-studio-genre-field')),
+        'Ambient',
       );
       await tester.tap(
-        find.byKey(const ValueKey<String>('release-studio-save-name')),
+        find.byKey(const ValueKey<String>('release-studio-save-genre')),
       );
       await tester.pumpAndSettle();
 
@@ -1050,7 +1029,7 @@ void main() {
       expect(editingService.lastUserId, isNull);
       expect(editingService.lastAlbumId, 'album-1');
       expect(editingService.lastPrimaryEditionId, 'edition-primary');
-      expect(editingService.lastTitle, 'Anonymous Album Edit');
+      expect(editingService.lastGenre, 'Ambient');
     });
 
     testWidgets('album editing remains unavailable without editing service', (

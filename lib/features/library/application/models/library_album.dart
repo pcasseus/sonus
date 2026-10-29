@@ -1,5 +1,6 @@
 import '../../domain/entities/album_edition.dart';
 import '../../domain/entities/release_date.dart';
+import 'release_display_title.dart';
 
 class LibraryAlbum {
   const LibraryAlbum({
@@ -21,7 +22,13 @@ class LibraryAlbum {
   });
 
   final String albumId;
+
+  /// The stored base title; import matching and search keys use it.
   final String title;
+
+  /// The title shown for the release today (SN-50 A-Q3).
+  String get displayTitle =>
+      releaseDisplayTitle(baseTitle: title, editionTitle: primaryEditionTitle);
 
   final String artistId;
   final String artistName;

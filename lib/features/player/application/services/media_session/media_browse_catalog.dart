@@ -301,7 +301,7 @@ class MediaBrowseCatalog {
   media.MediaItem _albumItem(LibraryAlbum album, {String? groupTitle}) {
     return media.MediaItem(
       id: MediaBrowseContainer.album(album.albumId).mediaId,
-      title: album.title,
+      title: album.displayTitle,
       artist: album.artistName,
       displaySubtitle: album.artistName,
       artUri: _artworkUri(album.artworkPath),

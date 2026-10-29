@@ -88,7 +88,8 @@ class _TrackStudioSummary extends StatelessWidget {
                 Text(
                   [
                     track.artistName,
-                    if (track.albumTitle.trim().isNotEmpty) track.albumTitle,
+                    if (track.albumDisplayTitle.trim().isNotEmpty)
+                      track.albumDisplayTitle,
                   ].join(' • '),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
@@ -380,7 +381,7 @@ class _TrackStudioPageState extends State<TrackStudioPage> {
                           DropdownMenuItem(
                             value: album.albumId,
                             child: Text(
-                              '${album.title} — ${album.artistName}',
+                              '${album.displayTitle} — ${album.artistName}',
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
