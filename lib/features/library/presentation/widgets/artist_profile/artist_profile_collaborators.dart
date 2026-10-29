@@ -10,9 +10,9 @@ import '../../../domain/entities/song_artist_credit.dart';
 import '../../models/artist_profile_sections.dart';
 import 'artist_profile_header.dart';
 
-/// Everyone credited on this artist's albums, such as a soundtrack or cast
-/// album, each once with their role: open their profile, or play the songs
-/// they lead here.
+/// Everyone credited on this artist's releases, each once with their role:
+/// open their profile, or play every song they are credited on here. A
+/// credit that is only a name opens nothing.
 class ArtistProfileCollaborators extends StatelessWidget {
   const ArtistProfileCollaborators({
     super.key,
@@ -39,7 +39,7 @@ class ArtistProfileCollaborators extends StatelessWidget {
             collaborator: collaborator,
             playable: isPlayable(collaborator),
             tileColor: tileColor,
-            onOpen: () => onOpen(collaborator),
+            onOpen: collaborator.isVerified ? () => onOpen(collaborator) : null,
             onPlay: () => onPlay(collaborator),
           ),
       ],
@@ -59,8 +59,11 @@ class _CollaboratorTile extends StatelessWidget {
   final ArtistProfileCollaborator collaborator;
   final bool playable;
   final Color? tileColor;
-  final VoidCallback onOpen;
+  final VoidCallback? onOpen;
   final Future<void> Function() onPlay;
+
+  /// The artist id, or the name of a credit linked to no artist.
+  String get _id => collaborator.artistId ?? 'name-${collaborator.name}';
 
   @override
   Widget build(BuildContext context) {
@@ -79,7 +82,7 @@ class _CollaboratorTile extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 3),
       child: ListTile(
-        key: ValueKey<String>('artist-collaborator-${collaborator.artistId}'),
+        key: ValueKey<String>('artist-collaborator-$_id'),
         tileColor: tileColor ?? tokens.colors.surface,
         textColor: tokens.colors.textPrimary,
         shape: RoundedRectangleBorder(
@@ -104,9 +107,7 @@ class _CollaboratorTile extends StatelessWidget {
           ),
         ),
         trailing: IconButton(
-          key: ValueKey<String>(
-            'artist-collaborator-play-${collaborator.artistId}',
-          ),
+          key: ValueKey<String>('artist-collaborator-play-$_id'),
           tooltip: 'Play ${collaborator.name}',
           onPressed: playable
               ? () {

@@ -7,6 +7,7 @@ import '../../application/models/library_artist.dart';
 import '../../application/models/library_track.dart';
 import '../../application/models/library_track_order.dart';
 import '../../application/models/project_collaborator.dart';
+import '../../application/models/project_song_credit.dart';
 import '../../application/models/song_display_title.dart';
 import '../../domain/entities/song_artist_credit.dart';
 import '../../../search/application/models/library_search_results.dart';
@@ -881,6 +882,45 @@ class LibraryQueryDao {
       }
       return 0;
     });
+  }
+
+  Future<List<ProjectSongCredit>> findProjectSongCredits(String albumId) async {
+    final rows = await db.rawQuery(
+      '''
+      WITH project_songs AS (
+        SELECT s.id AS song_id
+        FROM ${DatabaseTables.songs} s
+        WHERE s.album_id = ?
+        UNION
+        SELECT aet.song_id AS song_id
+        FROM ${DatabaseTables.albumEditionTracks} aet
+        INNER JOIN ${DatabaseTables.albumEditions} ae
+          ON ae.id = aet.album_edition_id
+        WHERE ae.album_id = ?
+      )
+      SELECT
+        c.song_id AS song_id,
+        c.artist_id AS artist_id,
+        c.credited_name AS credited_name,
+        c.role AS role
+      FROM project_songs ps
+      INNER JOIN ${DatabaseTables.songArtistCredits} c
+        ON c.song_id = ps.song_id
+      ORDER BY c.song_id, c.position
+      ''',
+      [albumId, albumId],
+    );
+
+    return [
+      for (final row in rows)
+        ProjectSongCredit(
+          albumId: albumId,
+          songId: row['song_id']! as String,
+          artistId: row['artist_id'] as String?,
+          creditedName: row['credited_name']! as String,
+          role: SongArtistCreditRole.values.byName(row['role']! as String),
+        ),
+    ];
   }
 
   Future<LibraryArtist?> findProfileEligibleArtistById(String artistId) async {

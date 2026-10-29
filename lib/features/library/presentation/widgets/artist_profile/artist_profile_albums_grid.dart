@@ -4,28 +4,24 @@ import 'package:flutter/material.dart';
 
 import '../../../../../core/design/sonus_theme.dart';
 import '../../../application/models/library_album.dart';
+import '../../models/artist_profile_sections.dart';
 
 class ArtistProfileAlbumsGrid extends StatelessWidget {
   const ArtistProfileAlbumsGrid({
     super.key,
-    required this.albums,
+    required this.cards,
     required this.onAlbumTap,
-    this.labelOf,
   });
 
-  final List<LibraryAlbum> albums;
+  final List<ArtistReleaseCard> cards;
   final ValueChanged<LibraryAlbum> onAlbumTap;
-
-  /// A word shown before the track count, such as a live release's
-  /// format ("EP · 3 tracks"). Null shows the count alone.
-  final String? Function(LibraryAlbum album)? labelOf;
 
   /// Narrowest a cover gets before the grid drops a column.
   static const double _minTileWidth = 140;
 
   @override
   Widget build(BuildContext context) {
-    if (albums.isEmpty) {
+    if (cards.isEmpty) {
       return const _EmptySection(message: 'No albums yet');
     }
 
@@ -38,8 +34,15 @@ class ArtistProfileAlbumsGrid extends StatelessWidget {
                 .clamp(1, 4);
         final tileWidth =
             (constraints.maxWidth - spacing * (columns - 1)) / columns;
-        // Room under each cover for the title and summary at any text size.
-        final captionHeight = MediaQuery.textScalerOf(context).scale(48);
+        // Room under each cover for the title, summary and the most notes
+        // any card here has, at any text size.
+        final notes = cards.fold(
+          0,
+          (most, card) => card.notes.length > most ? card.notes.length : most,
+        );
+        final captionHeight = MediaQuery.textScalerOf(
+          context,
+        ).scale(48 + 18.0 * notes);
 
         return GridView.builder(
           key: const ValueKey<String>('artist-profile-albums-grid'),
@@ -52,16 +55,15 @@ class ArtistProfileAlbumsGrid extends StatelessWidget {
             mainAxisSpacing: 18,
             mainAxisExtent: tileWidth + 10 + captionHeight,
           ),
-          itemCount: albums.length,
+          itemCount: cards.length,
           itemBuilder: (context, index) {
-            final album = albums[index];
+            final card = cards[index];
 
             return _AlbumCard(
-              key: ValueKey<String>('artist-album-${album.albumId}'),
-              album: album,
-              label: labelOf?.call(album),
+              key: ValueKey<String>('artist-album-${card.album.albumId}'),
+              card: card,
               artworkSize: tileWidth,
-              onTap: () => onAlbumTap(album),
+              onTap: () => onAlbumTap(card.album),
             );
           },
         );
@@ -73,14 +75,12 @@ class ArtistProfileAlbumsGrid extends StatelessWidget {
 class _AlbumCard extends StatelessWidget {
   const _AlbumCard({
     super.key,
-    required this.album,
+    required this.card,
     required this.artworkSize,
     required this.onTap,
-    this.label,
   });
 
-  final LibraryAlbum album;
-  final String? label;
+  final ArtistReleaseCard card;
   final double artworkSize;
   final VoidCallback onTap;
 
@@ -89,6 +89,10 @@ class _AlbumCard extends StatelessWidget {
     final theme = Theme.of(context);
     final tokens = SonusTheme.of(context);
     final radius = BorderRadius.circular(tokens.metrics.artworkRadius);
+    final album = card.album;
+    final secondary = theme.textTheme.bodySmall?.copyWith(
+      color: tokens.colors.textSecondary,
+    );
 
     return Material(
       color: Colors.transparent,
@@ -117,23 +121,22 @@ class _AlbumCard extends StatelessWidget {
             ),
             const SizedBox(height: 3),
             Text(
-              _albumSummary(album),
+              card.summary,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: tokens.colors.textSecondary,
-              ),
+              style: secondary,
             ),
+            for (final note in card.notes)
+              Text(
+                note,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: secondary,
+              ),
           ],
         ),
       ),
     );
-  }
-
-  String _albumSummary(LibraryAlbum album) {
-    final trackLabel = album.trackCount == 1 ? 'track' : 'tracks';
-    final count = '${album.trackCount} $trackLabel';
-    return label == null ? count : '$label · $count';
   }
 }
 

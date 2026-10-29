@@ -119,6 +119,10 @@ class ArtistLibraryOrganization {
   /// Whether the release might be a Single and has no stated format.
   bool needsFormatReview(String albumId) => formatReviews.contains(albumId);
 
+  /// Whether the release's format was stated (by the user or MusicBrainz)
+  /// rather than inferred.
+  bool hasStatedFormat(String albumId) => formats.containsKey(albumId);
+
   /// Stated Live classifications by album id, including the user's "not
   /// live".
   final Map<String, AlbumLiveClassification> lives;

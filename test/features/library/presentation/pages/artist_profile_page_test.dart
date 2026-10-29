@@ -82,7 +82,11 @@ void main() {
 
       expect(find.text('Test Artist'), findsWidgets);
 
-      expect(find.text('1 album \u2022 1 song'), findsOneWidget);
+      // SN-50 B-Q1: no catalog-count line, and nothing in its place.
+      expect(
+        find.byKey(const ValueKey<String>('artist-profile-summary')),
+        findsNothing,
+      );
 
       expect(
         find.byKey(const ValueKey<String>('artist-profile-albums-grid')),
@@ -409,7 +413,8 @@ void main() {
       await engine.dispose();
     });
 
-    testWidgets('an unavailable collaboration is not listed', (tester) async {
+    testWidgets('SN-50 B-Q28: an unavailable collaboration stays listed, '
+        'marked and not playable', (tester) async {
       final repository = FakeLibraryQueryRepository(
         artist: createArtist(),
         tracks: [
@@ -425,13 +430,14 @@ void main() {
       await tester.pumpWidget(buildSubject(repository: repository));
       await tester.pumpAndSettle();
 
-      expect(
-        find.byKey(const ValueKey<String>('artist-track-missing-song')),
-        findsNothing,
+      final row = find.byKey(
+        const ValueKey<String>('artist-track-missing-song'),
       );
+      expect(row, findsOneWidget);
+      expect(tester.widget<ListTile>(row).enabled, isFalse);
       expect(
-        find.byKey(const ValueKey<String>('artist-track-menu-missing-song')),
-        findsNothing,
+        find.descendant(of: row, matching: find.textContaining('Unavailable')),
+        findsOneWidget,
       );
     });
 
@@ -1195,6 +1201,9 @@ LibraryTrack createTrack({
   bool isAvailable = true,
   bool isSongBlocked = false,
   List<String> featuredArtists = const [],
+  List<String> coPrimaryArtists = const [],
+  List<String> guestArtists = const [],
+  bool isLeak = false,
 }) {
   return LibraryTrack(
     songId: songId,
@@ -1210,6 +1219,9 @@ LibraryTrack createTrack({
     durationSeconds: 180,
     isSingle: false,
     featuredArtists: featuredArtists,
+    coPrimaryArtists: coPrimaryArtists,
+    guestArtists: guestArtists,
+    isLeak: isLeak,
     dateAdded: DateTime(2026, 1, 1),
     filePath: filePath ?? '/music/$songId.mp3',
     isAvailable: isAvailable,

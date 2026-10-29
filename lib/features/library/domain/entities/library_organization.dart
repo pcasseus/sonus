@@ -4,6 +4,13 @@ enum ReleaseKind {
   castRecording,
   compilation;
 
+  /// "Soundtrack", "Cast recording" or "Compilation".
+  String get label => switch (this) {
+    ReleaseKind.soundtrack => 'Soundtrack',
+    ReleaseKind.castRecording => 'Cast recording',
+    ReleaseKind.compilation => 'Compilation',
+  };
+
   /// The kind a MusicBrainz release group's secondary types state, if any.
   /// MusicBrainz has no cast-recording type; those come from the user.
   static ReleaseKind? fromMusicBrainz(Iterable<String> secondaryTypes) {

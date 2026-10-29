@@ -25,12 +25,7 @@ class AlbumStudioReleaseType extends StatefulWidget {
   final String albumId;
   final LibraryOrganizationService service;
 
-  static String labelFor(ReleaseKind? kind) => switch (kind) {
-    null => 'Not set',
-    ReleaseKind.soundtrack => 'Soundtrack',
-    ReleaseKind.castRecording => 'Cast recording',
-    ReleaseKind.compilation => 'Compilation',
-  };
+  static String labelFor(ReleaseKind? kind) => kind?.label ?? 'Not set';
 
   @override
   State<AlbumStudioReleaseType> createState() => _AlbumStudioReleaseTypeState();

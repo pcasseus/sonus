@@ -1197,6 +1197,102 @@ void main() {
       expect(beta.guestArtists, isEmpty);
     });
 
+    test('SN-50 project song credits keep linked and unlinked credits, '
+        'including songs listed only on an edition', () async {
+      final fixture = await _createFixture(appDatabase);
+      final db = fixture.db;
+      final timestamp = DateTime.utc(2026, 10, 29);
+      await AlbumDao(db).insert(
+        Album(
+          id: 'album_elsewhere',
+          artistId: fixture.artist.id,
+          title: 'Elsewhere',
+          canonicalTitle: 'elsewhere',
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        ),
+      );
+      await AlbumEditionDao(db).insert(
+        AlbumEdition(
+          id: 'edition_elsewhere',
+          albumId: 'album_elsewhere',
+          title: 'Elsewhere',
+          type: AlbumEditionType.standard,
+          isPrimary: true,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        ),
+      );
+      await SongDao(db).insert(
+        Song(
+          id: 'song_bonus',
+          artistId: fixture.artist.id,
+          albumId: 'album_elsewhere',
+          albumEditionId: 'edition_elsewhere',
+          title: 'Bonus Track',
+          canonicalTitle: 'bonus track',
+          trackNumber: 1,
+          durationSeconds: 120,
+          isSingle: false,
+          featuredArtists: const [],
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        ),
+      );
+      await _listIn(db, fixture.deluxeEdition.id, ['song_bonus']);
+      await db.insert(DatabaseTables.songArtistCredits, {
+        'id': 'credit_linked',
+        'song_id': fixture.alphaSong.id,
+        'artist_id': fixture.artist.id,
+        'credited_name': 'Query Artist',
+        'canonical_credited_name': 'query artist',
+        'role': 'primary',
+        'position': 0,
+        'created_at': timestamp.toIso8601String(),
+        'updated_at': timestamp.toIso8601String(),
+      });
+      await credit(
+        db,
+        songId: fixture.alphaSong.id,
+        name: 'Unlinked Guest',
+        role: 'guest',
+        position: 1,
+      );
+      await credit(
+        db,
+        songId: 'song_bonus',
+        name: 'Bonus Feature',
+        role: 'featured',
+        position: 0,
+      );
+
+      final credits = await LibraryQueryDao(
+        db,
+      ).findProjectSongCredits(fixture.album.id);
+
+      expect(
+        [
+          for (final c in credits)
+            (c.albumId, c.songId, c.artistId, c.creditedName, c.role.name),
+        ],
+        [
+          (
+            fixture.album.id,
+            'song_alpha',
+            fixture.artist.id,
+            'Query Artist',
+            'primary',
+          ),
+          (fixture.album.id, 'song_alpha', null, 'Unlinked Guest', 'guest'),
+          (fixture.album.id, 'song_bonus', null, 'Bonus Feature', 'featured'),
+        ],
+      );
+      expect(
+        await LibraryQueryDao(db).findProjectSongCredits('album_elsewhere'),
+        hasLength(1),
+      );
+    });
+
     test('search matches version labels, characteristics and every credit '
         'role', () async {
       final fixture = await _createFixture(appDatabase);

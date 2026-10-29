@@ -34,7 +34,8 @@ class ArtistProfileHeader extends StatelessWidget {
   final SonusAtmosphereColors atmosphere;
   final ArtistStanding? standing;
 
-  /// The line under the name; the artist's album and song counts if null.
+  /// A short line under the name, such as a contributor's projects. The
+  /// main artist hero has none (SN-50 B-Q1).
   final String? summary;
 
   /// The banner's shape, as the banner crop editor frames it.
@@ -102,15 +103,18 @@ class ArtistProfileHeader extends StatelessWidget {
                 const SizedBox(height: _portraitSize / 2 + 8),
               ],
             ),
-            Positioned.fill(
-              child: IgnorePointer(
-                child: _Fades(
-                  atmosphere: atmosphere,
-                  topInset: topInset,
-                  imageHeight: imageHeight,
+            // A photo always fades into the page so the name stays
+            // readable; without one, a plain backdrop needs no fade.
+            if (hasBanner || tokens.decoration.allowGradients)
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: _Fades(
+                    atmosphere: atmosphere,
+                    topInset: topInset,
+                    imageHeight: imageHeight,
+                  ),
                 ),
               ),
-            ),
             Positioned(
               left: gutter,
               right: gutter,
@@ -167,6 +171,15 @@ class _AtmosphereBackdrop extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Decoration Off, High Contrast and Low Effects allow no gradients
+    // (B-Q21).
+    if (!SonusTheme.of(context).decoration.allowGradients) {
+      return ColoredBox(
+        key: const ValueKey<String>('artist-profile-banner-fallback'),
+        color: atmosphere.background,
+      );
+    }
+
     return DecoratedBox(
       key: const ValueKey<String>('artist-profile-banner-fallback'),
       decoration: BoxDecoration(
@@ -315,16 +328,14 @@ class _Identity extends StatelessWidget {
                   ),
                 ),
               ],
-              Text(
-                summary ??
-                    '${sonusCount(artist.albumCount, 'album')} • '
-                        '${sonusCount(artist.songCount, 'song')}',
-                key: const ValueKey<String>('artist-profile-summary'),
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: colors.textSecondary,
-                  fontFeatures: const [FontFeature.tabularFigures()],
+              if (summary case final summary?)
+                Text(
+                  summary,
+                  key: const ValueKey<String>('artist-profile-summary'),
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: colors.textSecondary,
+                  ),
                 ),
-              ),
             ],
           ),
         ),

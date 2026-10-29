@@ -29,6 +29,7 @@ class ArtistProfileTracksList extends StatelessWidget {
     required this.onSetBlocked,
     this.keyPrefix = 'artist-track',
     this.streamCounts,
+    this.firstRank = 1,
     this.tileColor,
     this.profileArtistId,
   });
@@ -45,6 +46,9 @@ class ArtistProfileTracksList extends StatelessWidget {
   /// All-time qualified streams per song. When given, rows show their rank
   /// and stream count, in the order of [tracks].
   final Map<String, int>? streamCounts;
+
+  /// The rank of the first row, when this list continues a ranking.
+  final int firstRank;
 
   final Color? tileColor;
   final bool Function(LibraryTrack track) isTrackPlayable;
@@ -77,7 +81,7 @@ class ArtistProfileTracksList extends StatelessWidget {
           _TrackTile(
             track: track,
             keyPrefix: keyPrefix,
-            rank: streamCounts == null ? null : index + 1,
+            rank: streamCounts == null ? null : firstRank + index,
             streamCount: streamCounts?[track.songId],
             largeText: largeText,
             tileColor: tileColor,
@@ -317,6 +321,11 @@ class _TrackTile extends StatelessWidget {
       parts.add('Unavailable');
     }
 
+    // Only the song's own flag, never its release's (B-Q12/B-Q31).
+    if (track.isLeak) {
+      parts.add('Leak');
+    }
+
     final streamCount = this.streamCount;
 
     if (streamCount != null) {
@@ -337,7 +346,8 @@ class _TrackTile extends StatelessWidget {
 
     final albumTitle = track.albumDisplayTitle.trim();
 
-    if (albumTitle.isNotEmpty) {
+    // A single named like its song says it once (B-Q20).
+    if (albumTitle.isNotEmpty && !_sameTitle(albumTitle, track)) {
       parts.add(albumTitle);
     }
 
@@ -358,6 +368,12 @@ class _TrackTile extends StatelessWidget {
         fontFeatures: const [FontFeature.tabularFigures()],
       ),
     );
+  }
+
+  static bool _sameTitle(String albumTitle, LibraryTrack track) {
+    final album = albumTitle.toLowerCase();
+    return album == track.title.trim().toLowerCase() ||
+        album == track.displayTitle.trim().toLowerCase();
   }
 
   String _formatDuration(int seconds) {

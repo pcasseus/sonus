@@ -6,6 +6,7 @@ import '../../application/models/library_artist.dart';
 import '../../application/models/library_track.dart';
 import '../../application/models/library_track_order.dart';
 import '../../application/models/project_collaborator.dart';
+import '../../application/models/project_song_credit.dart';
 import '../../application/repositories/library_query_repository.dart';
 import '../daos/library_query_dao.dart';
 
@@ -15,6 +16,7 @@ class SqliteLibraryQueryRepository
         AlbumEditionQueryRepository,
         StructuredArtistQueryRepository,
         ProjectCollaboratorQueryRepository,
+        ProjectSongCreditQueryRepository,
         LibrarySearchRepository {
   const SqliteLibraryQueryRepository(this.dao);
 
@@ -48,6 +50,11 @@ class SqliteLibraryQueryRepository
   @override
   Future<List<ProjectCollaborator>> getProjectCollaborators({String? albumId}) {
     return dao.findProjectCollaborators(albumId: albumId);
+  }
+
+  @override
+  Future<List<ProjectSongCredit>> getProjectSongCredits(String albumId) {
+    return dao.findProjectSongCredits(albumId);
   }
 
   @override

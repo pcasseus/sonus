@@ -173,7 +173,7 @@ void main() {
   Finder key(String value) => find.byKey(ValueKey<String>(value));
 
   testWidgets('releases are newest first, split into Albums, EPs and '
-      'Singles, with accurate counts', (tester) async {
+      'Singles, with no catalog-count line', (tester) async {
     final releases = [
       _release('a-2020', 'Old Album', released: DateTime(2020, 3, 1)),
       _release('a-none', 'Undated Album'),
@@ -206,18 +206,16 @@ void main() {
     expect(key('artist-profile-eps'), findsOneWidget);
     expect(key('artist-profile-singles'), findsOneWidget);
     // A short release with no stated format is not guessed to be anything.
-    expect(key('artist-profile-other-releases'), findsOneWidget);
+    expect(key('artist-profile-needs-review'), findsOneWidget);
     expect(
       find.descendant(
-        of: key('artist-profile-other-releases'),
+        of: key('artist-profile-needs-review'),
         matching: find.text('Demo'),
       ),
       findsOneWidget,
     );
-    expect(
-      find.text('3 albums • 1 EP • 1 single • 1 other release • 6 songs'),
-      findsOneWidget,
-    );
+    // SN-50 B-Q1: the hero no longer counts the catalog.
+    expect(key('artist-profile-summary'), findsNothing);
 
     double left(String title) => tester.getTopLeft(find.text(title).first).dx;
     double top(String title) => tester.getTopLeft(find.text(title).first).dy;
@@ -304,7 +302,7 @@ void main() {
         findsOneWidget,
       );
     }
-    expect(find.text('1 album • 3 live releases • 15 songs'), findsOneWidget);
+    expect(key('artist-profile-summary'), findsNothing);
     // Live comes after the formats.
     expect(
       tester.getTopLeft(key('artist-profile-albums')).dy <
@@ -395,8 +393,12 @@ void main() {
     );
 
     expect(key('artist-profile-appearance-descendants'), findsOneWidget);
-    expect(find.text('On Descendants'), findsOneWidget);
-    expect(find.text('On Descendants · 1 song'), findsOneWidget);
+    // SN-50 B-Q2: the hero keeps the project, without a count.
+    expect(
+      tester.widget<Text>(key('artist-profile-summary')).data,
+      'On Descendants',
+    );
+    expect(find.text('On Descendants'), findsNWidgets(2));
     expect(find.text('Isle Song'), findsOneWidget);
     expect(key('artist-profile-open-project-descendants'), findsOneWidget);
     for (final section in ['albums', 'eps', 'singles', 'collaborators']) {
