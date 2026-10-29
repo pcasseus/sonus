@@ -78,6 +78,9 @@ enum MomentFact {
 
   /// How many songs an artist has in a zone at once.
   count,
+
+  /// Two or more zones entered for the first time in one move.
+  thresholdList,
 }
 
 /// Every verified fact of one story, ready for headlines.
@@ -106,6 +109,8 @@ class MomentFacts {
     this.passedTopArtist,
     this.consecutive = false,
     this.count,
+    this.refined = false,
+    this.thresholds = const [],
   });
 
   final ChartType chartType;
@@ -161,6 +166,12 @@ class MomentFacts {
   /// For simultaneous entries: how many songs at once.
   final int? count;
 
+  /// Told under the SN-50 rules (see ChartMomentRules).
+  final bool refined;
+
+  /// Zones first entered in one move, largest first.
+  final List<int> thresholds;
+
   /// The artist named for career facts: the owner when it differs.
   String get careerArtist => ownerName ?? artist;
 
@@ -202,17 +213,40 @@ class MomentFacts {
     if (threshold != null) MomentFact.threshold,
     if (consecutive) MomentFact.consecutive,
     if (count != null) MomentFact.count,
+    if (thresholds.length >= 2) MomentFact.thresholdList,
   };
 
   /// The chart, by name, for the rank in this story: the Sonus Hot 100 or
   /// Sonus Bubbling Under for songs, Sonus Albums & EPs for releases.
   String get chart => switch (chartType) {
+    // SN-50: a weekly #101–200 position is never named as the Hot 100.
+    ChartType.songs when weekly && refined && bubblingUnder =>
+      "this week's Sonus Bubbling Under",
     ChartType.songs when weekly => "this week's Sonus Hot 100",
     ChartType.songs when bubblingUnder => 'Sonus Bubbling Under',
     ChartType.songs => 'the Sonus Hot 100',
     ChartType.albums when weekly => "this week's Sonus Albums & EPs chart",
     ChartType.albums => 'the Sonus Albums & EPs chart',
   };
+
+  /// [chart] for SN-50 headlines: a finished week is the weekly chart,
+  /// never "this week's" (F-Q24).
+  String get scopedChart => switch (chartType) {
+    ChartType.songs when weekly && bubblingUnder =>
+      'the weekly Sonus Bubbling Under',
+    ChartType.songs when weekly => 'the weekly Sonus Hot 100',
+    ChartType.albums when weekly => 'the weekly Sonus Albums & EPs chart',
+    _ => chart,
+  };
+
+  /// [thresholds] as a headline names them: "the Top 75, Top 50 and Top
+  /// 40".
+  String get thresholdList {
+    final names = [for (final zone in thresholds) 'Top $zone'];
+    if (names.length < 2) return 'the ${names.join()}';
+    final head = names.sublist(0, names.length - 1).join(', ');
+    return 'the $head and ${names.last}';
+  }
 
   /// The chart's name to start a sentence or a label with.
   String get chartName => switch (chartType) {
@@ -330,7 +364,11 @@ class MomentFacts {
 
   /// Builds the facts of [item]: every value from its recorded events,
   /// names and formats from [lookups].
-  factory MomentFacts.of(ChartMomentFeedItem item, MomentLookups lookups) {
+  factory MomentFacts.of(
+    ChartMomentFeedItem item,
+    MomentLookups lookups, {
+    bool refined = false,
+  }) {
     final dominant = item.events.firstWhere(
       (event) => event.eventType == item.dominantEventType,
     );
@@ -409,7 +447,19 @@ class MomentFacts {
       featured: featured.length == 1 ? featured.single : null,
       newTopArtist: topArtist?.entity.title,
       passedTopArtist: topArtist?.relatedEntity?.title,
+      refined: refined,
+      thresholds: refined ? _firstThresholds(item) : const [],
     );
+  }
+
+  static List<int> _firstThresholds(ChartMomentFeedItem item) {
+    final zones = {
+      for (final event in item.events)
+        if (event.eventType == ChartMomentEventType.firstThresholdEntry &&
+            event.threshold != null)
+          event.threshold!,
+    }.toList()..sort((a, b) => b.compareTo(a));
+    return List.unmodifiable(zones);
   }
 
   static const Set<ChartMomentEventType> _careerTypes = {

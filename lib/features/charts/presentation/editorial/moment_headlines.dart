@@ -56,6 +56,7 @@ const _ordinalRival = {MomentFact.ordinal, MomentFact.rival};
 const _weeks = {MomentFact.weeks};
 const _run = {MomentFact.weeks, MomentFact.consecutive};
 const _count = {MomentFact.count, MomentFact.threshold};
+const _zones = {MomentFact.rank, MomentFact.thresholdList};
 
 String _p1(MomentFacts f) => MomentFacts.possessive(f.artist);
 String _pc(MomentFacts f) => MomentFacts.possessive(f.careerArtist);
@@ -2667,6 +2668,221 @@ abstract final class MomentHeadlines {
             '${f.title} reaches #1 with ${f.streamsText}, giving '
             '${f.careerArtist} ${f.ordinal} #1 releases.',
         requires: _ordinalStreams,
+      ),
+    ],
+
+    // SN-50 new pathways: the drafts of SN50_Editorial_Change_Proposal.md
+    // section 3 (N-2 to N-6), awaiting six lines per publisher.
+
+    // N-4.
+    MomentFamily.songSelfReplacement: [
+      HeadlineVariant(
+        'song-self-1-d1',
+        _d,
+        (f) =>
+            '${f.careerArtist} replaces ${f.rivalWork} with ${f.work} at #1 '
+            'on ${f.scopedChart}.',
+        requires: _rival,
+      ),
+      HeadlineVariant(
+        'song-self-1-d2',
+        _d,
+        (f) =>
+            '${f.work} takes over #1 on ${f.scopedChart} from ${f.rivalWork}, '
+            'keeping the top spot with ${f.careerArtist}.',
+        requires: _rival,
+      ),
+      HeadlineVariant(
+        'song-self-1-p1',
+        _p,
+        (f) =>
+            'Out with ${f.rivalWork}, in with ${f.work}: ${f.careerArtist} '
+            'stays at #1.',
+        requires: _rival,
+      ),
+      HeadlineVariant(
+        'song-self-1-p2',
+        _p,
+        (f) =>
+            '${f.careerArtist} follows one #1 with another: ${f.work} '
+            'replaces ${f.rivalWork}.',
+        requires: _rival,
+      ),
+    ],
+    MomentFamily.releaseSelfReplacement: [
+      HeadlineVariant(
+        'release-self-1-d1',
+        _d,
+        (f) =>
+            '${f.careerArtist} replaces ${f.rivalWork} with ${f.title} at #1 '
+            'on ${f.scopedChart}.',
+        requires: _rival,
+      ),
+      HeadlineVariant(
+        'release-self-1-p1',
+        _p,
+        (f) =>
+            '${f.careerArtist} follows one #1 with another: ${f.title} '
+            'replaces ${f.rivalWork}.',
+        requires: _rival,
+      ),
+    ],
+
+    // N-2.
+    MomentFamily.songFirstThreshold: [
+      HeadlineVariant(
+        'song-zone-d1',
+        _d,
+        (f) =>
+            '${f.subject} enters the Top ${f.threshold} of ${f.scopedChart} '
+            'for the first time, at #${f.rank}.',
+        requires: _zone,
+      ),
+      HeadlineVariant(
+        'song-zone-d2',
+        _d,
+        (f) =>
+            '${f.work} by ${f.artist} reaches the Top ${f.threshold} for the '
+            'first time, at #${f.rank}.',
+        requires: _zone,
+      ),
+      HeadlineVariant(
+        'song-zone-p1',
+        _p,
+        (f) =>
+            'Into the Top ${f.threshold}! ${f.subject} reaches #${f.rank} for '
+            'the first time.',
+        requires: _zone,
+      ),
+      HeadlineVariant(
+        'song-zone-p2',
+        _p,
+        (f) =>
+            '${f.artist} cracks the Top ${f.threshold}: ${f.work} reaches '
+            '#${f.rank}.',
+        requires: _zone,
+      ),
+    ],
+    MomentFamily.releaseFirstThreshold: [
+      HeadlineVariant(
+        'release-zone-d1',
+        _d,
+        (f) =>
+            'The ${f.releaseWord} ${f.subject} reaches the Top ${f.threshold} '
+            'of ${f.scopedChart} for the first time, at #${f.rank}.',
+        requires: _zone,
+      ),
+      HeadlineVariant(
+        'release-zone-p1',
+        _p,
+        (f) =>
+            '${f.artist} takes the ${f.releaseWord} ${f.title} into the Top '
+            '${f.threshold}, at #${f.rank}.',
+        requires: _zone,
+      ),
+    ],
+
+    // N-3.
+    MomentFamily.songThresholds: [
+      HeadlineVariant(
+        'song-zones-d1',
+        _d,
+        (f) =>
+            '${f.subject} moves into ${f.thresholdList} for the first time, '
+            'now at #${f.rank}.',
+        requires: _zones,
+      ),
+      HeadlineVariant(
+        'song-zones-p1',
+        _p,
+        (f) =>
+            'Up and through: ${f.work} by ${f.artist} enters '
+            '${f.thresholdList} at #${f.rank}.',
+        requires: _zones,
+      ),
+    ],
+    MomentFamily.releaseThresholds: [
+      HeadlineVariant(
+        'release-zones-d1',
+        _d,
+        (f) =>
+            'The ${f.releaseWord} ${f.subject} moves into ${f.thresholdList} '
+            'for the first time, now at #${f.rank}.',
+        requires: _zones,
+      ),
+      HeadlineVariant(
+        'release-zones-p1',
+        _p,
+        (f) =>
+            '${f.title} by ${f.artist} breaks into ${f.thresholdList} in one '
+            'move, landing at #${f.rank}.',
+        requires: _zones,
+      ),
+    ],
+
+    // N-6.
+    MomentFamily.artistRepeatNumberOne: [
+      HeadlineVariant(
+        'artist-repeat-1-d1',
+        _d,
+        (f) =>
+            '${f.careerArtist} earns ${f.aOrdinalText} #1 on ${f.scopedChart} '
+            'as ${f.work} takes the top spot.',
+        requires: _ordinal,
+      ),
+      HeadlineVariant(
+        'artist-repeat-1-p1',
+        _p,
+        (f) =>
+            '#1 number ${f.ordinal} on ${f.scopedChart} for '
+            '${f.careerArtist}! ${f.work} takes the top spot.',
+        requires: _ordinal,
+      ),
+    ],
+    MomentFamily.artistRepeatNumberOneRelease: [
+      HeadlineVariant(
+        'artist-release-repeat-1-d1',
+        _d,
+        (f) =>
+            '${f.title} gives ${f.careerArtist} ${f.aOrdinalText} #1 on '
+            '${f.scopedChart}.',
+        requires: _ordinal,
+      ),
+      HeadlineVariant(
+        'artist-release-repeat-1-p1',
+        _p,
+        (f) =>
+            '${f.careerArtist} collects #1 number ${f.ordinal} on '
+            '${f.scopedChart} with the ${f.releaseWord} ${f.title}.',
+        requires: _ordinal,
+      ),
+    ],
+
+    // N-5.
+    MomentFamily.artistSimultaneousReleases: [
+      HeadlineVariant(
+        'artist-sim-release-d1',
+        _d,
+        (f) =>
+            '${f.artist} has ${f.count} releases in the Top ${f.threshold} of '
+            '${f.scopedChart} at once.',
+        requires: _count,
+      ),
+      HeadlineVariant(
+        'artist-sim-release-d2',
+        _d,
+        (f) =>
+            '${f.count} releases by ${f.artist} sit in the Top ${f.threshold} '
+            'of ${f.scopedChart}.',
+        requires: _count,
+      ),
+      HeadlineVariant(
+        'artist-sim-release-p1',
+        _p,
+        (f) =>
+            'Catalog power: ${f.artist} has ${f.count} releases in the Top '
+            '${f.threshold}.',
+        requires: _count,
       ),
     ],
   };

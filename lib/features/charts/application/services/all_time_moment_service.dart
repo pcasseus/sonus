@@ -9,6 +9,7 @@ import '../../domain/models/chart_entity_snapshot.dart';
 import '../../domain/models/chart_type.dart';
 import '../../domain/moments/chart_moment_event.dart';
 import '../../domain/moments/chart_moment_event_type.dart';
+import '../../domain/moments/chart_moment_rules.dart';
 import '../../domain/moments/chart_moment_scope.dart';
 import '../../domain/repositories/chart_moment_repository.dart';
 import '../../domain/services/all_time_history_replay.dart';
@@ -195,6 +196,7 @@ class AllTimeMomentService {
       ],
       referenceLocal: referenceLocal,
       achievementsFromUtc: from,
+      thresholdEntriesFromUtc: ChartMomentRules.refinedFromUtc,
       streamMilestones: switch (chartType) {
         ChartType.songs => songStreamMilestones,
         ChartType.albums => releaseStreamMilestones,
@@ -231,6 +233,10 @@ class AllTimeMomentService {
         AllTimeHistoryReplay.hot100,
       ),
       AllTimeAchievementType.reentry => (ChartMomentEventType.reentry, null),
+      AllTimeAchievementType.thresholdEntry => (
+        ChartMomentEventType.firstThresholdEntry,
+        achievement.zone,
+      ),
       AllTimeAchievementType.newPeak => (
         ChartMomentEventType.newPeak,
         achievement.zone,

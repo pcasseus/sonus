@@ -1,0 +1,686 @@
+// SN-50 Moments reachability (F3): made-up finalized weeks and plays go
+// through the real weekly detectors, the real all-time Moment service, the
+// real Moment store, the real feed aggregator and the real editorial desk.
+// The tests pin which story families can actually publish, before and
+// after the SN-50 rules start.
+import 'package:flutter_test/flutter_test.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+
+import 'package:sonus_next/core/database/app_database.dart';
+import 'package:sonus_next/features/analytics/domain/entities/qualified_play.dart';
+import 'package:sonus_next/features/analytics/domain/repositories/qualified_play_repository.dart';
+import 'package:sonus_next/features/charts/application/services/all_time_moment_service.dart';
+import 'package:sonus_next/features/charts/application/services/chart_moment_feed_aggregator.dart';
+import 'package:sonus_next/features/charts/data/repositories/sqlite_chart_moment_repository.dart';
+import 'package:sonus_next/features/charts/domain/entities/chart_entry.dart';
+import 'package:sonus_next/features/charts/domain/entities/chart_snapshot.dart';
+import 'package:sonus_next/features/charts/domain/models/chart_entity_snapshot.dart';
+import 'package:sonus_next/features/charts/domain/models/chart_movement.dart';
+import 'package:sonus_next/features/charts/domain/models/chart_type.dart';
+import 'package:sonus_next/features/charts/domain/moments/chart_moment_artist_achievement_detector.dart';
+import 'package:sonus_next/features/charts/domain/moments/chart_moment_event.dart';
+import 'package:sonus_next/features/charts/domain/moments/chart_moment_event_type.dart';
+import 'package:sonus_next/features/charts/domain/moments/chart_moment_finalized_detector.dart';
+import 'package:sonus_next/features/charts/domain/moments/chart_moment_longevity_calculator.dart';
+import 'package:sonus_next/features/charts/domain/moments/chart_moment_milestone_detector.dart';
+import 'package:sonus_next/features/charts/domain/moments/chart_moment_scope.dart';
+import 'package:sonus_next/features/charts/presentation/editorial/moment_editorial_desk.dart';
+import 'package:sonus_next/features/charts/presentation/editorial/moment_facts.dart';
+import 'package:sonus_next/features/charts/presentation/editorial/moment_family.dart';
+import 'package:sonus_next/features/charts/presentation/editorial/moment_visuals.dart';
+import 'package:sonus_next/features/library/application/models/library_album.dart';
+import 'package:sonus_next/features/library/application/models/library_artist.dart';
+import 'package:sonus_next/features/library/application/models/library_track.dart';
+import 'package:sonus_next/features/library/application/models/library_track_order.dart';
+import 'package:sonus_next/features/library/application/repositories/library_query_repository.dart';
+import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
+import 'package:sonus_next/features/library/domain/entities/library_organization.dart';
+
+/// Made-up artists.
+const _artists = {
+  'mira': 'Mira Vale',
+  'juno': 'Juno Park',
+  'lanterns': 'The Lanterns',
+  'ode': 'Ode Collective',
+};
+
+ChartEntitySnapshot _song(String id, String title, String artist) =>
+    ChartEntitySnapshot(
+      entityId: id,
+      title: title,
+      artistId: artist,
+      artistName: _artists[artist]!,
+      albumTitle: '$title (Album)',
+    );
+
+ChartEntitySnapshot _release(String id, String title, String artist) =>
+    ChartEntitySnapshot(
+      entityId: id,
+      title: title,
+      artistId: artist,
+      artistName: _artists[artist]!,
+    );
+
+class _Lookups implements MomentLookups {
+  _Lookups({this.covers = const {}});
+
+  final Map<String, String> covers;
+
+  @override
+  String? artistName(String artistId) => _artists[artistId] ?? artistId;
+
+  @override
+  ReleaseFormat? formatOf(String albumId) => ReleaseFormat.album;
+
+  @override
+  ReleaseFormat? songReleaseFormat(String songId) => ReleaseFormat.album;
+
+  @override
+  List<String> featuredOf(String songId) => const [];
+
+  @override
+  String? artistIdNamed(String name) => null;
+
+  @override
+  String? songCover(String songId) => covers[songId] ?? '/covers/$songId.jpg';
+
+  @override
+  String? releaseCover(String albumId) => '/covers/$albumId.jpg';
+
+  @override
+  String? artistPortrait(String artistId) => '/portraits/$artistId.jpg';
+}
+
+/// A finalized weekly chart, one week at a time, with the detectors the
+/// finalization service runs.
+class _WeeklyChart {
+  _WeeklyChart(this.type, this._start);
+
+  final ChartType type;
+  DateTime _start;
+  final List<ChartSnapshot> history = [];
+
+  /// Finalizes the next week with these ranks and returns its events.
+  List<ChartMomentEvent> week(Map<ChartEntitySnapshot, int> ranks) {
+    final start = _start;
+    final end = start.add(const Duration(days: 7));
+    final previous = history.isNotEmpty && history.last.weekEndUtc == start
+        ? history.last
+        : null;
+    final previousRanks = {
+      for (final entry in previous?.entries ?? const <ChartEntry>[])
+        entry.entity.entityId: entry.rank,
+    };
+    final peaks = <String, int>{};
+    for (final snapshot in history) {
+      for (final entry in snapshot.entries) {
+        final id = entry.entity.entityId;
+        if (entry.peakRank < (peaks[id] ?? 999)) peaks[id] = entry.peakRank;
+      }
+    }
+
+    final snapshot = ChartSnapshot(
+      id: 'chart_${type.name}_${start.millisecondsSinceEpoch}',
+      chartType: type,
+      weekStartUtc: start,
+      weekEndUtc: end,
+      finalizedAt: end,
+      entries: [
+        for (final MapEntry(key: entity, value: rank) in ranks.entries)
+          ChartEntry(
+            entity: entity,
+            rank: rank,
+            qualifiedStreamCount: 300 - rank,
+            lastQualifiedAt: end,
+            previousFinalRank: previousRanks[entity.entityId],
+            peakRank: rank < (peaks[entity.entityId] ?? 999)
+                ? rank
+                : peaks[entity.entityId]!,
+            peakAchievedAt: end,
+            weeksOnChart: 1,
+            movement: ChartMovement.same,
+          ),
+      ],
+    );
+
+    final events = [
+      ...const ChartMomentFinalizedDetector().detect(
+        snapshot: snapshot,
+        history: history,
+        createdAt: end,
+      ),
+      ...const ChartMomentArtistAchievementDetector().detect(
+        snapshot: snapshot,
+        history: history,
+        createdAt: end,
+      ),
+    ];
+    final baseline =
+        previous ??
+        ChartSnapshot(
+          id: 'baseline',
+          chartType: type,
+          weekStartUtc: start.subtract(const Duration(days: 7)),
+          weekEndUtc: start,
+          finalizedAt: start,
+          entries: const [],
+        );
+    const longevity = ChartMomentLongevityCalculator();
+    for (final entry in snapshot.entries) {
+      events.addAll(
+        const ChartMomentMilestoneDetector().detect(
+          snapshot: snapshot,
+          entry: entry,
+          previousLongevity: longevity.calculate(
+            entityId: entry.entity.entityId,
+            snapshot: baseline,
+            history: history,
+          ),
+          currentLongevity: longevity.calculate(
+            entityId: entry.entity.entityId,
+            snapshot: snapshot,
+            history: history,
+          ),
+          previousLifetimeStreams: 0,
+          currentLifetimeStreams: 0,
+          createdAt: end,
+        ),
+      );
+    }
+
+    history.add(snapshot);
+    _start = end;
+    return events;
+  }
+}
+
+// Songs of the weekly scenario.
+final _p = _song('paper-moon', 'Paper Moon', 'mira');
+final _p2 = _song('second-light', 'Second Light', 'mira');
+final _q = _song('quiet-hours', 'Quiet Hours', 'juno');
+final _q3 = _song('third-wish', 'Third Wish', 'juno');
+final _r = _song('river-song', 'River Song', 'lanterns');
+final _t = _song('tin-roof', 'Tin Roof', 'ode');
+final _s = _song('slow-burn', 'Slow Burn', 'ode');
+
+// Releases of the weekly scenario.
+final _a1 = _release('night-market', 'Night Market', 'mira');
+final _a2 = _release('day-market', 'Day Market', 'mira');
+final _b1 = _release('glass-house', 'Glass House', 'juno');
+final _b2 = _release('stone-house', 'Stone House', 'juno');
+final _c1 = _release('field-notes', 'Field Notes', 'lanterns');
+final _d1 = _release('low-hum', 'Low Hum', 'ode');
+
+/// Nine weeks of songs: a #190 debut that climbs to #1 through every zone,
+/// a #1 debut that holds, a re-entry, a peak match, a new peak, a
+/// self-replacement and an artist's repeat #1.
+List<Map<ChartEntitySnapshot, int>> get _songWeeks => [
+  {_q: 1, _t: 9, _r: 30, _s: 40, _p: 190},
+  {_q: 1, _t: 7, _r: 8, _p: 150},
+  {_q: 1, _r: 3, _t: 12, _s: 45, _p: 60},
+  {_q: 1, _p: 4, _r: 6, _t: 13, _s: 46},
+  {_p: 1, _q: 2, _r: 3, _t: 14, _p2: 20, _s: 47},
+  {_p2: 1, _p: 2, _q: 3, _r: 4, _t: 15},
+  {_r: 1, _p2: 2, _p: 3, _q: 4, _q3: 30},
+  {_q3: 1, _r: 2, _p2: 3, _p: 4},
+  {_p: 1, _q3: 2, _r: 3},
+];
+
+/// Six weeks of releases.
+List<Map<ChartEntitySnapshot, int>> get _releaseWeeks => [
+  {_b1: 1, _a1: 12, _d1: 30, _c1: 150},
+  {_b1: 1, _a1: 4, _c1: 60},
+  {_a1: 1, _b1: 2, _a2: 5, _c1: 7, _d1: 35},
+  {_a2: 1, _a1: 2, _c1: 6, _b1: 8},
+  {_b2: 1, _a2: 2, _a1: 3, _c1: 9},
+  {_a1: 1, _b2: 2, _a2: 3},
+];
+
+class _Plays implements QualifiedPlayRepository {
+  final List<QualifiedPlay> all = [];
+
+  void add(LibraryTrack track, DateTime at, {int times = 1}) {
+    for (var i = 0; i < times; i++) {
+      final when = at.add(Duration(seconds: i));
+      final id = 'play-${all.length + 1}';
+      all.add(
+        QualifiedPlay(
+          id: id,
+          playbackSessionId: 'session-$id',
+          songId: track.songId,
+          artistId: track.artistId,
+          albumId: track.albumId,
+          albumEditionId: track.albumEditionId,
+          qualifiedAt: when.toUtc(),
+          listenedDuration: const Duration(seconds: 120),
+          trackDuration: const Duration(seconds: 200),
+          createdAt: when.toUtc(),
+        ),
+      );
+    }
+  }
+
+  @override
+  Future<List<QualifiedPlay>> getAll({
+    DateTime? qualifiedAtOrAfter,
+    DateTime? qualifiedBefore,
+  }) async => List.of(all);
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => throw UnimplementedError();
+}
+
+class _Library implements LibraryQueryRepository {
+  final List<LibraryTrack> tracks = [];
+  final List<LibraryAlbum> albums = [];
+
+  LibraryTrack add(String id, String title, String artist) {
+    final name = _artists[artist] ?? artist;
+    final track = LibraryTrack(
+      songId: id,
+      title: title,
+      artistId: artist,
+      artistName: name,
+      albumId: 'album-$id',
+      albumTitle: '$title (Album)',
+      albumEditionId: 'edition-$id',
+      albumEditionTitle: '$title (Album)',
+      albumEditionType: AlbumEditionType.standard,
+      trackNumber: 1,
+      durationSeconds: 180,
+      isSingle: false,
+      featuredArtists: const [],
+      dateAdded: DateTime.utc(2026, 9, 1),
+      isAvailable: true,
+      isSongBlocked: false,
+    );
+    tracks.add(track);
+    albums.add(
+      LibraryAlbum(
+        albumId: 'album-$id',
+        title: '$title (Album)',
+        artistId: artist,
+        artistName: name,
+        trackCount: 1,
+        dateAdded: DateTime.utc(2026, 9, 1),
+      ),
+    );
+    return track;
+  }
+
+  @override
+  Future<List<LibraryTrack>> getTracks({
+    LibraryTrackOrder order = LibraryTrackOrder.title,
+  }) async => tracks;
+
+  @override
+  Future<List<LibraryAlbum>> getAlbums() async => albums;
+
+  @override
+  Future<List<LibraryArtist>> getArtists() async => [
+    for (final artist in {for (final track in tracks) track.artistId})
+      LibraryArtist(
+        artistId: artist,
+        name: _artists[artist] ?? artist,
+        albumCount: 1,
+        songCount: 1,
+        dateAdded: DateTime.utc(2026, 9, 1),
+      ),
+  ];
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => throw UnimplementedError();
+}
+
+/// Where a scenario runs: before the SN-50 rules, or after.
+class _Era {
+  const _Era(this.weeksFromUtc, this.playsOn);
+
+  /// The first finalized week of the weekly scenarios.
+  final DateTime weeksFromUtc;
+
+  /// A Tuesday (local) for the all-time plays.
+  final DateTime playsOn;
+}
+
+final _legacy = _Era(DateTime.utc(2026, 8, 16), DateTime(2026, 10, 27));
+final _refined = _Era(DateTime.utc(2026, 11, 1), DateTime(2026, 11, 17));
+
+void main() {
+  sqfliteFfiInit();
+
+  late AppDatabase database;
+  late SqliteChartMomentRepository moments;
+
+  setUp(() async {
+    database = AppDatabase(
+      databaseFactory: databaseFactoryFfi,
+      databasePath: inMemoryDatabasePath,
+    );
+    await database.database;
+    moments = SqliteChartMomentRepository(database);
+  });
+
+  tearDown(() => database.close());
+
+  Future<void> publishWeeks(
+    ChartType type,
+    DateTime from,
+    List<Map<ChartEntitySnapshot, int>> weeks,
+  ) async {
+    final chart = _WeeklyChart(type, from);
+    for (final ranks in weeks) {
+      final events = chart.week(ranks);
+      await moments.publishFinalizedForWeek(
+        chartType: type,
+        weekStartUtc: chart.history.last.weekStartUtc,
+        events: events,
+      );
+    }
+  }
+
+  /// A deep chart (5 songs with 30 plays, 115 with 10), then plays of one
+  /// song that debuts at #121 and jumps to #6 with one play.
+  Future<void> recordDeepClimb(_Era era) async {
+    final library = _Library();
+    final plays = _Plays();
+    final early = era.playsOn.subtract(const Duration(days: 30));
+    for (var i = 0; i < 120; i++) {
+      final track = library.add('deep-$i', 'Deep Cut $i', 'deep-artist-$i');
+      plays.add(track, early.add(Duration(minutes: i)), times: i < 5 ? 30 : 10);
+    }
+    final climber = library.add('lantern-light', 'Lantern Light', 'mira');
+    plays.add(climber, era.playsOn, times: 11);
+    await _service(
+      plays,
+      library,
+      moments,
+    ).record(referenceLocal: era.playsOn.add(const Duration(days: 1)));
+  }
+
+  /// Three songs racing to #1, two by one artist.
+  Future<void> recordRace(_Era era) async {
+    final library = _Library();
+    final plays = _Plays();
+    final first = library.add('first-steps', 'First Steps', 'juno');
+    final second = library.add('second-wind', 'Second Wind', 'juno');
+    final rival = library.add('wild-card', 'Wild Card', 'lanterns');
+    var at = era.playsOn;
+    void play(LibraryTrack track) {
+      at = at.add(const Duration(minutes: 1));
+      plays.add(track, at);
+    }
+
+    play(first);
+    play(second);
+    play(second);
+    for (var i = 0; i < 4; i++) {
+      play(rival);
+    }
+    await _service(
+      plays,
+      library,
+      moments,
+    ).record(referenceLocal: era.playsOn.add(const Duration(days: 1)));
+  }
+
+  Future<List<MomentStory>> stories({Map<String, String> covers = const {}}) =>
+      moments.getRecent().then(
+        (events) => MomentEditorialDesk(
+          lookups: _Lookups(covers: covers),
+        ).compose(const ChartMomentFeedAggregator().aggregate(events)),
+      );
+
+  Future<Set<MomentFamily>> reachable(_Era era) async {
+    await publishWeeks(ChartType.songs, era.weeksFromUtc, _songWeeks);
+    await publishWeeks(ChartType.albums, era.weeksFromUtc, _releaseWeeks);
+    await recordDeepClimb(era);
+    await recordRace(era);
+    return {for (final story in await stories()) story.family};
+  }
+
+  test('before the SN-50 rules: 17 families publish, as first '
+      'published', () async {
+    final families = await reachable(_legacy);
+
+    expect(families, {
+      MomentFamily.songBubblingUnderDebut,
+      MomentFamily.songFirstNumberOne,
+      MomentFamily.songReturnsToNumberOne,
+      MomentFamily.songNewPeak,
+      MomentFamily.artistFirstTop10,
+      MomentFamily.artistNthTop10,
+      MomentFamily.artistFirstNumberOne,
+      MomentFamily.artistNthNumberOne,
+      MomentFamily.artistTopArtist,
+      MomentFamily.artistSimultaneous,
+      MomentFamily.releaseDebutNumberOne,
+      MomentFamily.releaseDebut,
+      MomentFamily.releaseReachesNumberOne,
+      MomentFamily.releaseReturnsToNumberOne,
+      MomentFamily.releaseNewPeak,
+      MomentFamily.artistFirstNumberOneRelease,
+      MomentFamily.artistNthNumberOneRelease,
+    });
+    // Plays before the rules never record the new zone entries.
+    final allTimeZones = (await moments.getRecent()).where(
+      (event) =>
+          event.scope == ChartMomentScope.allTime &&
+          event.eventType == ChartMomentEventType.firstThresholdEntry,
+    );
+    expect(allTimeZones.map((event) => event.threshold).toSet(), {100});
+  });
+
+  test('with the SN-50 rules: 31 families publish, including peak matches '
+      'and longevity; releaseWeeksMilestone stays unwired', () async {
+    final families = await reachable(_refined);
+
+    expect(families, {
+      MomentFamily.songDebutNumberOne,
+      MomentFamily.songDebutTop10,
+      MomentFamily.songDebut,
+      MomentFamily.songBubblingUnderDebut,
+      MomentFamily.songHot100Breakthrough,
+      MomentFamily.songReturnsToNumberOne,
+      MomentFamily.songNewPeak,
+      MomentFamily.songPeakMatch,
+      MomentFamily.songBiggestGainer,
+      MomentFamily.songReentry,
+      MomentFamily.songWeeksMilestone,
+      MomentFamily.artistFirstTop10,
+      MomentFamily.artistNthTop10,
+      MomentFamily.artistFirstNumberOne,
+      MomentFamily.artistTopArtist,
+      MomentFamily.artistSimultaneous,
+      MomentFamily.releaseDebutNumberOne,
+      MomentFamily.releaseDebut,
+      MomentFamily.releaseReturnsToNumberOne,
+      MomentFamily.releaseNewPeak,
+      MomentFamily.releaseReentry,
+      MomentFamily.artistFirstNumberOneRelease,
+      MomentFamily.songSelfReplacement,
+      MomentFamily.songFirstThreshold,
+      MomentFamily.songThresholds,
+      MomentFamily.artistRepeatNumberOne,
+      MomentFamily.releaseSelfReplacement,
+      MomentFamily.releaseFirstThreshold,
+      MomentFamily.releaseThresholds,
+      MomentFamily.artistRepeatNumberOneRelease,
+      MomentFamily.artistSimultaneousReleases,
+    });
+  });
+
+  test('scenario 7: a #190 debut, then each first zone once, with its '
+      'scope', () async {
+    await publishWeeks(ChartType.songs, _refined.weeksFromUtc, _songWeeks);
+    final lastWeek = _refined.weeksFromUtc.add(const Duration(days: 28));
+    final paper = [
+      for (final story in (await stories()).reversed)
+        if (story.item.entity.entityId == _p.entityId &&
+            !story.item.weekStartUtc.isAfter(lastWeek))
+          story,
+    ];
+
+    final zones = <int>[];
+    for (final story in paper) {
+      switch (story.family) {
+        case MomentFamily.songBubblingUnderDebut:
+          zones.add(200);
+          expect(story.headline, contains('#190'));
+          expect(story.headline, contains('Sonus Bubbling Under'));
+        case MomentFamily.songHot100Breakthrough:
+          zones.add(100);
+        case MomentFamily.songFirstThreshold:
+          zones.add(story.facts.threshold!);
+        case MomentFamily.songThresholds:
+          zones.addAll(story.facts.thresholds);
+          expect(
+            story.headline,
+            contains('the Top 50, Top 40, Top 30, Top 25, Top 20 and Top 15'),
+          );
+        case MomentFamily.artistFirstNumberOne:
+          zones.add(1);
+        default:
+          break;
+      }
+      expect(story.facts.weekly, isTrue);
+      expect(story.headline, isNot(contains('this stream')));
+      expect(story.body ?? '', isNot(contains('this stream')));
+    }
+    expect(zones.toSet(), {
+      200,
+      100,
+      75,
+      50,
+      40,
+      30,
+      25,
+      20,
+      15,
+      10,
+      5,
+      3,
+      2,
+      1,
+    });
+    expect(zones, hasLength(14), reason: 'each zone is told once');
+  });
+
+  test('scenario 8: five deep debuts on one day are five stories; minor '
+      'stories before the rules stay capped at three', () async {
+    Future<int> deepDebuts(_Era era, String tag) async {
+      final library = _Library();
+      final plays = _Plays();
+      final early = era.playsOn.subtract(const Duration(days: 30));
+      for (var i = 0; i < 120; i++) {
+        final track = library.add('$tag-floor-$i', 'Floor $i', 'floor-$i');
+        plays.add(track, early.add(Duration(minutes: i)), times: 10);
+      }
+      for (var i = 0; i < 5; i++) {
+        final track = library.add('$tag-new-$i', 'New $i', 'ode');
+        plays.add(track, era.playsOn.add(Duration(minutes: i)));
+      }
+      await _service(
+        plays,
+        library,
+        moments,
+      ).record(referenceLocal: era.playsOn.add(const Duration(days: 1)));
+      return (await stories())
+          .where(
+            (story) =>
+                story.family == MomentFamily.songBubblingUnderDebut &&
+                story.item.entity.entityId.startsWith('$tag-new-'),
+          )
+          .length;
+    }
+
+    expect(await deepDebuts(_refined, 'after'), 5);
+    expect(await deepDebuts(_legacy, 'before'), 3);
+
+    final releases = _WeeklyChart(ChartType.albums, _refined.weeksFromUtc);
+    final week = releases.week({
+      for (var i = 0; i < 5; i++)
+        _release('deep-release-$i', 'Deep Release $i', 'ode'): 120 + i,
+    });
+    await moments.publishFinalizedForWeek(
+      chartType: ChartType.albums,
+      weekStartUtc: _refined.weeksFromUtc,
+      events: week,
+    );
+    final weekly = (await stories()).where(
+      (story) =>
+          story.family == MomentFamily.releaseDebut && story.facts.weekly,
+    );
+    expect(weekly, hasLength(5));
+  });
+
+  test('scenario 8: a career milestone on the same play never replaces the '
+      'entry story', () async {
+    await recordRace(_refined);
+    final second = [
+      for (final story in await stories())
+        if (story.item.entity.entityId == 'second-wind' &&
+            story.item.chartType == ChartType.songs)
+          story.family,
+    ];
+
+    expect(
+      second,
+      containsAll([MomentFamily.songDebutTop10, MomentFamily.artistNthTop10]),
+    );
+  });
+
+  test('scenario 9: a weekly #1 names only the displaced leader; an artist '
+      'replacing their own #1 is not a dethroning', () async {
+    await publishWeeks(ChartType.songs, _refined.weeksFromUtc, _songWeeks);
+    final all = await stories(
+      covers: {
+        _p.entityId: '/covers/mira.jpg',
+        _p2.entityId: '/covers/mira.jpg',
+      },
+    );
+    MomentStory numberOne(ChartEntitySnapshot song, int week) =>
+        all.singleWhere(
+          (story) =>
+              story.item.entity.entityId == song.entityId &&
+              story.family.isNumberOne &&
+              story.item.weekStartUtc ==
+                  _refined.weeksFromUtc.add(Duration(days: 7 * week)),
+        );
+
+    final dethroning = numberOne(_p, 4);
+    expect(dethroning.facts.rivalTitle, _q.title);
+    expect(dethroning.facts.rivalArtist, 'Juno Park');
+
+    final self = numberOne(_p2, 5);
+    expect(self.family, MomentFamily.songSelfReplacement);
+    expect(self.facts.rivalTitle, _p.title);
+    expect('"Second Light"'.allMatches(self.headline), hasLength(1));
+    expect('"Paper Moon"'.allMatches(self.headline), hasLength(1));
+    expect('Mira Vale'.allMatches(self.headline), hasLength(1));
+    expect(self.visual.layout, MomentVisualLayout.singleCover);
+  });
+
+  test('a weekly repeat #1 counts the stored weeks and names the weekly '
+      'chart', () async {
+    await publishWeeks(ChartType.songs, _refined.weeksFromUtc, _songWeeks);
+    final repeat = (await stories()).singleWhere(
+      (story) => story.family == MomentFamily.artistRepeatNumberOne,
+    );
+
+    expect(repeat.facts.ordinal, 2);
+    expect(repeat.item.entity.entityId, _q3.entityId);
+    expect(repeat.headline, contains('the weekly Sonus Hot 100'));
+  });
+}
+
+AllTimeMomentService _service(
+  _Plays plays,
+  _Library library,
+  SqliteChartMomentRepository moments,
+) => AllTimeMomentService(
+  qualifiedPlays: plays,
+  library: library,
+  moments: moments,
+  activationUtc: DateTime.utc(2026, 10, 25),
+);

@@ -40,6 +40,10 @@ enum AllTimeAchievementType {
 
   /// The group's [AllTimeAchievement.milestone]th entity in the Top 100.
   careerTop100,
+
+  /// First ever entry into the Top [AllTimeAchievement.zone] (one of
+  /// [AllTimeHistoryReplay.thresholdZones]) after the debut.
+  thresholdEntry,
 }
 
 /// One achievement, at the play that caused it.
@@ -92,7 +96,8 @@ class AllTimeAchievement {
       AllTimeAchievementType.debut ||
       AllTimeAchievementType.top100Entry ||
       AllTimeAchievementType.numberOne => '',
-      AllTimeAchievementType.newPeak => '$zone',
+      AllTimeAchievementType.newPeak ||
+      AllTimeAchievementType.thresholdEntry => '$zone',
       AllTimeAchievementType.reentry ||
       AllTimeAchievementType.returnsToNumberOne ||
       AllTimeAchievementType.bigClimb => playId,
@@ -175,6 +180,22 @@ class AllTimeHistoryReplay {
   /// Zones a new peak must reach to be worth a story.
   static const List<int> peakZones = [50, 25, 10, 5, 3, 2];
 
+  /// Zones whose first entry is told on its own (SN-50 F-Q14). The Top
+  /// 100 is [AllTimeAchievementType.top100Entry]; #1 is its own story.
+  static const List<int> thresholdZones = [
+    75,
+    50,
+    40,
+    30,
+    25,
+    20,
+    15,
+    10,
+    5,
+    3,
+    2,
+  ];
+
   static const int bigClimbPlaces = 15;
 
   /// A Top 200 return sooner than this after dropping out is ordinary churn
@@ -188,10 +209,13 @@ class AllTimeHistoryReplay {
   /// first Top 100 also count for its group, with the group's ordinal: its
   /// first, second, … #1. Groups are counted over the whole history, also
   /// before [achievementsFromUtc]; entities without a group never count.
+  /// From [thresholdEntriesFromUtc] on, every first entry into one of the
+  /// [thresholdZones] after the debut is an achievement as well.
   AllTimeReplayResult run({
     required Iterable<ChartRankingEvent> events,
     required DateTime referenceLocal,
     DateTime? achievementsFromUtc,
+    DateTime? thresholdEntriesFromUtc,
     bool collectAchievements = true,
     List<int> streamMilestones = const [],
     String? Function(String entityId)? groupOf,
@@ -300,6 +324,29 @@ class AllTimeHistoryReplay {
             previousLeader: previousLeader,
           );
           if (achievement != null) achievements.add(achievement);
+
+          final thresholdsFrom = thresholdEntriesFromUtc?.toUtc();
+          if (state.everInTop &&
+              thresholdsFrom != null &&
+              !at.isBefore(thresholdsFrom)) {
+            for (final zone in thresholdZones) {
+              final best = state.bestRank;
+              if (rank > zone || (best != null && best <= zone)) continue;
+              achievements.add(
+                AllTimeAchievement(
+                  type: AllTimeAchievementType.thresholdEntry,
+                  entityId: state.entityId,
+                  playId: playId,
+                  occurredAt: at,
+                  rank: rank,
+                  streams: state.count,
+                  previousRank: previousRank,
+                  previousPeakRank: best,
+                  zone: zone,
+                ),
+              );
+            }
+          }
         }
 
         // Career ordinals count the whole history, stories or not.

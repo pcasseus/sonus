@@ -45,7 +45,28 @@ enum MomentFamily {
   releaseStreamMilestone,
   releaseWeeksMilestone,
   artistFirstNumberOneRelease,
-  artistNthNumberOneRelease;
+  artistNthNumberOneRelease,
+
+  // SN-50: new event pathways, told only by the story planner.
+
+  /// An artist's song replaces the same artist's song at #1.
+  songSelfReplacement,
+
+  /// A first entry into one chart zone (Top 75 … Top 2).
+  songFirstThreshold,
+
+  /// First entries into several lower zones in one move.
+  songThresholds,
+
+  /// An artist's repeat #1 on a weekly chart, counted on that chart.
+  artistRepeatNumberOne,
+  releaseSelfReplacement,
+  releaseFirstThreshold,
+  releaseThresholds,
+  artistRepeatNumberOneRelease,
+
+  /// Several releases by one artist in a zone at once.
+  artistSimultaneousReleases;
 
   /// How much a story matters (SN-45 spam control). Minor stories are
   /// capped per day; the others always appear.
@@ -68,7 +89,10 @@ enum MomentFamily {
     artistFirstHot100 ||
     artistNthTop10 ||
     artistStreamMilestone ||
-    artistSimultaneous => MomentTier.notable,
+    artistSimultaneous ||
+    songThresholds ||
+    releaseThresholds ||
+    artistSimultaneousReleases => MomentTier.notable,
     _ => MomentTier.major,
   };
 
@@ -82,7 +106,12 @@ enum MomentFamily {
     releaseStreamMilestone ||
     releaseWeeksMilestone ||
     artistFirstNumberOneRelease ||
-    artistNthNumberOneRelease => true,
+    artistNthNumberOneRelease ||
+    releaseSelfReplacement ||
+    releaseFirstThreshold ||
+    releaseThresholds ||
+    artistRepeatNumberOneRelease ||
+    artistSimultaneousReleases => true,
     _ => false,
   };
 
@@ -96,7 +125,11 @@ enum MomentFamily {
     releaseReachesNumberOne ||
     releaseReturnsToNumberOne ||
     artistFirstNumberOneRelease ||
-    artistNthNumberOneRelease => true,
+    artistNthNumberOneRelease ||
+    songSelfReplacement ||
+    releaseSelfReplacement ||
+    artistRepeatNumberOne ||
+    artistRepeatNumberOneRelease => true,
     _ => false,
   };
 
@@ -158,7 +191,7 @@ enum MomentFamily {
         ChartMomentEventType.totalWeeksMilestone ||
         ChartMomentEventType.consecutiveThresholdWeeksMilestone ||
         ChartMomentEventType.totalThresholdWeeksMilestone
-            when _worthWeeks(dominant) =>
+            when worthWeeks(dominant) =>
           releaseWeeksMilestone,
         _ => null,
       };
@@ -237,7 +270,7 @@ enum MomentFamily {
       ChartMomentEventType.totalWeeksMilestone ||
       ChartMomentEventType.consecutiveThresholdWeeksMilestone ||
       ChartMomentEventType.totalThresholdWeeksMilestone
-          when _worthWeeks(dominant) =>
+          when worthWeeks(dominant) =>
         songWeeksMilestone,
       ChartMomentEventType.artistSimultaneousThresholdSongs
           when (dominant.threshold ?? 99) <= 10 =>
@@ -260,7 +293,7 @@ enum MomentFamily {
   }
 
   /// Longevity worth a story: five weeks or more, or a second week at #1.
-  static bool _worthWeeks(ChartMomentEvent event) {
+  static bool worthWeeks(ChartMomentEvent event) {
     final weeks = event.milestoneValue ?? 0;
     return weeks >= 5 || (event.threshold == 1 && weeks >= 2);
   }

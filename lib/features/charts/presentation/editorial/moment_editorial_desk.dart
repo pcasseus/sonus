@@ -1,11 +1,13 @@
 import '../../application/models/chart_moment_feed_item.dart';
 import '../../domain/models/chart_type.dart';
 import '../../domain/moments/chart_moment_event_type.dart';
+import '../../domain/moments/chart_moment_rules.dart';
 import '../../domain/moments/chart_moment_scope.dart';
 import 'moment_publisher.dart';
 import 'moment_facts.dart';
 import 'moment_family.dart';
 import 'moment_headlines.dart';
+import 'moment_story_planner.dart';
 import 'moment_visuals.dart';
 
 /// One published story: who wrote it, what it says, and what it shows.
@@ -66,7 +68,9 @@ class MomentStory {
 ///   it states; otherwise another one, or the family's plain one, is used.
 /// - **Not spam:** minor stories (deep debuts, Bubbling Under arrivals) are
 ///   limited to [minorStoriesPerDay] a day; the first ones of the day are
-///   kept, so later plays never remove a story already shown.
+///   kept, so later plays never remove a story already shown. Under the
+///   SN-50 rules ([MomentStoryPlanner]) chart entries are guaranteed and
+///   never count toward that cap.
 class MomentEditorialDesk {
   const MomentEditorialDesk({
     required this.lookups,
@@ -87,33 +91,51 @@ class MomentEditorialDesk {
         return byTime != 0 ? byTime : a.id.compareTo(b.id);
       });
     final gainers = _biggestGainers(chronological);
+    final planner = MomentStoryPlanner(chronological, biggestGainers: gainers);
 
     final minorPerDay = <String, int>{};
     final stories = <MomentStory>[];
     String? previousVariant;
 
     for (final item in chronological) {
-      final family = MomentFamily.of(
-        item,
-        biggestGainer: gainers.contains(item.id),
-      );
-      if (family == null) continue;
+      final refined = ChartMomentRules.isRefined(item.occurredAt);
+      final planned = refined ? planner.plan(item) : _legacyPlan(item, gainers);
 
-      final facts = MomentFacts.of(item, lookups);
-      if (family.tierFor(facts.rank) == MomentTier.minor) {
-        final local = item.occurredAt.toLocal();
-        final day = '${local.year}-${local.month}-${local.day}';
-        final count = minorPerDay[day] ?? 0;
-        if (count >= minorStoriesPerDay) continue;
-        minorPerDay[day] = count + 1;
+      for (final moment in planned) {
+        final facts = MomentFacts.of(moment.item, lookups, refined: refined);
+        if (!moment.mandatory &&
+            moment.family.tierFor(facts.rank) == MomentTier.minor) {
+          final local = item.occurredAt.toLocal();
+          final day = '${local.year}-${local.month}-${local.day}';
+          final count = minorPerDay[day] ?? 0;
+          if (count >= minorStoriesPerDay) continue;
+          minorPerDay[day] = count + 1;
+        }
+
+        final story = _write(
+          moment.item,
+          moment.family,
+          facts,
+          previousVariant,
+        );
+        previousVariant = story.variantId;
+        stories.add(story);
       }
-
-      final story = _write(item, family, facts, previousVariant);
-      previousVariant = story.variantId;
-      stories.add(story);
     }
 
     return List.unmodifiable(stories.reversed);
+  }
+
+  /// Before the SN-50 rules: one story per group, as first published.
+  static List<PlannedMoment> _legacyPlan(
+    ChartMomentFeedItem item,
+    Set<String> gainers,
+  ) {
+    final family = MomentFamily.of(
+      item,
+      biggestGainer: gainers.contains(item.id),
+    );
+    return family == null ? const [] : [PlannedMoment(item, family)];
   }
 
   MomentStory _write(
@@ -244,7 +266,9 @@ class MomentEditorialDesk {
             family == MomentFamily.releaseNewPeak) &&
         peak != null &&
         !used.contains(MomentFact.previousPeak);
+    // SN-50: no single stream moved a finished week (F-Q8/F-Q24).
     if (climbs &&
+        !(facts.weekly && facts.refined) &&
         previous != null &&
         previous != facts.rank &&
         !peakNamed &&
@@ -311,19 +335,28 @@ class MomentEditorialDesk {
     MomentFamily.songDebutNumberOne ||
     MomentFamily.releaseDebutNumberOne => '#1 DEBUT',
     MomentFamily.songFirstNumberOne ||
-    MomentFamily.releaseReachesNumberOne => 'NUMBER ONE',
+    MomentFamily.releaseReachesNumberOne ||
+    MomentFamily.songSelfReplacement ||
+    MomentFamily.releaseSelfReplacement => 'NUMBER ONE',
     MomentFamily.songReturnsToNumberOne ||
     MomentFamily.releaseReturnsToNumberOne => 'BACK AT #1',
     MomentFamily.artistFirstNumberOne ||
     MomentFamily.artistFirstNumberOneRelease => 'FIRST #1',
     MomentFamily.artistNthNumberOne ||
-    MomentFamily.artistNthNumberOneRelease => '#1 HIT',
+    MomentFamily.artistNthNumberOneRelease ||
+    MomentFamily.artistRepeatNumberOne ||
+    MomentFamily.artistRepeatNumberOneRelease => '#1 HIT',
     MomentFamily.songDebutTop10 ||
     MomentFamily.songDebut ||
     MomentFamily.songBubblingUnderDebut ||
     MomentFamily.releaseDebut => 'DEBUT',
     MomentFamily.songHot100Breakthrough => 'HOT 100 BREAKTHROUGH',
-    MomentFamily.songNewPeak || MomentFamily.releaseNewPeak => 'NEW PEAK',
+    MomentFamily.songNewPeak ||
+    MomentFamily.releaseNewPeak ||
+    MomentFamily.songFirstThreshold ||
+    MomentFamily.releaseFirstThreshold ||
+    MomentFamily.songThresholds ||
+    MomentFamily.releaseThresholds => 'NEW PEAK',
     MomentFamily.songPeakMatch => 'PEAK MATCH',
     MomentFamily.songBigClimb => 'BIG CLIMB',
     MomentFamily.songBiggestGainer => 'BIGGEST GAINER',
@@ -337,7 +370,8 @@ class MomentEditorialDesk {
     MomentFamily.artistFirstTop10 => 'FIRST TOP 10',
     MomentFamily.artistNthTop10 => 'TOP 10 HIT',
     MomentFamily.artistTopArtist => 'TOP ARTIST',
-    MomentFamily.artistSimultaneous => 'RECORD',
+    MomentFamily.artistSimultaneous ||
+    MomentFamily.artistSimultaneousReleases => 'RECORD',
   };
 
   static String? _tag(MomentFamily family, MomentFacts facts) {
@@ -357,10 +391,11 @@ class MomentEditorialDesk {
   static Set<String> _biggestGainers(List<ChartMomentFeedItem> items) {
     final best = <String, (ChartMomentFeedItem, int)>{};
     for (final item in items) {
-      if (item.scope != ChartMomentScope.finalized ||
-          item.dominantEventType != ChartMomentEventType.rankRise) {
-        continue;
-      }
+      // SN-50: a climb counts even when a new peak or zone leads its story.
+      final climbed = ChartMomentRules.isRefined(item.occurredAt)
+          ? item.contains(ChartMomentEventType.rankRise)
+          : item.dominantEventType == ChartMomentEventType.rankRise;
+      if (item.scope != ChartMomentScope.finalized || !climbed) continue;
       final rise = item.events.firstWhere(
         (event) => event.eventType == ChartMomentEventType.rankRise,
       );

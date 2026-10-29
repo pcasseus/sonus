@@ -137,6 +137,19 @@ ChartMomentEvent event(
 List<ChartMomentFeedItem> items(List<ChartMomentEvent> events) =>
     const ChartMomentFeedAggregator().aggregate(events);
 
+/// Families added by SN-50 for new event pathways.
+const sn50Families = {
+  MomentFamily.songSelfReplacement,
+  MomentFamily.songFirstThreshold,
+  MomentFamily.songThresholds,
+  MomentFamily.artistRepeatNumberOne,
+  MomentFamily.releaseSelfReplacement,
+  MomentFamily.releaseFirstThreshold,
+  MomentFamily.releaseThresholds,
+  MomentFamily.artistRepeatNumberOneRelease,
+  MomentFamily.artistSimultaneousReleases,
+};
+
 /// Every fact a family can use, so every headline renders.
 MomentFacts fullFacts(MomentFamily family) {
   final release = family.isRelease;
@@ -176,6 +189,7 @@ MomentFacts fullFacts(MomentFamily family) {
     featured: 'Kehlani',
     consecutive: true,
     count: 3,
+    thresholds: const [75, 50, 40],
   );
 }
 
@@ -185,11 +199,17 @@ void main() {
       final ids = <String>{};
       for (final family in MomentFamily.values) {
         final variants = MomentHeadlines.of(family);
-        expect(variants.length, greaterThanOrEqualTo(12), reason: '$family');
+        // SN-50 families carry only the approved-direction drafts so far.
+        final drafted = sn50Families.contains(family);
+        expect(
+          variants.length,
+          greaterThanOrEqualTo(drafted ? 2 : 12),
+          reason: '$family',
+        );
         for (final publisher in MomentPublisher.values) {
           expect(
             variants.where((v) => v.publisher == publisher).length,
-            greaterThanOrEqualTo(6),
+            greaterThanOrEqualTo(drafted ? 1 : 6),
             reason: '$family ${publisher.label}',
           );
         }
@@ -203,6 +223,44 @@ void main() {
         final facts = fullFacts(family);
         final texts = {for (final v in variants) v.build(facts)};
         expect(texts.length, variants.length, reason: '$family repeats itself');
+      }
+    });
+
+    test('the SN-45 catalog keeps its 384 headlines, 192 per publisher', () {
+      final legacy = [
+        for (final family in MomentFamily.values)
+          if (!sn50Families.contains(family)) ...MomentHeadlines.of(family),
+      ];
+      expect(legacy, hasLength(384));
+      expect(
+        legacy.where((v) => v.publisher == MomentPublisher.sonusDaily),
+        hasLength(192),
+      );
+    });
+
+    test('SN-50 headlines never call a finished week "this week"', () {
+      for (final family in sn50Families) {
+        for (final variant in MomentHeadlines.of(family)) {
+          final facts = MomentFacts(
+            chartType: family.isRelease ? ChartType.albums : ChartType.songs,
+            weekly: true,
+            refined: true,
+            title: 'Paper Lanterns',
+            artist: 'Mira Vale',
+            rank: family.isNumberOne ? 1 : 7,
+            ordinal: 2,
+            threshold: 10,
+            count: 2,
+            rivalTitle: 'Low Tide',
+            rivalArtist: 'Mira Vale',
+            thresholds: const [50, 40],
+          );
+          final text = variant.build(facts);
+          expect(text, isNot(contains("this week's")), reason: text);
+          expect(text, isNot(contains('this stream')), reason: text);
+          expect(text, isNot(contains(' its ')), reason: text);
+          expect(text.toLowerCase(), isNot(contains('all time')));
+        }
       }
     });
 
@@ -968,6 +1026,95 @@ void main() {
       expect(story.visual.left.hasImage, isFalse);
       expect(story.visual.right!.entityId, 'nobody');
       expect(story.visual.right!.hasImage, isFalse);
+    });
+  });
+
+  group('SN-50 stories', () {
+    final desk = MomentEditorialDesk(
+      lookups: FakeLookups(
+        artists: {'artist-a': 'Name artist-a', 'artist-b': 'Name artist-b'},
+      ),
+    );
+    final before = DateTime.utc(2026, 10, 26, 12);
+    final after = DateTime.utc(2026, 11, 3, 12);
+
+    List<MomentStory> debutAndTopArtist(DateTime at) => desk.compose(
+      items([
+        event(ChartMomentEventType.debut, entity: song('s1'), rank: 30, at: at),
+        event(
+          ChartMomentEventType.artistBecomesTopArtist,
+          entity: artistEntity('artist-a'),
+          related: artistEntity('artist-b'),
+          rank: 1,
+          threshold: 1,
+          at: at,
+        ),
+      ]),
+    );
+
+    test('one play tells its debut and its new top artist', () {
+      expect(
+        debutAndTopArtist(after).map((story) => story.family),
+        unorderedEquals([MomentFamily.songDebut, MomentFamily.artistTopArtist]),
+      );
+      // Moments from before the rules keep their single story.
+      expect(debutAndTopArtist(before).map((story) => story.family), [
+        MomentFamily.artistTopArtist,
+      ]);
+    });
+
+    test('a #1 never names the artist passed in the artist ranking as the '
+        'displaced song', () {
+      final stories = desk.compose(
+        items([
+          event(
+            ChartMomentEventType.firstNumberOne,
+            entity: song('s1'),
+            rank: 1,
+            previousRank: 4,
+            previousPeak: 4,
+            threshold: 1,
+            at: after,
+          ),
+          event(
+            ChartMomentEventType.artistBecomesTopArtist,
+            entity: artistEntity('artist-a'),
+            related: artistEntity('artist-b'),
+            rank: 1,
+            threshold: 1,
+            at: after,
+          ),
+        ]),
+      );
+      final numberOne = stories.singleWhere(
+        (story) => story.family == MomentFamily.songFirstNumberOne,
+      );
+      expect(numberOne.facts.rivalTitle, isNull);
+      expect(numberOne.headline, isNot(contains('Name artist-b')));
+    });
+
+    test('a displaced #1 with the same artist name but no verified artist '
+        'is not named', () {
+      final stories = desk.compose(
+        items([
+          event(
+            ChartMomentEventType.firstNumberOne,
+            entity: song('s1'),
+            rank: 1,
+            previousRank: 2,
+            previousPeak: 2,
+            threshold: 1,
+            related: const ChartEntitySnapshot(
+              entityId: 's0',
+              title: 'Song s0',
+              artistName: 'Name artist-a',
+            ),
+            at: after,
+          ),
+        ]),
+      );
+      expect(stories.single.family, MomentFamily.songFirstNumberOne);
+      expect(stories.single.facts.rivalTitle, isNull);
     });
   });
 }

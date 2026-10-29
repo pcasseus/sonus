@@ -93,12 +93,16 @@ abstract final class MomentVisuals {
           layout: MomentVisualLayout.singlePortrait,
           left: portrait(entity.entityId),
         );
-      case MomentFamily.artistSimultaneous:
+      case MomentFamily.artistSimultaneous ||
+          MomentFamily.artistSimultaneousReleases:
         final artistId = entity.artistId;
         return artistId == null
             ? MomentVisual(
                 layout: MomentVisualLayout.singleCover,
-                left: cover(entity.entityId, song: true),
+                left: cover(
+                  entity.entityId,
+                  song: family == MomentFamily.artistSimultaneous,
+                ),
               )
             : MomentVisual(
                 layout: MomentVisualLayout.singlePortrait,
@@ -136,10 +140,15 @@ abstract final class MomentVisuals {
     // Songs.
     final song = cover(entity.entityId, song: true);
     if (namesRival && related != null) {
+      final rival = cover(related.entityId, song: true);
+      // SN-50 (F-Q18): two songs sharing one cover show it once.
+      if (facts.refined && song.hasImage && rival.path == song.path) {
+        return MomentVisual(layout: MomentVisualLayout.singleCover, left: song);
+      }
       return MomentVisual(
         layout: MomentVisualLayout.songAndSong,
         left: song,
-        right: cover(related.entityId, song: true),
+        right: rival,
       );
     }
 
