@@ -76,10 +76,16 @@ class SonusAudioHandler extends media.BaseAudioHandler {
   /// How often frames are requested while a car request waits.
   static const Duration wakeInterval = Duration(milliseconds: 100);
 
+  /// Media ID prefix of the saved session's current song, the item offered
+  /// to Android's resume card. Playing it resumes that session (D-Q9).
+  static const String resumePrefix = 'sonus.resume:';
+
   MediaBrowseCatalog? _catalog;
   Completer<void> _ready = Completer<void>();
+  Completer<void> _attached = Completer<void>();
 
   PlaybackCoordinator? _coordinator;
+  Future<void>? _restored;
   StreamSubscription<PlaybackState>? _subscription;
   _Published? _published;
 
@@ -88,10 +94,19 @@ class SonusAudioHandler extends media.BaseAudioHandler {
 
   /// Binds to [coordinator] and publishes its current state. Replaces any
   /// earlier binding.
-  void attach(PlaybackCoordinator coordinator) {
+  ///
+  /// [restored] completes once the saved queue has been restored (or there
+  /// was none). Play and the resume card wait for it while the queue is
+  /// empty, so a Bluetooth Play that starts Sonus resumes the saved queue
+  /// and position instead of doing nothing (D-Q8).
+  void attach(PlaybackCoordinator coordinator, {Future<void>? restored}) {
     unawaited(_subscription?.cancel());
     _coordinator = coordinator;
+    _restored = restored;
     _subscription = coordinator.states.listen(_publish);
+    if (!_attached.isCompleted) {
+      _attached.complete();
+    }
     _completeReadiness();
     // Publish everything for the new coordinator, while keeping what was
     // published before, so a playing session that a reload replaces with
@@ -134,8 +149,12 @@ class SonusAudioHandler extends media.BaseAudioHandler {
     unawaited(_subscription?.cancel());
     _subscription = null;
     _coordinator = null;
+    _restored = null;
     if (_ready.isCompleted) {
       _ready = Completer<void>();
+    }
+    if (_attached.isCompleted) {
+      _attached = Completer<void>();
     }
     _publishSnapshot(
       MediaSessionStateMapper.map(const PlaybackState(), now: _now()),
@@ -145,8 +164,13 @@ class SonusAudioHandler extends media.BaseAudioHandler {
   // Commands from Android. Each goes to the coordinator; failures are
   // already reflected in Sonus's playback state, so they are only logged.
 
+  /// Play from the notification, lock screen, a Bluetooth device or a car.
+  /// If Sonus was started just for it, the saved queue is restored first.
   @override
-  Future<void> play() => _run('play', (c) => c.play());
+  Future<void> play() async {
+    await _awaitSavedSession();
+    await _run('play', (c) => c.play());
+  }
 
   @override
   Future<void> pause() => _run('pause', (c) => c.pause());
@@ -185,6 +209,39 @@ class SonusAudioHandler extends media.BaseAudioHandler {
     }),
   );
 
+  /// Shuffle and Repeat from the system player (D-Q1/D-Q12). They go
+  /// through the coordinator like the app's own buttons, so a remembered
+  /// mode is saved the same way (D-Q13).
+  @override
+  Future<void> customAction(String name, [Map<String, dynamic>? extras]) async {
+    switch (name) {
+      case MediaSessionStateMapper.shuffleAction:
+        await _run(
+          'shuffle',
+          (c) => c.setShuffleEnabled(!c.currentState.shuffleEnabled),
+        );
+      case MediaSessionStateMapper.repeatAction:
+        await _run(
+          'repeat',
+          (c) => c.setRepeatMode(c.currentState.repeatMode.next),
+        );
+      default:
+        _log('Media command "$name" ignored: unknown custom action.');
+    }
+  }
+
+  /// The listener dismissed the notification, where Android allows it.
+  /// Like End session, the session ends but the queue and position stay,
+  /// so Play resumes later (D-Q5/D-Q6). Only the mini-player's paused
+  /// swipe clears the queue (D-Q7).
+  @override
+  Future<void> onNotificationDeleted() => stop();
+
+  /// Swiping Sonus out of Recents changes nothing: music keeps playing, or
+  /// stays paused with its notification (D-Q10).
+  @override
+  Future<void> onTaskRemoved() async {}
+
   // Browsing for Android Auto and other media browsers. Reads only.
 
   @override
@@ -194,6 +251,11 @@ class SonusAudioHandler extends media.BaseAudioHandler {
   ]) async {
     final catalog = await _awaitCatalog('getChildren');
     if (catalog == null) return const [];
+
+    if (parentMediaId == media.AudioService.recentRootId) {
+      final resume = await _resumeItem();
+      if (resume != null) return [resume];
+    }
 
     try {
       return await catalog.children(parentMediaId);
@@ -245,17 +307,17 @@ class SonusAudioHandler extends media.BaseAudioHandler {
   Future<void> playFromMediaId(
     String mediaId, [
     Map<String, dynamic>? extras,
-  ]) => _playBrowsed('playFromMediaId', mediaId, autoPlay: true);
+  ]) => _playOrResume('playFromMediaId', mediaId, autoPlay: true);
 
   @override
   Future<void> prepareFromMediaId(
     String mediaId, [
     Map<String, dynamic>? extras,
-  ]) => _playBrowsed('prepareFromMediaId', mediaId, autoPlay: false);
+  ]) => _playOrResume('prepareFromMediaId', mediaId, autoPlay: false);
 
   @override
   Future<void> playMediaItem(media.MediaItem mediaItem) =>
-      _playBrowsed('playMediaItem', mediaItem.id, autoPlay: true);
+      _playOrResume('playMediaItem', mediaItem.id, autoPlay: true);
 
   @override
   Future<void> playFromSearch(String query, [Map<String, dynamic>? extras]) =>
@@ -270,6 +332,44 @@ class SonusAudioHandler extends media.BaseAudioHandler {
   /// Android's keys for a structured voice request (MediaStore).
   static const String searchArtistKey = 'android.intent.extra.artist';
   static const String searchAlbumKey = 'android.intent.extra.album';
+
+  /// The saved session's current song, as the item Android's resume card
+  /// shows, or null when nothing is saved.
+  Future<media.MediaItem?> _resumeItem() async {
+    await _awaitSavedSession();
+    final track = _coordinator?.currentState.queue.currentTrack;
+    if (track == null) return null;
+
+    return MediaSessionStateMapper.queueItemFor(
+      track,
+      carArtworkUri: _carArtworkUri,
+    ).copyWith(id: '$resumePrefix${track.songId}');
+  }
+
+  Future<void> _playOrResume(
+    String command,
+    String mediaId, {
+    required bool autoPlay,
+  }) async {
+    if (!mediaId.startsWith(resumePrefix)) {
+      return _playBrowsed(command, mediaId, autoPlay: autoPlay);
+    }
+
+    // The resume card resumes the saved queue and position. Only when no
+    // session is left does it fall back to that song in Recent.
+    await _awaitSavedSession();
+    if (_coordinator?.currentState.queue.hasCurrentTrack ?? false) {
+      if (autoPlay) await _run(command, (c) => c.play());
+      return;
+    }
+
+    final songId = mediaId.substring(resumePrefix.length);
+    await _playBrowsed(
+      command,
+      MediaBrowsePlayableId(MediaBrowseContainer.recent, songId).mediaId,
+      autoPlay: autoPlay,
+    );
+  }
 
   Future<void> _playBrowsed(
     String command,
@@ -330,19 +430,8 @@ class SonusAudioHandler extends media.BaseAudioHandler {
   /// and the player are attached.
   Future<MediaBrowseCatalog?> _awaitCatalog(String command) async {
     if (_catalog == null || _coordinator == null) {
-      final wake = _wakeApp;
-      final waking = wake == null
-          ? null
-          : Timer.periodic(wakeInterval, (_) => wake());
-      wake?.call();
-
-      try {
-        await _ready.future.timeout(_readinessTimeout);
-      } on TimeoutException {
-        // Reported below.
-      } finally {
-        waking?.cancel();
-      }
+      // A timeout is reported below.
+      await _waitWhileWaking(_ready.future);
     }
 
     final catalog = _catalog;
@@ -352,6 +441,46 @@ class SonusAudioHandler extends media.BaseAudioHandler {
     }
 
     return catalog;
+  }
+
+  /// Waits, up to the readiness timeout, for the player and, while its
+  /// queue is empty, for the saved session to be restored.
+  Future<void> _awaitSavedSession() async {
+    if (_coordinator == null) {
+      await _waitWhileWaking(_attached.future);
+    }
+
+    final restored = _restored;
+    final coordinator = _coordinator;
+
+    if (restored == null ||
+        coordinator == null ||
+        coordinator.currentState.queue.isNotEmpty) {
+      return;
+    }
+
+    if (!await _waitWhileWaking(restored)) {
+      _log('The saved session was not restored in time.', level: 900);
+    }
+  }
+
+  /// Waits up to the readiness timeout for [future], requesting frames
+  /// meanwhile so the app can finish starting. False on a timeout.
+  Future<bool> _waitWhileWaking(Future<void> future) async {
+    final wake = _wakeApp;
+    final waking = wake == null
+        ? null
+        : Timer.periodic(wakeInterval, (_) => wake());
+    wake?.call();
+
+    try {
+      await future.timeout(_readinessTimeout);
+      return true;
+    } on TimeoutException {
+      return false;
+    } finally {
+      waking?.cancel();
+    }
   }
 
   void _completeReadiness() {

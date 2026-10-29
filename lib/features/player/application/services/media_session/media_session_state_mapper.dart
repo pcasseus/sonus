@@ -32,16 +32,61 @@ class MediaSessionSnapshot {
 /// notification always shows Previous, Play/Pause and Next in the same
 /// order while something is queued; only the play/pause glyph changes.
 abstract final class MediaSessionStateMapper {
-  /// Expanded-notification buttons, always in this order. Stop comes last
-  /// so the compact view (first three) never changes shape.
-  static List<media.MediaControl> controlsFor({required bool playing}) => [
+  /// Custom action names, handled by SonusAudioHandler.customAction.
+  static const String shuffleAction = 'sonus.shuffle';
+  static const String repeatAction = 'sonus.repeat';
+
+  /// Previous, Play/Pause, Next, then Shuffle and Repeat (SN-50 D-Q1/D-Q2).
+  /// There is no Stop button (D-Q3); a Bluetooth or car Stop still works.
+  ///
+  /// Shuffle and Repeat are custom actions. audio_service publishes them as
+  /// media-session custom actions, never as notification buttons, so the
+  /// system decides where they sit (Android 13+ media controls, cars). Their
+  /// icon and label follow the current mode.
+  static List<media.MediaControl> controlsFor({
+    required bool playing,
+    bool shuffleEnabled = false,
+    PlaybackRepeatMode repeatMode = PlaybackRepeatMode.off,
+  }) => [
     media.MediaControl.skipToPrevious,
     playing ? media.MediaControl.pause : media.MediaControl.play,
     media.MediaControl.skipToNext,
-    media.MediaControl.stop,
+    shuffleControl(shuffleEnabled),
+    repeatControl(repeatMode),
   ];
 
+  /// Indices into the notification's own buttons, which exclude custom
+  /// actions: Previous, Play/Pause and Next. Anything past them would be
+  /// out of range on Android 12 and older.
   static const List<int> compactActionIndices = [0, 1, 2];
+
+  static media.MediaControl shuffleControl(bool enabled) =>
+      media.MediaControl.custom(
+        androidIcon: enabled
+            ? 'drawable/sonus_shuffle_on'
+            : 'drawable/sonus_shuffle_off',
+        label: enabled ? 'Shuffle on' : 'Shuffle off',
+        name: shuffleAction,
+      );
+
+  static media.MediaControl repeatControl(PlaybackRepeatMode mode) =>
+      switch (mode) {
+        PlaybackRepeatMode.off => media.MediaControl.custom(
+          androidIcon: 'drawable/sonus_repeat_off',
+          label: 'Repeat off',
+          name: repeatAction,
+        ),
+        PlaybackRepeatMode.all => media.MediaControl.custom(
+          androidIcon: 'drawable/sonus_repeat_all',
+          label: 'Repeat all',
+          name: repeatAction,
+        ),
+        PlaybackRepeatMode.one => media.MediaControl.custom(
+          androidIcon: 'drawable/sonus_repeat_one',
+          label: 'Repeat one',
+          name: repeatAction,
+        ),
+      };
 
   /// Actions Android may send from the lock screen, Bluetooth devices and
   /// (later) Android Auto.
@@ -65,11 +110,10 @@ abstract final class MediaSessionStateMapper {
   }) {
     final track = state.queue.currentTrack;
 
-    // Nothing queued, or a terminal state: the session goes idle, which
-    // removes the notification and lets the service stop.
-    if (track == null ||
-        state.status == PlaybackStatus.idle ||
-        state.status == PlaybackStatus.completed) {
+    // Nothing queued, or stopped: the session goes idle, which removes the
+    // notification and lets the service stop. A finished queue is not
+    // idle: it stays paused on its last song with its controls (D-Q16).
+    if (track == null || state.status == PlaybackStatus.idle) {
       return MediaSessionSnapshot(
         state: media.PlaybackState(
           processingState: media.AudioProcessingState.idle,
@@ -100,7 +144,11 @@ abstract final class MediaSessionStateMapper {
       state: media.PlaybackState(
         processingState: processingState,
         playing: playing,
-        controls: controlsFor(playing: playing),
+        controls: controlsFor(
+          playing: playing,
+          shuffleEnabled: state.shuffleEnabled,
+          repeatMode: state.repeatMode,
+        ),
         androidCompactActionIndices: compactActionIndices,
         systemActions: systemActions,
         updatePosition: state.position,

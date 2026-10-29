@@ -23,12 +23,14 @@ MediaSessionSnapshot _map(
 
 void main() {
   group('controls', () {
-    test('every active state shows Previous, Play/Pause, Next, Stop', () {
+    test('every active state shows Previous, Play/Pause, Next, Shuffle and '
+        'Repeat, with no Stop (SN-50 D-Q1/D-Q3)', () {
       for (final status in [
         PlaybackStatus.loading,
         PlaybackStatus.ready,
         PlaybackStatus.playing,
         PlaybackStatus.paused,
+        PlaybackStatus.completed,
         PlaybackStatus.failed,
       ]) {
         final state = _map(queuedState(status: status)).state;
@@ -38,10 +40,42 @@ void main() {
           media.MediaAction.skipToPrevious,
           state.playing ? media.MediaAction.pause : media.MediaAction.play,
           media.MediaAction.skipToNext,
-          media.MediaAction.stop,
+          media.MediaAction.custom,
+          media.MediaAction.custom,
         ], reason: '$status');
+        expect(state.controls.map((c) => c.customAction?.name).skip(3), [
+          MediaSessionStateMapper.shuffleAction,
+          MediaSessionStateMapper.repeatAction,
+        ], reason: '$status');
+        // Indices into the notification's own buttons (custom actions are
+        // not buttons): Previous, Play/Pause, Next.
         expect(state.androidCompactActionIndices, [0, 1, 2], reason: '$status');
       }
+    });
+
+    test('Shuffle and Repeat show the current mode by icon and label', () {
+      (String, String) shown(bool shuffle, PlaybackRepeatMode repeat) {
+        final controls = _map(
+          queuedState(shuffle: shuffle, repeat: repeat),
+        ).state.controls;
+        return (
+          '${controls[3].androidIcon} ${controls[3].label}',
+          '${controls[4].androidIcon} ${controls[4].label}',
+        );
+      }
+
+      expect(shown(false, PlaybackRepeatMode.off), (
+        'drawable/sonus_shuffle_off Shuffle off',
+        'drawable/sonus_repeat_off Repeat off',
+      ));
+      expect(shown(true, PlaybackRepeatMode.all), (
+        'drawable/sonus_shuffle_on Shuffle on',
+        'drawable/sonus_repeat_all Repeat all',
+      ));
+      expect(
+        shown(false, PlaybackRepeatMode.one).$2,
+        'drawable/sonus_repeat_one Repeat one',
+      );
     });
 
     test('previous and next stay visible at the ends of the queue', () {
@@ -108,11 +142,28 @@ void main() {
       expect(state.controls, isNotEmpty);
     });
 
-    test('stopped, finished and empty sessions go idle with nothing shown', () {
+    test('a finished queue stays paused on its last song with its controls '
+        '(SN-50 D-Q16)', () {
+      final snapshot = _map(
+        queuedState(
+          status: PlaybackStatus.completed,
+          index: 2,
+          position: const Duration(minutes: 3),
+        ),
+      );
+
+      expect(snapshot.state.processingState, media.AudioProcessingState.ready);
+      expect(snapshot.state.playing, isFalse);
+      expect(snapshot.state.controls, hasLength(5));
+      expect(snapshot.state.queueIndex, 2);
+      expect(snapshot.item!.id, 'c');
+      expect(snapshot.queue.map((item) => item.id), ['a', 'b', 'c']);
+    });
+
+    test('stopped and empty sessions go idle with nothing shown', () {
       for (final state in [
         const PlaybackState(),
         queuedState(status: PlaybackStatus.idle),
-        queuedState(status: PlaybackStatus.completed),
         queuedState(tracks: const []),
       ]) {
         final snapshot = _map(state);

@@ -62,6 +62,7 @@ class _PlaybackScopeState extends State<PlaybackScope>
   late final PlaybackPreferencesController _preferencesController;
   late final PlaybackRestorationController _restoration;
   late final Future<void> _preferencesLoaded;
+  final Completer<void> _restored = Completer<void>();
   bool _restoreRequested = false;
 
   AppDatabase? _database;
@@ -89,7 +90,7 @@ class _PlaybackScopeState extends State<PlaybackScope>
       coordinator: _coordinator,
     );
     WidgetsBinding.instance.addObserver(this);
-    widget.mediaSession?.attach(_coordinator);
+    widget.mediaSession?.attach(_coordinator, restored: _restored.future);
   }
 
   @override
@@ -106,9 +107,14 @@ class _PlaybackScopeState extends State<PlaybackScope>
   /// Restores the last queue, paused, once the library can be read and
   /// the saved shuffle and repeat modes have been applied.
   Future<void> _restoreSession(LibraryQueryRepository library) async {
-    await _preferencesLoaded;
-    if (!mounted) return;
-    await _restoration.restore(library.getTracks);
+    try {
+      await _preferencesLoaded;
+      if (!mounted) return;
+      await _restoration.restore(library.getTracks);
+    } finally {
+      // Lets a system Play that started Sonus resume the restored queue.
+      _restored.complete();
+    }
   }
 
   @override

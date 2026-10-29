@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:provider/provider.dart';
 
 import '../../../../core/design/sonus_theme.dart';
@@ -82,6 +83,11 @@ class _MiniPlayer extends StatelessWidget {
     return Semantics(
       container: true,
       label: 'Now playing ${track.displayTitle} by ${track.displayArtist}',
+      customSemanticsActions: {
+        const CustomSemanticsAction(label: 'End session'): () {
+          unawaited(coordinator.stop());
+        },
+      },
       child: SonusMiniPlayer(
         keyPrefix: 'mini-player',
         title: track.displayTitle,
@@ -126,6 +132,9 @@ class _MiniPlayer extends StatelessWidget {
           );
         },
         onOpen: () => openNowPlaying(context),
+        onLongPress: () {
+          unawaited(_showSessionMenu(context, coordinator));
+        },
         onSwipeUp: () => openNowPlaying(context),
         // A sideways swipe closes the player only while paused, so music
         // that is playing can never be stopped by accident.
@@ -137,6 +146,32 @@ class _MiniPlayer extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The mini-player's long-press menu. End session stops playback and the
+/// system player but keeps the queue and position, so Play resumes where
+/// the listener left off (SN-50 D-Q15). Unlike the paused swipe, it never
+/// clears the queue.
+Future<void> _showSessionMenu(
+  BuildContext context,
+  PlaybackCoordinator coordinator,
+) {
+  return showModalBottomSheet<void>(
+    context: _navigator(context).context,
+    showDragHandle: true,
+    builder: (sheetContext) => SafeArea(
+      child: ListTile(
+        key: const ValueKey<String>('mini-player-end-session'),
+        leading: const Icon(Icons.stop_circle_outlined),
+        title: const Text('End session'),
+        subtitle: const Text('Stops playback and keeps your queue'),
+        onTap: () {
+          Navigator.of(sheetContext).pop();
+          unawaited(coordinator.stop());
+        },
+      ),
+    ),
+  );
 }
 
 /// Opens Now Playing from the mini-player (tap or swipe up).

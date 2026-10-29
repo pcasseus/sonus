@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
@@ -53,124 +53,37 @@ class _QueueContent extends StatelessWidget {
     final queue = state.queue;
     final gutter = SonusTheme.of(context).metrics.pageGutter;
 
+    // The current song is the highlighted row; there is no separate
+    // summary card repeating it (SN-50 D-Q18).
     return SafeArea(
       top: false,
-      child: Column(
-        children: [
-          if (queue.hasCurrentTrack)
-            _CurrentTrackSummary(
-              track: queue.currentTrack!,
-              currentIndex: queue.currentIndex,
-              totalTracks: queue.length,
-            ),
-          Expanded(
-            child: ReorderableListView.builder(
-              key: const ValueKey<String>('playback-queue-list'),
-              padding: EdgeInsets.fromLTRB(gutter - 4, 8, gutter - 4, 24),
-              itemCount: queue.length,
-              buildDefaultDragHandles: false,
-              onReorderItem: (oldIndex, newIndex) {
-                if (newIndex == oldIndex) {
-                  return;
-                }
+      child: ReorderableListView.builder(
+        key: const ValueKey<String>('playback-queue-list'),
+        padding: EdgeInsets.fromLTRB(gutter - 4, 8, gutter - 4, 24),
+        itemCount: queue.length,
+        buildDefaultDragHandles: false,
+        onReorderItem: (oldIndex, newIndex) {
+          if (newIndex == oldIndex) {
+            return;
+          }
 
-                unawaited(
-                  coordinator.moveQueueTrack(
-                    oldIndex: oldIndex,
-                    newIndex: newIndex,
-                  ),
-                );
-              },
-              itemBuilder: (context, index) {
-                final track = queue.tracks[index];
-                final isCurrent = index == queue.currentIndex;
+          unawaited(
+            coordinator.moveQueueTrack(oldIndex: oldIndex, newIndex: newIndex),
+          );
+        },
+        itemBuilder: (context, index) {
+          final track = queue.tracks[index];
+          final isCurrent = index == queue.currentIndex;
 
-                return _QueueTrackRow(
-                  key: ValueKey<String>('queue-track-${track.songId}'),
-                  track: track,
-                  index: index,
-                  count: queue.length,
-                  isCurrent: isCurrent,
-                  coordinator: coordinator,
-                );
-              },
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _CurrentTrackSummary extends StatelessWidget {
-  const _CurrentTrackSummary({
-    required this.track,
-    required this.currentIndex,
-    required this.totalTracks,
-  });
-
-  final PlaybackTrack track;
-  final int currentIndex;
-  final int totalTracks;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final tokens = SonusTheme.of(context);
-    final colors = tokens.colors;
-    final gutter = tokens.metrics.pageGutter;
-
-    return Container(
-      key: const ValueKey<String>('queue-current-summary'),
-      width: double.infinity,
-      margin: EdgeInsets.fromLTRB(gutter, 12, gutter, 4),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: colors.raisedSurface,
-        borderRadius: BorderRadius.circular(tokens.metrics.cardRadius),
-        border: Border.all(color: colors.divider),
-      ),
-      child: Row(
-        children: [
-          SonusArtworkImage(path: track.artworkPath, size: 56),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'NOW PLAYING',
-                  style: theme.textTheme.labelMedium?.copyWith(
-                    color: colors.accentPrimary,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 0.8,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  track.displayTitle,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.titleMedium?.copyWith(
-                    color: colors.textPrimary,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  '${track.displayArtist} · ${currentIndex + 1} of '
-                  '$totalTracks',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: colors.textSecondary,
-                    fontFeatures: const [FontFeature.tabularFigures()],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
+          return _QueueTrackRow(
+            key: ValueKey<String>('queue-track-${track.songId}'),
+            track: track,
+            index: index,
+            count: queue.length,
+            isCurrent: isCurrent,
+            coordinator: coordinator,
+          );
+        },
       ),
     );
   }
