@@ -276,8 +276,11 @@ void main() {
     }
   });
 
+  // SN-50 A-Q9: a song moved to another disc goes to the end of that disc
+  // (here a new disc, so track 1), whatever number was typed; the disc it
+  // left closes the gap (inferred numbers only).
   test(
-    'explicit compatibility placement updates membership song and sync',
+    'a disc move goes to the end of the new disc and updates song and sync',
     () async {
       final fixture = await createFixture();
 
@@ -293,8 +296,10 @@ void main() {
       expect(result.changed, isTrue);
       expect(result.compatibilitySongChanged, isTrue);
       expect(result.membership.discNumber, 2);
-      expect(result.membership.trackNumber, 8);
+      expect(result.membership.trackNumber, 1);
       expect(result.membership.sortPosition, 0);
+      // Song B's hand-set 2 would become 1; it is only reported.
+      expect(result.manualNumbersKept, 1);
       expect(
         result.membership.numberingAuthority,
         AlbumEditionTrackAuthority.manual,
@@ -310,16 +315,92 @@ void main() {
 
       expect(storedSong, isNotNull);
       expect(storedSong!.discNumber, 2);
-      expect(storedSong.trackNumber, 8);
+      expect(storedSong.trackNumber, 1);
       expect(storedSong.updatedAt, mutationTime);
+
+      final numbers = {
+        for (final m in await AlbumEditionTrackDao(
+          db,
+        ).findByEditionId(fixture.standardEdition.id))
+          m.songId: (m.discNumber, m.trackNumber),
+      };
+      expect(numbers, {
+        fixture.songA.id: (2, 1),
+        fixture.songB.id: (1, 2),
+        fixture.songC.id: (1, 2),
+      });
+      expect((await SongDao(db).findById(fixture.songC.id))!.trackNumber, 2);
 
       final pending = await LocalSyncDao(db).findPending('user_1');
 
-      expect(pending, hasLength(1));
-      expect(pending.single.entityType, CloudDataEntity.song);
-      expect(pending.single.entityId, fixture.songA.id);
+      expect(pending.map((entry) => entry.entityType).toSet(), {
+        CloudDataEntity.song,
+      });
+      expect(pending.map((entry) => entry.entityId).toSet(), {
+        fixture.songA.id,
+        fixture.songC.id,
+      });
     },
   );
+
+  test('a disc move in a hand-ordered edition keeps the song last on its '
+      'new disc', () async {
+    final fixture = await createFixture();
+    await service.reorderEdition(
+      albumEditionId: fixture.standardEdition.id,
+      orderedSongIds: [fixture.songC.id, fixture.songA.id, fixture.songB.id],
+      now: mutationTime,
+    );
+
+    final result = await service.updateTrackPlacement(
+      userId: 'user_1',
+      albumEditionId: fixture.standardEdition.id,
+      songId: fixture.songA.id,
+      discNumber: 2,
+      trackNumber: 1,
+      now: mutationTime,
+    );
+
+    expect(result.membership.sortPosition, 2);
+    final db = await appDatabase.database;
+    final listings = [
+      ...await AlbumEditionTrackDao(
+        db,
+      ).findByEditionId(fixture.standardEdition.id),
+    ]..sort((a, b) => a.sortPosition.compareTo(b.sortPosition));
+    expect(
+      [for (final m in listings) (m.songId, m.discNumber, m.trackNumber)],
+      [
+        (fixture.songC.id, 1, 1),
+        (fixture.songB.id, 1, 2),
+        (fixture.songA.id, 2, 1),
+      ],
+    );
+  });
+
+  test('a disc move lands after the songs already on that disc', () async {
+    final fixture = await createFixture();
+
+    final result = await service.updateTrackPlacement(
+      userId: 'user_1',
+      albumEditionId: fixture.standardEdition.id,
+      songId: fixture.songC.id,
+      discNumber: 2,
+      trackNumber: 1,
+      now: mutationTime,
+    );
+    final moveA = await service.updateTrackPlacement(
+      userId: 'user_1',
+      albumEditionId: fixture.standardEdition.id,
+      songId: fixture.songA.id,
+      discNumber: 2,
+      trackNumber: 1,
+      now: mutationTime,
+    );
+
+    expect(result.membership.trackNumber, 1);
+    expect(moveA.membership.trackNumber, 2);
+  });
 
   test('non-compatibility placement stays edition-specific', () async {
     final fixture = await createFixture();
@@ -336,7 +417,8 @@ void main() {
     expect(result.changed, isTrue);
     expect(result.compatibilitySongChanged, isFalse);
     expect(result.membership.discNumber, 3);
-    expect(result.membership.trackNumber, 12);
+    // A-Q9: alone on its new disc, so track 1 rather than the typed 12.
+    expect(result.membership.trackNumber, 1);
     expect(result.membership.sortPosition, 7);
     expect(
       result.membership.numberingAuthority,

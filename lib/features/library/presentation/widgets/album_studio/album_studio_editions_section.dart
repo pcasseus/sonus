@@ -327,12 +327,10 @@ class _AlbumStudioEditionsSectionState
       for (final edition in _controller.editions)
         if ((_listings[edition.editionId] ?? const []).isNotEmpty) edition,
     ];
-    // A new edition starts from the Standard edition when there is one,
-    // otherwise from the primary edition (SN-45).
+    // A new edition starts from the primary edition; another can be
+    // chosen (SN-50 A-Q5A).
     final defaultSource =
-        sources.where((e) => e.type == AlbumEditionType.standard).firstOrNull ??
-        sources.where((e) => e.isPrimary).firstOrNull ??
-        sources.firstOrNull;
+        sources.where((e) => e.isPrimary).firstOrNull ?? sources.firstOrNull;
 
     final draft = await showDialog<_EditionDraft>(
       context: context,
@@ -341,6 +339,7 @@ class _AlbumStudioEditionsSectionState
         sources: sources,
         listings: _listings,
         initialSourceId: defaultSource?.editionId,
+        baseTitle: album.title,
       ),
     );
     if (draft == null || !mounted) return;
@@ -460,29 +459,21 @@ class _AlbumStudioEditionsSectionState
       ],
     );
 
-    var kept = 0;
+    AlbumEditionTrackListResult? result;
     final saved = await _run(() async {
-      if (added.isNotEmpty) {
-        await widget.service.assignTracks(
-          editionId: edition.editionId,
-          songIds: added,
-          userId: widget.userId,
-        );
-      }
-      for (final songId in removed) {
-        try {
-          await widget.service.removeTrack(
-            editionId: edition.editionId,
-            songId: songId,
-            userId: widget.userId,
-          );
-        } on AlbumEditionManagementException catch (error) {
-          // The song's only listing: it stays, the rest still apply.
-          if (error.refusal != AlbumEditionRefusal.lastEditionOfSong) rethrow;
-          kept++;
-        }
-      }
+      result = await widget.service.updateTrackList(
+        editionId: edition.editionId,
+        add: added,
+        remove: removed,
+        userId: widget.userId,
+      );
     });
+    final kept = result?.keptAsLastListing ?? 0;
+    final manualNumbers = result?.renumbering.manualNumbersKept ?? 0;
+
+    if (saved && manualNumbers > 0 && mounted) {
+      await _offerManualRenumber(edition, manualNumbers);
+    }
 
     if (saved && followUps.isNotEmpty && mounted) {
       await _offer(edition.title, followUps);
@@ -499,6 +490,36 @@ class _AlbumStudioEditionsSectionState
         ),
       );
     }
+  }
+
+  /// Track numbers set by hand are never renumbered without asking
+  /// (SN-50 A-Q7A).
+  Future<void> _offerManualRenumber(
+    LibraryAlbumEdition edition,
+    int count,
+  ) async {
+    final confirmed = await _confirm(
+      title: 'Renumber tracks you numbered yourself?',
+      message: count == 1
+          ? 'One track on "${edition.title}" has a number you set yourself, '
+                'so it was not renumbered. Renumber it too, so each disc '
+                'counts 1, 2, 3 in the order shown?'
+          : '$count tracks on "${edition.title}" have numbers you set '
+                'yourself, so they were not renumbered. Renumber them too, so '
+                'each disc counts 1, 2, 3 in the order shown?',
+      action: 'Renumber',
+      key: 'album-studio-confirm-renumber',
+    );
+    if (!confirmed || !mounted) return;
+
+    await _run(
+      () => widget.service.renumberEdition(
+        editionId: edition.editionId,
+        overwriteManual: true,
+        userId: widget.userId,
+      ),
+      done: 'Tracks renumbered.',
+    );
   }
 
   Future<void> _delete(LibraryAlbumEdition edition) async {
@@ -784,10 +805,14 @@ class _EditionDialog extends StatefulWidget {
     this.sources = const [],
     this.listings = const {},
     this.initialSourceId,
+    this.baseTitle,
   });
 
   final String title;
   final _EditionDraft? initial;
+
+  /// The release's name, for suggesting a new edition's name.
+  final String? baseTitle;
 
   /// Editions a new edition can start from; empty when renaming.
   final List<LibraryAlbumEdition> sources;
@@ -799,12 +824,33 @@ class _EditionDialog extends StatefulWidget {
 }
 
 class _EditionDialogState extends State<_EditionDialog> {
-  late final TextEditingController _name = TextEditingController(
-    text: widget.initial?.title ?? '',
-  );
   late AlbumEditionType _type = widget.initial?.type ?? AlbumEditionType.deluxe;
+  late final TextEditingController _name = TextEditingController(
+    text: widget.initial?.title ?? _suggestedName(_type),
+  );
   late String? _sourceId = widget.initialSourceId;
   String? _error;
+
+  /// A new edition's suggested, editable name for its type (SN-50 A-Q5C),
+  /// such as "Northern Lights (Deluxe)".
+  String _suggestedName(AlbumEditionType type) {
+    final base = widget.baseTitle?.trim() ?? '';
+    if (base.isEmpty) return '';
+    return type == AlbumEditionType.standard
+        ? base
+        : '$base (${AlbumStudioEditionsSection.typeLabel(type)})';
+  }
+
+  /// Follows the type while the suggested name is untouched.
+  void _changeType(AlbumEditionType type) {
+    final suggested = _name.text == _suggestedName(_type);
+    setState(() {
+      _type = type;
+      if (widget.initial == null && suggested) {
+        _name.text = _suggestedName(type);
+      }
+    });
+  }
 
   /// Dropdown value for "start with no songs".
   static const String _noSource = '';
@@ -860,7 +906,7 @@ class _EditionDialogState extends State<_EditionDialog> {
                 ),
             ],
             onChanged: (value) {
-              if (value != null) setState(() => _type = value);
+              if (value != null) _changeType(value);
             },
           ),
           if (widget.sources.isNotEmpty) ...[

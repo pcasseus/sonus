@@ -415,9 +415,15 @@ class LibraryIntegrityService {
         editionId: editionId,
         userId: userId,
       ),
+      // A repair only lists the song; renumbering is never a side effect
+      // of one (SN-50 A-Q7D).
       ListOnHomeEdition(:final songId, :final editionId) =>
         editions
-            .assignTracks(editionId: editionId, songIds: [songId])
+            .assignTracks(
+              editionId: editionId,
+              songIds: [songId],
+              renumber: false,
+            )
             .then((_) {}),
     };
   }

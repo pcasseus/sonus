@@ -238,7 +238,7 @@ class LibraryOrganizationService {
 
     final ownerOf = {
       for (final album in albums)
-        if (album.trackCount > 0) album.albumId: album.artistId,
+        if (album.hasSongs) album.albumId: album.artistId,
     };
     final owners = ownerOf.values.toSet();
 

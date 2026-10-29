@@ -5,9 +5,12 @@ import 'package:sonus_next/features/library/application/models/library_album_edi
 import 'package:sonus_next/features/library/application/models/library_track.dart';
 import 'package:sonus_next/features/library/application/services/album_edition_management_service.dart';
 import 'package:sonus_next/features/library/application/services/album_edition_track_ordering_service.dart';
+import 'package:sonus_next/features/library/application/services/album_profile_editing_service.dart';
+import 'package:sonus_next/features/library/application/services/edition_track_numbering.dart';
 import 'package:sonus_next/features/library/data/services/edition_follow_up_dismissals.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/domain/entities/entity_factory.dart';
+import 'package:sonus_next/features/library/domain/entities/release_date.dart';
 import 'package:sonus_next/features/library/presentation/controllers/album_profile_controller.dart';
 import 'package:sonus_next/features/library/presentation/pages/release_studio_page.dart';
 import 'package:sonus_next/features/sync/application/services/sync_mutation_runner.dart';
@@ -67,6 +70,7 @@ void main() {
     base.FakeEditionAwareLibraryQueryRepository? library,
     _MemoryDismissals? dismissals,
     ReleaseStudioSection section = ReleaseStudioSection.editions,
+    AlbumProfileEditingService? editing,
   }) async {
     await tester.binding.setSurfaceSize(size);
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -78,6 +82,7 @@ void main() {
       repository: repo,
       albumId: 'album-1',
       albumEditionTrackOrderingService: ordering,
+      albumProfileEditingService: editing,
     );
     addTearDown(controller.dispose);
     await controller.load();
@@ -461,6 +466,200 @@ void main() {
     expect(find.text('Sorted by disc and track number.'), findsOneWidget);
   });
 
+  group('SN-50 Session A', () {
+    /// Deluxe is primary and dated; Standard has no date or cover of its
+    /// own (made-up release).
+    base.FakeEditionAwareLibraryQueryRepository deluxePrimary() =>
+        base.FakeEditionAwareLibraryQueryRepository(
+          album: base.createAlbum(
+            title: 'Harbor Glass',
+            primaryEditionId: 'edition-deluxe',
+            primaryEditionTitle: 'Harbor Glass (Deluxe)',
+            primaryEditionType: AlbumEditionType.deluxe,
+            releaseDate: DateTime.utc(2025, 3, 14),
+          ),
+          tracks: [track('s1', 1), track('bonus', 2)],
+          editions: [
+            base.createLibraryEdition(
+              editionId: 'edition-standard',
+              title: 'Harbor Glass',
+              type: AlbumEditionType.standard,
+            ),
+            base.createLibraryEdition(
+              editionId: 'edition-deluxe',
+              title: 'Harbor Glass (Deluxe)',
+              type: AlbumEditionType.deluxe,
+              isPrimary: true,
+              releaseDate: DateTime.utc(2025, 3, 14),
+              artworkPath: '/covers/harbor-glass-deluxe.jpg',
+            ),
+          ],
+          editionTracks: {
+            'edition-standard': [track('s1', 1)],
+            'edition-deluxe': [
+              track('s1', 1, edition: 'edition-deluxe'),
+              track('bonus', 2, edition: 'edition-deluxe'),
+            ],
+          },
+        );
+
+    testWidgets('a new edition starts from the primary edition (A-Q5A)', (
+      tester,
+    ) async {
+      final (_, service, _) = await pump(tester, library: deluxePrimary());
+
+      await tester.tap(key('album-studio-new-edition'));
+      await tester.pumpAndSettle();
+      await tester.tap(key('album-studio-save-edition'));
+      await tester.pumpAndSettle();
+
+      // Before SN-50 the Standard-typed edition was preferred.
+      expect(service.calls, [
+        'create album-1 Harbor Glass (Deluxe) deluxe user-1 '
+            'from edition-deluxe',
+      ]);
+    });
+
+    testWidgets('the suggested name follows the type until edited (A-Q5C)', (
+      tester,
+    ) async {
+      await pump(tester, library: deluxePrimary());
+
+      await tester.tap(key('album-studio-new-edition'));
+      await tester.pumpAndSettle();
+
+      String name() => tester
+          .widget<TextField>(key('album-studio-edition-name-field'))
+          .controller!
+          .text;
+      expect(name(), 'Harbor Glass (Deluxe)');
+
+      await tester.tap(key('album-studio-edition-type-field'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Anniversary').last);
+      await tester.pumpAndSettle();
+      expect(name(), 'Harbor Glass (Anniversary)');
+
+      await tester.enterText(key('album-studio-edition-name-field'), 'Tour');
+      await tester.tap(key('album-studio-edition-type-field'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Remaster').last);
+      await tester.pumpAndSettle();
+      expect(name(), 'Tour');
+    });
+
+    testWidgets('hand-set numbers are renumbered only after asking (A-Q7A)', (
+      tester,
+    ) async {
+      final service = _FakeEditions(manualNumbersKept: 2);
+      await pump(tester, editions: service, section: tracklist);
+
+      Future<void> removeS2() async {
+        await tester.tap(key('album-studio-choose-songs'));
+        await tester.pumpAndSettle();
+        await tester.tap(key('album-studio-choose-song-s2'));
+        await tester.tap(key('album-studio-save-songs'));
+        await tester.pumpAndSettle();
+      }
+
+      await removeS2();
+      expect(
+        find.text('Renumber tracks you numbered yourself?'),
+        findsOneWidget,
+      );
+      expect(service.calls, ['remove edition-standard s2 user-1']);
+
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(service.calls, ['remove edition-standard s2 user-1']);
+
+      service.calls.clear();
+      await removeS2();
+      await tester.tap(key('album-studio-confirm-renumber'));
+      await tester.pumpAndSettle();
+      expect(service.calls, [
+        'remove edition-standard s2 user-1',
+        'renumber edition-standard overwrite=true',
+      ]);
+    });
+
+    testWidgets('no question when no hand-set number is affected', (
+      tester,
+    ) async {
+      final service = _FakeEditions();
+      await pump(tester, editions: service, section: tracklist);
+
+      await tester.tap(key('album-studio-choose-songs'));
+      await tester.pumpAndSettle();
+      await tester.tap(key('album-studio-choose-song-s2'));
+      await tester.tap(key('album-studio-save-songs'));
+      await tester.pumpAndSettle();
+
+      expect(key('album-studio-confirm-renumber'), findsNothing);
+      expect(service.calls, ['remove edition-standard s2 user-1']);
+    });
+
+    testWidgets('a non-primary edition has its own date, "Not set" (A-Q6C)', (
+      tester,
+    ) async {
+      final editing = _DateRecorder();
+      final (controller, _, _) = await pump(
+        tester,
+        library: deluxePrimary(),
+        editing: editing,
+        section: ReleaseStudioSection.details,
+      );
+
+      expect(
+        find.text('Release date of Harbor Glass (Deluxe)'),
+        findsOneWidget,
+      );
+      expect(find.text('March 14, 2025'), findsOneWidget);
+
+      await controller.selectEdition('edition-standard');
+      await tester.pumpAndSettle();
+
+      // Standard never borrows the primary edition's date.
+      expect(find.text('Release date of Harbor Glass'), findsOneWidget);
+      expect(find.text('March 14, 2025'), findsNothing);
+
+      await tester.ensureVisible(key('release-studio-date'));
+      await tester.tap(key('release-studio-date'));
+      await tester.pumpAndSettle();
+      await tester.enterText(key('release-studio-date-field'), '2024-11');
+      await tester.tap(key('release-studio-save-date'));
+      await tester.pumpAndSettle();
+
+      expect(editing.dates, [
+        (
+          'edition-standard',
+          DateTime.utc(2024, 11),
+          ReleaseDatePrecision.month,
+        ),
+      ]);
+      expect(editing.updateCallCount, 0, reason: 'release details untouched');
+    });
+
+    testWidgets('an edition without a cover says it uses the primary one', (
+      tester,
+    ) async {
+      final (controller, _, _) = await pump(
+        tester,
+        library: deluxePrimary(),
+        section: ReleaseStudioSection.artwork,
+      );
+      await controller.selectEdition('edition-standard');
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text(
+          "Harbor Glass has no cover yet. Using the primary edition's cover.",
+        ),
+        findsOneWidget,
+      );
+    });
+  });
+
   testWidgets('editions fit 320dp at 2x text', (tester) async {
     await pump(tester, textScale: 2, size: const Size(320, 1400));
 
@@ -470,10 +669,17 @@ void main() {
 }
 
 class _FakeEditions implements AlbumEditionManagementService {
-  _FakeEditions({this.refuseRemoval, this.refuseUpdate});
+  _FakeEditions({
+    this.refuseRemoval,
+    this.refuseUpdate,
+    this.manualNumbersKept = 0,
+  });
 
   final AlbumEditionRefusal? refuseRemoval;
   final AlbumEditionRefusal? refuseUpdate;
+
+  /// Hand-set numbers a track-list change reports leaving alone.
+  final int manualNumbersKept;
   final List<String> calls = [];
 
   @override
@@ -530,6 +736,7 @@ class _FakeEditions implements AlbumEditionManagementService {
   Future<int> assignTracks({
     required String editionId,
     required List<String> songIds,
+    bool renumber = true,
     String? userId,
     DateTime? now,
   }) async {
@@ -538,7 +745,7 @@ class _FakeEditions implements AlbumEditionManagementService {
   }
 
   @override
-  Future<void> removeTrack({
+  Future<EditionRenumberResult> removeTrack({
     required String editionId,
     required String songId,
     String? userId,
@@ -547,6 +754,48 @@ class _FakeEditions implements AlbumEditionManagementService {
     final refusal = refuseRemoval;
     if (refusal != null) throw AlbumEditionManagementException(refusal);
     calls.add('remove $editionId $songId $userId');
+    return EditionRenumberResult.none;
+  }
+
+  /// Records the same calls as one assignment plus one removal per song,
+  /// as the real batch applies them.
+  @override
+  Future<AlbumEditionTrackListResult> updateTrackList({
+    required String editionId,
+    List<String> add = const [],
+    List<String> remove = const [],
+    String? userId,
+    DateTime? now,
+  }) async {
+    if (add.isNotEmpty) calls.add('assign $editionId ${add.join(',')}');
+    var kept = 0;
+    for (final songId in remove) {
+      if (refuseRemoval == AlbumEditionRefusal.lastEditionOfSong) {
+        kept++;
+      } else {
+        calls.add('remove $editionId $songId $userId');
+      }
+    }
+    return AlbumEditionTrackListResult(
+      added: add.length,
+      removed: remove.length - kept,
+      keptAsLastListing: kept,
+      renumbering: EditionRenumberResult(
+        renumbered: 0,
+        manualNumbersKept: manualNumbersKept,
+      ),
+    );
+  }
+
+  @override
+  Future<EditionRenumberResult> renumberEdition({
+    required String editionId,
+    bool overwriteManual = false,
+    String? userId,
+    DateTime? now,
+  }) async {
+    calls.add('renumber $editionId overwrite=$overwriteManual');
+    return const EditionRenumberResult(renumbered: 1, manualNumbersKept: 0);
   }
 
   @override
@@ -555,6 +804,22 @@ class _FakeEditions implements AlbumEditionManagementService {
     String? userId,
   }) async {
     calls.add('delete $editionId');
+  }
+}
+
+class _DateRecorder extends base.FakeAlbumProfileEditingService {
+  final List<(String, DateTime?, ReleaseDatePrecision?)> dates = [];
+
+  @override
+  Future<AlbumEdition> updateEditionReleaseDate({
+    required String? userId,
+    required String editionId,
+    required DateTime? releaseDate,
+    ReleaseDatePrecision? releaseDatePrecision,
+    DateTime? now,
+  }) async {
+    dates.add((editionId, releaseDate, releaseDatePrecision));
+    return EntityFactory.createAlbumEdition(albumId: 'album-1', title: 'x');
   }
 }
 

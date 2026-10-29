@@ -212,6 +212,32 @@ class AlbumProfileController extends ChangeNotifier {
     return true;
   }
 
+  /// Sets the selected edition's own release date (SN-50 A-Q6C), or the
+  /// primary edition's when editions cannot be read. Null clears it.
+  Future<bool> updateSelectedEditionReleaseDate({
+    String? userId,
+    required ReleaseDate? releaseDate,
+  }) async {
+    final service = _albumProfileEditingService;
+    final editionId =
+        _selectedEdition?.editionId ?? _album?.primaryEditionId?.trim();
+
+    if (service == null || editionId == null || editionId.isEmpty) {
+      return false;
+    }
+
+    await service.updateEditionReleaseDate(
+      userId: userId,
+      editionId: editionId,
+      releaseDate: releaseDate?.instant,
+      releaseDatePrecision: releaseDate?.precision,
+    );
+
+    await refresh();
+
+    return true;
+  }
+
   bool get canEditArtwork {
     final primaryEditionId = _album?.primaryEditionId;
 

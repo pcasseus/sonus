@@ -10,6 +10,7 @@ import '../../domain/metadata/metadata_field_state.dart';
 import '../../domain/metadata/metadata_fields.dart';
 import '../../domain/repositories/album_edition_repository.dart';
 import '../../domain/services/metadata_field_state_service.dart';
+import 'edition_track_numbering.dart';
 
 /// Why an edition operation was refused. Nothing is changed when one is.
 enum AlbumEditionRefusal {
@@ -27,6 +28,25 @@ enum AlbumEditionRefusal {
   editionNotEmpty,
   primaryEdition,
   onlyEdition,
+}
+
+/// What "Choose songs" changed on an edition
+/// ([AlbumEditionManagementService.updateTrackList]).
+class AlbumEditionTrackListResult {
+  const AlbumEditionTrackListResult({
+    required this.added,
+    required this.removed,
+    required this.keptAsLastListing,
+    required this.renumbering,
+  });
+
+  final int added;
+  final int removed;
+
+  /// Songs asked to be removed that are on no other edition, so they stay.
+  final int keptAsLastListing;
+
+  final EditionRenumberResult renumbering;
 }
 
 class AlbumEditionManagementException implements Exception {
@@ -61,6 +81,10 @@ class AlbumEditionManagementService {
   /// These are the same songs, not copies: their IDs, listening history
   /// and playlist entries are unchanged. Everything happens in one
   /// transaction.
+  ///
+  /// The source's release date, artwork and genre are never copied (SN-50
+  /// A-Q5D/E): a new edition starts with no date or cover of its own, and
+  /// genre is a release-wide setting.
   Future<AlbumEdition> createEdition({
     required String albumId,
     required String title,
@@ -214,11 +238,16 @@ class AlbumEditionManagementService {
   }
 
   /// Lists [songIds] on the edition. A song already listed is left as it
-  /// is; a song listed on another edition keeps its disc and track number
-  /// there. Returns how many songs were added.
+  /// is; a song listed on another edition starts with its disc and track
+  /// number there and is listed after the edition's other songs. Returns
+  /// how many songs were added.
+  ///
+  /// With [renumber] (the default), the edition's inferred track numbers
+  /// are then made consecutive on each disc (see [renumberEdition]).
   Future<int> assignTracks({
     required String editionId,
     required List<String> songIds,
+    bool renumber = true,
     String? userId,
     DateTime? now,
   }) {
@@ -226,42 +255,15 @@ class AlbumEditionManagementService {
 
     return mutationRunner.run((context) async {
       final edition = await _edition(context, editionId);
-      final memberships = await context.albumEditionTrackRepository
-          .getByEditionId(edition.id);
-      final listed = {for (final m in memberships) m.songId};
-      var nextPosition = memberships.isEmpty
-          ? 0
-          : memberships
-                    .map((m) => m.sortPosition)
-                    .reduce((a, b) => a > b ? a : b) +
-                1;
-      var added = 0;
+      final added = await _assign(context, edition, songIds, userId, timestamp);
 
-      for (final songId in songIds.map((id) => id.trim()).toSet()) {
-        final song = await _songOnAlbum(context, songId, edition.albumId);
-
-        if (listed.contains(song.id)) {
-          continue;
-        }
-
-        final elsewhere = await context.albumEditionTrackRepository.getBySongId(
-          song.id,
+      if (renumber && added > 0) {
+        await renumberEditionTracks(
+          context,
+          editionId: edition.id,
+          userId: userId,
+          timestamp: timestamp,
         );
-        final placement = elsewhere.isEmpty ? null : elsewhere.first;
-
-        await context.albumEditionTrackRepository.create(
-          AlbumEditionTrack(
-            albumEditionId: edition.id,
-            songId: song.id,
-            discNumber: placement?.discNumber ?? song.discNumber,
-            trackNumber: placement?.trackNumber ?? song.trackNumber,
-            sortPosition: nextPosition++,
-            createdAt: timestamp,
-            updatedAt: timestamp,
-          ),
-        );
-        await _recordSong(context, userId, song.id);
-        added++;
       }
 
       return added;
@@ -270,8 +272,10 @@ class AlbumEditionManagementService {
 
   /// Removes the edition's listing of [songId]. The song stays in the
   /// library. If this was the song's home edition, its home moves to
-  /// another edition that lists it, preferring the primary one.
-  Future<void> removeTrack({
+  /// another edition that lists it, preferring the primary one. The
+  /// edition's other inferred track numbers are then made consecutive on
+  /// each disc; hand-set numbers are only counted.
+  Future<EditionRenumberResult> removeTrack({
     required String editionId,
     required String songId,
     String? userId,
@@ -281,58 +285,203 @@ class AlbumEditionManagementService {
 
     return mutationRunner.run((context) async {
       final edition = await _edition(context, editionId);
+
+      if (!await _remove(context, edition, songId, userId, timestamp)) {
+        return EditionRenumberResult.none;
+      }
+
+      return renumberEditionTracks(
+        context,
+        editionId: edition.id,
+        userId: userId,
+        timestamp: timestamp,
+      );
+    });
+  }
+
+  /// "Choose songs": adds [add] and removes [remove] in one transaction,
+  /// then renumbers the edition once, never overwriting hand-set numbers.
+  /// A song in [remove] that is on no other edition is kept and counted
+  /// rather than refusing the whole change.
+  Future<AlbumEditionTrackListResult> updateTrackList({
+    required String editionId,
+    List<String> add = const [],
+    List<String> remove = const [],
+    String? userId,
+    DateTime? now,
+  }) {
+    final timestamp = now ?? DateTime.now();
+
+    return mutationRunner.run((context) async {
+      final edition = await _edition(context, editionId);
+      final added = add.isEmpty
+          ? 0
+          : await _assign(context, edition, add, userId, timestamp);
+      var removed = 0;
+      var kept = 0;
+
+      for (final songId in remove.map((id) => id.trim()).toSet()) {
+        try {
+          if (await _remove(context, edition, songId, userId, timestamp)) {
+            removed++;
+          }
+        } on AlbumEditionManagementException catch (error) {
+          // Refused before anything was written for this song.
+          if (error.refusal != AlbumEditionRefusal.lastEditionOfSong) rethrow;
+          kept++;
+        }
+      }
+
+      final renumbering = added + removed == 0
+          ? EditionRenumberResult.none
+          : await renumberEditionTracks(
+              context,
+              editionId: edition.id,
+              userId: userId,
+              timestamp: timestamp,
+            );
+
+      return AlbumEditionTrackListResult(
+        added: added,
+        removed: removed,
+        keptAsLastListing: kept,
+        renumbering: renumbering,
+      );
+    });
+  }
+
+  /// Numbers the edition's tracks 1, 2, 3… on each disc, in the order they
+  /// are shown (SN-50 A3). Numbers set by hand change only with
+  /// [overwriteManual], which the user must have approved (A-Q7A).
+  Future<EditionRenumberResult> renumberEdition({
+    required String editionId,
+    bool overwriteManual = false,
+    String? userId,
+    DateTime? now,
+  }) {
+    final timestamp = now ?? DateTime.now();
+
+    return mutationRunner.run((context) async {
+      final edition = await _edition(context, editionId);
+
+      return renumberEditionTracks(
+        context,
+        editionId: edition.id,
+        userId: userId,
+        timestamp: timestamp,
+        overwriteManual: overwriteManual,
+      );
+    });
+  }
+
+  static Future<int> _assign(
+    SyncMutationContext context,
+    AlbumEdition edition,
+    List<String> songIds,
+    String? userId,
+    DateTime timestamp,
+  ) async {
+    final memberships = await context.albumEditionTrackRepository
+        .getByEditionId(edition.id);
+    final listed = {for (final m in memberships) m.songId};
+    var nextPosition = memberships.isEmpty
+        ? 0
+        : memberships
+                  .map((m) => m.sortPosition)
+                  .reduce((a, b) => a > b ? a : b) +
+              1;
+    var added = 0;
+
+    for (final songId in songIds.map((id) => id.trim()).toSet()) {
       final song = await _songOnAlbum(context, songId, edition.albumId);
-      final memberships = await context.albumEditionTrackRepository.getBySongId(
+
+      if (listed.contains(song.id)) {
+        continue;
+      }
+
+      final elsewhere = await context.albumEditionTrackRepository.getBySongId(
         song.id,
       );
-      final others = memberships
-          .where((m) => m.albumEditionId != edition.id)
-          .toList(growable: false);
+      final placement = elsewhere.isEmpty ? null : elsewhere.first;
 
-      if (others.isEmpty) {
-        throw const AlbumEditionManagementException(
-          AlbumEditionRefusal.lastEditionOfSong,
-        );
-      }
-
-      if (others.length == memberships.length) {
-        return; // Not listed on this edition.
-      }
-
-      if (song.albumEditionId == edition.id) {
-        final editions = await context.albumEditionRepository.getByAlbumId(
-          edition.albumId,
-        );
-        final primaryId = editions
-            .where((e) => e.isPrimary)
-            .map((e) => e.id)
-            .firstOrNull;
-        final newHome = others.firstWhere(
-          (m) => m.albumEditionId == primaryId,
-          orElse: () => others.first,
-        );
-
-        await context.songRepository.save(
-          song.copyWith(
-            albumEditionId: newHome.albumEditionId,
-            discNumber: newHome.discNumber,
-            trackNumber: newHome.trackNumber,
-            updatedAt: timestamp,
-          ),
-        );
-        await context.localSyncRepository.recordUpsert(
-          userId: userId?.trim(),
-          entityType: CloudDataEntity.song,
-          entityId: song.id,
-        );
-      }
-
-      await context.albumEditionTrackRepository.delete(
-        editionId: edition.id,
-        songId: song.id,
+      await context.albumEditionTrackRepository.create(
+        AlbumEditionTrack(
+          albumEditionId: edition.id,
+          songId: song.id,
+          discNumber: placement?.discNumber ?? song.discNumber,
+          trackNumber: placement?.trackNumber ?? song.trackNumber,
+          sortPosition: nextPosition++,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        ),
       );
       await _recordSong(context, userId, song.id);
-    });
+      added++;
+    }
+
+    return added;
+  }
+
+  /// Removes one listing; false when the edition does not list the song.
+  static Future<bool> _remove(
+    SyncMutationContext context,
+    AlbumEdition edition,
+    String songId,
+    String? userId,
+    DateTime timestamp,
+  ) async {
+    final song = await _songOnAlbum(context, songId, edition.albumId);
+    final memberships = await context.albumEditionTrackRepository.getBySongId(
+      song.id,
+    );
+    final others = memberships
+        .where((m) => m.albumEditionId != edition.id)
+        .toList(growable: false);
+
+    if (others.isEmpty) {
+      throw const AlbumEditionManagementException(
+        AlbumEditionRefusal.lastEditionOfSong,
+      );
+    }
+
+    if (others.length == memberships.length) {
+      return false;
+    }
+
+    if (song.albumEditionId == edition.id) {
+      final editions = await context.albumEditionRepository.getByAlbumId(
+        edition.albumId,
+      );
+      final primaryId = editions
+          .where((e) => e.isPrimary)
+          .map((e) => e.id)
+          .firstOrNull;
+      final newHome = others.firstWhere(
+        (m) => m.albumEditionId == primaryId,
+        orElse: () => others.first,
+      );
+
+      await context.songRepository.save(
+        song.copyWith(
+          albumEditionId: newHome.albumEditionId,
+          discNumber: newHome.discNumber,
+          trackNumber: newHome.trackNumber,
+          updatedAt: timestamp,
+        ),
+      );
+      await context.localSyncRepository.recordUpsert(
+        userId: userId?.trim(),
+        entityType: CloudDataEntity.song,
+        entityId: song.id,
+      );
+    }
+
+    await context.albumEditionTrackRepository.delete(
+      editionId: edition.id,
+      songId: song.id,
+    );
+    await _recordSong(context, userId, song.id);
+    return true;
   }
 
   /// Deletes an edition that lists no tracks, is not primary and is not

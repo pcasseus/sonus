@@ -7,6 +7,7 @@ import 'package:sonus_next/features/artwork/domain/entities/artwork_asset.dart';
 import 'package:sonus_next/features/import/data/daos/media_file_binding_dao.dart';
 import 'package:sonus_next/features/import/domain/entities/media_file_binding.dart';
 import 'package:sonus_next/features/library/application/models/library_track_order.dart';
+import 'package:sonus_next/features/library/application/services/library_organization_service.dart';
 import 'package:sonus_next/features/library/data/daos/album_dao.dart';
 import 'package:sonus_next/features/library/data/daos/album_edition_dao.dart';
 import 'package:sonus_next/features/library/data/daos/album_edition_track_dao.dart';
@@ -290,6 +291,11 @@ void main() {
     'album query returns artist, primary edition metadata and track count',
     () async {
       final fixture = await _createFixture(appDatabase);
+      await _list(fixture, fixture.standardEdition, [
+        fixture.alphaSong,
+        fixture.betaSong,
+        fixture.zuluSong,
+      ]);
 
       final albums = await LibraryQueryDao(fixture.db).findAlbums();
 
@@ -314,7 +320,105 @@ void main() {
     },
   );
 
-  test('album query counts songs across album editions only once', () async {
+  // SN-50 A-Q14A: a release card counts the tracks of the edition it shows
+  // (the primary), not every song of every edition as before.
+  test('album track count is the primary edition listing count, with all '
+      'songs kept separately', () async {
+    final fixture = await _createFixture(appDatabase);
+    final deluxeSong = Song(
+      id: 'song_deluxe',
+      artistId: fixture.artist.id,
+      albumId: fixture.album.id,
+      albumEditionId: fixture.deluxeEdition.id,
+      title: 'Deluxe Track',
+      canonicalTitle: 'deluxe track',
+      trackNumber: 4,
+      durationSeconds: 220,
+      isSingle: false,
+      featuredArtists: const [],
+      createdAt: DateTime.utc(2026, 9, 13),
+      updatedAt: DateTime.utc(2026, 9, 13),
+    );
+    await SongDao(fixture.db).insert(deluxeSong);
+    await _list(fixture, fixture.standardEdition, [
+      fixture.alphaSong,
+      fixture.betaSong,
+    ]);
+    await _list(fixture, fixture.deluxeEdition, [
+      fixture.alphaSong,
+      fixture.betaSong,
+      fixture.zuluSong,
+      deluxeSong,
+    ]);
+
+    final dao = LibraryQueryDao(fixture.db);
+    final album = (await dao.findAlbums()).single;
+    final lookedUp = (await dao.findAlbumById(fixture.album.id))!;
+
+    expect(album.trackCount, 2);
+    expect(lookedUp.trackCount, 2);
+    expect(album.songCount, 4);
+    expect(album.hasSongs, isTrue);
+  });
+
+  // SN-50 A-Q14B: the review judges the shown edition, so bonus songs on
+  // another edition no longer hide a possible Single.
+  test('possible-Single review uses the primary edition count', () async {
+    final fixture = await _createFixture(appDatabase);
+    final bonus = [
+      for (final n in [1, 2])
+        Song(
+          id: 'song_bonus_$n',
+          artistId: fixture.artist.id,
+          albumId: fixture.album.id,
+          albumEditionId: fixture.deluxeEdition.id,
+          title: 'Bonus $n',
+          canonicalTitle: 'bonus $n',
+          trackNumber: 3 + n,
+          durationSeconds: 200,
+          isSingle: false,
+          featuredArtists: const [],
+          createdAt: DateTime.utc(2026, 9, 13),
+          updatedAt: DateTime.utc(2026, 9, 13),
+        ),
+    ];
+    for (final song in bonus) {
+      await SongDao(fixture.db).insert(song);
+    }
+    await _list(fixture, fixture.standardEdition, [
+      fixture.alphaSong,
+      fixture.betaSong,
+      fixture.zuluSong,
+    ]);
+    await _list(fixture, fixture.deluxeEdition, [
+      fixture.alphaSong,
+      fixture.betaSong,
+      fixture.zuluSong,
+      ...bonus,
+    ]);
+
+    final albums = await LibraryQueryDao(fixture.db).findAlbums();
+
+    // Three songs on the shown edition: it might be a Single, although the
+    // release has five songs in all.
+    expect(ArtistLibraryOrganization.formatReviewsOf(albums, const {}), {
+      fixture.album.id,
+    });
+  });
+
+  test('without a primary edition the card counts every song once', () async {
+    final fixture = await _createFixture(appDatabase);
+    await AlbumEditionDao(
+      fixture.db,
+    ).update(fixture.standardEdition.copyWith(isPrimary: false));
+
+    final album = (await LibraryQueryDao(fixture.db).findAlbums()).single;
+
+    expect(album.primaryEditionId, isNull);
+    expect(album.trackCount, 3);
+  });
+
+  test('album song count spans editions, counting each song once', () async {
     final fixture = await _createFixture(appDatabase);
 
     final deluxeSong = Song(
@@ -336,7 +440,7 @@ void main() {
 
     final albums = await LibraryQueryDao(fixture.db).findAlbums();
 
-    expect(albums.single.trackCount, 4);
+    expect(albums.single.songCount, 4);
   });
 
   test('artist query returns album and song counts', () async {
@@ -628,6 +732,11 @@ void main() {
     'album lookup returns complete album projection by permanent id',
     () async {
       final fixture = await _createFixture(appDatabase);
+      await _list(fixture, fixture.standardEdition, [
+        fixture.alphaSong,
+        fixture.betaSong,
+        fixture.zuluSong,
+      ]);
 
       final album = await LibraryQueryDao(
         fixture.db,
@@ -995,6 +1104,29 @@ void main() {
       );
     });
   });
+}
+
+/// Lists [songs] on [edition], numbered in the order given.
+Future<void> _list(
+  _QueryFixture fixture,
+  AlbumEdition edition,
+  List<Song> songs,
+) async {
+  final dao = AlbumEditionTrackDao(fixture.db);
+  final now = DateTime.utc(2026, 10, 1);
+  for (final (index, song) in songs.indexed) {
+    await dao.insert(
+      AlbumEditionTrack(
+        albumEditionId: edition.id,
+        songId: song.id,
+        discNumber: 1,
+        trackNumber: index + 1,
+        sortPosition: index,
+        createdAt: now,
+        updatedAt: now,
+      ),
+    );
+  }
 }
 
 Future<_QueryFixture> _createFixture(AppDatabase appDatabase) async {

@@ -8,6 +8,7 @@ class LibraryAlbum {
     required this.artistId,
     required this.artistName,
     required this.trackCount,
+    this.songCount,
     required this.dateAdded,
     this.primaryEditionId,
     this.primaryEditionTitle,
@@ -43,6 +44,14 @@ class LibraryAlbum {
   final String? artworkId;
   final String? artworkPath;
 
+  /// Tracks on the shown (primary) edition; every song of the release when
+  /// it has no primary edition (SN-50 A-Q14A).
   final int trackCount;
+
+  /// Every song of the release, across all editions; null when not read.
+  final int? songCount;
+
+  /// Whether the release has any songs, on any edition.
+  bool get hasSongs => (songCount ?? trackCount) > 0;
   final DateTime dateAdded;
 }

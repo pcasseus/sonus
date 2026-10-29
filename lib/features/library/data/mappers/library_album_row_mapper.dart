@@ -31,6 +31,7 @@ abstract final class LibraryAlbumRowMapper {
       artworkId: row['artwork_id'] as String?,
       artworkPath: row['artwork_path'] as String?,
       trackCount: row['track_count'] as int? ?? 0,
+      songCount: row['song_count'] as int?,
       dateAdded: DateTime.parse(row['created_at'] as String),
     );
   }

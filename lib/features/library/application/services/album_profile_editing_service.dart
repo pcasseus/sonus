@@ -53,6 +53,84 @@ class AlbumProfileEditingService {
     });
   }
 
+  /// Sets one edition's release date, primary or not (SN-50 A-Q6C). Each
+  /// edition keeps its own date; nothing else about the release changes.
+  /// A null [releaseDate] clears it, so the edition shows "Not set".
+  ///
+  /// Precision follows [updateProfile]: unstated, an unchanged date keeps
+  /// its precision and a newly entered date is an exact day. A change is
+  /// recorded as the user's, so later lookups keep it.
+  Future<AlbumEdition> updateEditionReleaseDate({
+    required String? userId,
+    required String editionId,
+    required DateTime? releaseDate,
+    ReleaseDatePrecision? releaseDatePrecision,
+    DateTime? now,
+  }) {
+    final normalizedEditionId = editionId.trim();
+
+    if (normalizedEditionId.isEmpty) {
+      throw ArgumentError.value(
+        editionId,
+        'editionId',
+        'Album edition id must not be blank.',
+      );
+    }
+
+    final timestamp = now ?? DateTime.now();
+
+    return mutationRunner.run((context) async {
+      final edition = await context.albumEditionRepository.getById(
+        normalizedEditionId,
+      );
+
+      if (edition == null) {
+        throw StateError('Album edition not found: $normalizedEditionId');
+      }
+
+      final precision = releaseDate == null
+          ? null
+          : releaseDatePrecision ??
+                (releaseDate == edition.releaseDate
+                    ? edition.releaseDatePrecision
+                    : ReleaseDatePrecision.day);
+
+      if (edition.releaseDate == releaseDate &&
+          edition.releaseDatePrecision == precision) {
+        return edition;
+      }
+
+      final updated = edition.copyWith(
+        releaseDate: releaseDate,
+        releaseDatePrecision: precision,
+        updatedAt: timestamp,
+      );
+      await context.albumEditionRepository.save(updated);
+
+      final metadataRepository = context.metadataFieldStateRepository;
+      if (metadataRepository != null) {
+        await MetadataFieldStateService(
+          repository: metadataRepository,
+        ).recordAll(
+          entityType: MetadataEntityType.albumEdition,
+          entityId: updated.id,
+          fieldNames: const [MetadataFields.editionReleaseDate],
+          authority: MetadataAuthority.manual,
+          source: MetadataProvenanceSource.user,
+          updatedAt: timestamp,
+        );
+      }
+
+      await context.localSyncRepository.recordUpsert(
+        userId: userId?.trim(),
+        entityType: CloudDataEntity.albumEdition,
+        entityId: updated.id,
+      );
+
+      return updated;
+    });
+  }
+
   Future<AlbumProfileEditResult> updateProfile({
     required String? userId,
     required String albumId,

@@ -12,6 +12,7 @@ import 'package:sonus_next/features/library/domain/metadata/metadata_fields.dart
 import 'package:sonus_next/features/library/domain/entities/album.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/domain/entities/entity_factory.dart';
+import 'package:sonus_next/features/library/domain/entities/release_date.dart';
 import 'package:sonus_next/features/sync/data/daos/local_sync_dao.dart';
 import 'package:sonus_next/features/sync/data/repositories/sync_mutation_transaction_runner.dart';
 import 'package:sonus_next/features/sync/domain/models/local_sync_models.dart';
@@ -862,5 +863,126 @@ void main() {
       ),
       isEmpty,
     );
+  });
+  group('SN-50 A-Q6C: each edition has its own release date', () {
+    test('a non-primary edition gets its own date and precision', () async {
+      final primary = await createProfile(
+        albumTitle: 'Glass Orchard',
+        releaseDate: DateTime.utc(2023, 2, 10),
+      );
+      final deluxe = EntityFactory.createAlbumEdition(
+        albumId: primary.album.id,
+        title: 'Glass Orchard (Deluxe)',
+        type: AlbumEditionType.deluxe,
+        now: originalTime,
+      );
+      final db = await appDatabase.database;
+      await AlbumEditionDao(db).insert(deluxe);
+
+      final updated = await service.updateEditionReleaseDate(
+        userId: 'user_1',
+        editionId: deluxe.id,
+        releaseDate: DateTime.utc(2024),
+        releaseDatePrecision: ReleaseDatePrecision.year,
+        now: mutationTime,
+      );
+
+      expect(updated.releaseDate, DateTime.utc(2024));
+      expect(updated.releaseDatePrecision, ReleaseDatePrecision.year);
+      final stored = await AlbumEditionDao(db).findById(deluxe.id);
+      expect(stored!.releaseDate, DateTime.utc(2024));
+      expect(stored.releaseDatePrecision, ReleaseDatePrecision.year);
+      expect(stored.isPrimary, isFalse);
+      // The primary edition and the release are untouched.
+      final storedPrimary = await AlbumEditionDao(
+        db,
+      ).findById(primary.edition.id);
+      expect(storedPrimary!.releaseDate, DateTime.utc(2023, 2, 10));
+      expect(storedPrimary.updatedAt, originalTime);
+
+      final states = await MetadataFieldStateDao(db).findByEntity(
+        entityType: MetadataEntityType.albumEdition,
+        entityId: deluxe.id,
+      );
+      expect(states.map((state) => state.fieldName), [
+        MetadataFields.editionReleaseDate,
+      ]);
+      expect(states.single.authority, MetadataAuthority.manual);
+      expect(states.single.source, MetadataProvenanceSource.user);
+
+      final pending = await LocalSyncDao(db).findPending('user_1');
+      expect(
+        pending.map((entry) => (entry.entityType, entry.entityId)).toList(),
+        [(CloudDataEntity.albumEdition, deluxe.id)],
+      );
+    });
+
+    test('an unstated precision is a day for a new date and kept for the '
+        'same date', () async {
+      final original = await createProfile(isPrimary: false);
+
+      final dated = await service.updateEditionReleaseDate(
+        userId: null,
+        editionId: original.edition.id,
+        releaseDate: DateTime.utc(2025, 8, 1),
+        now: mutationTime,
+      );
+      expect(dated.releaseDatePrecision, ReleaseDatePrecision.day);
+
+      await service.updateEditionReleaseDate(
+        userId: null,
+        editionId: original.edition.id,
+        releaseDate: DateTime.utc(2025, 8, 1),
+        releaseDatePrecision: ReleaseDatePrecision.month,
+        now: mutationTime,
+      );
+      final same = await service.updateEditionReleaseDate(
+        userId: null,
+        editionId: original.edition.id,
+        releaseDate: DateTime.utc(2025, 8, 1),
+        now: mutationTime,
+      );
+      expect(same.releaseDatePrecision, ReleaseDatePrecision.month);
+    });
+
+    test('clearing leaves the edition with no date', () async {
+      final original = await createProfile(
+        isPrimary: false,
+        releaseDate: DateTime.utc(2022, 5, 5),
+      );
+
+      final cleared = await service.updateEditionReleaseDate(
+        userId: 'user_1',
+        editionId: original.edition.id,
+        releaseDate: null,
+        now: mutationTime,
+      );
+
+      expect(cleared.releaseDate, isNull);
+      expect(cleared.releaseDatePrecision, isNull);
+    });
+
+    test('an unchanged date changes nothing', () async {
+      final original = await createProfile(
+        isPrimary: false,
+        releaseDate: DateTime.utc(2022, 5, 5),
+      );
+      final db = await appDatabase.database;
+      final before = await AlbumEditionDao(db).findById(original.edition.id);
+
+      await service.updateEditionReleaseDate(
+        userId: 'user_1',
+        editionId: original.edition.id,
+        releaseDate: DateTime.utc(2022, 5, 5),
+        releaseDatePrecision: before!.releaseDatePrecision,
+        now: mutationTime,
+      );
+
+      expect(
+        (await AlbumEditionDao(db).findById(original.edition.id))!.updatedAt,
+        originalTime,
+      );
+      expect(await LocalSyncDao(db).findPending('user_1'), isEmpty);
+    });
   });
 }

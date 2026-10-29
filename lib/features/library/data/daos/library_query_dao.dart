@@ -20,6 +20,22 @@ class LibraryQueryDao {
 
   final DatabaseExecutor db;
 
+  /// A release card's track count is the shown (primary) edition's
+  /// listings (SN-50 A-Q14A); without a primary edition, every song of the
+  /// release. Used with `pe` (primary edition) and `s` (songs) joined.
+  static final String _shownEditionTrackCount =
+      '''
+        CASE
+          WHEN pe.id IS NULL THEN COUNT(DISTINCT s.id)
+          ELSE (
+            SELECT COUNT(*)
+            FROM ${DatabaseTables.albumEditionTracks} pet
+            INNER JOIN ${DatabaseTables.songs} ps
+              ON ps.id = pet.song_id
+            WHERE pet.album_edition_id = pe.id
+          )
+        END''';
+
   Future<List<LibraryTrack>> findTracks({
     LibraryTrackOrder order = LibraryTrackOrder.title,
   }) async {
@@ -149,7 +165,8 @@ class LibraryQueryDao {
         pe.genre AS genre,
         pa.id AS artwork_id,
         pa.file_path AS artwork_path,
-        COUNT(DISTINCT s.id) AS track_count,
+        $_shownEditionTrackCount AS track_count,
+        COUNT(DISTINCT s.id) AS song_count,
         al.created_at AS created_at
       FROM ${DatabaseTables.albums} al
       INNER JOIN ${DatabaseTables.artists} ar
@@ -810,7 +827,8 @@ class LibraryQueryDao {
         pe.genre AS genre,
         pa.id AS artwork_id,
         pa.file_path AS artwork_path,
-        COUNT(DISTINCT s.id) AS track_count,
+        $_shownEditionTrackCount AS track_count,
+        COUNT(DISTINCT s.id) AS song_count,
         al.created_at AS created_at
       FROM ${DatabaseTables.albums} al
       INNER JOIN ${DatabaseTables.artists} ar

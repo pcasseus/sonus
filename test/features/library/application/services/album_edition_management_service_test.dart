@@ -549,7 +549,365 @@ void main() {
         userId: 'user-1',
         now: now,
       );
-      expect(await queuedSongs(), {songs['One']}, reason: 'removed elsewhere');
+      expect(
+        await queuedSongs(),
+        songs.values.toSet(),
+        reason: 'removed elsewhere; the songs after it were renumbered',
+      );
     },
   );
+
+  group('SN-50 Session A', () {
+    /// Imports a made-up release, one song per (disc, track, title), all on
+    /// its Standard edition. Returns (albumId, standardId, songIds).
+    Future<(String, String, Map<String, String>)> release(
+      List<(int, int, String)> tracks,
+    ) async {
+      final importer = AtomicLibraryImporter(appDatabase: appDatabase);
+      final ids = <String, String>{};
+
+      for (final (disc, n, title) in tracks) {
+        final path = 'Vela Morrow/Paper Harbor/$disc-$n $title.mp3';
+        final result = await importer.import(
+          candidate: ImportCandidate(
+            filePath: path,
+            normalizedPath: path.toLowerCase(),
+            discoveredAt: now,
+          ),
+          metadata: AudioMetadata(
+            title: title,
+            artistName: 'Vela Morrow',
+            albumTitle: 'Paper Harbor',
+            durationSeconds: 180,
+            trackNumber: n,
+            discNumber: disc,
+            isSingle: false,
+            featuredArtists: const [],
+          ),
+          now: now,
+        );
+        ids[title] = result.songId!;
+      }
+
+      final db = await appDatabase.database;
+      final song = await SongDao(db).findById(ids.values.first);
+      return (song!.albumId, song.albumEditionId, ids);
+    }
+
+    /// (disc, track) of each listing, in stored order by disc and track.
+    Future<Map<String, (int, int)>> numbering(String editionId) async {
+      final db = await appDatabase.database;
+      return {
+        for (final m in await AlbumEditionTrackDao(
+          db,
+        ).findByEditionId(editionId))
+          m.songId: (m.discNumber, m.trackNumber),
+      };
+    }
+
+    Future<void> markManual(String editionId, String songId) async {
+      final db = await appDatabase.database;
+      await db.update(
+        DatabaseTables.albumEditionTracks,
+        {'numbering_authority': 'manual'},
+        where: 'album_edition_id = ? AND song_id = ?',
+        whereArgs: [editionId, songId],
+      );
+    }
+
+    final six = [
+      for (final (n, title) in [
+        (1, 'Lantern'),
+        (2, 'Tidewater'),
+        (3, 'Quiet Pier'),
+        (4, 'Salt Lines'),
+        (5, 'Gull Song'),
+        (6, 'Last Ferry'),
+      ])
+        (1, n, title),
+    ];
+
+    test(
+      'A3: removing the first songs numbers the rest from 1 (defect #9)',
+      () async {
+        final (album, standard, songs) = await release(six);
+        final deluxe = await editions.createEdition(
+          albumId: album,
+          title: 'Paper Harbor (Deluxe)',
+          type: AlbumEditionType.deluxe,
+          includeSongsFrom: standard,
+          now: now,
+        );
+
+        final result = await editions.updateTrackList(
+          editionId: standard,
+          remove: [songs['Lantern']!, songs['Tidewater']!],
+          now: now,
+        );
+
+        expect(result.removed, 2);
+        expect(result.renumbering.renumbered, 4);
+        expect(result.renumbering.manualNumbersKept, 0);
+        expect(await numbering(standard), {
+          songs['Quiet Pier']: (1, 1),
+          songs['Salt Lines']: (1, 2),
+          songs['Gull Song']: (1, 3),
+          songs['Last Ferry']: (1, 4),
+        });
+        // Deluxe keeps its own numbers.
+        expect((await numbering(deluxe.id))[songs['Lantern']], (1, 1));
+        expect((await numbering(deluxe.id))[songs['Last Ferry']], (1, 6));
+
+        // The song's own copy follows its home (Standard) listing.
+        final db = await appDatabase.database;
+        final pier = (await SongDao(db).findById(songs['Quiet Pier']!))!;
+        expect(pier.albumEditionId, standard);
+        expect(pier.trackNumber, 1);
+      },
+    );
+
+    test(
+      'removing one track renumbers the edition it was removed from',
+      () async {
+        final (album, standard, songs) = await release(six);
+        final deluxe = await editions.createEdition(
+          albumId: album,
+          title: 'Paper Harbor (Deluxe)',
+          type: AlbumEditionType.deluxe,
+          includeSongsFrom: standard,
+          now: now,
+        );
+
+        await editions.removeTrack(
+          editionId: deluxe.id,
+          songId: songs['Salt Lines']!,
+          now: now,
+        );
+
+        final deluxeNumbers = await numbering(deluxe.id);
+        expect(deluxeNumbers[songs['Gull Song']], (1, 4));
+        expect(deluxeNumbers[songs['Last Ferry']], (1, 5));
+        expect((await numbering(standard))[songs['Last Ferry']], (1, 6));
+      },
+    );
+
+    test('each disc counts from 1', () async {
+      final (album, standard, songs) = await release([
+        (1, 1, 'Lantern'),
+        (1, 2, 'Tidewater'),
+        (2, 1, 'Quiet Pier'),
+        (2, 2, 'Salt Lines'),
+        (2, 3, 'Gull Song'),
+      ]);
+      await editions.createEdition(
+        albumId: album,
+        title: 'Paper Harbor (Deluxe)',
+        type: AlbumEditionType.deluxe,
+        includeSongsFrom: standard,
+        now: now,
+      );
+
+      await editions.updateTrackList(
+        editionId: standard,
+        remove: [songs['Tidewater']!, songs['Quiet Pier']!],
+        now: now,
+      );
+
+      expect(await numbering(standard), {
+        songs['Lantern']: (1, 1),
+        songs['Salt Lines']: (2, 1),
+        songs['Gull Song']: (2, 2),
+      });
+    });
+
+    test('hand-set numbers are kept and reported, then changed only when '
+        'approved', () async {
+      final (album, standard, songs) = await release(six);
+      await editions.createEdition(
+        albumId: album,
+        title: 'Paper Harbor (Deluxe)',
+        type: AlbumEditionType.deluxe,
+        includeSongsFrom: standard,
+        now: now,
+      );
+      await markManual(standard, songs['Gull Song']!);
+
+      final result = await editions.updateTrackList(
+        editionId: standard,
+        remove: [songs['Lantern']!],
+        now: now,
+      );
+
+      expect(result.renumbering.manualNumbersKept, 1);
+      expect(await numbering(standard), {
+        songs['Tidewater']: (1, 1),
+        songs['Quiet Pier']: (1, 2),
+        songs['Salt Lines']: (1, 3),
+        songs['Gull Song']: (1, 5),
+        songs['Last Ferry']: (1, 5),
+      });
+
+      final approved = await editions.renumberEdition(
+        editionId: standard,
+        overwriteManual: true,
+        now: now,
+      );
+
+      expect(approved.manualNumbersKept, 0);
+      expect((await numbering(standard))[songs['Gull Song']], (1, 4));
+      expect((await numbering(standard))[songs['Last Ferry']], (1, 5));
+    });
+
+    test(
+      'a bonus song added to Standard is numbered after its songs',
+      () async {
+        final (album, standard, songs) = await release(six);
+        final deluxe = await editions.createEdition(
+          albumId: album,
+          title: 'Paper Harbor (Deluxe)',
+          type: AlbumEditionType.deluxe,
+          includeSongsFrom: standard,
+          now: now,
+        );
+        await editions.updateTrackList(
+          editionId: standard,
+          remove: [songs['Gull Song']!, songs['Last Ferry']!],
+          now: now,
+        );
+
+        // Last Ferry is track 6 on Deluxe; on Standard it becomes 5.
+        final added = await editions.assignTracks(
+          editionId: standard,
+          songIds: [songs['Last Ferry']!],
+          now: now,
+        );
+
+        expect(added, 1);
+        expect((await numbering(standard))[songs['Last Ferry']], (1, 5));
+        expect((await numbering(deluxe.id))[songs['Last Ferry']], (1, 6));
+      },
+    );
+
+    test('a repair listing never renumbers the edition', () async {
+      final (album, standard, songs) = await release(six);
+      final deluxe = await editions.createEdition(
+        albumId: album,
+        title: 'Paper Harbor (Deluxe)',
+        type: AlbumEditionType.deluxe,
+        now: now,
+      );
+
+      await editions.assignTracks(
+        editionId: deluxe.id,
+        songIds: [songs['Last Ferry']!],
+        renumber: false,
+        now: now,
+      );
+
+      expect(await numbering(deluxe.id), {songs['Last Ferry']: (1, 6)});
+      expect((await numbering(standard))[songs['Last Ferry']], (1, 6));
+    });
+
+    test('Choose songs is one change: a last listing is kept, the rest '
+        'apply', () async {
+      final (album, standard, songs) = await release(six);
+      final deluxe = await editions.createEdition(
+        albumId: album,
+        title: 'Paper Harbor (Deluxe)',
+        type: AlbumEditionType.deluxe,
+        now: now,
+      );
+      await editions.assignTracks(
+        editionId: deluxe.id,
+        songIds: [songs['Lantern']!],
+        now: now,
+      );
+
+      final result = await editions.updateTrackList(
+        editionId: standard,
+        // Tidewater is only on Standard, so it stays.
+        remove: [songs['Lantern']!, songs['Tidewater']!],
+        now: now,
+      );
+
+      expect(result.removed, 1);
+      expect(result.keptAsLastListing, 1);
+      expect((await numbering(standard))[songs['Tidewater']], (1, 1));
+    });
+
+    test('renumbered songs are queued for sync', () async {
+      final (album, standard, songs) = await release(six);
+      await editions.createEdition(
+        albumId: album,
+        title: 'Paper Harbor (Deluxe)',
+        type: AlbumEditionType.deluxe,
+        includeSongsFrom: standard,
+        now: now,
+      );
+      final db = await appDatabase.database;
+      await db.delete(DatabaseTables.syncOutbox);
+
+      await editions.updateTrackList(
+        editionId: standard,
+        remove: [songs['Salt Lines']!],
+        userId: 'user-1',
+        now: now,
+      );
+
+      final queued = {
+        for (final row in await db.query(
+          DatabaseTables.syncOutbox,
+          where: 'entity_type = ?',
+          whereArgs: ['song'],
+        ))
+          row['entity_id']! as String,
+      };
+      expect(queued, {
+        songs['Salt Lines'],
+        songs['Gull Song'],
+        songs['Last Ferry'],
+      });
+    });
+
+    test('A2: a new edition copies listings but never the date, cover or '
+        'genre', () async {
+      final (album, standard, songs) = await release(six);
+      final db = await appDatabase.database;
+      await db.insert(DatabaseTables.artworkAssets, {
+        'id': 'art-1',
+        'file_path': '/covers/paper-harbor.jpg',
+        'normalized_path': '/covers/paper-harbor.jpg',
+        'created_at': now.toIso8601String(),
+        'updated_at': now.toIso8601String(),
+      });
+      await db.update(
+        DatabaseTables.albumEditions,
+        {
+          'release_date': DateTime.utc(2024, 4, 1).toIso8601String(),
+          'release_date_precision': 'day',
+          'genre': 'Dream Pop',
+          'artwork_id': 'art-1',
+        },
+        where: 'id = ?',
+        whereArgs: [standard],
+      );
+
+      final deluxe = await editions.createEdition(
+        albumId: album,
+        title: 'Deluxe',
+        type: AlbumEditionType.deluxe,
+        includeSongsFrom: standard,
+        now: now,
+      );
+
+      final stored = (await editionsOf(
+        album,
+      )).firstWhere((e) => e.id == deluxe.id);
+      expect(stored.releaseDate, isNull);
+      expect(stored.releaseDatePrecision, isNull);
+      expect(stored.artworkId, isNull);
+      expect(stored.genre, isNull);
+      expect(await listedOn(deluxe.id), await listedOn(standard));
+    });
+  });
 }

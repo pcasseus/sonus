@@ -192,8 +192,26 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
     final album = controller.album;
     final canEdit = controller.canEditAlbumProfile(widget.userId);
     final organization = widget.organization;
-    final releaseDate = album?.releaseDateValue;
+    final edition = controller.selectedEdition;
+    final perEdition = edition != null && controller.editions.length > 1;
+    final releaseDate = _shownReleaseDate;
     final canEditDate = canEdit && !_isSavingDetails;
+    final dateRow = _DetailRow(
+      key: const ValueKey<String>('release-studio-date'),
+      label: perEdition
+          ? 'Release date of ${_editionDisplayLabel(edition)}'
+          : 'Release date',
+      value: releaseDate == null ? 'Not set' : releaseDate.label,
+      onEdit: canEditDate ? _editReleaseDate : null,
+      action: canEditDate
+          ? IconButton(
+              key: const ValueKey<String>('release-studio-date-calendar'),
+              tooltip: 'Choose the release day on a calendar',
+              icon: const Icon(Icons.calendar_month_rounded),
+              onPressed: _pickReleaseDay,
+            )
+          : null,
+    );
 
     return ListView(
       key: const ValueKey<String>('release-studio-details'),
@@ -217,22 +235,7 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
                   ? _changeOwner
                   : null,
             ),
-            _DetailRow(
-              key: const ValueKey<String>('release-studio-date'),
-              label: 'Release date',
-              value: releaseDate == null ? 'Not set' : releaseDate.label,
-              onEdit: canEditDate ? _editReleaseDate : null,
-              action: canEditDate
-                  ? IconButton(
-                      key: const ValueKey<String>(
-                        'release-studio-date-calendar',
-                      ),
-                      tooltip: 'Choose the release day on a calendar',
-                      icon: const Icon(Icons.calendar_month_rounded),
-                      onPressed: _pickReleaseDay,
-                    )
-                  : null,
-            ),
+            if (!perEdition) dateRow,
             _DetailRow(
               key: const ValueKey<String>('release-studio-genre'),
               label: 'Genre',
@@ -243,6 +246,17 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
             ),
           ],
         ),
+        if (perEdition) ...[
+          const SizedBox(height: 16),
+          const _SectionNote(
+            'Each edition keeps its own release date. Choose the edition to '
+            'change.',
+          ),
+          const SizedBox(height: 8),
+          _EditionSelector(controller: controller),
+          const SizedBox(height: 8),
+          _StudioCard(children: [dateRow]),
+        ],
         if (_isSavingDetails) ...[
           const SizedBox(height: 8),
           const LinearProgressIndicator(
@@ -381,30 +395,72 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
     );
   }
 
+  /// Whether the date row edits a non-primary edition's own date rather
+  /// than going through the release's details.
+  bool get _datesOtherEdition {
+    final edition = controller.selectedEdition;
+    return edition != null && !edition.isPrimary;
+  }
+
+  /// The date shown: the selected edition's own (SN-50 A-Q6C). A
+  /// non-primary edition without one shows "Not set", never the primary's.
+  ReleaseDate? get _shownReleaseDate => _datesOtherEdition
+      ? controller.selectedEdition!.releaseDateValue
+      : controller.album?.releaseDateValue;
+
+  Future<void> _saveReleaseDate(ReleaseDate? date, String message) async {
+    if (!_datesOtherEdition) {
+      await _saveDetails(releaseDate: date, message: message);
+      return;
+    }
+
+    setState(() => _isSavingDetails = true);
+    final messenger = ScaffoldMessenger.of(context);
+
+    try {
+      final saved = await controller.updateSelectedEditionReleaseDate(
+        userId: widget.userId,
+        releaseDate: date,
+      );
+      if (saved) {
+        messenger.showSnackBar(SnackBar(content: Text(message)));
+      }
+    } catch (error, stackTrace) {
+      developer.log(
+        'Edition release date could not be saved (${error.runtimeType})',
+        name: 'sonus.library.release_studio',
+        level: 900,
+        error: error,
+        stackTrace: stackTrace,
+      );
+      messenger.showSnackBar(
+        const SnackBar(content: Text('The release date could not be saved.')),
+      );
+    } finally {
+      if (mounted) setState(() => _isSavingDetails = false);
+    }
+  }
+
   Future<void> _editReleaseDate() async {
-    final album = controller.album;
-    if (album == null) return;
+    if (controller.album == null) return;
 
     final edit = await showReleaseDateEditor(
       context,
-      current: album.releaseDateValue,
+      current: _shownReleaseDate,
     );
     switch (edit) {
       case null:
         return;
       case ReleaseDateCleared():
-        await _saveDetails(releaseDate: null, message: 'Release date cleared.');
+        await _saveReleaseDate(null, 'Release date cleared.');
       case ReleaseDateSet(:final date):
-        await _saveDetails(
-          releaseDate: date,
-          message: 'Release date saved: ${date.label}.',
-        );
+        await _saveReleaseDate(date, 'Release date saved: ${date.label}.');
     }
   }
 
   /// The calendar beside the release date: opens at the saved date.
   Future<void> _pickReleaseDay() async {
-    final current = controller.album?.releaseDateValue;
+    final current = _shownReleaseDate;
     final now = DateTime.now();
     final last = DateTime(now.year + 5, 12, 31);
     var start = current == null
@@ -424,10 +480,7 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
     );
     if (picked == null || !mounted) return;
     final date = ReleaseDate.of(picked.year, picked.month, picked.day)!;
-    await _saveDetails(
-      releaseDate: date,
-      message: 'Release date saved: ${date.label}.',
-    );
+    await _saveReleaseDate(date, 'Release date saved: ${date.label}.');
   }
 
   Future<void> _changeOwner() async {
@@ -1593,7 +1646,12 @@ class _TrackPlacementDialogState extends State<_TrackPlacementDialog> {
                 key: const ValueKey<String>('album-studio-disc-number-field'),
                 controller: _discController,
                 keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'Disc number'),
+                decoration: const InputDecoration(
+                  labelText: 'Disc number',
+                  helperText:
+                      'A song moved to another disc goes to the end of it.',
+                  helperMaxLines: 3,
+                ),
               ),
             ] else ...[
               const SizedBox(height: 8),
@@ -1859,8 +1917,8 @@ class _CoverPreview extends StatelessWidget {
                   ? 'Cover for ${_editionDisplayLabel(edition)}'
                   : path == null
                   ? '${_editionDisplayLabel(edition)} has no cover yet'
-                  : '${_editionDisplayLabel(edition)} shows the main '
-                        'edition\'s cover',
+                  : '${_editionDisplayLabel(edition)} has no cover yet. '
+                        'Using the primary edition\'s cover.',
               key: const ValueKey<String>('release-studio-cover-caption'),
               textAlign: TextAlign.center,
               style: Theme.of(
