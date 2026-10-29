@@ -32,8 +32,8 @@ void main() {
     (ChartMovement.up, 5, '3', Icons.arrow_upward_rounded, 'Up 3 places'),
     (ChartMovement.down, 1, '1', Icons.arrow_downward_rounded, 'Down 1 place'),
     (ChartMovement.same, 2, null, Icons.remove_rounded, 'No change'),
-    (ChartMovement.newEntry, null, 'NEW', null, 'New entry'),
-    (ChartMovement.reentry, null, 'RE-ENTRY', null, 'Re-entry'),
+    (ChartMovement.newEntry, null, 'NEW', Icons.star_rounded, 'New entry'),
+    (ChartMovement.reentry, null, 'RE-ENTRY', Icons.replay_rounded, 'Re-entry'),
   ]) {
     testWidgets('${movement.name} shows "$text" and reads "$spoken"', (
       tester,
@@ -52,11 +52,7 @@ void main() {
         );
       }
 
-      if (icon != null) {
-        expect(find.byIcon(icon), findsOneWidget);
-      } else {
-        expect(find.byType(Icon), findsNothing);
-      }
+      expect(find.byIcon(icon), findsOneWidget);
 
       expect(
         tester.getSemantics(
@@ -86,6 +82,31 @@ void main() {
       _entry(movement: ChartMovement.same, previousFinalRank: 2),
     );
     expect(iconColor(tester), colors.chartSteady);
+  });
+
+  testWidgets('NEW and RE-ENTRY have their own colours and icons', (
+    tester,
+  ) async {
+    Color borderColor() {
+      final box = tester.widget<DecoratedBox>(
+        find
+            .ancestor(
+              of: find.byType(Icon),
+              matching: find.byType(DecoratedBox),
+            )
+            .first,
+      );
+      return ((box.decoration as BoxDecoration).border! as Border).top.color;
+    }
+
+    await pump(tester, _entry(movement: ChartMovement.newEntry));
+    expect(iconColor(tester), colors.chartNew);
+    expect(borderColor(), colors.chartNew);
+
+    await pump(tester, _entry(movement: ChartMovement.reentry));
+    expect(iconColor(tester), colors.chartReentry);
+    expect(borderColor(), colors.chartReentry);
+    expect(colors.chartReentry, isNot(colors.chartNew));
   });
 }
 

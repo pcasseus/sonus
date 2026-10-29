@@ -3,6 +3,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../../../library/application/models/library_album.dart';
+import '../../../library/application/models/library_album_edition.dart';
 import '../../../library/application/models/library_artist.dart';
 import '../../../library/application/models/library_track.dart';
 import '../../../library/application/repositories/library_query_repository.dart';
@@ -21,6 +22,8 @@ import '../../domain/repositories/chart_moment_repository.dart';
 import '../../domain/repositories/chart_repository.dart';
 import '../editorial/moment_editorial_desk.dart';
 import '../editorial/moment_facts.dart';
+import '../models/chart_album_presentation.dart';
+import '../models/chart_longevity.dart';
 import '../models/charts_presentation_mode.dart';
 
 typedef ChartsControllerNow = DateTime Function();
@@ -28,6 +31,10 @@ typedef ChartsControllerNow = DateTime Function();
 /// Release formats by album id: null while a release's format needs
 /// review. Releases missing are Albums.
 typedef ReleaseFormatsLoader = Future<Map<String, ReleaseFormat?>> Function();
+
+/// Every Deluxe edition in the library, for the current album chart's
+/// titles and covers.
+typedef DeluxeEditionsLoader = Future<List<LibraryAlbumEdition>> Function();
 
 class ChartsController extends ChangeNotifier {
   ChartsController({
@@ -41,6 +48,7 @@ class ChartsController extends ChangeNotifier {
         const ChartMomentFeedAggregator(),
     ChartsControllerNow? now,
     ReleaseFormatsLoader? releaseFormats,
+    DeluxeEditionsLoader? deluxeEditions,
   }) : _allTimeCharts = allTimeCharts,
        _finalization = finalization,
        _charts = charts,
@@ -49,7 +57,8 @@ class ChartsController extends ChangeNotifier {
        _allTimeMoments = allTimeMoments,
        _momentFeedAggregator = momentFeedAggregator,
        _now = now ?? DateTime.now,
-       _loadReleaseFormats = releaseFormats;
+       _loadReleaseFormats = releaseFormats,
+       _loadDeluxeEditions = deluxeEditions;
 
   final AllTimeChartService _allTimeCharts;
   final ChartFinalizationService _finalization;
@@ -64,6 +73,9 @@ class ChartsController extends ChangeNotifier {
   final ReleaseFormatsLoader? _loadReleaseFormats;
   Map<String, ReleaseFormat?> _releaseFormats = const {};
 
+  final DeluxeEditionsLoader? _loadDeluxeEditions;
+  Map<String, ChartAlbumPresentation> _albumPresentations = const {};
+
   /// The published stories for the current feed, composed once per load.
   List<MomentStory>? _momentStories;
 
@@ -75,6 +87,7 @@ class ChartsController extends ChangeNotifier {
   AllTimeChart? _allTimeChart;
   List<ChartSnapshot> _history = const [];
   Map<String, int> _weeklyPeaks = const {};
+  ChartLongevityIndex _longevity = ChartLongevityIndex.empty;
 
   List<ChartMomentFeedItem> _momentFeedItems = const [];
   Object? _momentFeedError;
@@ -117,7 +130,7 @@ class ChartsController extends ChangeNotifier {
 
   bool get isViewingHistory => _historyIndex != null;
 
-  /// The default view: the permanent all-time chart. Older weeks are the
+  /// The default view: the permanent career standings. Older weeks are the
   /// finalized weekly charts, kept as history.
   bool get isViewingAllTime => _historyIndex == null;
 
@@ -212,6 +225,43 @@ class ChartsController extends ChangeNotifier {
   /// chart, or null if it never made a weekly Top 100.
   int? weeklyPeakFor(ChartEntry entry) => _weeklyPeaks[entry.entity.entityId];
 
+  /// Official longevity from finalized weeks: as of the latest one on the
+  /// standings, or as of the week on screen.
+  ChartLongevity? longevityFor(ChartEntry entry) {
+    final week = selectedHistoricalSnapshot;
+    final id = entry.entity.entityId;
+
+    return week == null
+        ? _longevity.latest(id)
+        : _longevity.asOfWeek(week.weekStartUtc, id);
+  }
+
+  /// On a weekly chart, last week's #101–200 position of an entry with no
+  /// official position last week; context only (SN-50 E-Q1).
+  int? previousExtendedRankFor(ChartEntry entry) {
+    final week = selectedHistoricalSnapshot;
+
+    if (week == null || entry.previousFinalRank != null) {
+      return null;
+    }
+
+    return _longevity.previousExtendedRank(
+      week.weekStartUtc,
+      entry.entity.entityId,
+    );
+  }
+
+  /// The title, cover and edition the current album chart shows for a
+  /// release: Deluxe first (SN-50 A-Q21). Null on weekly history, whose
+  /// rows keep their stored titles, and for releases not in the library.
+  ChartAlbumPresentation? albumPresentationFor(ChartEntry entry) {
+    if (!isViewingAllTime || _chartType != ChartType.albums) {
+      return null;
+    }
+
+    return _albumPresentations[entry.entity.entityId];
+  }
+
   /// The songs of the chart on screen, in rank order, for a playback
   /// queue. Entries without a library song are left out.
   List<LibraryTrack> get entryTracks => [
@@ -234,11 +284,9 @@ class ChartsController extends ChangeNotifier {
     return _albumsById[entry.entity.entityId];
   }
 
+  /// Finalized weekly rows open the living song too; their stored content
+  /// stays as it was (SN-50 E-Q8).
   bool isTrackInteractive(ChartEntry entry) {
-    if (!isViewingAllTime) {
-      return false;
-    }
-
     final track = trackForEntry(entry);
 
     return track != null &&
@@ -248,9 +296,7 @@ class ChartsController extends ChangeNotifier {
         track.filePath!.trim().isNotEmpty;
   }
 
-  bool isAlbumInteractive(ChartEntry entry) {
-    return isViewingAllTime && albumForEntry(entry) != null;
-  }
+  bool isAlbumInteractive(ChartEntry entry) => albumForEntry(entry) != null;
 
   void selectPresentationMode(ChartsPresentationMode value) {
     if (_presentationMode == value) {
@@ -326,6 +372,15 @@ class ChartsController extends ChangeNotifier {
       return await _loadReleaseFormats?.call() ?? const {};
     } catch (_) {
       return const {};
+    }
+  }
+
+  /// Fails open like formats: without editions releases show their primary.
+  Future<List<LibraryAlbumEdition>> _readDeluxeEditions() async {
+    try {
+      return await _loadDeluxeEditions?.call() ?? const [];
+    } catch (_) {
+      return const [];
     }
   }
 
@@ -517,6 +572,7 @@ class ChartsController extends ChangeNotifier {
       final albums = await _library.getAlbums();
       final artists = await _library.getArtists();
       final formats = await _readReleaseFormats();
+      final deluxes = await _readDeluxeEditions();
 
       var momentFeedItems = _momentFeedItems;
       Object? momentFeedError = allTimeMomentsError;
@@ -540,10 +596,12 @@ class ChartsController extends ChangeNotifier {
       _allTimeChart = allTime;
       _history = List<ChartSnapshot>.unmodifiable(history);
       _weeklyPeaks = _weeklyPeaksOf(history);
+      _longevity = ChartLongevityIndex.fromHistory(history);
 
       _tracksById = {for (final track in tracks) track.songId: track};
 
       _albumsById = {for (final album in albums) album.albumId: album};
+      _albumPresentations = _albumPresentationsOf(albums, deluxes);
 
       _artistsById = {for (final artist in artists) artist.artistId: artist};
       _releaseFormats = formats;
@@ -611,6 +669,24 @@ class ChartsController extends ChangeNotifier {
         _notify();
       }
     }
+  }
+
+  static Map<String, ChartAlbumPresentation> _albumPresentationsOf(
+    List<LibraryAlbum> albums,
+    List<LibraryAlbumEdition> deluxes,
+  ) {
+    final byAlbum = <String, List<LibraryAlbumEdition>>{};
+    for (final edition in deluxes) {
+      byAlbum.putIfAbsent(edition.albumId, () => []).add(edition);
+    }
+
+    return Map.unmodifiable({
+      for (final album in albums)
+        album.albumId: ChartAlbumPresentation.resolve(
+          album,
+          byAlbum[album.albumId] ?? const [],
+        ),
+    });
   }
 
   static Map<String, int> _weeklyPeaksOf(List<ChartSnapshot> history) {

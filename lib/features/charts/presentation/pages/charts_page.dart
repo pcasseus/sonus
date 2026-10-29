@@ -13,11 +13,11 @@ import '../../../player/application/controllers/playback_coordinator.dart';
 import '../../../playlists/presentation/widgets/add_to_playlist_sheet.dart';
 
 import '../../domain/entities/chart_entry.dart';
-import '../../domain/entities/chart_snapshot.dart';
 import '../../domain/models/chart_type.dart';
 import '../../domain/models/chart_view_size.dart';
 import '../news/moment_post_card.dart';
 import '../editorial/moment_editorial_desk.dart';
+import '../models/chart_week_label.dart';
 import '../models/charts_presentation_mode.dart';
 import '../controllers/charts_controller.dart';
 import '../widgets/all_time_chart_cards.dart';
@@ -103,12 +103,13 @@ class ChartsPage extends StatelessWidget {
                       icon: Icons.leaderboard_outlined,
                       title: 'No chart entries yet',
                       message:
-                          'Every qualified listen counts toward your all-time Sonus Hot 100.',
+                          'Every qualified listen counts toward your Sonus Hot 100 career standings.',
                     )
                   else ...[
                     _ChartSummary(
                       chartType: controller.chartType,
                       positionCount: entries.length,
+                      isWeeklyHistory: controller.isViewingHistory,
                     ),
                     const SizedBox(height: 14),
                   ],
@@ -445,7 +446,12 @@ class _WeekNavigator extends StatelessWidget {
           child: Column(
             children: [
               Text(
-                snapshot == null ? 'All time' : _formatChartWeek(snapshot),
+                snapshot == null
+                    ? 'Career standings'
+                    : chartWeekLabel(
+                        snapshot.weekStartUtc,
+                        snapshot.weekEndUtc,
+                      ),
                 key: const ValueKey<String>('charts-week-label'),
                 textAlign: TextAlign.center,
                 style: Theme.of(
@@ -453,7 +459,7 @@ class _WeekNavigator extends StatelessWidget {
                 ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
               ),
               const SizedBox(height: 6),
-              _ChartStatusBadge(isAllTime: snapshot == null),
+              _ChartStatusBadge(isCurrent: snapshot == null),
             ],
           ),
         ),
@@ -478,32 +484,32 @@ class _WeekNavigator extends StatelessWidget {
   }
 }
 
-/// ALL TIME for the permanent chart; FINAL for a finalized weekly chart.
+/// CURRENT for the career standings; FINAL for a finalized weekly chart.
 class _ChartStatusBadge extends StatelessWidget {
-  const _ChartStatusBadge({required this.isAllTime});
+  const _ChartStatusBadge({required this.isCurrent});
 
-  final bool isAllTime;
+  final bool isCurrent;
 
   @override
   Widget build(BuildContext context) {
     final colors = SonusTheme.of(context).colors;
 
-    // ALL TIME is filled with the accent and FINAL is outlined, so the two
+    // CURRENT is filled with the accent and FINAL is outlined, so the two
     // read differently by shape as well as colour.
     return Container(
       key: const ValueKey<String>('charts-snapshot-status'),
       padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
       decoration: BoxDecoration(
-        color: isAllTime ? colors.accentPrimary : Colors.transparent,
-        border: isAllTime ? null : Border.all(color: colors.border),
+        color: isCurrent ? colors.accentPrimary : Colors.transparent,
+        border: isCurrent ? null : Border.all(color: colors.border),
         borderRadius: BorderRadius.circular(999),
       ),
       child: Text(
-        isAllTime ? 'ALL TIME' : 'FINAL',
+        isCurrent ? 'CURRENT' : 'FINAL',
         style: Theme.of(context).textTheme.labelSmall?.copyWith(
           fontWeight: FontWeight.w900,
           letterSpacing: 1.2,
-          color: isAllTime ? colors.onAccentPrimary : colors.textSecondary,
+          color: isCurrent ? colors.onAccentPrimary : colors.textSecondary,
         ),
       ),
     );
@@ -568,10 +574,15 @@ class _ViewSizeSelector extends StatelessWidget {
 }
 
 class _ChartSummary extends StatelessWidget {
-  const _ChartSummary({required this.chartType, required this.positionCount});
+  const _ChartSummary({
+    required this.chartType,
+    required this.positionCount,
+    required this.isWeeklyHistory,
+  });
 
   final ChartType chartType;
   final int positionCount;
+  final bool isWeeklyHistory;
 
   @override
   Widget build(BuildContext context) {
@@ -616,15 +627,19 @@ class _ChartSummary extends StatelessWidget {
           key: const ValueKey<String>('charts-info-button'),
           tooltip: 'About the $name',
           icon: Icon(Icons.info_outline_rounded, color: colors.textSecondary),
-          onPressed: () => showChartInfoSheet(context, chartType),
+          onPressed: () => showChartInfoSheet(
+            context,
+            chartType,
+            isWeeklyHistory: isWeeklyHistory,
+          ),
         ),
       ],
     );
   }
 }
 
-/// Maps one chart entry and the controller's view of it onto a
-/// [ChartEntryCard]: artwork, interactivity and status badges.
+/// Maps one chart entry and the controller's view of it onto a card:
+/// artwork, title, interactivity, status badges and longevity.
 class _ChartEntryItem extends StatelessWidget {
   const _ChartEntryItem({required this.entry, required this.controller});
 
@@ -642,10 +657,13 @@ class _ChartEntryItem extends StatelessWidget {
       ChartType.albums => controller.isAlbumInteractive(entry),
     };
 
+    final presentation = controller.albumPresentationFor(entry);
     final artworkPath = switch (chartType) {
       ChartType.songs => track?.artworkPath,
-      ChartType.albums => album?.artworkPath,
+      ChartType.albums =>
+        presentation == null ? album?.artworkPath : presentation.artworkPath,
     };
+    final longevity = controller.longevityFor(entry);
 
     final unavailableLiveTrack =
         controller.isViewingAllTime &&
@@ -676,7 +694,7 @@ class _ChartEntryItem extends StatelessWidget {
             }
 
             if (chartType == ChartType.albums && album != null) {
-              _openAlbum(context, album);
+              _openAlbum(context, album, editionId: presentation?.editionId);
             }
           }
         : null;
@@ -696,6 +714,8 @@ class _ChartEntryItem extends StatelessWidget {
               artworkPath: artworkPath,
               status: status,
               weeklyPeakRank: weeklyPeak,
+              longevity: longevity,
+              title: presentation?.title,
               onTap: onTap,
             )
           : AllTimeEntryCard(
@@ -706,6 +726,8 @@ class _ChartEntryItem extends StatelessWidget {
               artworkPath: artworkPath,
               status: status,
               weeklyPeakRank: weeklyPeak,
+              longevity: longevity,
+              title: presentation?.title,
               onTap: onTap,
             );
     }
@@ -716,6 +738,8 @@ class _ChartEntryItem extends StatelessWidget {
       chartType: chartType,
       artworkPath: artworkPath,
       status: status,
+      longevity: longevity,
+      previousExtendedRank: controller.previousExtendedRankFor(entry),
       onTap: onTap,
     );
   }
@@ -991,48 +1015,4 @@ void _openAlbum(BuildContext context, LibraryAlbum album, {String? editionId}) {
       ),
     ),
   );
-}
-
-String _formatChartWeek(ChartSnapshot snapshot) {
-  final start = snapshot.weekStartUtc.toUtc();
-
-  final inclusiveEnd = snapshot.weekEndUtc.toUtc().subtract(
-    const Duration(days: 1),
-  );
-
-  final sameMonth =
-      start.year == inclusiveEnd.year && start.month == inclusiveEnd.month;
-
-  if (sameMonth) {
-    return '${_monthName(start.month)} '
-        '${start.day}\u2013${inclusiveEnd.day}, '
-        '${start.year}';
-  }
-
-  if (start.year == inclusiveEnd.year) {
-    return '${_monthName(start.month)} ${start.day} \u2013 '
-        '${_monthName(inclusiveEnd.month)} ${inclusiveEnd.day}, '
-        '${start.year}';
-  }
-
-  return '${_monthName(start.month)} ${start.day}, ${start.year} \u2013 '
-      '${_monthName(inclusiveEnd.month)} '
-      '${inclusiveEnd.day}, ${inclusiveEnd.year}';
-}
-
-String _monthName(int month) {
-  return const [
-    'January',
-    'February',
-    'March',
-    'April',
-    'May',
-    'June',
-    'July',
-    'August',
-    'September',
-    'October',
-    'November',
-    'December',
-  ][month - 1];
 }

@@ -227,6 +227,7 @@ abstract final class SonusThemeFactory {
       chartUp: palette.chartUp,
       chartDown: palette.chartDown,
       chartNew: palette.secondary,
+      chartReentry: palette.primary,
       chartSteady: textSecondary,
       storyFeatured: palette.raisedSurface,
       onStoryFeatured: palette.text,

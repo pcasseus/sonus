@@ -485,7 +485,7 @@ void main() {
     expect(find.textContaining('3 streams'), findsWidgets);
     expect(
       find.text(
-        'Your most streamed, all time. Streams of songs by Dove Cameron '
+        'Your most streamed songs. Streams of songs by Dove Cameron '
         "count toward Dove Cameron's own artist total, not the one above.",
       ),
       findsOneWidget,

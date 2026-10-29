@@ -11,9 +11,12 @@ import '../../domain/entities/chart_entry.dart';
 import '../../domain/models/all_time_entry_stats.dart';
 import '../../domain/models/chart_type.dart';
 import '../../domain/services/all_time_history_replay.dart';
+import '../models/chart_longevity.dart';
 import 'chart_extended_divider.dart';
 import 'chart_entry_card.dart';
+import 'chart_longevity_facts.dart';
 import 'chart_movement_indicator.dart';
+import 'chart_rank_tier.dart';
 
 enum WeeklyTrend { up, down, flat, fresh, none }
 
@@ -107,8 +110,8 @@ Future<void> showZoneWeeksSheet(
             ),
             const SizedBox(height: 4),
             Text(
-              '$title · completed chart weeks on the all-time chart. A week '
-              'at #3 counts for the Top 3 and every larger zone.',
+              '$title · completed chart weeks in the career standings. A '
+              'week at #3 counts for the Top 3 and every larger zone.',
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: colors.textSecondary,
               ),
@@ -140,6 +143,8 @@ String _summary(
   AllTimeEntryStats stats,
   ChartEntryStatus? status,
   int? weeklyPeakRank,
+  ChartLongevity? longevity,
+  String title,
 ) {
   return [
     ChartEntryCard.semanticLabelFor(
@@ -148,13 +153,15 @@ String _summary(
       status: status,
       isAllTime: true,
       weeklyPeakRank: weeklyPeakRank,
+      longevity: longevity,
+      title: title,
     ),
     WeeklyChange.of(stats).spoken,
     'weeks in zones ${zoneWeeksSummary(stats.zones)}',
   ].join(', ');
 }
 
-/// The all-time #1, given the room of a spotlight.
+/// The standings #1, given the room of a spotlight.
 class AllTimeSpotlightCard extends StatelessWidget {
   const AllTimeSpotlightCard({
     super.key,
@@ -164,6 +171,8 @@ class AllTimeSpotlightCard extends StatelessWidget {
     required this.artworkPath,
     this.status,
     this.weeklyPeakRank,
+    this.longevity,
+    this.title,
     this.onTap,
   });
 
@@ -173,6 +182,12 @@ class AllTimeSpotlightCard extends StatelessWidget {
   final String? artworkPath;
   final ChartEntryStatus? status;
   final int? weeklyPeakRank;
+
+  /// Official longevity from finalized weeks, derived at load.
+  final ChartLongevity? longevity;
+
+  /// The title shown in place of the entry's own, as for a Deluxe edition.
+  final String? title;
   final VoidCallback? onTap;
 
   @override
@@ -183,113 +198,175 @@ class AllTimeSpotlightCard extends StatelessWidget {
     final change = WeeklyChange.of(stats);
     final id = entry.entity.entityId;
     final top3 = stats.zones.weeksIn(3);
+    final shownTitle = title ?? entry.entity.title;
+    final tier = ChartTierStyle.of(tokens, ChartRankTier.spotlight);
+    final radius = BorderRadius.circular(tokens.metrics.cardRadius + 6);
+    final facts = chartLongevityFacts(longevity);
 
-    return Material(
-      key: ValueKey<String>('charts-spotlight-$id'),
-      color: colors.raisedSurface,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(tokens.metrics.cardRadius + 6),
-        side: BorderSide(color: colors.border),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          InkWell(
-            onTap: onTap,
-            child: Semantics(
-              button: onTap != null,
-              label: _summary(entry, chartType, stats, status, weeklyPeakRank),
-              excludeSemantics: true,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Row(
-                      children: [
-                        Text(
-                          '#${entry.rank}',
-                          key: ValueKey<String>('charts-rank-$id'),
-                          style: tokens.text.chartRank.copyWith(
-                            color: colors.accentPrimary,
-                            fontSize: 34,
+    return _FocusOutline(
+      radius: radius,
+      builder: (onFocusChange) => Material(
+        key: ValueKey<String>('charts-spotlight-$id'),
+        color: tier.background,
+        shape: RoundedRectangleBorder(borderRadius: radius, side: tier.border),
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            InkWell(
+              onTap: onTap,
+              onFocusChange: onFocusChange,
+              child: Semantics(
+                button: onTap != null,
+                label: _summary(
+                  entry,
+                  chartType,
+                  stats,
+                  status,
+                  weeklyPeakRank,
+                  longevity,
+                  shownTitle,
+                ),
+                excludeSemantics: true,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        children: [
+                          Text(
+                            '#${entry.rank}',
+                            key: ValueKey<String>('charts-rank-$id'),
+                            style: tokens.text.chartRank.copyWith(
+                              color: tier.rankColor,
+                              fontSize: 34,
+                            ),
                           ),
+                          const Spacer(),
+                          ChartMovementIndicator(entry: entry),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      LayoutBuilder(
+                        builder: (context, constraints) {
+                          final size = constraints.maxWidth.clamp(0.0, 320.0);
+                          return Center(
+                            child: _Artwork(
+                              key: ValueKey<String>('charts-artwork-$id'),
+                              path: artworkPath,
+                              size: size,
+                              chartType: chartType,
+                            ),
+                          );
+                        },
+                      ),
+                      const SizedBox(height: 14),
+                      Text(
+                        shownTitle,
+                        style: theme.textTheme.headlineSmall?.copyWith(
+                          color: colors.textPrimary,
+                          fontWeight: FontWeight.w900,
                         ),
-                        const Spacer(),
-                        ChartMovementIndicator(entry: entry),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        ChartEntryCard.subtitleFor(entry, chartType),
+                        style: theme.textTheme.bodyLarge?.copyWith(
+                          color: colors.textSecondary,
+                        ),
+                      ),
+                      if (status != null) ...[
+                        const SizedBox(height: 8),
+                        _StatusBadge(status: status!),
                       ],
-                    ),
-                    const SizedBox(height: 12),
-                    LayoutBuilder(
-                      builder: (context, constraints) {
-                        final size = constraints.maxWidth.clamp(0.0, 320.0);
-                        return Center(
-                          child: _Artwork(
-                            key: ValueKey<String>('charts-artwork-$id'),
-                            path: artworkPath,
-                            size: size,
-                            chartType: chartType,
+                      const SizedBox(height: 14),
+                      _TileGrid(
+                        columns: 2,
+                        tiles: [
+                          _StatTile(
+                            label: 'TOTAL STREAMS',
+                            value: '${entry.qualifiedStreamCount}',
                           ),
-                        );
-                      },
-                    ),
-                    const SizedBox(height: 14),
-                    Text(
-                      entry.entity.title,
-                      style: theme.textTheme.headlineSmall?.copyWith(
-                        color: colors.textPrimary,
-                        fontWeight: FontWeight.w900,
+                          _StatTile(
+                            label: 'WEEKLY CHANGE',
+                            value: change.text,
+                            trend: change.trend,
+                          ),
+                          _StatTile(
+                            label: 'CAREER PEAK',
+                            value: '#${entry.peakRank}',
+                            detail: weeklyPeakRank == null
+                                ? null
+                                : 'Weekly peak #$weeklyPeakRank',
+                          ),
+                          _StatTile(label: 'WEEKS IN TOP 3', value: '$top3'),
+                        ],
                       ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      ChartEntryCard.subtitleFor(entry, chartType),
-                      style: theme.textTheme.bodyLarge?.copyWith(
-                        color: colors.textSecondary,
-                      ),
-                    ),
-                    if (status != null) ...[
-                      const SizedBox(height: 8),
-                      _StatusBadge(status: status!),
+                      if (facts.isNotEmpty) ...[
+                        const SizedBox(height: 10),
+                        ChartLongevityFacts(
+                          key: ValueKey<String>('charts-longevity-$id'),
+                          facts: facts,
+                          style: _factStyle(context),
+                        ),
+                      ],
                     ],
-                    const SizedBox(height: 14),
-                    _TileGrid(
-                      columns: 2,
-                      tiles: [
-                        _StatTile(
-                          label: 'TOTAL STREAMS',
-                          value: '${entry.qualifiedStreamCount}',
-                        ),
-                        _StatTile(
-                          label: 'WEEKLY CHANGE',
-                          value: change.text,
-                          trend: change.trend,
-                        ),
-                        _StatTile(
-                          label: 'ALL-TIME PEAK',
-                          value: '#${entry.peakRank}',
-                          detail: weeklyPeakRank == null
-                              ? null
-                              : 'Weekly peak #$weeklyPeakRank',
-                        ),
-                        _StatTile(label: 'WEEKS IN TOP 3', value: '$top3'),
-                      ],
-                    ),
-                  ],
+                  ),
                 ),
               ),
             ),
-          ),
-          _ZonesButton(entry: entry, stats: stats),
-        ],
+            _ZonesButton(entry: entry, stats: stats, title: shownTitle),
+          ],
+        ),
       ),
     );
   }
 }
 
+TextStyle? _factStyle(BuildContext context) =>
+    Theme.of(context).textTheme.bodySmall?.copyWith(
+      color: SonusTheme.of(context).colors.textSecondary,
+      fontFeatures: const [FontFeature.tabularFigures()],
+    );
+
+/// A keyboard focus outline drawn over a card, as on [ChartEntryCard]
+/// (SN-50 C-29); the theme's ink highlight alone can be faint.
+class _FocusOutline extends StatefulWidget {
+  const _FocusOutline({required this.radius, required this.builder});
+
+  final BorderRadius radius;
+  final Widget Function(ValueChanged<bool> onFocusChange) builder;
+
+  @override
+  State<_FocusOutline> createState() => _FocusOutlineState();
+}
+
+class _FocusOutlineState extends State<_FocusOutline> {
+  bool _focused = false;
+
+  void _handleFocusChange(bool focused) {
+    if (focused != _focused) setState(() => _focused = focused);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
+      position: DecorationPosition.foreground,
+      decoration: BoxDecoration(
+        borderRadius: widget.radius,
+        border: _focused
+            ? Border.all(color: SonusTheme.of(context).colors.focus, width: 3)
+            : null,
+      ),
+      child: widget.builder(_handleFocusChange),
+    );
+  }
+}
+
 /// Positions 2–200: rank, artwork and title, the weekly change once, then
-/// streams, peak and the start-of-week position, and weeks in zones.
+/// streams, peak and the start-of-week position, official longevity, and
+/// weeks in zones. Emphasis follows [ChartRankTier].
 class AllTimeEntryCard extends StatelessWidget {
   const AllTimeEntryCard({
     super.key,
@@ -299,6 +376,8 @@ class AllTimeEntryCard extends StatelessWidget {
     required this.artworkPath,
     this.status,
     this.weeklyPeakRank,
+    this.longevity,
+    this.title,
     this.onTap,
   });
 
@@ -308,6 +387,12 @@ class AllTimeEntryCard extends StatelessWidget {
   final String? artworkPath;
   final ChartEntryStatus? status;
   final int? weeklyPeakRank;
+
+  /// Official longevity from finalized weeks, derived at load.
+  final ChartLongevity? longevity;
+
+  /// The title shown in place of the entry's own, as for a Deluxe edition.
+  final String? title;
   final VoidCallback? onTap;
 
   @override
@@ -320,12 +405,16 @@ class AllTimeEntryCard extends StatelessWidget {
     final change = WeeklyChange.of(stats);
     final scaler = MediaQuery.textScalerOf(context);
     final previous = entry.previousFinalRank;
+    final shownTitle = title ?? entry.entity.title;
+    final tier = ChartTierStyle.of(tokens, ChartRankTier.of(entry));
+    final radius = BorderRadius.circular(tokens.metrics.cardRadius);
+    final facts = chartLongevityFacts(longevity);
 
     final heading = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          entry.entity.title,
+          shownTitle,
           maxLines: 2,
           overflow: TextOverflow.ellipsis,
           style: theme.textTheme.titleMedium?.copyWith(
@@ -349,139 +438,174 @@ class AllTimeEntryCard extends StatelessWidget {
       change: change,
     );
 
-    return Material(
-      key: ValueKey<String>('charts-rich-$id'),
-      color: isExtended ? Colors.transparent : colors.surface,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(tokens.metrics.cardRadius),
-        side: BorderSide(color: isExtended ? colors.divider : colors.border),
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          InkWell(
-            onTap: onTap,
-            child: Semantics(
-              button: onTap != null,
-              label: _summary(entry, chartType, stats, status, weeklyPeakRank),
-              excludeSemantics: true,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    LayoutBuilder(
-                      builder: (context, constraints) {
-                        final besides =
-                            scaler.scale(ChartEntryCard.rankColumnWidth) +
-                            12 +
-                            ChartEntryCard.artworkSize +
-                            12;
-                        final compact =
-                            constraints.maxWidth - besides <
-                            ChartEntryCard.minDetailsWidth + 60;
-                        final lead = [
-                          _Rank(entry: entry),
-                          const SizedBox(width: 12),
-                          _Artwork(
-                            key: ValueKey<String>('charts-artwork-$id'),
-                            path: artworkPath,
-                            size: ChartEntryCard.artworkSize,
-                            chartType: chartType,
+    return _FocusOutline(
+      radius: radius,
+      builder: (onFocusChange) => Material(
+        key: ValueKey<String>('charts-rich-$id'),
+        color: tier.background,
+        shape: RoundedRectangleBorder(borderRadius: radius, side: tier.border),
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            InkWell(
+              onTap: onTap,
+              onFocusChange: onFocusChange,
+              child: Semantics(
+                button: onTap != null,
+                label: _summary(
+                  entry,
+                  chartType,
+                  stats,
+                  status,
+                  weeklyPeakRank,
+                  longevity,
+                  shownTitle,
+                ),
+                excludeSemantics: true,
+                child: Container(
+                  key: tier.stripeWidth > 0
+                      ? ValueKey<String>('charts-top-accent-$id')
+                      : null,
+                  decoration: tier.stripeWidth > 0
+                      ? BoxDecoration(
+                          border: Border(
+                            left: BorderSide(
+                              color: colors.accentPrimary,
+                              width: tier.stripeWidth,
+                            ),
                           ),
-                          const SizedBox(width: 12),
-                        ];
+                        )
+                      : null,
+                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      LayoutBuilder(
+                        builder: (context, constraints) {
+                          final besides =
+                              scaler.scale(ChartEntryCard.rankColumnWidth) +
+                              12 +
+                              ChartEntryCard.artworkSize +
+                              12;
+                          final compact =
+                              constraints.maxWidth - besides <
+                              ChartEntryCard.minDetailsWidth + 60;
+                          final lead = [
+                            _Rank(entry: entry),
+                            const SizedBox(width: 12),
+                            _Artwork(
+                              key: ValueKey<String>('charts-artwork-$id'),
+                              path: artworkPath,
+                              size: ChartEntryCard.artworkSize,
+                              chartType: chartType,
+                            ),
+                            const SizedBox(width: 12),
+                          ];
 
-                        if (compact) {
-                          return Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
+                          if (compact) {
+                            return Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(children: lead),
+                                const SizedBox(height: 10),
+                                heading,
+                                const SizedBox(height: 6),
+                                changeLabel,
+                              ],
+                            );
+                          }
+
+                          // The change sits under the title, so the title
+                          // keeps the full width and never breaks mid-word.
+                          return Row(
                             children: [
-                              Row(children: lead),
-                              const SizedBox(height: 10),
-                              heading,
-                              const SizedBox(height: 6),
-                              changeLabel,
+                              ...lead,
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    heading,
+                                    const SizedBox(height: 6),
+                                    changeLabel,
+                                  ],
+                                ),
+                              ),
                             ],
                           );
-                        }
-
-                        // The change sits under the title, so the title
-                        // keeps the full width and never breaks mid-word.
-                        return Row(
-                          children: [
-                            ...lead,
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  heading,
-                                  const SizedBox(height: 6),
-                                  changeLabel,
-                                ],
-                              ),
-                            ),
-                          ],
-                        );
-                      },
-                    ),
-                    if (isExtended || status != null) ...[
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 4,
-                        children: [
-                          if (isExtended)
-                            _Badge(
-                              key: ValueKey<String>('charts-extended-$id'),
-                              label: ChartZoneNames.lowerZoneBadge(chartType),
-                              borderColor: colors.border,
-                            ),
-                          if (status != null) _StatusBadge(status: status!),
-                        ],
+                        },
                       ),
-                    ],
-                    const SizedBox(height: 10),
-                    Divider(height: 1, color: colors.divider),
-                    const SizedBox(height: 10),
-                    _TileGrid(
-                      columns: 3,
-                      tiles: [
-                        _StatTile(
-                          label: 'STREAMS',
-                          value: '${entry.qualifiedStreamCount}',
-                        ),
-                        _StatTile(
-                          label: 'PEAK',
-                          value: '#${entry.peakRank}',
-                          detail: weeklyPeakRank == null
-                              ? null
-                              : 'Weekly #$weeklyPeakRank',
-                        ),
-                        _StatTile(
-                          key: ValueKey<String>('charts-last-week-$id'),
-                          label: 'WEEK START',
-                          value: previous == null ? '—' : '#$previous',
+                      if (isExtended || status != null) ...[
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 4,
+                          children: [
+                            if (isExtended)
+                              _Badge(
+                                key: ValueKey<String>('charts-extended-$id'),
+                                label: ChartZoneNames.lowerZoneBadge(chartType),
+                                borderColor: colors.border,
+                              ),
+                            if (status != null) _StatusBadge(status: status!),
+                          ],
                         ),
                       ],
-                    ),
-                  ],
+                      const SizedBox(height: 10),
+                      Divider(height: 1, color: colors.divider),
+                      const SizedBox(height: 10),
+                      _TileGrid(
+                        columns: 3,
+                        tiles: [
+                          _StatTile(
+                            label: 'STREAMS',
+                            value: '${entry.qualifiedStreamCount}',
+                          ),
+                          _StatTile(
+                            label: 'PEAK',
+                            value: '#${entry.peakRank}',
+                            detail: weeklyPeakRank == null
+                                ? null
+                                : 'Weekly #$weeklyPeakRank',
+                          ),
+                          _StatTile(
+                            key: ValueKey<String>('charts-last-week-$id'),
+                            label: 'WEEK START',
+                            value: previous == null ? '—' : '#$previous',
+                          ),
+                        ],
+                      ),
+                      if (facts.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        ChartLongevityFacts(
+                          key: ValueKey<String>('charts-longevity-$id'),
+                          facts: facts,
+                          style: _factStyle(context),
+                        ),
+                      ],
+                    ],
+                  ),
                 ),
               ),
             ),
-          ),
-          _ZonesButton(entry: entry, stats: stats),
-        ],
+            _ZonesButton(entry: entry, stats: stats, title: shownTitle),
+          ],
+        ),
       ),
     );
   }
 }
 
 class _ZonesButton extends StatelessWidget {
-  const _ZonesButton({required this.entry, required this.stats});
+  const _ZonesButton({
+    required this.entry,
+    required this.stats,
+    required this.title,
+  });
 
   final ChartEntry entry;
   final AllTimeEntryStats stats;
+  final String title;
 
   @override
   Widget build(BuildContext context) {
@@ -491,11 +615,8 @@ class _ZonesButton extends StatelessWidget {
 
     return InkWell(
       key: ValueKey<String>('charts-zones-${entry.entity.entityId}'),
-      onTap: () => showZoneWeeksSheet(
-        context,
-        title: entry.entity.title,
-        zones: stats.zones,
-      ),
+      onTap: () =>
+          showZoneWeeksSheet(context, title: title, zones: stats.zones),
       child: Semantics(
         button: true,
         label: 'Weeks in zones: $summary. Show every zone',

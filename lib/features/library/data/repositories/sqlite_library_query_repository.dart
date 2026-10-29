@@ -8,12 +8,14 @@ import '../../application/models/library_track_order.dart';
 import '../../application/models/project_collaborator.dart';
 import '../../application/models/project_song_credit.dart';
 import '../../application/repositories/library_query_repository.dart';
+import '../../domain/entities/album_edition.dart';
 import '../daos/library_query_dao.dart';
 
 class SqliteLibraryQueryRepository
     implements
         LibraryQueryRepository,
         AlbumEditionQueryRepository,
+        DeluxeEditionQueryRepository,
         StructuredArtistQueryRepository,
         ProjectCollaboratorQueryRepository,
         ProjectSongCreditQueryRepository,
@@ -91,6 +93,11 @@ class SqliteLibraryQueryRepository
   @override
   Future<List<LibraryAlbumEdition>> getAlbumEditions(String albumId) {
     return dao.findAlbumEditions(albumId);
+  }
+
+  @override
+  Future<List<LibraryAlbumEdition>> getDeluxeEditions() {
+    return dao.findEditionsOfType(AlbumEditionType.deluxe);
   }
 
   @override

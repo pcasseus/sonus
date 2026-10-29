@@ -25,6 +25,7 @@ class SonusColors extends ThemeExtension<SonusColors> {
     required this.chartUp,
     required this.chartDown,
     required this.chartNew,
+    required this.chartReentry,
     required this.chartSteady,
     required this.storyFeatured,
     required this.onStoryFeatured,
@@ -62,6 +63,7 @@ class SonusColors extends ThemeExtension<SonusColors> {
       chartUp: scheme.tertiary,
       chartDown: scheme.error,
       chartNew: scheme.secondary,
+      chartReentry: scheme.primary,
       chartSteady: scheme.onSurfaceVariant,
       storyFeatured: scheme.secondaryContainer,
       onStoryFeatured: scheme.onSecondaryContainer,
@@ -99,6 +101,10 @@ class SonusColors extends ThemeExtension<SonusColors> {
   final Color chartUp;
   final Color chartDown;
   final Color chartNew;
+
+  /// RE-ENTRY badges; distinct from [chartNew] so the two never share a
+  /// colour, though the words carry the meaning.
+  final Color chartReentry;
   final Color chartSteady;
   final Color storyFeatured;
   final Color onStoryFeatured;
@@ -134,6 +140,7 @@ class SonusColors extends ThemeExtension<SonusColors> {
     Color? chartUp,
     Color? chartDown,
     Color? chartNew,
+    Color? chartReentry,
     Color? chartSteady,
     Color? storyFeatured,
     Color? onStoryFeatured,
@@ -166,6 +173,7 @@ class SonusColors extends ThemeExtension<SonusColors> {
       chartUp: chartUp ?? this.chartUp,
       chartDown: chartDown ?? this.chartDown,
       chartNew: chartNew ?? this.chartNew,
+      chartReentry: chartReentry ?? this.chartReentry,
       chartSteady: chartSteady ?? this.chartSteady,
       storyFeatured: storyFeatured ?? this.storyFeatured,
       onStoryFeatured: onStoryFeatured ?? this.onStoryFeatured,
@@ -208,6 +216,7 @@ class SonusColors extends ThemeExtension<SonusColors> {
       chartUp: mix(chartUp, other.chartUp),
       chartDown: mix(chartDown, other.chartDown),
       chartNew: mix(chartNew, other.chartNew),
+      chartReentry: mix(chartReentry, other.chartReentry),
       chartSteady: mix(chartSteady, other.chartSteady),
       storyFeatured: mix(storyFeatured, other.storyFeatured),
       onStoryFeatured: mix(onStoryFeatured, other.onStoryFeatured),

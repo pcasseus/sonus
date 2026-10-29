@@ -128,7 +128,14 @@ void main() {
               3,
               'chart down on $name',
             );
+            _expectContrast(
+              colors.chartReentry,
+              surface,
+              3,
+              'chart re-entry on $name',
+            );
           }
+          expect(colors.chartReentry, isNot(colors.chartNew));
 
           _expectContrast(
             colors.onAccentPrimary,

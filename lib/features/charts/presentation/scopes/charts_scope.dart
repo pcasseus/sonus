@@ -173,6 +173,11 @@ class _ChartsScopeState extends State<ChartsScope> {
       allTimeMoments: allTimeMoments,
       now: widget.now,
       releaseFormats: organization?.releaseFormatsForDisplay,
+      deluxeEditions: switch (library) {
+        final DeluxeEditionQueryRepository editions =>
+          editions.getDeluxeEditions,
+        _ => null,
+      },
     );
 
     _controller = controller;

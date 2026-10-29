@@ -508,6 +508,20 @@ void main() {
     expect(albums.single.primaryEditionType, AlbumEditionType.expanded);
   });
 
+  test('editions of a type are read across the library at once', () async {
+    final fixture = await _createFixture(appDatabase);
+
+    final deluxes = await LibraryQueryDao(
+      fixture.db,
+    ).findEditionsOfType(AlbumEditionType.deluxe);
+
+    expect(deluxes, hasLength(1));
+    expect(deluxes.single.editionId, fixture.deluxeEdition.id);
+    expect(deluxes.single.albumId, fixture.album.id);
+    expect(deluxes.single.type, AlbumEditionType.deluxe);
+    expect(deluxes.single.releaseDate, DateTime.utc(2026, 6, 20));
+  });
+
   test(
     'album edition query returns all editions with presentation metadata',
     () async {

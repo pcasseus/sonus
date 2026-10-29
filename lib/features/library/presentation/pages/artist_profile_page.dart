@@ -685,7 +685,7 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
   /// Says why the header's artist total can be lower than these songs'
   /// streams: songs by artists with their own releases count for them.
   static String _topTracksSubtitle(List<String> countedElsewhere) {
-    const base = 'Your most streamed, all time';
+    const base = 'Your most streamed songs';
     if (countedElsewhere.isEmpty) return base;
     final names = countedElsewhere.length <= 2
         ? countedElsewhere.join(' and ')

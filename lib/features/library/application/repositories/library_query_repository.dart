@@ -41,6 +41,12 @@ abstract interface class AlbumEditionQueryRepository {
   Future<List<LibraryTrack>> getTracksByAlbumEditionId(String editionId);
 }
 
+/// Deluxe editions across the library, for current chart presentation
+/// (SN-50 A-Q21).
+abstract interface class DeluxeEditionQueryRepository {
+  Future<List<LibraryAlbumEdition>> getDeluxeEditions();
+}
+
 /// Credited performers by project, in one query for the whole library.
 abstract interface class ProjectCollaboratorQueryRepository {
   /// Every credited performer of every album, or of [albumId] only. Shared

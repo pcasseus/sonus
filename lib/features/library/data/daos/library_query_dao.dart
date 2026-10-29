@@ -9,6 +9,7 @@ import '../../application/models/library_track_order.dart';
 import '../../application/models/project_collaborator.dart';
 import '../../application/models/project_song_credit.dart';
 import '../../application/models/song_display_title.dart';
+import '../../domain/entities/album_edition.dart';
 import '../../domain/entities/song_artist_credit.dart';
 import '../../../search/application/models/library_search_results.dart';
 import '../mappers/library_album_row_mapper.dart';
@@ -570,8 +571,7 @@ class LibraryQueryDao {
     return rows.map(LibraryTrackRowMapper.fromRow).toList(growable: false);
   }
 
-  Future<List<LibraryAlbumEdition>> findAlbumEditions(String albumId) async {
-    final rows = await db.rawQuery(
+  static const String _editionColumns =
       '''
       SELECT
         ae.id AS album_edition_id,
@@ -588,6 +588,30 @@ class LibraryQueryDao {
       FROM ${DatabaseTables.albumEditions} ae
       LEFT JOIN ${DatabaseTables.artworkAssets} aa
         ON aa.id = ae.artwork_id
+      ''';
+
+  /// Every edition of [type] across the library, in one query.
+  Future<List<LibraryAlbumEdition>> findEditionsOfType(
+    AlbumEditionType type,
+  ) async {
+    final rows = await db.rawQuery(
+      '''
+      $_editionColumns
+      WHERE ae.type = ?
+      ORDER BY ae.album_id ASC, ae.id ASC
+      ''',
+      [type.name],
+    );
+
+    return rows
+        .map(LibraryAlbumEditionRowMapper.fromRow)
+        .toList(growable: false);
+  }
+
+  Future<List<LibraryAlbumEdition>> findAlbumEditions(String albumId) async {
+    final rows = await db.rawQuery(
+      '''
+      $_editionColumns
       WHERE ae.album_id = ?
       ORDER BY
         ae.is_primary DESC,

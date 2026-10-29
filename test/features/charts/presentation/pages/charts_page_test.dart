@@ -6,6 +6,7 @@ import 'package:sonus_next/features/library/domain/entities/library_organization
 import 'package:sonus_next/core/design/sonus_theme_factory.dart';
 import 'package:sonus_next/core/design/sonus_theme_id.dart';
 import 'package:sonus_next/features/library/application/models/library_album.dart';
+import 'package:sonus_next/features/library/application/models/library_album_edition.dart';
 import 'package:sonus_next/features/library/application/models/library_artist.dart';
 import 'package:sonus_next/features/library/application/models/library_track.dart';
 import 'package:sonus_next/features/library/application/models/library_track_order.dart';
@@ -33,7 +34,7 @@ import 'package:sonus_next/features/charts/presentation/news/moment_post_card.da
 import 'package:sonus_next/features/charts/presentation/pages/charts_page.dart';
 
 void main() {
-  testWidgets('renders branded Hot 100 controls and the all-time chart', (
+  testWidgets('renders branded Hot 100 controls and the career standings', (
     tester,
   ) async {
     final controller = await _controller();
@@ -53,8 +54,8 @@ void main() {
     expect(find.text('Top 100'), findsOneWidget);
     expect(find.text('Top 200'), findsOneWidget);
 
-    expect(find.text('ALL TIME'), findsOneWidget);
-    expect(find.text('All time'), findsOneWidget);
+    expect(find.text('CURRENT'), findsOneWidget);
+    expect(find.text('Career standings'), findsOneWidget);
     expect(find.text('LIVE'), findsNothing);
     expect(find.textContaining('Last week'), findsNothing);
     expect(find.text('Song 1'), findsOneWidget);
@@ -65,7 +66,7 @@ void main() {
     );
     expect(find.text('TOTAL STREAMS'), findsOneWidget);
     expect(find.text('12'), findsOneWidget);
-    expect(find.text('ALL-TIME PEAK'), findsOneWidget);
+    expect(find.text('CAREER PEAK'), findsOneWidget);
     expect(find.text('#1'), findsWidgets);
     expect(find.text('WEEKLY CHANGE'), findsOneWidget);
     expect(find.text('WEEKS IN TOP 3'), findsOneWidget);
@@ -95,7 +96,7 @@ void main() {
     await tester.pump();
 
     expect(find.text('FINAL'), findsOneWidget);
-    expect(find.text('ALL TIME'), findsNothing);
+    expect(find.text('CURRENT'), findsNothing);
   });
 
   testWidgets('album segment switches chart type', (tester) async {
@@ -144,13 +145,16 @@ void main() {
     expect(find.text('Go to artist'), findsOneWidget);
   });
 
-  testWidgets('historical song row remains display-only', (tester) async {
+  // SN-50 E-Q8: a finalized week's row opens the song that still exists;
+  // the row keeps what was stored for that week.
+  testWidgets('historical song row opens the living song', (tester) async {
     final controller = await _controller(
       history: [
         _snapshot(
           id: 'historical',
           start: DateTime.utc(2026, 9, 20),
           finalized: true,
+          title: 'Song 1 (stored title)',
         ),
       ],
     );
@@ -160,14 +164,44 @@ void main() {
     controller.showOlderWeek();
     await tester.pump();
 
+    expect(find.text('Song 1 (stored title)'), findsOneWidget);
+    expect(find.text('HISTORICAL'), findsNothing);
+
     await tester.tap(
       find.byKey(const ValueKey<String>('charts-entry-songs_1')),
     );
 
     await tester.pumpAndSettle();
 
-    expect(find.text('Play next'), findsNothing);
-    expect(find.text('Add to queue'), findsNothing);
+    expect(find.text('Play next'), findsOneWidget);
+    expect(find.text('Add to queue'), findsOneWidget);
+  });
+
+  testWidgets('historical album row opens the living release', (tester) async {
+    final controller = await _controller(
+      history: [
+        _snapshot(
+          id: 'historical-album',
+          start: DateTime.utc(2026, 9, 20),
+          chartType: ChartType.albums,
+          finalized: true,
+        ),
+      ],
+    );
+
+    await _pumpPage(tester, controller);
+    await controller.selectChartType(ChartType.albums);
+    controller.showOlderWeek();
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('charts-entry-albums_1')),
+    );
+    await tester.pumpAndSettle();
+
+    final page = tester.widget<AlbumProfilePage>(find.byType(AlbumProfilePage));
+    expect(page.albumId, 'albums_1');
+    expect(page.initialEditionId, isNull);
   });
   testWidgets('blocked live song stays visible but is not interactive', (
     tester,
@@ -312,9 +346,11 @@ void main() {
       'About the Sonus Hot 100',
       'Positions',
       'Streams',
-      'All time and weekly charts',
+      'Career standings and weekly charts',
       'NEW and RE-ENTRY',
       'Movement',
+      'Ties',
+      'Chart history',
       'Percentage change',
       'Weeks in a zone',
     ]) {
@@ -331,8 +367,250 @@ void main() {
         matchesSemantics(label: heading, isHeader: true),
       );
     }
-    expect(find.textContaining('Sonus Bubbling Under, shown at'), findsOne);
+    final sheetScroll = find.descendant(
+      of: sheet,
+      matching: find.byType(Scrollable),
+    );
+    for (final text in [
+      'whoever reached the total first',
+      'start of this chart week',
+      'no minimum time away',
+      'Sonus Bubbling Under, shown at',
+    ]) {
+      await tester.scrollUntilVisible(
+        find.textContaining(text),
+        -200,
+        scrollable: sheetScroll,
+      );
+      expect(find.textContaining(text), findsOne, reason: text);
+    }
     semantics.dispose();
+  });
+
+  testWidgets('on a final week the information sheet explains that week', (
+    tester,
+  ) async {
+    final controller = await _controller(
+      history: [
+        _snapshot(
+          id: 'historical',
+          start: DateTime.utc(2026, 9, 20),
+          finalized: true,
+        ),
+      ],
+    );
+
+    await _pumpPage(tester, controller);
+    controller.showOlderWeek();
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey<String>('charts-info-button')));
+    await tester.pumpAndSettle();
+
+    final sheet = find.byKey(const ValueKey<String>('charts-info-sheet'));
+    final scrollable = find.descendant(
+      of: sheet,
+      matching: find.byType(Scrollable),
+    );
+    for (final text in [
+      'previous final weekly chart',
+      'first week in any weekly Top 100',
+      'most recent qualifying stream',
+    ]) {
+      await tester.scrollUntilVisible(
+        find.textContaining(text),
+        200,
+        scrollable: scrollable,
+      );
+      expect(find.textContaining(text), findsOneWidget, reason: text);
+    }
+    expect(find.textContaining('start of this chart week'), findsNothing);
+    expect(find.text('Percentage change'), findsNothing);
+  });
+
+  // SN-50 §0.4 / E-Q15A: the retired period words appear nowhere on the
+  // default view, in either chart or in its information sheet.
+  testWidgets('the default view never says "all time"', (tester) async {
+    final semantics = tester.ensureSemantics();
+    final controller = await _controller(
+      live: _rankedSnapshot(102),
+      history: [_finalizedWeek(DateTime.utc(2026, 9, 20), ranks: 12)],
+    );
+    final banned = RegExp(r'all[\s-]*time', caseSensitive: false);
+
+    void expectClean(String where) {
+      for (final element in find.byType(RichText).evaluate()) {
+        final text = (element.widget as RichText).text.toPlainText();
+        expect(banned.hasMatch(text), isFalse, reason: '$where: "$text"');
+      }
+      for (final element in find.byType(Semantics).evaluate()) {
+        final label = (element.widget as Semantics).properties.label ?? '';
+        expect(banned.hasMatch(label), isFalse, reason: '$where: "$label"');
+      }
+      for (final element in find.byType(Tooltip).evaluate()) {
+        final message = (element.widget as Tooltip).message ?? '';
+        expect(banned.hasMatch(message), isFalse, reason: where);
+      }
+    }
+
+    await _pumpPage(tester, controller, size: const Size(800, 20000));
+    await tester.tap(find.byKey(const ValueKey<String>('charts-size-200')));
+    await tester.pumpAndSettle();
+    expectClean('songs');
+
+    await tester.tap(find.byKey(const ValueKey<String>('charts-info-button')));
+    await tester.pumpAndSettle();
+    expectClean('songs information');
+    Navigator.of(tester.element(find.byType(ChartsPage))).pop();
+    await tester.pumpAndSettle();
+
+    await controller.selectChartType(ChartType.albums);
+    await tester.pumpAndSettle();
+    expectClean('albums');
+    semantics.dispose();
+  });
+
+  testWidgets('standings cards show longevity from final weeks', (
+    tester,
+  ) async {
+    final controller = await _controller(
+      live: _rankedSnapshot(3),
+      history: [
+        _finalizedWeek(DateTime.utc(2026, 9, 20), ranks: 3),
+        _finalizedWeek(DateTime.utc(2026, 9, 13), ranks: 3),
+      ],
+    );
+
+    await _pumpPage(tester, controller);
+
+    final spotlight = find.byKey(
+      const ValueKey<String>('charts-longevity-songs_1'),
+    );
+    expect(
+      find.descendant(of: spotlight, matching: find.text('2 weeks at #1')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: spotlight, matching: find.text('2 official weeks')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('a final week shows last week in Bubbling Under as context', (
+    tester,
+  ) async {
+    final previous = DateTime(2026, 9, 13).toUtc();
+    final current = DateTime(2026, 9, 20).toUtc();
+    final controller = await _controller(
+      history: [
+        ChartSnapshot(
+          id: 'current',
+          chartType: ChartType.songs,
+          weekStartUtc: current,
+          weekEndUtc: DateTime(2026, 9, 27).toUtc(),
+          finalizedAt: DateTime(2026, 9, 27).toUtc(),
+          entries: [_weeklyEntry('songs_1', rank: 80)],
+        ),
+        ChartSnapshot(
+          id: 'previous',
+          chartType: ChartType.songs,
+          weekStartUtc: previous,
+          weekEndUtc: current,
+          finalizedAt: current,
+          entries: [_weeklyEntry('songs_1', rank: 150)],
+        ),
+      ],
+    );
+
+    await _pumpPage(tester, controller);
+    controller.showOlderWeek();
+    await tester.pumpAndSettle();
+
+    expect(find.text('September 20–26, 2026'), findsOneWidget);
+    expect(find.text('Last week #150 (Bubbling Under)'), findsOneWidget);
+    expect(find.text('NEW'), findsOneWidget);
+    expect(find.text('Debut #80 · Sep 20, 2026'), findsOneWidget);
+  });
+
+  group('Deluxe-first album standings', () {
+    LibraryAlbumEdition deluxe(
+      String id, {
+      String? title,
+      String? artworkPath,
+      DateTime? releaseDate,
+    }) => LibraryAlbumEdition(
+      editionId: id,
+      albumId: 'albums_1',
+      title: title ?? 'Album 1 ($id)',
+      type: AlbumEditionType.deluxe,
+      isPrimary: false,
+      releaseDate: releaseDate,
+      artworkPath: artworkPath,
+      dateAdded: DateTime.utc(2026, 9, 2),
+    );
+
+    testWidgets('shows the Deluxe and opens it', (tester) async {
+      final controller = await _controller(
+        deluxeEditions: () async => [
+          deluxe('deluxe_a', releaseDate: DateTime.utc(2024, 5, 1)),
+          deluxe('deluxe_b', releaseDate: DateTime.utc(2025, 5, 1)),
+        ],
+      );
+
+      await _pumpPage(tester, controller);
+      await controller.selectChartType(ChartType.albums);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Album 1 (deluxe_b)'), findsOneWidget);
+      expect(find.text('Album 1'), findsNothing);
+      // One combined position and stream total for the release.
+      expect(find.text('12'), findsOneWidget);
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('charts-entry-albums_1')),
+      );
+      await tester.pumpAndSettle();
+
+      final page = tester.widget<AlbumProfilePage>(
+        find.byType(AlbumProfilePage),
+      );
+      expect(page.initialEditionId, 'deluxe_b');
+    });
+
+    testWidgets('final weeks keep their stored title', (tester) async {
+      final controller = await _controller(
+        history: [
+          _snapshot(
+            id: 'historical-album',
+            start: DateTime.utc(2026, 9, 20),
+            chartType: ChartType.albums,
+            finalized: true,
+          ),
+        ],
+        deluxeEditions: () async => [deluxe('deluxe_a')],
+      );
+
+      await _pumpPage(tester, controller);
+      await controller.selectChartType(ChartType.albums);
+      controller.showOlderWeek();
+      await tester.pumpAndSettle();
+
+      expect(find.text('Album 1'), findsOneWidget);
+      expect(find.text('Album 1 (deluxe_a)'), findsNothing);
+    });
+
+    testWidgets('a failing edition read falls back to the primary', (
+      tester,
+    ) async {
+      final controller = await _controller(
+        deluxeEditions: () async => throw StateError('offline'),
+      );
+
+      await _pumpPage(tester, controller);
+      await controller.selectChartType(ChartType.albums);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Album 1'), findsOneWidget);
+    });
   });
 
   testWidgets('the release chart has its own explanation', (tester) async {
@@ -524,13 +802,19 @@ void main() {
   group('Sonus themes', () {
     for (final id in SonusThemeId.values) {
       testWidgets('${id.label} renders at 320px with 2x text', (tester) async {
-        final controller = await _controller(live: _rankedSnapshot(3));
+        final controller = await _controller(
+          live: _rankedSnapshot(3),
+          history: [
+            _finalizedWeek(DateTime.utc(2026, 9, 20), ranks: 3),
+            _finalizedWeek(DateTime.utc(2026, 9, 13), ranks: 3),
+          ],
+        );
 
         await _pumpPage(
           tester,
           controller,
           theme: SonusThemeFactory.build(SonusAppearanceSpec(themeId: id)),
-          size: const Size(320, 2400),
+          size: const Size(320, 8000),
           textScale: 2,
         );
 
@@ -540,6 +824,19 @@ void main() {
           find.byKey(const ValueKey<String>('charts-entry-songs_1')),
           findsOneWidget,
         );
+        expect(
+          find.byKey(const ValueKey<String>('charts-longevity-songs_1')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey<String>('charts-top-accent-songs_2')),
+          findsOneWidget,
+        );
+
+        controller.showOlderWeek();
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        expect(find.text('Top 10 streak: 2 weeks'), findsNWidgets(3));
       });
     }
 
@@ -1022,6 +1319,7 @@ Future<ChartsController> _controller({
   List<LibraryArtist> artists = const [],
   List<ChartMomentEvent> moments = const [],
   ReleaseFormatsLoader? releaseFormats,
+  DeluxeEditionsLoader? deluxeEditions,
 }) async {
   final resolvedLive =
       live ?? _snapshot(id: 'live', start: DateTime.utc(2026, 9, 27));
@@ -1045,6 +1343,7 @@ Future<ChartsController> _controller({
     moments: _FakeChartMomentRepository(events: moments),
     now: () => DateTime(2026, 9, 28, 12),
     releaseFormats: releaseFormats,
+    deluxeEditions: deluxeEditions,
   );
 
   await controller.load();
@@ -1214,11 +1513,47 @@ ChartMomentEvent _momentEvent({
   );
 }
 
+/// A finalized songs week of positions 1 to [ranks], each at its own rank.
+ChartSnapshot _finalizedWeek(DateTime start, {required int ranks}) {
+  final end = start.add(const Duration(days: 7));
+
+  return ChartSnapshot(
+    id: 'week-${start.toIso8601String()}',
+    chartType: ChartType.songs,
+    weekStartUtc: start,
+    weekEndUtc: end,
+    finalizedAt: end,
+    entries: [
+      for (var rank = 1; rank <= ranks; rank++)
+        _weeklyEntry('songs_$rank', rank: rank),
+    ],
+  );
+}
+
+ChartEntry _weeklyEntry(String id, {required int rank}) {
+  return ChartEntry(
+    entity: ChartEntitySnapshot(
+      entityId: id,
+      title: 'Song ${id.split('_').last}',
+      artistName: 'Artist 1',
+      albumTitle: 'Album 1',
+    ),
+    rank: rank,
+    qualifiedStreamCount: 300 - rank,
+    lastQualifiedAt: DateTime.utc(2026, 9, 15),
+    peakRank: rank,
+    peakAchievedAt: DateTime.utc(2026, 9, 15),
+    weeksOnChart: rank <= 100 ? 1 : 0,
+    movement: ChartMovement.newEntry,
+  );
+}
+
 ChartSnapshot _snapshot({
   required String id,
   required DateTime start,
   ChartType chartType = ChartType.songs,
   bool finalized = false,
+  String? title,
 }) {
   return ChartSnapshot(
     id: id,
@@ -1230,7 +1565,7 @@ ChartSnapshot _snapshot({
       ChartEntry(
         entity: ChartEntitySnapshot(
           entityId: '${chartType.name}_1',
-          title: chartType == ChartType.songs ? 'Song 1' : 'Album 1',
+          title: title ?? (chartType == ChartType.songs ? 'Song 1' : 'Album 1'),
           artistName: 'Artist 1',
           albumTitle: 'Album 1',
         ),

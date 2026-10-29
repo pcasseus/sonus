@@ -8,6 +8,7 @@ import 'package:sonus_next/features/charts/domain/entities/chart_entry.dart';
 import 'package:sonus_next/features/charts/domain/models/chart_entity_snapshot.dart';
 import 'package:sonus_next/features/charts/domain/models/chart_movement.dart';
 import 'package:sonus_next/features/charts/domain/models/chart_type.dart';
+import 'package:sonus_next/features/charts/presentation/models/chart_longevity.dart';
 import 'package:sonus_next/features/charts/presentation/widgets/chart_entry_card.dart';
 
 void main() {
@@ -140,8 +141,9 @@ void main() {
       tester.getSemantics(find.byKey(card)),
       matchesSemantics(
         label:
-            'Number 7, Up 2 places, Song 7, Artist 7 • Album 7, 12 streams, '
-            'peak number 2, last week number 9, 4 weeks on chart',
+            'Number 7, Up 2 places since last week, Song 7, '
+            'Artist 7 • Album 7, 12 streams, peak number 2, '
+            'last week number 9, 4 weeks on chart',
         isButton: true,
         hasTapAction: true,
         isFocusable: true,
@@ -151,7 +153,7 @@ void main() {
     semantics.dispose();
   });
 
-  group('on the all-time chart', () {
+  group('on the career standings', () {
     testWidgets('compares with the start of the week, not last week', (
       tester,
     ) async {
@@ -164,11 +166,11 @@ void main() {
       expect(find.text('Start of week #9'), findsOneWidget);
       expect(find.textContaining('Last week'), findsNothing);
       expect(find.text('12 streams'), findsOneWidget);
-      expect(find.text('All-time peak #2'), findsOneWidget);
+      expect(find.text('Career peak #2'), findsOneWidget);
       expect(find.textContaining('Weekly peak'), findsNothing);
     });
 
-    testWidgets('shows a weekly chart peak apart from the all-time peak', (
+    testWidgets('shows a weekly chart peak apart from the career peak', (
       tester,
     ) async {
       await tester.pumpWidget(
@@ -187,7 +189,7 @@ void main() {
         ),
       );
 
-      expect(find.text('All-time peak #2'), findsOneWidget);
+      expect(find.text('Career peak #2'), findsOneWidget);
       expect(find.text('Weekly peak #1'), findsOneWidget);
     });
 
@@ -226,9 +228,9 @@ void main() {
         tester.getSemantics(find.byKey(card)),
         matchesSemantics(
           label:
-              'Number 7, Up 2 places, Song 7, Artist 7 • Album 7, '
-              '12 lifetime streams, all-time peak number 2, '
-              'number 9 at the start of this week',
+              'Number 7, Up 2 places since the start of this chart week, '
+              'Song 7, Artist 7 • Album 7, 12 lifetime streams, '
+              'career peak number 2, number 9 at the start of this week',
           isButton: true,
           hasTapAction: true,
           isFocusable: true,
@@ -334,24 +336,153 @@ void main() {
       );
     });
 
-    testWidgets('position 4 is a standard card', (tester) async {
+    testWidgets('#1 is the spotlight: accent rank and border', (tester) async {
       final theme = SonusThemeFactory.build(const SonusAppearanceSpec());
+      final colors = theme.extension<SonusColors>()!;
+
+      await pump(tester, _entry(rank: 1), theme: theme);
+
+      final material = tester.widget<Material>(
+        find
+            .descendant(of: find.byKey(card), matching: find.byType(Material))
+            .first,
+      );
+      expect(material.color, colors.raisedSurface);
+      expect(
+        (material.shape as RoundedRectangleBorder).side.color,
+        colors.accentPrimary,
+      );
+      expect(
+        tester.widget<Text>(find.text('1')).style!.color,
+        colors.accentPrimary,
+      );
+    });
+
+    testWidgets('#4–10 are restrained; #11 is standard', (tester) async {
+      final theme = SonusThemeFactory.build(const SonusAppearanceSpec());
+      final colors = theme.extension<SonusColors>()!;
+
+      Material material() => tester.widget<Material>(
+        find
+            .descendant(of: find.byKey(card), matching: find.byType(Material))
+            .first,
+      );
 
       await pump(tester, _entry(rank: 4), theme: theme);
-
+      expect(material().color, colors.surface);
       expect(
-        tester
-            .widget<Material>(
-              find
-                  .descendant(
-                    of: find.byKey(card),
-                    matching: find.byType(Material),
-                  )
-                  .first,
-            )
-            .color,
-        theme.extension<SonusColors>()!.surface,
+        (material().shape as RoundedRectangleBorder).side.color,
+        colors.border,
       );
+      expect(
+        find.byKey(const ValueKey<String>('charts-top-accent-song_4')),
+        findsOneWidget,
+      );
+
+      await pump(tester, _entry(rank: 11), theme: theme);
+      expect(material().color, colors.surface);
+      expect(
+        (material().shape as RoundedRectangleBorder).side.color,
+        colors.divider,
+      );
+      expect(
+        find.byKey(const ValueKey<String>('charts-top-accent-song_11')),
+        findsNothing,
+      );
+    });
+  });
+
+  group('weekly longevity and context', () {
+    final longevity = ChartLongevity(
+      weeksAtNumberOne: 2,
+      longestNumberOneRun: 2,
+      topTenStreak: 4,
+      officialWeeks: 6,
+      debutWeekStartUtc: DateTime(2026, 8, 30),
+      debutRank: 40,
+    );
+
+    testWidgets('shows the facts and speaks them', (tester) async {
+      final semantics = tester.ensureSemantics();
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: SonusThemeFactory.build(const SonusAppearanceSpec()),
+          home: Scaffold(
+            body: ChartEntryCard(
+              key: card,
+              entry: _entry(rank: 3, previousFinalRank: 5),
+              chartType: ChartType.songs,
+              artworkPath: null,
+              longevity: longevity,
+            ),
+          ),
+        ),
+      );
+
+      for (final text in [
+        '2 weeks at #1',
+        'Longest #1 run: 2 weeks',
+        'Top 10 streak: 4 weeks',
+        'Debut #40 · Aug 30, 2026',
+      ]) {
+        expect(find.text(text), findsOneWidget, reason: text);
+      }
+      // The stored weeks-on-chart count stands in for official weeks.
+      expect(find.text('6 official weeks'), findsNothing);
+      final label = tester.getSemantics(find.byKey(card)).label;
+      expect(label, contains('2 weeks at number 1'));
+      expect(label, contains('in the Top 10 for 4 weeks in a row'));
+      expect(label, contains('debuted at number 40'));
+      semantics.dispose();
+    });
+
+    testWidgets('last week in Bubbling Under is context, not movement', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: SonusThemeFactory.build(const SonusAppearanceSpec()),
+          home: Scaffold(
+            body: ChartEntryCard(
+              key: card,
+              entry: _entry(rank: 80, movement: ChartMovement.newEntry),
+              chartType: ChartType.songs,
+              artworkPath: null,
+              previousExtendedRank: 150,
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('Last week #150 (Bubbling Under)'), findsOneWidget);
+      expect(find.text('NEW'), findsOneWidget);
+      expect(
+        tester.getSemantics(find.byKey(card)).label,
+        contains(
+          'New entry, Song 80, Artist 80 • Album 80, 12 streams, peak number '
+          '2, no official position last week, number 150 below the Top 100',
+        ),
+      );
+      semantics.dispose();
+    });
+
+    testWidgets('albums name positions #101–200 plainly', (tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: SonusThemeFactory.build(const SonusAppearanceSpec()),
+          home: Scaffold(
+            body: ChartEntryCard(
+              entry: _entry(rank: 80, movement: ChartMovement.newEntry),
+              chartType: ChartType.albums,
+              artworkPath: null,
+              previousExtendedRank: 120,
+            ),
+          ),
+        ),
+      );
+
+      expect(find.text('Last week #120 (#101–200)'), findsOneWidget);
     });
   });
 
@@ -410,6 +541,39 @@ void main() {
       );
 
       expect(tester.takeException(), isNull, reason: id.label);
+
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: SonusThemeFactory.build(SonusAppearanceSpec(themeId: id)),
+          home: MediaQuery.withClampedTextScaling(
+            minScaleFactor: 2,
+            maxScaleFactor: 2,
+            child: Scaffold(
+              body: SingleChildScrollView(
+                child: SizedBox(
+                  width: 320,
+                  child: ChartEntryCard(
+                    entry: _entry(rank: 1, previousFinalRank: 1),
+                    chartType: ChartType.songs,
+                    artworkPath: null,
+                    longevity: ChartLongevity(
+                      weeksAtNumberOne: 12,
+                      longestNumberOneRun: 10,
+                      topTenStreak: 20,
+                      officialWeeks: 30,
+                      debutWeekStartUtc: DateTime(2026, 9, 20),
+                      debutRank: 1,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      expect(tester.takeException(), isNull, reason: '${id.label} #1');
+      expect(find.text('Top 10 streak: 20 weeks'), findsOneWidget);
     }
   });
 }
