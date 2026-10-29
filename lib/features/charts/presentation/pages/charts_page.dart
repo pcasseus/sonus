@@ -12,11 +12,14 @@ import '../../../library/presentation/pages/artist_profile_page.dart';
 import '../../../player/application/controllers/playback_coordinator.dart';
 import '../../../playlists/presentation/widgets/add_to_playlist_sheet.dart';
 
+import '../../application/models/chart_moment_feed_item.dart';
 import '../../domain/entities/chart_entry.dart';
 import '../../domain/models/chart_type.dart';
 import '../../domain/models/chart_view_size.dart';
 import '../news/moment_post_card.dart';
+import '../editorial/moment_category.dart';
 import '../editorial/moment_editorial_desk.dart';
+import '../editorial/moment_publisher.dart';
 import '../models/chart_week_label.dart';
 import '../models/charts_presentation_mode.dart';
 import '../controllers/charts_controller.dart';
@@ -123,32 +126,37 @@ class ChartsPage extends StatelessWidget {
                     const SizedBox(height: 14),
                   ],
                 ] else
-                  _MomentsFeed(controller: controller),
+                  _MomentsFeedHeader(controller: controller),
               ],
             ),
           ),
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 40),
-            sliver: SliverList.builder(
-              itemCount: rowCount,
-              itemBuilder: (context, index) {
-                if (index == extendedStart) {
-                  return ChartExtendedDivider(chartType: controller.chartType);
-                }
+            sliver: controller.isShowingMoments
+                ? _momentsFeedSliver(controller)
+                : SliverList.builder(
+                    itemCount: rowCount,
+                    itemBuilder: (context, index) {
+                      if (index == extendedStart) {
+                        return ChartExtendedDivider(
+                          chartType: controller.chartType,
+                        );
+                      }
 
-                final entryIndex = extendedStart >= 0 && index > extendedStart
-                    ? index - 1
-                    : index;
+                      final entryIndex =
+                          extendedStart >= 0 && index > extendedStart
+                          ? index - 1
+                          : index;
 
-                return Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: _ChartEntryItem(
-                    entry: entries[entryIndex],
-                    controller: controller,
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: _ChartEntryItem(
+                          entry: entries[entryIndex],
+                          controller: controller,
+                        ),
+                      );
+                    },
                   ),
-                );
-              },
-            ),
           ),
         ],
       ),
@@ -236,6 +244,8 @@ class _ChartsPresentationSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final hasNewMoments = controller.hasNewMoments;
+
     return SegmentedButton<ChartsPresentationMode>(
       key: const ValueKey<String>('charts-presentation-selector'),
       style: _chartsSegmentedStyle(SonusTheme.of(context)),
@@ -247,7 +257,20 @@ class _ChartsPresentationSelector extends StatelessWidget {
         ),
         ButtonSegment<ChartsPresentationMode>(
           value: ChartsPresentationMode.moments,
-          label: Text('Moments'),
+          label: hasNewMoments
+              ? Semantics(
+                  label: 'Moments, new stories',
+                  excludeSemantics: true,
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Flexible(child: Text('Moments')),
+                      SizedBox(width: 6),
+                      _NewMomentsDot(),
+                    ],
+                  ),
+                )
+              : const Text('Moments'),
           icon: _segmentIcon(context, Icons.auto_awesome_rounded),
         ),
       ],
@@ -263,8 +286,32 @@ class _ChartsPresentationSelector extends StatelessWidget {
   }
 }
 
-class _MomentsFeed extends StatelessWidget {
-  const _MomentsFeed({required this.controller});
+/// Moments has stories newer than when it was last open (SN-50 F-Q26). The
+/// segment also says "new stories" to screen readers.
+class _NewMomentsDot extends StatelessWidget {
+  const _NewMomentsDot();
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = SonusTheme.of(context).colors;
+
+    return Container(
+      key: const ValueKey<String>('charts-moments-new-dot'),
+      width: 10,
+      height: 10,
+      decoration: BoxDecoration(
+        color: colors.accentPrimary,
+        shape: BoxShape.circle,
+        border: Border.all(color: colors.textPrimary, width: 1.5),
+      ),
+    );
+  }
+}
+
+/// Above the stories: the feed's error and empty states, its filters and
+/// the refresh banner.
+class _MomentsFeedHeader extends StatelessWidget {
+  const _MomentsFeedHeader({required this.controller});
 
   final ChartsController controller;
 
@@ -285,9 +332,9 @@ class _MomentsFeed extends StatelessWidget {
       );
     }
 
-    final stories = controller.momentStories;
+    final hasMore = controller.hasMoreMoments;
 
-    if (stories.isEmpty) {
+    if (controller.momentStories.isEmpty && !hasMore) {
       return const _ChartsMessage(
         key: ValueKey<String>('charts-moments-empty'),
         icon: Icons.auto_awesome_outlined,
@@ -297,21 +344,195 @@ class _MomentsFeed extends StatelessWidget {
       );
     }
 
-    final now = controller.currentTime();
-
     return Column(
-      key: const ValueKey<String>('charts-moments-feed'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         if (controller.hasMomentFeedError) ...[
           _MomentsRefreshErrorBanner(onRetry: controller.refresh),
           const SizedBox(height: 14),
         ],
-        for (var index = 0; index < stories.length; index++) ...[
-          _MomentPost(story: stories[index], now: now, controller: controller),
-          if (index != stories.length - 1) const SizedBox(height: 16),
-        ],
+        _MomentsFilters(controller: controller),
+        const SizedBox(height: 16),
+        if (controller.visibleMomentStories.isEmpty && !hasMore)
+          _ChartsMessage(
+            key: const ValueKey<String>('charts-moments-filtered-empty'),
+            icon: Icons.filter_list_off_rounded,
+            title: 'No Moments match these filters',
+            message: 'Try another category or publisher.',
+            action: OutlinedButton(
+              onPressed: () {
+                controller.selectMomentCategory(null);
+                controller.selectMomentPublisher(null);
+              },
+              child: const Text('Show all Moments'),
+            ),
+          ),
       ],
+    );
+  }
+}
+
+/// One chronological feed, narrowed by category and publisher (F-Q25).
+class _MomentsFilters extends StatelessWidget {
+  const _MomentsFilters({required this.controller});
+
+  final ChartsController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      key: const ValueKey<String>('charts-moments-filters'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _MomentsFilterGroup<MomentCategory>(
+          label: 'Category',
+          allLabel: 'All stories',
+          values: MomentCategory.values,
+          labelOf: (category) => category.label,
+          selected: controller.momentCategory,
+          onSelected: controller.selectMomentCategory,
+        ),
+        const SizedBox(height: 10),
+        _MomentsFilterGroup<MomentPublisher>(
+          label: 'Publisher',
+          allLabel: 'All publishers',
+          values: MomentPublisher.values,
+          labelOf: (publisher) => publisher.label,
+          selected: controller.momentPublisher,
+          onSelected: controller.selectMomentPublisher,
+        ),
+      ],
+    );
+  }
+}
+
+class _MomentsFilterGroup<T extends Enum> extends StatelessWidget {
+  const _MomentsFilterGroup({
+    required this.label,
+    required this.allLabel,
+    required this.values,
+    required this.labelOf,
+    required this.selected,
+    required this.onSelected,
+  });
+
+  final String label;
+  final String allLabel;
+  final List<T> values;
+  final String Function(T value) labelOf;
+  final T? selected;
+  final void Function(T? value) onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = SonusTheme.of(context);
+    final theme = Theme.of(context);
+
+    Widget chip(String text, T? value) => ChoiceChip(
+      key: ValueKey<String>('charts-moments-filter-$label-${value?.name}'),
+      label: Text(text),
+      selected: selected == value,
+      onSelected: (_) => onSelected(value),
+    );
+
+    return Semantics(
+      container: true,
+      label: '$label filter',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: theme.textTheme.labelLarge?.copyWith(
+              color: tokens.colors.textSecondary,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 8,
+            runSpacing: 4,
+            children: [
+              chip(allLabel, null),
+              for (final value in values) chip(labelOf(value), value),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The stories, built as they scroll into view, then the next page.
+Widget _momentsFeedSliver(ChartsController controller) {
+  final stories = controller.visibleMomentStories;
+  final hasFooter = controller.hasMoreMoments;
+  final now = controller.currentTime();
+
+  return SliverList.builder(
+    key: const ValueKey<String>('charts-moments-feed'),
+    itemCount: stories.length + (hasFooter ? 1 : 0),
+    itemBuilder: (context, index) {
+      if (index == stories.length) {
+        return _MomentsPageFooter(controller: controller);
+      }
+
+      return Padding(
+        padding: const EdgeInsets.only(bottom: 16),
+        child: _MomentPost(
+          story: stories[index],
+          now: now,
+          controller: controller,
+        ),
+      );
+    },
+  );
+}
+
+/// Built only near the end of the loaded stories: reads the next page, or
+/// offers a retry when that failed.
+class _MomentsPageFooter extends StatelessWidget {
+  const _MomentsPageFooter({required this.controller});
+
+  final ChartsController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    if (controller.momentPageError != null) {
+      return Padding(
+        key: const ValueKey<String>('charts-moments-page-error'),
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Column(
+          children: [
+            const Text(
+              'Older Moments could not be loaded.',
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton.icon(
+              onPressed: () => unawaited(controller.loadMoreMoments()),
+              icon: const Icon(Icons.refresh_rounded),
+              label: const Text('Try again'),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (!controller.isLoadingMoreMoments) {
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => unawaited(controller.loadMoreMoments()),
+      );
+    }
+
+    return const Padding(
+      key: ValueKey<String>('charts-moments-loading-more'),
+      padding: EdgeInsets.symmetric(vertical: 16),
+      child: Center(
+        child: CircularProgressIndicator(
+          semanticsLabel: 'Loading older Moments',
+        ),
+      ),
     );
   }
 }
@@ -343,12 +564,13 @@ class _MomentPost extends StatelessWidget {
       key: ValueKey<String>('charts-moment-${item.id}'),
       story: story,
       now: now,
+      credit: controller.creditForMoment(story),
       onOpenSong: playable
           ? () => unawaited(_showChartTrackContext(context, track, [track]))
           : null,
       onOpenAlbum: album == null
           ? null
-          : () => _openAlbum(context, album, editionId: track?.albumEditionId),
+          : () => unawaited(_openMomentRelease(context, controller, item)),
       onOpenArtist: artist == null
           ? null
           : () => Navigator.of(context).push(
@@ -361,6 +583,30 @@ class _MomentPost extends StatelessWidget {
             ),
     );
   }
+}
+
+/// Opens the edition a Moment happened on, or the primary edition with a
+/// note when that edition was removed (SN-50 A-Q29).
+Future<void> _openMomentRelease(
+  BuildContext context,
+  ChartsController controller,
+  ChartMomentFeedItem item,
+) async {
+  final target = await controller.releaseTargetForMoment(item);
+
+  if (target == null || !context.mounted) return;
+
+  if (target.editionRemoved) {
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      const SnackBar(
+        content: Text(
+          'The edition from this story was removed; showing the main edition.',
+        ),
+      ),
+    );
+  }
+
+  _openAlbum(context, target.album, editionId: target.editionId);
 }
 
 class _MomentsRefreshErrorBanner extends StatelessWidget {

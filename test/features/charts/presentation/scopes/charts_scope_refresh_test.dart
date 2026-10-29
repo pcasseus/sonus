@@ -15,6 +15,7 @@ import 'package:sonus_next/features/library/application/repositories/library_que
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../../support/all_time_chart_fakes.dart';
+import '../../support/moment_page_fakes.dart';
 
 // Data-1 (Charts): the all-time Hot 100 used to stay empty after new
 // qualified plays until it was pulled to refresh. The Charts scope now
@@ -67,6 +68,7 @@ void main() {
           home: Scaffold(
             body: ChartsScope(
               now: () => now,
+              momentsLastSeen: MemoryMomentsLastSeenStore(),
               changes: signal,
               child: const ChartsPage(),
             ),

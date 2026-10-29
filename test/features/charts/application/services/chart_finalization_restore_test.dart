@@ -788,4 +788,10 @@ class _HeldMoments implements ChartMomentRepository {
   @override
   Future<List<ChartMomentEvent>> getRecent({int? limit}) =>
       _inner.getRecent(limit: limit);
+
+  @override
+  Future<List<ChartMomentEvent>> getPage({
+    ChartMomentPageCursor? before,
+    required int limit,
+  }) => _inner.getPage(before: before, limit: limit);
 }

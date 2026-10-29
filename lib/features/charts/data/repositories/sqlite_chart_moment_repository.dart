@@ -95,4 +95,25 @@ class SqliteChartMomentRepository implements ChartMomentRepository {
 
     return List.unmodifiable(rows.map(ChartMomentEventRowMapper.fromRow));
   }
+
+  @override
+  Future<List<ChartMomentEvent>> getPage({
+    ChartMomentPageCursor? before,
+    required int limit,
+  }) async {
+    if (limit <= 0) {
+      throw ArgumentError.value(limit, 'limit', 'Must be positive.');
+    }
+
+    final db = await database.database;
+
+    final rows = await ChartMomentEventDao(db).findPage(
+      // Stored the way the mapper writes it, so the text order matches.
+      beforeOccurredAt: before?.occurredAt.toUtc().toIso8601String(),
+      beforeId: before?.id,
+      limit: limit,
+    );
+
+    return List.unmodifiable(rows.map(ChartMomentEventRowMapper.fromRow));
+  }
 }

@@ -24,10 +24,20 @@ abstract interface class MomentLookups {
   /// A library artist with exactly this name, if there is one.
   String? artistIdNamed(String name);
 
-  /// The cover of the song's release (or its own artwork).
+  /// The cover of the song's release (or its own artwork), as stories
+  /// before the SN-50 rules show it.
   String? songCover(String songId);
 
   String? releaseCover(String albumId);
+
+  /// The song's picture for SN-50 stories (A-Q12, C-23), as song rows
+  /// show it: its own artwork, else the cover of the edition it lives on
+  /// (a Deluxe-only song shows the Deluxe cover), else the primary's.
+  String? currentSongCover(String songId);
+
+  /// The release's cover for SN-50 stories: the current album chart's,
+  /// Deluxe first (A-Q21, A-Q28).
+  String? currentReleaseCover(String albumId);
 
   /// The artist's portrait, or their banner without one.
   String? artistPortrait(String artistId);

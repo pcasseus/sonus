@@ -88,6 +88,12 @@ class _Lookups implements MomentLookups {
   String? releaseCover(String albumId) => '/covers/$albumId.jpg';
 
   @override
+  String? currentSongCover(String songId) => songCover(songId);
+
+  @override
+  String? currentReleaseCover(String albumId) => releaseCover(albumId);
+
+  @override
   String? artistPortrait(String artistId) => '/portraits/$artistId.jpg';
 }
 

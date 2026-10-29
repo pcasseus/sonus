@@ -16,4 +16,23 @@ abstract interface class ChartMomentRepository {
   Future<ChartMomentEvent?> getById(String id);
 
   Future<List<ChartMomentEvent>> getRecent({int? limit});
+
+  /// Up to [limit] stored Moments older than [before] (from the newest
+  /// without it), newest first: by occurred time, then id, like
+  /// [getRecent].
+  Future<List<ChartMomentEvent>> getPage({
+    ChartMomentPageCursor? before,
+    required int limit,
+  });
+}
+
+/// The last Moment of a page: the next page starts after it.
+class ChartMomentPageCursor {
+  const ChartMomentPageCursor({required this.occurredAt, required this.id});
+
+  ChartMomentPageCursor.of(ChartMomentEvent event)
+    : this(occurredAt: event.occurredAt.toUtc(), id: event.id);
+
+  final DateTime occurredAt;
+  final String id;
 }

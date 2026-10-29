@@ -13,8 +13,10 @@ import '../../application/services/all_time_moment_service.dart';
 import '../../application/services/chart_finalization_service.dart';
 import '../../application/services/chart_snapshot_builder_service.dart';
 import '../../application/services/this_week_chart_service.dart';
+import '../../application/services/moments_last_seen_store.dart';
 import '../../data/repositories/sqlite_chart_moment_repository.dart';
 import '../../data/repositories/sqlite_chart_repository.dart';
+import '../../data/services/shared_preferences_moments_last_seen_store.dart';
 import '../controllers/charts_controller.dart';
 import '../../../library/application/services/library_organization_service.dart';
 import '../../application/services/library_release_chart_eligibility.dart';
@@ -22,7 +24,13 @@ import '../../../analytics/presentation/scopes/listening_artist_attribution_look
 import '../../../analytics/application/services/listening_artist_attribution.dart';
 
 class ChartsScope extends StatefulWidget {
-  const ChartsScope({super.key, required this.child, this.now, this.changes});
+  const ChartsScope({
+    super.key,
+    required this.child,
+    this.now,
+    this.changes,
+    this.momentsLastSeen,
+  });
 
   final Widget child;
 
@@ -30,6 +38,9 @@ class ChartsScope extends StatefulWidget {
   /// shared signal if null.
   final LibraryChangeSignal? changes;
   final ChartsControllerNow? now;
+
+  /// Remembers when Moments was last open; device preferences if null.
+  final MomentsLastSeenStore? momentsLastSeen;
 
   @override
   State<ChartsScope> createState() => _ChartsScopeState();
@@ -183,6 +194,10 @@ class _ChartsScopeState extends State<ChartsScope> {
         builder: builder,
         releaseEligibility: releaseEligibility,
       ),
+      momentsLastSeen:
+          widget.momentsLastSeen ?? SharedPreferencesMomentsLastSeenStore(),
+      playEdition: (playId) async =>
+          (await qualifiedPlays.getById(playId))?.albumEditionId,
     );
 
     _controller = controller;

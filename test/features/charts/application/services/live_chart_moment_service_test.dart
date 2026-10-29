@@ -21,6 +21,8 @@ import 'package:sonus_next/features/library/application/models/library_track_ord
 import 'package:sonus_next/features/library/application/repositories/library_query_repository.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
 
+import '../../support/moment_page_fakes.dart';
+
 void main() {
   test(
     'builds live song movement Moments from qualified-play ranking changes',
@@ -762,4 +764,14 @@ class _ChartMomentRepository implements ChartMomentRepository {
 
     return List.unmodifiable(events.take(limit));
   }
+
+  @override
+  Future<List<ChartMomentEvent>> getPage({
+    ChartMomentPageCursor? before,
+    required int limit,
+  }) async => momentPageOf(
+    _eventsByDeduplicationKey.values,
+    before: before,
+    limit: limit,
+  );
 }

@@ -101,6 +101,12 @@ class _Lookups implements MomentLookups {
   String? releaseCover(String albumId) => '/covers/$albumId.jpg';
 
   @override
+  String? currentSongCover(String songId) => songCover(songId);
+
+  @override
+  String? currentReleaseCover(String albumId) => releaseCover(albumId);
+
+  @override
   String? artistPortrait(String artistId) => '/portraits/$artistId.jpg';
 }
 
@@ -196,7 +202,7 @@ void main() {
       expect(debut.rank, 106);
       expect(debut.headline, contains('#106'));
       expect(debut.headline, contains('Sonus Bubbling Under'));
-      expect(debut.tag, 'BUBBLING UNDER #106');
+      expect(debut.kicker, 'Sonus Bubbling Under');
 
       plays
         ..add(tracks['Never Lose Me']!)
@@ -216,7 +222,7 @@ void main() {
           MomentFamily.artistFirstHot100,
         ),
       );
-      expect(breakthrough.tag, 'HOT 100 #94');
+      expect(breakthrough.kicker, 'Sonus Hot 100');
       expect(breakthrough.headline, contains('Sonus Hot 100'));
       expect(breakthrough.facts.streams, 3, reason: 'one continuous history');
       expect(

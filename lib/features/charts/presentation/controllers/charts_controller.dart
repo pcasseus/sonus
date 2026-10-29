@@ -1,6 +1,8 @@
 // ignore_for_file: prefer_initializing_formals
 
+import 'dart:async';
 import 'dart:developer' as developer;
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 
@@ -13,18 +15,25 @@ import '../../../library/domain/entities/library_organization.dart';
 import '../../application/models/chart_moment_feed_item.dart';
 import '../../application/services/chart_finalization_service.dart';
 import '../../application/services/chart_moment_feed_aggregator.dart';
+import '../../application/services/chart_moment_feed_pager.dart';
 import '../../application/services/all_time_chart_service.dart';
 import '../../application/services/all_time_moment_service.dart';
+import '../../application/services/moments_last_seen_store.dart';
 import '../../application/services/this_week_chart_service.dart';
 import '../../domain/entities/all_time_chart.dart';
 import '../../domain/entities/chart_entry.dart';
 import '../../domain/entities/chart_snapshot.dart';
 import '../../domain/models/chart_type.dart';
 import '../../domain/models/chart_view_size.dart';
+import '../../domain/moments/chart_moment_rules.dart';
+import '../../domain/moments/chart_moment_scope.dart';
 import '../../domain/repositories/chart_moment_repository.dart';
 import '../../domain/repositories/chart_repository.dart';
+import '../editorial/moment_category.dart';
 import '../editorial/moment_editorial_desk.dart';
 import '../editorial/moment_facts.dart';
+import '../editorial/moment_family.dart';
+import '../editorial/moment_publisher.dart';
 import '../models/chart_album_presentation.dart';
 import '../models/chart_longevity.dart';
 import '../models/charts_presentation_mode.dart';
@@ -38,6 +47,27 @@ typedef ReleaseFormatsLoader = Future<Map<String, ReleaseFormat?>> Function();
 /// Every Deluxe edition in the library, for the current album chart's
 /// titles and covers.
 typedef DeluxeEditionsLoader = Future<List<LibraryAlbumEdition>> Function();
+
+/// The album edition a qualified play was of, or null if the play is gone.
+typedef PlayEditionLoader = Future<String?> Function(String playId);
+
+/// Where a Moment's release link opens.
+class MomentReleaseTarget {
+  const MomentReleaseTarget({
+    required this.album,
+    this.editionId,
+    this.editionRemoved = false,
+  });
+
+  final LibraryAlbum album;
+
+  /// Null opens the release's default edition.
+  final String? editionId;
+
+  /// The edition the story happened on was removed, so the primary edition
+  /// opens instead (SN-50 A-Q29).
+  final bool editionRemoved;
+}
 
 class ChartsController extends ChangeNotifier {
   ChartsController({
@@ -53,6 +83,9 @@ class ChartsController extends ChangeNotifier {
     ReleaseFormatsLoader? releaseFormats,
     DeluxeEditionsLoader? deluxeEditions,
     ThisWeekChartService? thisWeekCharts,
+    MomentsLastSeenStore? momentsLastSeen,
+    PlayEditionLoader? playEdition,
+    int momentPageSize = ChartMomentFeedPager.defaultPageSize,
   }) : _allTimeCharts = allTimeCharts,
        _finalization = finalization,
        _charts = charts,
@@ -63,7 +96,10 @@ class ChartsController extends ChangeNotifier {
        _now = now ?? DateTime.now,
        _loadReleaseFormats = releaseFormats,
        _loadDeluxeEditions = deluxeEditions,
-       _thisWeekCharts = thisWeekCharts;
+       _thisWeekCharts = thisWeekCharts,
+       _momentsLastSeen = momentsLastSeen,
+       _loadPlayEdition = playEdition,
+       _momentPageSize = momentPageSize;
 
   final AllTimeChartService _allTimeCharts;
   final ChartFinalizationService _finalization;
@@ -88,6 +124,24 @@ class ChartsController extends ChangeNotifier {
 
   /// The published stories for the current feed, composed once per load.
   List<MomentStory>? _momentStories;
+
+  /// Reads the feed a bounded page at a time (SN-50 F-Q25).
+  final int _momentPageSize;
+  ChartMomentFeedPager? _momentPager;
+  bool _isLoadingMoreMoments = false;
+  Object? _momentPageError;
+
+  MomentCategory? _momentCategory;
+  MomentPublisher? _momentPublisher;
+
+  /// The newest story shown when Moments was last open (F-Q26). Without a
+  /// store, or until it is read, there is no new-content dot.
+  final MomentsLastSeenStore? _momentsLastSeen;
+  bool _requestedMomentsLastSeen = false;
+  bool _hasReadMomentsLastSeen = false;
+  DateTime? _momentsLastSeenUtc;
+
+  final PlayEditionLoader? _loadPlayEdition;
 
   ChartType _chartType = ChartType.songs;
   ChartViewSize _viewSize = ChartViewSize.top100;
@@ -167,11 +221,86 @@ class ChartsController extends ChangeNotifier {
   /// A release that is now a Single, or whose format awaits review, tells
   /// no release-chart story: one recorded earlier stays stored and returns
   /// if the release is made an EP or Album.
+  ///
+  /// Only the loaded days are told. While older Moments remain, the oldest
+  /// loaded day is composed but not shown: it is the context the day after
+  /// it is told with (the desk never repeats the previous headline), and
+  /// it is shown once the page before it is read.
   List<MomentStory> get momentStories =>
-      _momentStories ??= MomentEditorialDesk(lookups: momentLookups).compose([
-        for (final item in _momentFeedItems)
-          if (!_offReleaseChart(item)) item,
-      ]);
+      _momentStories ??= _composeMomentStories();
+
+  List<MomentStory> _composeMomentStories() {
+    final stories = MomentEditorialDesk(lookups: momentLookups).compose([
+      for (final item in _momentFeedItems)
+        if (!_offReleaseChart(item)) item,
+    ]);
+    final pager = _momentPager;
+    final contextDay = pager != null && pager.hasMore ? pager.oldestDay : null;
+
+    if (contextDay == null) return stories;
+
+    return List.unmodifiable([
+      for (final story in stories)
+        if (ChartMomentFeedPager.localDay(story.occurredAt) != contextDay)
+          story,
+    ]);
+  }
+
+  /// [momentStories] in the selected category and by the selected
+  /// publisher; null selections show everything.
+  List<MomentStory> get visibleMomentStories {
+    final category = _momentCategory;
+    final publisher = _momentPublisher;
+    final stories = momentStories;
+
+    if (category == null && publisher == null) return stories;
+
+    return [
+      for (final story in stories)
+        if ((category == null || MomentCategory.of(story.family) == category) &&
+            (publisher == null || story.publisher == publisher))
+          story,
+    ];
+  }
+
+  MomentCategory? get momentCategory => _momentCategory;
+
+  MomentPublisher? get momentPublisher => _momentPublisher;
+
+  bool get isFilteringMoments =>
+      _momentCategory != null || _momentPublisher != null;
+
+  void selectMomentCategory(MomentCategory? value) {
+    if (_momentCategory == value) return;
+    _momentCategory = value;
+    _notify();
+  }
+
+  void selectMomentPublisher(MomentPublisher? value) {
+    if (_momentPublisher == value) return;
+    _momentPublisher = value;
+    _notify();
+  }
+
+  /// Whether older Moments may still be read.
+  bool get hasMoreMoments => _momentPager?.hasMore ?? false;
+
+  bool get isLoadingMoreMoments => _isLoadingMoreMoments;
+
+  /// Why the last read of older Moments failed, until the next attempt.
+  Object? get momentPageError => _momentPageError;
+
+  /// Stories newer than the newest one shown when Moments was last open
+  /// (SN-50 F-Q26). Never while Moments is on screen.
+  bool get hasNewMoments {
+    if (!_hasReadMomentsLastSeen || isShowingMoments) return false;
+
+    final stories = momentStories;
+    if (stories.isEmpty) return false;
+
+    final seen = _momentsLastSeenUtc;
+    return seen == null || stories.first.occurredAt.isAfter(seen);
+  }
 
   bool _offReleaseChart(ChartMomentFeedItem item) {
     if (item.chartType != ChartType.albums) return false;
@@ -335,7 +464,225 @@ class ChartsController extends ChangeNotifier {
     }
 
     _presentationMode = value;
+    _markMomentsSeen();
     _notify();
+  }
+
+  /// Remembers the newest story as seen while Moments is on screen.
+  void _markMomentsSeen() {
+    final store = _momentsLastSeen;
+    if (store == null || !isShowingMoments) return;
+
+    final stories = momentStories;
+    if (stories.isEmpty) return;
+
+    final newest = stories.first.occurredAt.toUtc();
+    final seen = _momentsLastSeenUtc;
+    if (seen != null && !newest.isAfter(seen)) return;
+
+    _momentsLastSeenUtc = newest;
+    unawaited(_writeMomentsLastSeen(store, newest));
+  }
+
+  Future<void> _writeMomentsLastSeen(
+    MomentsLastSeenStore store,
+    DateTime newest,
+  ) async {
+    try {
+      await store.write(newest);
+    } catch (error, stackTrace) {
+      developer.log(
+        'The Moments last-seen time could not be saved '
+        '(${error.runtimeType}); the dot may show again',
+        name: 'sonus.charts',
+        level: 900,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+  }
+
+  /// Read once, beside the first load rather than in its way. A story seen
+  /// meanwhile is kept if it is newer than the stored one.
+  Future<void> _readMomentsLastSeen(MomentsLastSeenStore store) async {
+    try {
+      final stored = (await store.read())?.toUtc();
+      final seenMeanwhile = _momentsLastSeenUtc;
+
+      _momentsLastSeenUtc =
+          seenMeanwhile != null &&
+              (stored == null || seenMeanwhile.isAfter(stored))
+          ? seenMeanwhile
+          : stored;
+      _hasReadMomentsLastSeen = true;
+      _notify();
+    } catch (error, stackTrace) {
+      developer.log(
+        'The Moments last-seen time could not be read '
+        '(${error.runtimeType}); no new-content dot',
+        name: 'sonus.charts',
+        level: 900,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+  }
+
+  /// Reads the next page of older Moments. Safe to call repeatedly: it
+  /// does nothing while a read runs or when nothing older remains.
+  Future<void> loadMoreMoments() async {
+    final pager = _momentPager;
+
+    if (_isDisposed ||
+        pager == null ||
+        !pager.hasMore ||
+        _isLoadingMoreMoments) {
+      return;
+    }
+
+    _isLoadingMoreMoments = true;
+    _momentPageError = null;
+    _notify();
+
+    try {
+      await pager.loadMore();
+
+      // A reload replaced the feed meanwhile.
+      if (!identical(pager, _momentPager)) return;
+
+      _momentFeedItems = _momentFeedAggregator.aggregate(pager.events);
+      _momentStories = null;
+    } catch (error, stackTrace) {
+      developer.log(
+        'Older Moments could not be read (${error.runtimeType})',
+        name: 'sonus.charts',
+        level: 900,
+        error: error,
+        stackTrace: stackTrace,
+      );
+      if (identical(pager, _momentPager)) _momentPageError = error;
+    } finally {
+      _isLoadingMoreMoments = false;
+      _notify();
+    }
+  }
+
+  /// The performers of a song story under the SN-50 rules, when the song
+  /// credits more than its primary artist (F-Q19/F-Q20). Text only: it
+  /// links nobody. Stories about an artist, and earlier stories, show none.
+  String? creditForMoment(MomentStory story) {
+    if (!story.facts.refined) return null;
+
+    switch (story.family) {
+      case MomentFamily.artistTopArtist ||
+          MomentFamily.artistStreamMilestone ||
+          MomentFamily.artistSimultaneous ||
+          MomentFamily.artistSimultaneousReleases:
+        return null;
+      default:
+        break;
+    }
+
+    final track = trackForMoment(story.item);
+    if (track == null ||
+        (track.coPrimaryArtists.isEmpty &&
+            track.featuredArtists.isEmpty &&
+            track.guestArtists.isEmpty)) {
+      return null;
+    }
+
+    final line = track.creditLine.trim();
+    return line.isEmpty ? null : line;
+  }
+
+  /// Where a Moment's release link opens (SN-50 A-Q18/A-Q29, E-Q8).
+  ///
+  /// A song story opens the edition its play was of while that edition
+  /// survives; if it was removed, the primary edition, saying so. Stories
+  /// without a play (finalized weeks) open the song's own edition. A
+  /// release story under the SN-50 rules opens the edition the album chart
+  /// shows. A purged song or release has no link: nothing is invented.
+  Future<MomentReleaseTarget?> releaseTargetForMoment(
+    ChartMomentFeedItem item,
+  ) async {
+    final album = albumForMoment(item);
+    if (album == null) return null;
+
+    if (item.chartType == ChartType.albums) {
+      return MomentReleaseTarget(
+        album: album,
+        editionId: ChartMomentRules.isRefined(item.occurredAt)
+            ? _albumPresentations[album.albumId]?.editionId
+            : null,
+      );
+    }
+
+    final track = trackForMoment(item)!;
+    final home = MomentReleaseTarget(
+      album: album,
+      editionId: track.albumEditionId,
+    );
+    final library = _library;
+    if (library is! AlbumEditionQueryRepository) return home;
+    final editionQueries = library as AlbumEditionQueryRepository;
+
+    final eventEdition = await _eventEditionOf(item);
+    if (eventEdition == null) return home;
+
+    try {
+      final editions = await editionQueries.getAlbumEditions(album.albumId);
+      if (editions.any((edition) => edition.editionId == eventEdition)) {
+        return MomentReleaseTarget(album: album, editionId: eventEdition);
+      }
+    } catch (error, stackTrace) {
+      developer.log(
+        'Editions could not be read (${error.runtimeType}); '
+        "the Moment opens the song's own edition",
+        name: 'sonus.charts',
+        level: 900,
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return home;
+    }
+
+    return MomentReleaseTarget(
+      album: album,
+      editionId: album.primaryEditionId,
+      editionRemoved: true,
+    );
+  }
+
+  /// The edition of the play behind a real-time story, if still recorded.
+  Future<String?> _eventEditionOf(ChartMomentFeedItem item) async {
+    final load = _loadPlayEdition;
+    if (load == null) return null;
+
+    String? playId;
+    for (final event in item.events) {
+      final source = event.sourceId?.trim();
+      if (event.scope != ChartMomentScope.finalized &&
+          source != null &&
+          source.isNotEmpty) {
+        playId = source;
+        break;
+      }
+    }
+    if (playId == null) return null;
+
+    try {
+      return await load(playId);
+    } catch (error, stackTrace) {
+      developer.log(
+        'The play behind a Moment could not be read (${error.runtimeType}); '
+        "the Moment opens the song's own edition",
+        name: 'sonus.charts',
+        level: 900,
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return null;
+    }
   }
 
   String? artworkPathForMoment(ChartMomentFeedItem item) {
@@ -388,6 +735,12 @@ class ChartsController extends ChangeNotifier {
   Future<void> load() {
     if (_isDisposed) {
       return Future<void>.value();
+    }
+
+    final lastSeen = _momentsLastSeen;
+    if (lastSeen != null && !_requestedMomentsLastSeen) {
+      _requestedMomentsLastSeen = true;
+      unawaited(_readMomentsLastSeen(lastSeen));
     }
 
     if (_isLoading) {
@@ -653,15 +1006,24 @@ class ChartsController extends ChangeNotifier {
       final deluxes = await _readDeluxeEditions();
 
       var momentFeedItems = _momentFeedItems;
+      var momentPager = _momentPager;
       Object? momentFeedError = allTimeMomentsError;
 
       final moments = _moments;
 
       if (moments != null) {
         try {
-          final rawMomentEvents = await moments.getRecent();
+          final pager = ChartMomentFeedPager(
+            moments,
+            pageSize: _momentPageSize,
+          );
+          // A reload keeps what was scrolled to, never less than a page.
+          await pager.loadMore(
+            minimum: math.max(_momentPageSize, _momentPager?.length ?? 0),
+          );
 
-          momentFeedItems = _momentFeedAggregator.aggregate(rawMomentEvents);
+          momentFeedItems = _momentFeedAggregator.aggregate(pager.events);
+          momentPager = pager;
         } catch (error) {
           momentFeedError = error;
         }
@@ -691,8 +1053,11 @@ class ChartsController extends ChangeNotifier {
       _momentFeedItems = List<ChartMomentFeedItem>.unmodifiable(
         momentFeedItems,
       );
+      _momentPager = momentPager;
+      _momentPageError = null;
       _momentStories = null;
       _momentFeedError = momentFeedError;
+      _markMomentsSeen();
 
       final historyIndex = _historyIndex;
 
@@ -857,6 +1222,23 @@ class _ControllerMomentLookups implements MomentLookups {
   @override
   String? releaseCover(String albumId) =>
       _nonEmpty(_controller._albumsById[albumId]?.artworkPath);
+
+  @override
+  String? currentSongCover(String songId) {
+    final track = _controller._tracksById[songId];
+    if (track == null) return null;
+    return _nonEmpty(track.artworkPath) ??
+        _nonEmpty(_controller._albumsById[track.albumId]?.artworkPath);
+  }
+
+  /// A Deluxe without a cover keeps the placeholder (A-Q28).
+  @override
+  String? currentReleaseCover(String albumId) {
+    final presentation = _controller._albumPresentations[albumId];
+    return presentation == null
+        ? releaseCover(albumId)
+        : _nonEmpty(presentation.artworkPath);
+  }
 
   @override
   String? artistPortrait(String artistId) {

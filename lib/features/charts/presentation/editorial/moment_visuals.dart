@@ -70,10 +70,16 @@ abstract final class MomentVisuals {
     final related = item.relatedEntity;
     final namesRival = variant.requires.contains(MomentFact.rival);
 
+    // Stories before the SN-50 rules keep their earlier cover rule (A4).
     MomentImage cover(String id, {required bool song}) => MomentImage(
       kind: MomentImageKind.cover,
       entityId: id,
-      path: song ? lookups.songCover(id) : lookups.releaseCover(id),
+      path: switch ((song, facts.refined)) {
+        (true, true) => lookups.currentSongCover(id),
+        (true, false) => lookups.songCover(id),
+        (false, true) => lookups.currentReleaseCover(id),
+        (false, false) => lookups.releaseCover(id),
+      },
     );
     MomentImage portrait(String id) => MomentImage(
       kind: MomentImageKind.portrait,

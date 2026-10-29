@@ -1516,6 +1516,12 @@ class _RecordingMomentRepository implements ChartMomentRepository {
 
   @override
   Future<List<ChartMomentEvent>> getRecent({int? limit}) async => const [];
+
+  @override
+  Future<List<ChartMomentEvent>> getPage({
+    ChartMomentPageCursor? before,
+    required int limit,
+  }) async => const [];
 }
 
 class _PlaybackSessionRepository implements PlaybackSessionRepository {

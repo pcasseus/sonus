@@ -12,13 +12,15 @@ import '../editorial/moment_visuals.dart';
 /// One Moment as a social editorial post (SN-45): the publisher as author,
 /// the story's headline and, when it adds a verified fact, a second
 /// paragraph; pictures of exactly what the headline is about; real chart
-/// badges; and links to the song, release and artist. There are no likes,
-/// reposts, replies or view counts: Sonus never invents engagement.
+/// badges, the chart named once (SN-50 F-Q22); and links to the song,
+/// release and artist. There are no likes, reposts, replies or view
+/// counts: Sonus never invents engagement.
 class MomentPostCard extends StatelessWidget {
   const MomentPostCard({
     super.key,
     required this.story,
     required this.now,
+    this.credit,
     this.onOpenSong,
     this.onOpenAlbum,
     this.onOpenArtist,
@@ -26,6 +28,9 @@ class MomentPostCard extends StatelessWidget {
 
   final MomentStory story;
   final DateTime now;
+
+  /// The song's role-aware performer line, as text only (F-Q19/F-Q20).
+  final String? credit;
   final VoidCallback? onOpenSong;
   final VoidCallback? onOpenAlbum;
   final VoidCallback? onOpenArtist;
@@ -36,7 +41,7 @@ class MomentPostCard extends StatelessWidget {
     final colors = tokens.colors;
     final theme = Theme.of(context);
     final body = story.body;
-    final tag = story.tag;
+    final credit = this.credit;
     final hasLinks =
         onOpenSong != null || onOpenAlbum != null || onOpenArtist != null;
     final facts = story.facts;
@@ -94,12 +99,24 @@ class MomentPostCard extends StatelessWidget {
                         ),
                       ),
                     ],
+                    if (credit != null) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        credit,
+                        key: ValueKey<String>('moment-post-credit-${story.id}'),
+                        semanticsLabel: 'Performers: $credit',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: colors.textSecondary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
               const SizedBox(height: 14),
               MergeSemantics(child: _Collage(story: story)),
-              if (hasLinks || tag != null) ...[
+              if (hasLinks) ...[
                 const SizedBox(height: 12),
                 Wrap(
                   spacing: 8,
@@ -131,17 +148,6 @@ class MomentPostCard extends StatelessWidget {
                         label: 'Artist',
                         spokenLabel: 'Open artist, ${facts.artist}',
                         onPressed: onOpenArtist!,
-                      ),
-                    if (tag != null)
-                      MergeSemantics(
-                        child: _Pill(
-                          key: ValueKey<String>('moment-post-tag-${story.id}'),
-                          label: tag,
-                          background: colors.accentPrimary.withValues(
-                            alpha: 0.14,
-                          ),
-                          foreground: colors.textPrimary,
-                        ),
                       ),
                   ],
                 ),

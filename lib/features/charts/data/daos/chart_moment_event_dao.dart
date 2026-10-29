@@ -71,4 +71,27 @@ class ChartMomentEventDao {
       limit: limit,
     );
   }
+
+  /// Up to [limit] rows after (older than) [beforeOccurredAt] and
+  /// [beforeId] in the feed order. The occurred index serves the range and
+  /// the order.
+  Future<List<Map<String, Object?>>> findPage({
+    String? beforeOccurredAt,
+    String? beforeId,
+    required int limit,
+  }) {
+    final hasCursor = beforeOccurredAt != null && beforeId != null;
+
+    return db.query(
+      DatabaseTables.chartMomentEvents,
+      where: hasCursor
+          ? 'occurred_at <= ? AND (occurred_at < ? OR id < ?)'
+          : null,
+      whereArgs: hasCursor
+          ? [beforeOccurredAt, beforeOccurredAt, beforeId]
+          : null,
+      orderBy: 'occurred_at DESC, id DESC',
+      limit: limit,
+    );
+  }
 }

@@ -27,13 +27,18 @@ import 'package:sonus_next/features/charts/domain/models/chart_view_size.dart';
 import 'package:sonus_next/features/charts/domain/moments/chart_moment_event.dart';
 import 'package:sonus_next/features/charts/domain/moments/chart_moment_event_type.dart';
 import 'package:sonus_next/features/charts/domain/moments/chart_moment_scope.dart';
+import 'package:sonus_next/features/charts/application/services/chart_moment_feed_pager.dart';
+import 'package:sonus_next/features/charts/application/services/moments_last_seen_store.dart';
 import 'package:sonus_next/features/charts/domain/repositories/chart_moment_repository.dart';
 import 'package:sonus_next/features/charts/domain/repositories/chart_repository.dart';
 import 'package:sonus_next/features/charts/domain/models/chart_week.dart';
 import 'package:sonus_next/features/charts/domain/services/chart_week_resolver.dart';
 import 'package:sonus_next/features/charts/presentation/controllers/charts_controller.dart';
 import 'package:sonus_next/features/charts/presentation/news/moment_post_card.dart';
+import 'package:sonus_next/features/charts/presentation/editorial/moment_publisher.dart';
 import 'package:sonus_next/features/charts/presentation/pages/charts_page.dart';
+
+import '../../support/moment_page_fakes.dart';
 
 void main() {
   testWidgets('renders branded Hot 100 controls and the career standings', (
@@ -1120,10 +1125,17 @@ void main() {
     expect(story.headline, contains('#3'));
     expect(story.headline, contains('"Song 1"'));
     expect(find.text('WEEKLY SONUS HOT 100'), findsOneWidget);
-    expect(find.text(story.publisher.label), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byType(MomentPostCard),
+        matching: find.text(story.publisher.label),
+      ),
+      findsOneWidget,
+    );
     expect(find.text('NEW PEAK'), findsOneWidget);
     expect(find.text('#3'), findsOneWidget);
-    expect(find.text('WEEKLY HOT 100 #3'), findsOneWidget);
+    // SN-50 F-Q22: the chart is named once, in the kicker.
+    expect(find.textContaining('HOT 100 #'), findsNothing);
   });
 
   test('Singles and releases awaiting a format tell no release story; '
@@ -1297,7 +1309,7 @@ void main() {
       expect((story.body ?? '').toLowerCase(), isNot(contains(banned)));
     }
     expect(find.text('SONUS HOT 100'), findsOneWidget);
-    expect(find.text('HOT 100 #1'), findsOneWidget);
+    expect(find.text('#1'), findsOneWidget);
     expect(find.text('NUMBER ONE'), findsOneWidget);
     expect(find.text('${story.publisher.handle} · 3h'), findsOneWidget);
   });
@@ -1444,6 +1456,161 @@ void main() {
       findsOneWidget,
     );
   });
+
+  testWidgets('F-Q26: Moments shows a dot and says "new stories" until it '
+      'is opened', (tester) async {
+    final store = MemoryMomentsLastSeenStore(DateTime.utc(2026, 9, 1));
+    final controller = await _controller(
+      momentsLastSeen: store,
+      moments: [
+        _momentEvent(
+          id: 'final-peak',
+          scope: ChartMomentScope.finalized,
+          type: ChartMomentEventType.newPeak,
+          currentRank: 3,
+          currentPeakRank: 3,
+        ),
+      ],
+    );
+    final semantics = tester.ensureSemantics();
+
+    // 320 px wide at twice the text size.
+    await _pumpPage(
+      tester,
+      controller,
+      size: const Size(320, 2400),
+      textScale: 2,
+    );
+    expect(tester.takeException(), isNull);
+
+    final dot = find.byKey(const ValueKey<String>('charts-moments-new-dot'));
+    expect(dot, findsOneWidget);
+    expect(find.bySemanticsLabel(RegExp('new stories')), findsOneWidget);
+
+    await tester.tap(find.text('Moments'));
+    await tester.pumpAndSettle();
+    expect(dot, findsNothing);
+    expect(store.seen, controller.momentStories.first.occurredAt.toUtc());
+
+    await tester.tap(find.text('Charts'));
+    await tester.pumpAndSettle();
+    expect(dot, findsNothing);
+    expect(find.bySemanticsLabel(RegExp('new stories')), findsNothing);
+    semantics.dispose();
+  });
+
+  testWidgets('F-Q25: filters narrow the feed and can be cleared', (
+    tester,
+  ) async {
+    final controller = await _controller(
+      moments: [
+        _momentEvent(
+          id: 'final-peak',
+          scope: ChartMomentScope.finalized,
+          type: ChartMomentEventType.newPeak,
+          currentRank: 3,
+          currentPeakRank: 3,
+        ),
+      ],
+    );
+    final story = controller.momentStories.single;
+    final other = MomentPublisher.values.firstWhere(
+      (publisher) => publisher != story.publisher,
+    );
+
+    await _pumpPage(tester, controller);
+    await tester.tap(find.text('Moments'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.widgetWithText(ChoiceChip, other.label));
+    await tester.pumpAndSettle();
+    expect(find.text(story.headline), findsNothing);
+    expect(
+      find.byKey(const ValueKey<String>('charts-moments-filtered-empty')),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.text('Show all Moments'));
+    await tester.pumpAndSettle();
+    expect(find.text(story.headline), findsOneWidget);
+  });
+
+  testWidgets('F-Q25: older Moments load as the feed reaches its end', (
+    tester,
+  ) async {
+    final controller = await _controller(
+      momentPageSize: 1,
+      moments: [
+        for (var day = 1; day <= 4; day++)
+          _momentEvent(
+            id: 'debut-$day',
+            scope: ChartMomentScope.allTime,
+            type: ChartMomentEventType.debut,
+            currentRank: 30,
+            currentPeakRank: 30,
+            occurredAt: DateTime(2026, 9, day, 12).toUtc(),
+          ),
+      ],
+    );
+    expect(controller.hasMoreMoments, isTrue);
+    final firstPage = controller.momentStories.length;
+
+    await _pumpPage(tester, controller);
+    await tester.tap(find.text('Moments'));
+    await tester.pumpAndSettle();
+
+    expect(controller.hasMoreMoments, isFalse);
+    expect(controller.momentStories.length, greaterThan(firstPage));
+    expect(controller.momentStories, hasLength(4));
+    expect(
+      find.byKey(const ValueKey<String>('charts-moments-loading-more')),
+      findsNothing,
+    );
+  });
+
+  testWidgets('F-Q19/F-Q20: an SN-50 song story names every performer as '
+      'text', (tester) async {
+    final controller = await _controller(
+      tracks: [
+        LibraryTrack(
+          songId: 'songs_1',
+          title: 'Song 1',
+          artistId: 'artist_1',
+          artistName: 'Artist 1',
+          albumId: 'album_1',
+          albumTitle: 'Album 1',
+          albumEditionId: 'edition_1',
+          albumEditionTitle: 'Standard',
+          albumEditionType: AlbumEditionType.standard,
+          trackNumber: 1,
+          durationSeconds: 180,
+          isSingle: false,
+          featuredArtists: const ['Guest One', 'Guest Two'],
+          dateAdded: DateTime.utc(2026, 9, 1),
+          isAvailable: true,
+          filePath: 'C:/Music/song_1.mp3',
+        ),
+      ],
+      moments: [
+        _momentEvent(
+          id: 'refined-debut',
+          scope: ChartMomentScope.allTime,
+          type: ChartMomentEventType.debut,
+          currentRank: 30,
+          currentPeakRank: 30,
+          occurredAt: DateTime.utc(2026, 11, 3, 12),
+        ),
+      ],
+    );
+
+    await _pumpPage(tester, controller, size: const Size(320, 2400));
+    await tester.tap(find.text('Moments'));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('Artist 1 feat. Guest One, Guest Two'), findsOneWidget);
+    expect(_postPart('credit'), findsOneWidget);
+  });
 }
 
 Future<ChartsController> _controller({
@@ -1456,6 +1623,8 @@ Future<ChartsController> _controller({
   ReleaseFormatsLoader? releaseFormats,
   DeluxeEditionsLoader? deluxeEditions,
   ThisWeekChartService? thisWeek,
+  MomentsLastSeenStore? momentsLastSeen,
+  int momentPageSize = ChartMomentFeedPager.defaultPageSize,
 }) async {
   final resolvedLive =
       live ?? _snapshot(id: 'live', start: DateTime.utc(2026, 9, 27));
@@ -1481,6 +1650,8 @@ Future<ChartsController> _controller({
     releaseFormats: releaseFormats,
     deluxeEditions: deluxeEditions,
     thisWeekCharts: thisWeek,
+    momentsLastSeen: momentsLastSeen,
+    momentPageSize: momentPageSize,
   );
 
   await controller.load();
@@ -1796,6 +1967,12 @@ class _FakeChartMomentRepository implements ChartMomentRepository {
 
     return events.take(limit).toList(growable: false);
   }
+
+  @override
+  Future<List<ChartMomentEvent>> getPage({
+    ChartMomentPageCursor? before,
+    required int limit,
+  }) async => momentPageOf(events, before: before, limit: limit);
 }
 
 /// Serves the given snapshots' entries as the all-time charts.

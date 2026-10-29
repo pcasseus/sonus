@@ -8,6 +8,7 @@ import 'package:sonus_next/features/charts/domain/models/chart_type.dart';
 import 'package:sonus_next/features/charts/domain/moments/chart_moment_event.dart';
 import 'package:sonus_next/features/charts/domain/moments/chart_moment_event_type.dart';
 import 'package:sonus_next/features/charts/domain/moments/chart_moment_scope.dart';
+import 'package:sonus_next/features/charts/domain/repositories/chart_moment_repository.dart';
 
 void main() {
   sqfliteFfiInit();
@@ -438,5 +439,58 @@ void main() {
     final restored = await repository.getById('missing');
 
     expect(restored, isNull);
+  });
+
+  test(
+    'pages newest first, by time then id, without repeats or gaps',
+    () async {
+      final events = [
+        for (final (id, minute) in [
+          ('m-a', 0),
+          ('m-b', 1),
+          ('m-c', 1),
+          ('m-d', 1),
+          ('m-e', 2),
+        ])
+          createEvent(
+            id: id,
+            deduplicationKey: 'key-$id',
+            sourceId: 'play-$id',
+            occurredAt: DateTime.utc(2026, 9, 28, 17, minute),
+          ),
+      ];
+      await repository.saveAll(events);
+
+      final read = <String>[];
+      ChartMomentPageCursor? cursor;
+      while (true) {
+        final page = await repository.getPage(before: cursor, limit: 2);
+        if (page.isEmpty) break;
+        read.addAll(page.map((event) => event.id));
+        cursor = ChartMomentPageCursor.of(page.last);
+      }
+
+      expect(read, ['m-e', 'm-d', 'm-c', 'm-b', 'm-a']);
+      expect(
+        read,
+        (await repository.getRecent()).map((event) => event.id),
+        reason: 'the same order as the full read',
+      );
+    },
+  );
+
+  test('a page read uses the occurred index', () async {
+    final db = await database.database;
+    final plan = await db.rawQuery(
+      'EXPLAIN QUERY PLAN SELECT * FROM chart_moment_events '
+      'WHERE occurred_at <= ? AND (occurred_at < ? OR id < ?) '
+      'ORDER BY occurred_at DESC, id DESC LIMIT 2',
+      ['2026-09-28T17:00:00.000Z', '2026-09-28T17:00:00.000Z', 'm'],
+    );
+
+    expect(
+      plan.map((row) => row['detail']).join(' '),
+      contains('idx_chart_moment_events_occurred'),
+    );
   });
 }

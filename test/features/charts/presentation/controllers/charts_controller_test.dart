@@ -11,6 +11,7 @@ import 'package:sonus_next/features/library/application/repositories/library_que
 import 'package:sonus_next/features/charts/application/services/chart_finalization_service.dart';
 import 'package:sonus_next/features/charts/application/services/all_time_chart_service.dart';
 import 'package:sonus_next/features/charts/application/services/all_time_moment_service.dart';
+import 'package:sonus_next/features/charts/application/services/chart_moment_feed_pager.dart';
 import 'package:sonus_next/features/charts/application/services/this_week_chart_service.dart';
 import 'package:sonus_next/features/charts/domain/entities/all_time_chart.dart';
 import 'package:sonus_next/features/charts/domain/entities/chart_entry.dart';
@@ -29,6 +30,7 @@ import 'package:sonus_next/features/charts/domain/moments/chart_moment_scope.dar
 import 'package:sonus_next/features/charts/domain/repositories/chart_moment_repository.dart';
 
 import '../../support/all_time_chart_fakes.dart' as support;
+import '../../support/moment_page_fakes.dart';
 
 void main() {
   final referenceLocal = DateTime(2026, 9, 28, 12);
@@ -477,8 +479,8 @@ void main() {
 
     await controller.load();
 
-    expect(moments.getRecentCallCount, 1);
-    expect(moments.lastLimit, isNull);
+    expect(moments.pageReadCount, 1);
+    expect(moments.lastLimit, ChartMomentFeedPager.defaultPageSize);
 
     expect(controller.hasMomentFeedError, isFalse);
     expect(controller.hasMomentFeedItems, isTrue);
@@ -511,7 +513,7 @@ void main() {
     await controller.load();
     await controller.refresh();
 
-    expect(moments.getRecentCallCount, 2);
+    expect(moments.pageReadCount, 2);
   });
 
   test('Moments read failure does not fail chart loading', () async {
@@ -1291,12 +1293,19 @@ class _FakeChartMomentRepository implements ChartMomentRepository {
   final Object? error;
   final void Function()? onRead;
 
-  int getRecentCallCount = 0;
+  int pageReadCount = 0;
   int? lastLimit;
 
   @override
-  Future<List<ChartMomentEvent>> getRecent({int? limit}) async {
-    getRecentCallCount++;
+  Future<List<ChartMomentEvent>> getRecent({int? limit}) async =>
+      momentPageOf(events, limit: limit ?? events.length);
+
+  @override
+  Future<List<ChartMomentEvent>> getPage({
+    ChartMomentPageCursor? before,
+    required int limit,
+  }) async {
+    pageReadCount++;
     lastLimit = limit;
     onRead?.call();
 
@@ -1306,11 +1315,7 @@ class _FakeChartMomentRepository implements ChartMomentRepository {
       throw error;
     }
 
-    if (limit == null || events.length <= limit) {
-      return List<ChartMomentEvent>.unmodifiable(events);
-    }
-
-    return List<ChartMomentEvent>.unmodifiable(events.take(limit));
+    return momentPageOf(events, before: before, limit: limit);
   }
 
   @override

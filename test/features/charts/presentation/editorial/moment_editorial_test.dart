@@ -25,6 +25,7 @@ class FakeLookups implements MomentLookups {
     this.featured = const {},
     this.covers = const {},
     this.portraits = const {},
+    this.currentCovers = const {},
   });
 
   final Map<String, String> artists;
@@ -35,6 +36,9 @@ class FakeLookups implements MomentLookups {
   final Map<String, List<String>> featured;
   final Map<String, String> covers;
   final Map<String, String> portraits;
+
+  /// Covers that SN-50 stories show instead, where they differ.
+  final Map<String, String> currentCovers;
 
   @override
   String? artistName(String artistId) => artists[artistId];
@@ -65,6 +69,14 @@ class FakeLookups implements MomentLookups {
 
   @override
   String? releaseCover(String albumId) => covers[albumId];
+
+  @override
+  String? currentSongCover(String songId) =>
+      currentCovers[songId] ?? songCover(songId);
+
+  @override
+  String? currentReleaseCover(String albumId) =>
+      currentCovers[albumId] ?? releaseCover(albumId);
 
   @override
   String? artistPortrait(String artistId) => portraits[artistId];
@@ -1115,6 +1127,124 @@ void main() {
       );
       expect(stories.single.family, MomentFamily.songFirstNumberOne);
       expect(stories.single.facts.rivalTitle, isNull);
+    });
+
+    test('F-Q28: an SN-50 story\'s publisher follows its character', () {
+      final stories = desk.compose(
+        items([
+          for (var i = 0; i < 6; i++) ...[
+            event(
+              ChartMomentEventType.debut,
+              entity: song('deep$i'),
+              source: 'deep-$i',
+              rank: 150,
+              at: after.add(Duration(minutes: i)),
+            ),
+            event(
+              ChartMomentEventType.debut,
+              entity: song('top$i'),
+              source: 'top-$i',
+              rank: 4,
+              at: after.add(Duration(minutes: 10 + i)),
+            ),
+          ],
+        ]),
+      );
+
+      expect(stories, isNotEmpty);
+      for (final story in stories) {
+        expect(
+          story.publisher,
+          MomentEditorialDesk.publisherFor(story.family),
+          reason: story.family.name,
+        );
+      }
+      expect(
+        MomentEditorialDesk.publisherFor(MomentFamily.songBubblingUnderDebut),
+        MomentPublisher.sonusDaily,
+      );
+      expect(
+        MomentEditorialDesk.publisherFor(MomentFamily.songDebutTop10),
+        MomentPublisher.pulsePop,
+      );
+    });
+
+    test('F-Q28: earlier stories keep both publishers within one family', () {
+      final stories = desk.compose(
+        items([
+          for (var i = 0; i < 12; i++)
+            event(
+              ChartMomentEventType.debut,
+              entity: song('old$i'),
+              source: 'old-$i',
+              rank: 4,
+              at: before.add(Duration(minutes: i)),
+            ),
+        ]),
+      );
+
+      expect(stories.map((story) => story.publisher).toSet(), {
+        MomentPublisher.sonusDaily,
+        MomentPublisher.pulsePop,
+      });
+    });
+
+    test('F-Q23: an artist roundup shows no song rank', () {
+      final stories = desk.compose(
+        items([
+          for (final id in ['r1', 'r2'])
+            event(
+              ChartMomentEventType.artistSimultaneousThresholdSongs,
+              entity: song(id),
+              scope: ChartMomentScope.finalized,
+              source: 'week',
+              rank: id == 'r1' ? 2 : 6,
+              threshold: 10,
+              milestone: 2,
+              at: after,
+            ),
+        ]),
+      );
+      final roundup = stories.firstWhere(
+        (story) => story.family == MomentFamily.artistSimultaneous,
+      );
+
+      expect(roundup.rank, isNull);
+    });
+
+    test('F-Q17/C-23: SN-50 stories use the current covers; earlier ones '
+        'keep theirs', () {
+      final covered = MomentEditorialDesk(
+        lookups: FakeLookups(
+          artists: {'artist-a': 'Name artist-a'},
+          covers: {'s-new': '/primary.jpg', 's-old': '/primary.jpg'},
+          currentCovers: {'s-new': '/deluxe.jpg', 's-old': '/deluxe.jpg'},
+        ),
+      );
+      final stories = covered.compose(
+        items([
+          event(
+            ChartMomentEventType.debut,
+            entity: song('s-new'),
+            source: 'new',
+            rank: 30,
+            at: after,
+          ),
+          event(
+            ChartMomentEventType.debut,
+            entity: song('s-old'),
+            source: 'old',
+            rank: 30,
+            at: before,
+          ),
+        ]),
+      );
+      final byEntity = {
+        for (final story in stories) story.item.entity.entityId: story,
+      };
+
+      expect(byEntity['s-new']!.visual.left.path, '/deluxe.jpg');
+      expect(byEntity['s-old']!.visual.left.path, '/primary.jpg');
     });
   });
 }

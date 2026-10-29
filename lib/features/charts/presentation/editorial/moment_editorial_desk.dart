@@ -1,4 +1,5 @@
 import '../../application/models/chart_moment_feed_item.dart';
+import '../../application/services/chart_moment_feed_pager.dart';
 import '../../domain/models/chart_type.dart';
 import '../../domain/moments/chart_moment_event_type.dart';
 import '../../domain/moments/chart_moment_rules.dart';
@@ -23,7 +24,6 @@ class MomentStory {
     required this.status,
     required this.visual,
     this.body,
-    this.tag,
     this.rank,
   });
 
@@ -39,14 +39,15 @@ class MomentStory {
   /// A second paragraph, only when it adds a verified fact.
   final String? body;
 
-  /// For example "SONUS HOT 100" or "SONUS BUBBLING UNDER".
+  /// For example "SONUS HOT 100" or "SONUS BUBBLING UNDER": the card's
+  /// only mention of the chart (SN-50 F-Q22).
   final String kicker;
 
   /// The achievement badge, for example "NUMBER ONE".
   final String status;
 
-  /// The chart position badge, for example "BUBBLING UNDER #106".
-  final String? tag;
+  /// The chart position badge. Stories about an artist show none, except
+  /// the artist's own #1 among your artists (F-Q23).
   final int? rank;
   final MomentVisual visual;
 
@@ -105,8 +106,8 @@ class MomentEditorialDesk {
         final facts = MomentFacts.of(moment.item, lookups, refined: refined);
         if (!moment.mandatory &&
             moment.family.tierFor(facts.rank) == MomentTier.minor) {
-          final local = item.occurredAt.toLocal();
-          final day = '${local.year}-${local.month}-${local.day}';
+          // The feed is paged in these same days.
+          final day = ChartMomentFeedPager.localDay(item.occurredAt);
           final count = minorPerDay[day] ?? 0;
           if (count >= minorStoriesPerDay) continue;
           minorPerDay[day] = count + 1;
@@ -145,7 +146,9 @@ class MomentEditorialDesk {
     String? previousVariant,
   ) {
     final variants = MomentHeadlines.of(family);
-    final publisher = _hash('${item.id}|publisher').isEven
+    final publisher = facts.refined
+        ? publisherFor(family)
+        : _hash('${item.id}|publisher').isEven
         ? MomentPublisher.sonusDaily
         : MomentPublisher.pulsePop;
 
@@ -195,8 +198,13 @@ class MomentEditorialDesk {
       body: _supportingText(family, facts, variant),
       kicker: _kicker(family, facts),
       status: _status(family),
-      tag: _tag(family, facts),
-      rank: family == MomentFamily.artistTopArtist ? 1 : facts.rank,
+      rank: switch (family) {
+        MomentFamily.artistTopArtist => 1,
+        MomentFamily.artistSimultaneous ||
+        MomentFamily.artistSimultaneousReleases ||
+        MomentFamily.artistStreamMilestone => null,
+        _ => facts.rank,
+      },
       visual: MomentVisuals.select(
         item: item,
         family: family,
@@ -374,17 +382,62 @@ class MomentEditorialDesk {
     MomentFamily.artistSimultaneousReleases => 'RECORD',
   };
 
-  static String? _tag(MomentFamily family, MomentFacts facts) {
-    if (family == MomentFamily.artistTopArtist) return 'ARTISTS #1';
-    final rank = facts.rank;
-    if (rank == null) return null;
-    final chart = switch (facts.chartType) {
-      ChartType.songs when facts.bubblingUnder => 'BUBBLING UNDER',
-      ChartType.songs => 'HOT 100',
-      ChartType.albums => 'ALBUMS & EPS',
-    };
-    return facts.weekly ? 'WEEKLY $chart #$rank' : '$chart #$rank';
-  }
+  /// Who writes a story under the SN-50 rules (F-Q28), by its character
+  /// rather than an even split; earlier stories keep the publisher they
+  /// were first published with. When the family has no headline in that
+  /// voice that fits, the other publisher's headline is used.
+  ///
+  /// - **Sonus Daily**, measured and factual: debuts below the Top 10 and
+  ///   Bubbling Under arrivals, re-entries, chart zones, peak matches,
+  ///   streaming and longevity milestones, an artist's first Hot 100 entry,
+  ///   counted career records (nth Top 10, nth or repeat #1) and roundups.
+  /// - **PulsePop**, expressive and energetic: #1 arrivals, returns and
+  ///   self-replacements, Top 10 debuts, new peaks, big climbs, the biggest
+  ///   gainer, Hot 100 breakthroughs, an artist's first Top 10 or #1, and a
+  ///   new top artist.
+  static MomentPublisher publisherFor(MomentFamily family) => switch (family) {
+    MomentFamily.songDebut ||
+    MomentFamily.songBubblingUnderDebut ||
+    MomentFamily.songReentry ||
+    MomentFamily.songPeakMatch ||
+    MomentFamily.songStreamMilestone ||
+    MomentFamily.songWeeksMilestone ||
+    MomentFamily.songFirstThreshold ||
+    MomentFamily.songThresholds ||
+    MomentFamily.releaseDebut ||
+    MomentFamily.releaseReentry ||
+    MomentFamily.releaseStreamMilestone ||
+    MomentFamily.releaseWeeksMilestone ||
+    MomentFamily.releaseFirstThreshold ||
+    MomentFamily.releaseThresholds ||
+    MomentFamily.artistFirstHot100 ||
+    MomentFamily.artistNthTop10 ||
+    MomentFamily.artistNthNumberOne ||
+    MomentFamily.artistNthNumberOneRelease ||
+    MomentFamily.artistRepeatNumberOne ||
+    MomentFamily.artistRepeatNumberOneRelease ||
+    MomentFamily.artistStreamMilestone ||
+    MomentFamily.artistSimultaneous ||
+    MomentFamily.artistSimultaneousReleases => MomentPublisher.sonusDaily,
+    MomentFamily.songDebutNumberOne ||
+    MomentFamily.songDebutTop10 ||
+    MomentFamily.songHot100Breakthrough ||
+    MomentFamily.songFirstNumberOne ||
+    MomentFamily.songReturnsToNumberOne ||
+    MomentFamily.songNewPeak ||
+    MomentFamily.songBigClimb ||
+    MomentFamily.songBiggestGainer ||
+    MomentFamily.songSelfReplacement ||
+    MomentFamily.releaseDebutNumberOne ||
+    MomentFamily.releaseReachesNumberOne ||
+    MomentFamily.releaseReturnsToNumberOne ||
+    MomentFamily.releaseNewPeak ||
+    MomentFamily.releaseSelfReplacement ||
+    MomentFamily.artistFirstTop10 ||
+    MomentFamily.artistFirstNumberOne ||
+    MomentFamily.artistFirstNumberOneRelease ||
+    MomentFamily.artistTopArtist => MomentPublisher.pulsePop,
+  };
 
   /// Per finalized week and chart, the story with the largest verified
   /// climb, when it climbed at least [biggestGainerMinimumPlaces].
