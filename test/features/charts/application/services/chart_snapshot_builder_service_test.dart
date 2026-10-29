@@ -284,7 +284,8 @@ void main() {
     expect(snapshot.entries.single.entity.entityId, 'missing-file-song');
   });
 
-  test('deleted library entity is excluded from live snapshot', () async {
+  test('a song no longer in the library stays on the live chart as it was '
+      'heard (SN-50 R1)', () async {
     final builder = ChartSnapshotBuilderService(
       qualifiedPlays: _FakeQualifiedPlayRepository([
         play(
@@ -299,6 +300,13 @@ void main() {
         albums: [album('album-a')],
       ),
       charts: _FakeChartRepository(),
+      playbackSessions: _FakePlaybackSessionRepository([
+        playbackSession(
+          id: 'session-1',
+          songId: 'deleted-song',
+          albumId: 'album-a',
+        ),
+      ]),
     );
 
     final snapshot = await builder.build(
@@ -307,7 +315,76 @@ void main() {
       weekEndUtc: DateTime.utc(2026, 10, 4),
     );
 
-    expect(snapshot.entries, isEmpty);
+    expect(snapshot.entries, hasLength(1));
+    expect(snapshot.entries.single.entity.entityId, 'deleted-song');
+    expect(snapshot.entries.single.entity.title, 'Historical deleted-song');
+    expect(snapshot.entries.single.qualifiedStreamCount, 1);
+  });
+
+  group('a play missing from the library whose session is gone', () {
+    ChartSnapshotBuilderService builderWithoutSession() =>
+        ChartSnapshotBuilderService(
+          qualifiedPlays: _FakeQualifiedPlayRepository([
+            play(
+              id: '1',
+              songId: 'deleted-song',
+              albumId: 'deleted-album',
+              qualifiedAt: DateTime.utc(2026, 9, 28, 10),
+            ),
+            play(
+              id: '2',
+              songId: 'deleted-song',
+              albumId: 'deleted-album',
+              qualifiedAt: DateTime.utc(2026, 9, 28, 11),
+            ),
+            play(
+              id: '3',
+              songId: 'active-song',
+              albumId: 'album-a',
+              qualifiedAt: DateTime.utc(2026, 9, 28, 12),
+            ),
+          ]),
+          library: _FakeLibraryQueryRepository(
+            tracks: [track(songId: 'active-song', albumId: 'album-a')],
+            albums: [album('album-a')],
+          ),
+          charts: _FakeChartRepository(),
+          playbackSessions: _FakePlaybackSessionRepository([
+            playbackSession(
+              id: 'session-3',
+              songId: 'active-song',
+              albumId: 'album-a',
+            ),
+          ]),
+        );
+
+    for (final chartType in ChartType.values) {
+      test('is left out of the live ${chartType.name} chart; the rest still '
+          'loads', () async {
+        final snapshot = await builderWithoutSession().build(
+          chartType: chartType,
+          weekStartUtc: DateTime.utc(2026, 9, 27),
+          weekEndUtc: DateTime.utc(2026, 10, 4),
+        );
+
+        expect(snapshot.entries.map((entry) => entry.entity.entityId), [
+          chartType == ChartType.songs ? 'active-song' : 'album-a',
+        ]);
+        expect(snapshot.entries.single.rank, 1);
+      });
+    }
+
+    test('still stops a finalized week', () async {
+      await expectLater(
+        builderWithoutSession().build(
+          chartType: ChartType.songs,
+          weekStartUtc: DateTime.utc(2026, 9, 27),
+          weekEndUtc: DateTime.utc(2026, 10, 4),
+          finalizedAt: DateTime.utc(2026, 10, 4),
+        ),
+        throwsStateError,
+      );
+    });
   });
 
   test('finalized Top 100 entry increments weeks on chart', () async {

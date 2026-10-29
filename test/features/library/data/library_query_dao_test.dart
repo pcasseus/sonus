@@ -1512,6 +1512,122 @@ void main() {
       expect(track.artworkId, fixture.songArtwork.id);
     });
   });
+
+  // SN-50 R5: inside an edition view a song shows its own artwork, then the
+  // selected edition's cover, then the primary edition's cover, then the
+  // placeholder. Never another non-primary edition's cover.
+  group('song artwork inside an edition view', () {
+    Future<AlbumEdition> bareEdition(_ArtworkQueryFixture fixture) async {
+      final bare = AlbumEdition(
+        id: 'edition_bare',
+        albumId: fixture.album.id,
+        title: 'Query Album (Tour Cut)',
+        type: AlbumEditionType.other,
+        isPrimary: false,
+        createdAt: DateTime.utc(2026, 9, 16),
+        updatedAt: DateTime.utc(2026, 9, 16),
+      );
+      await AlbumEditionDao(fixture.db).insert(bare);
+      return bare;
+    }
+
+    Future<String?> artworkIn(
+      _ArtworkQueryFixture fixture,
+      String editionId,
+      String songId,
+    ) async => (await LibraryQueryDao(fixture.db).findTracksByAlbumEditionId(
+      editionId,
+    )).singleWhere((track) => track.songId == songId).artworkId;
+
+    test("the song's own artwork wins in every edition", () async {
+      final fixture = await _createArtworkFixture(appDatabase);
+      final song = fixture.alphaSong.id;
+      await _listIn(fixture.db, fixture.standardEdition.id, [song]);
+      await _listIn(fixture.db, fixture.deluxeEdition.id, [song]);
+
+      expect(
+        await artworkIn(fixture, fixture.standardEdition.id, song),
+        fixture.songArtwork.id,
+      );
+      expect(
+        await artworkIn(fixture, fixture.deluxeEdition.id, song),
+        fixture.songArtwork.id,
+      );
+    });
+
+    test("without its own artwork a song shows the selected edition's "
+        "cover", () async {
+      final fixture = await _createArtworkFixture(appDatabase);
+      final song = fixture.betaSong.id;
+      await _listIn(fixture.db, fixture.standardEdition.id, [song]);
+      await _listIn(fixture.db, fixture.deluxeEdition.id, [song]);
+
+      expect(
+        await artworkIn(fixture, fixture.standardEdition.id, song),
+        fixture.standardArtwork.id,
+      );
+      expect(
+        await artworkIn(fixture, fixture.deluxeEdition.id, song),
+        fixture.deluxeArtwork.id,
+      );
+    });
+
+    test('a Deluxe-only song shows the Deluxe cover, not the '
+        'Standard', () async {
+      final fixture = await _createArtworkFixture(appDatabase);
+      await SongDao(fixture.db).update(
+        fixture.zuluSong.copyWith(albumEditionId: fixture.deluxeEdition.id),
+      );
+      await _listIn(fixture.db, fixture.deluxeEdition.id, [
+        fixture.zuluSong.id,
+      ]);
+
+      expect(
+        await artworkIn(fixture, fixture.deluxeEdition.id, fixture.zuluSong.id),
+        fixture.deluxeArtwork.id,
+      );
+    });
+
+    test("an edition without a cover falls back to the primary cover, "
+        "never another edition's", () async {
+      final fixture = await _createArtworkFixture(appDatabase);
+      final bare = await bareEdition(fixture);
+      await SongDao(fixture.db).update(
+        fixture.zuluSong.copyWith(albumEditionId: fixture.deluxeEdition.id),
+      );
+      await _listIn(fixture.db, fixture.deluxeEdition.id, [
+        fixture.zuluSong.id,
+      ]);
+      await _listIn(fixture.db, bare.id, [fixture.zuluSong.id]);
+
+      expect(
+        await artworkIn(fixture, bare.id, fixture.zuluSong.id),
+        fixture.standardArtwork.id,
+      );
+    });
+
+    test('with no primary cover either, the placeholder shows', () async {
+      final fixture = await _createArtworkFixture(appDatabase);
+      final bare = await bareEdition(fixture);
+      await fixture.db.update(
+        DatabaseTables.albumEditions,
+        {'artwork_id': null},
+        where: 'id = ?',
+        whereArgs: [fixture.standardEdition.id],
+      );
+      await _listIn(fixture.db, bare.id, [fixture.betaSong.id]);
+      await _listIn(fixture.db, fixture.deluxeEdition.id, [
+        fixture.betaSong.id,
+      ]);
+
+      final track = (await LibraryQueryDao(
+        fixture.db,
+      ).findTracksByAlbumEditionId(bare.id)).single;
+
+      expect(track.artworkId, isNull);
+      expect(track.artworkPath, isNull);
+    });
+  });
 }
 
 /// Lists [songIds] on [editionId], numbered in the order given.

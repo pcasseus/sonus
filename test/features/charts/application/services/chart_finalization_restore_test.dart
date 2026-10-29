@@ -568,10 +568,89 @@ void main() {
       expect(owner.artistId, 'artist-owner');
       expect(owner.artistName, 'Album Owner');
     });
+
+    test('missing local music keeps charting in new weeks; only a blocked '
+        'song leaves, and the stored week stays byte-identical (R1)', () async {
+      final w4 = DateTime.utc(2026, 10, 14, 12);
+      final songs = ['song-a', 'song-b', 'song-c'];
+      for (final (i, song) in songs.indexed) {
+        await listen('w3-$song', song, w3.add(Duration(hours: i)));
+      }
+      await service(
+        library: _Library(
+          tracks: [for (final song in songs) _track(song)],
+          albums: const [],
+        ),
+      ).finalizeCompletedWeeks(referenceLocal: referenceLocal);
+      final frozen = await history();
+      final storedW3 = (await charts.getForWeek(
+        chartType: ChartType.songs,
+        weekStartUtc: weekStart(w3),
+      ))!;
+      expect(storedW3.entries.map((entry) => entry.entity.entityId).toSet(), {
+        ...songs,
+      });
+
+      // song-a's file is gone, song-b is no longer in this library and
+      // song-c is blocked.
+      for (final (i, song) in songs.indexed) {
+        await listen('w4-$song', song, w4.add(Duration(hours: i)));
+      }
+      final later = _Library(
+        tracks: [
+          _track('song-a', available: false),
+          _track('song-c', blocked: true),
+        ],
+        albums: const [],
+      );
+      for (var pass = 0; pass < 3; pass++) {
+        await service(
+          library: later,
+        ).finalizeCompletedWeeks(referenceLocal: referenceLocal);
+      }
+
+      final after = await history();
+      final w3Id = 'chart_songs_${weekStart(w3).millisecondsSinceEpoch}';
+      List<Map<String, Object?>> ofW3(
+        Map<String, List<Map<String, Object?>>> tables,
+      ) => [
+        for (final row in tables[DatabaseTables.chartEntries]!)
+          if (row['chart_snapshot_id'] == w3Id) row,
+      ];
+      expect(ofW3(after), ofW3(frozen));
+      expect(
+        after[DatabaseTables.chartSnapshots]!.firstWhere(
+          (row) => row['id'] == w3Id,
+        ),
+        frozen[DatabaseTables.chartSnapshots]!.firstWhere(
+          (row) => row['id'] == w3Id,
+        ),
+      );
+
+      final w4Songs = (await charts.getForWeek(
+        chartType: ChartType.songs,
+        weekStartUtc: weekStart(w4),
+      ))!;
+      expect(w4Songs.entries.map((entry) => entry.entity.entityId).toSet(), {
+        'song-a',
+        'song-b',
+      });
+      expect(
+        w4Songs.entries
+            .firstWhere((entry) => entry.entity.entityId == 'song-b')
+            .entity
+            .title,
+        'Title song-b',
+      );
+    });
   });
 }
 
-LibraryTrack _track(String song, {bool blocked = false}) => LibraryTrack(
+LibraryTrack _track(
+  String song, {
+  bool blocked = false,
+  bool available = true,
+}) => LibraryTrack(
   songId: song,
   title: 'Title $song',
   artistId: 'artist-$song',
@@ -586,7 +665,7 @@ LibraryTrack _track(String song, {bool blocked = false}) => LibraryTrack(
   isSingle: false,
   featuredArtists: const [],
   dateAdded: DateTime.utc(2026, 9, 1),
-  isAvailable: true,
+  isAvailable: available,
   isSongBlocked: blocked,
 );
 

@@ -37,6 +37,11 @@ import 'package:sonus_next/features/charts/presentation/controllers/charts_contr
 import 'package:sonus_next/features/charts/presentation/news/moment_post_card.dart';
 import 'package:sonus_next/features/charts/presentation/editorial/moment_publisher.dart';
 import 'package:sonus_next/features/charts/presentation/pages/charts_page.dart';
+import 'package:sonus_next/features/player/application/controllers/playback_coordinator.dart';
+import 'package:sonus_next/features/player/domain/models/playback_repeat_mode.dart';
+import 'package:sonus_next/features/player/domain/models/playback_state.dart';
+import 'package:sonus_next/features/player/domain/models/playback_track.dart';
+import 'package:sonus_next/features/player/domain/services/playback_engine.dart';
 
 import '../../support/moment_page_fakes.dart';
 
@@ -182,6 +187,69 @@ void main() {
 
     expect(find.text('Play next'), findsOneWidget);
     expect(find.text('Add to queue'), findsOneWidget);
+  });
+
+  // SN-50 E-Q8: opening a finalized week's song never touches what is
+  // playing; only an explicit Play in its sheet does.
+  testWidgets('historical song row leaves the queue alone until Play is '
+      'chosen', (tester) async {
+    final engine = _RecordingPlaybackEngine();
+    final controller = await _controller(
+      history: [
+        _snapshot(
+          id: 'historical',
+          start: DateTime.utc(2026, 9, 20),
+          finalized: true,
+        ),
+      ],
+    );
+
+    await _pumpPage(
+      tester,
+      controller,
+      playback: PlaybackCoordinator(engine: engine),
+    );
+    controller.showOlderWeek();
+    await tester.pump();
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('charts-entry-songs_1')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Play'), findsOneWidget);
+    expect(engine.calls, isEmpty);
+
+    await tester.tap(find.text('Play'));
+    await tester.pumpAndSettle();
+
+    expect(engine.calls, ['loadQueue']);
+  });
+
+  // SN-50 R1: verified listening stays in Career standings when the song is
+  // no longer in this library; it shows as heard and cannot be played.
+  testWidgets('a song no longer in the library stays in the standings, '
+      'marked and not playable', (tester) async {
+    final engine = _RecordingPlaybackEngine();
+    final controller = await _controller(tracks: const []);
+
+    await _pumpPage(
+      tester,
+      controller,
+      playback: PlaybackCoordinator(engine: engine),
+    );
+
+    expect(controller.isViewingAllTime, isTrue);
+    expect(find.text('Song 1'), findsOneWidget);
+    expect(find.text('HISTORICAL'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('charts-entry-songs_1')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Play'), findsNothing);
+    expect(engine.calls, isEmpty);
   });
 
   testWidgets('historical album row opens the living release', (tester) async {
@@ -1665,23 +1733,27 @@ Future<void> _pumpPage(
   ThemeData? theme,
   Size size = const Size(800, 1600),
   double textScale = 1,
+  PlaybackCoordinator? playback,
 }) async {
   await tester.binding.setSurfaceSize(size);
 
   addTearDown(() => tester.binding.setSurfaceSize(null));
 
   await tester.pumpWidget(
-    ChangeNotifierProvider<ChartsController?>.value(
-      value: controller,
-      child: MaterialApp(
-        theme: theme,
-        themeAnimationDuration: Duration.zero,
-        builder: (context, child) => MediaQuery.withClampedTextScaling(
-          minScaleFactor: textScale,
-          maxScaleFactor: textScale,
-          child: child!,
+    Provider<PlaybackCoordinator?>.value(
+      value: playback,
+      child: ChangeNotifierProvider<ChartsController?>.value(
+        value: controller,
+        child: MaterialApp(
+          theme: theme,
+          themeAnimationDuration: Duration.zero,
+          builder: (context, child) => MediaQuery.withClampedTextScaling(
+            minScaleFactor: textScale,
+            maxScaleFactor: textScale,
+            child: child!,
+          ),
+          home: const Scaffold(body: ChartsPage()),
         ),
-        home: const Scaffold(body: ChartsPage()),
       ),
     ),
   );
@@ -2143,4 +2215,71 @@ class _FakeLibraryQueryRepository implements LibraryQueryRepository {
   Future<LibraryArtist?> getArtistById(String artistId) async {
     return null;
   }
+}
+
+/// Records every call that would change the queue or what is playing.
+class _RecordingPlaybackEngine implements PlaybackEngine {
+  final List<String> calls = [];
+
+  @override
+  Stream<PlaybackState> get states => const Stream.empty();
+
+  @override
+  PlaybackState get currentState => const PlaybackState();
+
+  @override
+  Future<void> loadQueue(
+    List<PlaybackTrack> tracks, {
+    int startIndex = 0,
+    bool autoPlay = false,
+  }) async => calls.add('loadQueue');
+
+  @override
+  Future<void> play() async => calls.add('play');
+
+  @override
+  Future<void> pause() async => calls.add('pause');
+
+  @override
+  Future<void> seek(Duration position) async => calls.add('seek');
+
+  @override
+  Future<void> skipNext() async => calls.add('skipNext');
+
+  @override
+  Future<void> skipPrevious() async => calls.add('skipPrevious');
+
+  @override
+  Future<void> skipToIndex(int index) async => calls.add('skipToIndex');
+
+  @override
+  Future<void> insertTrack(PlaybackTrack track, {required int index}) async =>
+      calls.add('insertTrack');
+
+  @override
+  Future<void> appendTrack(PlaybackTrack track) async =>
+      calls.add('appendTrack');
+
+  @override
+  Future<void> removeTrackAt(int index) async => calls.add('removeTrackAt');
+
+  @override
+  Future<void> moveTrack({
+    required int oldIndex,
+    required int newIndex,
+  }) async => calls.add('moveTrack');
+
+  @override
+  Future<void> setShuffleEnabled(bool enabled) async =>
+      calls.add('setShuffleEnabled');
+
+  @override
+  Future<void> setRepeatMode(PlaybackRepeatMode mode) async =>
+      calls.add('setRepeatMode');
+
+  @override
+  Future<void> stop() async => calls.add('stop');
+
+  @override
+  Future<void> dispose() async {}
 }

@@ -151,6 +151,7 @@ class _ChartsScopeState extends State<ChartsScope> {
     final allTimeCharts = AllTimeChartService(
       qualifiedPlays: qualifiedPlays,
       library: library,
+      playbackSessions: playbackSessions,
       releaseEligibility: releaseEligibility,
     );
     final finalization = ChartFinalizationService(

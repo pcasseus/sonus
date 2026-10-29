@@ -23,6 +23,7 @@ void main() {
   }) {
     return AllTimeChartService(
       qualifiedPlays: plays,
+      playbackSessions: FakePlaybackSessions(plays.plays),
       library:
           library ??
           FakeChartLibrary(
@@ -103,7 +104,8 @@ void main() {
     expect(chart.entries.map((e) => e.weeksOnChart), everyElement(0));
   });
 
-  test('blocked and removed songs are left out', () async {
+  test('blocked songs are left out; a song no longer in the library keeps '
+      'its listening, as heard (SN-50 R1)', () async {
     final chart = await service(
       plays: FakeQualifiedPlayRepository([
         ...history,
@@ -118,8 +120,47 @@ void main() {
       ),
     ).load(chartType: ChartType.songs, referenceLocal: reference);
 
-    expect(chart.entries.map((e) => e.entity.entityId), ['bitter']);
-    expect(chart.entries.single.rank, 1);
+    expect(chart.entries.map((e) => e.entity.entityId), ['gone', 'bitter']);
+    expect(chart.entries.first.qualifiedStreamCount, 99);
+    expect(chart.entries.first.entity.title, 'Heard gone');
+    expect(chart.entries.first.entity.albumTitle, 'Heard album-gone');
+  });
+
+  test('a release no longer in the library keeps its listening, as heard '
+      '(SN-50 R1)', () async {
+    final chart = await service(
+      plays: FakeQualifiedPlayRepository(history),
+      library: FakeChartLibrary(
+        tracks: [libraryTrack('bitter', 'album-bitter')],
+        albums: [libraryAlbum('album-bitter')],
+      ),
+    ).load(chartType: ChartType.albums, referenceLocal: reference);
+
+    expect(chart.entries.map((e) => e.entity.entityId), [
+      'album-angel',
+      'album-bitter',
+    ]);
+    expect(chart.entries.first.entity.title, 'Heard album-angel');
+  });
+
+  test('a song no longer in the library whose session is gone is left out; '
+      'the standings still load', () async {
+    final chart = await AllTimeChartService(
+      qualifiedPlays: FakeQualifiedPlayRepository([
+        ...history,
+        ...qualifiedPlays('gone', 'album-gone', 99, lastWeek),
+      ]),
+      playbackSessions: FakePlaybackSessions(history),
+      library: FakeChartLibrary(
+        tracks: [
+          libraryTrack('angel', 'album-angel'),
+          libraryTrack('bitter', 'album-bitter'),
+        ],
+        albums: const [],
+      ),
+    ).load(chartType: ChartType.songs, referenceLocal: reference);
+
+    expect(chart.entries.map((e) => e.entity.entityId), ['angel', 'bitter']);
   });
 
   group('albums', () {

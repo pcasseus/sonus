@@ -15,6 +15,7 @@ import '../../domain/models/chart_ranking_history.dart';
 import '../../domain/models/chart_type.dart';
 import '../../domain/repositories/chart_repository.dart';
 import '../../domain/services/chart_ranking_engine.dart';
+import 'play_time_identity.dart';
 
 class ChartSnapshotBuilderService {
   const ChartSnapshotBuilderService({
@@ -159,6 +160,8 @@ class ChartSnapshotBuilderService {
     }
   }
 
+  /// Only blocked songs are left out. A song no longer in the library keeps
+  /// its verified listening and shows as it was heard (SN-50 R1).
   Future<ChartSnapshot> _buildLiveSongSnapshot({
     required List<QualifiedPlay> plays,
     required Map<String, ChartRankingHistory> historyByEntityId,
@@ -173,41 +176,43 @@ class ChartSnapshotBuilderService {
       for (final track in tracks) track.songId: track,
     };
 
-    final eligibleSongIds = tracks
-        .where((track) => !track.isBlocked)
-        .map((track) => track.songId)
-        .toSet();
+    final playTimeIdentityById = await loadPlayTimeIdentities(
+      sessions: _playbackSessions,
+      plays: plays.where((play) => !trackById.containsKey(play.songId)),
+      chartType: ChartType.songs,
+    );
 
     final ranked = _rankingEngine.rank(
       events: _eventsFor(plays: plays, chartType: ChartType.songs),
       historyByEntityId: historyByEntityId,
-      eligibleEntityIds: eligibleSongIds,
+      eligibleEntityIds: {
+        for (final play in plays)
+          if (switch (trackById[play.songId]) {
+            final LibraryTrack track => !track.isBlocked,
+            null => playTimeIdentityById.containsKey(play.songId),
+          })
+            play.songId,
+      },
       onRankObservation: onRankObservation,
     );
 
-    final entries = <ChartEntry>[];
-
-    for (final result in ranked) {
-      final track = trackById[result.entityId];
-
-      if (track == null || track.isBlocked) {
-        continue;
-      }
-
-      entries.add(
+    final entries = <ChartEntry>[
+      for (final result in ranked)
         _entryFromRanked(
           result: result,
-          entity: ChartEntitySnapshot(
-            entityId: track.songId,
-            title: track.title,
-            artistId: track.artistId,
-            artistName: track.artistName,
-            albumTitle: track.albumTitle,
-          ),
+          entity: switch (trackById[result.entityId]) {
+            final LibraryTrack track => ChartEntitySnapshot(
+              entityId: track.songId,
+              title: track.title,
+              artistId: track.artistId,
+              artistName: track.artistName,
+              albumTitle: track.albumTitle,
+            ),
+            null => playTimeIdentityById[result.entityId]!,
+          },
           isFinalized: false,
         ),
-      );
-    }
+    ];
 
     return _snapshot(
       chartType: ChartType.songs,
@@ -219,6 +224,8 @@ class ChartSnapshotBuilderService {
     );
   }
 
+  /// A release no longer in the library keeps its verified listening and
+  /// shows as it was heard (SN-50 R1).
   Future<ChartSnapshot> _buildLiveAlbumSnapshot({
     required List<QualifiedPlay> plays,
     required Map<String, ChartRankingHistory> historyByEntityId,
@@ -233,35 +240,35 @@ class ChartSnapshotBuilderService {
       for (final album in albums) album.albumId: album,
     };
 
+    final playTimeIdentityById = await loadPlayTimeIdentities(
+      sessions: _playbackSessions,
+      plays: plays.where((play) => !albumById.containsKey(play.albumId)),
+      chartType: ChartType.albums,
+    );
+
     final ranked = _rankingEngine.rank(
       events: _eventsFor(plays: plays, chartType: ChartType.albums),
       historyByEntityId: historyByEntityId,
-      eligibleEntityIds: albumById.keys.toSet(),
+      eligibleEntityIds: {...albumById.keys, ...playTimeIdentityById.keys},
       onRankObservation: onRankObservation,
     );
 
-    final entries = <ChartEntry>[];
-
-    for (final result in ranked) {
-      final album = albumById[result.entityId];
-
-      if (album == null) {
-        continue;
-      }
-
-      entries.add(
+    final entries = <ChartEntry>[
+      for (final result in ranked)
         _entryFromRanked(
           result: result,
-          entity: ChartEntitySnapshot(
-            entityId: album.albumId,
-            title: album.title,
-            artistId: album.artistId,
-            artistName: album.artistName,
-          ),
+          entity: switch (albumById[result.entityId]) {
+            final LibraryAlbum album => ChartEntitySnapshot(
+              entityId: album.albumId,
+              title: album.title,
+              artistId: album.artistId,
+              artistName: album.artistName,
+            ),
+            null => playTimeIdentityById[result.entityId]!,
+          },
           isFinalized: false,
         ),
-      );
-    }
+    ];
 
     return _snapshot(
       chartType: ChartType.albums,
@@ -273,8 +280,9 @@ class ChartSnapshotBuilderService {
     );
   }
 
-  /// Blocked songs are left out as on the live chart, judged when the week
-  /// is finalized; the stored week then never changes (SN-50 E-Q19).
+  /// Only blocked songs are left out, as on the live chart, judged when the
+  /// week is finalized; the stored week then never changes (SN-50 E-Q19,
+  /// R1).
   ChartSnapshot _buildHistoricalSongSnapshot({
     required List<QualifiedPlay> plays,
     required List<LibraryTrack> tracks,
@@ -285,7 +293,7 @@ class ChartSnapshotBuilderService {
     required DateTime finalizedAt,
     required int revision,
   }) {
-    final identityBySongId = _historicalIdentityByEntity(
+    final identityBySongId = playTimeIdentities(
       plays: plays,
       sessionsById: sessionsById,
       chartType: ChartType.songs,
@@ -335,7 +343,7 @@ class ChartSnapshotBuilderService {
     required DateTime finalizedAt,
     required int revision,
   }) {
-    final identityByAlbumId = _historicalIdentityByEntity(
+    final identityByAlbumId = playTimeIdentities(
       plays: plays,
       sessionsById: sessionsById,
       chartType: ChartType.albums,
@@ -384,57 +392,6 @@ class ChartSnapshotBuilderService {
           ),
         )
         .toList(growable: false);
-  }
-
-  /// Identity as recorded at play time, last play winning. A release is
-  /// credited to its own artist while it is in the library, never to the
-  /// artist of a song on it (SN-50 E-Q13).
-  static Map<String, ChartEntitySnapshot> _historicalIdentityByEntity({
-    required List<QualifiedPlay> plays,
-    required Map<String, PlaybackSession> sessionsById,
-    required ChartType chartType,
-    Map<String, LibraryAlbum> albumsById = const {},
-  }) {
-    final ordered = [...plays]
-      ..sort((a, b) {
-        final timeCompare = a.qualifiedAt.toUtc().compareTo(
-          b.qualifiedAt.toUtc(),
-        );
-
-        if (timeCompare != 0) {
-          return timeCompare;
-        }
-
-        return a.id.compareTo(b.id);
-      });
-
-    final identities = <String, ChartEntitySnapshot>{};
-
-    for (final play in ordered) {
-      final session = sessionsById[play.playbackSessionId]!;
-
-      switch (chartType) {
-        case ChartType.songs:
-          identities[play.songId] = ChartEntitySnapshot(
-            entityId: play.songId,
-            title: session.songTitle,
-            artistId: session.artistId,
-            artistName: session.artistName,
-            albumTitle: session.albumTitle,
-          );
-
-        case ChartType.albums:
-          final album = albumsById[play.albumId];
-          identities[play.albumId] = ChartEntitySnapshot(
-            entityId: play.albumId,
-            title: session.albumTitle,
-            artistId: album?.artistId ?? session.artistId,
-            artistName: album?.artistName ?? session.artistName,
-          );
-      }
-    }
-
-    return identities;
   }
 
   static ChartEntry _entryFromRanked({

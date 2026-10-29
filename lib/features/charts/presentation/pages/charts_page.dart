@@ -989,6 +989,9 @@ class _ChartEntryItem extends StatelessWidget {
         track != null &&
         !controller.isTrackInteractive(entry);
 
+    // Songs and releases no longer in the library keep their verified
+    // listening in every view; they show as heard, without playback
+    // (SN-50 R1).
     final missingCurrentEntity = switch (chartType) {
       ChartType.songs => track == null,
       ChartType.albums => album == null,
@@ -998,7 +1001,7 @@ class _ChartEntryItem extends StatelessWidget {
         ? (track.isBlocked
               ? ChartEntryStatus.blacklisted
               : ChartEntryStatus.unavailable)
-        : controller.isViewingHistory && missingCurrentEntity
+        : missingCurrentEntity
         ? ChartEntryStatus.historical
         : null;
 
