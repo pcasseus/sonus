@@ -9,6 +9,7 @@ import 'package:sonus_next/features/sync/application/services/automatic_sync_coo
 import 'package:sonus_next/features/sync/application/services/sync_network_policy_service.dart';
 import 'package:sonus_next/features/sync/data/services/sync_status_store.dart';
 import 'package:sonus_next/features/sync/application/services/sync_service.dart';
+import 'package:sonus_next/features/sync/application/services/sync_cancellation.dart';
 
 void main() {
   test('starts idle', () {
@@ -612,6 +613,178 @@ void main() {
         await pumpEventQueue();
       },
     );
+  });
+  group('SN-50 #23: cancellation stops a run at its next safe point', () {
+    const limit = Duration(milliseconds: 60);
+
+    late List<String> writes;
+    late int active;
+    late int maxActive;
+
+    setUp(() {
+      writes = [];
+      active = 0;
+      maxActive = 0;
+    });
+
+    /// A service run doing units of work until it is cancelled: each unit
+    /// is one write, recorded with its account, after a safe point.
+    /// [hold] can keep one unit open, as a slow network response would.
+    Future<SyncRunResult> endless(
+      String userId, {
+      Future<void> Function(int unit)? hold,
+    }) async {
+      active++;
+      if (active > maxActive) maxActive = active;
+      try {
+        for (var unit = 0; ; unit++) {
+          SyncCancellation.checkpoint();
+          await (hold?.call(unit) ??
+              Future<void>.delayed(const Duration(milliseconds: 2)));
+          writes.add('$userId:$unit');
+        }
+      } finally {
+        active--;
+      }
+    }
+
+    Future<SyncRunResult> quick(String userId) async {
+      active++;
+      if (active > maxActive) maxActive = active;
+      try {
+        writes.add('$userId:done');
+        return _result(userId: userId);
+      } finally {
+        active--;
+      }
+    }
+
+    test('a timed-out run stops at its next safe point, so a retry starts '
+        'at once and never alongside it', () async {
+      var calls = 0;
+      final controller = SyncController.forTesting(
+        synchronize: (userId) => ++calls == 1 ? endless(userId) : quick(userId),
+        runTimeout: limit,
+      );
+      addTearDown(controller.dispose);
+
+      expect(await controller.synchronize('user-1'), isFalse);
+      expect(controller.failureKind, SyncFailureKind.timeout);
+
+      expect(await controller.synchronize('user-1'), isTrue);
+      expect(controller.status, SyncStatus.success);
+      expect(maxActive, 1, reason: 'never two runs at once');
+      expect(writes.last, 'user-1:done');
+      expect(
+        writes.where((w) => w != 'user-1:done'),
+        everyElement(startsWith('user-1:')),
+      );
+    });
+
+    test('signing out stops the run; nothing more is written for that '
+        'account', () async {
+      final controller = SyncController.forTesting(
+        synchronize: (userId) => endless(userId),
+      );
+      addTearDown(controller.dispose);
+
+      final run = controller.synchronize('user-1');
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      controller.resetForSignedOut();
+      final writtenAtSignOut = writes.length;
+
+      expect(await run, isFalse);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(
+        writes.length,
+        lessThanOrEqualTo(writtenAtSignOut + 1),
+        reason: 'at most the unit already in flight finishes',
+      );
+      final settled = writes.length;
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(writes.length, settled);
+      expect(active, 0);
+      expect(controller.status, SyncStatus.idle);
+    });
+
+    test('switching account stops the old run before the new account '
+        'syncs; nothing is written for the old account afterwards', () async {
+      var calls = 0;
+      final controller = SyncController.forTesting(
+        synchronize: (userId) => ++calls == 1 ? endless(userId) : quick(userId),
+      );
+      addTearDown(controller.dispose);
+
+      final old = controller.synchronize('user-1');
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      await controller.activateUser('user-2');
+      final next = controller.synchronize('user-2');
+
+      expect(await old, isFalse);
+      expect(await next, isTrue);
+
+      final switchedAt = writes.indexOf('user-2:done');
+      expect(writes.sublist(switchedAt + 1), isEmpty);
+      expect(maxActive, 1);
+      expect(controller.currentUserId, 'user-2');
+      expect(controller.status, SyncStatus.success);
+    });
+
+    test(
+      'a unit whose response arrives after cancellation finishes whole, '
+      'and nothing follows it; the run is never reported as a success',
+      () async {
+        final response = Completer<void>();
+        final inFlight = Completer<void>();
+        final controller = SyncController.forTesting(
+          synchronize: (userId) => endless(
+            userId,
+            hold: (unit) async {
+              if (unit == 1) {
+                inFlight.complete();
+                await response.future;
+              }
+            },
+          ),
+        );
+        addTearDown(controller.dispose);
+
+        final run = controller.synchronize('user-1');
+        await inFlight.future;
+        controller.resetForSignedOut();
+        response.complete();
+
+        expect(await run, isFalse);
+        await pumpEventQueue();
+
+        expect(writes, ['user-1:0', 'user-1:1']);
+        expect(active, 0);
+        expect(controller.status, isNot(SyncStatus.success));
+        expect(controller.lastSuccessfulSync, isNull);
+      },
+    );
+
+    test('disposing stops the run at its next safe point', () async {
+      final controller = SyncController.forTesting(
+        synchronize: (userId) => endless(userId),
+      );
+
+      unawaited(controller.synchronize('user-1'));
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      controller.dispose();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      final settled = writes.length;
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(writes.length, settled);
+      expect(active, 0);
+    });
+
+    test('outside a sync run a safe point never throws', () {
+      expect(SyncCancellation.checkpoint, returnsNormally);
+      expect(SyncCancellation.current, isNull);
+    });
   });
 }
 

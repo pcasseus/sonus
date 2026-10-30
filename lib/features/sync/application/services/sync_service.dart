@@ -5,6 +5,7 @@ import '../../domain/models/local_sync_models.dart';
 import '../repositories/local_sync_repository.dart';
 import 'inbound_sync_processor.dart';
 import 'outbound_sync_processor.dart';
+import 'sync_cancellation.dart';
 import 'sync_run_guard.dart';
 
 typedef SyncClock = DateTime Function();
@@ -112,8 +113,13 @@ class SyncService {
   Future<SyncRunResult> _synchronize(String normalizedUserId) async {
     final startedAt = _now().toUtc();
 
+    // Cancellation (SN-50 #23) stops a run only between these steps and
+    // between the units inside them, never inside a unit.
+    SyncCancellation.checkpoint();
+
     // Before anything is bound, claimed, uploaded or downloaded.
     await _firstLinkGuard?.call(normalizedUserId);
+    SyncCancellation.checkpoint();
 
     final attachAccount = _attachAccount;
     final int claimedUnownedCount;
@@ -125,6 +131,7 @@ class SyncService {
       claimedUnownedCount = await _claimUnowned(normalizedUserId);
     }
 
+    SyncCancellation.checkpoint();
     final pendingBeforePush = (await _getPending(normalizedUserId)).length;
 
     final pushIsolated = _pushPendingIsolated;
@@ -132,15 +139,19 @@ class SyncService {
 
     if (pushIsolated == null) {
       await _pushPending(normalizedUserId);
+      SyncCancellation.checkpoint();
       pulledRecordCount = await _pullAll(normalizedUserId);
+      SyncCancellation.checkpoint();
       await _syncArchive?.call(normalizedUserId);
     } else {
       // Safety holds throw here and stop the run before any pull.
       final report = await pushIsolated(normalizedUserId);
+      SyncCancellation.checkpoint();
 
       // Failed entries stay pending. Inbound still runs because it defers,
       // and never overwrites, records with pending local mutations.
       pulledRecordCount = await _pullAll(normalizedUserId);
+      SyncCancellation.checkpoint();
 
       // The archive does not depend on the library push having finished;
       // a failure of either is reported, the library's first.
@@ -148,6 +159,8 @@ class SyncService {
       StackTrace? archiveStack;
       try {
         await _syncArchive?.call(normalizedUserId);
+      } on SyncCancelled {
+        rethrow;
       } catch (error, stackTrace) {
         archiveError = error;
         archiveStack = stackTrace;
@@ -162,6 +175,7 @@ class SyncService {
       }
     }
 
+    SyncCancellation.checkpoint();
     final pendingAfterSync = (await _getPending(normalizedUserId)).length;
 
     return SyncRunResult(

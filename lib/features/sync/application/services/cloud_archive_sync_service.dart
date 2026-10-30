@@ -4,6 +4,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../domain/models/cloud_archive_record.dart';
 import 'cloud_archive_gateway.dart';
+import 'sync_cancellation.dart';
 
 enum CloudArchiveApplyOutcome {
   applied,
@@ -137,6 +138,7 @@ class CloudArchiveSyncService {
     final seen = <String>{};
 
     for (final record in local) {
+      SyncCancellation.checkpoint();
       seen.add(record.recordId);
       final state = states[record.recordId];
       if (state != null && state.pendingApply) continue;
@@ -164,6 +166,7 @@ class CloudArchiveSyncService {
     // Removed here since the last sync: marked removed in the cloud, which
     // keeps the content so it can still be recovered.
     for (final MapEntry(key: recordId, value: state) in states.entries) {
+      SyncCancellation.checkpoint();
       if (seen.contains(recordId) || state.pendingApply || state.cloudDeleted) {
         continue;
       }
@@ -289,6 +292,7 @@ class CloudArchiveSyncService {
     var cursor = await _store.cursor(userId);
 
     while (true) {
+      SyncCancellation.checkpoint();
       final page = await _gateway.readPage(
         userId: userId,
         after: cursor,
@@ -302,6 +306,7 @@ class CloudArchiveSyncService {
       };
 
       for (final cloud in page) {
+        SyncCancellation.checkpoint();
         final state = states[cloud.recordId];
         final here = local[cloud.recordId];
 
@@ -361,6 +366,7 @@ class CloudArchiveSyncService {
           kind: kind,
           keys: batch,
         )) {
+          SyncCancellation.checkpoint();
           await _download(userId, cloud, report);
         }
       }

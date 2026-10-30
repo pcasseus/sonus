@@ -20,6 +20,7 @@ import 'package:sonus_next/features/sync/application/services/cloud_conditional_
 import 'package:sonus_next/features/sync/application/services/cloud_sync_gateway.dart';
 import 'package:sonus_next/features/sync/application/services/cloud_sync_reader.dart';
 import 'package:sonus_next/features/sync/application/services/outbound_sync_processor.dart';
+import 'package:sonus_next/features/sync/application/services/sync_cancellation.dart';
 import 'package:sonus_next/features/sync/domain/models/cloud_records.dart';
 import 'package:sonus_next/features/sync/domain/models/local_sync_models.dart';
 import 'package:sonus_next/features/sync/domain/models/sync_data_contract.dart';
@@ -1363,6 +1364,103 @@ void main() {
 
       expect(cloudSyncGateway.calls, isEmpty);
       expect(localSyncRepository.processedIds, isEmpty);
+    });
+
+    group('SN-50 #23: cancellation between entries', () {
+      Artist namedArtist(String id) => Artist(
+        id: id,
+        name: 'Artist $id',
+        canonicalName: 'artist $id',
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      );
+
+      test('a run cancelled during an entry\'s cloud write finishes that '
+          'entry with its acknowledgement, then stops; the next entry stays '
+          'pending', () async {
+        artistRepository.values['artist_1'] = namedArtist('artist_1');
+        artistRepository.values['artist_2'] = namedArtist('artist_2');
+        localSyncRepository.pending.addAll([
+          outbox(
+            id: 'outbox_1',
+            type: CloudDataEntity.artist,
+            entityId: 'artist_1',
+            timestamp: timestamp,
+          ),
+          outbox(
+            id: 'outbox_2',
+            type: CloudDataEntity.artist,
+            entityId: 'artist_2',
+            timestamp: timestamp,
+          ),
+        ]);
+
+        final cancellation = SyncCancellation('user_1');
+        final uploading = Completer<void>();
+        final network = Completer<void>();
+        cloudSyncGateway.beforeUpsertCompletes = (record) async {
+          if (record.id == 'artist_1') {
+            uploading.complete();
+            await network.future;
+          }
+        };
+
+        final push = cancellation.run(
+          () => processor.pushPendingIsolated('user_1'),
+        );
+        await uploading.future;
+        cancellation.cancel('signed out');
+        network.complete(); // The response arrives after cancellation.
+
+        await expectLater(push, throwsA(isA<SyncCancelled>()));
+        expect(cloudSyncGateway.calls, ['upsert:artist:artist_1']);
+        expect(localSyncRepository.processedIds, ['outbox_1']);
+        expect(localSyncRepository.pending.map((e) => e.id), ['outbox_2']);
+      });
+
+      test('the next run pushes what the cancelled one left pending', () async {
+        artistRepository.values['artist_1'] = namedArtist('artist_1');
+        localSyncRepository.pending.add(
+          outbox(
+            id: 'outbox_1',
+            type: CloudDataEntity.artist,
+            entityId: 'artist_1',
+            timestamp: timestamp,
+          ),
+        );
+
+        final cancelled = SyncCancellation('user_1')..cancel('timed out');
+        await expectLater(
+          cancelled.run(() => processor.pushPendingIsolated('user_1')),
+          throwsA(isA<SyncCancelled>()),
+        );
+        expect(cloudSyncGateway.calls, isEmpty);
+        expect(localSyncRepository.pending, hasLength(1));
+
+        final report = await SyncCancellation(
+          'user_1',
+        ).run(() => processor.pushPendingIsolated('user_1'));
+
+        expect(report.isComplete, isTrue);
+        expect(localSyncRepository.pending, isEmpty);
+        expect(localSyncRepository.processedIds, ['outbox_1']);
+      });
+
+      test('outside a sync run nothing is ever cancelled', () async {
+        artistRepository.values['artist_1'] = namedArtist('artist_1');
+        localSyncRepository.pending.add(
+          outbox(
+            id: 'outbox_1',
+            type: CloudDataEntity.artist,
+            entityId: 'artist_1',
+            timestamp: timestamp,
+          ),
+        );
+
+        await processor.pushPending('user_1');
+
+        expect(localSyncRepository.processedIds, ['outbox_1']);
+      });
     });
   });
 }

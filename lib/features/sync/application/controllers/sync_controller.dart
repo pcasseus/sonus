@@ -7,6 +7,7 @@ import '../../../account/application/repositories/local_account_binding_reposito
 import '../../data/services/sync_status_store.dart';
 import '../models/sync_failure.dart';
 import '../services/cloud_library_first_link_guard.dart';
+import '../services/sync_cancellation.dart';
 import '../services/sync_run_guard.dart';
 import '../services/sync_service.dart';
 
@@ -103,6 +104,11 @@ class SyncController extends ChangeNotifier {
   final Set<Timer> _timers = {};
   bool _disposed = false;
 
+  /// The service run in progress, if any. Cancelled on timeout, sign-out,
+  /// a switch to another account and disposal; it then stops at its next
+  /// safe point, so the next run can start without overlapping it.
+  SyncCancellation? _activeRun;
+
   /// A run waiting behind the current one. Further requests join it, so a
   /// burst of triggers or taps runs at most once more.
   Future<bool>? _queued;
@@ -191,7 +197,10 @@ class SyncController extends ChangeNotifier {
       return;
     }
 
-    if (newSession) _sessionEpoch++;
+    if (newSession) {
+      _sessionEpoch++;
+      _activeRun?.cancel('account switched');
+    }
     final generation = ++_activationGeneration;
 
     _currentUserId = normalizedUserId;
@@ -397,20 +406,32 @@ class SyncController extends ChangeNotifier {
     }
   }
 
-  /// The service run, waited for at most [_runTimeout]. The service cannot
-  /// be cancelled, so a run past the limit is left to end on its own and
-  /// its result is not used: it is never reported as a success. The queue
-  /// holds the next run until it has ended ([onServiceStarted]).
+  /// The service run, waited for at most [_runTimeout]. A run past the
+  /// limit is cancelled: it stops at its next safe point (between whole
+  /// units of work, SN-50 #23) and its result is not used, so it is never
+  /// reported as a success. The queue holds the next run until it has
+  /// really ended ([onServiceStarted]), so two runs never write at once.
   Future<SyncRunResult> _bounded(
     String userId,
     void Function(Future<void> serviceEnded) onServiceStarted,
   ) {
-    final service = Future<SyncRunResult>.sync(() => _synchronize(userId));
-    onServiceStarted(service.then<void>((_) {}, onError: (Object _) {}));
+    final cancellation = _activeRun = SyncCancellation(userId);
+    final service = cancellation.run(
+      () => Future<SyncRunResult>.sync(() => _synchronize(userId)),
+    );
+    final ended = service.then<void>((_) {}, onError: (Object _) {});
+    unawaited(
+      ended.whenComplete(() {
+        if (identical(_activeRun, cancellation)) _activeRun = null;
+      }),
+    );
+    onServiceStarted(ended);
 
     final outcome = Completer<SyncRunResult>();
     final limit = _startTimer(() {
       if (!outcome.isCompleted) {
+        // Stop the run at its next safe point; its result is not used.
+        cancellation.cancel('timed out');
         outcome.completeError(SyncRunTimedOut(_runTimeout));
       }
     });
@@ -460,6 +481,7 @@ class SyncController extends ChangeNotifier {
   @override
   void dispose() {
     _disposed = true;
+    _activeRun?.cancel('disposed');
     for (final timer in _timers) {
       timer.cancel();
     }
@@ -497,6 +519,7 @@ class SyncController extends ChangeNotifier {
 
   void resetForSignedOut() {
     _sessionEpoch++;
+    _activeRun?.cancel('signed out');
     _activationGeneration++;
     _failureKind = null;
     _failureCode = null;

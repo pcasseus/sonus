@@ -24,6 +24,7 @@ import 'cloud_record_equivalence.dart';
 import 'cloud_sync_gateway.dart';
 import 'cloud_sync_reader.dart';
 import 'outbound_artist_write_coordinator.dart';
+import 'sync_cancellation.dart';
 
 /// Handles an explicit artist mutation and owns its acknowledgement.
 typedef PushArtistMutation =
@@ -246,6 +247,7 @@ class OutboundSyncProcessor {
 
       // The journal is authoritative until its receipt is reconciled.
       // A recovery failure must stop all ordinary outbound writes.
+      SyncCancellation.checkpoint();
       await recover(trimmedUserId);
     }
 
@@ -270,6 +272,9 @@ class OutboundSyncProcessor {
     final failures = <OutboundEntryFailure>[];
 
     for (final entry in ordered) {
+      // Between entries only: an entry's cloud write and its
+      // acknowledgement always complete together (SN-50 #23).
+      SyncCancellation.checkpoint();
       try {
         await _pushEntry(
           entry,

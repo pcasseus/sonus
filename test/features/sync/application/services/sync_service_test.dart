@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:sonus_next/features/sync/application/services/outbound_sync_processor.dart';
 import 'package:sonus_next/features/sync/application/services/sync_service.dart';
+import 'package:sonus_next/features/sync/application/services/sync_cancellation.dart';
 import 'package:sonus_next/features/sync/domain/models/local_sync_models.dart';
 import 'package:sonus_next/features/sync/domain/models/sync_data_contract.dart';
 
@@ -350,6 +351,38 @@ void main() {
       expect(result.pulledRecordCount, 3);
     },
   );
+
+  test('SN-50 #23: a run cancelled during its push stops before the pull; '
+      'unsent entries stay in the outbox', () async {
+    final calls = <String>[];
+    final cancellation = SyncCancellation('user-1');
+    final service = SyncService.forTesting(
+      bindToUser: (userId) async => calls.add('bind'),
+      claimUnowned: (userId) async {
+        calls.add('claim');
+        return 0;
+      },
+      getPending: (userId) async {
+        calls.add('pending');
+        return [_entry('entry-1', userId)];
+      },
+      pushPending: (userId) async {
+        calls.add('push');
+        cancellation.cancel('timed out');
+      },
+      pullAll: (userId) async {
+        calls.add('pull');
+        return 0;
+      },
+    );
+
+    await expectLater(
+      cancellation.run(() => service.synchronize('user-1')),
+      throwsA(isA<SyncCancelled>()),
+    );
+
+    expect(calls, ['bind', 'claim', 'pending', 'push']);
+  });
 }
 
 SyncOutboxEntry _entry(String id, String userId) {
