@@ -55,7 +55,7 @@ enum MomentFamily {
   /// A first entry into one chart zone (Top 75 … Top 2).
   songFirstThreshold,
 
-  /// First entries into several lower zones in one move.
+  /// First entries into several zones in one move, named together.
   songThresholds,
 
   /// An artist's repeat #1 on a weekly chart, counted on that chart.

@@ -9,6 +9,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:sonus_next/core/database/app_database.dart';
 import 'package:sonus_next/features/analytics/domain/entities/qualified_play.dart';
 import 'package:sonus_next/features/analytics/domain/repositories/qualified_play_repository.dart';
+import 'package:sonus_next/features/charts/application/models/chart_moment_feed_item.dart';
 import 'package:sonus_next/features/charts/application/services/all_time_moment_service.dart';
 import 'package:sonus_next/features/charts/application/services/chart_moment_feed_aggregator.dart';
 import 'package:sonus_next/features/charts/data/repositories/sqlite_chart_moment_repository.dart';
@@ -550,7 +551,13 @@ void main() {
           zones.addAll(story.facts.thresholds);
           expect(
             story.headline,
-            contains('the Top 50, Top 40, Top 30, Top 25, Top 20 and Top 15'),
+            anyOf(
+              contains(
+                'the Top 50, Top 40, Top 30, Top 25, Top 20, Top 15 and '
+                'Top 5',
+              ),
+              contains('the Top 3 and Top 2'),
+            ),
           );
         case MomentFamily.artistFirstNumberOne:
           zones.add(1);
@@ -765,6 +772,213 @@ void main() {
       expect(
         zones.where((event) => event.occurredAt.isBefore(activatedAt)),
         isEmpty,
+      );
+    });
+  });
+
+  group('SN-50 R3 entries and first thresholds', () {
+    /// 149 songs with two plays a month ago; the climber reached two plays
+    /// last, at #150 (Bubbling Under), and its next play takes it straight
+    /// to #1.
+    Future<void> recordJumpToNumberOne(ChartMomentRules rules) async {
+      final library = _Library();
+      final plays = _Plays();
+      final early = _refined.playsOn.subtract(const Duration(days: 30));
+      for (var i = 0; i < 149; i++) {
+        final track = library.add('field-$i', 'Field $i', 'field-artist-$i');
+        plays.add(track, early.add(Duration(minutes: i)), times: 2);
+      }
+      final climber = library.add('lucky-star', 'Lucky Star', 'mira');
+      plays.add(climber, early.add(const Duration(hours: 5)), times: 2);
+      plays.add(climber, _refined.playsOn);
+      await _service(plays, library, moments).record(
+        referenceLocal: _refined.playsOn.add(const Duration(days: 1)),
+        rules: rules,
+      );
+    }
+
+    List<MomentStory> storiesOf(
+      List<MomentStory> all,
+      String entityId,
+      ChartType type, {
+      DateTime? weekStartUtc,
+    }) => [
+      for (final story in all.reversed)
+        if (story.item.entity.entityId == entityId &&
+            story.item.chartType == type &&
+            story.item.subjectType != ChartMomentFeedSubjectType.artist &&
+            (weekStartUtc == null || story.item.weekStartUtc == weekStartUtc))
+          story,
+    ];
+
+    test('an all-time jump from Bubbling Under straight to #1 keeps its '
+        'Top 100 entry; only #1 and the Top 10 stand alone', () async {
+      await recordJumpToNumberOne(_activated);
+      final all = await stories();
+
+      final songs = storiesOf(all, 'lucky-star', ChartType.songs);
+      expect(songs.map((story) => story.family), [
+        MomentFamily.artistFirstNumberOne,
+        MomentFamily.songFirstThreshold,
+        MomentFamily.songHot100Breakthrough,
+        MomentFamily.songThresholds,
+      ]);
+      expect(songs.first.facts.rank, 1);
+      expect(songs[1].facts.threshold, 10);
+      expect(songs.last.facts.thresholds, [
+        75,
+        50,
+        40,
+        30,
+        25,
+        20,
+        15,
+        5,
+        3,
+        2,
+      ]);
+      expect(
+        songs.last.headline,
+        contains(
+          'the Top 75, Top 50, Top 40, Top 30, Top 25, Top 20, Top 15, '
+          'Top 5, Top 3 and Top 2',
+        ),
+      );
+
+      final releases = storiesOf(all, 'album-lucky-star', ChartType.albums);
+      expect(releases.map((story) => story.family), [
+        MomentFamily.artistFirstNumberOneRelease,
+        MomentFamily.releaseFirstThreshold,
+        MomentFamily.releaseThresholds,
+      ]);
+      expect(releases.last.facts.thresholds, [
+        100,
+        75,
+        50,
+        40,
+        30,
+        25,
+        20,
+        15,
+        5,
+        3,
+        2,
+      ]);
+    });
+
+    test('without an activation the jump records no Top 100 entry', () async {
+      await recordJumpToNumberOne(ChartMomentRules.legacy);
+
+      final entries = (await moments.getRecent()).where(
+        (event) =>
+            event.entity.entityId == 'lucky-star' &&
+            event.eventType == ChartMomentEventType.firstThresholdEntry,
+      );
+      expect(entries, isEmpty);
+    });
+
+    test('recording the same plays again mints no new story', () async {
+      await recordJumpToNumberOne(_activated);
+      final first = await stories();
+      final events = await moments.getRecent();
+
+      await recordJumpToNumberOne(_activated);
+      final again = await stories();
+
+      expect(
+        (await moments.getRecent()).map((event) => event.id).toSet(),
+        events.map((event) => event.id).toSet(),
+      );
+      expect(again.map((story) => story.id), first.map((story) => story.id));
+      expect(
+        again.map((story) => story.headline),
+        first.map((story) => story.headline),
+      );
+      expect(
+        again.map((story) => story.id).toSet(),
+        hasLength(again.length),
+        reason: 'story ids are unique',
+      );
+    });
+
+    test('weekly: a #1 debut, and jumps #40 to #1, #80 to #8 and #120 to '
+        '#60, each with one entry and only #1 and the Top 10 alone', () async {
+      final top = _song('high-noon', 'High Noon', 'juno');
+      final forty = _song('long-road', 'Long Road', 'mira');
+      final eighty = _song('red-kite', 'Red Kite', 'lanterns');
+      final deep = _song('low-tide', 'Low Tide', 'ode');
+      final chart = _WeeklyChart(ChartType.songs, _refined.weeksFromUtc);
+      final weeks = [
+        {top: 1, forty: 40, eighty: 80, deep: 120},
+        {forty: 1, top: 2, eighty: 8, deep: 60},
+      ];
+      for (final ranks in weeks) {
+        await moments.publishFinalizedForWeek(
+          chartType: ChartType.songs,
+          weekStartUtc: chart._start,
+          events: chart.week(ranks),
+        );
+      }
+      final all = await stories();
+      final second = _refined.weeksFromUtc.add(const Duration(days: 7));
+      List<MomentFamily> families(ChartEntitySnapshot song, DateTime week) => [
+        for (final story in storiesOf(
+          all,
+          song.entityId,
+          ChartType.songs,
+          weekStartUtc: week,
+        ))
+          story.family,
+      ];
+
+      expect(families(top, _refined.weeksFromUtc), [
+        MomentFamily.songDebutNumberOne,
+        MomentFamily.artistFirstNumberOne,
+      ]);
+      expect(families(forty, second), [
+        MomentFamily.artistFirstNumberOne,
+        MomentFamily.songFirstThreshold,
+        MomentFamily.songThresholds,
+      ]);
+      expect(
+        storiesOf(all, forty.entityId, ChartType.songs).last.facts.thresholds,
+        [30, 25, 20, 15, 5, 3, 2],
+      );
+      expect(families(eighty, second), [
+        MomentFamily.songFirstThreshold,
+        MomentFamily.songThresholds,
+        MomentFamily.songBiggestGainer,
+      ]);
+      expect(
+        storiesOf(
+          all,
+          eighty.entityId,
+          ChartType.songs,
+          weekStartUtc: second,
+        )[1].facts.thresholds,
+        [75, 50, 40, 30, 25, 20, 15],
+      );
+      expect(families(deep, second), [
+        MomentFamily.songHot100Breakthrough,
+        MomentFamily.songFirstThreshold,
+      ]);
+
+      // A second finalization of a week publishes nothing.
+      final replay = _WeeklyChart(ChartType.songs, _refined.weeksFromUtc);
+      for (final ranks in weeks) {
+        final week = replay._start;
+        expect(
+          await moments.publishFinalizedForWeek(
+            chartType: ChartType.songs,
+            weekStartUtc: week,
+            events: replay.week(ranks),
+          ),
+          isFalse,
+        );
+      }
+      expect(
+        (await stories()).map((story) => story.id),
+        all.map((story) => story.id),
       );
     });
   });

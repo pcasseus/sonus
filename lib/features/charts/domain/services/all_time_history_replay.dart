@@ -7,10 +7,12 @@ enum AllTimeAchievementType {
   /// First ever entry into the Top 200.
   debut,
 
-  /// First ever entry into the Top 100 (after debuting below it).
+  /// First ever entry into the Top 100 (after debuting below it). Under
+  /// the SN-50 rules also when the same play reaches #1.
   top100Entry,
 
-  /// Back in the Top 200 at least a week after dropping out.
+  /// Back in the Top 200 at least a week after dropping out. Under the
+  /// SN-50 rules also when the same play reaches #1.
   reentry,
 
   /// A best-ever rank that also reaches a higher zone (Top 50, 25, 10, 5,
@@ -210,7 +212,8 @@ class AllTimeHistoryReplay {
   /// first, second, … #1. Groups are counted over the whole history, also
   /// before [achievementsFromUtc]; entities without a group never count.
   /// From [thresholdEntriesFromUtc] on, every first entry into one of the
-  /// [thresholdZones] after the debut is an achievement as well.
+  /// [thresholdZones] after the debut is an achievement as well, and a #1
+  /// never hides the Top 100 entry or re-entry it makes (SN-50 R3).
   AllTimeReplayResult run({
     required Iterable<ChartRankingEvent> events,
     required DateTime referenceLocal,
@@ -315,6 +318,22 @@ class AllTimeHistoryReplay {
 
       if (rank != null) {
         if (collecting) {
+          final thresholdsFrom = thresholdEntriesFromUtc?.toUtc();
+          final refined =
+              thresholdsFrom != null && !at.isBefore(thresholdsFrom);
+          if (refined && rank == 1 && previousRank != 1) {
+            // A debut at #1 is told by the #1 itself.
+            final entry = _entryFor(
+              state,
+              rank: rank,
+              previousRank: previousRank,
+              playId: playId,
+              at: at,
+            );
+            if (entry != null && entry.type != AllTimeAchievementType.debut) {
+              achievements.add(entry);
+            }
+          }
           final achievement = _achievementFor(
             state,
             rank: rank,
@@ -325,10 +344,7 @@ class AllTimeHistoryReplay {
           );
           if (achievement != null) achievements.add(achievement);
 
-          final thresholdsFrom = thresholdEntriesFromUtc?.toUtc();
-          if (state.everInTop &&
-              thresholdsFrom != null &&
-              !at.isBefore(thresholdsFrom)) {
+          if (state.everInTop && refined) {
             for (final zone in thresholdZones) {
               final best = state.bestRank;
               if (rank > zone || (best != null && best <= zone)) continue;
@@ -423,17 +439,15 @@ class AllTimeHistoryReplay {
       AllTimeAchievementType type, {
       int? zone,
       String? displaced,
-    }) => AllTimeAchievement(
-      type: type,
-      entityId: state.entityId,
-      playId: playId,
-      occurredAt: at,
+    }) => _make(
+      state,
+      type,
       rank: rank,
-      streams: state.count,
       previousRank: previousRank,
-      previousPeakRank: state.bestRank,
+      playId: playId,
+      at: at,
       zone: zone,
-      displacedEntityId: displaced,
+      displaced: displaced,
     );
 
     if (rank == 1 && previousRank != 1) {
@@ -445,18 +459,14 @@ class AllTimeHistoryReplay {
       );
     }
 
-    if (previousRank == null) {
-      if (!state.everInTop) return make(AllTimeAchievementType.debut);
-      final left = state.leftTopAt;
-      final away = left == null ? Duration.zero : at.difference(left);
-      return away >= reentryAbsence
-          ? make(AllTimeAchievementType.reentry)
-          : null;
-    }
-
-    if (!state.everTop100 && rank <= hot100) {
-      return make(AllTimeAchievementType.top100Entry);
-    }
+    final entry = _entryFor(
+      state,
+      rank: rank,
+      previousRank: previousRank,
+      playId: playId,
+      at: at,
+    );
+    if (entry != null || previousRank == null) return entry;
 
     final best = state.bestRank;
     if (best != null && rank < best) {
@@ -472,6 +482,59 @@ class AllTimeHistoryReplay {
 
     return null;
   }
+
+  /// The entry this play makes: a debut, a re-entry or a first Top 100.
+  AllTimeAchievement? _entryFor(
+    _State state, {
+    required int rank,
+    required int? previousRank,
+    required String playId,
+    required DateTime at,
+  }) {
+    AllTimeAchievement make(AllTimeAchievementType type) => _make(
+      state,
+      type,
+      rank: rank,
+      previousRank: previousRank,
+      playId: playId,
+      at: at,
+    );
+
+    if (previousRank == null) {
+      if (!state.everInTop) return make(AllTimeAchievementType.debut);
+      final left = state.leftTopAt;
+      final away = left == null ? Duration.zero : at.difference(left);
+      return away >= reentryAbsence
+          ? make(AllTimeAchievementType.reentry)
+          : null;
+    }
+
+    return !state.everTop100 && rank <= hot100
+        ? make(AllTimeAchievementType.top100Entry)
+        : null;
+  }
+
+  static AllTimeAchievement _make(
+    _State state,
+    AllTimeAchievementType type, {
+    required int rank,
+    required int? previousRank,
+    required String playId,
+    required DateTime at,
+    int? zone,
+    String? displaced,
+  }) => AllTimeAchievement(
+    type: type,
+    entityId: state.entityId,
+    playId: playId,
+    occurredAt: at,
+    rank: rank,
+    streams: state.count,
+    previousRank: previousRank,
+    previousPeakRank: state.bestRank,
+    zone: zone,
+    displacedEntityId: displaced,
+  );
 
   static int? _zoneOf(int rank) {
     int? zone;

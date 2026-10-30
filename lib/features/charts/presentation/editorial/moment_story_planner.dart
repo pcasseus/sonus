@@ -23,12 +23,20 @@ class PlannedMoment {
 /// The stories of one recorded group under the SN-50 rules (Session F):
 ///
 /// - every debut and re-entry on a song or release chart, #1–200, is a
-///   story of its own;
+///   story of its own, and so is a song's first Hot 100 entry from
+///   Bubbling Under, also when the same move reaches #1 (R3);
+/// - a debut's story tells every zone its position reaches (a #1 debut is
+///   one "debuts at #1" story), so a debut has no zone stories;
+/// - after the entry, a move's first #1 and first Top 10 each get their
+///   own story, and every other zone it enters for the first time (Top
+///   75 … Top 2, and a release's Top 100) is named in one shared story
+///   (R3, F-Q14/F-Q14B);
 /// - #1 stories name only the verified displaced leader, and an artist
 ///   replacing their own song at #1 gets self-replacement wording;
-/// - first entries into the chart's zones are told: Top 10, 5, 3 and 2
-///   each on their own, lower zones together (F-Q14/F-Q14B);
 /// - distinct achievements of one play stay distinct stories (F-Q6/F-Q9).
+///
+/// Stories take their ids from the group and their kind, so planning the
+/// same recorded facts again yields the same stories.
 class MomentStoryPlanner {
   MomentStoryPlanner(
     Iterable<ChartMomentFeedItem> items, {
@@ -36,9 +44,9 @@ class MomentStoryPlanner {
   }) : _leaders = _displacedLeaders(items),
        _gainers = biggestGainers;
 
-  /// Zones that are major breakthroughs, each told on its own; lower zones
-  /// are told together. #1 is its own story.
-  static const List<int> majorThresholds = [10, 5, 3, 2];
+  /// The zone below #1 whose first entry is told on its own; the others
+  /// a move enters are told together. #1 is its own story.
+  static const int majorThreshold = 10;
 
   /// The largest zone an artist roundup is told for, songs and releases.
   static const int roundupThreshold = 10;
@@ -226,28 +234,36 @@ class MomentStoryPlanner {
               event.threshold != careerZone)
             event,
       ];
-      final lower = <ChartMomentEvent>[];
+      final others = <ChartMomentEvent>[];
       for (final event in crossed) {
         final zone = event.threshold!;
         if (!albums && zone == ChartRankingEngine.officialChartLimit) {
           // From Bubbling Under; a re-entry story already tells a return
           // straight into the Hot 100.
           if (event.previousRank != null) {
-            add('hot-100', MomentFamily.songHot100Breakthrough, [event]);
+            add('hot-100', MomentFamily.songHot100Breakthrough, [
+              event,
+            ], mandatory: true);
           }
-        } else if (majorThresholds.contains(zone)) {
-          add('top-$zone', _firstThreshold(albums), [event]);
+        } else if (zone == majorThreshold) {
+          add('top-$zone', _firstThreshold(albums), [event], mandatory: true);
         } else {
-          lower.add(event);
+          others.add(event);
         }
       }
-      if (lower.length == 1) {
-        add('top-${lower.single.threshold}', _firstThreshold(albums), lower);
-      } else if (lower.length > 1) {
+      if (others.length == 1) {
+        add(
+          'top-${others.single.threshold}',
+          _firstThreshold(albums),
+          others,
+          mandatory: true,
+        );
+      } else if (others.length > 1) {
         add(
           'thresholds',
           albums ? MomentFamily.releaseThresholds : MomentFamily.songThresholds,
-          lower,
+          others,
+          mandatory: true,
         );
       }
       zoned = crossed.isNotEmpty;
