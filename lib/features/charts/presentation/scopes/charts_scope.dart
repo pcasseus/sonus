@@ -178,6 +178,8 @@ class _ChartsScopeState extends State<ChartsScope> {
       restoreGeneration: () => database.mutationCoordinator.restoreGeneration,
       releaseEligibility: releaseEligibility,
       artistAttribution: () => _entityArtists(library, attribution),
+      // Snapshot and Moments in one transaction (SN-50 F6).
+      weekFinalizer: charts,
     );
 
     final allTimeMoments = AllTimeMomentService(

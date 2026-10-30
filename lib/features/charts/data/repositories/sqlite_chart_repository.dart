@@ -1,86 +1,211 @@
+import 'dart:developer' as developer;
+
+import 'package:sqflite/sqflite.dart';
+
 import '../../../../core/database/app_database.dart';
 import '../../domain/entities/chart_snapshot.dart';
 import '../../domain/models/chart_type.dart';
+import '../../domain/moments/chart_moment_event.dart';
 import '../../domain/repositories/chart_repository.dart';
+import '../../domain/repositories/chart_week_finalizer.dart';
 import '../daos/chart_entry_dao.dart';
+import '../daos/chart_moment_event_dao.dart';
 import '../daos/chart_snapshot_dao.dart';
 import '../mappers/chart_entry_row_mapper.dart';
+import '../mappers/chart_moment_event_row_mapper.dart';
 import '../mappers/chart_snapshot_row_mapper.dart';
+import 'sqlite_chart_moment_repository.dart';
 
-class SqliteChartRepository implements ChartRepository {
+/// A finalized chart week is never rewritten (SN-50 F6).
+class FinalizedChartWeekFrozen extends StateError {
+  FinalizedChartWeekFrozen(ChartType chartType, DateTime weekStartUtc)
+    : super(
+        'The ${chartType.name} chart for the week starting '
+        '${weekStartUtc.toUtc().toIso8601String()} is finalized and is '
+        'never rewritten.',
+      );
+}
+
+class SqliteChartRepository implements ChartRepository, ChartWeekFinalizer {
   const SqliteChartRepository(this.database);
 
   final AppDatabase database;
 
   @override
   Future<void> replaceSnapshot(ChartSnapshot snapshot) {
-    return database.transaction((transaction) async {
-      final snapshotDao = ChartSnapshotDao(transaction);
-      final entryDao = ChartEntryDao(transaction);
+    return database.transaction(
+      (transaction) => _writeSnapshot(transaction, snapshot),
+    );
+  }
 
-      final existing = await snapshotDao.findForWeek(
+  /// One transaction: the week is re-read inside it, a week already
+  /// finalized is returned untouched, and otherwise its snapshot, entries
+  /// and Moments are written together. Published Moments are never
+  /// replaced or added to. Validation happens before the transaction, so
+  /// the restore admission check runs with no await before it.
+  @override
+  Future<ChartWeekFinalization> finalizeWeek({
+    required ChartSnapshot snapshot,
+    List<ChartMomentEvent>? moments,
+  }) {
+    if (!snapshot.isFinalized) {
+      throw ArgumentError.value(
+        snapshot.id,
+        'snapshot',
+        'Only a finalized chart week can be finalized.',
+      );
+    }
+
+    final publication = moments == null
+        ? null
+        : List<ChartMomentEvent>.unmodifiable(moments);
+    if (publication != null) {
+      validateFinalizedPublication(
+        chartType: snapshot.chartType,
+        weekStartUtc: snapshot.weekStartUtc,
+        events: publication,
+      );
+    }
+
+    return database.transaction((transaction) async {
+      final existing = await ChartSnapshotDao(transaction).findForWeek(
         chartType: snapshot.chartType.name,
         weekStartUtc: snapshot.weekStartUtc,
       );
 
-      if (existing != null) {
-        final existingRevision = existing['revision']! as int;
-
-        if (snapshot.revision < existingRevision) {
-          throw StateError(
-            'Cannot replace chart snapshot revision '
-            '$existingRevision with older revision ${snapshot.revision}.',
-          );
-        }
+      if (existing != null && existing['finalized_at'] != null) {
+        return ChartWeekFinalization(
+          snapshot: await _hydrate(
+            snapshotRow: existing,
+            entryDao: ChartEntryDao(transaction),
+          ),
+          wasAlreadyFinalized: true,
+          moments: ChartFinalizedMoments.notRequested,
+        );
       }
 
-      final now = DateTime.now().toUtc();
+      await _writeSnapshot(transaction, snapshot);
 
-      if (existing == null) {
+      if (publication == null) {
+        return ChartWeekFinalization(
+          snapshot: snapshot,
+          wasAlreadyFinalized: false,
+          moments: ChartFinalizedMoments.notRequested,
+        );
+      }
+
+      final momentDao = ChartMomentEventDao(transaction);
+      if (await momentDao.hasFinalizedForWeek(
+        chartType: snapshot.chartType.name,
+        weekStartUtc: snapshot.weekStartUtc.toUtc(),
+      )) {
+        // Left by the earlier write order (Moments, then the snapshot) when
+        // a pass stopped between the two. The published Moments stay as
+        // they are; the snapshot is stored now. Logged, never repaired.
+        developer.log(
+          'Finalized ${snapshot.chartType.name} week '
+          '${snapshot.weekStartUtc.toUtc().toIso8601String()} already had '
+          'published Moments but no snapshot; they are kept unchanged.',
+          name: 'sonus.charts',
+          level: 900,
+        );
+        return ChartWeekFinalization(
+          snapshot: snapshot,
+          wasAlreadyFinalized: false,
+          moments: ChartFinalizedMoments.keptEarlier,
+        );
+      }
+
+      for (final event in publication) {
+        await momentDao.insertIgnoreDuplicate(
+          ChartMomentEventRowMapper.toRow(event),
+        );
+      }
+
+      return ChartWeekFinalization(
+        snapshot: snapshot,
+        wasAlreadyFinalized: false,
+        moments: ChartFinalizedMoments.published,
+      );
+    });
+  }
+
+  static Future<void> _writeSnapshot(
+    DatabaseExecutor transaction,
+    ChartSnapshot snapshot,
+  ) async {
+    final snapshotDao = ChartSnapshotDao(transaction);
+    final entryDao = ChartEntryDao(transaction);
+
+    final existing = await snapshotDao.findForWeek(
+      chartType: snapshot.chartType.name,
+      weekStartUtc: snapshot.weekStartUtc,
+    );
+
+    if (existing != null) {
+      if (existing['finalized_at'] != null) {
+        throw FinalizedChartWeekFrozen(
+          snapshot.chartType,
+          snapshot.weekStartUtc,
+        );
+      }
+
+      final existingRevision = existing['revision']! as int;
+
+      if (snapshot.revision < existingRevision) {
+        throw StateError(
+          'Cannot replace chart snapshot revision '
+          '$existingRevision with older revision ${snapshot.revision}.',
+        );
+      }
+    }
+
+    final now = DateTime.now().toUtc();
+
+    if (existing == null) {
+      await snapshotDao.insert(
+        ChartSnapshotRowMapper.toRow(
+          snapshot: snapshot,
+          createdAt: now,
+          updatedAt: now,
+        ),
+      );
+    } else {
+      final existingId = existing['id']! as String;
+
+      if (existingId != snapshot.id) {
+        await snapshotDao.deleteById(existingId);
+
         await snapshotDao.insert(
           ChartSnapshotRowMapper.toRow(
             snapshot: snapshot,
-            createdAt: now,
+            createdAt: DateTime.parse(existing['created_at']! as String),
             updatedAt: now,
           ),
         );
       } else {
-        final existingId = existing['id']! as String;
-
-        if (existingId != snapshot.id) {
-          await snapshotDao.deleteById(existingId);
-
-          await snapshotDao.insert(
-            ChartSnapshotRowMapper.toRow(
-              snapshot: snapshot,
-              createdAt: DateTime.parse(existing['created_at']! as String),
-              updatedAt: now,
-            ),
-          );
-        } else {
-          await snapshotDao.update(
-            ChartSnapshotRowMapper.toRow(
-              snapshot: snapshot,
-              createdAt: DateTime.parse(existing['created_at']! as String),
-              updatedAt: now,
-            ),
-          );
-
-          await entryDao.deleteForSnapshot(snapshot.id);
-        }
-      }
-
-      await entryDao.insertAll(
-        snapshot.entries.map(
-          (entry) => ChartEntryRowMapper.toRow(
-            snapshotId: snapshot.id,
-            entry: entry,
-            createdAt: now,
+        await snapshotDao.update(
+          ChartSnapshotRowMapper.toRow(
+            snapshot: snapshot,
+            createdAt: DateTime.parse(existing['created_at']! as String),
             updatedAt: now,
           ),
+        );
+
+        await entryDao.deleteForSnapshot(snapshot.id);
+      }
+    }
+
+    await entryDao.insertAll(
+      snapshot.entries.map(
+        (entry) => ChartEntryRowMapper.toRow(
+          snapshotId: snapshot.id,
+          entry: entry,
+          createdAt: now,
+          updatedAt: now,
         ),
-      );
-    });
+      ),
+    );
   }
 
   @override

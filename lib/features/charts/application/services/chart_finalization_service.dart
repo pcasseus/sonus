@@ -13,7 +13,9 @@ import '../../domain/moments/chart_moment_lifetime_stream_service.dart';
 import '../../domain/moments/chart_moment_longevity_calculator.dart';
 import '../../domain/moments/chart_moment_milestone_detector.dart';
 import '../../domain/repositories/chart_moment_repository.dart';
+import '../../domain/moments/chart_moment_event.dart';
 import '../../domain/repositories/chart_repository.dart';
+import '../../domain/repositories/chart_week_finalizer.dart';
 import '../../domain/services/chart_week_resolver.dart';
 import '../../domain/services/release_chart_eligibility.dart';
 import 'chart_snapshot_builder_service.dart';
@@ -47,6 +49,7 @@ class ChartFinalizationService {
     ChartRestoreGeneration? restoreGeneration,
     ReleaseChartEligibility? releaseEligibility,
     ChartArtistAttribution? artistAttribution,
+    ChartWeekFinalizer? weekFinalizer,
   }) : _builder = builder,
        _charts = charts,
        _qualifiedPlays = qualifiedPlays,
@@ -63,7 +66,13 @@ class ChartFinalizationService {
        _now = now ?? DateTime.now,
        _restoreGeneration = restoreGeneration,
        _releaseEligibility = releaseEligibility,
-       _artistAttribution = artistAttribution;
+       _artistAttribution = artistAttribution,
+       _weekFinalizer = weekFinalizer;
+
+  /// Writes a week's snapshot and Moments in one transaction (SN-50 F6).
+  /// The app always provides it; without one (test doubles that cannot
+  /// share a transaction) the earlier two-step write is used.
+  final ChartWeekFinalizer? _weekFinalizer;
 
   final ChartSnapshotBuilderService _builder;
 
@@ -218,10 +227,13 @@ class ChartFinalizationService {
 
   /// A finalized week is frozen: once stored, it is returned as stored and
   /// never re-derived, whatever later plays, edits, blocks, restores or
-  /// engine changes would now produce. Only a missing week is built. Its
-  /// Moments are published before the snapshot, so a pass interrupted
-  /// between the two writes finishes on the next pass without duplicating
-  /// or replacing any published Moment.
+  /// engine changes would now produce. Only a missing week is built.
+  ///
+  /// With [_weekFinalizer] the snapshot and its Moments are written in one
+  /// transaction, which re-checks the week first: both are stored or
+  /// neither is. Without it, the Moments are published before the
+  /// snapshot, so a pass interrupted between the two writes finishes on
+  /// the next pass without duplicating or replacing any published Moment.
   Future<ChartSnapshot> _reconcileType({
     required ChartType chartType,
     required ChartWeek week,
@@ -247,7 +259,27 @@ class ChartFinalizationService {
           : const {},
     );
 
-    await _publishFinalizedMoments(candidate, generation);
+    final events = await _detectFinalizedMoments(candidate);
+
+    final finalizer = _weekFinalizer;
+    if (finalizer != null) {
+      // No await between this check and the transaction's admission.
+      _ensureNoRestoreSince(generation);
+      final stored = await finalizer.finalizeWeek(
+        snapshot: candidate,
+        moments: events,
+      );
+      return stored.snapshot;
+    }
+
+    if (events != null) {
+      _ensureNoRestoreSince(generation);
+      await _moments!.publishFinalizedForWeek(
+        chartType: candidate.chartType,
+        weekStartUtc: candidate.weekStartUtc,
+        events: events,
+      );
+    }
 
     _ensureNoRestoreSince(generation);
     await _charts.replaceSnapshot(candidate);
@@ -255,19 +287,20 @@ class ChartFinalizationService {
     return candidate;
   }
 
-  Future<void> _publishFinalizedMoments(
+  /// The week's finalized Moments, or null when Moments are off or the
+  /// week starts before they do. Reads only; nothing is written here.
+  Future<List<ChartMomentEvent>?> _detectFinalizedMoments(
     ChartSnapshot snapshot,
-    int? generation,
   ) async {
     final moments = _moments;
     final activationWeekStartUtc = _momentsActivationWeekStartUtc;
 
     if (moments == null || activationWeekStartUtc == null) {
-      return;
+      return null;
     }
 
     if (snapshot.weekStartUtc.toUtc().isBefore(activationWeekStartUtc)) {
-      return;
+      return null;
     }
 
     final history = await _charts.getHistory(snapshot.chartType);
@@ -327,12 +360,7 @@ class ChartFinalizationService {
       );
     }
 
-    _ensureNoRestoreSince(generation);
-    await moments.publishFinalizedForWeek(
-      chartType: snapshot.chartType,
-      weekStartUtc: snapshot.weekStartUtc,
-      events: events,
-    );
+    return events;
   }
 
   static ChartSnapshot? _immediatePreviousSnapshot({
