@@ -405,6 +405,37 @@ void main() {
       expect(credits['Song solo'], isNull);
       expect(credits['Song older'], isNull);
     });
+
+    test('SN-50 reconciliation: a refined release Moment shows the Deluxe '
+        'cover; a pre-activation release Moment keeps its old '
+        'cover', () async {
+      Future<String?> coverOf(DateTime at) async {
+        final loaded = await _controller(
+          events: [_releaseDebut('one', at: at)],
+          tracks: [_track('one')],
+          editions: [_edition('primary', primary: true), _edition('deluxe')],
+          deluxes: [
+            LibraryAlbumEdition(
+              editionId: 'deluxe',
+              albumId: 'album-1',
+              title: 'Album One (Deluxe)',
+              type: AlbumEditionType.deluxe,
+              isPrimary: false,
+              dateAdded: DateTime.utc(2026, 9, 1),
+              artworkPath: '/art/deluxe.jpg',
+            ),
+          ],
+        );
+        final story = loaded.controller.momentStories.singleWhere(
+          (story) => story.item.chartType == ChartType.albums,
+        );
+        expect(story.facts.refined, at.isAfter(DateTime(2026, 11, 1, 12)));
+        return story.visual.left.path;
+      }
+
+      expect(await coverOf(DateTime(2026, 11, 3, 12)), '/art/deluxe.jpg');
+      expect(await coverOf(DateTime(2026, 10, 20, 12)), '/art/primary.jpg');
+    });
   });
 }
 
@@ -466,6 +497,31 @@ ChartMomentEvent _debut(
   );
 }
 
+ChartMomentEvent _releaseDebut(String id, {required DateTime at}) {
+  final week = DateTime.utc(2026, 10, 25);
+  return ChartMomentEvent(
+    id: 'release-debut-$id',
+    deduplicationKey: 'release-debut-$id',
+    sourceId: 'play-release-$id',
+    chartType: ChartType.albums,
+    scope: ChartMomentScope.allTime,
+    eventType: ChartMomentEventType.debut,
+    entity: const ChartEntitySnapshot(
+      entityId: 'album-1',
+      title: 'Album One',
+      artistId: 'artist-1',
+      artistName: 'Ada Lune',
+    ),
+    weekStartUtc: week,
+    weekEndUtc: week.add(const Duration(days: 7)),
+    occurredAt: at.toUtc(),
+    createdAt: at.toUtc(),
+    currentRank: 20,
+    currentPeakRank: 20,
+    qualifiedStreamCount: 1,
+  );
+}
+
 LibraryTrack _track(
   String id, {
   String? artworkPath,
@@ -507,6 +563,7 @@ Future<({ChartsController controller, _PagedMoments moments})> _controller({
   List<LibraryTrack>? tracks,
   List<LibraryAlbumEdition> editions = const [],
   Map<String, String> playEditions = const {},
+  List<LibraryAlbumEdition>? deluxes,
 }) async {
   final moments = _PagedMoments(events);
   final controller = ChartsController(
@@ -533,6 +590,7 @@ Future<({ChartsController controller, _PagedMoments moments})> _controller({
     now: () => DateTime(2026, 11, 5, 12),
     momentsLastSeen: store,
     playEdition: (playId) async => playEditions[playId],
+    deluxeEditions: deluxes == null ? null : () async => deluxes,
     momentPageSize: pageSize,
     momentRules: () async =>
         ChartMomentRules(activatedAtUtc: DateTime.utc(2026, 11, 1)),

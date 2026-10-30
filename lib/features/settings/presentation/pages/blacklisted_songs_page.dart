@@ -254,7 +254,7 @@ class _BlacklistedSongTile extends StatelessWidget {
       title: track.displayTitle,
       subtitle: track.creditLine,
       detail: [
-        track.albumTitle,
+        track.albumDisplayTitle,
         if (unavailable) 'Unavailable',
       ].where((part) => part.trim().isNotEmpty).join(' • '),
       artworkPath: track.artworkPath,

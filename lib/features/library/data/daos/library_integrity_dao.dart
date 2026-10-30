@@ -167,10 +167,33 @@ class LibraryIntegrityDao {
   ''');
 
   /// Every audio file with its song's album, for the split-folder check.
-  Future<List<({String filePath, String albumId, String title, String owner})>>
+  /// The primary edition's title is read beside the stored base title so
+  /// the report can show the release the way current lists do.
+  Future<
+    List<
+      ({
+        String filePath,
+        String albumId,
+        String title,
+        String? primaryEditionTitle,
+        String owner,
+      })
+    >
+  >
   filesWithAlbums() async {
     final rows = await db.rawQuery('''
-      SELECT b.file_path, al.id AS album_id, al.title, ar.name AS owner
+      SELECT b.file_path, al.id AS album_id, al.title, ar.name AS owner,
+        (
+          SELECT ae.title
+          FROM ${DatabaseTables.albumEditions} ae
+          WHERE ae.album_id = al.id
+            AND ae.is_primary = 1
+          ORDER BY
+            ae.release_date ASC,
+            ae.title COLLATE NOCASE ASC,
+            ae.id ASC
+          LIMIT 1
+        ) AS primary_edition_title
       FROM ${DatabaseTables.mediaFileBindings} b
       JOIN ${DatabaseTables.songs} s ON s.id = b.song_id
       JOIN ${DatabaseTables.albums} al ON al.id = s.album_id
@@ -182,6 +205,7 @@ class LibraryIntegrityDao {
           filePath: row['file_path']! as String,
           albumId: row['album_id']! as String,
           title: row['title']! as String,
+          primaryEditionTitle: row['primary_edition_title'] as String?,
           owner: row['owner']! as String,
         ),
     ];

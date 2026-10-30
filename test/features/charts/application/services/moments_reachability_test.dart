@@ -982,6 +982,133 @@ void main() {
       );
     });
   });
+
+  group('SN-50 reconciliation', () {
+    void expectSelfReplacement(
+      MomentStory story, {
+      required MomentFamily family,
+      required String replaced,
+      required String artist,
+      required List<String> others,
+    }) {
+      expect(story.family, family);
+      expect(story.facts.refined, isTrue);
+      // Only the artist's own previous #1 is mentioned, never a rival.
+      expect(story.facts.rivalTitle, replaced);
+      expect(story.facts.rivalArtist, anyOf(isNull, artist));
+      expect(artist.allMatches(story.headline), hasLength(1));
+      for (final other in others) {
+        expect(story.headline, isNot(contains(other)));
+        expect(story.body ?? '', isNot(contains(other)));
+      }
+    }
+
+    test('SN-50 reconciliation: an all-time song replacing its own '
+        'artist\'s #1 is a self-replacement that names no rival', () async {
+      await recordRace(_refined);
+      final all = await stories();
+
+      final self = all.singleWhere(
+        (story) =>
+            story.item.entity.entityId == 'second-wind' &&
+            story.item.chartType == ChartType.songs &&
+            story.family.isNumberOne,
+      );
+      expect(self.facts.weekly, isFalse);
+      expectSelfReplacement(
+        self,
+        family: MomentFamily.songSelfReplacement,
+        replaced: 'First Steps',
+        artist: 'Juno Park',
+        others: ['Wild Card', 'The Lanterns'],
+      );
+    });
+
+    test('SN-50 reconciliation: an all-time release replacing its own '
+        'artist\'s #1 release is a self-replacement that names no '
+        'rival', () async {
+      await recordRace(_refined);
+      final all = await stories();
+
+      final self = all.singleWhere(
+        (story) =>
+            story.item.entity.entityId == 'album-second-wind' &&
+            story.item.chartType == ChartType.albums &&
+            story.family.isNumberOne,
+      );
+      expect(self.facts.weekly, isFalse);
+      expectSelfReplacement(
+        self,
+        family: MomentFamily.releaseSelfReplacement,
+        replaced: 'First Steps (Album)',
+        artist: 'Juno Park',
+        others: ['Wild Card', 'The Lanterns'],
+      );
+    });
+
+    test('SN-50 reconciliation: a weekly release replacing its own '
+        'artist\'s #1 release is a self-replacement that names no '
+        'rival', () async {
+      await publishWeeks(
+        ChartType.albums,
+        _refined.weeksFromUtc,
+        _releaseWeeks,
+      );
+      final fourth = _refined.weeksFromUtc.add(const Duration(days: 21));
+
+      final self = (await stories()).singleWhere(
+        (story) =>
+            story.item.entity.entityId == _a2.entityId &&
+            story.item.weekStartUtc == fourth &&
+            story.family.isNumberOne,
+      );
+      expect(self.facts.weekly, isTrue);
+      expectSelfReplacement(
+        self,
+        family: MomentFamily.releaseSelfReplacement,
+        replaced: _a1.title,
+        artist: 'Mira Vale',
+        others: ['Juno Park', 'Glass House', 'Field Notes'],
+      );
+    });
+
+    test('SN-50 reconciliation: a weekly release re-entry at #101-200 is a '
+        'guaranteed releaseReentry story, never dropped by the minor '
+        'cap', () async {
+      final back = _release('harbour-lights', 'Harbour Lights', 'lanterns');
+      final chart = _WeeklyChart(ChartType.albums, _refined.weeksFromUtc);
+      final weeks = [
+        {_b1: 1, back: 60},
+        {_b1: 1},
+        {
+          _b1: 1,
+          back: 160,
+          // Many minor deep debuts the same week.
+          for (var i = 0; i < 6; i++)
+            _release('deep-$i', 'Deep Release $i', 'ode'): 120 + i,
+        },
+      ];
+      for (final ranks in weeks) {
+        await moments.publishFinalizedForWeek(
+          chartType: ChartType.albums,
+          weekStartUtc: chart._start,
+          events: chart.week(ranks),
+        );
+      }
+      final third = _refined.weeksFromUtc.add(const Duration(days: 14));
+
+      final reentry = (await stories()).where(
+        (story) =>
+            story.item.entity.entityId == back.entityId &&
+            story.item.weekStartUtc == third,
+      );
+      expect(reentry.map((story) => story.family), [
+        MomentFamily.releaseReentry,
+      ]);
+      expect(reentry.single.facts.rank, 160);
+      expect(reentry.single.facts.refined, isTrue);
+    });
+  });
 }
 
 AllTimeMomentService _service(

@@ -20,7 +20,9 @@ import 'package:sonus_next/features/import/domain/models/import_candidate.dart';
 import 'package:sonus_next/features/import/domain/models/import_result.dart';
 import 'package:sonus_next/features/import/domain/services/audio_metadata_reader.dart';
 import 'package:sonus_next/features/import/domain/services/lyrics_source_reader.dart';
+import 'package:sonus_next/features/library/data/daos/album_edition_track_dao.dart';
 import 'package:sonus_next/features/library/data/daos/song_dao.dart';
+import 'package:sonus_next/features/library/domain/services/album_edition_track_order.dart';
 import 'package:sonus_next/features/player/domain/models/track_lyrics.dart';
 import 'package:sonus_next/features/player/domain/repositories/track_lyrics_repository.dart';
 
@@ -137,6 +139,66 @@ void main() {
   ) async => [
     for (final c in candidates) await service.importCandidate(c, now: now),
   ];
+
+  // A file with no disc tag is read as disc 1 by the device reader
+  // (media_metadata_reader.dart: `metadata.discNumber ?? 1`); some taggers
+  // write disc 0 instead. Either way the song is on disc 1 of a single-disc
+  // edition and keeps its track number.
+  for (final disc in [1, 0]) {
+    test(
+      'SN-50 reconciliation: a file with no disc number (read as disc '
+      '$disc) lands on disc 1 of the edition with its track number',
+      () async {
+        AudioMetadata quiet(String title, int track) => AudioMetadata(
+          title: title,
+          artistName: 'Fictional Harbour',
+          albumTitle: 'Quiet Rooms',
+          durationSeconds: 180 + track,
+          trackNumber: track,
+          discNumber: disc,
+          isSingle: false,
+          featuredArtists: const [],
+        );
+        final files = {
+          'quiet/01.mp3': quiet('Lantern', 1),
+          'quiet/02.mp3': quiet('Tideline', 2),
+        };
+        final (importer, _) = await service(files);
+
+        final results = await importAll(importer, [
+          for (final path in files.keys) candidate(path),
+        ]);
+        expect(
+          results.map((r) => r.status),
+          everyElement(ImportResultStatus.imported),
+        );
+
+        final db = await appDatabase.database;
+        final songs = await SongDao(db).findAll();
+        expect(songs, hasLength(2));
+        final editionId = songs.first.albumEditionId;
+        expect(songs.map((s) => s.albumEditionId).toSet(), {editionId});
+
+        final listings = [
+          ...await AlbumEditionTrackDao(db).findByEditionId(editionId),
+        ]..sort(compareByDiscAndTrack);
+        final titleOf = {for (final s in songs) s.id: s.title};
+
+        expect(
+          [
+            for (final m in listings)
+              (
+                titleOf[m.songId],
+                m.discNumber <= 0 ? 1 : m.discNumber,
+                m.trackNumber,
+              ),
+          ],
+          [('Lantern', 1, 1), ('Tideline', 1, 2)],
+        );
+        expect(spansMultipleDiscs(listings.map((m) => m.discNumber)), isFalse);
+      },
+    );
+  }
 
   test(
     'two recordings of ErrTime stay two songs; copies are flagged',

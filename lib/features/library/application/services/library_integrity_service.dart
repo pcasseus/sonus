@@ -2,6 +2,7 @@ import '../../../../core/identity/text_normalizer.dart';
 import '../../../import/application/folders/source_folder_key.dart';
 import '../../data/daos/library_integrity_dao.dart';
 import '../models/library_health_report.dart';
+import '../models/release_display_title.dart';
 import 'album_edition_management_service.dart';
 import 'library_organization_service.dart';
 
@@ -257,7 +258,10 @@ class LibraryIntegrityService {
       final key = SourceFolderKey.of(file.filePath);
       if (key == null) continue;
       byFolder.putIfAbsent(key, () => {})[file.albumId] = (
-        title: file.title,
+        title: releaseDisplayTitle(
+          baseTitle: file.title,
+          editionTitle: file.primaryEditionTitle,
+        ),
         owner: file.owner,
       );
       final albumCounts = counts.putIfAbsent(key, () => {});

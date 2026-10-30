@@ -319,8 +319,9 @@ class MediaBrowseCatalog {
       id: MediaBrowsePlayableId(container, track.songId).mediaId,
       title: track.displayTitle,
       artist: track.creditLine,
-      album: track.albumTitle,
-      displaySubtitle: '${track.creditLine} · ${track.albumTitle}',
+      // The edition the song is listed on, as Now Playing shows it.
+      album: track.editionDisplayTitle,
+      displaySubtitle: '${track.creditLine} · ${track.editionDisplayTitle}',
       duration: track.durationSeconds > 0
           ? Duration(seconds: track.durationSeconds)
           : null,

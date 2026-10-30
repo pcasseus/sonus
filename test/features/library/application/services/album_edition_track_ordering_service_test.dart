@@ -12,6 +12,7 @@ import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition_track.dart';
 import 'package:sonus_next/features/library/domain/entities/entity_factory.dart';
 import 'package:sonus_next/features/library/domain/entities/song.dart';
+import 'package:sonus_next/features/library/domain/services/album_edition_track_order.dart';
 import 'package:sonus_next/features/sync/data/daos/local_sync_dao.dart';
 import 'package:sonus_next/features/sync/data/repositories/sync_mutation_transaction_runner.dart';
 import 'package:sonus_next/features/sync/domain/models/sync_data_contract.dart';
@@ -718,6 +719,41 @@ void main() {
       });
     },
   );
+
+  for (final disc in [0, 1]) {
+    test('SN-50 reconciliation: saving a placement with disc $disc keeps a '
+        'single-disc edition (no disc headings)', () async {
+      final fixture = await createFixture();
+
+      final result = await service.updateTrackPlacement(
+        userId: 'user_1',
+        albumEditionId: fixture.standardEdition.id,
+        songId: fixture.songB.id,
+        discNumber: disc,
+        trackNumber: 2,
+        now: mutationTime,
+      );
+
+      expect(result.membership.trackNumber, 2);
+      expect(
+        result.membership.discNumber <= 0 ? 1 : result.membership.discNumber,
+        1,
+      );
+
+      final db = await appDatabase.database;
+      final listings = [
+        ...await AlbumEditionTrackDao(
+          db,
+        ).findByEditionId(fixture.standardEdition.id),
+      ]..sort((a, b) => a.sortPosition.compareTo(b.sortPosition));
+
+      expect(
+        [for (final m in listings) (m.songId, m.trackNumber)],
+        [(fixture.songA.id, 1), (fixture.songB.id, 2), (fixture.songC.id, 3)],
+      );
+      expect(spansMultipleDiscs(listings.map((m) => m.discNumber)), isFalse);
+    });
+  }
 }
 
 class _Fixture {

@@ -6,7 +6,9 @@ import 'package:sonus_next/core/database/database_tables.dart';
 import 'package:sonus_next/features/import/application/services/atomic_library_importer.dart';
 import 'package:sonus_next/features/import/domain/models/audio_metadata.dart';
 import 'package:sonus_next/features/import/domain/models/import_candidate.dart';
+import 'package:sonus_next/features/library/application/models/release_display_title.dart';
 import 'package:sonus_next/features/library/application/services/album_edition_management_service.dart';
+import 'package:sonus_next/features/library/data/daos/album_dao.dart';
 import 'package:sonus_next/features/library/data/daos/album_edition_dao.dart';
 import 'package:sonus_next/features/library/data/daos/album_edition_track_dao.dart';
 import 'package:sonus_next/features/library/data/daos/song_dao.dart';
@@ -302,6 +304,63 @@ void main() {
       ),
       refused(AlbumEditionRefusal.blankTitle),
     );
+  });
+
+  test('SN-50 reconciliation: an Other edition renamed in Release Studio '
+      'persists through SQLite; the release title is unchanged', () async {
+    final result = await AtomicLibraryImporter(appDatabase: appDatabase).import(
+      candidate: ImportCandidate(
+        filePath: 'S/skyline/Horizon.mp3',
+        normalizedPath: 's/skyline/horizon.mp3',
+        discoveredAt: now,
+      ),
+      metadata: const AudioMetadata(
+        title: 'Horizon',
+        artistName: 'Fictional Harbour',
+        albumTitle: 'Skyline',
+        durationSeconds: 200,
+        trackNumber: 1,
+        discNumber: 1,
+        isSingle: false,
+        featuredArtists: [],
+      ),
+      now: now,
+    );
+    final db = await appDatabase.database;
+    final albumId = (await SongDao(db).findById(result.songId!))!.albumId;
+
+    final other = await editions.createEdition(
+      albumId: albumId,
+      title: 'Skyline (Extras)',
+      type: AlbumEditionType.other,
+      now: now,
+    );
+    await editions.updateEdition(
+      editionId: other.id,
+      title: 'Skyline (Remixes)',
+      now: now,
+    );
+
+    final stored = (await AlbumEditionDao(
+      db,
+    ).findByAlbumId(albumId)).singleWhere((e) => e.id == other.id);
+    final album = (await AlbumDao(db).findById(albumId))!;
+
+    expect(stored.title, 'Skyline (Remixes)');
+    expect(stored.type, AlbumEditionType.other);
+    expect(
+      editionLabel(
+        title: stored.title,
+        type: stored.type,
+        baseTitle: album.title,
+      ),
+      'Remixes',
+    );
+    expect(
+      releaseDisplayTitle(baseTitle: album.title, editionTitle: stored.title),
+      'Skyline (Remixes)',
+    );
+    expect(album.title, 'Skyline');
   });
 
   test("SN-45: a rename is the user's, kept through later lookups", () async {

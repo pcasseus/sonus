@@ -14,6 +14,8 @@ LibraryTrack libraryTrack(
   String artistName = 'Madison Beer',
   String albumId = 'album-1',
   String albumTitle = 'locket',
+  String albumEditionTitle = 'Standard',
+  AlbumEditionType albumEditionType = AlbumEditionType.standard,
   int trackNumber = 1,
   bool available = true,
   bool blocked = false,
@@ -27,8 +29,8 @@ LibraryTrack libraryTrack(
     albumId: albumId,
     albumTitle: albumTitle,
     albumEditionId: '$albumId-standard',
-    albumEditionTitle: 'Standard',
-    albumEditionType: AlbumEditionType.standard,
+    albumEditionTitle: albumEditionTitle,
+    albumEditionType: albumEditionType,
     trackNumber: trackNumber,
     durationSeconds: 180,
     isSingle: false,
@@ -274,6 +276,32 @@ void main() {
       expect(song.displaySubtitle, 'Madison Beer · locket');
       expect(song.duration, const Duration(minutes: 3));
       expect(song.artUri, Uri.parse('content://test/${'/art/a.jpg'.hashCode}'));
+    });
+
+    test('SN-50: songs name the edition they are listed on, as Now Playing '
+        'does; the stored album title is unchanged', () async {
+      library.tracks = [
+        libraryTrack(
+          'deluxe',
+          albumEditionTitle: 'locket (Deluxe)',
+          albumEditionType: AlbumEditionType.deluxe,
+        ),
+        libraryTrack(
+          'other',
+          albumEditionTitle: 'locket (Remixes)',
+          albumEditionType: AlbumEditionType.other,
+        ),
+      ];
+
+      final songs = await catalog.children('sonus:songs');
+      final deluxe = songs.singleWhere((item) => item.title == 'Song deluxe');
+      final other = songs.singleWhere((item) => item.title == 'Song other');
+
+      expect(deluxe.album, 'locket (Deluxe)');
+      expect(deluxe.displaySubtitle, 'Madison Beer · locket (Deluxe)');
+      expect(other.album, 'locket (Remixes)');
+      expect(other.displaySubtitle, 'Madison Beer · locket (Remixes)');
+      expect(library.tracks.first.albumTitle, 'locket');
     });
 
     test('missing artwork gives no artwork, not a broken URI', () async {

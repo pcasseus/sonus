@@ -335,6 +335,43 @@ void main() {
       expect(await snapshot(), before);
     });
 
+    test('SN-50: a split album is named by its primary edition, as current '
+        'lists show it; the stored title is unchanged', () async {
+      await legacyImport('/m/Starstruck/1.mp3', 'A', 'Artist 1');
+      await legacyImport('/m/Starstruck/2.mp3', 'B', 'Artist 2');
+      final db = await appDatabase.database;
+      final artist2Album =
+          (await db.rawQuery(
+                'SELECT al.id FROM ${DatabaseTables.albums} al '
+                'JOIN ${DatabaseTables.artists} ar ON ar.id = al.artist_id '
+                "WHERE ar.name = 'Artist 2'",
+              )).single['id']!
+              as String;
+      await db.update(
+        DatabaseTables.albumEditions,
+        {'title': 'Starstruck (Deluxe)'},
+        where: 'album_id = ? AND is_primary = 1',
+        whereArgs: [artist2Album],
+      );
+
+      final finding = splitFinding(await integrity.verify());
+
+      expect(
+        finding.folderSplits.single.albums.map((a) => (a.owner, a.title)),
+        unorderedEquals([
+          ('Artist 2', 'Starstruck (Deluxe)'),
+          ('Artist 1', 'Starstruck'),
+        ]),
+      );
+      final stored = await db.query(
+        DatabaseTables.albums,
+        columns: ['title'],
+        where: 'id = ?',
+        whereArgs: [artist2Album],
+      );
+      expect(stored.single['title'], 'Starstruck');
+    });
+
     test('one album per folder is verified', () async {
       await legacyImport('/m/locket/1.mp3', 'A', 'Madison Beer');
       await legacyImport('/m/locket/2.mp3', 'B', 'Madison Beer');

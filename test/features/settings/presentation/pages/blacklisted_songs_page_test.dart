@@ -60,6 +60,26 @@ void main() {
     );
   });
 
+  testWidgets('SN-50: a row names the release by its primary edition', (
+    tester,
+  ) async {
+    final repository = _FakeLibraryQueryRepository(
+      tracks: [
+        _track(
+          songId: 'blocked-1',
+          title: 'Blacklisted One',
+          isSongBlocked: true,
+          primaryEditionTitle: 'Album (Deluxe)',
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(_buildSubject(repository: repository));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Album (Deluxe)'), findsOneWidget);
+  });
+
   testWidgets('shows empty state when no songs are blacklisted', (
     tester,
   ) async {
@@ -239,6 +259,7 @@ LibraryTrack _track({
   bool isSongBlocked = false,
   bool isAvailable = true,
   String? filePath = '/music/song.mp3',
+  String? primaryEditionTitle,
 }) {
   return LibraryTrack(
     songId: songId,
@@ -247,6 +268,7 @@ LibraryTrack _track({
     artistName: 'Artist',
     albumId: 'album-1',
     albumTitle: 'Album',
+    primaryEditionTitle: primaryEditionTitle,
     albumEditionId: 'edition-1',
     albumEditionTitle: 'Standard',
     albumEditionType: AlbumEditionType.standard,

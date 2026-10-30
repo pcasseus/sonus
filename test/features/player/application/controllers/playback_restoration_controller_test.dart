@@ -295,6 +295,49 @@ void main() {
     });
   });
 
+  group('SN-50 reconciliation: duplicate songs', () {
+    test('SN-50 reconciliation: a queue holding the same song twice is '
+        'saved with both copies, in order, at the second copy', () async {
+      await controller.restore(() => library(const []));
+
+      // Queue [a, b, a], listening to the second copy of a.
+      engine.emit(
+        _state(
+          ['a', 'b', 'a'],
+          index: 2,
+          seconds: 42,
+          status: PlaybackStatus.paused,
+        ),
+      );
+      await pumpEventQueue();
+
+      expect(saved()!.songIds, ['a', 'b', 'a']);
+      expect(saved()!.currentIndex, 2);
+      expect(saved()!.position, const Duration(seconds: 42));
+    });
+
+    test(
+      'SN-50 reconciliation: a saved queue holding the same song twice is '
+      'restored with both copies, in order, at the second copy',
+      () async {
+        save(['a', 'b', 'a'], index: 2, seconds: 42);
+
+        final outcome = await controller.restore(
+          () => library([_track('a'), _track('b')]),
+        );
+
+        expect(outcome, PlaybackRestoreOutcome.restored);
+        expect(engine.loadedIds, ['a', 'b', 'a']);
+        expect(engine.loadedStartIndex, 2, reason: 'the second copy');
+        expect(engine.seekedTo, const Duration(seconds: 42));
+      },
+      skip:
+          'Behaviour gap: PlaybackCoordinator.playTracks remaps startIndex '
+          'by songId (playback_coordinator.dart:51-53), so the restore '
+          'resumes the first copy (index 0) instead of the second.',
+    );
+  });
+
   group('snapshot format', () {
     test('round-trips', () {
       const snapshot = PlaybackSessionSnapshot(
