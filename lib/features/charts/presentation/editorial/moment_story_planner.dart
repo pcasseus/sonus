@@ -41,15 +41,65 @@ enum GatedMomentKind {
   /// A weekly exit from the Hot 100 into Bubbling Under by a song with a
   /// Top 40 peak or [MomentStoryPlanner.notableExitWeeks] Hot 100 weeks.
   notableHot100Exit,
+
+  /// A weekly climb of [MomentStoryPlanner.hot100MajorClimbMinimum] or
+  /// more places within the Hot 100 (SN-50 Batch E).
+  hot100MajorClimb,
+
+  /// [MomentStoryPlanner.hot100ClimbRunWeeks] or more consecutive weekly
+  /// climbs within the Hot 100, together worth
+  /// [MomentStoryPlanner.hot100ClimbRunMinimum] places (SN-50 Batch E).
+  hot100ClimbRun,
 }
 
 /// A detected [GatedMomentKind] story, with the id it would publish under.
 class GatedMoment {
-  const GatedMoment(this.id, this.kind, this.event);
+  const GatedMoment(this.id, this.kind, this.event, {this.jump});
 
   final String id;
   final GatedMomentKind kind;
   final ChartMomentEvent event;
+
+  /// The verified movement and stream facts of a chart jump.
+  final ChartJumpFacts? jump;
+}
+
+/// The verified facts of a chart jump, from finalized weeks only. Places
+/// and streams are separate facts: a place gained is never a stream.
+class ChartJumpFacts {
+  const ChartJumpFacts({
+    required this.fromRank,
+    required this.toRank,
+    required this.weeks,
+    this.weekStreams,
+    this.previousWeekStreams,
+  });
+
+  /// The rank before the first climbing week.
+  final int fromRank;
+
+  /// This week's rank.
+  final int toRank;
+
+  /// Consecutive climbing weeks, this one included.
+  final int weeks;
+
+  int get placesGained => fromRank - toRank;
+
+  /// Qualified streams in this finalized week.
+  final int? weekStreams;
+
+  /// Qualified streams in the week before, only when that week's entry was
+  /// verified as this song's previous rank.
+  final int? previousWeekStreams;
+
+  /// More (or fewer) qualified streams than the week before; null unless
+  /// both weeks are known.
+  int? get streamGain {
+    final now = weekStreams;
+    final before = previousWeekStreams;
+    return now == null || before == null ? null : now - before;
+  }
 }
 
 /// The stories of one recorded group under the SN-50 rules (Session F):
@@ -84,7 +134,8 @@ class MomentStoryPlanner {
     required Set<String> biggestGainers,
   }) : _leaders = _displacedLeaders(items),
        _gainers = biggestGainers,
-       _fiveHot100Weeks = _fiveHot100WeeksReached(items);
+       _fiveHot100Weeks = _fiveHot100WeeksReached(items),
+       _weeklyMoves = _weeklyMovesFrom(items);
 
   /// The zone below #1 whose first entry is told on its own; the others
   /// a move enters are told together. #1 is its own story.
@@ -127,6 +178,19 @@ class MomentStoryPlanner {
 
   /// The smallest weekly fall within Bubbling Under that is news.
   static const int bubblingUnderFallMinimum = 30;
+
+  /// Chart jumps (SN-50 Batch E), held until their headlines and these
+  /// provisional thresholds are approved: the smallest weekly climb within
+  /// the Hot 100, and the shortest run of weekly Hot 100 climbs with the
+  /// smallest total it must reach.
+  static const int hot100MajorClimbMinimum = 25;
+  static const int hot100ClimbRunWeeks = 3;
+  static const int hot100ClimbRunMinimum = 30;
+
+  /// Per song, its finalized weekly chart entries keyed by the week's end:
+  /// the verified history jump detection reads. Weeks before Moments were
+  /// recorded are absent, and missing history never counts.
+  final Map<String, Map<int, ChartMomentEvent>> _weeklyMoves;
 
   /// A Hot 100 exit into Bubbling Under is news after a peak at or above
   /// this rank, or after [notableExitWeeks] Hot 100 weeks.
@@ -611,6 +675,37 @@ class MomentStoryPlanner {
           ),
         );
       }
+      if (event.eventType == ChartMomentEventType.rankRise &&
+          _withinHot100(event)) {
+        final previous = _previousWeek(event);
+        if ((event.movementDistance ?? 0) >= hot100MajorClimbMinimum) {
+          gated.add(
+            GatedMoment(
+              '${item.id}#hot-100-jump',
+              GatedMomentKind.hot100MajorClimb,
+              event,
+              jump: ChartJumpFacts(
+                fromRank: event.previousRank!,
+                toRank: event.currentRank!,
+                weeks: 1,
+                weekStreams: event.qualifiedStreamCount,
+                previousWeekStreams: previous?.qualifiedStreamCount,
+              ),
+            ),
+          );
+        }
+        final run = _climbRun(event, previous);
+        if (run != null) {
+          gated.add(
+            GatedMoment(
+              '${item.id}#hot-100-run',
+              GatedMomentKind.hot100ClimbRun,
+              event,
+              jump: run,
+            ),
+          );
+        }
+      }
       if (event.eventType == ChartMomentEventType.thresholdExit &&
           event.threshold == ChartRankingEngine.officialChartLimit &&
           (event.currentRank ?? 0) > ChartRankingEngine.officialChartLimit &&
@@ -625,6 +720,92 @@ class MomentStoryPlanner {
       }
     }
     return gated;
+  }
+
+  /// The run of consecutive weekly Hot 100 climbs ending with [latest],
+  /// when it is long and large enough; [previous] is its week before.
+  ChartJumpFacts? _climbRun(
+    ChartMomentEvent latest,
+    ChartMomentEvent? previous,
+  ) {
+    var weeks = 1;
+    var fromRank = latest.previousRank!;
+    var cursor = latest;
+    while (true) {
+      final before = _previousWeek(cursor);
+      if (before == null ||
+          before.eventType != ChartMomentEventType.rankRise ||
+          !_withinHot100(before)) {
+        break;
+      }
+      weeks++;
+      fromRank = before.previousRank!;
+      cursor = before;
+    }
+    if (weeks < hot100ClimbRunWeeks ||
+        fromRank - latest.currentRank! < hot100ClimbRunMinimum) {
+      return null;
+    }
+    return ChartJumpFacts(
+      fromRank: fromRank,
+      toRank: latest.currentRank!,
+      weeks: weeks,
+      weekStreams: latest.qualifiedStreamCount,
+      previousWeekStreams: previous?.qualifiedStreamCount,
+    );
+  }
+
+  /// The song's entry in the finalized week just before [event]'s, only
+  /// when its rank is the previous rank [event] was measured against.
+  ChartMomentEvent? _previousWeek(ChartMomentEvent event) {
+    final before =
+        _weeklyMoves[event.entity.entityId]?[event.weekStartUtc
+            .toUtc()
+            .millisecondsSinceEpoch];
+    if (before == null || before.currentRank != event.previousRank) {
+      return null;
+    }
+    return before;
+  }
+
+  static bool _withinHot100(ChartMomentEvent event) {
+    const limit = ChartRankingEngine.officialChartLimit;
+    final before = event.previousRank;
+    final now = event.currentRank;
+    return event.chartType == ChartType.songs &&
+        before != null &&
+        now != null &&
+        before <= limit &&
+        now <= limit;
+  }
+
+  static Map<String, Map<int, ChartMomentEvent>> _weeklyMovesFrom(
+    Iterable<ChartMomentFeedItem> items,
+  ) {
+    const placed = {
+      ChartMomentEventType.rankRise,
+      ChartMomentEventType.rankFall,
+      ChartMomentEventType.rankSame,
+      ChartMomentEventType.debut,
+      ChartMomentEventType.reentry,
+    };
+    final moves = <String, Map<int, ChartMomentEvent>>{};
+    for (final item in items) {
+      if (item.scope != ChartMomentScope.finalized ||
+          item.chartType != ChartType.songs) {
+        continue;
+      }
+      for (final event in item.events) {
+        if (!placed.contains(event.eventType) || event.currentRank == null) {
+          continue;
+        }
+        moves.putIfAbsent(
+          event.entity.entityId,
+          () => {},
+        )[event.weekEndUtc.toUtc().millisecondsSinceEpoch] = event;
+      }
+    }
+    return moves;
   }
 
   /// A verified Top 40 peak, or a fifth Hot 100 week recorded before this

@@ -518,4 +518,160 @@ void main() {
       },
     );
   });
+
+  group('SN-50 Batch E: chart jumps, held for copy approval', () {
+    Map<String, GatedMoment> held(
+      List<GatedMoment> all,
+      GatedMomentKind kind,
+    ) => {
+      for (final moment in all)
+        if (moment.kind == kind) moment.event.entity.entityId: moment,
+    };
+
+    test('a Hot 100 climb of 25+ places is detected with its ranks; +24 is '
+        'not', () async {
+      final jump = _song('jump');
+      final small = _song('small');
+      final last = await publish(_from, [
+        {jump: 80, small: 74},
+        {jump: 50, small: 51},
+      ]);
+
+      final jumps = held(
+        await gated(_activated),
+        GatedMomentKind.hot100MajorClimb,
+      );
+
+      expect(jumps.keys, ['jump']);
+      final facts = jumps['jump']!.jump!;
+      expect(facts.fromRank, 80);
+      expect(facts.toRank, 50);
+      expect(facts.placesGained, 30);
+      expect(facts.weeks, 1);
+      expect(jumps['jump']!.event.weekStartUtc, last);
+      expect(jumps['jump']!.id, endsWith('#hot-100-jump'));
+    });
+
+    test('three climbing weeks in a row add up; positions and streams stay '
+        'separate facts', () async {
+      final climber = _song('climber');
+      await publish(_from, [
+        {climber: 90},
+        {climber: 80},
+        {climber: 65},
+        {climber: 55},
+      ]);
+
+      final runs = held(
+        await gated(_activated),
+        GatedMomentKind.hot100ClimbRun,
+      );
+
+      final facts = runs['climber']!.jump!;
+      expect(facts.fromRank, 90);
+      expect(facts.toRank, 55);
+      expect(facts.weeks, 3);
+      expect(facts.placesGained, 35, reason: 'positions, over three weeks');
+      // Streams are 300 - rank in this fixture: 245 this week, 235 last.
+      expect(facts.weekStreams, 245);
+      expect(facts.previousWeekStreams, 235);
+      expect(facts.streamGain, 10, reason: 'streams, this week only');
+      expect(runs['climber']!.id, endsWith('#hot-100-run'));
+    });
+
+    test(
+      'two climbing weeks, or a run broken by a fall, are not a run',
+      () async {
+        final two = _song('two');
+        final broken = _song('broken');
+        await publish(_from, [
+          {two: 95, broken: 95},
+          {two: 70, broken: 80},
+          {two: 60, broken: 85},
+          {broken: 60},
+        ]);
+
+        final runs = held(
+          await gated(_activated),
+          GatedMomentKind.hot100ClimbRun,
+        );
+
+        expect(runs, isEmpty);
+      },
+    );
+
+    test('Bubbling Under moves are never Hot 100 jumps', () async {
+      final arrival = _song('arrival-jump');
+      final buClimb = _song('bu-climb');
+      await publish(_from, [
+        {arrival: 160, buClimb: 190},
+        {arrival: 87, buClimb: 140},
+      ]);
+
+      final all = await gated(_activated);
+
+      expect(held(all, GatedMomentKind.hot100MajorClimb), isEmpty);
+      expect(held(all, GatedMomentKind.hot100ClimbRun), isEmpty);
+    });
+
+    test('a missing week of history never counts', () async {
+      final gap = _song('gap');
+      final weeks = _Weeks(_from);
+      for (final ranks in [
+        {gap: 95},
+        {gap: 85},
+        {gap: 75},
+        {gap: 60},
+      ]) {
+        final (start, events) = weeks.week(ranks);
+        // The second week was never recorded as Moments.
+        if (start == _from.add(const Duration(days: 7))) continue;
+        await moments.publishFinalizedForWeek(
+          chartType: ChartType.songs,
+          weekStartUtc: start,
+          events: events,
+        );
+      }
+
+      final runs = held(
+        await gated(_activated),
+        GatedMomentKind.hot100ClimbRun,
+      );
+
+      expect(runs, isEmpty);
+    });
+
+    test(
+      'nothing about a jump is published, and detection is stable',
+      () async {
+        final jump = _song('jump');
+        final last = await publish(_from, [
+          {jump: 80},
+          {jump: 40},
+        ]);
+
+        final all = await stories(_activated);
+        expect([
+          for (final story in of(all, jump, last))
+            if (story.id.endsWith('#hot-100-jump') ||
+                story.id.endsWith('#hot-100-run'))
+              story.id,
+        ], isEmpty);
+        expect(
+          [for (final moment in await gated(_activated)) moment.id],
+          [for (final moment in await gated(_activated)) moment.id],
+        );
+      },
+    );
+
+    test('weeks before activation hold no jumps', () async {
+      final jump = _song('jump');
+      await publish(DateTime.utc(2026, 8, 16), [
+        {jump: 80},
+        {jump: 40},
+      ]);
+
+      expect(await gated(_activated), isEmpty);
+    });
+  });
 }
