@@ -365,9 +365,50 @@ Authorized by the user's explicit safe-local-work message. Decisions are in `C:\
 
 ### Remaining work
 
-- **BUG-03:** "Other" edition custom name, using `album_editions.title`, no schema change.
-- **BUG-04:** Bubbling Under debut, re-entry and movement stories, plus the first Hot 100 entrance. New copy is editorially gated: reuse accurate existing families and draft the rest.
-- Then the final full regression and analyze, and refreshed Traceability and QA reports.
+Done in round 3 (below). What is left needs your decisions: see BLOCKED_NEEDS_APPROVAL.
+
+## Round 3 (2026-10-30): BUG-03, BUG-04, outstanding findings
+
+`C:\dev\sonus\SN50_Additional_Bug_Tweaks_Addendum_v2.md` was referenced again but **still does not exist**; the work follows `SN50_Additional_Bug_Tweaks_Addendum.md` §BUG-03/§BUG-04 and your message.
+
+| Commit | Batch | Full suite (`--concurrency=1`) |
+|---|---|---|
+| `0f4bb30` | BUG-03 Other edition with its own name | 4,930 passed, 0 failed |
+| `2e485ae` | BUG-04 Bubbling Under / Hot 100 arrivals; Import-1 and legacy-featured regression tests | **4,941 passed, 0 failed** (analyzer clean) |
+
+One full suite per batch, run by the main session after targeted tests. No subagents were used. Boundary check (all other worktrees) unchanged after each batch; SN-49 still `36d4d5d` with only its seven registrant files.
+
+### BUG-03
+
+- No schema change: the name is `album_editions.title`.
+- New-edition dialog: choosing Other suggests no name (it used to suggest "Release (Other)") and hints "For example Skyline (Remixes)". A blank name or the bare word "Other" is refused. Renaming shows and keeps the saved name.
+- Album page badge and edition picker: an Other edition shows its own qualifier ("Remixes" for "Skyline (Remixes)"), or its whole name when it isn't built on the release title. Typed editions keep their type label. Release Studio tabs show the full name (they already did); an unnamed edition reads "Other" instead of "other".
+- Now Playing and the media session show the playing edition's name (`PlaybackTrack.displayAlbum`). A rename refreshes it in place through the BUG-01 refresher. Listening history still records the stored album and edition titles.
+- Untouched: the parent title, other editions, membership, numbering, primary status, stream history. The edition is never made primary.
+- **Design choice for you:** a separate custom *type label* (e.g. "Remixes" stored apart from the name) would need a new column. Not done. Today the label is derived from the name.
+
+### BUG-04
+
+All of it applies only under the refined-rules activation gate, and only to chart weeks starting after activation. Existing headline families are reused only where every line is true for the case.
+
+- First Bubbling Under debut (#176): guaranteed `songBubblingUnderDebut` (was already the case; now pinned).
+- Bubbling Under re-entry: guaranteed `songReentry`, chart named as Bubbling Under (pinned).
+- #124 → #87, never on the Hot 100: guaranteed `songHot100Breakthrough`. **Fixed:** it could also be the week's biggest gainer, told as "up 37 places". A #101–200 → #1–100 move no longer counts as a Hot 100 climb (E-Q1).
+- #112 → #90, on the Hot 100 in an earlier week: **Fixed.** It produced no story. It now gets a guaranteed Hot 100 re-entry (`songReentry`).
+- Off the chart last week, back at #95, only ever on Bubbling Under before: **Fixed.** It was told as "re-enters the Hot 100" (false). It is now a first Hot 100 entry, without the four arrival lines that describe a move up from Bubbling Under.
+- #171 → #139: told only when it is the week's biggest gainer (existing family; chart named as Bubbling Under).
+- #122 → #168 and #94 → #121: publish nothing. They need new copy and a selection rule (Editorial §7, N-8 to N-10).
+- Idempotence: composing again gives identical stories; finalizing a week again publishes nothing. Weeks before activation keep exactly their earlier stories.
+- Review item, unchanged: `song-break-p3` "jumps from #124 to #87, into the Sonus Hot 100" may read as Hot 100 movement (Editorial §7.2).
+
+### Outstanding findings
+
+- **F-Q7 major milestone, current behaviour (recorded, not extended):** under the refined rules, a song, release or artist stream milestone of **≥ 1,000** (`MomentStoryPlanner.majorStreamMilestone`) gets its own story beside another achievement of the same play; a smaller one becomes supporting text; a milestone that is the play's only news is always its own story. Legacy rules are unaffected. 1,000 is my choice, not an approved editorial threshold. Nothing else uses it.
+- **Legacy featured names:** Track Studio shows older `featured_artists` names for editing. New test: opening the editor (twice) writes nothing; the stored value changes only on an intentional save.
+- **Import-1 same-title, similar-length files:** current behaviour is non-destructive. The second file is skipped as `duplicateRecording`, reported against the kept song, not bound to it, and nothing about the kept song changes, also on a second import (new test). It is **not** imported as its own song, so a genuinely different recording at another track position stays out of the library until you decide. **Proposed identity policy (for approval, not implemented):**
+  1. Same artist, title, version and album, durations within tolerance, **same** disc and track position (or no position): same recording, as today.
+  2. Same as 1 but a **different** disc/track position on the same edition: ambiguous. Import it as its own song flagged `alternateRecording` for review (the existing review reason), never auto-merged; the user can later merge or keep both.
+  3. Never re-evaluate or split songs already in the library; the policy applies to new imports only.
 
 ### Editorial proposal
 
@@ -394,8 +435,9 @@ Authorized by the user's explicit safe-local-work message. Decisions are in `C:\
 13. **Destructive workflows.** Approve or adjust `SN50_Destructive_Workflows_Design.md` §6 items A-T0 to A-T6 (Trash and purge), P-1 to P-5 (Delete from Phone), R-1 to R-3 (ringtones) and M-1 to M-6 (media session, plugin patches 2/3, device QA).
 14. **M-2/M-3 confirmation.** `9547ef0` implemented End Session (keeping the queue) and the Dart-side media-session changes under the approved D-Q3/D-Q6/D-Q1 decisions. The destructive-workflows design doc had listed them as approval items, so please confirm or ask for changes. Device QA and plugin patches were not done.
 15. **Round 2 decisions to confirm:**
-    - F-Q7 major milestone threshold of 1,000 streams.
+    - F-Q7 major milestone threshold of 1,000 streams (current behaviour recorded in round 3).
     - The BUG-01 mirror policy, which changes C-Q4.
-    - The Import-1 same-title, similar-length duplicate import (needs a policy).
-    - BUG-04 headline copy for Bubbling Under movement (needs editorial approval).
-16. **`SN50_Additional_Bug_Tweaks_Addendum_v2.md` was referenced but not found.** BUG-05 was implemented from the user's message.
+    - The Import-1 identity policy proposed in round 3 (rules 1–3).
+16. **`SN50_Additional_Bug_Tweaks_Addendum_v2.md` was referenced but not found** (again in round 3). BUG-05 was implemented from the user's message.
+17. **BUG-04 copy and selection rules:** Editorial §7 N-8 (Hot 100 → Bubbling Under drop, proposed rule: Top 40 peak or 5+ Hot 100 weeks), N-9 (extra Bubbling Under climb, proposed: 25+ places, at most one a week), N-10 (recommend no story for falls within Bubbling Under), N-11 (optional arrival wording citing last week's Bubbling Under rank), and the §7.2 review of `song-break-p3`.
+18. **BUG-03 type label:** keep deriving the Other label from the name, or approve a schema change for a stored custom type label.

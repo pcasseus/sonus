@@ -1,13 +1,14 @@
 # SN-50 QA Report
 
-Branch `sn-50-final-refinement`, worktree `C:\dev\sonus\sonus_next_sn50`. Base `36d4d5d`, HEAD `14b592f` (13 local commits, none pushed). Date: 2026-10-29.
+Branch `sn-50-final-refinement`, worktree `C:\dev\sonus\sonus_next_sn50`. Base `36d4d5d`. Round 1 ended at `14b592f`; refreshed 2026-10-30 at code HEAD `2e485ae` (25 local commits including the round-3 docs refresh, none pushed).
 
 ## 1. Analyzer and test suite
 
 | Point | `flutter analyze` | `flutter test` (full suite) |
 |---|---|---|
 | Baseline `36d4d5d` (SN-50 worktree, before edits) | No issues | **4,462 passed, 0 failed** |
-| HEAD `14b592f` | No issues | **4,798 passed, 0 failed** |
+| `14b592f` (end of round 1) | No issues | **4,798 passed, 0 failed** |
+| `2e485ae` (BUG-04, latest code) | No issues | **4,941 passed, 0 failed** |
 
 The suite has **336 more tests**. Nothing was dropped silently: a few tests that encoded replaced semantics were swapped for tests of the new rule. For example, Phase 1 replaced the two "replace finalized Moments" repository tests with publish-once tests.
 
@@ -40,6 +41,17 @@ The suite has **336 more tests**. Nothing was dropped silently: a few tests that
 | `081d4ab` | 7: bulk actions | 4,761 |
 | `9547ef0` | 8: media session (Dart side) | 4,783 |
 | `14b592f` | final: Release Studio layout, Import Review credits, menus | 4,798 |
+| `430700d` | R1 missing vs blocked; R5, E-Q8 tests | 4,816 |
+| `8d2cbfe` | R2 approval-based activation; R6 dot baseline | 4,840 (+1 sleep-timeout flake, passes alone) |
+| `9a5cdbb` | R3 entry kept on a jump to #1 | 4,845 |
+| `db79c4e` | R4 Play after a finished queue | 4,855 |
+| `d27aa50` | partials (A-Q13, A-Q26, B-Q30, F-Q7, D-Q18, A-Q7D) | 4,889 |
+| `7dac818` | BUG-01 / BUG-05 | 4,907 |
+| `4b6abbf` | BUG-02 | 4,916 |
+| `0f4bb30` | BUG-03 | 4,930 |
+| `2e485ae` | BUG-04, Import-1 and legacy-featured tests | 4,941 |
+
+Rounds 2–3 ran the full suite once per batch with `flutter test --concurrency=1` (memory-constrained machine), after targeted tests, and before committing. The `2e485ae` run is the final regression: the later commit is docs only.
 
 ## 3. Data safety and history
 
@@ -98,7 +110,10 @@ These are spec-driven, not bugs, but the user will notice them:
 - Track Studio no longer links a typed credit name to an artist on its own; the user picks the artist.
 - Weekly history rows are now tappable (E-Q8).
 - The standings badge reads CURRENT; "Career standings" and "Career peak" replace "All Time".
-- Play after a finished queue still does nothing, as before. It is pinned for decision M-1.
+- Play after a finished queue replays the last song from 0:00 (`db79c4e`, R4).
+- Featured performers read "Ft." everywhere (BUG-05); queued songs update in place after a credit edit (BUG-01).
+- Now Playing and the media session show the playing edition's name instead of the base album title (BUG-03).
+- Under the refined Moments rules only: a Bubbling Under → Hot 100 move is never the biggest gainer; a Hot 100 return from Bubbling Under gets a re-entry story (BUG-04).
 
 ## 8. Environment left untouched
 
@@ -123,6 +138,7 @@ These are spec-driven, not bugs, but the user will notice them:
 - **Plugin patches:** Android ≤12 custom actions (D-Q14), wake lock (D-Q11).
 - **Cloud:** Leaked and Live in the archive (B-Q19), sync of release-date precision, cross-device edition deletes.
 - **Destructive workflows:** Trash, Delete from Phone and ringtones are design only (`SN50_Destructive_Workflows_Design.md`).
-- **Copy:** editorial line-by-line approval of the existing copy and the 27 new draft lines.
+- **Copy:** editorial line-by-line approval of the existing copy, the 27 new draft lines and the BUG-04 drafts (Editorial §7).
+- **BUG-03 and BUG-04 on a device:** verified by widget and pipeline tests only.
 
 **Production is not complete:** release signing, `versionCode`, Supabase migrations and device QA are still release blockers, as in the audit (Part I §9).

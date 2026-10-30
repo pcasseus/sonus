@@ -4,8 +4,8 @@
 
 - **Branch:** `sn-50-final-refinement`, worktree `C:\dev\sonus\sonus_next_sn50`. Local only: no upstream and no remote `sn-50*` branch.
 - **Base:** `36d4d5d` (SN-49 HEAD).
-- **Commits covered** (`git log --oneline 36d4d5d..HEAD`, oldest first): `8956e3a`, `1a017eb`, `e4027e7`, `2a10990`, `1bce919`, `70fdf64`, `3dbaaa0`, `78750b3`, `ba2d575`, `9aee76d`, `081d4ab`, `9547ef0`. HEAD = `9547ef0` when this was written.
-- **Date:** 2026-10-29.
+- **Commits covered** (`git log --oneline 36d4d5d..HEAD`, oldest first): round 1 `8956e3a`, `1a017eb`, `e4027e7`, `2a10990`, `1bce919`, `70fdf64`, `3dbaaa0`, `78750b3`, `ba2d575`, `9aee76d`, `081d4ab`, `9547ef0`, `14b592f`; round 2 `430700d`, `8d2cbfe`, `9a5cdbb`, `db79c4e`, `d27aa50`, `7dac818`, `4b6abbf`; round 3 `0f4bb30` (BUG-03) and `2e485ae` (BUG-04).
+- **Date:** 2026-10-29, refreshed 2026-10-30 (round 2 and addendum rows updated; see §12).
 - **Sources:** the Master Spec; `SN50_Progress.md`; `SN50_Destructive_Workflows_Design.md` (cited as "Design"); `SN50_Editorial_Change_Proposal.md` (cited as "Editorial"); commit messages and `git show --stat`; test names read with `git show` / `git grep` at HEAD. No tests were run for this document. Test counts come from `SN50_Progress.md`; the last recorded result is 4,783 passing with a clean analyzer after `9547ef0`.
 
 ## Status legend
@@ -51,12 +51,12 @@ Test paths are under `test/features/` unless they start with `test/core/`. Basen
 | A-Q7A | Auto-renumber, but ask before overwriting hand-set numbers | Implemented+tested | `1a017eb`, `e4027e7` | `album_edition_track_ordering_service_test.dart`, `album_edition_management_service_test.dart`, `release_studio_editions_test.dart` | Choose songs and disc moves ask first. The Deluxe follow-up offer changes only inferred numbers and keeps hand-set ones without asking (Progress 2a). |
 | A-Q7B | Numbering restarts at 1 per disc | Implemented+tested | `1a017eb` | `album_edition_track_ordering_service_test.dart` (`edition_track_numbering.dart`) | |
 | A-Q7C | Drag-and-drop renumbers from the actual order | Implemented+tested | `1a017eb` | `album_edition_track_ordering_service_test.dart` | |
-| A-Q7D | Previewed individual legacy repairs; no silent bulk renumbering | Partial | `1a017eb` | Verify Library repairs never renumber (tested in `1a017eb`) | **Missing:** the previewed individual repair flow (Progress BLOCKED #5). |
+| A-Q7D | Previewed individual legacy repairs; no silent bulk renumbering | Implemented+tested | `1a017eb`, `d27aa50` | `edition_numbering_repair_test.dart`; `release_studio_editions_test.dart` "SN-50 A-Q7D: a previewed numbering repair" | Fix numbering previews old and new numbers, changes nothing until confirmed, and asks separately before touching hand-set numbers. |
 | A-Q8A | Disc Organization stays accessible; headings only for real multi-disc editions | Implemented+tested | `e4027e7` | `album_profile_page_test.dart`, `release_studio_editions_test.dart` | One shared `spansMultipleDiscs` rule. |
 | A-Q9 | A disc move puts the track at the end of the destination disc | Implemented+tested | `1a017eb` | `album_edition_track_ordering_service_test.dart` | |
 | A-Q10 | Historical charts and Moments stay frozen | Implemented+tested | `8956e3a` | `chart_finalization_restore_test.dart` (freeze suite), `chart_finalization_service_test.dart`, `sqlite_chart_moment_repository_test.dart` | |
 | A-Q12 | Context-aware song artwork | Implemented+tested | `e4027e7`, `9aee76d` | `library_query_dao_test.dart`, `album_edition_track_order_test.dart`, `moment_editorial_test.dart` | **Open question** (Progress BLOCKED #6): in an edition view, song custom art currently comes before the edition cover. |
-| A-Q13 | Primary without artwork shows a neutral placeholder, not another edition's cover | Partial | `3dbaaa0` (Deluxe case) | `chart_album_presentation_test.dart` "a Deluxe without a cover keeps the placeholder" | No test was found for a release card or profile whose **primary** has no cover. Song-row fallback (A-Q12) can show a home-edition cover. Needs verification. |
+| A-Q13 | Primary without artwork shows a neutral placeholder, not another edition's cover | Implemented+tested | `3dbaaa0`, `d27aa50` | `chart_album_presentation_test.dart`; `library_query_dao_test.dart` "SN-50 A-Q13" | Songs listed on a coverless primary now get the placeholder too. A-Q12 precedence is still an open question. |
 | A-Q14A | Cards show the displayed edition's track count | Implemented+tested | `1a017eb` | `library_query_dao_test.dart` | `songCount` keeps the all-edition count. |
 | A-Q14B | The primary-edition count drives possible-Single review | Implemented+tested | `1a017eb` | `library_query_dao_test.dart` | Can move a release into review and off the current chart. Finalized weeks are unaffected. |
 | A-Q15 | Block deletion until exclusive songs are relocated | Implemented+tested | `2a10990` | `album_edition_management_service_test.dart` | |
@@ -72,7 +72,7 @@ Test paths are under `test/features/` unless they start with `test/core/`. Basen
 | A-Q23 | Deleting the primary requires a replacement primary | Implemented+tested | `2a10990` | `album_edition_management_service_test.dart` | |
 | A-Q24 | The final edition can't be deleted | Implemented+tested | `2a10990` | `album_edition_management_service_test.dart` "SN-50 A-Q24", `release_studio_editions_test.dart` | The release Trash route itself is gated (Session C). |
 | A-Q25 | Exclusive songs block the delete | Implemented+tested | `2a10990` | `album_edition_management_service_test.dart` | |
-| A-Q26 | Removing a song's last membership needs preservation or relocation | Partial | `2a10990` | `album_edition_management_service_test.dart` "SN-50 A-Q26" (delete path) | Pinned for edition delete. Not verified for other membership-removal paths, such as Choose songs. |
+| A-Q26 | Removing a song's last membership needs preservation or relocation | Implemented+tested | `2a10990`, `d27aa50` | `album_edition_management_service_test.dart` "SN-50 A-Q26" (delete path and Choose songs) | |
 | A-Q27 | Several Deluxes: the most recently released wins | Implemented+tested | `3dbaaa0` | `chart_album_presentation_test.dart` | |
 | A-Q27B | Missing or ambiguous dates: the most recently added Deluxe wins | Implemented+tested | `3dbaaa0` | `chart_album_presentation_test.dart` | Falls back to the primary if the Deluxe read fails. |
 | A-Q28 | A Deluxe without a cover shows its title plus a placeholder | Implemented+tested | `3dbaaa0` | `chart_album_presentation_test.dart` | Release Moments do the same (`9aee76d`). |
@@ -107,7 +107,7 @@ Main test file: `library/presentation/pages/artist_profile_session_b_test.dart` 
 | B-Q27 | Tapping a Collaboration plays the Collaborations queue | Implemented+tested | `70fdf64` | B test "a Collaboration plays within the Collaborations queue" | |
 | B-Q28 | Unavailable Collaborations stay visible and marked | Implemented+tested | `70fdf64` | B test | |
 | B-Q29 | Top Tracks: five rows plus See All | Implemented+tested | `70fdf64` | B test "five rows, then See All…", "no See All when five or fewer…" | **Choice to confirm:** See All only appears when more than five songs have streams. |
-| B-Q30 | Contributor-only profiles keep project-based playback | Partial | `70fdf64` | `artist_profile_controller.dart:248-254` (`playbackTracks` for contributors) | Implemented in code. No test was found that names this rule. |
+| B-Q30 | Contributor-only profiles keep project-based playback | Implemented+tested | `70fdf64`, `d27aa50` (test) | `artist_profile_identity_test.dart` "SN-50 B-Q30" | |
 | B-Q31 | Leak label inside a Leaked release only for flagged songs | Implemented+tested | `70fdf64` | B test "song Leak label" | |
 | B-Q32 | Co-primary, featured and guest roles preserved | Implemented+tested | `70fdf64`, `1bce919` | B test, `song_artist_credit_service_test.dart` | |
 | B-Q33 | Unverified credit names display but don't link | Implemented+tested | `70fdf64` | B test "an unverified name is shown but opens nothing (B-Q33)" | **Choice to confirm:** unlinked collaborators keep a working Play button. |
@@ -174,14 +174,14 @@ Dart-side work is in `9547ef0`. Every row also needs device QA (Design §4.2, ap
 | D-Q15 | End Session in the Now Playing overflow and the mini-player menu | Implemented+tested | `9547ef0` | `shell_playback_slot_test.dart` (overflow, long press, screen-reader action), `sonus_mini_player_test.dart` | |
 | D-Q16 | Completed queue stays paused on the last track; no double count | Partial | `9547ef0` | `system_controls_regression_test.dart` "the end of the queue with Repeat off (D-Q16)" | Paused-at-end and the single count are done. **Missing:** the saved session is still cleared on completion, so a finished queue doesn't survive a restart. **Open question M-1:** Play after the end currently does nothing (pinned). |
 | D-Q17 | One authoritative queue shared with Android Auto | No change needed | — | One queue already published to the session (Design §4.1, `media_session_state_mapper.dart:104-112`) | Car-side editing is device QA. |
-| D-Q18 | Queue: subtle atmosphere, highlighted row, no big summary | Partial | `9547ef0` | `shell_playback_slot_test.dart` "(D-Q18)" | Summary card removed. **Missing:** the subtle album atmosphere. |
+| D-Q18 | Queue: subtle atmosphere, highlighted row, no big summary | Implemented+tested | `9547ef0`, `d27aa50` | `shell_playback_slot_test.dart` "(D-Q18)"; `playback_queue_atmosphere_test.dart` | Flat under Decoration Off, High Contrast and Low Effects. |
 | D-Q19 | Mini-player interactive behind nonblocking overlays | Deferred | — | — | Progress Ph8. |
 
 ## 5. Session E: Hot 100 and Charts
 
 | ID | Decision (short) | Status | Commit(s) | Tests / evidence | Notes |
 |---|---|---|---|---|---|
-| E-Q1 | Show the previous Bubbling Under rank as context | Implemented+tested | `3dbaaa0` | `chart_entry_card_test.dart` | Weekly cards only. |
+| E-Q1 | Show the previous Bubbling Under rank as context | Implemented+tested | `3dbaaa0`, `2e485ae` | `chart_entry_card_test.dart`; `bubbling_under_moments_test.dart` | Weekly cards only. BUG-04: Moments no longer count a #101–200 → #1–100 move as a Hot 100 climb (biggest gainer). |
 | E-Q2 | Movement uses the previous **finalized** rank | Implemented+tested | `78750b3` | `chart_movement_baseline_test.dart`, `chart_finalization_restore_test.dart` | Applies to newly finalized weeks only. Stored weeks are frozen. |
 | E-Q3 | Keep NEW/RE-ENTRY; explain them in the info sheet | Implemented+tested | `3dbaaa0` | `charts_page_test.dart` (info sheet per view) | |
 | E-Q4 | Career re-entry has no minimum absence | Implemented+tested | `3dbaaa0` | `charts_page_test.dart`; `chart_info_sheet.dart:10` | Wording pinned. Engine behavior predates SN-50. |
@@ -209,10 +209,10 @@ New rules apply from `ChartMomentRules.refinedFromUtc` = 2026-11-01 UTC (open qu
 | F-Q1 | Every chart entry #1–200 gets a story | Implemented+tested | `ba2d575` | `moments_reachability_test.dart` scenarios 7/8 | |
 | F-Q2 | Exceptional peak-match stories | Partial | `ba2d575` | `moments_reachability_test.dart` "31 families publish, including peak matches" | `songPeakMatch` is wired. No release equivalent. |
 | F-Q3 | #1, Top 10 and longevity streak stories | Partial | `ba2d575` | as F-Q2 | `songWeeksMilestone` is wired. **`releaseWeeksMilestone` still never publishes.** |
-| F-Q4 | Selective falls, exits and dethronings | Deferred | — | Editorial N-7 draft only | |
+| F-Q4 | Selective falls, exits and dethronings | Deferred | — | Editorial N-7, N-8 and N-10 drafts only | Gated on editorial approval: the selection rule and the copy for exits, Hot 100 → Bubbling Under drops and Bubbling Under falls. A drop publishes nothing today (`bubbling_under_moments_test.dart`). |
 | F-Q5 | Name only a verified displaced leader | Implemented+tested | `ba2d575` | `moments_reachability_test.dart` scenario 9, `moment_editorial_test.dart` "a displaced #1 with the same artist name but no verified artist…" | Old stories keep their text (repair would need approval, BLOCKED #11). |
 | F-Q6 | One play may produce several distinct major stories | Implemented+tested | `ba2d575` | `moments_reachability_test.dart` "scenario 8: a career milestone on the same play never replaces…", `moment_editorial_test.dart` "one play tells its debut and its new top artist" | |
-| F-Q7 | Major stream milestones get their own story; minor ones become supporting text | Partial | `ba2d575` | Progress 6a groups it with F-Q6/F-Q9 | No test was found that names the major-vs-supporting split for stream milestones. |
+| F-Q7 | Major stream milestones get their own story; minor ones become supporting text | Implemented+tested | `ba2d575`, `d27aa50` | `moment_editorial_test.dart` "F-Q7: …" (3 tests) | **Choice to confirm:** "major" is a hard-coded 1,000 streams (`MomentStoryPlanner.majorStreamMilestone`). This is not an approved editorial threshold; it applies only after the refined-rules activation and was not extended to anything else. |
 | F-Q8 | Finalized-week stories refer to the completed week | Partial | `ba2d575` | `moment_editorial_test.dart` "SN-50 headlines never call a finished week 'this week'" | New lines only. Existing variants are unchanged pending editorial approval (Gated: editorial, P-items). |
 | F-Q9 | Keep debut and career milestone separate | Implemented+tested | `ba2d575` | as F-Q6 | |
 | F-Q10 | Nth #1 ordinals with explicit chart scope | Partial | `ba2d575` | `moments_reachability_test.dart` "a weekly repeat #1 counts the stored weeks and names the weekly…" | Weekly chart only. Explicit scope in existing repeat-#1 lines is Editorial §6 Q1 (open). |
@@ -282,25 +282,42 @@ Also: D-Q16 M-1 (Play after a completed queue) · C-Q2 Track Studio auto-link po
 | 4 | Standard renumbers after dropping Deluxe-only tracks; manual prompt; per-disc restart; one-disc headings hidden | Implemented+tested | `album_edition_track_ordering_service_test.dart`, `album_edition_management_service_test.dart`, `release_studio_editions_test.dart`, `album_profile_page_test.dart` |
 | 5 | Artist sections and collaboration playback, role-aware, no double counting, unavailable handling | Implemented+tested | `artist_profile_session_b_test.dart`, `artist_profile_sections_test.dart` |
 | 6 | Version suffix in Search, Now Playing, Queue and system; canonical title and history untouched | Implemented+tested | `song_display_title_test.dart`, `media_session_state_mapper_test.dart`, `library_track_playback_mapper_test.dart`, `library_query_dao_test.dart`. Playlist and Release Studio rows still plain (C-Q6 Partial). |
-| 7 | #190 debut, then each first threshold, including a multi-threshold jump | Partial | `moments_reachability_test.dart` "scenario 7". Gap: an all-time jump straight to #1 skips the Top 100 entry (F-Q14). |
+| 7 | #190 debut, then each first threshold, including a multi-threshold jump | Implemented+tested | `moments_reachability_test.dart` "scenario 7" and "SN-50 R3" group (`9a5cdbb`: a jump straight to #1 keeps its Top 100 entry). |
 | 8 | Five deep debuts give five stories; minor cap 3; milestones never suppress entries | Implemented+tested | `moments_reachability_test.dart` "scenario 8" (both tests) |
 | 9 | Verified #1 rival; self-replacement; featured names; shared cover once | Implemented+tested | `moments_reachability_test.dart` "scenario 9"; `moment_editorial_test.dart` |
 | 10 | Day-30 logical purge, history kept, no resurrection, no remote physical delete | Gated (destructive) | Design §1.6, §5.1; approvals A-T0–A-T8, A-T1/A-T2 |
-| 11 | Dismiss keeps queue; BT/system resume restores; completed queue paused on last track; no duplicate stream | Partial | `sonus_audio_handler_test.dart` (dismiss, D-Q8 restore-then-play), `sonus_audio_handler_browse_test.dart` (D-Q9), `system_controls_regression_test.dart` (D-Q16). Device QA gated (M-6). Killed-process native path unverified. Finished queue not kept across restart. |
+| 11 | Dismiss keeps queue; BT/system resume restores; completed queue paused on last track; no duplicate stream | Partial | `sonus_audio_handler_test.dart` (dismiss, D-Q8 restore-then-play), `sonus_audio_handler_browse_test.dart` (D-Q9), `system_controls_regression_test.dart` (D-Q16). Device QA gated (M-6). Killed-process native path unverified. Since `db79c4e` a finished queue is kept across restart and Play replays the last song (`system_controls_regression_test.dart`, R4 tests). |
 | 12 | No token/config display, cloud contact, production write, ADB, MP3 op, remote Git or old-week repair | No change needed (complied, by inspection) | Progress Ph0/Ph7/Ph8; no upstream or remote branch; config not copied; freeze prevents old-week repair; destructive and device work design-only. |
 
 ## 11. Totals per status
 
 | Session | IDs | Implemented+tested | Partial | Gated | Deferred | No change needed | Open question | In progress (final batch) |
 |---|---|---|---|---|---|---|---|---|
-| A | 49 | 35 | 8 | 1 | 1 | 4 | 0 | 0 |
-| B | 31 | 29 | 1 | 1 | 0 | 0 | 0 | 0 |
+| A | 49 | 38 | 5 | 1 | 1 | 4 | 0 | 0 |
+| B | 31 | 30 | 0 | 1 | 0 | 0 | 0 | 0 |
 | C | 30 | 12 | 1 | 16 | 1 | 0 | 0 | 0 |
-| D | 19 | 8 | 4 | 3 | 1 | 3 | 0 | 0 |
+| D | 19 | 9 | 3 | 3 | 1 | 3 | 0 | 0 |
 | E | 18 | 16 | 1 | 0 | 0 | 1 | 0 | 0 |
-| F | 30 | 18 | 10 | 1 | 1 | 0 | 0 | 0 |
-| **Total** | **177** | **118** | **25** | **22** | **4** | **8** | **0** | **0** |
+| F | 30 | 19 | 9 | 1 | 1 | 0 | 0 | 0 |
+| **Total** | **177** | **124** | **19** | **22** | **4** | **8** | **0** | **0** |
+
+Refreshed 2026-10-30: six round-1 Partial rows (A-Q7D, A-Q13, A-Q26, B-Q30, D-Q18, F-Q7) moved to Implemented+tested on the evidence cited in their rows. Other rows were not re-audited; their status is as of round 1 unless §12 says otherwise.
 
 Gated breakdown (22): cloud 3 (A-Q16B, B-Q19, C-Q13B) · destructive or destructive/device 15 (the rest of Session C: Trash, phone delete, ringtones) · device 1 (D-Q5) · plugin 2 (D-Q11, D-Q14) · editorial 1 (F-Q29). A-Q16's cloud remainder is inside a Partial row and isn't counted here.
 
 Updated after `14b592f`: A-Q6A, A-Q6B, C-Q5 and C-Q12 are now Implemented+tested. A-Q7 is an earlier-session reference the spec cites inside A-Q19; it is counted separately. IDs the spec never mentions (for example A-Q11, B-Q3–B-Q6, E-Q6, F-Q11, F-Q13) are not included.
+
+## 12. Round 2 and addendum delta (2026-10-30)
+
+| Item | Source | Status | Commit | Tests | Notes |
+|---|---|---|---|---|---|
+| R1 missing vs blocked chart eligibility | R1–R6 review §2 | Implemented+tested | `430700d` | R1 tests in charts suites | Only blocked songs leave current charts. |
+| R2 approval-based Moments activation; R6 dot baseline | R1–R6 review §2 | Implemented+tested | `8d2cbfe` | `moments_reachability_test.dart` "SN-50 R2 activation" | Supersedes the fixed 2026-11-01 cut-over. |
+| R3 entry kept on a jump to #1; zone consolidation | R1–R6 review §2 | Implemented+tested | `9a5cdbb` | "SN-50 R3" group | |
+| R4 Play after a finished queue | R1–R6 review §2, D-Q16 | Implemented+tested | `db79c4e` | player engine and handler tests | |
+| BUG-01 credit edits reach the playing queue | Addendum | Implemented+tested | `7dac818` | `playback_display_refresher_test.dart` | Older featured names are loaded into Track Studio for editing. The stored `featured_artists` value is rewritten only by an intentional save. |
+| BUG-02 version and credits on every current song surface | Addendum | Implemented+tested | `4b6abbf` | surface tests listed in the commit | |
+| BUG-05 "Ft." connector | User message | Implemented+tested | `7dac818` | `song_credit_line_test.dart` | |
+| BUG-03 Other edition with its own name | Addendum | Implemented+tested | `0f4bb30` | `release_display_title_test.dart`, `release_studio_editions_test.dart` "SN-50 BUG-03", `album_profile_design_test.dart`, player mapper/refresher/media-session tests | Uses `album_editions.title`; no schema change. A separate custom *type label* would need a column: design choice for you. |
+| BUG-04 Bubbling Under and Hot 100 arrivals | Addendum | Partial (copy gated) | `2e485ae` | `bubbling_under_moments_test.dart` | Done with existing copy: Bubbling Under debut, Bubbling Under re-entry, first Hot 100 entry (also after a return with only Bubbling Under history), Hot 100 re-entry from Bubbling Under, no cross-chart biggest gainer, idempotence, earlier weeks unchanged. Gated: drops, rises beyond the biggest gainer and falls (Editorial §7, N-8 to N-11). |
+| Import-1 same-title, similar-length files | SN-44 carry-over | Open question | `2e485ae` (tests only) | `recording_identity_import_test.dart` "SN-50 Import-1" | Never merged, rewritten or bound; reported as a duplicate of the kept song. Proposed identity policy in `SN50_Progress.md`. |

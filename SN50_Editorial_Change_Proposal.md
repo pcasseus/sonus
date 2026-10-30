@@ -240,3 +240,54 @@ By priority: 10 factual or decision items (2A), 2 redundancy items (2B), 7 optio
 2. **The name for album positions #101–200** (N-1) and the wording for a **Top 200** roundup on the song chart (N-5).
 3. **Which threshold crossings are "major breakthroughs"** that get their own story under F-Q14B, and which are combined (N-3).
 4. **Numbering conflict:** in the Master Spec, F-Q31 means re-entry rules ("no rank or absence minimum"). In the October 28 register, F-Q31 is the "Hot 100" page header question. This document follows the Master Spec.
+
+---
+
+## 7. BUG-04 addendum: Bubbling Under movement and Hot 100 arrivals (2026-10-30)
+
+**Status:** PROPOSAL. Nothing in this section ships. Every line below is a new draft that needs your approval, and no existing variant was changed. Source: `C:\dev\sonus\SN50_Additional_Bug_Tweaks_Addendum.md` §BUG-04.
+
+### 7.1 What already ships with approved copy (code, not copy, changed)
+
+These paths use existing families whose wording is factually accurate for the case. They are reachable only under the refined-rules activation gate (`ChartMomentRules`), and only for chart weeks starting at or after activation. Frozen weeks and stories published earlier are untouched.
+
+| Case (addendum test) | Story told | Family reused | Why the wording is accurate |
+|---|---|---|---|
+| First Bubbling Under debut, #176 | Guaranteed entry, exempt from the minor cap | `songBubblingUnderDebut` | Every line names Sonus Bubbling Under. |
+| Re-entry onto Bubbling Under | Guaranteed entry | `songReentry` | `${f.chart}` names Bubbling Under for #101–200. |
+| #124 → #87, never on the Hot 100 before | Guaranteed Hot 100 arrival | `songHot100Breakthrough` | Lines say "enters / breaks into the Sonus Hot 100"; d2 cites the Bubbling Under rank as context. |
+| #124 → #87 and also the week's largest raw climb | **No** biggest-gainer story | — | Fixed: a move from #101–200 into #1–100 no longer counts as a Hot 100 climb (E-Q1). Before the fix it could be told as "up 37 places". |
+| #112 → #90, on the Hot 100 in an earlier week | Guaranteed Hot 100 re-entry | `songReentry` | Fixed: this move previously produced **no** story. Every `songReentry` line ("re-enters / returns to / is back on the Sonus Hot 100 at #90", "previously peaked at #X") is true. No movement figure is shown. |
+| Off the chart last week, back at #90, only ever on Bubbling Under before | Guaranteed Hot 100 arrival | `songHot100Breakthrough`, minus four lines | Fixed: this was told as "re-enters the Hot 100", which is false. The four lines that describe a move up from Bubbling Under (`song-break-d5`, `-d6`, `-p2`, `-p4`) are skipped for this story only, because last week the song was not on Bubbling Under. |
+
+### 7.2 Review item on existing copy (no change made)
+
+- **`song-break-p3`** ("`${f.work} jumps from #${f.previousRank} to #${f.rank}, into the Sonus Hot 100.`") reads as a 37-place move for #124 → #87. E-Q1 measures official movement against the previous *official* rank. The line does not show "▲37", but you may prefer to rewrite it in the style of N-11 below or retire it. Until you decide, it stays as it is.
+
+### 7.3 New drafts needed (blocked on editorial approval)
+
+Each family needs 6 Sonus Daily and 6 PulsePop lines before it ships. Two or three per publisher are drafted here to set the voice.
+
+**N-8. Hot 100 → Bubbling Under drop (#94 → #121).** F-Q4 approves *selective* coverage of consequential falls, but the selection rule is not defined. **Proposed rule for approval:** tell the drop only when the song reached the Top 40, or spent 5 or more weeks on the Hot 100, and only once per run (not on every later Bubbling Under week). Without approval, a drop produces no story (current behaviour).
+- SD: `${f.subject} slips from #${f.previousRank} on the Sonus Hot 100 to #${f.rank} on Sonus Bubbling Under.`
+- SD: `${f.work} by ${f.artist} leaves the Sonus Hot 100 and is now #${f.rank} on Sonus Bubbling Under.`
+- PP: `Out of the Hot 100 for now: ${f.work} drops to #${f.rank} on Sonus Bubbling Under.`
+
+**N-9. Rises within Bubbling Under (#171 → #139).** Today only the week's single biggest gainer (10+ places, across #1–200) is told. **Proposed rule for approval:** besides the biggest gainer, tell at most one more Bubbling Under climb a week, of 25 or more places, as a minor story that counts toward the daily cap. Without approval, no extra story (current behaviour).
+- SD: `${f.subject} climbs from #${f.previousRank} to #${f.rank} on the weekly Sonus Bubbling Under.`
+- SD: `${f.work} by ${f.artist} gains ${f.places} places on the weekly Sonus Bubbling Under, to #${f.rank}.`
+- PP: `On the move: ${f.work} rises ${f.places} places to #${f.rank} on Sonus Bubbling Under.`
+
+**N-10. Falls within Bubbling Under (#122 → #168).** Recommendation: **no story**. F-Q4 says "not every negative fluctuation", and a fall that stays inside #101–200 is rarely consequential. If you want one anyway, a draft:
+- SD: `${f.subject} falls from #${f.previousRank} to #${f.rank} on the weekly Sonus Bubbling Under.`
+
+**N-11. First Hot 100 entrance that cites last week's Bubbling Under rank as context** (your example wording). Optional: the existing `songHot100Breakthrough` lines already cover the case accurately.
+- SD: `${f.subject} makes its Sonus Hot 100 debut at #${f.rank}, after #${f.previousRank} on Sonus Bubbling Under last week.`
+- SD: `Previously #${f.previousRank} on Sonus Bubbling Under, ${f.work} by ${f.artist} now debuts at #${f.rank} on the Sonus Hot 100.`
+- PP: `Hot 100 debut! ${f.work} arrives at #${f.rank}; it was #${f.previousRank} on Sonus Bubbling Under.`
+
+### 7.4 Publication clocks (unchanged, confirmed by tests)
+
+- Weekly Bubbling Under and Hot 100 stories come only from finalized weeks (`publishFinalizedForWeek`). A second finalization of the same week publishes nothing.
+- Provisional This Week changes produce no permanent weekly story.
+- Real-time (all-time chart) arrivals follow the activation gate from its instant.

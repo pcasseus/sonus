@@ -1,37 +1,31 @@
 # SN-50 Restart Instructions (for a fresh Claude Code session)
 
-## State at handoff (2026-10-30)
+## State at handoff (2026-10-30, after round 3)
 
 - **Worktree:** `C:\dev\sonus\sonus_next_sn50`. **Branch:** `sn-50-final-refinement` (local only, never pushed).
-- **Last code commit:** `4b6abbf` (BUG-02). A docs-only commit with these reports sits on top of it; check with `git log --oneline -3`.
-- **Last full suite:** **4,916 passed, 0 failed** (`flutter test --concurrency=1`, at `4b6abbf`). `flutter analyze`: no issues. Formatting is clean on all changed files.
+- **Last code commit:** `2e485ae` (BUG-04). A docs-only commit with the refreshed reports sits on top of it; check with `git log --oneline -3`.
+- **Last full suite:** **4,941 passed, 0 failed** (`flutter test --concurrency=1`, at `2e485ae`). `flutter analyze`: no issues. Formatting clean on all changed files.
 - **Uncommitted changes:** none (only the seven LF-churn registrant files, which are never committed).
 - **SN-49:** `C:\dev\sonus\sonus_next_sn49` @ `36d4d5d`, showing only its seven registrant files, unchanged.
-- **Other worktrees:** unchanged from the baseline snapshot. Pre-existing dirt: `sonus_next_design` has 1 modified file and `sonus_next_rankings` has 1 untracked report.
+- **Other worktrees:** unchanged from the baseline snapshot.
+- `C:\dev\sonus\SN50_Additional_Bug_Tweaks_Addendum_v2.md` does **not** exist; v1 was used.
 
 ### All SN-50 commits (base `36d4d5d`)
 
 | Round | Commits |
 |---|---|
 | Round 1 | `8956e3a` `1a017eb` `e4027e7` `2a10990` `1bce919` `70fdf64` `3dbaaa0` `78750b3` `ba2d575` `9aee76d` `081d4ab` `9547ef0` `14b592f` `91e5ab0` (docs) |
-| Round 2 | `430700d` (R1) `8d2cbfe` (R2/R6) `9a5cdbb` (R3) `db79c4e` (R4) `d27aa50` (partials) `7dac818` (BUG-01/05) `4b6abbf` (BUG-02) |
+| Round 2 | `430700d` (R1) `8d2cbfe` (R2/R6) `9a5cdbb` (R3) `db79c4e` (R4) `d27aa50` (partials) `7dac818` (BUG-01/05) `4b6abbf` (BUG-02) `3080338` (docs) |
+| Round 3 | `0f4bb30` (BUG-03) `2e485ae` (BUG-04 + Import-1 / legacy-featured tests) + docs refresh |
 
-## Next recommended batches (in order)
+## Next steps
 
-1. **BUG-03: an "Other" edition with a custom name.** Read `C:\dev\sonus\SN50_Additional_Bug_Tweaks_Addendum.md` §BUG-03.
-   - Use the existing `album_editions.title` with `type=other`, and **no schema change**.
-   - Allow a custom name when creating and editing; show it in Release Studio tabs, album and edition headers, edition pickers and player release display.
-   - Leave the parent title and other editions untouched, and never make the edition primary automatically.
-   - If a separate custom *type label* would need a column, report that as blocked.
-2. **BUG-04: Bubbling Under news.** Addendum §BUG-04.
-   - Guarantee Bubbling Under debut and re-entry stories.
-   - Add verified rise and fall stories with selective frequency.
-   - Make #101–200 → #1–100 a *first Hot 100 entrance* (or a re-entry if the song charted officially before), citing the previous Bubbling Under rank only as context, never as ▲N.
-   - Cover Hot 100 → Bubbling Under drops.
-   - Keep the refined-rules activation gate (`ChartMomentRules`).
-   - **Copy is gated:** reuse existing families only where factually accurate. Draft any new headlines into `SN50_Editorial_Change_Proposal.md` marked for approval, and don't ship unapproved copy.
-   - The addendum lists the test scenarios: #171→#139, #122→#168, a #176 debut, #124→#87, #112→#90 re-entry, #94→#121, plus idempotence and frozen history.
-3. **Final:** one full regression (`flutter test --concurrency=1`) plus `flutter analyze`. Refresh `SN50_Decision_Traceability.md`, which still reflects round 1 (A-Q13, A-Q26, B-Q30, F-Q7, D-Q18 and A-Q7D are now done), and `SN50_QA_Report.md`. Then commit the docs.
+All safe SN-50 work in the brief and addenda is done. What remains needs the user's decisions, listed in `SN50_Progress.md` → `BLOCKED_NEEDS_APPROVAL` (items 1–18). The most likely next batches once approved:
+
+1. **BUG-04 copy** (Editorial §7, N-8 to N-11): add the approved lines as new families (6 SD + 6 PP each) and wire the approved selection rules in `MomentStoryPlanner`, behind the existing activation gate. Tests go in `test/features/charts/application/services/bubbling_under_moments_test.dart`, which already has the #94 → #121 and #122 → #168 cases asserting "publishes nothing".
+2. **Import-1 identity policy** (Progress round 3, rules 1–3): new imports only, never re-evaluate existing songs. Pinned today by `recording_identity_import_test.dart` "SN-44 Import-1" and "SN-50 Import-1".
+3. **F-Q7 threshold** (`MomentStoryPlanner.majorStreamMilestone`, 1,000): change only if the user picks another value.
+4. **BUG-03 custom type label:** needs a migration, so only with explicit schema approval.
 
 ## Verification workflow (user-approved)
 
@@ -75,7 +69,9 @@ flutter test --concurrency=1 --reporter=compact > $env:TEMP\sn50_full.txt 2>&1
   - `songDisplayTitle` (version qualifier) and `songCreditLine` ("Primary & Co Ft. A, B with Guest") drive `LibraryTrack.displayTitle` / `creditLine` / `releaseCreditLine`, and `PlaybackTrack.displayTitle` / `displayArtist`.
   - Analytics and history always use the plain `title` / `artistName`.
   - `releaseDisplayTitle` gives the primary edition's title, while the base `albums.title` is never rewritten.
-- **Live playback display refresh:** `PlaybackDisplayRefresher` (in `PlaybackScope`) listens for library edits and calls `PlaybackCoordinator.refreshTrackDisplay`. It changes only display fields, never position or session.
+- **Live playback display refresh:** `PlaybackDisplayRefresher` (in `PlaybackScope`) listens for library edits and calls `PlaybackCoordinator.refreshTrackDisplay`. It changes only display fields (`displayTitle`, `displayArtist`, `displayAlbum`), never position, session or the history fields.
+- **Edition labels:** `editionTypeLabel` / `editionLabel` in `release_display_title.dart`. An Other edition's label is derived from its title (BUG-03).
+- **Bubbling Under ↔ Hot 100 Moments (BUG-04):** in `MomentStoryPlanner` (entry and `hot-100` stories, `fromBubblingUnderVariants`) and `MomentEditorialDesk._biggestGainers` (`_crossesIntoHot100`). Refined rules only.
 - **Credits:** Track Studio and Import Review load structured credits plus any older `featured_artists` names not covered. Save writes the mirror from the saved featured credits. Linking only happens through the picker.
 - **Charts and missing music (R1):** `play_time_identity.dart` names entities missing from the library from their last playback session. Only blocked songs are excluded, consistently across Career standings, This Week and finalization.
 - **DB is v41** (Leaked). No schema changes are authorized; anything needing one goes under BLOCKED.
