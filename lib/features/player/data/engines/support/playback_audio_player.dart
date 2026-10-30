@@ -24,7 +24,12 @@ abstract interface class PlaybackAudioPlayer {
     List<AudioSource> sources, {
     required int initialIndex,
     required Duration initialPosition,
+    ShuffleOrder? shuffleOrder,
   });
+
+  /// The shuffled play order (queue indices). Only meaningful while
+  /// shuffle mode is on.
+  List<int> get shuffleIndices;
 
   Future<void> play();
   Future<void> pause();
@@ -65,6 +70,9 @@ class JustAudioPlayerAdapter implements PlaybackAudioPlayer {
   Stream<PlayerState> get playerStateStream => _audioPlayer.playerStateStream;
 
   @override
+  List<int> get shuffleIndices => List.of(_audioPlayer.shuffleIndices);
+
+  @override
   int? adjacentIndex(int offset) {
     final current = _audioPlayer.currentIndex;
     final order = _audioPlayer.effectiveIndices;
@@ -98,11 +106,13 @@ class JustAudioPlayerAdapter implements PlaybackAudioPlayer {
     List<AudioSource> sources, {
     required int initialIndex,
     required Duration initialPosition,
+    ShuffleOrder? shuffleOrder,
   }) {
     return _audioPlayer.setAudioSources(
       sources,
       initialIndex: initialIndex,
       initialPosition: initialPosition,
+      shuffleOrder: shuffleOrder,
     );
   }
 
@@ -156,4 +166,26 @@ class JustAudioPlayerAdapter implements PlaybackAudioPlayer {
 
   @override
   Future<void> dispose() => _audioPlayer.dispose();
+}
+
+/// A shuffle order that starts from a saved permutation (SN-50 #24): the
+/// first fill lays the saved indices down exactly; later inserts, removals
+/// and an explicit reshuffle behave like [DefaultShuffleOrder].
+class RestoredShuffleOrder extends DefaultShuffleOrder {
+  RestoredShuffleOrder(List<int> saved) : _saved = List.of(saved);
+
+  List<int>? _saved;
+
+  @override
+  void insert(int index, int count) {
+    final saved = _saved;
+    if (saved != null && indices.isEmpty && index == 0) {
+      _saved = null;
+      if (count == saved.length) {
+        indices.addAll(saved);
+        return;
+      }
+    }
+    super.insert(index, count);
+  }
 }

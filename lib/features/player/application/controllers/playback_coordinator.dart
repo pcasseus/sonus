@@ -3,6 +3,7 @@ import '../../domain/models/playback_repeat_mode.dart';
 import '../../domain/models/playback_state.dart';
 import '../../domain/models/playback_track.dart';
 import '../../domain/services/playback_engine.dart';
+import '../../domain/services/shuffle_order_playback.dart';
 import '../mappers/library_track_playback_mapper.dart';
 
 class PlaybackCoordinator {
@@ -26,10 +27,21 @@ class PlaybackCoordinator {
     ], autoPlay: autoPlay);
   }
 
+  /// The engine's shuffled play order (queue indices) while shuffle is on,
+  /// when the engine can report it (SN-50 #24).
+  List<int>? get shuffleOrder => switch (_engine) {
+    final ShuffleOrderPlayback engine => engine.shuffleOrder,
+    _ => null,
+  };
+
+  /// [shuffleOrder], when given, is the play order to restore (SN-50 #24).
+  /// It is used only if every track is playable, so its indices still
+  /// match, and the engine supports it; otherwise it is ignored.
   Future<void> playTracks(
     List<LibraryTrack> tracks, {
     int startIndex = 0,
     bool autoPlay = true,
+    List<int>? shuffleOrder,
   }) async {
     if (tracks.isEmpty) {
       await _engine.stop();
@@ -55,6 +67,17 @@ class PlaybackCoordinator {
     // The requested entry's own place among the playable ones, so a song
     // queued twice starts at the copy asked for, not at its first copy.
     final remappedStartIndex = tracks.take(startIndex).where(isPlayable).length;
+
+    if (_engine case final ShuffleOrderPlayback ordered
+        when shuffleOrder != null && playableTracks.length == tracks.length) {
+      await ordered.loadQueueInShuffleOrder(
+        LibraryTrackPlaybackMapper.toPlaybackTracks(playableTracks),
+        shuffleOrder: shuffleOrder,
+        startIndex: remappedStartIndex,
+        autoPlay: autoPlay,
+      );
+      return;
+    }
 
     await _engine.loadQueue(
       LibraryTrackPlaybackMapper.toPlaybackTracks(playableTracks),

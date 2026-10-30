@@ -1,10 +1,13 @@
 import 'dart:async';
 import 'dart:developer' as developer;
 
+import 'package:flutter/foundation.dart';
+
 import '../../../library/application/models/library_track.dart';
 import '../../data/services/playback_session_store.dart';
 import '../../domain/models/playback_session_snapshot.dart';
 import '../../domain/models/playback_state.dart';
+import '../../domain/services/shuffle_order_playback.dart';
 import 'playback_coordinator.dart';
 
 typedef RestorationLogger = void Function(String message, {int level});
@@ -128,10 +131,18 @@ class PlaybackRestorationController {
       return PlaybackRestoreOutcome.skippedBusy;
     }
 
+    // The saved shuffled order comes back only when shuffle is on again,
+    // which "Remember shuffle and repeat" decides before this restore
+    // (SN-50 #24). Songs that are gone are left out of it.
+    final shuffleOrder = _coordinator.currentState.shuffleEnabled
+        ? _restoredShuffleOrder(snapshot.shuffleOrder, restoredIndexOf)
+        : null;
+
     await _coordinator.playTracks(
       tracks,
       startIndex: startIndex,
       autoPlay: false,
+      shuffleOrder: shuffleOrder,
     );
     if (position > Duration.zero) {
       await _coordinator.seek(position);
@@ -167,6 +178,7 @@ class PlaybackRestorationController {
       songIds: [for (final track in queue.tracks) track.songId],
       currentIndex: queue.currentIndex,
       position: _resumePosition(state),
+      shuffleOrder: state.shuffleEnabled ? _coordinator.shuffleOrder : null,
     );
     final last = _lastSaved;
 
@@ -175,6 +187,7 @@ class PlaybackRestorationController {
         last == null ||
         last.currentIndex != snapshot.currentIndex ||
         !_sameSongs(last.songIds, snapshot.songIds) ||
+        !listEquals(last.shuffleOrder, snapshot.shuffleOrder) ||
         state.status != PlaybackStatus.playing ||
         (snapshot.position - last.position).abs() >= positionSaveInterval;
 
@@ -217,6 +230,18 @@ class PlaybackRestorationController {
       return state.duration;
     }
     return state.position;
+  }
+
+  /// [saved] with the entries that were not restored left out and the
+  /// rest renumbered in their saved relative order; null unless the
+  /// result is a complete play order of the restored queue.
+  static List<int>? _restoredShuffleOrder(
+    List<int>? saved,
+    Map<int, int> restoredIndexOf,
+  ) {
+    if (saved == null) return null;
+    final order = [for (final index in saved) ?restoredIndexOf[index]];
+    return isShuffleOrderFor(order, restoredIndexOf.length) ? order : null;
   }
 
   static bool _sameSongs(List<String> a, List<String> b) {

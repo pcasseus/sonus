@@ -10,10 +10,11 @@ import '../../domain/models/playback_state.dart';
 import '../../domain/models/playback_track.dart';
 import '../../domain/models/playback_transition_cause.dart';
 import '../../domain/services/playback_engine.dart';
+import '../../domain/services/shuffle_order_playback.dart';
 import 'support/playback_audio_player.dart';
 
 class JustAudioPlaybackEngine
-    implements PlaybackEngine, PlaybackDisplayRefresh {
+    implements PlaybackEngine, PlaybackDisplayRefresh, ShuffleOrderPlayback {
   JustAudioPlaybackEngine({
     PlaybackAudioPlayer? audioPlayer,
     Future<void> Function()? configureAudioSession,
@@ -63,6 +64,37 @@ class JustAudioPlaybackEngine
     List<PlaybackTrack> tracks, {
     int startIndex = 0,
     bool autoPlay = false,
+  }) => _loadQueue(tracks, startIndex: startIndex, autoPlay: autoPlay);
+
+  @override
+  List<int>? get shuffleOrder {
+    if (!_state.shuffleEnabled) return null;
+    final order = _audioPlayer.shuffleIndices;
+    return isShuffleOrderFor(order, _state.queue.length)
+        ? List.unmodifiable(order)
+        : null;
+  }
+
+  @override
+  Future<void> loadQueueInShuffleOrder(
+    List<PlaybackTrack> tracks, {
+    required List<int> shuffleOrder,
+    int startIndex = 0,
+    bool autoPlay = false,
+  }) => _loadQueue(
+    tracks,
+    startIndex: startIndex,
+    autoPlay: autoPlay,
+    shuffleOrder: isShuffleOrderFor(shuffleOrder, tracks.length)
+        ? shuffleOrder
+        : null,
+  );
+
+  Future<void> _loadQueue(
+    List<PlaybackTrack> tracks, {
+    required int startIndex,
+    required bool autoPlay,
+    List<int>? shuffleOrder,
   }) async {
     _ensureNotDisposed();
 
@@ -120,6 +152,9 @@ class JustAudioPlaybackEngine
         sources,
         initialIndex: startIndex,
         initialPosition: Duration.zero,
+        shuffleOrder: shuffleOrder == null
+            ? null
+            : RestoredShuffleOrder(shuffleOrder),
       );
 
       // When the player was already playing, the new queue is audible now

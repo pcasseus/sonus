@@ -440,6 +440,145 @@ void main() {
       expect(again.currentState.position, const Duration(seconds: 30));
     });
 
+    group('SN-50 #24: the exact shuffled order', () {
+      Future<void> saveShuffled(
+        List<String> ids,
+        int index,
+        Object? shuffleOrder,
+      ) async {
+        final json = PlaybackSessionSnapshot(
+          songIds: ids,
+          currentIndex: index,
+          position: const Duration(seconds: 30),
+        ).toJson();
+        storage[PlaybackSessionStore.sessionKey] = jsonEncode({
+          ...json,
+          'shuffleOrder': ?shuffleOrder,
+        });
+      }
+
+      /// A new process where "Remember shuffle and repeat" turned shuffle
+      /// on (or not) before the session is restored, as at launch.
+      Future<(SimulatedJustAudioPlayer, JustAudioPlaybackEngine)> launch({
+        required bool shuffle,
+        List<String> library = const ['a', 'b', 'c', 'd'],
+      }) async {
+        final nextPlayer = SimulatedJustAudioPlayer(modelShuffle: true);
+        final nextEngine = JustAudioPlaybackEngine(
+          audioPlayer: nextPlayer,
+          configureAudioSession: () async {},
+        );
+        addTearDown(nextEngine.dispose);
+        if (shuffle) await nextEngine.setShuffleEnabled(true);
+        final restorer = PlaybackRestorationController(
+          store: store(),
+          coordinator: PlaybackCoordinator(engine: nextEngine),
+        );
+        addTearDown(restorer.dispose);
+        await restorer.restore(
+          () async => [for (final id in library) libraryTrack(id)],
+        );
+        await settle();
+        return (nextPlayer, nextEngine);
+      }
+
+      Future<List<String>> nextOrder(
+        JustAudioPlaybackEngine engine,
+        int steps,
+      ) async {
+        final coordinator = PlaybackCoordinator(engine: engine);
+        final seen = <String>[];
+        for (var step = 0; step < steps; step++) {
+          await coordinator.skipNext();
+          await settle();
+          seen.add(engine.currentState.queue.currentTrack!.songId);
+        }
+        return seen;
+      }
+
+      test('with Remember on, Next follows the saved shuffled order', () async {
+        await saveShuffled(['a', 'b', 'c', 'd'], 2, [2, 0, 3, 1]);
+
+        final (player, engine) = await launch(shuffle: true);
+
+        expect(player.shuffleIndices, [2, 0, 3, 1]);
+        expect(engine.currentState.queue.currentTrack?.songId, 'c');
+        expect(engine.currentState.position, const Duration(seconds: 30));
+        expect(await nextOrder(engine, 3), ['a', 'd', 'b']);
+      });
+
+      test('with Remember off, the queue is restored in queue order as '
+          'before', () async {
+        await saveShuffled(['a', 'b', 'c', 'd'], 2, [2, 0, 3, 1]);
+
+        final (_, engine) = await launch(shuffle: false);
+
+        expect(engine.currentState.shuffleEnabled, isFalse);
+        expect(await nextOrder(engine, 1), ['d']);
+      });
+
+      test('a song that is gone is left out; the rest keep their saved '
+          'order', () async {
+        await saveShuffled(['a', 'b', 'c', 'd'], 2, [2, 0, 3, 1]);
+
+        final (player, engine) = await launch(
+          shuffle: true,
+          library: ['a', 'c', 'd'],
+        );
+
+        expect(engine.currentState.queue.tracks.map((t) => t.songId), [
+          'a',
+          'c',
+          'd',
+        ]);
+        expect(player.shuffleIndices, [1, 0, 2]);
+        expect(await nextOrder(engine, 2), ['a', 'd']);
+      });
+
+      test('a song queued twice keeps each copy in its place', () async {
+        await saveShuffled(['a', 'b', 'a'], 2, [2, 0, 1]);
+
+        final (player, engine) = await launch(shuffle: true);
+
+        expect(player.shuffleIndices, [2, 0, 1]);
+        expect(engine.currentState.queue.currentIndex, 2);
+        expect(await nextOrder(engine, 2), ['a', 'b']);
+        expect(engine.currentState.queue.currentIndex, 1);
+      });
+
+      test('an invalid saved order is dropped; the session still comes '
+          'back, freshly shuffled', () async {
+        await saveShuffled(['a', 'b', 'c', 'd'], 1, [0, 0, 1, 2]);
+
+        final (player, engine) = await launch(shuffle: true);
+
+        expect(engine.currentState.queue.length, 4);
+        expect(engine.currentState.queue.currentTrack?.songId, 'b');
+        expect(player.shuffleIndices.toSet(), {0, 1, 2, 3});
+      });
+
+      test('the order a session played in is saved, and comes back after '
+          'a restart', () async {
+        final (firstPlayer, firstEngine) = await launch(shuffle: true);
+        await firstEngine.loadQueue([
+          for (final id in ['a', 'b', 'c', 'd']) _track(id),
+        ], startIndex: 1);
+        await settle();
+        await firstEngine.seek(const Duration(seconds: 12));
+        await settle();
+        final played = List.of(firstPlayer.shuffleIndices);
+
+        final saved = PlaybackSessionSnapshot.fromJson(
+          jsonDecode(storage[PlaybackSessionStore.sessionKey]!)
+              as Map<String, Object?>,
+        )!;
+        expect(saved.shuffleOrder, played);
+
+        final (secondPlayer, _) = await launch(shuffle: true);
+        expect(secondPlayer.shuffleIndices, played);
+      });
+    });
+
     test('restored just short of the end, Play replays from 0:00', () async {
       storage[PlaybackSessionStore.sessionKey] = jsonEncode(
         const PlaybackSessionSnapshot(

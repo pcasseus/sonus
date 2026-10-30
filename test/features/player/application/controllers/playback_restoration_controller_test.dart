@@ -392,6 +392,51 @@ void main() {
   });
 
   group('snapshot format', () {
+    test('SN-50 #24: the shuffled order round-trips inside version 1', () {
+      const snapshot = PlaybackSessionSnapshot(
+        songIds: ['a', 'b', 'a'],
+        currentIndex: 2,
+        position: Duration(seconds: 3),
+        shuffleOrder: [2, 0, 1],
+      );
+
+      final json = snapshot.toJson();
+      expect(json['version'], 1);
+      expect(PlaybackSessionSnapshot.fromJson(json), snapshot);
+    });
+
+    test('SN-50 #24: a saved session without an order still reads', () {
+      final restored = PlaybackSessionSnapshot.fromJson({
+        'version': 1,
+        'songIds': ['a', 'b'],
+        'currentIndex': 1,
+        'positionMs': 0,
+      });
+
+      expect(restored, isNotNull);
+      expect(restored!.shuffleOrder, isNull);
+    });
+
+    test('SN-50 #24: an unusable order is dropped, never the session', () {
+      for (final order in <Object?>[
+        [0, 0],
+        [0],
+        [0, 2],
+        ['0', '1'],
+        'shuffled',
+      ]) {
+        final restored = PlaybackSessionSnapshot.fromJson({
+          'version': 1,
+          'songIds': ['a', 'b'],
+          'currentIndex': 1,
+          'positionMs': 0,
+          'shuffleOrder': order,
+        });
+
+        expect(restored, isNotNull, reason: '$order');
+        expect(restored!.shuffleOrder, isNull, reason: '$order');
+      }
+    });
     test('round-trips', () {
       const snapshot = PlaybackSessionSnapshot(
         songIds: ['a', 'b'],
