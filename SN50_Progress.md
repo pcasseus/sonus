@@ -316,6 +316,59 @@ New rules apply only from `ChartMomentRules.refinedFromUtc` = **2026-11-01 UTC**
 - **Second contained sn49 incident:** an empty stray file from a subagent relative-path write (`sonus_next_sn49/lib/features/library/presentation/widgets/track_credit_editor_dialog.dart`). I confirmed it was 0 bytes, untracked, created this session and referenced nowhere, then removed it. sn49 is back to only its seven registrant files at `36d4d5d`.
 - **Safe local work is exhausted for this pass**, apart from the small Partial follow-ups listed in `SN50_Restart_Instructions.md`. Everything else needs the approvals below.
 
+## Round 2 (2026-10-29/30): R1–R6, safe partials, addendum bugs
+
+Authorized by the user's explicit safe-local-work message. Decisions are in `C:\dev\sonus\SN50_R1-R6_Reconciliation_and_Trash_Review.md` §2; the addendum is `C:\dev\sonus\SN50_Additional_Bug_Tweaks_Addendum.md` (BUG-01 to BUG-04). BUG-05 comes from the user's message, because the referenced `..._Addendum_v2.md` file **does not exist**.
+
+| Commit | Batch | Full suite |
+|---|---|---|
+| `430700d` | R1 missing-vs-blocked eligibility; R5 and E-Q8 regression tests | 4,816 |
+| `8d2cbfe` | R2 approval-based Moments activation; R6 dot baseline; R1 for career Moments | 4,840 + 1 sleep-timeout flake (passes alone) |
+| `9a5cdbb` | R3 direct-to-#1 entry; only #1 and first Top 10 are majors; other zones consolidated | 4,845 |
+| `db79c4e` | R4 Play after a finished queue replays the last song from 0:00; finished session persisted | 4,855 |
+| `d27aa50` | Batch 5 partials: A-Q13 placeholder fix, A-Q26 pin, B-Q30/F-Q7, D-Q18 queue atmosphere, A-Q7D Fix numbering, SN-44 carry-overs | 4,889 |
+| `7dac818` | BUG-01 credit edits reach the playing queue; BUG-05 "Ft." connector | 4,907 |
+| `4b6abbf` | BUG-02 version and credits on every current song surface | **4,916** (analyzer clean) |
+
+### Key decisions and findings
+
+- **R1.** Only *blocked* songs leave current charts. A song missing from the library keeps its plays and is shown with its play-time identity (`play_time_identity.dart`) and the HISTORICAL badge. If the session record is also missing, the live views skip and log that entity; finalization still throws.
+- **R2.**
+  - Approval flag: `--dart-define=SONUS_MOMENTS_REFINED_APPROVED=true` (documented in the README). Without it the old rules apply forever.
+  - The activation instant is write-once, stored in SharedPreferences under `charts.moments.rules_activated_utc` (there is no generic key-value DB table). It is read back before use.
+  - Weekly new rules apply only to weeks *starting* at or after activation. Real-time new rules apply from the activation instant.
+- **R3.** Only #1 and the first Top 10 get separate stories; other zones go into one N-3 `thresholdList` story. A debut at #1 is one story. Top 5/3/2 story ids changed (only reachable after activation).
+- **R4.** The replay lives in `JustAudioPlaybackEngine.play()`. "At end" means a finished queue, or paused within 1 s of the end of a track longer than 2 s with no next item. The finished session is kept at the track's end.
+- **R6.** The baseline is an `(occurredAt, id)` mark. The first visit shows no dot; backdated items never raise it.
+- **F-Q7.** A major stream milestone is **≥ 1,000** (`MomentStoryPlanner.majorStreamMilestone`). This is my choice; confirm it.
+- **BUG-01.**
+  - Root cause: saving was already correct. The playing queue, the media session, Search and Playlist were not refreshed; unlinking under the same name was ignored; older featured names were not loaded into the editor.
+  - Fix: `PlaybackDisplayRefresh` / `PlaybackCoordinator.refreshTrackDisplay` / `PlaybackDisplayRefresher` update display fields in place without touching analytics identity.
+  - Mirror policy: the editor always loads older `featured_artists` names not covered by credits, and save writes the mirror from the saved featured credits. This changes the earlier C-Q4 behaviour.
+- **BUG-05.** `songCreditLine` gives "Primary & Co Ft. A, B with Guest". The parser still accepts feat./ft./featuring. Moments headline wording is unchanged.
+- **BUG-02.**
+  - Display title and credit line are applied on all current surfaces, including Home rails, Release Studio, edition pickers (Choose songs dedupes by song id), playlists, the lyrics header, career standings (`ChartsController.songPresentationFor`) and the Settings lists.
+  - Left as is: This Week rows (snapshot titles), finalized weeks, Moments template text and analytics aggregates.
+- **SN-44 carry-overs.**
+  - The Deluxe-copy sidecar-lyrics overwrite is fixed.
+  - Track Studio home reassignment is already safe.
+  - **Open:** two same-title files of similar length (within 3 s) on one album at different track positions still import as one song (second reported as `duplicateRecording`). This needs a product decision.
+
+### Workflow notes for the next session
+
+- The machine is memory-constrained, and the background-shell reaper twice killed `flutter test` wrappers. The test runner process may keep running after its shell is killed; wait for it rather than starting a second run.
+- Use `--concurrency=1`. A full suite takes about 7–10 minutes.
+- Subagents run targeted tests only; the main session runs one full suite per batch.
+- `sed -i` in Git Bash converts CRLF to LF, so use Python with explicit CRLF handling.
+- One subagent emptied a file through a failed Python write and restored it with `git restore` before editing. Always check file sizes after scripted edits.
+- Every subagent must use absolute paths under `C:\dev\sonus\sonus_next_sn50\`. Check all worktrees against the baseline after each batch.
+
+### Remaining work
+
+- **BUG-03:** "Other" edition custom name, using `album_editions.title`, no schema change.
+- **BUG-04:** Bubbling Under debut, re-entry and movement stories, plus the first Hot 100 entrance. New copy is editorially gated: reuse accurate existing families and draft the rest.
+- Then the final full regression and analyze, and refreshed Traceability and QA reports.
+
 ### Editorial proposal
 
 `SN50_Editorial_Change_Proposal.md`:
@@ -340,3 +393,9 @@ New rules apply only from `ChartMomentRules.refinedFromUtc` = **2026-11-01 UTC**
 12. **New template copy.** The 27 new lines (families N-2 to N-6, listed in the 6a report and `moment_headlines.dart`) are drafts awaiting approval and expansion to 6+6 lines.
 13. **Destructive workflows.** Approve or adjust `SN50_Destructive_Workflows_Design.md` §6 items A-T0 to A-T6 (Trash and purge), P-1 to P-5 (Delete from Phone), R-1 to R-3 (ringtones) and M-1 to M-6 (media session, plugin patches 2/3, device QA).
 14. **M-2/M-3 confirmation.** `9547ef0` implemented End Session (keeping the queue) and the Dart-side media-session changes under the approved D-Q3/D-Q6/D-Q1 decisions. The destructive-workflows design doc had listed them as approval items, so please confirm or ask for changes. Device QA and plugin patches were not done.
+15. **Round 2 decisions to confirm:**
+    - F-Q7 major milestone threshold of 1,000 streams.
+    - The BUG-01 mirror policy, which changes C-Q4.
+    - The Import-1 same-title, similar-length duplicate import (needs a policy).
+    - BUG-04 headline copy for Bubbling Under movement (needs editorial approval).
+16. **`SN50_Additional_Bug_Tweaks_Addendum_v2.md` was referenced but not found.** BUG-05 was implemented from the user's message.
