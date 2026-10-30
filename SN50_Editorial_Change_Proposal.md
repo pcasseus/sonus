@@ -266,6 +266,8 @@ These paths use existing families whose wording is factually accurate for the ca
 
 ### 7.3 New drafts needed (blocked on editorial approval)
 
+> **Superseded 2026-10-30 (round 4):** the selection rules below were replaced by the six approved decisions in `C:\dev\sonus\SN50_BUG04_Import_Final_Decisions_Claude_Handoff.md` (rises 20+, falls 30+, exits after a Top 40 peak or 5 Hot 100 weeks). Full 6 + 6 drafts for approval are in `SN50_BUG04_Editorial_Approval_Sheet.md` (BU-001 to BU-071). The N-8 to N-11 lines below are kept for reference only.
+
 Each family needs 6 Sonus Daily and 6 PulsePop lines before it ships. Two or three per publisher are drafted here to set the voice.
 
 **N-8. Hot 100 → Bubbling Under drop (#94 → #121).** F-Q4 approves *selective* coverage of consequential falls, but the selection rule is not defined. **Proposed rule for approval:** tell the drop only when the song reached the Top 40, or spent 5 or more weeks on the Hot 100, and only once per run (not on every later Bubbling Under week). Without approval, a drop produces no story (current behaviour).

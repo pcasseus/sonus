@@ -1,6 +1,6 @@
 # SN-50 QA Report
 
-Branch `sn-50-final-refinement`, worktree `C:\dev\sonus\sonus_next_sn50`. Base `36d4d5d`. Round 1 ended at `14b592f`; refreshed 2026-10-30 at code HEAD `2e485ae` (25 local commits including the round-3 docs refresh, none pushed).
+Branch `sn-50-final-refinement`, worktree `C:\dev\sonus\sonus_next_sn50`. Base `36d4d5d`. Round 1 ended at `14b592f`; refreshed 2026-10-30 at code HEAD `83a7d96` (round 4; none pushed).
 
 ## 1. Analyzer and test suite
 
@@ -8,7 +8,8 @@ Branch `sn-50-final-refinement`, worktree `C:\dev\sonus\sonus_next_sn50`. Base `
 |---|---|---|
 | Baseline `36d4d5d` (SN-50 worktree, before edits) | No issues | **4,462 passed, 0 failed** |
 | `14b592f` (end of round 1) | No issues | **4,798 passed, 0 failed** |
-| `2e485ae` (BUG-04, latest code) | No issues | **4,941 passed, 0 failed** |
+| `2e485ae` (BUG-04, round 3) | No issues | 4,941 passed, 0 failed |
+| `83a7d96` (round 4, latest code) | No issues | **4,954 passed, 0 failed** |
 
 The suite has **336 more tests**. Nothing was dropped silently: a few tests that encoded replaced semantics were swapped for tests of the new rule. For example, Phase 1 replaced the two "replace finalized Moments" repository tests with publish-once tests.
 
@@ -50,8 +51,10 @@ The suite has **336 more tests**. Nothing was dropped silently: a few tests that
 | `4b6abbf` | BUG-02 | 4,916 |
 | `0f4bb30` | BUG-03 | 4,930 |
 | `2e485ae` | BUG-04, Import-1 and legacy-featured tests | 4,941 |
+| `59a33bd` | Round 4 A + C: BU rises 20+, falls 30+ and exits detected, 1,000-stream milestone pinned | 4,949 |
+| `83a7d96` | Round 4 B: possible different recordings reported | 4,954 |
 
-Rounds 2–3 ran the full suite once per batch with `flutter test --concurrency=1` (memory-constrained machine), after targeted tests, and before committing. The `2e485ae` run is the final regression: the later commit is docs only.
+Rounds 2–3 ran the full suite once per batch with `flutter test --concurrency=1` (memory-constrained machine), after targeted tests, and before committing. The `83a7d96` run is the final regression: later commits are docs only.
 
 ## 3. Data safety and history
 
@@ -113,7 +116,11 @@ These are spec-driven, not bugs, but the user will notice them:
 - Play after a finished queue replays the last song from 0:00 (`db79c4e`, R4).
 - Featured performers read "Ft." everywhere (BUG-05); queued songs update in place after a credit edit (BUG-01).
 - Now Playing and the media session show the playing edition's name instead of the base album title (BUG-03).
-- Under the refined Moments rules only: a Bubbling Under → Hot 100 move is never the biggest gainer; a Hot 100 return from Bubbling Under gets a re-entry story (BUG-04).
+- Under the refined Moments rules only:
+  - a Bubbling Under → Hot 100 move is never the biggest gainer;
+  - a Hot 100 return from Bubbling Under gets a re-entry story (BUG-04);
+  - every Bubbling Under climb of 20+ places is a story (round 4).
+- The import result shows "Possible different recordings (not imported)" for same-title files at another track position. They were previously counted as plain duplicates (round 4).
 
 ## 8. Environment left untouched
 

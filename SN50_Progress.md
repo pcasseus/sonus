@@ -418,6 +418,50 @@ All of it applies only under the refined-rules activation gate, and only to char
 - Four open questions are listed in its §6.
 - No existing variant was changed.
 
+## Round 4 (2026-10-30): approved BUG-04 rules, import identity, milestones
+
+Authority: `C:\dev\sonus\SN50_BUG04_Import_Final_Decisions_Claude_Handoff.md`. The six selection and identity rules are approved. **No new or revised wording is approved.**
+
+| Commit | Batch | Full suite (`--concurrency=1`) |
+|---|---|---|
+| `59a33bd` | A + C: Bubbling Under rises 20+, falls 30+ and notable exits (detected); arrival-variant suppression; 1,000-stream milestone pinned | 4,949 passed, 0 failed |
+| `83a7d96` | B: ambiguous same-title imports made visible; distinct-recording and idempotence tests | **4,954 passed, 0 failed** (analyzer clean) |
+
+### Status by the handoff's three categories
+
+**Implemented + tested**
+- BU rise of 20+ places (#171 → #139): one guaranteed story per qualifying song, with the approved F10 `songBigClimb` lines. There is no weekly cap, and the daily minor cap never drops it. The week's biggest gainer keeps its own story instead of a second one. +19 (#140 → #121) gives no story. Five songs climbing 20+ in one week give five stories.
+- First Hot 100 entry from BU (#124 → #87): guaranteed F05 story. F05-PP-03 ("jumps from #124 to #87, into the Sonus Hot 100") is no longer chosen for it; its text is unchanged. It is never told as a 37-place climb.
+- Hot 100 re-entry from BU (#112 → #90, earlier Hot 100 week): guaranteed F12 re-entry, never a first debut (round 3).
+- Exactly-once behaviour: composing again gives the same stories; re-finalizing a week publishes nothing; weeks before activation publish byte-identical stories and detect nothing new.
+- 1,000 qualified streams as the first major milestone. This is approved rule 6, and the behaviour was already correct, so only tests were added: 999 stays supporting text; 999 → 1,000 crosses the milestone once; 1,000 → 2,499 crosses nothing; the ladder is unchanged.
+- Import (approved rule 5):
+  - Distinct recordings with evidence import as separate songs: a duration beyond tolerance, different featured artists, or a version label (e.g. "ErrTime" vs "ErrTime (Club Remix)", same length).
+  - The same recording imported again creates no new song.
+  - A same-title, same-length file at a **different disc/track position on the same edition** is no longer reported as a plain duplicate. It is now `ImportSkipReason.possibleAlternateRecording`, shown as its own row in the import result ("Possible different recordings (not imported)"). As before, nothing is written for it (no song, binding, listing, lyrics, review row or sync record), and importing again gives the same result.
+  - Existing songs, playlists, plays and history are never split, merged or relinked.
+  - Position alone is never treated as proof of distinctness.
+
+**Detected but copy-gated (BLOCKED_EDITORIAL)**
+- BU fall of 30+ places (#122 → #168): `GatedMomentKind.bubblingUnderFall`, id `…#bu-fall`. −29 (#131 → #160) is not detected.
+- Notable Hot 100 exit into BU (#94 → #121): `GatedMomentKind.notableHot100Exit`, id `…#hot-100-exit`. Only after a verified Top 40 peak, or a fifth Hot 100 week recorded (stored longevity milestone) before the exit week; 4 weeks with a #60 peak is not detected. Missing history never counts.
+- Naming last week's BU rank in the first-Hot-100-entry story: the story's publisher (PulsePop) has no approved line that names it.
+- These are detected by `MomentEditorialDesk.copyGated` / `MomentStoryPlanner.copyGated`, which are never shown. Drafts for approval: `SN50_BUG04_Editorial_Approval_Sheet.md` (BU-001 to BU-071).
+
+**Blocked (needs separate authority)**
+- **Import Review for ambiguous files (rule 5, partly blocked).** The existing review contract can't hold a file that wasn't imported:
+  - `song_import_reviews` is keyed by song id, and the ambiguous file has no song.
+  - Its reasons are decoded with `ImportReviewReason.values.byName`, so a new reason value would make an older build fail to read a backup that contains it.
+  - Putting these files into Review therefore needs new persistence, either a pending-file record or a new reason plus a payload with the file path. That is a schema/data-contract change and needs your approval.
+  - Until then the files are reported in the import result only, and a rescan reports them again.
+
+### Workflow (round 4)
+
+- The main session reviewed every diff.
+- A single focused subagent did Batch B and ran only `flutter test --concurrency=1 test/features/import`: 400 passed.
+- The main session ran one full suite per code batch, never overlapping.
+- The boundary check passed after both batches, and SN-49 is still `36d4d5d` with only its seven registrant files.
+
 ## BLOCKED_NEEDS_APPROVAL / user decisions
 
 1. **DB v41 on real devices.** The migration runs on a phone's real database the first time a build containing `2a10990` is installed. Take a `.sonusbackup` before any install. Installing is a separate approval.
@@ -435,9 +479,10 @@ All of it applies only under the refined-rules activation gate, and only to char
 13. **Destructive workflows.** Approve or adjust `SN50_Destructive_Workflows_Design.md` §6 items A-T0 to A-T6 (Trash and purge), P-1 to P-5 (Delete from Phone), R-1 to R-3 (ringtones) and M-1 to M-6 (media session, plugin patches 2/3, device QA).
 14. **M-2/M-3 confirmation.** `9547ef0` implemented End Session (keeping the queue) and the Dart-side media-session changes under the approved D-Q3/D-Q6/D-Q1 decisions. The destructive-workflows design doc had listed them as approval items, so please confirm or ask for changes. Device QA and plugin patches were not done.
 15. **Round 2 decisions to confirm:**
-    - F-Q7 major milestone threshold of 1,000 streams (current behaviour recorded in round 3).
+    - ~~F-Q7 1,000-stream threshold~~: **approved** (handoff rule 6) and pinned by tests in round 4.
     - The BUG-01 mirror policy, which changes C-Q4.
-    - The Import-1 identity policy proposed in round 3 (rules 1–3).
+    - ~~Import-1 identity policy~~: **decided** (handoff rule 5). The Review part is blocked; see item 19.
 16. **`SN50_Additional_Bug_Tweaks_Addendum_v2.md` was referenced but not found** (again in round 3). BUG-05 was implemented from the user's message.
-17. **BUG-04 copy and selection rules:** Editorial §7 N-8 (Hot 100 → Bubbling Under drop, proposed rule: Top 40 peak or 5+ Hot 100 weeks), N-9 (extra Bubbling Under climb, proposed: 25+ places, at most one a week), N-10 (recommend no story for falls within Bubbling Under), N-11 (optional arrival wording citing last week's Bubbling Under rank), and the §7.2 review of `song-break-p3`.
+17. **BUG-04 copy** (selection rules approved in round 4; wording is not): **see `SN50_BUG04_Editorial_Approval_Sheet.md` BU-001 to BU-071.** It supersedes the N-8 to N-11 samples. Earlier note: Editorial §7 N-8 (Hot 100 → Bubbling Under drop, proposed rule: Top 40 peak or 5+ Hot 100 weeks), N-9 (extra Bubbling Under climb, proposed: 25+ places, at most one a week), N-10 (recommend no story for falls within Bubbling Under), N-11 (optional arrival wording citing last week's Bubbling Under rank), and the §7.2 review of `song-break-p3`.
 18. **BUG-03 type label:** keep deriving the Other label from the name, or approve a schema change for a stored custom type label.
+19. **Import Review persistence for ambiguous same-title files** (round 4): it needs a pending-file record, or a new review reason plus a file-path payload. Either is a schema/data-contract change. Until approved, these files are reported in the import result only.

@@ -1,10 +1,10 @@
 # SN-50 Restart Instructions (for a fresh Claude Code session)
 
-## State at handoff (2026-10-30, after round 3)
+## State at handoff (2026-10-30, after round 4)
 
 - **Worktree:** `C:\dev\sonus\sonus_next_sn50`. **Branch:** `sn-50-final-refinement` (local only, never pushed).
-- **Last code commit:** `2e485ae` (BUG-04). A docs-only commit with the refreshed reports sits on top of it; check with `git log --oneline -3`.
-- **Last full suite:** **4,941 passed, 0 failed** (`flutter test --concurrency=1`, at `2e485ae`). `flutter analyze`: no issues. Formatting clean on all changed files.
+- **Last code commit:** `83a7d96` (round 4 import). A docs-only commit with the refreshed reports sits on top of it; check with `git log --oneline -3`.
+- **Last full suite:** **4,954 passed, 0 failed** (`flutter test --concurrency=1`, at `83a7d96`). `flutter analyze`: no issues. Formatting clean on all changed files.
 - **Uncommitted changes:** none (only the seven LF-churn registrant files, which are never committed).
 - **SN-49:** `C:\dev\sonus\sonus_next_sn49` @ `36d4d5d`, showing only its seven registrant files, unchanged.
 - **Other worktrees:** unchanged from the baseline snapshot.
@@ -16,16 +16,20 @@
 |---|---|
 | Round 1 | `8956e3a` `1a017eb` `e4027e7` `2a10990` `1bce919` `70fdf64` `3dbaaa0` `78750b3` `ba2d575` `9aee76d` `081d4ab` `9547ef0` `14b592f` `91e5ab0` (docs) |
 | Round 2 | `430700d` (R1) `8d2cbfe` (R2/R6) `9a5cdbb` (R3) `db79c4e` (R4) `d27aa50` (partials) `7dac818` (BUG-01/05) `4b6abbf` (BUG-02) `3080338` (docs) |
-| Round 3 | `0f4bb30` (BUG-03) `2e485ae` (BUG-04 + Import-1 / legacy-featured tests) + docs refresh |
+| Round 3 | `0f4bb30` (BUG-03) `2e485ae` (BUG-04 + Import-1 / legacy-featured tests) `91f60c1` (docs) |
+| Round 4 | `59a33bd` (BU rules, milestone tests) `83a7d96` (possible different recordings) + docs/approval sheet |
 
 ## Next steps
 
-All safe SN-50 work in the brief and addenda is done. What remains needs the user's decisions, listed in `SN50_Progress.md` → `BLOCKED_NEEDS_APPROVAL` (items 1–18). The most likely next batches once approved:
+All safe work is done. What remains needs the user's decisions (`SN50_Progress.md` → BLOCKED_NEEDS_APPROVAL 1–19):
 
-1. **BUG-04 copy** (Editorial §7, N-8 to N-11): add the approved lines as new families (6 SD + 6 PP each) and wire the approved selection rules in `MomentStoryPlanner`, behind the existing activation gate. Tests go in `test/features/charts/application/services/bubbling_under_moments_test.dart`, which already has the #94 → #121 and #122 → #168 cases asserting "publishes nothing".
-2. **Import-1 identity policy** (Progress round 3, rules 1–3): new imports only, never re-evaluate existing songs. Pinned today by `recording_identity_import_test.dart` "SN-44 Import-1" and "SN-50 Import-1".
-3. **F-Q7 threshold** (`MomentStoryPlanner.majorStreamMilestone`, 1,000): change only if the user picks another value.
-4. **BUG-03 custom type label:** needs a migration, so only with explicit schema approval.
+1. **`SN50_BUG04_Editorial_Approval_Sheet.md`** (BU-001 to BU-071). Once lines are approved:
+   - wire sections D and E from `MomentStoryPlanner.copyGated` (ids `#bu-fall` and `#hot-100-exit`) as new families;
+   - apply the B rewrites prospectively;
+   - add the C variants to F05.
+   - A family needs 6 SD + 6 PP approved lines to ship.
+2. **Import Review persistence** for possible different recordings (BLOCKED #19). It needs schema approval.
+3. A **custom type label for BUG-03** needs schema approval.
 
 ## Verification workflow (user-approved)
 
