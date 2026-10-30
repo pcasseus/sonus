@@ -203,6 +203,114 @@ void main() {
     });
   });
 
+  group('SN-50 A1: Repeat One repeats only a song that finishes', () {
+    Future<void> load(List<String> ids, {int start = 0}) async {
+      await engine.loadQueue([
+        for (final id in ids) _track(id),
+      ], startIndex: start);
+      await settle();
+      await engine.setRepeatMode(PlaybackRepeatMode.one);
+      await settle();
+    }
+
+    String? current() => engine.currentState.queue.currentTrack?.songId;
+
+    test('Next moves to the next song; Repeat One stays on for it', () async {
+      await load(['a', 'b', 'c']);
+
+      await coordinator.skipNext();
+      await settle();
+
+      expect(engine.currentState.queue.currentIndex, 1);
+      expect(current(), 'b');
+      expect(engine.currentState.position, Duration.zero);
+      expect(engine.currentState.repeatMode, PlaybackRepeatMode.one);
+    });
+
+    test('Next on the last song stays on it, as without Repeat One', () async {
+      await load(['a', 'b'], start: 1);
+
+      await coordinator.skipNext();
+      await settle();
+
+      expect(engine.currentState.queue.currentIndex, 1);
+      expect(engine.currentState.repeatMode, PlaybackRepeatMode.one);
+    });
+
+    test('Previous early in a song goes to the previous song', () async {
+      await load(['a', 'b', 'c'], start: 2);
+
+      await coordinator.skipPrevious();
+      await settle();
+
+      expect(engine.currentState.queue.currentIndex, 1);
+      expect(engine.currentState.repeatMode, PlaybackRepeatMode.one);
+    });
+
+    test('Previous later in a song restarts it; on the first song it '
+        'restarts too', () async {
+      await load(['a', 'b'], start: 1);
+      await engine.seek(const Duration(seconds: 40));
+      await settle();
+
+      await coordinator.skipPrevious();
+      await settle();
+      expect(engine.currentState.queue.currentIndex, 1);
+      expect(engine.currentState.position, Duration.zero);
+
+      await engine.skipToIndex(0);
+      await settle();
+      await coordinator.skipPrevious();
+      await settle();
+      expect(engine.currentState.queue.currentIndex, 0);
+      expect(engine.currentState.position, Duration.zero);
+    });
+
+    test('a song queued twice: Next walks to each copy in turn', () async {
+      await load(['a', 'b', 'a']);
+
+      await coordinator.skipNext();
+      await settle();
+      await coordinator.skipNext();
+      await settle();
+
+      expect(engine.currentState.queue.currentIndex, 2);
+      expect(current(), 'a');
+      expect(engine.currentState.repeatMode, PlaybackRepeatMode.one);
+    });
+
+    test('the system Next and Previous buttons behave the same', () async {
+      await load(['a', 'b', 'c'], start: 1);
+
+      await handler.skipToNext();
+      await settle();
+      expect(engine.currentState.queue.currentIndex, 2);
+
+      await handler.skipToPrevious();
+      await settle();
+      expect(engine.currentState.queue.currentIndex, 1);
+      expect(engine.currentState.repeatMode, PlaybackRepeatMode.one);
+    });
+
+    test('Repeat All still wraps from the last song; Repeat Off still '
+        'stops there', () async {
+      await engine.loadQueue([_track('a'), _track('b')], startIndex: 1);
+      await settle();
+
+      await engine.setRepeatMode(PlaybackRepeatMode.all);
+      await coordinator.skipNext();
+      await settle();
+      expect(engine.currentState.queue.currentIndex, 0);
+
+      await engine.skipToIndex(1);
+      await settle();
+      await engine.setRepeatMode(PlaybackRepeatMode.off);
+      await coordinator.skipNext();
+      await settle();
+      expect(engine.currentState.queue.currentIndex, 1);
+    });
+  });
+
   group('a finished queue across restarts (R4)', () {
     LibraryTrack libraryTrack(String id) => LibraryTrack(
       songId: id,
@@ -300,6 +408,36 @@ void main() {
       expect(restoredEngine.currentState.queue.currentIndex, 2);
       expect(restoredEngine.currentState.position, Duration.zero);
       expect(restoredEngine.currentState.queue.length, 3);
+    });
+
+    test('SN-50 A1: after a restart under Repeat One, Next moves on', () async {
+      await saveSession(['a', 'b', 'c'], 0, const Duration(seconds: 30));
+
+      final (_, restoredEngine) = await restart();
+      await restoredEngine.setRepeatMode(PlaybackRepeatMode.one);
+      await PlaybackCoordinator(engine: restoredEngine).skipNext();
+      await settle();
+
+      expect(restoredEngine.currentState.queue.currentIndex, 1);
+      expect(restoredEngine.currentState.repeatMode, PlaybackRepeatMode.one);
+    });
+
+    test('SN-50 A2: cleared songs do not come back after a restart', () async {
+      await saveSession(['a', 'b', 'c'], 1, const Duration(seconds: 30));
+
+      final (_, restoredEngine) = await restart();
+      final removed = await PlaybackCoordinator(
+        engine: restoredEngine,
+      ).clearQueue();
+      await settle();
+      expect(removed, 2);
+      expect(restoredEngine.currentState.queue.tracks.map((t) => t.songId), [
+        'b',
+      ]);
+
+      final (_, again) = await restart();
+      expect(again.currentState.queue.tracks.map((t) => t.songId), ['b']);
+      expect(again.currentState.position, const Duration(seconds: 30));
     });
 
     test('restored just short of the end, Play replays from 0:00', () async {

@@ -41,6 +41,16 @@ class PlaybackQueuePage extends StatelessWidget {
           centerTitle: true,
           backgroundColor: atmosphere.background,
           surfaceTintColor: Colors.transparent,
+          actions: [
+            IconButton(
+              key: const ValueKey<String>('playback-queue-clear'),
+              tooltip: 'Clear queue',
+              icon: const Icon(Icons.clear_all_rounded),
+              onPressed: state.queue.hasCurrentTrack && state.queue.length > 1
+                  ? () => _confirmClear(context, coordinator, state)
+                  : null,
+            ),
+          ],
         ),
         body: DecoratedBox(
           key: const ValueKey<String>('playback-queue-atmosphere'),
@@ -66,6 +76,40 @@ class PlaybackQueuePage extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Asks before clearing (SN-50 A2): only the other queue entries go; the
+/// song playing now keeps playing, and nothing leaves the library.
+Future<void> _confirmClear(
+  BuildContext context,
+  PlaybackCoordinator coordinator,
+  PlaybackState state,
+) async {
+  final others = state.queue.length - 1;
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      key: const ValueKey<String>('playback-queue-clear-dialog'),
+      title: const Text('Clear queue?'),
+      content: Text(
+        '${others == 1 ? '1 other song' : '$others other songs'} will be '
+        'removed from the queue. The song playing now keeps playing. Your '
+        'library and playlists are not changed.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('Cancel'),
+        ),
+        TextButton(
+          key: const ValueKey<String>('playback-queue-clear-confirm'),
+          onPressed: () => Navigator.of(context).pop(true),
+          child: const Text('Clear'),
+        ),
+      ],
+    ),
+  );
+  if (confirmed == true) await coordinator.clearQueue();
 }
 
 class _QueueContent extends StatelessWidget {

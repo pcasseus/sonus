@@ -176,6 +176,27 @@ class PlaybackCoordinator {
     return _engine.removeTrackAt(index);
   }
 
+  /// Removes every queue entry except the one playing, which keeps playing
+  /// from where it is (SN-50 A2). Songs, files, history and playlists are
+  /// untouched; End Session is separate. Returns how many were removed.
+  Future<int> clearQueue() async {
+    final initial = currentState.queue;
+    if (!initial.hasCurrentTrack) return 0;
+
+    var removed = 0;
+    // Recomputed each step from the live queue, never from the first
+    // snapshot, and bounded so a concurrent change cannot loop forever.
+    for (var step = 0; step < initial.length - 1; step++) {
+      final queue = currentState.queue;
+      if (!queue.hasCurrentTrack || queue.length <= 1) break;
+      final last = queue.length - 1;
+      final index = queue.currentIndex == last ? last - 1 : last;
+      await _engine.removeTrackAt(index);
+      removed++;
+    }
+    return removed;
+  }
+
   Future<void> moveQueueTrack({required int oldIndex, required int newIndex}) {
     return _engine.moveTrack(oldIndex: oldIndex, newIndex: newIndex);
   }

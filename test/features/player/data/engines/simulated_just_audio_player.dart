@@ -56,14 +56,26 @@ class SimulatedJustAudioPlayer implements PlaybackAudioPlayer {
   @override
   Stream<PlayerException> get errorStream => _errors.stream;
 
-  // Like just_audio, repeat all wraps around the queue.
+  // Like just_audio: repeat all wraps around the queue, and under repeat
+  // one the next and previous items are the current one.
   @override
-  bool get hasPrevious =>
-      _length > 0 && (_loopMode == LoopMode.all || (_index ?? 0) > 0);
+  bool get hasPrevious => _relative(-1, repeatOne: true) != null;
 
   @override
-  bool get hasNext =>
-      _length > 0 && (_loopMode == LoopMode.all || (_index ?? 0) < _length - 1);
+  bool get hasNext => _relative(1, repeatOne: true) != null;
+
+  @override
+  int? adjacentIndex(int offset) => _relative(offset, repeatOne: false);
+
+  int? _relative(int offset, {required bool repeatOne}) {
+    final index = _index;
+    if (_length == 0 || index == null) return null;
+    if (repeatOne && _loopMode == LoopMode.one) return index;
+    final target = index + offset;
+    if (_loopMode == LoopMode.all) return target % _length;
+    if (target < 0 || target >= _length) return null;
+    return target;
+  }
 
   @override
   Future<Duration?> setAudioSources(
@@ -159,16 +171,14 @@ class SimulatedJustAudioPlayer implements PlaybackAudioPlayer {
 
   @override
   Future<void> seekToNext() async {
-    if (hasNext) {
-      await seek(Duration.zero, index: (_index ?? 0) + 1);
-    }
+    final next = _relative(1, repeatOne: true);
+    if (next != null) await seek(Duration.zero, index: next);
   }
 
   @override
   Future<void> seekToPrevious() async {
-    if (hasPrevious) {
-      await seek(Duration.zero, index: (_index ?? 0) - 1);
-    }
+    final previous = _relative(-1, repeatOne: true);
+    if (previous != null) await seek(Duration.zero, index: previous);
   }
 
   @override
@@ -179,6 +189,13 @@ class SimulatedJustAudioPlayer implements PlaybackAudioPlayer {
   @override
   Future<void> removeAudioSourceAt(int index) async {
     _length--;
+    // Like just_audio, removing an earlier item keeps the current one
+    // playing at its new index.
+    final current = _index;
+    if (current != null && index < current) {
+      _index = current - 1;
+      _indexes.add(_index);
+    }
   }
 
   @override

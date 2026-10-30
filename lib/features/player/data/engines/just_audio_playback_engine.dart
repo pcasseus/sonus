@@ -242,14 +242,25 @@ class JustAudioPlaybackEngine
   Future<void> skipNext() async {
     _ensureNotDisposed();
 
-    final canAdvance = _audioPlayer.hasNext;
+    // Repeat One repeats a song that finishes on its own; an explicit Next
+    // moves on to the next entry and Repeat One stays on for it.
+    final repeatOneTarget = _state.repeatMode == PlaybackRepeatMode.one
+        ? _audioPlayer.adjacentIndex(1)
+        : null;
+    final canAdvance = _state.repeatMode == PlaybackRepeatMode.one
+        ? repeatOneTarget != null
+        : _audioPlayer.hasNext;
 
     if (canAdvance) {
       _pendingTransitionCause = PlaybackTransitionCause.skipNext;
     }
 
     try {
-      await _audioPlayer.seekToNext();
+      if (repeatOneTarget != null) {
+        await _audioPlayer.seek(Duration.zero, index: repeatOneTarget);
+      } else if (_state.repeatMode != PlaybackRepeatMode.one) {
+        await _audioPlayer.seekToNext();
+      }
     } catch (error) {
       if (canAdvance &&
           _pendingTransitionCause == PlaybackTransitionCause.skipNext) {
@@ -270,7 +281,16 @@ class JustAudioPlaybackEngine
       return;
     }
 
-    if (!_audioPlayer.hasPrevious) {
+    // Under Repeat One, Previous goes to the previous entry, as it does
+    // without it; the player alone would only restart the current song.
+    final repeatOneTarget = _state.repeatMode == PlaybackRepeatMode.one
+        ? _audioPlayer.adjacentIndex(-1)
+        : null;
+    final canGoBack = _state.repeatMode == PlaybackRepeatMode.one
+        ? repeatOneTarget != null
+        : _audioPlayer.hasPrevious;
+
+    if (!canGoBack) {
       await seek(Duration.zero);
       return;
     }
@@ -278,7 +298,11 @@ class JustAudioPlaybackEngine
     _pendingTransitionCause = PlaybackTransitionCause.skipPrevious;
 
     try {
-      await _audioPlayer.seekToPrevious();
+      if (repeatOneTarget != null) {
+        await _audioPlayer.seek(Duration.zero, index: repeatOneTarget);
+      } else {
+        await _audioPlayer.seekToPrevious();
+      }
     } catch (error) {
       if (_pendingTransitionCause == PlaybackTransitionCause.skipPrevious) {
         _pendingTransitionCause = null;

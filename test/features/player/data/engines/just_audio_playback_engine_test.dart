@@ -53,6 +53,12 @@ class FakePlaybackAudioPlayer implements PlaybackAudioPlayer {
   @override
   bool get hasNext => hasNextValue;
 
+  /// What [adjacentIndex] answers (Repeat One navigation), per offset.
+  final Map<int, int?> adjacentIndexes = {};
+
+  @override
+  int? adjacentIndex(int offset) => adjacentIndexes[offset];
+
   @override
   bool get playing => false;
 

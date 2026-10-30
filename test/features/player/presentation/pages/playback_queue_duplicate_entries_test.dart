@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:sonus_next/core/design/sonus_theme_factory.dart';
 import 'package:sonus_next/features/player/application/controllers/playback_coordinator.dart';
 import 'package:sonus_next/features/player/data/engines/just_audio_playback_engine.dart';
+import 'package:sonus_next/features/player/domain/models/playback_state.dart';
 import 'package:sonus_next/features/player/domain/models/playback_track.dart';
 import 'package:sonus_next/features/player/presentation/controllers/playback_state_controller.dart';
 import 'package:sonus_next/features/player/presentation/pages/playback_queue_page.dart';
@@ -210,5 +211,71 @@ void main() {
       find.byKey(const ValueKey<String>('queue-current-song-a')),
       findsNothing,
     );
+  });
+
+  group('SN-50 A2: Clear queue', () {
+    final clear = find.byKey(const ValueKey<String>('playback-queue-clear'));
+    final confirm = find.byKey(
+      const ValueKey<String>('playback-queue-clear-confirm'),
+    );
+
+    bool clearEnabled(WidgetTester tester) =>
+        tester.widget<IconButton>(clear).onPressed != null;
+
+    testWidgets('asks first; Cancel removes nothing', (tester) async {
+      await pumpQueue(tester, const [_a, _b], startIndex: 0);
+
+      await tester.tap(clear);
+      await tester.pumpAndSettle();
+      expect(find.text('Clear queue?'), findsOneWidget);
+      expect(find.textContaining('1 other song'), findsOneWidget);
+
+      await tester.tap(find.text('Cancel'));
+      await settle(tester);
+
+      expect(queuedSongIds(), ['song-a', 'song-b']);
+    });
+
+    testWidgets('keeps only the song playing, at its place and still '
+        'playing', (tester) async {
+      await pumpQueue(tester, const [_a, _b, _a], startIndex: 1);
+      await tester.runAsync(() async {
+        await engine.seek(const Duration(minutes: 1));
+        await engine.play();
+      });
+      await settle(tester);
+
+      await tester.tap(clear);
+      await tester.pumpAndSettle();
+      await tester.tap(confirm);
+      await settle(tester);
+
+      expect(queuedSongIds(), ['song-b']);
+      expect(engine.currentState.queue.currentIndex, 0);
+      expect(engine.currentState.position, const Duration(minutes: 1));
+      expect(engine.currentState.isPlaying, isTrue);
+      expect(clearEnabled(tester), isFalse);
+    });
+
+    testWidgets('a later copy of a song queued twice is the one kept', (
+      tester,
+    ) async {
+      await pumpQueue(tester, const [_a, _b, _a], startIndex: 2);
+
+      await tester.tap(clear);
+      await tester.pumpAndSettle();
+      await tester.tap(confirm);
+      await settle(tester);
+
+      expect(queuedSongIds(), ['song-a']);
+      expect(engine.currentState.queue.currentIndex, 0);
+      expect(engine.currentState.status, isNot(PlaybackStatus.idle));
+    });
+
+    testWidgets('nothing to clear with one song', (tester) async {
+      await pumpQueue(tester, const [_a]);
+
+      expect(clearEnabled(tester), isFalse);
+    });
   });
 }
