@@ -17,6 +17,8 @@ The sections below are the original reconciliation at `426b7c2`, with statuses c
 
 Last full suite: **4,997 passed, 1 skipped, 0 failed**, analyzer clean.
 
+**[Round 7]** `ec59045` fixes the duplicate-song restore gap (#35, BLOCKED #22); the skipped test runs again. Full suite **5,008 passed, 0 skipped, 0 failed**. Design proposals for sync cancellation (#33 residual, BLOCKED #23) and atomic finalization (F6) are in `SN50_Progress.md` Round 7.
+
 **Status changes:** #11 UNVERIFIED → COMPLETE; #14 PARTIAL → COMPLETE; #33 PARTIAL → COMPLETE (app side). Gaps narrowed: #1 (controller test added), #6 (Auto, Blacklisted, Library Health done), #20 and #27 (tests added), #35 (F3–F5 fixed; new restore gap found).
 
 ## How to read this
@@ -464,6 +466,7 @@ Last full suite: **4,997 passed, 1 skipped, 0 failed**, analyzer clean.
   - Gated: M-4/M-5 vendor patches and M-6 device QA. M-2/M-3 sign-off is pending (BLOCKED #14).
 - **Closure:** F3–F5 fixed with tests; a duplicate save/restore test; a decision on shuffle-order persistence; device QA.
 - **[Round 6]** F3–F5 fixed in `a4085a5`. The duplicate **save** test passes. The duplicate **restore** test found a gap: restoring `[a, b, a]` at the second `a` resumes the first copy (`playback_coordinator.dart:51-53`). Its test is skipped with the reason, and the fix awaits approval (Progress BLOCKED #22). Still PARTIAL.
+- **[Round 7]** Fixed in `ec59045`: the restored queue resumes the copy that was playing (restart, mid-song and finished-queue cases tested). Still PARTIAL only for the shuffle-persistence decision (#24), device QA and the vendor patches.
 - **Requires:** none (F3–F5, test); product decision (shuffle persistence, M-2/M-3); destructive permission (vendor patches); real device (M-6).
 
 ---

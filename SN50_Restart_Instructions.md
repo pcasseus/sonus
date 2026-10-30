@@ -1,10 +1,10 @@
 # SN-50 Restart Instructions (for a fresh Claude Code session)
 
-## State at handoff (2026-10-30, after round 6)
+## State at handoff (2026-10-30, after round 7)
 
 - **Worktree:** `C:\dev\sonus\sonus_next_sn50`. **Branch:** `sn-50-final-refinement` (local only, never pushed).
-- **Last code commit:** `11f30a7` (round 6 C: sync run queue). Round 6 code commits: `8c8bffc` (A), `a4085a5` (B), `11f30a7` (C). A docs-only commit with the refreshed reports sits on top; check with `git log --oneline -5`. `a4085a5`'s subject starts with an invisible byte-order mark (PowerShell 5.1 wrote the message file); cosmetic, left as is because amending would rewrite a commit.
-- **Last full suite:** **4,997 passed, 1 skipped, 0 failed** (`flutter test --concurrency=1`, at `11f30a7`; the skip is the pinned BLOCKED #22 gap). `flutter analyze`: no issues. Formatting clean on all changed files.
+- **Last code commit:** `ec59045` (round 7: #22 duplicate-song restore). Before it, round 6 C `11f30a7` (sync run queue). Round 6 code commits: `8c8bffc` (A), `a4085a5` (B), `11f30a7` (C). A docs-only commit with the refreshed reports sits on top; check with `git log --oneline -5`. `a4085a5`'s subject starts with an invisible byte-order mark (PowerShell 5.1 wrote the message file); cosmetic, left as is because amending would rewrite a commit.
+- **Last full suite:** **5,008 passed, 0 skipped, 0 failed** (`flutter test --concurrency=1`, at `ec59045`; no skipped tests). `flutter analyze`: no issues. Formatting clean on all changed files.
 - **Uncommitted changes:** none (only the seven LF-churn registrant files, which are never committed). Write commit message files from bash or with BOM-free UTF-8, never PowerShell 5.1 `Set-Content -Encoding utf8`.
 - **SN-49:** `C:\dev\sonus\sonus_next_sn49` @ `36d4d5d`, showing only its seven registrant files, unchanged.
 - **Other worktrees:** unchanged from the baseline snapshot.
@@ -20,10 +20,11 @@
 | Round 4 | `59a33bd` (BU rules, milestone tests) `83a7d96` (possible different recordings) `ce51bd2` (docs/approval sheet) |
 | Round 5 | Read-only code-integrity audit at `ce51bd2`: no web-instruction contamination, no rollback. `420d5d5` (F1 + F2) + docs (F3–F6 documented, F7 reconciled, F8 verified) |
 | Round 6 | Notes reconciliation (`SN50_Original_Notes_Reconciliation.md`, 35 requirements). `8c8bffc` (A: edition names in Auto, Blacklisted, Library Health; regression tests) `a4085a5` (B: F3–F5) `11f30a7` (C: sync run queue) + docs (D) |
+| Round 7 | `ec59045` (#22 duplicate-song restore) + docs (design proposals for #23 sync cancellation and F6 atomic finalization, Progress Round 7) |
 
 ## Next steps
 
-All approved safe work is done. What remains needs the user's decisions (`SN50_Progress.md` → BLOCKED_NEEDS_APPROVAL 1–24; `SN50_Original_Notes_Reconciliation.md` §4). Do not repeat the round 5 audit or the round 6 reconciliation, or reopen settled decisions.
+All approved safe work is done. What remains needs the user's decisions (`SN50_Progress.md` → BLOCKED_NEEDS_APPROVAL 1–24, #22 now fixed; #23 and F6 have design proposals in Progress Round 7; `SN50_Original_Notes_Reconciliation.md` §4). Do not repeat the round 5 audit or the round 6 reconciliation, or reopen settled decisions.
 
 The user's next priorities, in order:
 
@@ -86,6 +87,7 @@ flutter test --concurrency=1 --reporter=compact > $env:TEMP\sn50_full.txt 2>&1
 - **Edition labels:** `editionTypeLabel` / `editionLabel` in `release_display_title.dart`. An Other edition's label is derived from its title (BUG-03).
 - **Bubbling Under ↔ Hot 100 Moments (BUG-04):** in `MomentStoryPlanner` (entry and `hot-100` stories, `fromBubblingUnderVariants`) and `MomentEditorialDesk._biggestGainers` (`_crossesIntoHot100`). Refined rules only.
 - **Sync run queue (round 6 C):** `SyncController` runs one service run at a time on `_pending`, which ends only when the service run really ends; `_bounded` waits at most `runTimeout` (default 10 min) and reports `SyncRunTimedOut`; a late result is never used; `_sessionEpoch` (sign-out, external `activateUser`) makes queued runs for a stale account skip. Cancellation is not possible today (proposal in Progress Round 6).
+- **Start index (round 7, #22):** `PlaybackCoordinator.playTracks` starts at the requested entry's own place among the playable entries (count of playable entries before it), never a song-id lookup.
 - **End of queue (round 6 B):** `_pausedAtSeekedPosition` arms the one-second R4 end allowance only for a seek made while paused (restore); `play()` clears it. System Shuffle/Repeat go through `_runInTurn` in `SonusAudioHandler`. Queue edits emit `_withCurrentDisplay(updatedQueue)`.
 - **Import identity (round 5, F1):** in `AtomicLibraryImporter`, `atKnownOtherPosition` runs **before** any binding check: the song's position on this edition is known and the file's differs. A missing or absent file then never relinks or binds to it. An unknown position (track 0) still relinks, which recovery depends on (`recovery_audio_service_test.dart`).
 - **Queue rows (round 5, F2):** `playback_queue_page.dart` keys rows by occurrence (`songId`, then `songId#n`) through `_QueueContent.entryIds`. The queue model has no entry id, and `PlaybackTrack ==` compares `songId`. Engine, persistence and media session are index-based.

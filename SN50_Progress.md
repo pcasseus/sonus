@@ -599,6 +599,81 @@ Authority: the user's approval of Batches A–D after `SN50_Original_Notes_Recon
 
 **Batch D — documentation.** This section; stale rows corrected and labelled in the traceability matrix, the QA report, the restart notes, earlier sections here (marked *Superseded*), and `SN50_Original_Notes_Reconciliation.md` (statuses updated).
 
+## Round 7 (2026-10-30): duplicate-song restore (#22) and two design proposals
+
+| Commit | Batch | Full suite (`--concurrency=1`) |
+|---|---|---|
+| `ec59045` | #22: a restored queue resumes the copy that was playing | **5,008 passed, 0 skipped, 0 failed** |
+
+**#22 — fixed.**
+- **Cause:** `PlaybackCoordinator.playTracks` re-found the start track by song id among the playable tracks, so `[a, b, a]` saved on the second `a` resumed the first copy, with the saved position applied to the wrong copy.
+- **Fix** (`playback_coordinator.dart`, one block): the start is the requested entry's own place among the playable entries, i.e. the number of playable entries before it. For queues without duplicates this is the same index as before. An unplayable requested entry is still refused (`StateError`), never swapped for another song.
+- **Restore** already maps the saved index by position (`playback_restoration_controller.dart`). An out-of-range saved index is rejected when the snapshot loads (nothing restored, nothing played). A saved song that is gone falls forward to the next playable entry at 0:00, paused.
+- **Unchanged:** the queue persistence format, history, qualification, shuffle/repeat preferences and R4.
+- **Tests:**
+  - the round-6 restore test is unskipped;
+  - `playback_coordinator_test.dart` group "SN-50 #22" (4 tests);
+  - `playback_restoration_controller_test.dart`: dropped unplayable entry, gone song falls to the next copy, out-of-range index, finished queue on the second copy;
+  - `system_controls_regression_test.dart`: restart resumes the second copy mid-song; a finished queue on the second copy replays that copy (R4).
+- **Proof:** 8 of the new tests fail on the pre-fix coordinator. The 4 guards (unplayable start, out-of-range start, out-of-range saved index, finished-queue restore index) pass on both.
+
+### Design proposal: cooperative sync cancellation (#23, not implemented)
+
+**Goal:** a timed-out or obsolete run can be stopped and replaced without restarting the app, with no overlapping local writes, no lost unsent changes, and no writes for an account that is no longer active.
+
+1. **Token.** `SyncController` creates a `SyncCancellation` per run, holding the run's `userId` and session epoch.
+   - It is cancelled on timeout, sign-out, account switch or dispose.
+   - It is passed through `SyncService._synchronize`, `OutboundSyncProcessor.pushPendingIsolated`, `InboundSyncProcessor.pullAll` and `CloudArchiveSyncService.synchronize`.
+2. **Check points: only between atomic units, never inside one.**
+   - **Outbound:** before each outbox entry is pushed, and before its acknowledgement transaction commits (`acknowledgeEntry`).
+   - **Inbound:** before each page fetch, and inside each record's existing transaction as its first statement, so a cancelled run's transaction rolls back instead of writing.
+   - **Archive:** between steps.
+   - **Service:** between attach, push, pull and archive.
+   - A cancelled check throws `SyncCancelled`, which the service reports as cancelled, never as success.
+3. **No overlapping writes.**
+   - The controller keeps today's rule: the next run starts only when the previous service future has ended.
+   - Cancellation makes that end arrive at the next check point. That is within one HTTP timeout (connect 15 s, response 30 s, `TimedHttpClient`) plus one transaction, instead of never.
+   - A run blocked on something with no timeout still holds the queue, as today. That is now the only case.
+4. **Unsent changes are protected by the existing design.**
+   - An outbox entry is removed only by its own acknowledgement transaction. A cancelled or interrupted entry stays pending and is pushed again.
+   - Cloud writes are conditional on revision baselines, and artist writes are journalled (`recoverArtistWrites`), so a write that reached the cloud before cancellation is reconciled, not duplicated.
+   - Inbound records commit one transaction at a time with their deferral ledger, so a cancelled pull leaves whole records only.
+5. **Account changes.**
+   - Sign-out or switch cancels the token at once.
+   - Every write transaction compares the token's `userId` and epoch with the current binding, and refuses a stale one.
+   - Queued runs for the old account are skipped (already true since round 6).
+6. **Status.** A cancelled run reports nothing into the new account's state. For the same account it shows the timeout already used in round 6, with retry pending. A distinct permanent-failure state (Session I, I-P1) can sit on top.
+7. **Tests (fakes only):**
+   - cancel between outbound entries, and during an entry before its acknowledgement;
+   - cancel mid-page;
+   - sign-out mid-run;
+   - a replacement run starts only after the cancelled one ends;
+   - unsent entries remain;
+   - no success is reported.
+8. **Scope:** sync service and processors only. No schema, cloud or server change.
+
+### Design proposal: atomic chart finalization (F6, not implemented)
+
+**Goal:** a finalized week's snapshot and its published Moments are written together or not at all, and nothing already stored is ever rewritten.
+
+1. **One transaction for both.** `ChartFinalizationService._reconcileWeek` builds the snapshot and detects its Moments in memory, as today. It then calls one repository method, `finalizeWeek(snapshot, events)`, which runs a single SQLite transaction that:
+   1. re-reads the stored week inside the transaction and stops, writing nothing, if it is already finalized;
+   2. inserts the snapshot and its entries;
+   3. inserts the Moments with the existing `ON CONFLICT(deduplication_key) DO NOTHING`, only if the week has no finalized Moments yet;
+   4. commits.
+   - The restore-generation check (`_ensureNoRestoreSince`) runs immediately before the transaction, and the write goes through the library mutation coordinator, so a restore can never interleave.
+2. **Freeze in the repository.** `SqliteChartRepository.replaceSnapshot` (and the new method) throws when the stored row has `finalized_at IS NOT NULL`. The service guard stays as well.
+3. **Existing history is never rewritten.** No migration and no repair. A week left by the old order, with Moments published but no snapshot, is finalized by the next pass with its snapshot only. Its published Moments are kept as they are (publish-once already refuses to add to them), and the mismatch is logged, not corrected.
+4. **Tests (disposable databases):**
+   - a failure injected after the snapshot insert leaves neither the snapshot nor the Moments;
+   - a failure after the Moments insert leaves neither;
+   - a second pass on a finalized week writes nothing;
+   - `replaceSnapshot` on a finalized week throws;
+   - a pre-existing Moments-without-snapshot week keeps its Moments byte-identical;
+   - the restore races (`chart_finalization_restore_test.dart` 1b/2a/2b) still hold;
+   - the freeze suite stays row-identical.
+5. **Scope:** chart repositories and finalization service. No schema change. It changes how future weeks are written, so it needs the persistence authorization noted in F6.
+
 ## BLOCKED_NEEDS_APPROVAL / user decisions
 
 1. **DB v41 on real devices.** The migration runs on a phone's real database the first time a build containing `2a10990` is installed. Take a `.sonusbackup` before any install. Installing is a separate approval.
@@ -627,8 +702,8 @@ Authority: the user's approval of Batches A–D after `SN50_Original_Notes_Recon
 18. **BUG-03 type label:** keep deriving the Other label from the name, or approve a schema change for a stored custom type label.
 19. **Import Review persistence for ambiguous same-title files** (round 4): it needs a pending-file record, or a new review reason plus a file-path payload. Either is a schema/data-contract change. Until approved, these files are reported in the import result only.
     - Since round 5 (F1), this also holds when the existing song's file is missing or absent.
-20. **Audit hardening F3–F6** (round 5): F3, F4 and F5 are fixed in `a4085a5` (round 6). **F6** (finalization transaction and repository freeze check) remains: a persistence change needing approval.
+20. **Audit hardening F3–F6** (round 5; F6 design in Round 7): F3, F4 and F5 are fixed in `a4085a5` (round 6). **F6** (finalization transaction and repository freeze check) remains: a persistence change needing approval.
 21. **Refined Moments release flag:** no committed config sets `SONUS_MOMENTS_REFINED_APPROVED`, so release builds use the earlier rules until it is added to the release config, once the rules are approved for release.
-22. **Duplicate-song restore start** (round 6): restoring `[a, b, a]` at the second `a` resumes the first copy (`playback_coordinator.dart:51-53` re-finds the start by song id). A safe fix would pass the index through for restores, without a format change. Not done because it was outside the approved batch scope; its test is skipped with the reason.
-23. **Sync cooperative cancellation** (round 6): the design proposal in Round 6 Batch C, so a hung run can be replaced without a restart; plus a permanent-failure state (Session I).
+22. ~~**Duplicate-song restore start**~~ **Fixed in `ec59045` (round 7).** (round 6): restoring `[a, b, a]` at the second `a` resumes the first copy (`playback_coordinator.dart:51-53` re-finds the start by song id). A safe fix would pass the index through for restores, without a format change. Not done because it was outside the approved batch scope; its test is skipped with the reason.
+23. **Sync cooperative cancellation** (round 6): the design proposal in Round 7 (refines Round 6 Batch C), so a hung run can be replaced without a restart; plus a permanent-failure state (Session I).
 24. **Shuffle order persistence** (round 6 reconciliation): the shuffle permutation is never saved, and shuffle/repeat survive a restart only with "Remember". Keep, or persist by default?
