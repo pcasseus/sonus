@@ -60,6 +60,14 @@ class LibraryTrack {
   final String albumEditionTitle;
   final AlbumEditionType albumEditionType;
 
+  /// The name of the edition this listing is on, such as
+  /// "Skyline (Remixes)" (SN-50 BUG-03); the base title when the edition
+  /// title is empty or only a type name.
+  String get editionDisplayTitle => releaseDisplayTitle(
+    baseTitle: albumTitle,
+    editionTitle: albumEditionTitle,
+  );
+
   final int trackNumber;
   final int discNumber;
   final int durationSeconds;

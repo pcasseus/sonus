@@ -2049,7 +2049,7 @@ String _editionDisplayLabel(LibraryAlbumEdition edition) {
     return title;
   }
 
-  return edition.type.name;
+  return editionTypeLabel(edition.type);
 }
 
 /// A bordered group of rows, in the studio's card style.

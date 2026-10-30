@@ -90,7 +90,7 @@ class _NowPlayingContent extends StatelessWidget {
       keyPrefix: 'now-playing',
       title: track.displayTitle,
       artist: track.displayArtist,
-      album: track.albumTitle,
+      album: track.displayAlbum,
       artworkPath: track.artworkPath,
       position: state.position,
       duration: knownDuration,

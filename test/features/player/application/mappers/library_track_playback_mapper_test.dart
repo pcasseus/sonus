@@ -11,6 +11,8 @@ void main() {
     bool isAvailable = true,
     String? artworkId = 'artwork_1',
     String? artworkPath = r'C:\Sonus\Artwork\cover.jpg',
+    String albumEditionTitle = 'Album',
+    AlbumEditionType albumEditionType = AlbumEditionType.standard,
   }) {
     return LibraryTrack(
       songId: songId,
@@ -20,8 +22,8 @@ void main() {
       albumId: 'album_1',
       albumTitle: 'Album',
       albumEditionId: 'edition_1',
-      albumEditionTitle: 'Album',
-      albumEditionType: AlbumEditionType.standard,
+      albumEditionTitle: albumEditionTitle,
+      albumEditionType: albumEditionType,
       trackNumber: 1,
       durationSeconds: 245,
       isSingle: false,
@@ -138,5 +140,31 @@ void main() {
 
     expect(playbackTrack.displayTitle, 'Track');
     expect(playbackTrack.displayArtist, 'Artist');
+    expect(playbackTrack.displayAlbum, 'Album');
+  });
+
+  test('shows the name of the playing edition, keeping the stored album '
+      'title for history (SN-50 BUG-03)', () {
+    final playbackTrack = LibraryTrackPlaybackMapper.toPlaybackTrack(
+      libraryTrack(
+        albumEditionTitle: 'Album (Remixes)',
+        albumEditionType: AlbumEditionType.other,
+      ),
+    );
+
+    expect(playbackTrack.displayAlbum, 'Album (Remixes)');
+    expect(playbackTrack.albumTitle, 'Album');
+    expect(playbackTrack.albumEditionTitle, 'Album (Remixes)');
+  });
+
+  test('a generic edition title displays the album title', () {
+    final playbackTrack = LibraryTrackPlaybackMapper.toPlaybackTrack(
+      libraryTrack(
+        albumEditionTitle: 'Other',
+        albumEditionType: AlbumEditionType.other,
+      ),
+    );
+
+    expect(playbackTrack.displayAlbum, 'Album');
   });
 }

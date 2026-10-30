@@ -17,8 +17,10 @@ class PlaybackTrack {
     this.isSongBlocked = false,
     String? displayTitle,
     String? displayArtist,
+    String? displayAlbum,
   }) : displayTitle = displayTitle ?? title,
-       displayArtist = displayArtist ?? artistName;
+       displayArtist = displayArtist ?? artistName,
+       displayAlbum = displayAlbum ?? albumTitle;
 
   final String songId;
 
@@ -37,7 +39,13 @@ class PlaybackTrack {
   final String displayArtist;
 
   final String albumId;
+
+  /// The release's stored base title. Listening history records this one.
   final String albumTitle;
+
+  /// The name of the edition being played, such as "Skyline (Remixes)",
+  /// shown while playing (SN-50 BUG-03).
+  final String displayAlbum;
 
   final String? albumEditionId;
   final String? albumEditionTitle;
@@ -73,6 +81,7 @@ class PlaybackTrack {
     bool? isSongBlocked,
     String? displayTitle,
     String? displayArtist,
+    String? displayAlbum,
   }) {
     return PlaybackTrack(
       songId: songId ?? this.songId,
@@ -99,6 +108,8 @@ class PlaybackTrack {
       displayTitle: displayTitle ?? (title == null ? this.displayTitle : null),
       displayArtist:
           displayArtist ?? (artistName == null ? this.displayArtist : null),
+      displayAlbum:
+          displayAlbum ?? (albumTitle == null ? this.displayAlbum : null),
     );
   }
 

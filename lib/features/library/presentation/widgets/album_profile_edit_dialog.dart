@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../application/models/library_album.dart';
 import '../../application/models/library_artist.dart';
+import '../../application/models/release_display_title.dart';
 import '../../domain/entities/album_edition.dart';
 import '../../domain/entities/release_date.dart';
 
@@ -249,14 +250,5 @@ class _AlbumProfileEditDialogState extends State<AlbumProfileEditDialog> {
     );
   }
 
-  String _editionTypeLabel(AlbumEditionType type) {
-    return switch (type) {
-      AlbumEditionType.standard => 'Standard',
-      AlbumEditionType.deluxe => 'Deluxe',
-      AlbumEditionType.expanded => 'Expanded',
-      AlbumEditionType.anniversary => 'Anniversary',
-      AlbumEditionType.remaster => 'Remaster',
-      AlbumEditionType.other => 'Other',
-    };
-  }
+  String _editionTypeLabel(AlbumEditionType type) => editionTypeLabel(type);
 }

@@ -7,6 +7,7 @@ import '../../../../../core/design/sonus_theme.dart';
 import '../../../application/models/edition_numbering_repair.dart';
 import '../../../application/models/library_album_edition.dart';
 import '../../../application/models/library_track.dart';
+import '../../../application/models/release_display_title.dart';
 import '../../../application/repositories/library_query_repository.dart';
 import '../../../application/services/album_edition_management_service.dart';
 import '../../../application/services/edition_follow_up.dart';
@@ -84,14 +85,7 @@ class AlbumStudioEditionsSection extends StatefulWidget {
       'This album changed in the meantime. Nothing was changed.',
   };
 
-  static String typeLabel(AlbumEditionType type) => switch (type) {
-    AlbumEditionType.standard => 'Standard',
-    AlbumEditionType.deluxe => 'Deluxe',
-    AlbumEditionType.expanded => 'Expanded',
-    AlbumEditionType.anniversary => 'Anniversary',
-    AlbumEditionType.remaster => 'Remaster',
-    AlbumEditionType.other => 'Other',
-  };
+  static String typeLabel(AlbumEditionType type) => editionTypeLabel(type);
 
   @override
   State<AlbumStudioEditionsSection> createState() =>
@@ -1173,13 +1167,21 @@ class _EditionDialogState extends State<_EditionDialog> {
   String? _error;
 
   /// A new edition's suggested, editable name for its type (SN-50 A-Q5C),
-  /// such as "Northern Lights (Deluxe)".
+  /// such as "Northern Lights (Deluxe)". An Other edition gets no
+  /// suggestion: "Other" names no edition, so its name is the user's own,
+  /// such as "Northern Lights (Remixes)" (SN-50 BUG-03).
   String _suggestedName(AlbumEditionType type) {
     final base = widget.baseTitle?.trim() ?? '';
-    if (base.isEmpty) return '';
+    if (base.isEmpty || type == AlbumEditionType.other) return '';
     return type == AlbumEditionType.standard
         ? base
         : '$base (${AlbumStudioEditionsSection.typeLabel(type)})';
+  }
+
+  /// An example Other edition name, from the release's own title.
+  String get _otherNameExample {
+    final base = widget.baseTitle?.trim() ?? '';
+    return base.isEmpty ? 'Remixes' : '$base (Remixes)';
   }
 
   /// Follows the type while the suggested name is untouched.
@@ -1203,8 +1205,18 @@ class _EditionDialogState extends State<_EditionDialog> {
   }
 
   void _save() {
-    if (_name.text.trim().isEmpty) {
+    final name = _name.text.trim();
+    if (name.isEmpty) {
       setState(() => _error = 'Enter an edition name.');
+      return;
+    }
+    if (_type == AlbumEditionType.other &&
+        name.toLowerCase() == editionTypeLabel(_type).toLowerCase()) {
+      setState(
+        () => _error =
+            'Give this edition its own name, such as '
+            '$_otherNameExample.',
+      );
       return;
     }
     Navigator.of(
@@ -1229,7 +1241,9 @@ class _EditionDialogState extends State<_EditionDialog> {
             onSubmitted: (_) => _save(),
             decoration: InputDecoration(
               labelText: 'Edition name',
-              hintText: 'For example Deluxe',
+              hintText: _type == AlbumEditionType.other
+                  ? 'For example $_otherNameExample'
+                  : 'For example Deluxe',
               errorText: _error,
             ),
           ),

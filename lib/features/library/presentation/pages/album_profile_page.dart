@@ -39,7 +39,6 @@ import '../../application/services/song_block_service.dart';
 import '../../application/services/album_edition_management_service.dart';
 import '../../application/services/artist_creation_service.dart';
 import '../../application/services/library_organization_service.dart';
-import '../../domain/entities/album_edition.dart';
 import '../../domain/services/album_edition_track_order.dart';
 import 'package:sonus_next/features/library/application/services/track_profile_editing_service.dart';
 import '../controllers/album_profile_controller.dart';
@@ -907,7 +906,7 @@ class _AlbumHero extends StatelessWidget {
         if (edition != null) ...[
           const SizedBox(height: 10),
           _EditionBadge(
-            label: _editionDisplayLabel(edition),
+            label: _editionDisplayLabel(edition, album.title),
             atmosphere: atmosphere,
           ),
         ],
@@ -1155,8 +1154,9 @@ class _EditionSelector extends StatelessWidget {
       return const SizedBox.shrink();
     }
 
+    final baseTitle = controller.album?.title ?? '';
     final labels = [
-      for (final edition in editions) _editionDisplayLabel(edition),
+      for (final edition in editions) _editionDisplayLabel(edition, baseTitle),
     ];
 
     return Semantics(
@@ -1339,21 +1339,12 @@ String _presentationAlbumTitle(
   );
 }
 
-String _editionDisplayLabel(LibraryAlbumEdition edition) {
-  final title = edition.title.trim();
-
-  if (title.isNotEmpty && isGenericEditionTitle(title)) {
-    return title;
-  }
-
-  return switch (edition.type) {
-    AlbumEditionType.standard => 'Standard',
-    AlbumEditionType.deluxe => 'Deluxe',
-    AlbumEditionType.expanded => 'Expanded',
-    AlbumEditionType.anniversary => 'Anniversary',
-    AlbumEditionType.remaster => 'Remaster',
-    AlbumEditionType.other => title.isEmpty ? 'Other' : title,
-  };
+String _editionDisplayLabel(LibraryAlbumEdition edition, String baseTitle) {
+  return editionLabel(
+    title: edition.title,
+    type: edition.type,
+    baseTitle: baseTitle,
+  );
 }
 
 class _PlaybackControls extends StatelessWidget {

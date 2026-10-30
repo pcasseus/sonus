@@ -110,7 +110,8 @@ class PlaybackQueue {
 
       if (display == null ||
           (display.displayTitle == track.displayTitle &&
-              display.displayArtist == track.displayArtist)) {
+              display.displayArtist == track.displayArtist &&
+              display.displayAlbum == track.displayAlbum)) {
         updatedTracks.add(track);
         continue;
       }
@@ -120,6 +121,7 @@ class PlaybackQueue {
         track.copyWith(
           displayTitle: display.displayTitle,
           displayArtist: display.displayArtist,
+          displayAlbum: display.displayAlbum,
         ),
       );
     }

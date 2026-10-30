@@ -14,6 +14,8 @@ LibraryTrack _track(
   String songId, {
   List<String> featuredArtists = const [],
   String? versionLabel,
+  String editionTitle = 'Night Album',
+  AlbumEditionType editionType = AlbumEditionType.standard,
 }) {
   return LibraryTrack(
     songId: songId,
@@ -23,8 +25,8 @@ LibraryTrack _track(
     albumId: 'album_1',
     albumTitle: 'Night Album',
     albumEditionId: 'edition_1',
-    albumEditionTitle: 'Night Album',
-    albumEditionType: AlbumEditionType.standard,
+    albumEditionTitle: editionTitle,
+    albumEditionType: editionType,
     trackNumber: 1,
     durationSeconds: 180,
     isSingle: false,
@@ -106,6 +108,45 @@ void main() {
     expect(after.position, const Duration(seconds: 42));
     expect(after.status, PlaybackStatus.playing);
     expect(after.transitionCause, before.transitionCause);
+  });
+
+  test('a renamed Other edition shows its new name while playing, without '
+      'changing what history records (SN-50 BUG-03)', () async {
+    library = [
+      _track(
+        'a',
+        editionTitle: 'Night Album (Remixes)',
+        editionType: AlbumEditionType.other,
+      ),
+    ];
+    await coordinator.playTracks(library, startIndex: 0);
+    await settle();
+    player.advanceTo(const Duration(seconds: 12));
+    await settle();
+
+    expect(
+      coordinator.currentState.queue.currentTrack!.displayAlbum,
+      'Night Album (Remixes)',
+    );
+
+    library = [
+      _track(
+        'a',
+        editionTitle: 'Night Album (Club Mixes)',
+        editionType: AlbumEditionType.other,
+      ),
+    ];
+    signal.notify(LibraryChangeKind.libraryEdited);
+    await settle();
+
+    final after = coordinator.currentState;
+    final current = after.queue.currentTrack!;
+    expect(current.displayAlbum, 'Night Album (Club Mixes)');
+    // History fields keep what playback started with.
+    expect(current.albumTitle, 'Night Album');
+    expect(current.albumEditionTitle, 'Night Album (Remixes)');
+    expect(after.position, const Duration(seconds: 12));
+    expect(after.status, PlaybackStatus.playing);
   });
 
   test('listening changes and an empty queue read nothing', () async {

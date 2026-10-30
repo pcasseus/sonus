@@ -187,6 +187,14 @@ void main() {
       expect(item.duration, const Duration(minutes: 3));
     });
 
+    test('shows the playing edition name as the album (SN-50 BUG-03)', () {
+      final track = mediaTrack('a').copyWith(displayAlbum: 'Album a (Remixes)');
+      final snapshot = _map(queuedState(tracks: [track]));
+
+      expect(snapshot.item!.album, 'Album a (Remixes)');
+      expect(snapshot.queue.single.album, 'Album a (Remixes)');
+    });
+
     test('shows the display title and credit line, in the queue too '
         '(SN-50 C-Q1/C-Q8)', () {
       final track = mediaTrack('a').copyWith(

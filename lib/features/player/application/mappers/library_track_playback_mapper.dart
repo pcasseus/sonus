@@ -19,6 +19,7 @@ abstract final class LibraryTrackPlaybackMapper {
       isSongBlocked: track.isSongBlocked,
       displayTitle: track.displayTitle,
       displayArtist: track.creditLine,
+      displayAlbum: track.editionDisplayTitle,
     );
   }
 

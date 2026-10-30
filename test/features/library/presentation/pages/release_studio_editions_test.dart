@@ -1437,6 +1437,141 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(key('album-studio-new-edition'), findsOneWidget);
   });
+
+  group('SN-50 BUG-03 Other edition with its own name', () {
+    base.FakeEditionAwareLibraryQueryRepository withRemixes() =>
+        base.FakeEditionAwareLibraryQueryRepository(
+          album: base.createAlbum(
+            title: 'Skyline',
+            primaryEditionId: 'edition-standard',
+            primaryEditionTitle: 'Skyline',
+          ),
+          tracks: [track('s1', 1), track('s2', 2)],
+          editions: [
+            base.createLibraryEdition(
+              editionId: 'edition-standard',
+              title: 'Skyline',
+              type: AlbumEditionType.standard,
+              isPrimary: true,
+            ),
+            base.createLibraryEdition(
+              editionId: 'edition-deluxe',
+              title: 'Skyline (Deluxe)',
+              type: AlbumEditionType.deluxe,
+            ),
+            base.createLibraryEdition(
+              editionId: 'edition-other',
+              title: 'Skyline (Remixes)',
+              type: AlbumEditionType.other,
+            ),
+          ],
+          editionTracks: {
+            'edition-standard': [track('s1', 1), track('s2', 2)],
+            'edition-deluxe': [track('s1', 1, edition: 'edition-deluxe')],
+            'edition-other': [track('s2', 1, edition: 'edition-other')],
+          },
+        );
+
+    String name(WidgetTester tester) => tester
+        .widget<TextField>(key('album-studio-edition-name-field'))
+        .controller!
+        .text;
+
+    Future<void> chooseOther(WidgetTester tester) async {
+      await tester.tap(key('album-studio-edition-type-field'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Other').last);
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('choosing Other asks for a name instead of "(Other)", '
+        'and creates it with that name', (tester) async {
+      final (_, service, _) = await pump(tester, library: withRemixes());
+
+      await tester.tap(key('album-studio-new-edition'));
+      await tester.pumpAndSettle();
+      await chooseOther(tester);
+
+      expect(name(tester), isEmpty);
+      expect(find.text('For example Skyline (Remixes)'), findsOneWidget);
+
+      await tester.enterText(
+        key('album-studio-edition-name-field'),
+        'Skyline (Club Mixes)',
+      );
+      await tester.tap(key('album-studio-save-edition'));
+      await tester.pumpAndSettle();
+
+      // Never made primary: only the create call, no primary question.
+      expect(service.calls, [
+        'create album-1 Skyline (Club Mixes) other user-1 '
+            'from edition-standard',
+      ]);
+    });
+
+    testWidgets('a bare "Other" or blank name is refused for Other', (
+      tester,
+    ) async {
+      final (_, service, _) = await pump(tester, library: withRemixes());
+
+      await tester.tap(key('album-studio-new-edition'));
+      await tester.pumpAndSettle();
+      await chooseOther(tester);
+
+      await tester.tap(key('album-studio-save-edition'));
+      await tester.pumpAndSettle();
+      expect(find.text('Enter an edition name.'), findsOneWidget);
+
+      await tester.enterText(key('album-studio-edition-name-field'), 'other');
+      await tester.tap(key('album-studio-save-edition'));
+      await tester.pumpAndSettle();
+      expect(
+        find.text('Give this edition its own name, such as Skyline (Remixes).'),
+        findsOneWidget,
+      );
+      expect(service.calls, isEmpty);
+    });
+
+    testWidgets('the custom name shows in the tabs, and renaming it changes '
+        'only that edition', (tester) async {
+      final (controller, service, _) = await pump(
+        tester,
+        library: withRemixes(),
+      );
+
+      final tab = key('release-studio-edition-tab-edition-other');
+      expect(
+        find.descendant(of: tab, matching: find.text('Skyline (Remixes)')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: key('release-studio-edition-tabs'),
+          matching: find.text('Other'),
+        ),
+        findsNothing,
+      );
+
+      await controller.selectEdition('edition-other');
+      await tester.pumpAndSettle();
+      await tester.tap(key('album-studio-edit-edition'));
+      await tester.pumpAndSettle();
+
+      // Reopening shows the saved name, not the type.
+      expect(name(tester), 'Skyline (Remixes)');
+
+      await tester.enterText(
+        key('album-studio-edition-name-field'),
+        'Skyline (Remixes Vol. 2)',
+      );
+      await tester.tap(key('album-studio-save-edition'));
+      await tester.pumpAndSettle();
+
+      expect(service.calls, [
+        'update edition-other Skyline (Remixes Vol. 2) other',
+      ]);
+    });
+  });
 }
 
 class _FakeEditions implements AlbumEditionManagementService {
