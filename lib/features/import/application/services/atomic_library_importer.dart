@@ -760,6 +760,39 @@ class AtomicLibraryImporter {
           }
         }
 
+        // A different disc/track position on the same edition is not evidence
+        // of a different recording, but it is not proof of the same one
+        // either. Such a file is reported as a possible different recording.
+        final atOtherPosition =
+            !sharedWithEdition &&
+            metadata.trackNumber > 0 &&
+            !songMemberships.any(
+              (membership) =>
+                  membership.albumEditionId == edition!.id &&
+                  membership.discNumber == metadata.discNumber &&
+                  membership.trackNumber == metadata.trackNumber,
+            );
+
+        // When the song's own position on this edition is known, nothing is
+        // written for that file, whatever the song's files are: a missing or
+        // never-bound file is no reason to give the song this one. An
+        // unknown position (restored or older listings) is no evidence
+        // either way, so the file can still relink.
+        final atKnownOtherPosition =
+            atOtherPosition &&
+            songMemberships
+                .where((membership) => membership.albumEditionId == edition!.id)
+                .every((membership) => membership.trackNumber > 0);
+
+        if (atKnownOtherPosition) {
+          return ImportResult(
+            status: ImportResultStatus.skipped,
+            filePath: candidate.filePath,
+            songId: song.id,
+            skipReason: ImportSkipReason.possibleAlternateRecording,
+          );
+        }
+
         final existingSongBindings = await bindingRepository.getBySongId(
           song.id,
         );
@@ -770,20 +803,7 @@ class AtomicLibraryImporter {
 
         if (availableBindings.isNotEmpty) {
           // Another file already plays this recording. Nothing is written for
-          // the copy; the result says which song it duplicates. A different
-          // disc/track position on the same edition is not evidence of a
-          // different recording, but it is not proof of a copy either, so
-          // that file is reported as a possible different recording.
-          final atOtherPosition =
-              !sharedWithEdition &&
-              metadata.trackNumber > 0 &&
-              !songMemberships.any(
-                (membership) =>
-                    membership.albumEditionId == edition!.id &&
-                    membership.discNumber == metadata.discNumber &&
-                    membership.trackNumber == metadata.trackNumber,
-              );
-
+          // the copy; the result says which song it duplicates.
           return ImportResult(
             status: ImportResultStatus.skipped,
             filePath: candidate.filePath,

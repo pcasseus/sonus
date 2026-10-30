@@ -74,10 +74,27 @@ class _QueueContent extends StatelessWidget {
   final PlaybackState state;
   final PlaybackCoordinator coordinator;
 
+  /// One identity per queue entry, for row keys: the song's id for its first
+  /// occurrence and `songId#n` for its nth. A song can be queued more than
+  /// once, and rows with equal keys break the reorderable list. Unlike an
+  /// index, this follows a distinct song's row through moves and removals.
+  static List<String> entryIds(List<PlaybackTrack> tracks) {
+    final seen = <String, int>{};
+
+    return [
+      for (final track in tracks)
+        switch (seen.update(track.songId, (n) => n + 1, ifAbsent: () => 1)) {
+          1 => track.songId,
+          final n => '${track.songId}#$n',
+        },
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
     final queue = state.queue;
     final gutter = SonusTheme.of(context).metrics.pageGutter;
+    final ids = entryIds(queue.tracks);
 
     // The current song is the highlighted row; there is no separate
     // summary card repeating it (SN-50 D-Q18).
@@ -102,7 +119,8 @@ class _QueueContent extends StatelessWidget {
           final isCurrent = index == queue.currentIndex;
 
           return _QueueTrackRow(
-            key: ValueKey<String>('queue-track-${track.songId}'),
+            key: ValueKey<String>('queue-track-${ids[index]}'),
+            entryId: ids[index],
             track: track,
             index: index,
             count: queue.length,
@@ -118,6 +136,7 @@ class _QueueContent extends StatelessWidget {
 class _QueueTrackRow extends StatelessWidget {
   const _QueueTrackRow({
     super.key,
+    required this.entryId,
     required this.track,
     required this.index,
     required this.count,
@@ -125,6 +144,8 @@ class _QueueTrackRow extends StatelessWidget {
     required this.coordinator,
   });
 
+  /// This entry's identity in the queue (see [_QueueContent.entryIds]).
+  final String entryId;
   final PlaybackTrack track;
   final int index;
   final int count;
@@ -158,7 +179,7 @@ class _QueueTrackRow extends StatelessWidget {
           color: isCurrent ? colors.selection : Colors.transparent,
           borderRadius: radius,
           child: InkWell(
-            key: ValueKey<String>('queue-track-open-${track.songId}'),
+            key: ValueKey<String>('queue-track-open-$entryId'),
             borderRadius: radius,
             onTap: isCurrent
                 ? null
@@ -180,9 +201,7 @@ class _QueueTrackRow extends StatelessWidget {
                             if (isCurrent) ...[
                               Icon(
                                 Icons.graphic_eq_rounded,
-                                key: ValueKey<String>(
-                                  'queue-current-${track.songId}',
-                                ),
+                                key: ValueKey<String>('queue-current-$entryId'),
                                 semanticLabel: 'Now playing',
                                 size: 18,
                                 color: colors.accentPrimary,
@@ -217,7 +236,7 @@ class _QueueTrackRow extends StatelessWidget {
                     ),
                   ),
                   IconButton(
-                    key: ValueKey<String>('queue-remove-${track.songId}'),
+                    key: ValueKey<String>('queue-remove-$entryId'),
                     tooltip: 'Remove ${track.displayTitle} from queue',
                     color: colors.textSecondary,
                     onPressed: () {
@@ -226,7 +245,7 @@ class _QueueTrackRow extends StatelessWidget {
                     icon: const Icon(Icons.close_rounded),
                   ),
                   ReorderableDragStartListener(
-                    key: ValueKey<String>('queue-drag-${track.songId}'),
+                    key: ValueKey<String>('queue-drag-$entryId'),
                     index: index,
                     child: Padding(
                       padding: const EdgeInsets.all(12),

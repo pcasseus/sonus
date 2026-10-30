@@ -5,6 +5,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:sonus_next/core/database/app_database.dart';
+import 'package:sonus_next/core/database/database_tables.dart';
+import 'package:sonus_next/core/identity/text_normalizer.dart';
 import 'package:sonus_next/features/import/application/services/atomic_library_importer.dart';
 import 'package:sonus_next/features/import/application/services/library_import_service.dart';
 import 'package:sonus_next/features/import/application/services/lyrics_ingestion_service.dart';
@@ -504,5 +506,167 @@ void main() {
     expect(other.songId, isNot(first.songId));
     // The original song keeps its identity and its (missing) file record.
     expect(await bindingDao.findBySongId(first.songId!), hasLength(1));
+  });
+
+  group('SN-50 F1: a missing or absent file never takes a possible '
+      'different recording', () {
+    final files = {
+      'old/track03.mp3': errTime(seconds: 146, trackNumber: 3),
+      'new/track03.mp3': errTime(seconds: 146, trackNumber: 3),
+      'new/track09.mp3': errTime(seconds: 147, trackNumber: 9),
+    };
+
+    Future<(LibraryImportService, ImportResult)> importKept() async {
+      final (importer, _) = await service(files);
+      final kept = await importer.importCandidate(
+        candidate('old/track03.mp3'),
+        now: now,
+      );
+      expect(kept.status, ImportResultStatus.imported);
+      return (importer, kept);
+    }
+
+    Future<void> markMissing(String songId) async {
+      final bindingDao = MediaFileBindingDao(await appDatabase.database);
+      final binding = (await bindingDao.findBySongId(songId)).single;
+      await bindingDao.update(binding.copyWith(isAvailable: false));
+    }
+
+    Future<void> removeFiles(String songId) async {
+      final db = await appDatabase.database;
+      await db.delete(
+        DatabaseTables.mediaFileBindings,
+        where: 'song_id = ?',
+        whereArgs: [songId],
+      );
+    }
+
+    test('a missing file is not relinked to another track position, and the '
+        'song is left exactly as it was', () async {
+      final (importer, kept) = await importKept();
+      final db = await appDatabase.database;
+      final bindingDao = MediaFileBindingDao(db);
+      await markMissing(kept.songId!);
+      final songBefore = (await SongDao(db).findAll()).single;
+      final bindingBefore = (await bindingDao.findBySongId(
+        kept.songId!,
+      )).single;
+
+      final result = await importer.importCandidate(
+        candidate('new/track09.mp3'),
+        now: now,
+      );
+
+      expect(result.status, ImportResultStatus.skipped);
+      expect(result.skipReason, ImportSkipReason.possibleAlternateRecording);
+      expect(result.songId, kept.songId);
+
+      final songAfter = (await SongDao(db).findAll()).single;
+      expect(songAfter.id, songBefore.id);
+      expect(songAfter.title, songBefore.title);
+      expect(songAfter.durationSeconds, songBefore.durationSeconds);
+      expect(songAfter.updatedAt, songBefore.updatedAt);
+
+      final bindingsAfter = await bindingDao.findBySongId(kept.songId!);
+      expect(bindingsAfter, hasLength(1));
+      expect(bindingsAfter.single.id, bindingBefore.id);
+      expect(bindingsAfter.single.filePath, 'old/track03.mp3');
+      expect(bindingsAfter.single.isAvailable, isFalse);
+      expect(
+        await bindingDao.findByNormalizedPath(
+          TextNormalizer.normalizePath('new/track09.mp3'),
+        ),
+        isNull,
+      );
+      expect(await SongImportReviewDao(db).findBySongId(kept.songId!), isNull);
+    });
+
+    test('a song with no file is not given one from another track '
+        'position', () async {
+      final (importer, kept) = await importKept();
+      await removeFiles(kept.songId!);
+
+      final result = await importer.importCandidate(
+        candidate('new/track09.mp3'),
+        now: now,
+      );
+
+      final db = await appDatabase.database;
+      expect(result.status, ImportResultStatus.skipped);
+      expect(result.skipReason, ImportSkipReason.possibleAlternateRecording);
+      expect(result.songId, kept.songId);
+      expect(await SongDao(db).findAll(), hasLength(1));
+      expect(await MediaFileBindingDao(db).findBySongId(kept.songId!), isEmpty);
+    });
+
+    test('the ambiguous file stays reported on every later import', () async {
+      final (importer, kept) = await importKept();
+      await markMissing(kept.songId!);
+
+      for (var pass = 0; pass < 2; pass++) {
+        final result = await importer.importCandidate(
+          candidate('new/track09.mp3'),
+          now: now,
+        );
+        expect(result.skipReason, ImportSkipReason.possibleAlternateRecording);
+        expect(result.songId, kept.songId);
+      }
+    });
+
+    test('a missing file still relinks to the same track position', () async {
+      final (importer, kept) = await importKept();
+      await markMissing(kept.songId!);
+
+      final moved = await importer.importCandidate(
+        candidate('new/track03.mp3'),
+        now: now,
+      );
+
+      final bindings = await MediaFileBindingDao(
+        await appDatabase.database,
+      ).findBySongId(kept.songId!);
+      expect(moved.status, ImportResultStatus.relinked);
+      expect(moved.songId, kept.songId);
+      expect(bindings.single.filePath, 'new/track03.mp3');
+      expect(bindings.single.isAvailable, isTrue);
+    });
+
+    test('a missing file listed with no known position still relinks, as a '
+        'restored library needs', () async {
+      final (importer, _) = await service({
+        'old/untagged.mp3': errTime(seconds: 146, trackNumber: 0),
+        'new/track09.mp3': errTime(seconds: 146, trackNumber: 9),
+      });
+      final kept = await importer.importCandidate(
+        candidate('old/untagged.mp3'),
+        now: now,
+      );
+      await markMissing(kept.songId!);
+
+      final moved = await importer.importCandidate(
+        candidate('new/track09.mp3'),
+        now: now,
+      );
+
+      expect(moved.status, ImportResultStatus.relinked);
+      expect(moved.songId, kept.songId);
+    });
+
+    test('a song with no file is bound at the same track position', () async {
+      final (importer, kept) = await importKept();
+      await removeFiles(kept.songId!);
+
+      final bound = await importer.importCandidate(
+        candidate('new/track03.mp3'),
+        now: now,
+      );
+
+      final bindings = await MediaFileBindingDao(
+        await appDatabase.database,
+      ).findBySongId(kept.songId!);
+      expect(bound.status, ImportResultStatus.relinked);
+      expect(bound.songId, kept.songId);
+      expect(bindings.single.filePath, 'new/track03.mp3');
+    });
   });
 }
