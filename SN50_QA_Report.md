@@ -1,6 +1,6 @@
 # SN-50 QA Report
 
-Branch `sn-50-final-refinement`, worktree `C:\dev\sonus\sonus_next_sn50`. Base `36d4d5d`. Round 1 ended at `14b592f`; refreshed 2026-10-30 at code HEAD `11f30a7` (round 7, duplicate-song restore `ec59045`; none pushed).
+Branch `sn-50-final-refinement`, worktree `C:\dev\sonus\sonus_next_sn50`. Base `36d4d5d`. Round 1 ended at `14b592f`; refreshed 2026-10-30 at code HEAD `11f30a7` (round 8, F6 `9ef4717` and #23 `48c2714`; none pushed).
 
 ## 1. Analyzer and test suite
 
@@ -14,7 +14,9 @@ Branch `sn-50-final-refinement`, worktree `C:\dev\sonus\sonus_next_sn50`. Base `
 | `8c8bffc` (round 6 A: display names, regression tests) | No issues | 4,981 passed, 1 skipped, 0 failed |
 | `a4085a5` (round 6 B: playback races F3–F5) | No issues | 4,988 passed, 1 skipped, 0 failed |
 | `11f30a7` (round 6 C: sync run queue) | No issues | 4,997 passed, 1 skipped, 0 failed |
-| `ec59045` (round 7: #22 duplicate-song restore, latest code) | No issues | **5,008 passed, 0 skipped, 0 failed** |
+| `ec59045` (round 7: #22 duplicate-song restore) | No issues | 5,008 passed, 0 skipped, 0 failed |
+| `9ef4717` (round 8: F6 atomic finalization) | No issues | 5,022 passed, 0 failed |
+| `48c2714` (round 8: #23 sync cancellation, latest code) | No issues | **5,036 passed, 0 failed** |
 
 The round 6 skip pinned the duplicate-restore gap; `ec59045` fixes it and the test runs again, so nothing is skipped.
 
@@ -132,6 +134,8 @@ These are spec-driven, not bugs, but the user will notice them:
 - The queue shows a song queued twice as two independent rows (round 5, F2). Previously that gave the reorderable list duplicate keys.
 - Android Auto song rows name the edition the song is listed on; Blacklisted and the Library Health split-folder report name the release by its primary edition (round 6 A).
 - A quick double tap on the system Shuffle or Repeat button now toggles twice; Play after a pause in the last second of the last song resumes there (a restored or finished queue still replays from 0:00); a credit edit during a queue edit is kept (round 6 B).
+- A finalized chart week and its Moments are now stored together or not at all; a finalized week can never be rewritten (round 8, F6).
+- A timed-out, signed-out or switched sync run stops at its next safe point, so the next sync no longer waits for it to finish (round 8, #23).
 - Restoring a queue that holds a song twice resumes the copy that was playing, not the first copy (round 7, #22).
 - A sync run longer than 10 minutes is reported as timed out (changes kept, retry pending); no second run starts until it has ended; a sync queued for a signed-out or switched account no longer signs it back in (round 6 C).
 
@@ -162,7 +166,7 @@ These are spec-driven, not bugs, but the user will notice them:
 - **BUG-03 and BUG-04 on a device:** verified by widget and pipeline tests only.
 - **Audit hardening F3–F6** (round 5): confirmed by code reading only. Not implemented, by instruction. See Progress Round 5.
 - **Refined Moments in a release build:** activation is verified by unit tests (F8). No committed config sets `SONUS_MOMENTS_REFINED_APPROVED`.
-- **Sync against a real server:** the round 6 run queue is tested with fakes only; no Supabase contact.
+- **Sync against a real server:** the round 6 run queue and the round 8 cancellation are tested with fakes and disposable SQLite only; no Supabase contact.
 - **Shuffle order persistence** (BLOCKED #24): known, not changed. The duplicate-song restore start (#22) is fixed in `ec59045`.
 
 **Production is not complete:** release signing, `versionCode`, Supabase migrations and device QA are still release blockers, as in the audit (Part I §9).

@@ -674,6 +674,61 @@ Authority: the user's approval of Batches A–D after `SN50_Original_Notes_Recon
    - the freeze suite stays row-identical.
 5. **Scope:** chart repositories and finalization service. No schema change. It changes how future weeks are written, so it needs the persistence authorization noted in F6.
 
+## Round 8 (2026-10-30): F6 atomic finalization and #23 cooperative sync cancellation
+
+Authority: the user's approval of the Round 7 designs. No schema change, migration, backfill, history rewrite, cloud contact, device access, push or merge.
+
+| Commit | Batch | Full suite (`--concurrency=1`) |
+|---|---|---|
+| `9ef4717` | 1: F6, a finalized week and its Moments in one transaction | 5,022 passed, 0 failed |
+| `48c2714` | 2: #23, cooperative sync cancellation | 5,036 passed, 0 failed |
+
+**Batch 1 — F6.**
+- **Atomic write:** `ChartWeekFinalizer` (domain), implemented by `SqliteChartRepository.finalizeWeek`. One `AppDatabase.transaction`, which goes through the restore coordinator:
+  1. re-read the week; if it is already finalized, return it as stored and write nothing;
+  2. write the snapshot and its entries;
+  3. publish the Moments only if the week has none.
+  - A week left by the earlier two-step order, with Moments but no snapshot, gets its snapshot. Its Moments are kept byte-identical and the case is logged (`sonus.charts`), never repaired.
+  - Moments are validated before the transaction, so the restore admission check still has no await before it.
+- **Freeze:** `replaceSnapshot` throws `FinalizedChartWeekFrozen` for a finalized week.
+- **Wiring:** `ChartFinalizationService` takes an explicit `weekFinalizer`, and `charts_scope.dart` passes the SQLite repository. Test doubles that cannot share a transaction keep the earlier two-step path.
+- **Tests:**
+  - `sqlite_chart_repository_test.dart` "SN-50 F6" (9):
+    - both written by one call;
+    - an entry-write failure rolls back everything;
+    - a Moment-write failure rolls back the snapshot;
+    - an already-finalized week writes nothing;
+    - legacy Moments without a snapshot are kept exactly;
+    - Moments for another week are refused;
+    - an unfinalized snapshot is refused;
+    - a held restore writes nothing;
+    - `replaceSnapshot` on a finalized week throws.
+  - `chart_finalization_restore_test.dart` "SN-50 F6: one transaction per finalized week" (5): repeated passes write nothing; a restore during Moment detection, during the build, or at admission writes nothing; legacy recovery.
+  - Three revision tests now start from an unfinalized stored week, so revision rules keep their coverage without rewriting a frozen week.
+
+**Batch 2 — #23.**
+- **Token:** `SyncCancellation` (`sync_cancellation.dart`) is one token per run, carried as a zone value through everything the run starts. `SyncCancellation.checkpoint()` throws `SyncCancelled` once the run is cancelled, and does nothing outside a run.
+- **Cancelled by** `SyncController` on timeout, sign-out, a switch to another account, and dispose.
+- **Safe points only, never inside a unit:**
+  - `SyncService`: between its steps.
+  - Outbound: before the journal recovery and before each entry. An entry's cloud write and its acknowledgement always complete together.
+  - Inbound: before each entity type, page and deferred-replay record. Also the first and last statements inside each record's transaction, so a run cancelled meanwhile rolls the record and its cursor back whole.
+  - Archive: before each record and page.
+  - `SyncCancelled` is never swallowed by a per-record retry (`replayDeferred`) or the archive error capture.
+- **No overlapping writers:** unchanged from round 6. The next run starts only when the previous service run has ended. It now ends at its next safe point instead of never.
+- **Unsent changes:** an outbox entry is removed only by its own acknowledgement, and an interrupted cloud write is reconciled by the existing lost-response path. Tested: the cancelled entry stays pending and the next run sends it once.
+- **Old accounts:** a sign-out or switch cancels at once, so no unit starts for the old account afterwards. A unit already in flight finishes whole, then nothing follows. Queued runs for the old account are skipped (round 6).
+- **Never a false success:** a cancelled or timed-out run's result is never used.
+- **Remaining limit:** a run blocked on an await with no timeout of its own (not HTTP) still holds the queue until it ends or the app restarts.
+- **Tests:**
+  - `sync_controller_test.dart` "SN-50 #23" (6): a timed-out run stops so a retry starts at once and never alongside it; sign-out stops writes; an account switch stops the old run before the new account syncs; a late response finishes its unit whole and nothing follows, never a success; dispose; a safe point outside a run is a no-op.
+  - `sync_service_test.dart`: a cancel during the push stops before the pull.
+  - `outbound_sync_processor_test.dart` "SN-50 #23" (3): a late response finishes entry 1 with its ack while entry 2 stays pending; the next run sends it; nothing is cancelled outside a run.
+  - `inbound_sync_cancellation_sqlite_test.dart` (3, real SQLite): a cancel inside a record's transaction rolls that record and its cursor back while earlier ones stay; a page arriving after cancellation applies nothing; the next run resumes from the last committed record.
+  - `cloud_archive_sync_service_test.dart` "SN-50 #23": stops after the first record; a later run sends the rest exactly once.
+  - The controller tests passed in 4 of 4 repeated runs.
+- Known flake: during a targeted sync/settings/account run on a stalled machine (6.5 min instead of about 1), `supabase_sync_resilience_test.dart` "after a timeout, the next attempt succeeds" timed out once. It waits on real HTTP timeouts and never reaches a safe point; it passed 3 of 3 alone and in the full suite.
+
 ## BLOCKED_NEEDS_APPROVAL / user decisions
 
 1. **DB v41 on real devices.** The migration runs on a phone's real database the first time a build containing `2a10990` is installed. Take a `.sonusbackup` before any install. Installing is a separate approval.
@@ -702,8 +757,8 @@ Authority: the user's approval of Batches A–D after `SN50_Original_Notes_Recon
 18. **BUG-03 type label:** keep deriving the Other label from the name, or approve a schema change for a stored custom type label.
 19. **Import Review persistence for ambiguous same-title files** (round 4): it needs a pending-file record, or a new review reason plus a file-path payload. Either is a schema/data-contract change. Until approved, these files are reported in the import result only.
     - Since round 5 (F1), this also holds when the existing song's file is missing or absent.
-20. **Audit hardening F3–F6** (round 5; F6 design in Round 7): F3, F4 and F5 are fixed in `a4085a5` (round 6). **F6** (finalization transaction and repository freeze check) remains: a persistence change needing approval.
+20. ~~**Audit hardening F3–F6**~~ **Done:** F6 in `9ef4717` (round 8). (round 5; F6 design in Round 7): F3, F4 and F5 are fixed in `a4085a5` (round 6). **F6** (finalization transaction and repository freeze check) remains: a persistence change needing approval.
 21. **Refined Moments release flag:** no committed config sets `SONUS_MOMENTS_REFINED_APPROVED`, so release builds use the earlier rules until it is added to the release config, once the rules are approved for release.
 22. ~~**Duplicate-song restore start**~~ **Fixed in `ec59045` (round 7).** (round 6): restoring `[a, b, a]` at the second `a` resumes the first copy (`playback_coordinator.dart:51-53` re-finds the start by song id). A safe fix would pass the index through for restores, without a format change. Not done because it was outside the approved batch scope; its test is skipped with the reason.
-23. **Sync cooperative cancellation** (round 6): the design proposal in Round 7 (refines Round 6 Batch C), so a hung run can be replaced without a restart; plus a permanent-failure state (Session I).
+23. ~~**Sync cooperative cancellation**~~ **Done in `48c2714` (round 8).** A distinct permanent-failure state (Session I) is still open. (round 6): the design proposal in Round 7 (refines Round 6 Batch C), so a hung run can be replaced without a restart; plus a permanent-failure state (Session I).
 24. **Shuffle order persistence** (round 6 reconciliation): the shuffle permutation is never saved, and shuffle/repeat survive a restart only with "Remember". Keep, or persist by default?
