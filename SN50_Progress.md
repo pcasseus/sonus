@@ -729,6 +729,75 @@ Authority: the user's approval of the Round 7 designs. No schema change, migrati
   - The controller tests passed in 4 of 4 repeated runs.
 - Known flake: during a targeted sync/settings/account run on a stalled machine (6.5 min instead of about 1), `supabase_sync_resilience_test.dart` "after a timeout, the next attempt succeeds" timed out once. It waits on real HTTP timeouts and never reaches a safe point; it passed 3 of 3 alone and in the full suite.
 
+## Round 9 (2026-10-30): playback controls, shuffle order, paused sync, Import Review, chart jumps
+
+Authority: the user's approval of Batches A–E (based on `SN50_Decision_and_Release_Checklist.md`, which stays uncommitted as asked). No migration, real-data change, cloud operation, plugin patch, device access, push or merge. The refined Moments flag stays off.
+
+| Commit | Batch | Full suite (`--concurrency=1`) |
+|---|---|---|
+| `e3dd5f5` | A: Repeat One navigation (A1); Clear queue (A2) | 5,049 passed, 0 failed |
+| `207e65d` | B: exact shuffled order restored with Remember (#24, option C) | 5,058 passed, 0 failed |
+| `5c0071b` | C: paused sync for a cloud not ready for this version | 5,067 passed, 0 failed |
+| `2af3a8b` | D: Import Review for possible different recordings (#19, option B) | 5,098 passed, 0 failed (one run for D and E together) |
+| `cc680e8` | E: chart-jump detection, held for copy approval | same run |
+
+**A1 — Repeat One.**
+- just_audio's `nextIndex` returns the current item under `LoopMode.one`, so an explicit Next only restarted the song.
+- `PlaybackAudioPlayer.adjacentIndex` now gives the entry one step away in play order, shuffle included, as if Repeat One were off; Repeat All still wraps.
+- Under Repeat One the engine's Next and Previous seek to it, and the loop mode stays One. Previous keeps restart-after-3 s. At the queue's edge Next stays, as without Repeat One.
+- The simulated player now models just_audio's Repeat One rule.
+- Tests: `system_controls_regression_test.dart` "SN-50 A1" (7) plus a restart test. 5 fail on the old engine.
+
+**A2 — Clear queue.**
+- `PlaybackCoordinator.clearQueue` removes every entry except the one playing, recomputed step by step from the live queue. Playback and position are kept.
+- The Queue screen has a confirmed "Clear queue" action, disabled with nothing to clear.
+- The saved session follows, so cleared songs never return after a restart (tested). Songs, files, history and playlists are untouched; End Session is separate.
+- The simulated player now shifts its current index when an earlier item is removed, like just_audio.
+
+**B — exact shuffle order (#24).**
+- `PlaybackSessionSnapshot` gains an optional `shuffleOrder` **inside version 1**: older builds ignore it, and an unusable value is dropped while the session is kept.
+- The real engine implements a new optional `ShuffleOrderPlayback` capability, so the 30 engine test doubles are unchanged. Restoring passes a `RestoredShuffleOrder` to just_audio's `setAudioSources(shuffleOrder:)`; the first fill lays down the saved permutation, and later edits behave like `DefaultShuffleOrder`.
+- The order is applied only if shuffle is on at restore, which only Remember does; with Remember off nothing changes. Songs that are gone are left out and the rest keep their saved relative order. Duplicates keep their places.
+- Tests: snapshot format (3) and restart tests (6) with an opt-in shuffle model in the simulator.
+- **Device-only:** the notification, lock-screen and Android Auto Next/Previous order after a restart.
+
+**C — paused sync.**
+- New `SyncFailureKind.cloudNotReady` (`isPermanent`) for clear contract failures only:
+  - PostgREST missing table, column or function: `42P01`, `42883`, `42703`, `PGRST202`, `PGRST204`, `PGRST205`;
+  - a conditional-write reply without a valid revision or outcome: `CloudContractMismatch`, which still extends `StateError`.
+  - Never because a failure repeated.
+- `SyncStatus.paused` is stored per account (`SyncStatusStore` `sync.paused.<user>`), so it survives sign-out and sign-in without leaking to another account. Only a successful run clears it.
+- Automatic triggers skip while paused. The card's button retries (`trigger(retry: true)`) and shows Sync paused, the reason and code, Retry, the pending changes and the last sync time.
+- Consent, the outbox, serialization and cancellation are unchanged.
+- Tests: classifier (3), controller (5), card (1).
+
+**D — Import Review for possible different recordings (#19, option B).**
+- A device-local pending list in SharedPreferences (`PossibleRecordingStore`, keys `import.possible_recordings.*`): one entry per path, so rescans never duplicate. Unreadable data is ignored.
+- `LibraryImportService` records each `possibleAlternateRecording` result. A file the user marked "Same recording" (path + song + length) is reported as `duplicateRecording`; a replaced file with another length is reported again.
+- Import Review shows "Possible different recordings" with three actions:
+  - **Import separately:** re-checks the path, the candidate song and the file's tags, then uses `AtomicLibraryImporter.import(separateFrom:)`. That only turns a still-ambiguous match into the existing evidence-based alternate-recording path: a new song flagged `alternateRecording`, with the candidate's rows unchanged (tested row by row).
+  - **Same recording:** remembers the choice; nothing is written.
+  - **Not now:** hides the entry for this visit.
+  - Missing, already-bound, deleted-candidate and changed-tag cases write nothing and retire the entry with a message.
+- Tests: store (6), service (13), widget (5).
+- **Open:**
+  1. Wording of the section, actions and messages (`import_review_page.dart` ~:381–430). The Imports card still says "N songs need review", and N now includes pending files.
+  2. A file whose tags cannot be read (path-only metadata) counts as unreadable; there is no existence check that also covers SAF content:// paths.
+  3. Moved files are retired when acted on or when the new path imports; there is no automatic clean-up during scans.
+  4. `_isPossibleAlternate` repeats the importer's position rule rather than refactoring the import path.
+
+**E — chart-jump storytelling.**
+- `MomentStoryPlanner.copyGated` now also holds:
+  - `hot100MajorClimb` (`#hot-100-jump`): a weekly Hot 100 climb of 25+ places;
+  - `hot100ClimbRun` (`#hot-100-run`): 3+ consecutive weekly Hot 100 climbs totalling 30+ places.
+- Each carries `ChartJumpFacts`: from and to rank, weeks, places gained, this week's qualified streams, last week's (verified only) and the stream gain. Positions and streams are separate facts.
+- History is the stored finalized rank events, matched by week end (exact across daylight-saving changes) and by rank, so missing history never counts.
+- Bubbling Under moves and BU→Hot 100 arrivals are never jumps. Weeks before activation hold nothing.
+- **Nothing is published:** no headline was added, the 384 originals are unchanged, and the flag stays off.
+- Drafts: `SN50_Chart_Jump_Editorial_Approval_Sheet.md` (CJ-001 to CJ-041) with six decisions (thresholds, release scope, biggest-gainer overlap, jump/run overlap, publisher, streaming sentence).
+- **No new persistence was needed.** Runs cannot reach before the first recorded Moments week.
+- Tests: `bubbling_under_moments_test.dart` "SN-50 Batch E" (7).
+
 ## BLOCKED_NEEDS_APPROVAL / user decisions
 
 1. **DB v41 on real devices.** The migration runs on a phone's real database the first time a build containing `2a10990` is installed. Take a `.sonusbackup` before any install. Installing is a separate approval.
@@ -755,10 +824,13 @@ Authority: the user's approval of the Round 7 designs. No schema change, migrati
 16. **`SN50_Additional_Bug_Tweaks_Addendum_v2.md` was referenced but not found** (again in round 3). BUG-05 was implemented from the user's message.
 17. **BUG-04 copy** (selection rules approved in round 4; wording is not): **see `SN50_BUG04_Editorial_Approval_Sheet.md` BU-001 to BU-071.** It supersedes the N-8 to N-11 samples. Earlier note: Editorial §7 N-8 (Hot 100 → Bubbling Under drop, proposed rule: Top 40 peak or 5+ Hot 100 weeks), N-9 (extra Bubbling Under climb, proposed: 25+ places, at most one a week), N-10 (recommend no story for falls within Bubbling Under), N-11 (optional arrival wording citing last week's Bubbling Under rank), and the §7.2 review of `song-break-p3`.
 18. **BUG-03 type label:** keep deriving the Other label from the name, or approve a schema change for a stored custom type label.
-19. **Import Review persistence for ambiguous same-title files** (round 4): it needs a pending-file record, or a new review reason plus a file-path payload. Either is a schema/data-contract change. Until approved, these files are reported in the import result only.
+19. ~~**Import Review persistence for ambiguous same-title files**~~ **Done as option B (device-local list, no migration) in `2af3a8b` (round 9); wording and the open points in Round 9 D remain.** (round 4): it needs a pending-file record, or a new review reason plus a file-path payload. Either is a schema/data-contract change. Until approved, these files are reported in the import result only.
     - Since round 5 (F1), this also holds when the existing song's file is missing or absent.
 20. ~~**Audit hardening F3–F6**~~ **Done:** F6 in `9ef4717` (round 8). (round 5; F6 design in Round 7): F3, F4 and F5 are fixed in `a4085a5` (round 6). **F6** (finalization transaction and repository freeze check) remains: a persistence change needing approval.
 21. **Refined Moments release flag:** no committed config sets `SONUS_MOMENTS_REFINED_APPROVED`, so release builds use the earlier rules until it is added to the release config, once the rules are approved for release.
 22. ~~**Duplicate-song restore start**~~ **Fixed in `ec59045` (round 7).** (round 6): restoring `[a, b, a]` at the second `a` resumes the first copy (`playback_coordinator.dart:51-53` re-finds the start by song id). A safe fix would pass the index through for restores, without a format change. Not done because it was outside the approved batch scope; its test is skipped with the reason.
 23. ~~**Sync cooperative cancellation**~~ **Done in `48c2714` (round 8).** A distinct permanent-failure state (Session I) is still open. (round 6): the design proposal in Round 7 (refines Round 6 Batch C), so a hung run can be replaced without a restart; plus a permanent-failure state (Session I).
-24. **Shuffle order persistence** (round 6 reconciliation): the shuffle permutation is never saved, and shuffle/repeat survive a restart only with "Remember". Keep, or persist by default?
+24. ~~**Shuffle order persistence**~~ **Done as option C in `207e65d` (round 9).** Device check of system-control order still pending. (round 6 reconciliation): the shuffle permutation is never saved, and shuffle/repeat survive a restart only with "Remember". Keep, or persist by default?
+25. **Chart-jump copy and thresholds** (round 9): `SN50_Chart_Jump_Editorial_Approval_Sheet.md` CJ-001 to CJ-041 and its §D decisions.
+26. **Paused-sync wording** (round 9): the `cloudNotReady` message and the "Sync paused" and "Retry" labels.
+27. **Import Review wording and SAF existence check** (round 9 D, open points 1–3).

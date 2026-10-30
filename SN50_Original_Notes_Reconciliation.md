@@ -21,6 +21,14 @@ Last full suite: **4,997 passed, 1 skipped, 0 failed**, analyzer clean.
 
 **Status changes:** #11 UNVERIFIED → COMPLETE; #14 PARTIAL → COMPLETE; #33 PARTIAL → COMPLETE (app side). Gaps narrowed: #1 (controller test added), #6 (Auto, Blacklisted, Library Health done), #20 and #27 (tests added), #35 (F3–F5 fixed; new restore gap found).
 
+## Round 9 update (2026-10-30)
+
+- **#35** (queue, persistence, media controls): Repeat One navigation and Clear queue (`e3dd5f5`), and the exact shuffle order (`207e65d`), are done. Still PARTIAL only for device QA (M-6) and the vendor patches (M-4/M-5).
+- **#33** (Account & Cloud): a permanent failure now pauses sync, with Retry, pending changes and the last sync time (`5c0071b`). Wording approval pending.
+- **#34** (ambiguous recordings): now in Import Review, through a device-local list with no migration (`2af3a8b`): **COMPLETE** in function. Wording and a SAF existence check are open.
+- **#22 / #30** (thresholds and chart movement): chart jumps and climb runs are detected and held for copy approval (`cc680e8`, `SN50_Chart_Jump_Editorial_Approval_Sheet.md`).
+- **Counts after round 9:** COMPLETE 17 (adds #34); PARTIAL 9; UNVERIFIED 1; BLOCKED 5; NOT IMPLEMENTED 3.
+
 ## How to read this
 
 - **Authority.** The source code and the existing tests decide each status. Where a document disagrees, the document is stale; see §5.

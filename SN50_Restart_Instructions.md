@@ -1,10 +1,10 @@
 # SN-50 Restart Instructions (for a fresh Claude Code session)
 
-## State at handoff (2026-10-30, after round 8)
+## State at handoff (2026-10-30, after round 9)
 
 - **Worktree:** `C:\dev\sonus\sonus_next_sn50`. **Branch:** `sn-50-final-refinement` (local only, never pushed).
-- **Last code commit:** `48c2714` (round 8: #23 sync cancellation), after `9ef4717` (round 8: F6 atomic finalization). Before them, `ec59045` (round 7: #22). Before it, round 6 C `11f30a7` (sync run queue). Round 6 code commits: `8c8bffc` (A), `a4085a5` (B), `11f30a7` (C). A docs-only commit with the refreshed reports sits on top; check with `git log --oneline -5`. `a4085a5`'s subject starts with an invisible byte-order mark (PowerShell 5.1 wrote the message file); cosmetic, left as is because amending would rewrite a commit.
-- **Last full suite:** **5,036 passed, 0 failed** (`flutter test --concurrency=1`, at `48c2714`). `flutter analyze`: no issues. Formatting clean on all changed files.
+- **Last code commit:** `cc680e8` (round 9 E). Round 9: `e3dd5f5` (A), `207e65d` (B), `5c0071b` (C), `2af3a8b` (D), `cc680e8` (E). Before them, `48c2714` (round 8 #23), `9ef4717` (round 8 F6). Before them, `ec59045` (round 7: #22). Before it, round 6 C `11f30a7` (sync run queue). Round 6 code commits: `8c8bffc` (A), `a4085a5` (B), `11f30a7` (C). A docs-only commit with the refreshed reports sits on top; check with `git log --oneline -5`. `a4085a5`'s subject starts with an invisible byte-order mark (PowerShell 5.1 wrote the message file); cosmetic, left as is because amending would rewrite a commit.
+- **Last full suite:** **5,098 passed, 0 failed** (`flutter test --concurrency=1`, at `cc680e8`). `flutter analyze`: no issues. Formatting clean on all changed files.
 - **Uncommitted changes:** none (only the seven LF-churn registrant files, which are never committed). Write commit message files from bash or with BOM-free UTF-8, never PowerShell 5.1 `Set-Content -Encoding utf8`.
 - **SN-49:** `C:\dev\sonus\sonus_next_sn49` @ `36d4d5d`, showing only its seven registrant files, unchanged.
 - **Other worktrees:** unchanged from the baseline snapshot.
@@ -22,6 +22,7 @@
 | Round 6 | Notes reconciliation (`SN50_Original_Notes_Reconciliation.md`, 35 requirements). `8c8bffc` (A: edition names in Auto, Blacklisted, Library Health; regression tests) `a4085a5` (B: F3–F5) `11f30a7` (C: sync run queue) + docs (D) |
 | Round 7 | `ec59045` (#22 duplicate-song restore) + docs (design proposals for #23 sync cancellation and F6 atomic finalization, Progress Round 7) |
 | Round 8 | `9ef4717` (F6 atomic chart finalization) `48c2714` (#23 cooperative sync cancellation) + docs |
+| Round 9 | `e3dd5f5` (Repeat One, Clear queue) `207e65d` (shuffle order) `5c0071b` (paused sync) `2af3a8b` (Import Review list) `cc680e8` (chart jumps, held) + docs. `SN50_Decision_and_Release_Checklist.md` stays uncommitted. |
 
 ## Next steps
 
@@ -88,6 +89,11 @@ flutter test --concurrency=1 --reporter=compact > $env:TEMP\sn50_full.txt 2>&1
 - **Edition labels:** `editionTypeLabel` / `editionLabel` in `release_display_title.dart`. An Other edition's label is derived from its title (BUG-03).
 - **Bubbling Under ↔ Hot 100 Moments (BUG-04):** in `MomentStoryPlanner` (entry and `hot-100` stories, `fromBubblingUnderVariants`) and `MomentEditorialDesk._biggestGainers` (`_crossesIntoHot100`). Refined rules only.
 - **Sync run queue (round 6 C):** `SyncController` runs one service run at a time on `_pending`, which ends only when the service run really ends; `_bounded` waits at most `runTimeout` (default 10 min) and reports `SyncRunTimedOut`; a late result is never used; `_sessionEpoch` (sign-out, external `activateUser`) makes queued runs for a stale account skip. Cancellation is not possible today (proposal in Progress Round 6).
+- **Repeat One (round 9 A1):** `PlaybackAudioPlayer.adjacentIndex` (play order, ignores Repeat One); the engine uses it for Next/Previous only under Repeat One.
+- **Shuffle order (round 9 B):** the optional `ShuffleOrderPlayback` capability (real engine only), `RestoredShuffleOrder`, and the `shuffleOrder` key inside snapshot v1; applied only when shuffle is on at restore.
+- **Paused sync (round 9 C):** `SyncFailureKind.isPermanent`, `SyncStatus.paused`, `SyncStatusStore` pause keys; `AutomaticSyncCoordinator.trigger(retry:)`.
+- **Possible different recordings (round 9 D):** `PossibleRecordingStore` (SharedPreferences), `PossibleRecordingReviewService`, `AtomicLibraryImporter.import(separateFrom:)`.
+- **Chart jumps (round 9 E):** `GatedMomentKind.hot100MajorClimb` / `hot100ClimbRun` with `ChartJumpFacts`, held in `copyGated`; copy in `SN50_Chart_Jump_Editorial_Approval_Sheet.md`.
 - **Chart finalization (round 8, F6):** the app passes `weekFinalizer: charts` (`charts_scope.dart`); `SqliteChartRepository.finalizeWeek` writes snapshot, entries and Moments in one transaction and returns an already-finalized week untouched; `replaceSnapshot` throws `FinalizedChartWeekFrozen` for a finalized week.
 - **Sync cancellation (round 8, #23):** `SyncCancellation` rides in a zone value set by `SyncController._bounded`; `SyncCancellation.checkpoint()` sits only between units (and first/last inside an inbound record's transaction). Add any new sync loop's check point outside per-item `try` blocks, or rethrow `SyncCancelled` from them.
 - **Start index (round 7, #22):** `PlaybackCoordinator.playTracks` starts at the requested entry's own place among the playable entries (count of playable entries before it), never a song-id lookup.
