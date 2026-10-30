@@ -1230,7 +1230,7 @@ void main() {
 
       expect(find.text('Paper Boats (Live)'), findsOneWidget);
       expect(
-        find.text('Artist & Ben Moor feat. Cy Lark with Eve Shore'),
+        find.text('Artist & Ben Moor Ft. Cy Lark with Eve Shore'),
         findsOneWidget,
       );
     });

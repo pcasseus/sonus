@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../../../../core/design/sonus_artwork_palette.dart';
 import '../../../../core/design/sonus_atmosphere_colors.dart';
 import '../../../../core/design/sonus_theme.dart';
+import '../../../../core/events/library_change_signal.dart';
 import '../../../../core/design/widgets/sonus_state_view.dart';
 import '../../../../core/design/widgets/sonus_track_tile.dart';
 
@@ -45,6 +46,19 @@ class _PlaylistDetailPageState extends State<PlaylistDetailPage> {
   PlaylistService? _service;
   PlaylistDetailController? _controller;
   final TrackSelectionController _selection = TrackSelectionController();
+
+  /// Songs edited elsewhere show their new details here too (SN-50 BUG-01).
+  LibraryChangeRefresher? _libraryChanges;
+
+  @override
+  void initState() {
+    super.initState();
+    _libraryChanges = LibraryChangeRefresher(
+      signal: LibraryChangeSignal.shared,
+      kinds: const {LibraryChangeKind.libraryEdited},
+      onChange: () => unawaited(_controller?.refresh()),
+    );
+  }
 
   // Artwork atmosphere, as on the Album Profile: theme colours first, the
   // cover's colours once extracted.
@@ -466,6 +480,7 @@ class _PlaylistDetailPageState extends State<PlaylistDetailPage> {
 
   @override
   void dispose() {
+    _libraryChanges?.dispose();
     _controller?.removeListener(_onControllerChanged);
     _controller?.dispose();
     _selection.dispose();

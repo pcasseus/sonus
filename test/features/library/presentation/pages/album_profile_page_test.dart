@@ -170,10 +170,7 @@ void main() {
 
       expect(find.text('First Song (Acoustic)'), findsOneWidget);
       expect(find.textContaining('Test Artist & Ben Moor'), findsOneWidget);
-      expect(
-        find.textContaining('feat. Cy Lark with Eve Shore'),
-        findsOneWidget,
-      );
+      expect(find.textContaining('Ft. Cy Lark with Eve Shore'), findsOneWidget);
     });
 
     testWidgets('shows edition count for multi-edition album', (tester) async {

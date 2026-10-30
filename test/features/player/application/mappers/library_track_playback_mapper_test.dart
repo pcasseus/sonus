@@ -127,7 +127,7 @@ void main() {
     expect(playbackTrack.displayTitle, 'Track (Live)');
     expect(
       playbackTrack.displayArtist,
-      'Artist & Ben Moor feat. Cy Lark with Eve Shore',
+      'Artist & Ben Moor Ft. Cy Lark with Eve Shore',
     );
   });
 

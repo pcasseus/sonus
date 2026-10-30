@@ -12,7 +12,8 @@ import '../../domain/models/playback_transition_cause.dart';
 import '../../domain/services/playback_engine.dart';
 import 'support/playback_audio_player.dart';
 
-class JustAudioPlaybackEngine implements PlaybackEngine {
+class JustAudioPlaybackEngine
+    implements PlaybackEngine, PlaybackDisplayRefresh {
   JustAudioPlaybackEngine({
     PlaybackAudioPlayer? audioPlayer,
     Future<void> Function()? configureAudioSession,
@@ -332,6 +333,22 @@ class JustAudioPlaybackEngine implements PlaybackEngine {
       _emitFailure(error);
       rethrow;
     }
+  }
+
+  @override
+  bool refreshTrackDisplay(Iterable<PlaybackTrack> tracks) {
+    if (_disposed) {
+      return false;
+    }
+
+    final updatedQueue = _state.queue.withTrackDisplay(tracks);
+
+    if (identical(updatedQueue, _state.queue)) {
+      return false;
+    }
+
+    _emit(_state.copyWith(queue: updatedQueue));
+    return true;
   }
 
   @override

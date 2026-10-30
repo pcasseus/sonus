@@ -1811,7 +1811,7 @@ class _StudioTrackRow extends StatelessWidget {
       if (isBonus) 'Bonus track',
       _formatDuration(track.durationSeconds),
       if (track.featuredArtists.isNotEmpty)
-        'feat. ${track.featuredArtists.join(', ')}',
+        'Ft. ${track.featuredArtists.join(', ')}',
     ];
     final detailStyle = TextStyle(
       color: colors.textSecondary,

@@ -24,6 +24,24 @@ void main() {
     expect(result.featuredArtist, 'Jack White');
   });
 
+  test('still reads every feature connector now that Sonus shows "Ft." '
+      '(SN-50 BUG-05)', () {
+    for (final credit in const [
+      'Ada Vale feat. Ben Moor',
+      'Ada Vale feat Ben Moor',
+      'Ada Vale Ft. Ben Moor',
+      'Ada Vale ft Ben Moor',
+      'Ada Vale featuring Ben Moor',
+      'Ada Vale (feat. Ben Moor)',
+      'Ada Vale [ft. Ben Moor]',
+    ]) {
+      final result = parser.parseExplicitFeatureCredit(credit);
+
+      expect(result?.primaryArtist, 'Ada Vale', reason: credit);
+      expect(result?.featuredArtist, 'Ben Moor', reason: credit);
+    }
+  });
+
   test('does not interpret arbitrary collaboration separator', () {
     expect(parser.parseExplicitFeatureCredit('Simon & Garfunkel'), isNull);
   });

@@ -1680,7 +1680,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);
-    expect(find.text('Artist 1 feat. Guest One, Guest Two'), findsOneWidget);
+    expect(find.text('Artist 1 Ft. Guest One, Guest Two'), findsOneWidget);
     expect(_postPart('credit'), findsOneWidget);
   });
 }

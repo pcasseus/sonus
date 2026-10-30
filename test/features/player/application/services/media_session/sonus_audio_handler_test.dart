@@ -240,6 +240,39 @@ void main() {
       expect(handler.playbackState.value.queueIndex, 1);
     });
 
+    test('an edited credit line is republished for the playing song and '
+        'the queue, keeping the position (SN-50 BUG-01)', () async {
+      handler.attach(coordinator);
+      await emit(queuedState(position: const Duration(seconds: 30)));
+      final queues = <List<media.MediaItem>>[];
+      final subscription = handler.queue.stream.skip(1).listen(queues.add);
+      addTearDown(subscription.cancel);
+
+      await emit(
+        queuedState(
+          position: const Duration(seconds: 30),
+          tracks: [
+            mediaTrack('a').copyWith(displayArtist: 'Artist a Ft. Cy Lark'),
+            mediaTrack('b'),
+            mediaTrack('c').copyWith(displayArtist: 'Artist c Ft. Dee Rune'),
+          ],
+        ),
+      );
+
+      expect(handler.mediaItem.value!.artist, 'Artist a Ft. Cy Lark');
+      expect(queues, hasLength(1));
+      expect(queues.single.map((item) => item.artist), [
+        'Artist a Ft. Cy Lark',
+        'Artist b',
+        'Artist c Ft. Dee Rune',
+      ]);
+      expect(
+        handler.playbackState.value.updatePosition,
+        const Duration(seconds: 30),
+      );
+      expect(engine.commands, isEmpty);
+    });
+
     test('pausing, buffering and errors are published', () async {
       handler.attach(coordinator);
       await emit(queuedState());

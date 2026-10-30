@@ -34,3 +34,13 @@ abstract interface class PlaybackEngine {
   Future<void> stop();
   Future<void> dispose();
 }
+
+/// An engine that can change how queued tracks are shown without reloading
+/// them (SN-50 BUG-01).
+abstract interface class PlaybackDisplayRefresh {
+  /// Gives every queued track whose song is in [tracks] that track's
+  /// display title and credit line. Audio, position, the current index and
+  /// the stored title and artist listening history records are kept.
+  /// Returns whether anything changed.
+  bool refreshTrackDisplay(Iterable<PlaybackTrack> tracks);
+}

@@ -393,7 +393,9 @@ void main() {
           expect(find.text('Ada Vale'), findsOneWidget);
           expect(find.text('Co-primary'), findsOneWidget);
           expect(find.text('Crane, The Lantern'), findsOneWidget);
-          expect(find.text('Guest'), findsNothing);
+          // The song's older featured name no credit names is shown, so
+          // saving never drops it unseen (SN-50 BUG-01).
+          expect(find.text('Guest'), findsOneWidget);
         },
       );
 
@@ -406,6 +408,7 @@ void main() {
         [
           ('Ada Vale', SongArtistCreditRole.coPrimary, 'artist-ada'),
           ('Crane, The Lantern', SongArtistCreditRole.featured, null),
+          ('Guest', SongArtistCreditRole.featured, null),
         ],
       );
       expect(

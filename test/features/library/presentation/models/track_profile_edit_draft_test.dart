@@ -68,15 +68,19 @@ void main() {
       ]);
     });
 
-    test('structured featured credits replace the older names', () {
+    test('older names no structured credit names follow the structured '
+        'credits, so saving never drops them unseen (BUG-01)', () {
       final drafts = trackStudioInitialCredits(
         credits: [credit('Cy Lark', SongArtistCreditRole.featured, 1)],
-        legacyFeaturedArtists: const ['Stale Name'],
+        legacyFeaturedArtists: const ['cy lark', 'Other Name'],
         primaryArtistId: 'artist-ada',
         primaryArtistName: 'Ada Vale',
       );
 
-      expect(drafts.map(describe), ['featured:Cy Lark:null']);
+      expect(drafts.map(describe), [
+        'featured:Cy Lark:null',
+        'featured:Other Name:null',
+      ]);
     });
 
     test('saved drafts never link by a matching name alone (C-Q2)', () {

@@ -1144,72 +1144,75 @@ void main() {
       });
     }
 
-    test('track rows list co-primary and guest names in credit order', () async {
-      final fixture = await _createFixture(appDatabase);
-      final db = fixture.db;
-      final songId = fixture.alphaSong.id;
+    test(
+      'track rows list co-primary and guest names in credit order',
+      () async {
+        final fixture = await _createFixture(appDatabase);
+        final db = fixture.db;
+        final songId = fixture.alphaSong.id;
 
-      await credit(
-        db,
-        songId: songId,
-        name: 'Guest Two',
-        role: 'guest',
-        position: 4,
-      );
-      await credit(
-        db,
-        songId: songId,
-        name: 'Crane, The Lantern',
-        role: 'coPrimary',
-        position: 2,
-      );
-      await credit(
-        db,
-        songId: songId,
-        name: 'Guest One',
-        role: 'guest',
-        position: 3,
-      );
-      await credit(
-        db,
-        songId: songId,
-        name: 'Ben Moor',
-        role: 'coPrimary',
-        position: 1,
-      );
-      await credit(
-        db,
-        songId: songId,
-        name: 'Featured Artist',
-        role: 'featured',
-        position: 5,
-      );
-
-      final dao = LibraryQueryDao(db);
-      final fromList = (await dao.findTracks()).firstWhere(
-        (track) => track.songId == songId,
-      );
-      final byId = await dao.findTrackById(songId);
-      final byAlbum = (await dao.findTracksByAlbumId(
-        fixture.album.id,
-      )).firstWhere((track) => track.songId == songId);
-
-      for (final track in [fromList, byId!, byAlbum]) {
-        expect(track.coPrimaryArtists, ['Ben Moor', 'Crane, The Lantern']);
-        expect(track.guestArtists, ['Guest One', 'Guest Two']);
-        expect(
-          track.creditLine,
-          'Query Artist & Ben Moor & Crane, The Lantern feat. Featured Artist '
-          'with Guest One, Guest Two',
+        await credit(
+          db,
+          songId: songId,
+          name: 'Guest Two',
+          role: 'guest',
+          position: 4,
         );
-      }
+        await credit(
+          db,
+          songId: songId,
+          name: 'Crane, The Lantern',
+          role: 'coPrimary',
+          position: 2,
+        );
+        await credit(
+          db,
+          songId: songId,
+          name: 'Guest One',
+          role: 'guest',
+          position: 3,
+        );
+        await credit(
+          db,
+          songId: songId,
+          name: 'Ben Moor',
+          role: 'coPrimary',
+          position: 1,
+        );
+        await credit(
+          db,
+          songId: songId,
+          name: 'Featured Artist',
+          role: 'featured',
+          position: 5,
+        );
 
-      final beta = (await dao.findTracks()).firstWhere(
-        (track) => track.songId == fixture.betaSong.id,
-      );
-      expect(beta.coPrimaryArtists, isEmpty);
-      expect(beta.guestArtists, isEmpty);
-    });
+        final dao = LibraryQueryDao(db);
+        final fromList = (await dao.findTracks()).firstWhere(
+          (track) => track.songId == songId,
+        );
+        final byId = await dao.findTrackById(songId);
+        final byAlbum = (await dao.findTracksByAlbumId(
+          fixture.album.id,
+        )).firstWhere((track) => track.songId == songId);
+
+        for (final track in [fromList, byId!, byAlbum]) {
+          expect(track.coPrimaryArtists, ['Ben Moor', 'Crane, The Lantern']);
+          expect(track.guestArtists, ['Guest One', 'Guest Two']);
+          expect(
+            track.creditLine,
+            'Query Artist & Ben Moor & Crane, The Lantern Ft. Featured Artist '
+            'with Guest One, Guest Two',
+          );
+        }
+
+        final beta = (await dao.findTracks()).firstWhere(
+          (track) => track.songId == fixture.betaSong.id,
+        );
+        expect(beta.coPrimaryArtists, isEmpty);
+        expect(beta.guestArtists, isEmpty);
+      },
+    );
 
     test('SN-50 project song credits keep linked and unlinked credits, '
         'including songs listed only on an edition', () async {

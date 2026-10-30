@@ -335,6 +335,43 @@ void main() {
     );
   });
 
+  testWidgets('the tracklist credits featured artists with "Ft." '
+      '(SN-50 BUG-05)', (tester) async {
+    final featured = base.createTrack(
+      songId: 's1',
+      title: 'Song s1',
+      albumEditionId: 'edition-standard',
+      albumEditionTitle: 'Standard',
+      albumEditionType: AlbumEditionType.standard,
+      trackNumber: 1,
+      featuredArtists: const ['Cy Lark', 'Dee Rune'],
+    );
+    final library = base.FakeEditionAwareLibraryQueryRepository(
+      album: base.createAlbum(
+        title: 'Studio Album',
+        primaryEditionId: 'edition-standard',
+        primaryEditionTitle: 'Standard',
+      ),
+      tracks: [featured],
+      editions: [
+        base.createLibraryEdition(
+          editionId: 'edition-standard',
+          title: 'Standard',
+          type: AlbumEditionType.standard,
+          isPrimary: true,
+        ),
+      ],
+      editionTracks: {
+        'edition-standard': [featured],
+      },
+    );
+
+    await pump(tester, library: library, section: tracklist);
+
+    expect(find.textContaining('Ft. Cy Lark, Dee Rune'), findsOneWidget);
+    expect(find.textContaining('feat.'), findsNothing);
+  });
+
   testWidgets('creates an edition from the dialog', (tester) async {
     final (_, service, _) = await pump(tester);
 

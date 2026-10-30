@@ -560,7 +560,7 @@ class SonusAudioHandler extends media.BaseAudioHandler {
     // compared through the signature.
     if (full ||
         previous == null ||
-        previous.signature.queueIds != current.queueIds) {
+        previous.signature.queueRows != current.queueRows) {
       queue.add(snapshot.queue);
     }
     if (full || previous == null || !previous.signature.sameItem(current)) {
@@ -631,7 +631,7 @@ class _Signature {
     required this.album,
     required this.artUri,
     required this.duration,
-    required this.queueIds,
+    required this.queueRows,
     required this.queueIndex,
     required this.repeatMode,
     required this.shuffleMode,
@@ -651,7 +651,14 @@ class _Signature {
       album: item?.album,
       artUri: item?.artUri,
       duration: item?.duration,
-      queueIds: snapshot.queue.map((queued) => queued.id).join('\u0000'),
+      // Ids with the shown title and credit line, so a queued song edited
+      // in Track Studio is redrawn in the car's queue too (SN-50 BUG-01).
+      queueRows: snapshot.queue
+          .map(
+            (queued) =>
+                '${queued.id}\u0001${queued.title}\u0001${queued.artist}',
+          )
+          .join('\u0000'),
       queueIndex: state.queueIndex,
       repeatMode: state.repeatMode,
       shuffleMode: state.shuffleMode,
@@ -677,7 +684,7 @@ class _Signature {
   final String? album;
   final Uri? artUri;
   final Duration? duration;
-  final String queueIds;
+  final String queueRows;
   final int? queueIndex;
   final media.AudioServiceRepeatMode repeatMode;
   final media.AudioServiceShuffleMode shuffleMode;
@@ -689,7 +696,7 @@ class _Signature {
       other.processingState == processingState &&
       other.playing == playing &&
       sameItem(other) &&
-      other.queueIds == queueIds &&
+      other.queueRows == queueRows &&
       other.queueIndex == queueIndex &&
       other.repeatMode == repeatMode &&
       other.shuffleMode == shuffleMode &&
@@ -705,7 +712,7 @@ class _Signature {
     album,
     artUri,
     duration,
-    queueIds,
+    queueRows,
     queueIndex,
     repeatMode,
     shuffleMode,

@@ -693,6 +693,51 @@ void main() {
         },
       );
 
+      test('a credit edit shown on the playing song keeps one session, its '
+          'position and its recorded artist (SN-50 BUG-01)', () async {
+        await coordinator.playTracks([libraryTrack1]);
+        await settle();
+        now = now.add(const Duration(seconds: 40));
+        player.advanceTo(const Duration(seconds: 40));
+        await settle();
+
+        final edited = LibraryTrack(
+          songId: 'song_1',
+          title: 'Track 1',
+          artistId: 'artist_1',
+          artistName: 'Artist',
+          albumId: 'album_1',
+          albumTitle: 'Album',
+          albumEditionId: 'edition_1',
+          albumEditionTitle: 'Standard',
+          albumEditionType: AlbumEditionType.standard,
+          trackNumber: 1,
+          durationSeconds: 180,
+          isSingle: false,
+          featuredArtists: const ['Guest Two'],
+          dateAdded: DateTime.utc(2026, 9, 1),
+          isAvailable: true,
+          filePath: 'C:/Music/track_1.mp3',
+        );
+
+        expect(coordinator.refreshTrackDisplay([edited]), isTrue);
+        await settle();
+
+        final state = coordinator.currentState;
+        expect(state.queue.currentTrack!.displayArtist, 'Artist Ft. Guest Two');
+        expect(state.queue.currentTrack!.artistName, 'Artist');
+        expect(state.position, const Duration(seconds: 40));
+        expect(state.status, PlaybackStatus.playing);
+
+        now = now.add(const Duration(seconds: 10));
+        await coordinator.stop();
+        await settle();
+
+        expect(playbackSessions.values, hasLength(1));
+        expect(playbackSessions.values.single.artistName, 'Artist');
+        expect(qualifiedPlays.values.map((play) => play.songId), ['song_1']);
+      });
+
       test('Stop then Play adds no extra qualified play (SN-44)', () async {
         await coordinator.playTracks([libraryTrack1]);
         await settle();

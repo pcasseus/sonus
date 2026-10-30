@@ -825,6 +825,15 @@ class TrackProfileEditingService {
           current.artistId != explicitDesiredArtistId) {
         return true;
       }
+
+      // A credit the person chose to leave unlinked (SN-50 C-Q2) drops the
+      // artist it was linked to, even under the same name (BUG-01).
+      if ((explicitDesiredArtistId == null ||
+              explicitDesiredArtistId.isEmpty) &&
+          !desired.linkByName &&
+          current.artistId != null) {
+        return true;
+      }
     }
 
     return false;

@@ -16,7 +16,7 @@ void main() {
           featuredArtists: const ['Cy Lark', 'Crane, The Lantern'],
           guestArtists: const ['Eve Shore'],
         ),
-        'Ada Vale & Ben Moor feat. Cy Lark, Crane, The Lantern with Eve Shore',
+        'Ada Vale & Ben Moor Ft. Cy Lark, Crane, The Lantern with Eve Shore',
       );
     });
 
@@ -28,7 +28,7 @@ void main() {
           guestArtists: const ['Eve Shore'],
           omitPrimary: true,
         ),
-        'feat. Cy Lark with Eve Shore',
+        'Ft. Cy Lark with Eve Shore',
       );
       expect(
         songCreditLine(

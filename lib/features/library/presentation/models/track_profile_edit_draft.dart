@@ -34,9 +34,13 @@ class TrackProfileCreditDraft {
 }
 
 /// The credits Track Studio starts from (SN-50 C-Q4): the song's structured
-/// [credits] in order, plus its older [legacyFeaturedArtists] names when it
-/// has no structured featured credit, so saving never silently drops them.
-/// Only the song being edited is affected, and only when it is saved.
+/// [credits] in order, then each of its older [legacyFeaturedArtists] names
+/// no credit already names, as featured.
+///
+/// Saving writes the song's featured names from the saved featured credits
+/// alone (BUG-01), so every name the song shows is in the editor first:
+/// nothing is dropped unseen, and a replaced name does not linger. Only the
+/// song being edited is affected, and only when it is saved.
 List<TrackProfileCreditDraft> trackStudioInitialCredits({
   required Iterable<SongArtistCredit> credits,
   required List<String> legacyFeaturedArtists,
@@ -55,10 +59,6 @@ List<TrackProfileCreditDraft> trackStudioInitialCredits({
         artistId: credit.artistId,
       ),
   ];
-
-  if (ordered.any((credit) => credit.role == SongArtistCreditRole.featured)) {
-    return drafts;
-  }
 
   final identities = SongCreditIdentitySet(
     primaryArtistId: primaryArtistId,

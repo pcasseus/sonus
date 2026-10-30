@@ -190,6 +190,21 @@ class PlaybackCoordinator {
 
   Future<void> stop() => _engine.stop();
 
+  /// Shows [tracks]' current titles and credit lines wherever they are
+  /// queued or playing, after their details were edited (SN-50 BUG-01).
+  /// Playback continues where it is, and listening history keeps the title
+  /// and artist each track was queued with. Returns whether anything
+  /// changed.
+  bool refreshTrackDisplay(Iterable<LibraryTrack> tracks) {
+    if (_engine case final PlaybackDisplayRefresh engine) {
+      return engine.refreshTrackDisplay(
+        tracks.map(LibraryTrackPlaybackMapper.toPlaybackTrack),
+      );
+    }
+
+    return false;
+  }
+
   /// Ends the paused session from the mini-player (SN-45): playback stops
   /// and the queue empties, so the bar, notification and saved session go
   /// away. Only allowed while paused, so a stray swipe can never stop

@@ -191,14 +191,14 @@ void main() {
         '(SN-50 C-Q1/C-Q8)', () {
       final track = mediaTrack('a').copyWith(
         displayTitle: 'Song a (Live)',
-        displayArtist: 'Artist a & Ben Moor feat. Cy Lark',
+        displayArtist: 'Artist a & Ben Moor Ft. Cy Lark',
       );
       final snapshot = _map(queuedState(tracks: [track]));
 
       expect(snapshot.item!.title, 'Song a (Live)');
-      expect(snapshot.item!.artist, 'Artist a & Ben Moor feat. Cy Lark');
+      expect(snapshot.item!.artist, 'Artist a & Ben Moor Ft. Cy Lark');
       expect(snapshot.queue.single.title, 'Song a (Live)');
-      expect(snapshot.queue.single.artist, 'Artist a & Ben Moor feat. Cy Lark');
+      expect(snapshot.queue.single.artist, 'Artist a & Ben Moor Ft. Cy Lark');
     });
 
     test('uses the loaded duration, falling back to the library one', () {

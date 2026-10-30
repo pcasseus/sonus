@@ -401,7 +401,7 @@ void main() {
           story.facts.title: loaded.controller.creditForMoment(story),
       };
 
-      expect(credits['Song duet'], 'Ada Lune feat. Bo Vale, Cy Rune');
+      expect(credits['Song duet'], 'Ada Lune Ft. Bo Vale, Cy Rune');
       expect(credits['Song solo'], isNull);
       expect(credits['Song older'], isNull);
     });

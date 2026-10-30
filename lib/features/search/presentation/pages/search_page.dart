@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../../../core/design/sonus_theme.dart';
+import '../../../../core/events/library_change_signal.dart';
 import '../../../../core/design/widgets/sonus_artwork_image.dart';
 import '../../../../core/design/widgets/sonus_state_view.dart';
 import '../../../../core/design/widgets/sonus_track_tile.dart';
@@ -50,6 +51,20 @@ class _SearchPageState extends State<SearchPage> {
   ArtistLibraryOrganization? _organization;
   int _availabilityGeneration = 0;
   _SearchFilter _filter = _SearchFilter.all;
+
+  /// Results follow songs edited elsewhere while they are shown (SN-50
+  /// BUG-01).
+  LibraryChangeRefresher? _libraryChanges;
+
+  @override
+  void initState() {
+    super.initState();
+    _libraryChanges = LibraryChangeRefresher(
+      signal: LibraryChangeSignal.shared,
+      kinds: const {LibraryChangeKind.libraryEdited},
+      onChange: () => unawaited(_controller?.retry()),
+    );
+  }
 
   @override
   void didChangeDependencies() {
@@ -567,6 +582,7 @@ class _SearchPageState extends State<SearchPage> {
 
   @override
   void dispose() {
+    _libraryChanges?.dispose();
     _controller?.dispose();
     _selection.dispose();
     _textController.dispose();
