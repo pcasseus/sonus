@@ -63,6 +63,7 @@ Implements the spec's immutable-history requirement (§0.1, E-Q8, E-Q19, F3 appe
   - Chart, Moments and playback history still record the base `albumTitle`, so nothing new is written into history.
   - The Studio "Name" field now renames the selected edition.
   - Still on the base title: Now Playing and the media session (analytics-fed), Android Auto song rows, charts and Insights pages, MusicBrainz queries, and `findAlbums` ordering.
+  - *Superseded:* Now Playing and the media session show the edition since `0f4bb30`, career standings since `3dbaaa0`/`4b6abbf`, and Android Auto song rows since `8c8bffc` (round 6). Remaining: This Week and Insights (product decision).
 - **A-Q12.** Song artwork in lists: the song's own artwork, then the primary edition's cover if the song is listed there, then its home edition's cover, then the primary's cover. In an edition view: the song's own artwork, then that edition's cover, then the primary's cover.
 - **A-Q8A.** One shared `spansMultipleDiscs` rule for the Studio and the Album page.
 - **A-Q6F/A-Q17B.** A nonblocking genre-conflict note. The Album page edition view shows the release genre.
@@ -111,7 +112,7 @@ Implements the spec's immutable-history requirement (§0.1, E-Q8, E-Q19, F3 appe
 - **Deferred:**
   - **C-Q7 future-snapshot presentation title.** Capture points are `chart_snapshot_builder_service.dart`, `all_time_chart_service.dart` and `playback_analytics_controller.dart:252`. It needs approval because those values feed history and matching.
   - **C-Q5.** Import Review does not yet use the shared credit editor.
-  - Release Studio and Playlist rows still show the plain title.
+  - Release Studio and Playlist rows still show the plain title. *Superseded by `4b6abbf` (BUG-02).*
 - **Result:** 4,597 tests; analyzer clean.
 - **OPEN_QUESTION:** confirm that Track Studio should never auto-link a typed credit name to an existing artist. Import Review and the importer still link by name.
 
@@ -197,6 +198,8 @@ No engine, builder, finalization, schema or Moments change.
 
 New rules apply only from `ChartMomentRules.refinedFromUtc` = **2026-11-01 UTC**. Earlier items keep the old families, ids, cap and text, with no backfill.
 
+*Superseded by R2 (`8d2cbfe`): there is no fixed date. The rules start only in a build compiled with `SONUS_MOMENTS_REFINED_APPROVED=true`, at a write-once per-install activation instant (see Round 2 and Round 5 F8).*
+
 - **F-Q1/F-Q27/F-Q31/F-Q12.**
   - Mandatory debut and re-entry stories for every entry #1–200, on songs and releases, weekly and all-time.
   - They are exempt from the three-per-day minor cap.
@@ -204,7 +207,7 @@ New rules apply only from `ChartMomentRules.refinedFromUtc` = **2026-11-01 UTC**
 - **F-Q14/F-Q14B, partial.**
   - Weekly first zones from Top 75 to #1. All-time zones come from a new replay `thresholdEntry` type.
   - Top 10/5/3/2 and #1 are "major" and get separate stories; lower zones share one consolidated story with `thresholdList`.
-  - Not covered: an all-time jump straight to #1 skips the Top 100 entry.
+  - Not covered: an all-time jump straight to #1 skips the Top 100 entry. *Superseded by R3 (`9a5cdbb`): the entry is kept.*
 - **F-Q5/F-Q16 (audit #14, W1/W2).**
   - A #1 story names a rival only when verified.
   - Same-artist replacement gets the new self-replacement family; "retakes from itself" no longer happens.
@@ -243,7 +246,7 @@ New rules apply only from `ChartMomentRules.refinedFromUtc` = **2026-11-01 UTC**
 - **Result:** 4,731 tests; analyzer clean.
 - **Choices to confirm:**
   - Under the mapping, Sonus Daily never covers #1 arrivals.
-  - The dot shows on first launch.
+  - The dot shows on first launch. *Superseded by R6 (`8d2cbfe`): the first visit shows no dot.*
   - Finalized-week song stories open the song's home edition.
 
 ## Phase 7 — Bulk actions; Trash and media identity (bulk done, `081d4ab`; Trash gated)
@@ -284,7 +287,8 @@ New rules apply only from `ChartMomentRules.refinedFromUtc` = **2026-11-01 UTC**
   - A completed queue shows as paused on its last song; engine and analytics are unchanged, so no double count.
   - **Play after the end currently does nothing** (pinned by a test; decision M-1 is open).
   - The saved session is still cleared on completion, so a finished queue doesn't survive a process restart.
-- **D-Q18, partial.** The large summary card is removed; the "subtle album atmosphere" is deferred. **D-Q19:** deferred.
+  - *Superseded by R4 (`db79c4e`): Play after the end replays the last song from 0:00 and the finished session is kept. Since `a4085a5` (round 6) the one-second end allowance applies only to a position set by a seek while paused, as a restore is.*
+- **D-Q18, partial.** The large summary card is removed; the "subtle album atmosphere" is deferred. **D-Q19:** deferred. *D-Q18 superseded by `d27aa50`: the Queue has the artwork atmosphere.*
 - **Gated:**
   - D-Q14 Android ≤12 buttons: plugin Patch 3.
   - D-Q11 wake lock: plugin Patch 2.
@@ -553,6 +557,48 @@ Release note: no committed config sets the flag. `config/` holds only `sonus.dev
 - First full suite: 4,962 passed, 4 failed (recovery relink, see F1). After the refinement, `test/features/import` + `test/features/recovery` gave 782 passed, then a second full suite gave the result in the table.
 - The seven registrant files (line-ending churn) were left as they were and not committed.
 
+## Round 6 (2026-10-30): notes reconciliation, batches A–D
+
+Authority: the user's approval of Batches A–D after `SN50_Original_Notes_Reconciliation.md` (35 requirements). No migration, history change, Trash, deletion, ringtone, plugin patch, device, cloud, push or merge.
+
+| Commit | Batch | Full suite (`--concurrency=1`) |
+|---|---|---|
+| `8c8bffc` | A: edition names in Android Auto, Blacklisted, Library Health; reconciliation regression tests | 4,981 passed, 1 skipped, 0 failed |
+| `a4085a5` | B: playback races F3, F4, F5 | 4,988 passed, 1 skipped, 0 failed |
+| `11f30a7` | C: sync run queue bounded, one at a time, no stale accounts | 4,997 passed, 1 skipped, 0 failed |
+
+**Batch A — display and regression tests.**
+- Android Auto song rows now show the edition the song is listed on (`editionDisplayTitle`), as Now Playing does (`media_browse_catalog.dart`).
+- Blacklisted rows (`albumDisplayTitle`) and the Library Health split-folder report (primary edition title read beside the stored title, `library_integrity_dao.dart` / `library_integrity_service.dart`) show the release the way current lists do.
+- Stored album titles, analytics and chart history are unchanged (tested).
+- New regression tests:
+  - duplicate-song queue save;
+  - albums without a disc number (import with disc 1 or 0, and a placement saved with disc 0 or 1, stay single-disc);
+  - a refined release Moment shows the Deluxe cover while an earlier one keeps its cover (controller level);
+  - self-replacement at #1 on the all-time song, all-time release and weekly release charts;
+  - a weekly release re-entry at #160 (the #101–200 range) is a guaranteed story;
+  - an Other edition rename persists through SQLite with `albums.title` unchanged.
+- **Gap found, not fixed (scope):** restoring a queue whose current song is a later duplicate (e.g. `[a, b, a]` at the second `a`) resumes the **first** copy, because `PlaybackCoordinator.playTracks` re-finds the start track by song id (`playback_coordinator.dart:51-53`); the saved position is then applied to that copy. The restore test is skipped with this reason. See BLOCKED #22.
+- Not covered by a new test: an all-time release re-entry at #101–200 (the harness cannot easily drop a release out of the cumulative chart); the weekly case is pinned.
+
+**Batch B — playback hardening.**
+- F4: system Shuffle and Repeat commands (custom actions and the absolute `setShuffleMode`/`setRepeatMode`) run one at a time in `SonusAudioHandler`, so a quick double tap toggles twice and three Repeat taps cycle Off → All → One → Off.
+- F5: the one-second end allowance in `JustAudioPlaybackEngine._isAtEndOfQueue` applies only when the paused position was set by a seek while paused, as a restore is. A pause in the last second of playback now resumes there. R4 is unchanged: a completed queue, or one restored or sought to its last second, replays from 0:00.
+- F3: after the player finishes an insert, removal or move, the engine re-applies the display fields the queue has at that moment, so a credit or title refresh that arrived meanwhile is kept.
+- Tests: `system_controls_regression_test.dart` group "SN-50 reconciliation: playback races (F3, F4, F5)", 7 tests. Six fail on the pre-fix code; the R4 guard passes on both. No change to qualification, stream counts, queue persistence or plugin contracts.
+
+**Batch C — sync controller stability (app side only).** The isolation model:
+1. **One run at a time, really.** The next service run starts only when the previous one has **ended**, including a run the controller stopped waiting for. Two runs never write at once.
+2. **Bounded runs.** A run that exceeds `SyncController.defaultRunTimeout` (10 minutes) is reported as a timeout (`SyncRunTimedOut`, kind `timeout`, "your changes are kept"), with retry pending and the pending count refreshed. The outbox is untouched. Its result, if it ends later, is never used, so it is never reported as a success.
+3. **Bounded waits.** A request queued behind a run that has not ended gets an answer (`false`) within the same limit. The run keeps its place and starts when its turn comes, so no work is dropped.
+4. **No stale accounts.** A run queued for an account that has since been signed out or switched away from is skipped, never signing that account back in. (Before, a queued run re-activated the signed-out account.)
+5. `failureCode` is cleared with the failure (sign-out, account switch, `clearError`), as documented. Disposal cancels every time limit and makes in-flight runs stale.
+- Tests: `sync_controller_test.dart` group "SN-50 reconciliation: bounded runs, one at a time" (9 tests): hang, timeout, late success and late failure, sign-out during a hung run then sign-in, a queued run after sign-out, rapid account changes, failure code, disposal. Only fakes; no Supabase contact. The pre-fix controller cannot compile these tests (no time-limit parameter), so a before/after run was not possible.
+- **Inherent limit (documented, not a workaround):** the service cannot be cancelled, so a run that truly never ends keeps later runs waiting until it ends or the app restarts. The UI no longer stays on "Syncing", and nothing runs alongside it.
+- **Design proposal (needs approval, not built):** cooperative cancellation. Pass a cancellation token from the controller through `SyncService._synchronize`, `OutboundSyncProcessor.pushPendingIsolated`, `InboundSyncProcessor.pullAll` and the archive sync. Check it before every remote request and before every local write batch, and make each local write batch transactional so a cancelled run stops between batches. After that, a timed-out run can be cancelled and replaced without overlapping writes. A distinct permanent-failure state (Session I, I-P1) would sit on top of it.
+
+**Batch D — documentation.** This section; stale rows corrected and labelled in the traceability matrix, the QA report, the restart notes, earlier sections here (marked *Superseded*), and `SN50_Original_Notes_Reconciliation.md` (statuses updated).
+
 ## BLOCKED_NEEDS_APPROVAL / user decisions
 
 1. **DB v41 on real devices.** The migration runs on a phone's real database the first time a build containing `2a10990` is installed. Take a `.sonusbackup` before any install. Installing is a separate approval.
@@ -581,5 +627,8 @@ Release note: no committed config sets the flag. `config/` holds only `sonus.dev
 18. **BUG-03 type label:** keep deriving the Other label from the name, or approve a schema change for a stored custom type label.
 19. **Import Review persistence for ambiguous same-title files** (round 4): it needs a pending-file record, or a new review reason plus a file-path payload. Either is a schema/data-contract change. Until approved, these files are reported in the import result only.
     - Since round 5 (F1), this also holds when the existing song's file is missing or absent.
-20. **Audit hardening F3–F6** (round 5): documented in Round 5 with evidence and fixes, not implemented. F6 (finalization transaction and repository freeze check) is a persistence change.
+20. **Audit hardening F3–F6** (round 5): F3, F4 and F5 are fixed in `a4085a5` (round 6). **F6** (finalization transaction and repository freeze check) remains: a persistence change needing approval.
 21. **Refined Moments release flag:** no committed config sets `SONUS_MOMENTS_REFINED_APPROVED`, so release builds use the earlier rules until it is added to the release config, once the rules are approved for release.
+22. **Duplicate-song restore start** (round 6): restoring `[a, b, a]` at the second `a` resumes the first copy (`playback_coordinator.dart:51-53` re-finds the start by song id). A safe fix would pass the index through for restores, without a format change. Not done because it was outside the approved batch scope; its test is skipped with the reason.
+23. **Sync cooperative cancellation** (round 6): the design proposal in Round 6 Batch C, so a hung run can be replaced without a restart; plus a permanent-failure state (Session I).
+24. **Shuffle order persistence** (round 6 reconciliation): the shuffle permutation is never saved, and shuffle/repeat survive a restart only with "Remember". Keep, or persist by default?

@@ -1,6 +1,6 @@
 # SN-50 QA Report
 
-Branch `sn-50-final-refinement`, worktree `C:\dev\sonus\sonus_next_sn50`. Base `36d4d5d`. Round 1 ended at `14b592f`; refreshed 2026-10-30 at code HEAD `420d5d5` (round 5, audit corrections; none pushed).
+Branch `sn-50-final-refinement`, worktree `C:\dev\sonus\sonus_next_sn50`. Base `36d4d5d`. Round 1 ended at `14b592f`; refreshed 2026-10-30 at code HEAD `11f30a7` (round 6, notes reconciliation batches A–C; none pushed).
 
 ## 1. Analyzer and test suite
 
@@ -10,7 +10,12 @@ Branch `sn-50-final-refinement`, worktree `C:\dev\sonus\sonus_next_sn50`. Base `
 | `14b592f` (end of round 1) | No issues | **4,798 passed, 0 failed** |
 | `2e485ae` (BUG-04, round 3) | No issues | 4,941 passed, 0 failed |
 | `83a7d96` (round 4) | No issues | 4,954 passed, 0 failed |
-| `420d5d5` (round 5: audit F1/F2, latest code) | No issues | **4,967 passed, 0 failed (analyzer clean)** |
+| `420d5d5` (round 5: audit F1/F2) | No issues | 4,967 passed, 0 failed |
+| `8c8bffc` (round 6 A: display names, regression tests) | No issues | 4,981 passed, 1 skipped, 0 failed |
+| `a4085a5` (round 6 B: playback races F3–F5) | No issues | 4,988 passed, 1 skipped, 0 failed |
+| `11f30a7` (round 6 C: sync run queue, latest code) | No issues | **4,997 passed, 1 skipped, 0 failed** |
+
+The one skipped test is deliberate: it pins a known gap (restoring a later duplicate resumes the first copy, Progress BLOCKED #22).
 
 The suite has **336 more tests**. Nothing was dropped silently: a few tests that encoded replaced semantics were swapped for tests of the new rule. For example, Phase 1 replaced the two "replace finalized Moments" repository tests with publish-once tests.
 
@@ -67,7 +72,7 @@ Rounds 2–3 ran the full suite once per batch with `flutter test --concurrency=
 - **Proof the tests bite:** with the freeze disabled, 7 tests fail.
 - **Moments:**
   - Published Moments are append-only (`publishFinalizedForWeek`).
-  - New rules are gated at `ChartMomentRules.refinedFromUtc` (2026-11-01 UTC). Pre-gate items keep their families, ids, cap and text, pinned by the reachability harness.
+  - New rules apply only in a build compiled with `SONUS_MOMENTS_REFINED_APPROVED=true`, from a write-once per-install activation instant (`8d2cbfe`). Earlier items keep their families, ids, cap and text, pinned by the reachability harness. *Superseded: the fixed 2026-11-01 `refinedFromUtc` gate of round 1.*
   - Existing copy: 0 removed lines in `moment_headlines.dart`, and a test pins 384 variants (192 per publisher).
 - **History recording untouched.** Playback sessions, chart snapshots and Moments still record the plain base title and artist (`playback_analytics_controller.dart:252-253`). New display fields (`displayTitle`, `albumDisplayTitle`, `displayArtist`, `creditLine`) are read-time only.
 - **No bulk writes.** Nothing backfills or rewrites stored library data:
@@ -124,6 +129,9 @@ These are spec-driven, not bugs, but the user will notice them:
 - The import result shows "Possible different recordings (not imported)" for same-title files at another track position. They were previously counted as plain duplicates (round 4).
 - Since round 5 (F1), a song whose own file is missing or absent is no longer relinked or bound to a file at another **known** track position on its edition. It is reported the same way. A file at the same position, or for a song listed with no known position (restored libraries), still relinks.
 - The queue shows a song queued twice as two independent rows (round 5, F2). Previously that gave the reorderable list duplicate keys.
+- Android Auto song rows name the edition the song is listed on; Blacklisted and the Library Health split-folder report name the release by its primary edition (round 6 A).
+- A quick double tap on the system Shuffle or Repeat button now toggles twice; Play after a pause in the last second of the last song resumes there (a restored or finished queue still replays from 0:00); a credit edit during a queue edit is kept (round 6 B).
+- A sync run longer than 10 minutes is reported as timed out (changes kept, retry pending); no second run starts until it has ended; a sync queued for a signed-out or switched account no longer signs it back in (round 6 C).
 
 ## 8. Environment left untouched
 
@@ -152,5 +160,7 @@ These are spec-driven, not bugs, but the user will notice them:
 - **BUG-03 and BUG-04 on a device:** verified by widget and pipeline tests only.
 - **Audit hardening F3–F6** (round 5): confirmed by code reading only. Not implemented, by instruction. See Progress Round 5.
 - **Refined Moments in a release build:** activation is verified by unit tests (F8). No committed config sets `SONUS_MOMENTS_REFINED_APPROVED`.
+- **Sync against a real server:** the round 6 run queue is tested with fakes only; no Supabase contact.
+- **Duplicate-song restore start** (BLOCKED #22) and **shuffle order persistence** (BLOCKED #24): known, not changed.
 
 **Production is not complete:** release signing, `versionCode`, Supabase migrations and device QA are still release blockers, as in the audit (Part I §9).
