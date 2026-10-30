@@ -191,7 +191,7 @@ class SonusAudioHandler extends media.BaseAudioHandler {
 
   @override
   Future<void> setShuffleMode(media.AudioServiceShuffleMode shuffleMode) =>
-      _run(
+      _runInTurn(
         'setShuffleMode',
         (c) => c.setShuffleEnabled(
           shuffleMode != media.AudioServiceShuffleMode.none,
@@ -199,15 +199,16 @@ class SonusAudioHandler extends media.BaseAudioHandler {
       );
 
   @override
-  Future<void> setRepeatMode(media.AudioServiceRepeatMode repeatMode) => _run(
-    'setRepeatMode',
-    (c) => c.setRepeatMode(switch (repeatMode) {
-      media.AudioServiceRepeatMode.none => PlaybackRepeatMode.off,
-      media.AudioServiceRepeatMode.one => PlaybackRepeatMode.one,
-      media.AudioServiceRepeatMode.all ||
-      media.AudioServiceRepeatMode.group => PlaybackRepeatMode.all,
-    }),
-  );
+  Future<void> setRepeatMode(media.AudioServiceRepeatMode repeatMode) =>
+      _runInTurn(
+        'setRepeatMode',
+        (c) => c.setRepeatMode(switch (repeatMode) {
+          media.AudioServiceRepeatMode.none => PlaybackRepeatMode.off,
+          media.AudioServiceRepeatMode.one => PlaybackRepeatMode.one,
+          media.AudioServiceRepeatMode.all ||
+          media.AudioServiceRepeatMode.group => PlaybackRepeatMode.all,
+        }),
+      );
 
   /// Shuffle and Repeat from the system player (D-Q1/D-Q12). They go
   /// through the coordinator like the app's own buttons, so a remembered
@@ -216,12 +217,12 @@ class SonusAudioHandler extends media.BaseAudioHandler {
   Future<void> customAction(String name, [Map<String, dynamic>? extras]) async {
     switch (name) {
       case MediaSessionStateMapper.shuffleAction:
-        await _run(
+        await _runInTurn(
           'shuffle',
           (c) => c.setShuffleEnabled(!c.currentState.shuffleEnabled),
         );
       case MediaSessionStateMapper.repeatAction:
-        await _run(
+        await _runInTurn(
           'repeat',
           (c) => c.setRepeatMode(c.currentState.repeatMode.next),
         );
@@ -505,6 +506,19 @@ class SonusAudioHandler extends media.BaseAudioHandler {
         MediaSessionStateMapper.map(const PlaybackState(), now: _now()),
       );
     }
+  }
+
+  /// Shuffle and Repeat commands, one at a time: each reads the mode the
+  /// one before it set, so a quick double tap toggles twice.
+  Future<void> _modeCommands = Future<void>.value();
+
+  Future<void> _runInTurn(
+    String command,
+    Future<void> Function(PlaybackCoordinator coordinator) action,
+  ) {
+    final turn = _modeCommands.then((_) => _run(command, action));
+    _modeCommands = turn;
+    return turn;
   }
 
   Future<void> _run(

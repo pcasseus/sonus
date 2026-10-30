@@ -323,4 +323,124 @@ void main() {
       expect(replay.queue.tracks.map((t) => t.songId), ['a', 'b', 'c']);
     });
   });
+
+  group('SN-50 reconciliation: playback races (F3, F4, F5)', () {
+    test('two quick system Shuffle taps toggle twice, not once (F4)', () async {
+      await engine.loadQueue([_track('a'), _track('b')]);
+      await settle();
+      expect(engine.currentState.shuffleEnabled, isFalse);
+      final seen = <bool>[];
+      final subscription = engine.states.listen(
+        (state) => seen.add(state.shuffleEnabled),
+      );
+      addTearDown(subscription.cancel);
+
+      await Future.wait([
+        handler.customAction(MediaSessionStateMapper.shuffleAction),
+        handler.customAction(MediaSessionStateMapper.shuffleAction),
+      ]);
+      await settle();
+
+      expect(seen, contains(isTrue), reason: 'the first tap turned it on');
+      expect(engine.currentState.shuffleEnabled, isFalse);
+    });
+
+    test(
+      'three quick system Repeat taps cycle Off, All, One, Off (F4)',
+      () async {
+        await engine.loadQueue([_track('a')]);
+        await settle();
+        final modes = <PlaybackRepeatMode>[];
+        final subscription = engine.states.listen(
+          (state) => modes.add(state.repeatMode),
+        );
+        addTearDown(subscription.cancel);
+
+        await Future.wait([
+          for (var tap = 0; tap < 3; tap++)
+            handler.customAction(MediaSessionStateMapper.repeatAction),
+        ]);
+        await settle();
+
+        expect(modes.toSet(), containsAll(PlaybackRepeatMode.values));
+        expect(engine.currentState.repeatMode, PlaybackRepeatMode.off);
+      },
+    );
+
+    test('a pause in the last second of the last song, then Play, resumes '
+        'there instead of replaying it (F5)', () async {
+      await engine.loadQueue([_track('a'), _track('b')], startIndex: 1);
+      await settle();
+      await coordinator.play();
+      await settle();
+      player.advanceTo(
+        const Duration(minutes: 2, seconds: 59, milliseconds: 400),
+      );
+      await settle();
+      await coordinator.pause();
+      await settle();
+      final positions = <Duration>[];
+      final subscription = engine.states.listen(
+        (state) => positions.add(state.position),
+      );
+      addTearDown(subscription.cancel);
+
+      await coordinator.play();
+      await settle();
+
+      expect(player.audible, isTrue);
+      expect(positions, isNot(contains(Duration.zero)));
+      expect(
+        engine.currentState.position,
+        const Duration(minutes: 2, seconds: 59, milliseconds: 400),
+      );
+      expect(engine.currentState.queue.currentTrack?.songId, 'b');
+    });
+
+    test('paused at a position set in the last second, as a restore does, '
+        'Play still replays from 0:00 (R4 kept)', () async {
+      await engine.loadQueue([_track('a'), _track('b')], startIndex: 1);
+      await settle();
+      await engine.seek(
+        const Duration(minutes: 2, seconds: 59, milliseconds: 600),
+      );
+      await settle();
+
+      await coordinator.play();
+      await settle();
+
+      expect(player.audible, isTrue);
+      expect(engine.currentState.position, Duration.zero);
+      expect(engine.currentState.queue.currentTrack?.songId, 'b');
+    });
+
+    for (final (name, edit) in <(String, Future<void> Function())>[
+      ('an insert', () => engine.insertTrack(_track('c'), index: 1)),
+      ('a removal', () => engine.removeTrackAt(1)),
+      ('a move', () => engine.moveTrack(oldIndex: 0, newIndex: 1)),
+    ]) {
+      test('a credit refresh that lands during $name is kept (F3)', () async {
+        await engine.loadQueue([_track('a'), _track('b')]);
+        await settle();
+
+        final editing = edit();
+        final refreshed = engine.refreshTrackDisplay([
+          _track('a').copyWith(
+            displayTitle: 'Song a (Live)',
+            displayArtist: 'Artist Ft. Guest',
+          ),
+        ]);
+        await editing;
+        await settle();
+
+        expect(refreshed, isTrue);
+        final a = engine.currentState.queue.tracks.singleWhere(
+          (track) => track.songId == 'a',
+        );
+        expect(a.displayTitle, 'Song a (Live)');
+        expect(a.displayArtist, 'Artist Ft. Guest');
+        expect(a.title, 'Song a', reason: 'history keeps the stored title');
+      });
+    }
+  });
 }

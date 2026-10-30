@@ -153,7 +153,10 @@ class JustAudioPlaybackEngine
     }
 
     try {
-      if (_isAtEndOfQueue) {
+      final atEnd = _isAtEndOfQueue;
+      _pausedAtSeekedPosition = false;
+
+      if (atEnd) {
         await _replayFinalSong();
         return;
       }
@@ -165,6 +168,10 @@ class JustAudioPlaybackEngine
     }
   }
 
+  /// Whether the paused position was set by a seek, as a restored session
+  /// is, rather than by pausing playback. Cleared when playback starts.
+  bool _pausedAtSeekedPosition = false;
+
   /// A finished queue, or a restored one paused at its very end. Play then
   /// replays the final song (SN50-R4) instead of doing nothing.
   bool get _isAtEndOfQueue {
@@ -175,8 +182,9 @@ class JustAudioPlaybackEngine
       return false;
     }
 
-    // A restored or reported end can fall a little short of the duration.
-    final end = duration > const Duration(seconds: 2)
+    // A restored end can fall a little short of the duration. A pause in
+    // the last second of playback is not the end: Play resumes there.
+    final end = _pausedAtSeekedPosition && duration > const Duration(seconds: 2)
         ? duration - const Duration(seconds: 1)
         : duration;
     return _state.position >= end;
@@ -222,6 +230,7 @@ class JustAudioPlaybackEngine
         : position;
 
     try {
+      _pausedAtSeekedPosition = !_state.isPlaying;
       await _audioPlayer.seek(clamped);
     } catch (error) {
       _emitFailure(error);
@@ -328,12 +337,23 @@ class JustAudioPlaybackEngine
     try {
       await _audioPlayer.insertAudioSource(index, _audioSourceFor(track));
 
-      _emit(_state.copyWith(queue: updatedQueue, clearError: true));
+      _emit(
+        _state.copyWith(
+          queue: _withCurrentDisplay(updatedQueue),
+          clearError: true,
+        ),
+      );
     } catch (error) {
       _emitFailure(error);
       rethrow;
     }
   }
+
+  /// [queue], built before an await on the player, with the display
+  /// fields the queue has now: a credit or title refresh that arrived
+  /// meanwhile is kept, never overwritten by the older copy.
+  PlaybackQueue _withCurrentDisplay(PlaybackQueue queue) =>
+      queue.withTrackDisplay(_state.queue.tracks);
 
   @override
   bool refreshTrackDisplay(Iterable<PlaybackTrack> tracks) {
@@ -373,7 +393,7 @@ class JustAudioPlaybackEngine
 
       _emit(
         _state.copyWith(
-          queue: updatedQueue,
+          queue: _withCurrentDisplay(updatedQueue),
           position: updatedQueue.isEmpty ? Duration.zero : _state.position,
           duration: updatedQueue.currentTrack?.duration ?? Duration.zero,
           clearError: true,
@@ -411,7 +431,12 @@ class JustAudioPlaybackEngine
     try {
       await _audioPlayer.moveAudioSource(oldIndex, newIndex);
 
-      _emit(_state.copyWith(queue: updatedQueue, clearError: true));
+      _emit(
+        _state.copyWith(
+          queue: _withCurrentDisplay(updatedQueue),
+          clearError: true,
+        ),
+      );
     } catch (error) {
       _emitFailure(error);
       rethrow;
