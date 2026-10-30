@@ -705,8 +705,8 @@ class _PlaylistTrackTile extends StatelessWidget {
     return SonusTrackTile(
       inkKey: ValueKey<String>('playlist-track-${entry.item.id}'),
       leadingNumber: '${index + 1}',
-      title: track.title,
-      subtitle: track.artistName,
+      title: track.displayTitle,
+      subtitle: track.creditLine,
       artworkPath: track.artworkPath,
       duration: sonusFormatDuration(track.durationSeconds),
       enabled: isPlayable,

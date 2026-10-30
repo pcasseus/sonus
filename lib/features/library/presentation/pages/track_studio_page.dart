@@ -80,7 +80,7 @@ class _TrackStudioSummary extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  track.title,
+                  track.displayTitle,
                   key: const ValueKey<String>('track-studio-heading'),
                   maxLines: 3,
                   overflow: TextOverflow.ellipsis,
@@ -91,7 +91,7 @@ class _TrackStudioSummary extends StatelessWidget {
                 ),
                 Text(
                   [
-                    track.artistName,
+                    track.creditLine,
                     if (track.albumDisplayTitle.trim().isNotEmpty)
                       track.albumDisplayTitle,
                   ].join(' • '),

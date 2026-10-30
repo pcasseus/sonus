@@ -317,7 +317,7 @@ class _SearchPageState extends State<SearchPage> {
         return;
       }
 
-      _showMessage('Added "${track.title}" to play next.');
+      _showMessage('Added "${track.displayTitle}" to play next.');
     } catch (error) {
       if (!mounted) {
         return;
@@ -344,7 +344,7 @@ class _SearchPageState extends State<SearchPage> {
         return;
       }
 
-      _showMessage('Added "${track.title}" to the queue.');
+      _showMessage('Added "${track.displayTitle}" to the queue.');
     } catch (error) {
       if (!mounted) {
         return;

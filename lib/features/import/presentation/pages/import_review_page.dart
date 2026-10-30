@@ -157,14 +157,14 @@ class _ImportReviewPageState extends State<ImportReviewPage> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        item.track.title,
+                        item.track.displayTitle,
                         style: Theme.of(context).textTheme.titleLarge?.copyWith(
                           fontWeight: FontWeight.w800,
                         ),
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        item.track.artistName,
+                        item.track.creditLine,
                         style: Theme.of(context).textTheme.bodyLarge,
                       ),
                       const SizedBox(height: 2),

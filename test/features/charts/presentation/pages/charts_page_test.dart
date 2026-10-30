@@ -689,6 +689,45 @@ void main() {
     });
   });
 
+  group('SN-50 BUG-02: song versions on the chart', () {
+    final remix = _track(versionLabel: 'Remix', featured: const ['Artist A']);
+
+    testWidgets('the current standings show the version and its credits', (
+      tester,
+    ) async {
+      final controller = await _controller(tracks: [remix]);
+
+      await _pumpPage(tester, controller);
+
+      expect(find.text('Song 1 (Remix)'), findsOneWidget);
+      expect(find.text('Artist 1 Ft. Artist A • Album 1'), findsOneWidget);
+    });
+
+    testWidgets('final weeks keep their stored title and artist', (
+      tester,
+    ) async {
+      final controller = await _controller(
+        tracks: [remix],
+        history: [
+          _snapshot(
+            id: 'historical-songs',
+            start: DateTime.utc(2026, 9, 20),
+            finalized: true,
+          ),
+        ],
+      );
+
+      await _pumpPage(tester, controller);
+      controller.showOlderWeek();
+      await tester.pumpAndSettle();
+
+      expect(find.text('Song 1'), findsOneWidget);
+      expect(find.text('Artist 1 • Album 1'), findsOneWidget);
+      expect(find.textContaining('(Remix)'), findsNothing);
+      expect(find.textContaining('Artist A'), findsNothing);
+    });
+  });
+
   testWidgets('the release chart has its own explanation', (tester) async {
     final controller = await _controller();
 
@@ -1803,6 +1842,8 @@ LibraryTrack _track({
   bool isAvailable = true,
   bool isBlocked = false,
   String? filePath = 'C:/Music/song_1.mp3',
+  String? versionLabel,
+  List<String> featured = const [],
 }) {
   return LibraryTrack(
     songId: 'songs_1',
@@ -1817,7 +1858,8 @@ LibraryTrack _track({
     trackNumber: 1,
     durationSeconds: 180,
     isSingle: false,
-    featuredArtists: const [],
+    featuredArtists: featured,
+    versionLabel: versionLabel,
     dateAdded: DateTime.utc(2026, 9, 1),
     isAvailable: isAvailable,
     isSongBlocked: isBlocked,

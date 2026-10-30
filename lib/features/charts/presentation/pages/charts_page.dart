@@ -976,6 +976,7 @@ class _ChartEntryItem extends StatelessWidget {
     };
 
     final presentation = controller.albumPresentationFor(entry);
+    final song = controller.songPresentationFor(entry);
     final artworkPath = switch (chartType) {
       ChartType.songs => track?.artworkPath,
       ChartType.albums =>
@@ -1036,7 +1037,8 @@ class _ChartEntryItem extends StatelessWidget {
               status: status,
               weeklyPeakRank: weeklyPeak,
               longevity: longevity,
-              title: presentation?.title,
+              title: presentation?.title ?? song?.title,
+              subtitle: song?.subtitle,
               onTap: onTap,
             )
           : AllTimeEntryCard(
@@ -1048,7 +1050,8 @@ class _ChartEntryItem extends StatelessWidget {
               status: status,
               weeklyPeakRank: weeklyPeak,
               longevity: longevity,
-              title: presentation?.title,
+              title: presentation?.title ?? song?.title,
+              subtitle: song?.subtitle,
               onTap: onTap,
             );
     }
@@ -1237,12 +1240,12 @@ Future<void> _showChartTrackContext(
             children: [
               ListTile(
                 title: Text(
-                  track.title,
+                  track.displayTitle,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
                 subtitle: Text(
-                  '${track.artistName} \u2022 ${track.albumTitle}',
+                  '${track.creditLine} \u2022 ${track.albumDisplayTitle}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),

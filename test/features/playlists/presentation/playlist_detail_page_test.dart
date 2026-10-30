@@ -150,6 +150,68 @@ void main() {
     ]);
   });
 
+  testWidgets('SN-50 BUG-02: rows show the version title and credits', (
+    tester,
+  ) async {
+    await _seedSongs(
+      appDatabase,
+      now: now,
+      songIds: const ['song_original', 'song_remix'],
+      availableSongIds: const {'song_original', 'song_remix'},
+    );
+    final db = await appDatabase.database;
+    await db.update(
+      DatabaseTables.songs,
+      {'title': 'Original Song'},
+      where: 'id = ?',
+      whereArgs: ['song_original'],
+    );
+    await db.update(
+      DatabaseTables.songs,
+      {
+        'title': 'Original Song',
+        'version_label': 'Remix',
+        'featured_artists': '["Artist A"]',
+      },
+      where: 'id = ?',
+      whereArgs: ['song_remix'],
+    );
+
+    final playlist = await service.createPlaylist(name: 'Versions');
+    await service.addSong(playlistId: playlist.id, songId: 'song_original');
+    final remixItem = await service.addSong(
+      playlistId: playlist.id,
+      songId: 'song_remix',
+    );
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          Provider<PlaylistService?>.value(value: service),
+          Provider<PlaybackCoordinator>.value(value: playbackCoordinator),
+          ChangeNotifierProvider<PlaybackStateController>.value(
+            value: playbackStateController,
+          ),
+        ],
+        child: MaterialApp(
+          home: PlaylistDetailPage(
+            playlistId: playlist.id,
+            initialName: playlist.name,
+          ),
+        ),
+      ),
+    );
+    await _pumpUntilFound(
+      tester,
+      find.byKey(ValueKey<String>('playlist-track-${remixItem.id}')),
+    );
+
+    expect(find.text('Original Song'), findsOneWidget);
+    expect(find.text('Original Song (Remix)'), findsOneWidget);
+    expect(find.text('Playlist Artist Ft. Artist A'), findsOneWidget);
+    expect(find.text('Playlist Artist'), findsOneWidget);
+  });
+
   testWidgets('bulk add back into the same playlist never duplicates songs', (
     tester,
   ) async {

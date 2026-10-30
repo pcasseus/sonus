@@ -372,6 +372,102 @@ void main() {
     expect(find.textContaining('feat.'), findsNothing);
   });
 
+  group('SN-50 BUG-02: versions sharing a base title', () {
+    LibraryTrack version(
+      String id,
+      int number, {
+      String title = 'Original Song',
+      String? label,
+      List<String> featured = const [],
+    }) => base.createTrack(
+      songId: id,
+      title: title,
+      albumEditionId: 'edition-standard',
+      albumEditionTitle: 'Standard',
+      albumEditionType: AlbumEditionType.standard,
+      trackNumber: number,
+      versionLabel: label,
+      featuredArtists: featured,
+    );
+
+    final original = version('orig', 1);
+    final remix = version(
+      'remix',
+      2,
+      title: 'Original Song (Remix)',
+      label: 'Remix',
+      featured: const ['Artist A'],
+    );
+    final alternate = version(
+      'alt',
+      3,
+      label: 'Alternate Remix',
+      featured: const ['Artist B'],
+    );
+
+    base.FakeEditionAwareLibraryQueryRepository versions() =>
+        base.FakeEditionAwareLibraryQueryRepository(
+          album: base.createAlbum(
+            title: 'Studio Album',
+            primaryEditionId: 'edition-standard',
+            primaryEditionTitle: 'Standard',
+          ),
+          // The same song id twice, as a song on two editions might come
+          // back: Choose songs still lists it once.
+          tracks: [original, remix, alternate, alternate],
+          editions: [
+            base.createLibraryEdition(
+              editionId: 'edition-standard',
+              title: 'Standard',
+              type: AlbumEditionType.standard,
+              isPrimary: true,
+            ),
+          ],
+          editionTracks: {
+            'edition-standard': [original, remix, alternate],
+          },
+        );
+
+    testWidgets('the tracklist shows each version title and its credits', (
+      tester,
+    ) async {
+      await pump(tester, library: versions(), section: tracklist);
+
+      expect(find.text('Original Song'), findsOneWidget);
+      // The stored "(Remix)" is never doubled.
+      expect(find.text('Original Song (Remix)'), findsOneWidget);
+      expect(find.textContaining('(Remix) (Remix)'), findsNothing);
+      expect(find.text('Original Song (Alternate Remix)'), findsOneWidget);
+      expect(find.textContaining('Ft. Artist A'), findsOneWidget);
+      expect(find.textContaining('Ft. Artist B'), findsOneWidget);
+    });
+
+    testWidgets('Choose songs lists each song once with qualifier and Ft.', (
+      tester,
+    ) async {
+      await pump(tester, library: versions(), section: tracklist);
+
+      await tester.tap(key('album-studio-choose-songs'));
+      await tester.pumpAndSettle();
+
+      final dialog = key('album-studio-choose-songs-dialog');
+      Finder inDialog(Finder finder) =>
+          find.descendant(of: dialog, matching: finder);
+
+      expect(inDialog(key('album-studio-choose-song-alt')), findsOneWidget);
+      expect(inDialog(find.text('Original Song')), findsOneWidget);
+      expect(inDialog(find.text('Original Song (Remix)')), findsOneWidget);
+      expect(
+        inDialog(find.text('Original Song (Alternate Remix)')),
+        findsOneWidget,
+      );
+      expect(inDialog(find.text('Test Artist Ft. Artist A')), findsOneWidget);
+      expect(inDialog(find.text('Test Artist Ft. Artist B')), findsOneWidget);
+      // The edition label stays its own; it is not added to song titles.
+      expect(inDialog(find.textContaining('Standard)')), findsNothing);
+    });
+  });
+
   testWidgets('creates an edition from the dialog', (tester) async {
     final (_, service, _) = await pump(tester);
 

@@ -1810,8 +1810,7 @@ class _StudioTrackRow extends StatelessWidget {
     final details = [
       if (isBonus) 'Bonus track',
       _formatDuration(track.durationSeconds),
-      if (track.featuredArtists.isNotEmpty)
-        'Ft. ${track.featuredArtists.join(', ')}',
+      if (track.releaseCreditLine.isNotEmpty) track.releaseCreditLine,
     ];
     final detailStyle = TextStyle(
       color: colors.textSecondary,
@@ -1855,7 +1854,7 @@ class _StudioTrackRow extends StatelessWidget {
                 ),
               ),
         title: Text(
-          track.title,
+          track.displayTitle,
           maxLines: largeText ? 3 : 2,
           overflow: TextOverflow.ellipsis,
           style: theme.textTheme.bodyLarge?.copyWith(
@@ -1951,7 +1950,7 @@ class _TrackPlacementDialogState extends State<_TrackPlacementDialog> {
       key: ValueKey<String>(
         'album-studio-placement-dialog-${widget.track.songId}',
       ),
-      title: Text(widget.track.title),
+      title: Text(widget.track.displayTitle),
       content: SizedBox(
         width: 360,
         child: Column(

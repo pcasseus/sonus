@@ -145,11 +145,12 @@ String _summary(
   int? weeklyPeakRank,
   ChartLongevity? longevity,
   String title,
+  String subtitle,
 ) {
   return [
     ChartEntryCard.semanticLabelFor(
       entry,
-      subtitle: ChartEntryCard.subtitleFor(entry, chartType),
+      subtitle: subtitle,
       status: status,
       isAllTime: true,
       weeklyPeakRank: weeklyPeakRank,
@@ -173,6 +174,7 @@ class AllTimeSpotlightCard extends StatelessWidget {
     this.weeklyPeakRank,
     this.longevity,
     this.title,
+    this.subtitle,
     this.onTap,
   });
 
@@ -188,6 +190,10 @@ class AllTimeSpotlightCard extends StatelessWidget {
 
   /// The title shown in place of the entry's own, as for a Deluxe edition.
   final String? title;
+
+  /// The line shown in place of the entry's artist line, as for a song's
+  /// current credits.
+  final String? subtitle;
   final VoidCallback? onTap;
 
   @override
@@ -199,6 +205,8 @@ class AllTimeSpotlightCard extends StatelessWidget {
     final id = entry.entity.entityId;
     final top3 = stats.zones.weeksIn(3);
     final shownTitle = title ?? entry.entity.title;
+    final shownSubtitle =
+        subtitle ?? ChartEntryCard.subtitleFor(entry, chartType);
     final tier = ChartTierStyle.of(tokens, ChartRankTier.spotlight);
     final radius = BorderRadius.circular(tokens.metrics.cardRadius + 6);
     final facts = chartLongevityFacts(longevity);
@@ -226,6 +234,7 @@ class AllTimeSpotlightCard extends StatelessWidget {
                   weeklyPeakRank,
                   longevity,
                   shownTitle,
+                  shownSubtitle,
                 ),
                 excludeSemantics: true,
                 child: Padding(
@@ -271,7 +280,7 @@ class AllTimeSpotlightCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        ChartEntryCard.subtitleFor(entry, chartType),
+                        shownSubtitle,
                         style: theme.textTheme.bodyLarge?.copyWith(
                           color: colors.textSecondary,
                         ),
@@ -378,6 +387,7 @@ class AllTimeEntryCard extends StatelessWidget {
     this.weeklyPeakRank,
     this.longevity,
     this.title,
+    this.subtitle,
     this.onTap,
   });
 
@@ -393,6 +403,10 @@ class AllTimeEntryCard extends StatelessWidget {
 
   /// The title shown in place of the entry's own, as for a Deluxe edition.
   final String? title;
+
+  /// The line shown in place of the entry's artist line, as for a song's
+  /// current credits.
+  final String? subtitle;
   final VoidCallback? onTap;
 
   @override
@@ -406,6 +420,8 @@ class AllTimeEntryCard extends StatelessWidget {
     final scaler = MediaQuery.textScalerOf(context);
     final previous = entry.previousFinalRank;
     final shownTitle = title ?? entry.entity.title;
+    final shownSubtitle =
+        subtitle ?? ChartEntryCard.subtitleFor(entry, chartType);
     final tier = ChartTierStyle.of(tokens, ChartRankTier.of(entry));
     final radius = BorderRadius.circular(tokens.metrics.cardRadius);
     final facts = chartLongevityFacts(longevity);
@@ -424,7 +440,7 @@ class AllTimeEntryCard extends StatelessWidget {
         ),
         const SizedBox(height: 2),
         Text(
-          ChartEntryCard.subtitleFor(entry, chartType),
+          shownSubtitle,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: theme.textTheme.bodyMedium?.copyWith(
@@ -461,6 +477,7 @@ class AllTimeEntryCard extends StatelessWidget {
                   weeklyPeakRank,
                   longevity,
                   shownTitle,
+                  shownSubtitle,
                 ),
                 excludeSemantics: true,
                 child: Container(

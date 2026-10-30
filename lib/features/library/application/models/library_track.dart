@@ -78,6 +78,16 @@ class LibraryTrack {
     guestArtists: guestArtists,
   );
 
+  /// The credit line for a row on a page that already names the release
+  /// artist: "Ft. Cy with Eve", co-primaries kept, or empty.
+  String get releaseCreditLine => songCreditLine(
+    primaryArtistName: artistName,
+    coPrimaryArtists: coPrimaryArtists,
+    featuredArtists: featuredArtists,
+    guestArtists: guestArtists,
+    omitPrimary: true,
+  );
+
   /// The title with its version qualifier, for current surfaces only.
   String get displayTitle => songDisplayTitle(
     title: title,

@@ -58,7 +58,7 @@ Future<bool?> showAddTracksToPlaylistFlow(
     _showMessage(
       context,
       tracks.length == 1
-          ? 'Could not add "${tracks.single.title}" to a playlist.'
+          ? 'Could not add "${tracks.single.displayTitle}" to a playlist.'
           : 'Could not add the songs to a playlist.',
     );
     return false;
@@ -74,7 +74,7 @@ String addToPlaylistMessage(
   final name = result.playlistName;
 
   if (tracks.length == 1) {
-    final title = tracks.single.title;
+    final title = tracks.single.displayTitle;
 
     if (result.added > 0) return 'Added "$title" to $name.';
     if (result.alreadyPresent > 0) return '"$title" is already in $name.';
@@ -284,9 +284,10 @@ class _AddToPlaylistSheetState extends State<_AddToPlaylistSheet> {
               const SizedBox(height: 4),
               Text(
                 isSingle
-                    ? widget.tracks.single.title
+                    ? _songLine(widget.tracks.single)
                     : '${widget.tracks.length} songs',
-                maxLines: 1,
+                key: const ValueKey<String>('add-to-playlist-song'),
+                maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: theme.textTheme.bodyMedium?.copyWith(
                   color: theme.colorScheme.onSurfaceVariant,
@@ -460,4 +461,14 @@ class _NewPlaylistDialogState extends State<_NewPlaylistDialog> {
     _controller.dispose();
     super.dispose();
   }
+}
+
+/// The song being added: its display title and role-aware credit line, so
+/// two versions sharing a base title are told apart.
+String _songLine(LibraryTrack track) {
+  final credits = track.creditLine;
+
+  return credits.isEmpty
+      ? track.displayTitle
+      : '${track.displayTitle} · $credits';
 }

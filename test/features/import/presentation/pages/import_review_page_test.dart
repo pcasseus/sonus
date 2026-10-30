@@ -193,7 +193,8 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('Imported Song'), findsOneWidget);
-    expect(find.text('Unknown Artist'), findsOneWidget);
+    // The role-aware credit line (SN-50 BUG-02).
+    expect(find.text('Unknown Artist Ft. Guest'), findsOneWidget);
     expect(find.text('Unknown Album'), findsOneWidget);
     expect(find.text('Metadata guessed from file or folder'), findsOneWidget);
     expect(find.text('Unknown artist'), findsOneWidget);

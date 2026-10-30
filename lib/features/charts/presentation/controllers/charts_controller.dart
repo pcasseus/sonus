@@ -458,6 +458,24 @@ class ChartsController extends ChangeNotifier {
     return _albumPresentations[entry.entity.entityId];
   }
 
+  /// The title and credit line the current song chart shows for a song:
+  /// its version qualifier and role-aware credits, so two recordings
+  /// sharing a base title read differently (SN-50 BUG-02). Null on weekly
+  /// views, whose rows keep their stored titles, and for songs no longer
+  /// in the library.
+  ({String title, String subtitle})? songPresentationFor(ChartEntry entry) {
+    if (!isViewingAllTime) return null;
+
+    final track = trackForEntry(entry);
+    if (track == null) return null;
+
+    final album = track.albumDisplayTitle.trim();
+    return (
+      title: track.displayTitle,
+      subtitle: [track.creditLine, if (album.isNotEmpty) album].join(' • '),
+    );
+  }
+
   /// The songs of the chart on screen, in rank order, for a playback
   /// queue. Entries without a library song are left out.
   List<LibraryTrack> get entryTracks => [

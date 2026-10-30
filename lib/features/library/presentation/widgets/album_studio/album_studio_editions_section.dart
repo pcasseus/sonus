@@ -231,7 +231,7 @@ class _AlbumStudioEditionsSectionState
   String _songTitle(String songId) {
     for (final tracks in _listings.values) {
       for (final track in tracks) {
-        if (track.songId == songId) return track.title;
+        if (track.songId == songId) return _songLine(track);
       }
     }
     return 'Song';
@@ -978,8 +978,8 @@ class _NumberingRepairDialog extends StatelessWidget {
                     child: Text(
                       discs.length > 1
                           ? 'Disc ${change.track.discNumber}: '
-                                '${change.track.title}'
-                          : change.track.title,
+                                '${change.track.displayTitle}'
+                          : change.track.displayTitle,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodyMedium?.copyWith(
@@ -1324,15 +1324,18 @@ class _ChooseSongsDialogState extends State<_ChooseSongsDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final songs = [...widget.songs]
-      ..sort((a, b) {
-        final disc = a.discNumber.compareTo(b.discNumber);
-        if (disc != 0) return disc;
-        final track = a.trackNumber.compareTo(b.trackNumber);
-        return track != 0
-            ? track
-            : a.title.toLowerCase().compareTo(b.title.toLowerCase());
-      });
+    // One row per song id: a song listed on several editions is still one
+    // song here, shown with its version qualifier and credits.
+    final songs =
+        {for (final song in widget.songs) song.songId: song}.values.toList()
+          ..sort((a, b) {
+            final disc = a.discNumber.compareTo(b.discNumber);
+            if (disc != 0) return disc;
+            final track = a.trackNumber.compareTo(b.trackNumber);
+            return track != 0
+                ? track
+                : a.title.toLowerCase().compareTo(b.title.toLowerCase());
+          });
 
     return AlertDialog(
       key: const ValueKey<String>('album-studio-choose-songs-dialog'),
@@ -1362,15 +1365,15 @@ class _ChooseSongsDialogState extends State<_ChooseSongsDialog> {
                       contentPadding: EdgeInsets.zero,
                       controlAffinity: ListTileControlAffinity.leading,
                       title: Text(
-                        song.title,
+                        song.displayTitle,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
-                      subtitle: song.artistName.trim().isEmpty
+                      subtitle: song.creditLine.isEmpty
                           ? null
                           : Text(
-                              song.artistName,
-                              maxLines: 1,
+                              song.creditLine,
+                              maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                             ),
                       onChanged: (value) => setState(() {
@@ -1442,7 +1445,7 @@ class _InheritedSongsPreview extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.symmetric(vertical: 2),
             child: Text(
-              '${index + 1}. ${track.title}',
+              '${index + 1}. ${_songLine(track)}',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: theme.textTheme.bodyMedium,
@@ -1458,4 +1461,14 @@ class _InheritedSongsPreview extends StatelessWidget {
       ],
     );
   }
+}
+
+/// A song in an edition prompt: its display title, then any credits beyond
+/// the release artist, so a remix and its original read differently.
+String _songLine(LibraryTrack track) {
+  final credits = track.releaseCreditLine;
+
+  return credits.isEmpty
+      ? track.displayTitle
+      : '${track.displayTitle} · $credits';
 }

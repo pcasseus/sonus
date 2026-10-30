@@ -187,6 +187,83 @@ void main() {
     expect(find.text('Add to queue'), findsNothing);
   });
 
+  group('SN-50 BUG-02: Recently Added versions', () {
+    HomeSnapshot versions() => HomeSnapshot(
+      recentlyAddedTracks: [
+        _track(id: 'orig', title: 'Original Song'),
+        _track(
+          id: 'remix',
+          title: 'Original Song (Remix)',
+          versionLabel: 'Remix',
+          featured: const ['Artist A'],
+        ),
+        _track(
+          id: 'alt',
+          title: 'Original Song',
+          versionLabel: 'Alternate Remix',
+          featured: const ['Artist B', 'Artist C', 'Artist D'],
+        ),
+      ],
+      recentlyAddedAlbums: const [],
+      weeklyPopularTracks: const [],
+      weeklyTopArtists: const [],
+    );
+
+    Finder card(String id) =>
+        find.byKey(ValueKey<String>('home-recent-track-$id'));
+
+    testWidgets('three same-base-title recordings read differently', (
+      tester,
+    ) async {
+      final controller = await _loadedController(versions());
+      await _pumpHome(tester, controller);
+
+      String textsOf(String id) => tester
+          .widgetList<Text>(
+            find.descendant(of: card(id), matching: find.byType(Text)),
+          )
+          .map((text) => text.data)
+          .join(' | ');
+
+      expect(textsOf('orig'), 'Original Song | Artist 1');
+      // The stored "(Remix)" is never doubled.
+      expect(textsOf('remix'), 'Original Song (Remix) | Artist 1 Ft. Artist A');
+      expect(
+        textsOf('alt'),
+        'Original Song (Alternate Remix) | '
+        'Artist 1 Ft. Artist B, Artist C, Artist D',
+      );
+    });
+
+    testWidgets('a long credit line fits 320dp at 2x text and is read in '
+        'full', (tester) async {
+      final semantics = tester.ensureSemantics();
+      final controller = await _loadedController(versions());
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(320, 2400);
+      addTearDown(tester.view.reset);
+
+      await _pumpHome(
+        tester,
+        controller,
+        size: const Size(320, 2400),
+        textScale: 2,
+      );
+
+      expect(tester.takeException(), isNull);
+      expect(
+        find.bySemanticsLabel(
+          RegExp(
+            r'Original Song \(Alternate Remix\)\s+'
+            r'Artist 1 Ft\. Artist B, Artist C, Artist D',
+          ),
+        ),
+        findsOneWidget,
+      );
+      semantics.dispose();
+    });
+  });
+
   testWidgets('renders empty state', (tester) async {
     final controller = await _loadedController(
       const HomeSnapshot(
@@ -970,6 +1047,8 @@ LibraryTrack _track({
   required String id,
   required String title,
   bool blocked = false,
+  String? versionLabel,
+  List<String> featured = const [],
 }) {
   return LibraryTrack(
     songId: id,
@@ -984,7 +1063,8 @@ LibraryTrack _track({
     trackNumber: 1,
     durationSeconds: 180,
     isSingle: false,
-    featuredArtists: const [],
+    featuredArtists: featured,
+    versionLabel: versionLabel,
     dateAdded: DateTime.utc(2026, 9, 28),
     isAvailable: true,
     isSongBlocked: blocked,

@@ -300,8 +300,8 @@ class _PopularTracksRail extends StatelessWidget {
         return _RailCard(
           cardKey: ValueKey<String>('home-popular-track-${track.songId}'),
           width: cardWidth,
-          title: track.title,
-          subtitle: track.artistName,
+          title: track.displayTitle,
+          subtitle: track.creditLine,
           detail:
               '${entry.qualifiedStreamCount} weekly ${sonusCountNoun(entry.qualifiedStreamCount, 'stream')}',
           artwork: Stack(
@@ -663,8 +663,8 @@ class _RecentlyAddedTracksRail extends StatelessWidget {
         return _RailCard(
           cardKey: ValueKey<String>('home-recent-track-${track.songId}'),
           width: cardWidth,
-          title: track.title,
-          subtitle: track.artistName,
+          title: track.displayTitle,
+          subtitle: track.creditLine,
           dimmed: isBlocked,
           artwork: Stack(
             children: [
@@ -1069,12 +1069,12 @@ Future<void> _showTrackContext(
             children: [
               ListTile(
                 title: Text(
-                  track.title,
+                  track.displayTitle,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
                 subtitle: Text(
-                  '${track.artistName} · ${track.albumDisplayTitle}',
+                  '${track.creditLine} · ${track.albumDisplayTitle}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),

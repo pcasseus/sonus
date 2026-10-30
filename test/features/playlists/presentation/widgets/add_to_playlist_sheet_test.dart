@@ -229,6 +229,69 @@ void main() {
     );
   });
 
+  testWidgets('SN-50 BUG-02: the sheet names the version and its credits', (
+    tester,
+  ) async {
+    final service = _FakePlaylistService(
+      playlists: [_summary(id: 'playlist_existing', name: 'Favorites')],
+    );
+
+    await tester.pumpWidget(
+      _FlowHarness(
+        service: service,
+        track: _track(
+          songId: 'song_remix',
+          title: 'Original Song (Remix)',
+          versionLabel: 'Remix',
+          featured: const ['Artist A'],
+        ),
+      ),
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('open-add-to-playlist')),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(
+      find.text('Original Song (Remix) · Artist Ft. Artist A'),
+      findsOneWidget,
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('add-to-playlist-playlist_existing')),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(
+      find.text('Added "Original Song (Remix)" to Favorites.'),
+      findsOneWidget,
+    );
+  });
+
+  test('SN-50 BUG-02: the message uses the display title', () {
+    expect(
+      addToPlaylistMessage(
+        const PlaylistAddResult(
+          playlistName: 'Harbor',
+          added: 1,
+          alreadyPresent: 0,
+          failed: 0,
+        ),
+        [
+          _track(
+            songId: 'song_alt',
+            title: 'Original Song',
+            versionLabel: 'Alternate Remix',
+          ),
+        ],
+      ),
+      'Added "Original Song (Alternate Remix)" to Harbor.',
+    );
+  });
+
   test('bulk message counts songs no longer in the library', () {
     final tracks = [
       _track(songId: 'song_x', title: 'X'),
@@ -387,6 +450,8 @@ LibraryTrack _track({
   bool isAvailable = true,
   bool isSongBlocked = false,
   String? filePath = '/music/song.mp3',
+  String? versionLabel,
+  List<String> featured = const [],
 }) {
   return LibraryTrack(
     songId: songId,
@@ -401,7 +466,8 @@ LibraryTrack _track({
     trackNumber: 1,
     durationSeconds: 180,
     isSingle: false,
-    featuredArtists: const [],
+    featuredArtists: featured,
+    versionLabel: versionLabel,
     dateAdded: DateTime.utc(2026, 9, 30),
     filePath: filePath,
     isAvailable: isAvailable,
