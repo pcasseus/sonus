@@ -9,6 +9,7 @@ import '../../../library/domain/metadata/metadata_field_state.dart';
 import '../../../library/domain/repositories/song_artist_credit_repository.dart';
 import '../../domain/repositories/song_import_review_repository.dart';
 import '../models/import_review_queue_item.dart';
+import 'possible_recording_review_service.dart';
 
 typedef ImportReviewClock = DateTime Function();
 
@@ -19,6 +20,7 @@ class ImportReviewService {
     required TrackProfileEditingService trackProfileEditingService,
     required ArtistCreationService artistCreationService,
     required SongArtistCreditRepository songArtistCreditRepository,
+    PossibleRecordingReviewService? possibleRecordings,
     ImportReviewClock? now,
   }) : this._(
          reviewRepository,
@@ -26,6 +28,7 @@ class ImportReviewService {
          trackProfileEditingService,
          artistCreationService,
          songArtistCreditRepository,
+         possibleRecordings,
          now ?? DateTime.now,
        );
 
@@ -35,6 +38,7 @@ class ImportReviewService {
     this._trackProfileEditingService,
     this._artistCreationService,
     this._songArtistCreditRepository,
+    this.possibleRecordings,
     this._now,
   );
 
@@ -45,8 +49,22 @@ class ImportReviewService {
   final SongArtistCreditRepository _songArtistCreditRepository;
   final ImportReviewClock _now;
 
-  Future<int> countUnresolved() {
-    return _reviewRepository.countUnresolved();
+  /// Files kept out of the library as possible different recordings,
+  /// reviewed in the same place as imported songs.
+  final PossibleRecordingReviewService? possibleRecordings;
+
+  /// Songs that need review, plus pending possible different recordings.
+  Future<int> countUnresolved() async {
+    final songs = await _reviewRepository.countUnresolved();
+    var files = 0;
+
+    try {
+      files = (await possibleRecordings?.pending())?.length ?? 0;
+    } catch (_) {
+      // The device-local list never hides the songs that need review.
+    }
+
+    return songs + files;
   }
 
   Future<List<ImportReviewQueueItem>> getUnresolved() async {

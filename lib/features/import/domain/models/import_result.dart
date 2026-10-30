@@ -21,8 +21,8 @@ enum ImportSkipReason {
   /// evidence of a different recording, but listed at a different disc and
   /// track position on the same edition. It may be another recording, so the
   /// file is kept out of the library: not bound, not merged and not listed,
-  /// so the user can decide. Without new storage there is no persistent
-  /// review for a file that was not imported, so this is reported only.
+  /// so the user can decide in Import Review, from a list kept on this
+  /// device (PossibleRecordingStore).
   possibleAlternateRecording,
 }
 

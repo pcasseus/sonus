@@ -34,6 +34,7 @@ import '../../application/services/import_source_picker.dart';
 import '../../application/services/import_source_reconciliation_service.dart';
 import '../../application/services/import_workflow_service.dart';
 import '../../application/services/library_import_service.dart';
+import '../../application/services/possible_recording_review_service.dart';
 import '../../application/services/lyrics_ingestion_service.dart';
 import '../../application/services/metadata_resolver.dart';
 import '../../data/daos/import_batch_dao.dart';
@@ -49,6 +50,7 @@ import '../../data/services/file_system_import_candidate_discovery.dart';
 import '../../data/services/local_lyrics_source_reader.dart';
 import '../../data/services/media_metadata_reader.dart';
 import '../../data/services/path_fallback_metadata_reader.dart';
+import '../../data/services/possible_recording_store.dart';
 import '../../data/services/saf_import_candidate_discovery.dart';
 import '../services/file_picker_import_source_picker.dart';
 
@@ -253,21 +255,6 @@ class _ImportScopeState extends State<ImportScope> {
       appDatabase: database,
     );
 
-    final reviewService =
-        libraryQueryRepository != null &&
-            trackProfileEditingService != null &&
-            artistCreationService != null
-        ? ImportReviewService(
-            reviewRepository: reviewRepository,
-            libraryQueryRepository: libraryQueryRepository,
-            trackProfileEditingService: trackProfileEditingService,
-            artistCreationService: artistCreationService,
-            songArtistCreditRepository: SqliteSongArtistCreditRepository(
-              SongArtistCreditDao(sqliteDatabase),
-            ),
-          )
-        : null;
-
     final mediaMetadataReader = MediaMetadataReader(
       saf: Platform.isAndroid ? _saf : null,
     );
@@ -305,12 +292,36 @@ class _ImportScopeState extends State<ImportScope> {
       trackLyricsRepository: trackLyricsRepository,
     );
 
+    final possibleRecordingStore = PossibleRecordingStore();
+
     final libraryImportService = LibraryImportService(
       metadataResolver: metadataResolver,
       atomicImporter: atomicImporter,
       mediaFileBindingRepository: mediaFileBindingRepository,
       lyricsIngestionService: lyricsIngestionService,
+      possibleRecordingStore: possibleRecordingStore,
     );
+
+    final reviewService =
+        libraryQueryRepository != null &&
+            trackProfileEditingService != null &&
+            artistCreationService != null
+        ? ImportReviewService(
+            reviewRepository: reviewRepository,
+            libraryQueryRepository: libraryQueryRepository,
+            trackProfileEditingService: trackProfileEditingService,
+            artistCreationService: artistCreationService,
+            songArtistCreditRepository: SqliteSongArtistCreditRepository(
+              SongArtistCreditDao(sqliteDatabase),
+            ),
+            possibleRecordings: PossibleRecordingReviewService(
+              store: possibleRecordingStore,
+              libraryImportService: libraryImportService,
+              mediaFileBindingRepository: mediaFileBindingRepository,
+              songRepository: SqliteSongRepository(SongDao(sqliteDatabase)),
+            ),
+          )
+        : null;
 
     final batchExecutor = ImportBatchExecutor(
       libraryImportService: libraryImportService,

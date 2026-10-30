@@ -12,6 +12,8 @@ import '../../../library/domain/entities/song_artist_credit.dart';
 import '../../../library/domain/entities/release_date.dart';
 import '../../application/models/import_review_queue_item.dart';
 import '../../application/services/import_review_service.dart';
+import '../../application/services/possible_recording_review_service.dart';
+import '../../domain/models/pending_possible_recording.dart';
 
 class ImportReviewController extends ChangeNotifier {
   ImportReviewController({
@@ -43,6 +45,8 @@ class ImportReviewController extends ChangeNotifier {
   final AlbumProfileEditingService? _albumProfileEditingService;
 
   List<ImportReviewQueueItem> _items = const [];
+  List<PossibleRecordingItem> _possibleRecordings = const [];
+  final Set<String> _deferredRecordings = {};
   List<LibraryArtist> _artists = const [];
   List<LibraryAlbum> _albums = const [];
   int _currentIndex = 0;
@@ -53,9 +57,19 @@ class ImportReviewController extends ChangeNotifier {
   bool _isUpdatingAlbumArtwork = false;
   bool _isUpdatingAlbum = false;
   bool _isCreatingArtist = false;
+  bool _isHandlingRecording = false;
   Object? _error;
 
   List<ImportReviewQueueItem> get items => _items;
+
+  /// Possible different recordings still waiting, without those left for
+  /// later on this visit.
+  List<PossibleRecordingItem> get possibleRecordings => [
+    for (final item in _possibleRecordings)
+      if (!_deferredRecordings.contains(item.entry.normalizedPath)) item,
+  ];
+
+  bool get isHandlingRecording => _isHandlingRecording;
 
   List<LibraryArtist> get artists => _artists;
 
@@ -140,13 +154,18 @@ class ImportReviewController extends ChangeNotifier {
       _isUpdatingArtwork ||
       _isUpdatingAlbumArtwork ||
       _isUpdatingAlbum ||
-      _isCreatingArtist;
+      _isCreatingArtist ||
+      _isHandlingRecording;
 
   Object? get error => _error;
 
   bool get hasError => _error != null;
 
-  bool get isComplete => !_isLoading && _items.isEmpty && _error == null;
+  bool get isComplete =>
+      !_isLoading &&
+      _items.isEmpty &&
+      possibleRecordings.isEmpty &&
+      _error == null;
 
   Future<void> load() async {
     if (_isLoading) {
@@ -160,12 +179,90 @@ class ImportReviewController extends ChangeNotifier {
     try {
       _items = await _service.getUnresolved();
       _currentIndex = 0;
+      await _refreshPossibleRecordings();
       _artists = await _service.getArtists();
       _albums = await _service.getAlbums();
     } catch (error) {
       _error = error;
     } finally {
       _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> _refreshPossibleRecordings() async {
+    try {
+      _possibleRecordings =
+          await _service.possibleRecordings?.pending() ?? const [];
+    } catch (_) {
+      // The device-local list never blocks the song reviews.
+      _possibleRecordings = const [];
+    }
+  }
+
+  /// Imports a possible different recording as its own song, after the
+  /// service checks the file again.
+  Future<PossibleRecordingActionResult?> importRecordingSeparately(
+    PendingPossibleRecording entry,
+  ) {
+    return _handleRecording((service) async {
+      final result = await service.importSeparately(entry);
+
+      if (result.outcome == PossibleRecordingOutcome.imported ||
+          result.outcome == PossibleRecordingOutcome.handledByImport) {
+        try {
+          // The new song joins the songs to review.
+          await _refreshItems(preferredSongId: currentItem?.track.songId);
+        } catch (_) {
+          // The import stands; the list refreshes on the next visit.
+        }
+      }
+
+      return result;
+    });
+  }
+
+  /// Records that the file is the same recording as its song.
+  Future<bool> keepAsSameRecording(PendingPossibleRecording entry) async {
+    final result = await _handleRecording((service) async {
+      await service.markSameRecording(entry);
+      return const PossibleRecordingActionResult(
+        PossibleRecordingOutcome.stillPending,
+      );
+    });
+
+    return result != null;
+  }
+
+  /// Leaves the file for later; it stays listed for the next visit.
+  void deferRecording(PendingPossibleRecording entry) {
+    if (isBusy) return;
+
+    _deferredRecordings.add(entry.normalizedPath);
+    notifyListeners();
+  }
+
+  /// Null when nothing ran or the action failed.
+  Future<PossibleRecordingActionResult?> _handleRecording(
+    Future<PossibleRecordingActionResult> Function(
+      PossibleRecordingReviewService service,
+    )
+    action,
+  ) async {
+    final service = _service.possibleRecordings;
+
+    if (service == null || isBusy) return null;
+
+    _isHandlingRecording = true;
+    notifyListeners();
+
+    try {
+      return await action(service);
+    } catch (_) {
+      return null;
+    } finally {
+      await _refreshPossibleRecordings();
+      _isHandlingRecording = false;
       notifyListeners();
     }
   }
