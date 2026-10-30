@@ -32,6 +32,7 @@ class SyncController extends ChangeNotifier {
     SyncFailureClassifier classifyFailure = classifySyncFailure,
     SyncFailureDescriber describeFailure = describeSyncFailure,
     Future<void> Function(String userId)? grantCloudLibrary,
+    Duration runTimeout = defaultRunTimeout,
   }) : this._(
          synchronize: service.synchronize,
          statusStore: statusStore ?? SyncStatusStore(),
@@ -39,6 +40,7 @@ class SyncController extends ChangeNotifier {
          classifyFailure: classifyFailure,
          describeFailure: describeFailure,
          grantCloudLibrary: grantCloudLibrary,
+         runTimeout: runTimeout,
        );
 
   @visibleForTesting
@@ -49,6 +51,7 @@ class SyncController extends ChangeNotifier {
     SyncFailureClassifier classifyFailure = classifySyncFailure,
     SyncFailureDescriber describeFailure = describeSyncFailure,
     Future<void> Function(String userId)? grantCloudLibrary,
+    Duration runTimeout = defaultRunTimeout,
   }) : this._(
          synchronize: synchronize,
          statusStore:
@@ -61,6 +64,7 @@ class SyncController extends ChangeNotifier {
          classifyFailure: classifyFailure,
          describeFailure: describeFailure,
          grantCloudLibrary: grantCloudLibrary,
+         runTimeout: runTimeout,
        );
 
   SyncController._({
@@ -70,7 +74,12 @@ class SyncController extends ChangeNotifier {
     required this._classifyFailure,
     required this._describeFailure,
     required this._grantCloudLibrary,
+    required this._runTimeout,
   });
+
+  /// How long a run, or a request waiting behind one, is waited for before
+  /// it is reported as timed out. Generous: a first sync can be long.
+  static const Duration defaultRunTimeout = Duration(minutes: 10);
 
   final Future<SyncRunResult> Function(String userId) _synchronize;
   final SyncStatusStore _statusStore;
@@ -80,8 +89,19 @@ class SyncController extends ChangeNotifier {
   final SyncFailureClassifier _classifyFailure;
   final SyncFailureDescriber _describeFailure;
   final Future<void> Function(String userId)? _grantCloudLibrary;
+  final Duration _runTimeout;
 
+  /// Ends when the last queued service run has really ended, including a
+  /// run that went past [_runTimeout] and was no longer waited for. Runs
+  /// start one after another on it, so two runs never write at once.
   Future<void> _pending = Future<void>.value();
+
+  /// Changes when the person signs out or switches account. A run queued
+  /// for an account that is no longer signed in is never started.
+  int _sessionEpoch = 0;
+
+  final Set<Timer> _timers = {};
+  bool _disposed = false;
 
   /// A run waiting behind the current one. Further requests join it, so a
   /// burst of triggers or taps runs at most once more.
@@ -157,7 +177,10 @@ class SyncController extends ChangeNotifier {
     _ => null,
   };
 
-  Future<void> activateUser(String userId) async {
+  Future<void> activateUser(String userId) =>
+      _activate(userId, newSession: true);
+
+  Future<void> _activate(String userId, {required bool newSession}) async {
     final normalizedUserId = userId.trim();
 
     if (normalizedUserId.isEmpty) {
@@ -168,6 +191,7 @@ class SyncController extends ChangeNotifier {
       return;
     }
 
+    if (newSession) _sessionEpoch++;
     final generation = ++_activationGeneration;
 
     _currentUserId = normalizedUserId;
@@ -178,6 +202,7 @@ class SyncController extends ChangeNotifier {
     _lastResult = null;
     _retryPending = false;
     _failureKind = null;
+    _failureCode = null;
     notifyListeners();
 
     DateTime? restored;
@@ -230,33 +255,74 @@ class SyncController extends ChangeNotifier {
     final run = completer.future;
     _queued = run;
     _queuedUserId = normalizedUserId;
+    final epoch = _sessionEpoch;
+
+    // Behind a run that never ends, the caller still gets an answer within
+    // the time limit. The run keeps its place and starts when its turn
+    // comes; a later request queues a new run rather than joining this one.
+    final waitLimit = _startTimer(() {
+      if (completer.isCompleted) return;
+      if (identical(_queued, run)) {
+        _queued = null;
+        _queuedUserId = null;
+      }
+      completer.complete(false);
+    });
 
     _pending = _pending.then((_) async {
+      _cancelTimer(waitLimit);
       if (identical(_queued, run)) {
         _queued = null;
         _queuedUserId = null;
       }
 
+      var ended = Future<void>.value();
       try {
-        completer.complete(await _runSynchronization(normalizedUserId));
+        final result = await _runSynchronization(
+          normalizedUserId,
+          epoch,
+          onServiceStarted: (serviceEnded) => ended = serviceEnded,
+        );
+        if (!completer.isCompleted) completer.complete(result);
       } catch (error, stackTrace) {
-        completer.completeError(error, stackTrace);
+        if (!completer.isCompleted) completer.completeError(error, stackTrace);
       }
+
+      // The next run starts only once this one has really ended.
+      await ended;
     });
 
     return run;
   }
 
-  Future<bool> _runSynchronization(String userId) async {
-    if (_currentUserId != userId) {
-      await activateUser(userId);
+  Future<bool> _runSynchronization(
+    String userId,
+    int epoch, {
+    required void Function(Future<void> serviceEnded) onServiceStarted,
+  }) async {
+    if (_disposed) return false;
+
+    if (epoch != _sessionEpoch && _currentUserId != userId) {
+      // Requested for an account that has since been signed out or
+      // switched away from: never sign it back in behind the person.
+      _log(
+        'A queued sync for an account that is no longer active was skipped',
+        StateError('stale session'),
+      );
+      return false;
     }
 
-    // A run whose account was signed out or switched while it ran must not
-    // report into the new account's state.
+    if (_currentUserId != userId) {
+      await _activate(userId, newSession: false);
+    }
+
+    // A run whose account was signed out or switched while it ran, or whose
+    // controller was disposed, must not report into any state.
     final generation = _activationGeneration;
     bool isStale() =>
-        generation != _activationGeneration || _currentUserId != userId;
+        _disposed ||
+        generation != _activationGeneration ||
+        _currentUserId != userId;
 
     _status = SyncStatus.syncing;
     _lastError = null;
@@ -267,7 +333,7 @@ class SyncController extends ChangeNotifier {
     try {
       final SyncRunResult result;
       try {
-        result = await _synchronize(userId);
+        result = await _bounded(userId, onServiceStarted);
       } catch (error) {
         if (isStale()) return false;
         rethrow;
@@ -331,6 +397,76 @@ class SyncController extends ChangeNotifier {
     }
   }
 
+  /// The service run, waited for at most [_runTimeout]. The service cannot
+  /// be cancelled, so a run past the limit is left to end on its own and
+  /// its result is not used: it is never reported as a success. The queue
+  /// holds the next run until it has ended ([onServiceStarted]).
+  Future<SyncRunResult> _bounded(
+    String userId,
+    void Function(Future<void> serviceEnded) onServiceStarted,
+  ) {
+    final service = Future<SyncRunResult>.sync(() => _synchronize(userId));
+    onServiceStarted(service.then<void>((_) {}, onError: (Object _) {}));
+
+    final outcome = Completer<SyncRunResult>();
+    final limit = _startTimer(() {
+      if (!outcome.isCompleted) {
+        outcome.completeError(SyncRunTimedOut(_runTimeout));
+      }
+    });
+
+    service.then(
+      (result) {
+        _cancelTimer(limit);
+        if (outcome.isCompleted) {
+          developer.log(
+            'A sync run that went past its time limit has ended; its result '
+            'is not used.',
+            name: 'sonus.sync',
+            level: 900,
+          );
+          return;
+        }
+        outcome.complete(result);
+      },
+      onError: (Object error, StackTrace stackTrace) {
+        _cancelTimer(limit);
+        if (outcome.isCompleted) {
+          _log('A sync run that went past its time limit failed', error);
+          return;
+        }
+        outcome.completeError(error, stackTrace);
+      },
+    );
+
+    return outcome.future;
+  }
+
+  Timer _startTimer(void Function() onTimeout) {
+    late final Timer timer;
+    timer = Timer(_runTimeout, () {
+      _timers.remove(timer);
+      if (!_disposed) onTimeout();
+    });
+    _timers.add(timer);
+    return timer;
+  }
+
+  void _cancelTimer(Timer timer) {
+    timer.cancel();
+    _timers.remove(timer);
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    for (final timer in _timers) {
+      timer.cancel();
+    }
+    _timers.clear();
+    super.dispose();
+  }
+
   /// One line for the device log, which release builds keep (unlike
   /// developer.log): kind, code, and, for the app's own StateError or
   /// ArgumentError, its fixed developer message. Server and SDK messages
@@ -360,8 +496,10 @@ class SyncController extends ChangeNotifier {
   }
 
   void resetForSignedOut() {
+    _sessionEpoch++;
     _activationGeneration++;
     _failureKind = null;
+    _failureCode = null;
     _currentUserId = null;
     _status = SyncStatus.idle;
     _lastSuccessfulSync = null;
@@ -381,6 +519,7 @@ class SyncController extends ChangeNotifier {
 
     _lastError = null;
     _failureKind = null;
+    _failureCode = null;
 
     if (_status == SyncStatus.error || _status == SyncStatus.accountConflict) {
       _status = SyncStatus.idle;
@@ -397,4 +536,12 @@ class SyncController extends ChangeNotifier {
     _retryPending = false;
     notifyListeners();
   }
+}
+
+/// A sync run went on past the controller's time limit. The run itself is
+/// not stopped: the next run waits until it has ended, and its result is
+/// not used. Unsent changes stay in the outbox.
+class SyncRunTimedOut extends TimeoutException {
+  SyncRunTimedOut(Duration limit)
+    : super('The sync run did not finish in time.', limit);
 }

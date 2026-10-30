@@ -379,6 +379,240 @@ void main() {
 
     expect(controller.retryPending, isFalse);
   });
+  group('SN-50 reconciliation: bounded runs, one at a time', () {
+    const limit = Duration(milliseconds: 40);
+    Future<void> pastTheLimit() =>
+        Future<void>.delayed(limit + const Duration(milliseconds: 40));
+
+    test('a run that never ends is reported as timed out, with the changes '
+        'kept for a retry', () async {
+      final hung = Completer<SyncRunResult>();
+      final controller = SyncController.forTesting(
+        synchronize: (_) => hung.future,
+        countPending: (_) async => 3,
+        runTimeout: limit,
+      );
+      addTearDown(controller.dispose);
+
+      final run = controller.synchronize('user-1');
+      await Future<void>.delayed(Duration.zero);
+      expect(controller.isSyncing, isTrue);
+
+      expect(await run, isFalse);
+      expect(controller.isSyncing, isFalse);
+      expect(controller.status, SyncStatus.error);
+      expect(controller.failureKind, SyncFailureKind.timeout);
+      expect(controller.failureCode, 'SyncRunTimedOut');
+      expect(controller.lastError, isA<SyncRunTimedOut>());
+      expect(controller.retryPending, isTrue);
+      expect(controller.pendingChanges, 3, reason: 'nothing is dropped');
+      expect(controller.lastSuccessfulSync, isNull);
+    });
+
+    test('the next run never starts while a timed-out run is still going; '
+        'it starts once that run has ended', () async {
+      final hung = Completer<SyncRunResult>();
+      final starts = <int>[];
+      final controller = SyncController.forTesting(
+        synchronize: (_) {
+          starts.add(starts.length + 1);
+          return starts.length == 1 ? hung.future : Future.value(_result());
+        },
+        runTimeout: limit,
+      );
+      addTearDown(controller.dispose);
+
+      expect(await controller.synchronize('user-1'), isFalse);
+
+      // Requested behind the run that has not ended: the caller gets an
+      // answer within the limit, and no second run writes alongside.
+      final retry = controller.synchronize('user-1');
+      expect(await retry, isFalse);
+      await pastTheLimit();
+      expect(starts, [1]);
+
+      hung.completeError(StateError('ended late'));
+      await pumpEventQueue();
+
+      expect(starts, [1, 2], reason: 'the queued run ran, nothing dropped');
+      expect(controller.status, SyncStatus.success);
+      expect(controller.failureCode, isNull);
+    });
+
+    test('a run that ends after its time limit is never reported as a '
+        'success', () async {
+      final lateRun = Completer<SyncRunResult>();
+      final saved = <String>[];
+      final controller = SyncController.forTesting(
+        synchronize: (_) => lateRun.future,
+        statusStore: SyncStatusStore.forTesting(
+          getString: (_) async => null,
+          setString: (_, value) async => saved.add(value),
+        ),
+        runTimeout: limit,
+      );
+      addTearDown(controller.dispose);
+
+      expect(await controller.synchronize('user-1'), isFalse);
+      lateRun.complete(_result());
+      await pumpEventQueue();
+
+      expect(controller.status, SyncStatus.error);
+      expect(controller.failureKind, SyncFailureKind.timeout);
+      expect(controller.lastSuccessfulSync, isNull);
+      expect(controller.lastResult, isNull);
+      expect(saved, isEmpty);
+    });
+
+    test('a run within the limit is unaffected', () async {
+      final controller = SyncController.forTesting(
+        synchronize: (_) async {
+          await Future<void>.delayed(const Duration(milliseconds: 5));
+          return _result();
+        },
+        runTimeout: limit,
+      );
+      addTearDown(controller.dispose);
+
+      expect(await controller.synchronize('user-1'), isTrue);
+      await pastTheLimit();
+      expect(controller.status, SyncStatus.success);
+    });
+
+    test('signing out during a run that never ends, then back in: the new '
+        'sync waits for it and then runs', () async {
+      final hung = Completer<SyncRunResult>();
+      final starts = <String>[];
+      final controller = SyncController.forTesting(
+        synchronize: (userId) {
+          starts.add(userId);
+          return starts.length == 1 ? hung.future : Future.value(_result());
+        },
+        runTimeout: limit,
+      );
+      addTearDown(controller.dispose);
+
+      final first = controller.synchronize('user-1');
+      await Future<void>.delayed(Duration.zero);
+      controller.resetForSignedOut();
+      expect(controller.status, SyncStatus.idle);
+
+      await controller.activateUser('user-1');
+      expect(await controller.synchronize('user-1'), isFalse);
+      expect(await first, isFalse);
+      expect(starts, ['user-1'], reason: 'never two runs at once');
+      expect(
+        controller.status,
+        SyncStatus.idle,
+        reason: 'the old run is stale',
+      );
+
+      hung.complete(_result());
+      await pumpEventQueue();
+
+      expect(starts, ['user-1', 'user-1']);
+      expect(controller.currentUserId, 'user-1');
+      expect(controller.status, SyncStatus.success);
+    });
+
+    test(
+      'a run queued before sign-out never signs the account back in',
+      () async {
+        final gate = Completer<void>();
+        final starts = <String>[];
+        final controller = SyncController.forTesting(
+          synchronize: (userId) async {
+            starts.add(userId);
+            if (starts.length == 1) await gate.future;
+            return _result(userId: userId);
+          },
+        );
+        addTearDown(controller.dispose);
+
+        final first = controller.synchronize('user-1');
+        await Future<void>.delayed(Duration.zero);
+        final queued = controller.synchronize('user-1');
+
+        controller.resetForSignedOut();
+        gate.complete();
+
+        expect(await first, isFalse);
+        expect(await queued, isFalse);
+        expect(starts, ['user-1']);
+        expect(controller.currentUserId, isNull);
+        expect(controller.status, SyncStatus.idle);
+      },
+    );
+
+    test('rapid account changes: a run queued for the previous account is '
+        'skipped, and the new account syncs once', () async {
+      final gate = Completer<void>();
+      final starts = <String>[];
+      final controller = SyncController.forTesting(
+        synchronize: (userId) async {
+          starts.add(userId);
+          if (starts.length == 1) await gate.future;
+          return _result(userId: userId);
+        },
+      );
+      addTearDown(controller.dispose);
+
+      final first = controller.synchronize('user-1');
+      await Future<void>.delayed(Duration.zero);
+      final staleQueued = controller.synchronize('user-1');
+      await controller.activateUser('user-2');
+      final second = controller.synchronize('user-2');
+      gate.complete();
+
+      expect(await first, isFalse);
+      expect(await staleQueued, isFalse);
+      expect(await second, isTrue);
+      expect(starts, ['user-1', 'user-2']);
+      expect(controller.currentUserId, 'user-2');
+      expect(controller.status, SyncStatus.success);
+    });
+
+    test('the failure code is cleared with the failure', () async {
+      final controller = SyncController.forTesting(
+        synchronize: (_) => Future.error(StateError('offline')),
+      );
+      addTearDown(controller.dispose);
+
+      await controller.synchronize('user-1');
+      expect(controller.failureCode, isNotNull);
+      controller.clearError();
+      expect(controller.failureCode, isNull);
+
+      await controller.synchronize('user-1');
+      expect(controller.failureCode, isNotNull);
+      await controller.activateUser('user-2');
+      expect(controller.failureCode, isNull);
+
+      await controller.synchronize('user-2');
+      expect(controller.failureCode, isNotNull);
+      controller.resetForSignedOut();
+      expect(controller.failureCode, isNull);
+    });
+
+    test(
+      'disposing while a run is going leaves no time limit behind',
+      () async {
+        final hung = Completer<SyncRunResult>();
+        final controller = SyncController.forTesting(
+          synchronize: (_) => hung.future,
+          runTimeout: limit,
+        );
+
+        unawaited(controller.synchronize('user-1'));
+        await Future<void>.delayed(Duration.zero);
+        controller.dispose();
+
+        await pastTheLimit();
+        hung.complete(_result());
+        await pumpEventQueue();
+      },
+    );
+  });
 }
 
 SyncRunResult _result({
