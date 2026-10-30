@@ -1,9 +1,11 @@
 import '../../application/models/chart_moment_feed_item.dart';
 import '../../application/services/chart_moment_feed_pager.dart';
 import '../../domain/models/chart_type.dart';
+import '../../domain/moments/chart_moment_event.dart';
 import '../../domain/moments/chart_moment_event_type.dart';
 import '../../domain/moments/chart_moment_rules.dart';
 import '../../domain/moments/chart_moment_scope.dart';
+import '../../domain/services/chart_ranking_engine.dart';
 import 'moment_publisher.dart';
 import 'moment_facts.dart';
 import 'moment_family.dart';
@@ -126,6 +128,7 @@ class MomentEditorialDesk {
           moment.family,
           facts,
           previousVariant,
+          excluded: moment.excludedVariants,
         );
         previousVariant = story.variantId;
         stories.add(story);
@@ -151,9 +154,13 @@ class MomentEditorialDesk {
     ChartMomentFeedItem item,
     MomentFamily family,
     MomentFacts facts,
-    String? previousVariant,
-  ) {
-    final variants = MomentHeadlines.of(family);
+    String? previousVariant, {
+    Set<String> excluded = const {},
+  }) {
+    final variants = [
+      for (final variant in MomentHeadlines.of(family))
+        if (!excluded.contains(variant.id)) variant,
+    ];
     final publisher = facts.refined
         ? publisherFor(family)
         : _hash('${item.id}|publisher').isEven
@@ -468,6 +475,16 @@ class MomentEditorialDesk {
       final rise = item.events.firstWhere(
         (event) => event.eventType == ChartMomentEventType.rankRise,
       );
+      // SN-50 BUG-04: a move from Bubbling Under into the Hot 100 is a
+      // Hot 100 arrival, not a climb on it (E-Q1).
+      if (_crossesIntoHot100(rise) &&
+          rules.appliesTo(
+            scope: item.scope,
+            occurredAt: item.occurredAt,
+            weekStartUtc: item.weekStartUtc,
+          )) {
+        continue;
+      }
       final places = rise.movementDistance ?? 0;
       if (places < biggestGainerMinimumPlaces) continue;
       final key =
@@ -480,6 +497,17 @@ class MomentEditorialDesk {
       }
     }
     return {for (final entry in best.values) entry.$1.id};
+  }
+
+  static bool _crossesIntoHot100(ChartMomentEvent rise) {
+    const limit = ChartRankingEngine.officialChartLimit;
+    final before = rise.previousRank;
+    final now = rise.currentRank;
+    return rise.chartType == ChartType.songs &&
+        before != null &&
+        now != null &&
+        before > limit &&
+        now <= limit;
   }
 
   /// FNV-1a: the same text always gives the same number, on every device

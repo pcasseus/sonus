@@ -10,7 +10,12 @@ import 'moment_family.dart';
 
 /// One story the desk writes, from the facts in [item].
 class PlannedMoment {
-  const PlannedMoment(this.item, this.family, {this.mandatory = false});
+  const PlannedMoment(
+    this.item,
+    this.family, {
+    this.mandatory = false,
+    this.excludedVariants = const {},
+  });
 
   final ChartMomentFeedItem item;
   final MomentFamily family;
@@ -18,6 +23,11 @@ class PlannedMoment {
   /// A guaranteed chart entry (F-Q1/F-Q31): never limited by the daily
   /// cap on minor stories (F-Q12).
   final bool mandatory;
+
+  /// Headline ids of [family] whose wording this story's facts do not
+  /// support, such as a move "from Bubbling Under" for a song that was off
+  /// the chart last week.
+  final Set<String> excludedVariants;
 }
 
 /// The stories of one recorded group under the SN-50 rules (Session F):
@@ -31,6 +41,11 @@ class PlannedMoment {
 ///   own story, and every other zone it enters for the first time (Top
 ///   75 … Top 2, and a release's Top 100) is named in one shared story
 ///   (R3, F-Q14/F-Q14B);
+/// - a song's move between Bubbling Under and the Hot 100 is told against
+///   verified history (SN-50 BUG-04): a first Hot 100 entry is a Hot 100
+///   arrival, also when the song returns to the chart after charting only
+///   on Bubbling Under; a song back from Bubbling Under that was on the
+///   Hot 100 before is a Hot 100 re-entry. Neither is told as a climb;
 /// - #1 stories name only the verified displaced leader, and an artist
 ///   replacing their own song at #1 gets self-replacement wording;
 /// - distinct achievements of one play stay distinct stories (F-Q6/F-Q9).
@@ -62,6 +77,16 @@ class MomentStoryPlanner {
   static bool isMajorStreamMilestone(ChartMomentEvent event) =>
       (event.milestoneValue ?? 0) >= majorStreamMilestone;
 
+  /// Hot 100 arrival headlines that tell a move up from Bubbling Under
+  /// without naming last week's rank; untrue for a song that was off the
+  /// chart last week.
+  static const Set<String> fromBubblingUnderVariants = {
+    'song-break-d5',
+    'song-break-d6',
+    'song-break-p2',
+    'song-break-p4',
+  };
+
   /// Per finalized chart week, the previous week's #1 that lost the spot.
   final Map<String, ChartEntitySnapshot> _leaders;
   final Set<String> _gainers;
@@ -77,6 +102,7 @@ class MomentStoryPlanner {
       MomentFamily family,
       List<ChartMomentEvent> events, {
       bool mandatory = false,
+      Set<String> excludedVariants = const {},
     }) => stories.add(
       PlannedMoment(
         ChartMomentFeedAggregator.storyItem(
@@ -85,6 +111,7 @@ class MomentStoryPlanner {
         ),
         family,
         mandatory: mandatory,
+        excludedVariants: excludedVariants,
       ),
     );
 
@@ -154,7 +181,26 @@ class MomentStoryPlanner {
         mandatory: true,
       );
     } else if (entry != null && entry.currentRank != null) {
-      add('entry', _entryFamily(entry, albums), [entry], mandatory: true);
+      final firstHot100 = albums || debut
+          ? null
+          : _zoneEvent(
+              item,
+              ChartMomentEventType.firstThresholdEntry,
+              ChartRankingEngine.officialChartLimit,
+            );
+      if (firstHot100 != null) {
+        // Back on the chart, but never on the Hot 100 before: its first
+        // Hot 100 entry, not a Hot 100 re-entry.
+        add(
+          'entry',
+          MomentFamily.songHot100Breakthrough,
+          [firstHot100],
+          mandatory: true,
+          excludedVariants: fromBubblingUnderVariants,
+        );
+      } else {
+        add('entry', _entryFamily(entry, albums), [entry], mandatory: true);
+      }
     }
 
     // #1.
@@ -241,6 +287,20 @@ class MomentStoryPlanner {
               event.threshold != careerZone)
             event,
       ];
+      // Back from Bubbling Under to a Hot 100 it was on before: an
+      // official re-entry, never a climb from last week's rank (E-Q1).
+      final hot100Return = albums || entry != null
+          ? null
+          : _zoneEvent(
+              item,
+              ChartMomentEventType.thresholdReturn,
+              ChartRankingEngine.officialChartLimit,
+            );
+      if (hot100Return != null && hot100Return.previousRank != null) {
+        add('hot-100', MomentFamily.songReentry, [
+          hot100Return,
+        ], mandatory: true);
+      }
       final others = <ChartMomentEvent>[];
       for (final event in crossed) {
         final zone = event.threshold!;
@@ -384,6 +444,12 @@ class MomentStoryPlanner {
       : MomentFamily.songFirstThreshold;
 
   static ChartMomentEvent? _career(
+    ChartMomentFeedItem item,
+    ChartMomentEventType type,
+    int threshold,
+  ) => _zoneEvent(item, type, threshold);
+
+  static ChartMomentEvent? _zoneEvent(
     ChartMomentFeedItem item,
     ChartMomentEventType type,
     int threshold,

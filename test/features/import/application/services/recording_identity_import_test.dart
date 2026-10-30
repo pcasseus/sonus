@@ -254,6 +254,45 @@ void main() {
     expect(results[1].songId, results[0].songId);
   });
 
+  test('SN-50 Import-1: an ambiguous same-title, similar-length file is '
+      'never merged into the kept song or rewritten, also on a second '
+      'import', () async {
+    final files = {
+      'track03.mp3': errTime(seconds: 146, trackNumber: 3),
+      'track09.mp3': errTime(seconds: 147, trackNumber: 9),
+    };
+    final (importer, _) = await service(files);
+
+    final first = await importAll(importer, [
+      for (final path in files.keys) candidate(path),
+    ]);
+
+    final db = await appDatabase.database;
+    final bindings = MediaFileBindingDao(db);
+    final kept = (await SongDao(db).findAll()).single;
+    final keptBindings = await bindings.findBySongId(kept.id);
+
+    // The kept song keeps only its own file; the ambiguous file is reported
+    // against it, not bound to it, and nothing about the song changes.
+    expect(first[0].songId, kept.id);
+    expect(keptBindings.map((b) => b.filePath), ['track03.mp3']);
+    expect(kept.durationSeconds, 146);
+
+    final again = await importAll(importer, [
+      for (final path in files.keys) candidate(path),
+    ]);
+
+    final songsAfter = await SongDao(db).findAll();
+    expect(songsAfter.map((s) => s.id), [kept.id]);
+    expect(songsAfter.single.title, kept.title);
+    expect(songsAfter.single.durationSeconds, kept.durationSeconds);
+    expect((await bindings.findBySongId(kept.id)).map((b) => b.filePath), [
+      'track03.mp3',
+    ]);
+    expect(again[1].status, isNot(ImportResultStatus.imported));
+    expect(again[1].songId, kept.id);
+  });
+
   test('a duplicate file never attaches its lyrics to the kept song', () async {
     final files = {
       'kept.mp3': errTime(seconds: 146),

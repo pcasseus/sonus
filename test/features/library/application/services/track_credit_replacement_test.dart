@@ -276,6 +276,23 @@ void main() {
     expect(await legacyFeatured(), ['New Guest']);
   });
 
+  test('SN-50: opening the editor on older featured names rewrites nothing '
+      'until a save', () async {
+    await _setLegacyFeatured(db, ['Old Guest', 'Second Guest']);
+    final rowsBefore = await creditRows();
+
+    for (var i = 0; i < 2; i++) {
+      final drafts = await reopen();
+      expect(drafts.map(describe), [
+        'featured:Old Guest:null',
+        'featured:Second Guest:null',
+      ]);
+    }
+
+    expect(await legacyFeatured(), ['Old Guest', 'Second Guest']);
+    expect(await creditRows(), rowsBefore);
+  });
+
   test('an older featured name the credits lack is shown before it can be '
       'dropped', () async {
     await save([featuredBen]);
