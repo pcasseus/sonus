@@ -529,9 +529,9 @@ The Dart tests in §4.3; an engine test for D-Q16 (completed → paused at last 
 | R-1 | Unedited ringtone: original URI only (recommended) / with consented `IS_RINGTONE` write / always copy |
 | R-2 | Ringtone below API 29: disable (recommended) or add `WRITE_EXTERNAL_STORAGE` maxSdk 28 |
 | R-3 | Editing engine: platform `MediaCodec`/`MediaMuxer` (recommended) or a named package |
-| M-1 | Play after a completed queue: replay final track, or restart queue; resting position shown |
-| M-2 | End Session keeps queue and position (recommended), or clears it |
-| M-3 | Dart-side media changes in §4.1 (custom shuffle/repeat, Stop removed, explicit overrides, resume id, restore-then-play, end-of-queue pause) |
+| M-1 | Play after a completed queue: replay final track, or restart queue; resting position shown. **Resolved:** replay the final track (R4, `db79c4e`). |
+| M-2 | End Session keeps queue and position (recommended), or clears it. **Implemented as recommended** in `9547ef0` (D-Q3/D-Q6); explicit sign-off pending. |
+| M-3 | Dart-side media changes in §4.1 (custom shuffle/repeat, Stop removed, explicit overrides, resume id, restore-then-play, end-of-queue pause). **Implemented** in `9547ef0` under D-Q1/D-Q3/D-Q6/D-Q10/D-Q12/D-Q16; reconciled in SN-50 round 5 (F7); explicit sign-off pending. |
 | M-4 | Vendor Patch 2: wake lock released on pause and stop |
 | M-5 | Vendor Patch 3: Android ≤ 12 custom notification actions |
 

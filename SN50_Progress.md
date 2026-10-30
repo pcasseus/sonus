@@ -462,6 +462,97 @@ Authority: `C:\dev\sonus\SN50_BUG04_Import_Final_Decisions_Claude_Handoff.md`. T
 - The main session ran one full suite per code batch, never overlapping.
 - The boundary check passed after both batches, and SN-49 is still `36d4d5d` with only its seven registrant files.
 
+## Round 5 (2026-10-30): code-integrity audit corrections
+
+**Audit.** The read-only audit at `ce51bd2` checked whether the global web-development `CLAUDE.md` (Tailwind, TypeScript, HTML, SEO, web performance) influenced Sonus. It found no contamination:
+- no web dependencies or APIs in `pubspec.yaml` or `lib/`;
+- every SN-50 code commit traces to an approved decision;
+- accessibility work is Flutter-native (48 dp targets, `MediaQuery.disableAnimationsOf`).
+
+The `claudeMdExcludes` setting in `.claude/settings.local.json` keeps that file out of SN-50 sessions. No rollback was warranted. Findings F1–F8 were authorized as below.
+
+| Commit | Batch | Full suite (`--concurrency=1`) |
+|---|---|---|
+| `420d5d5` | F1 import identity; F2 duplicate queue keys | 4,967 passed, 0 failed (analyzer clean) |
+
+**F1 — confirmed defect, fixed.** In `atomic_library_importer.dart`, the "another disc/track position on the same edition" check ran only when the existing song had an available file. If that song's file was missing, or it had none, an ambiguous file fell through to the relink or bind path. The song then played a file that might be a different recording, carrying its plays and chart history. This contradicted Import-1 ("never written").
+
+When the song's own position on this edition is known (`track_number > 0`) and the file's differs, the importer now returns `possibleAlternateRecording` before any binding is considered, whatever the file state. A file at the same position still relinks or binds as before. No schema or Import Review change.
+
+- **Unknown position:** a song listed on the edition with no known position (track 0, as restored or older listings can be) gives no positional evidence. A missing file there still relinks, so the recovery relink on a new device is unaffected.
+- **Available file:** the reporting label is unchanged from round 4 (`atOtherPosition`).
+- **First attempt:** the first version also blocked unknown positions. The full suite caught it with 4 failures in `recovery_audio_service_test.dart` (relink-only on a restored library); it was refined before committing.
+
+The round 4 line "Existing songs … are never … relinked" was true only while the song's file was available. It now holds in every case.
+
+Tests (`recording_identity_import_test.dart`, group "SN-50 F1"):
+- missing file, other position: not relinked, and the song row and binding are unchanged;
+- no file, other position: not bound;
+- reported again on a later import;
+- missing file, same position: still relinks;
+- missing file listed with no known position: still relinks (recovery guard);
+- no file, same position: still binds.
+
+The three ambiguity tests fail on the pre-fix importer.
+
+**F2 — duplicate queue keys, fixed.** `playback_queue_page.dart` keyed rows by `songId`. A song queued twice, which multi-select "Add to queue" makes easy, gave `ReorderableListView` duplicate keys.
+
+The queue model has no per-entry identity: `PlaybackTrack` equality is by `songId`, and the persisted session, the engine and the media session are index-based. Adding an entry id would have changed the persisted queue, so rows are instead keyed by occurrence: `songId` for the first copy and `songId#n` for the nth. A distinct song keeps its key through moves, removals and display refreshes. The model, engine, persistence, media session and stream attribution are unchanged.
+
+Tests (`playback_queue_duplicate_entries_test.dart`, real engine over the simulated player):
+- rows render;
+- an appended copy gets its own row;
+- removing one copy, and removing the playing copy;
+- dragging a copy;
+- the screen-reader Move up action;
+- tapping the later copy plays index 2.
+
+All 7 fail on the pre-fix page.
+
+**F8 — verified, no defect.** Activation of the refined Moments rules uses the approved mechanism:
+- `MomentRulesActivation.buildApproved = bool.fromEnvironment('SONUS_MOMENTS_REFINED_APPROVED')` (`moment_rules_activation.dart`). Unapproved builds return `ChartMomentRules.legacy` and never read or write the store.
+- A write-once, per-install marker, `charts.moments.rules_activated_utc` (`shared_preferences_moment_rules_activation_store.dart`). It is written once, read back before use, and never moved; an unreadable value is never replaced.
+- One shared instance per process (`charts_scope.dart` `_deviceRulesActivation`).
+
+The fixed `refinedFromUtc = DateTime.utc(2026, 11, 1)` was removed in `8d2cbfe`. `2026-11-01` now appears only as instants injected by tests. The two other dates in `charts_scope.dart` predate SN-50 (SN-34 weekly activation week, SN-45 all-time Moments) and are unrelated.
+
+Tests: `moment_rules_activation_test.dart` (7) and `shared_preferences_moments_stores_test.dart`. BLOCKED #9 was stale and is updated.
+
+Release note: no committed config sets the flag. `config/` holds only `sonus.dev.example.json`, so a release build uses the earlier rules until the flag is added (README).
+
+**F3–F6 — investigated, documented, not implemented.** Each was confirmed by reading the code at the lines below. All are low severity.
+
+| ID | Risk | Evidence | How it happens | Recommended correction |
+|---|---|---|---|---|
+| F3 | A credit-edit display refresh is lost if it lands during a queue edit | `just_audio_playback_engine.dart` `insertTrackAt` (`updatedQueue` built at :326, emitted at :331 after `await insertAudioSource`); same pattern in `removeTrackAt` (:367/:375) and `moveTrack` (:406/:414). `refreshTrackDisplay` (:339) emits synchronously. | Edit a queued song's credits while an insert, remove or move awaits the player. The stale `updatedQueue` overwrites the refreshed titles until the next library edit. | After the await, rebuild from the current `_state.queue` (apply the same insert, remove or move to it), or re-apply display fields before emitting. |
+| F4 | Fast double taps on system Shuffle or Repeat lose a toggle | `sonus_audio_handler.dart:216-226` reads `c.currentState.shuffleEnabled` / `repeatMode.next` before awaiting the engine. | Two custom-action callbacks arrive before the first emit; both compute the same target. | Serialize custom actions on one `Future` chain, or track the pending target in the handler. |
+| F5 | Play within the last second of the last song restarts it | `just_audio_playback_engine.dart:171-186` `_isAtEndOfQueue`: paused, no next, position ≥ duration − 1 s. | Repeat off, last song, pause at e.g. 2:59.4 of 3:00, then Play: it replays from 0:00 instead of finishing. | Use the 1 s allowance only after a restore seek (a flag set by restoration), or narrow it to about 250 ms. |
+| F6 | Interrupted finalization; repository has no freeze check | `chart_finalization_service.dart:250-253` publishes Moments before `replaceSnapshot`. `sqlite_chart_repository.dart` `replaceSnapshot` checks only revision order, not `finalized_at`. | The app stops between the two writes. The next pass rebuilds the week from the library as it then is, and publish-once keeps the earlier Moments, so the stored week can disagree with them. Today only the service's `isFinalized` guard protects stored weeks. | One transaction for both writes, or skip publishing when the week has no snapshot and Moments already exist. Make the repository refuse to change a finalized week. Persistence change: needs authorization. |
+
+**F7 — documentation reconciled (no code change).** Every Dart-side media-session behavior traces to an approved decision:
+
+| Behavior | Commit | Approved decision |
+|---|---|---|
+| Shuffle and Repeat custom controls | `9547ef0` | D-Q1 |
+| Visible Stop removed; End Session added | `9547ef0` | D-Q3 |
+| End Session and dismissal keep queue and position | `9547ef0` | D-Q6 |
+| Removing Sonus from Recents keeps state | `9547ef0` | D-Q10 |
+| Repeat cycles Off → All → One | `9547ef0` | D-Q12 |
+| Paused at the end of the queue, single count | `9547ef0` | D-Q16 |
+| Finished queue persisted; Play replays the last song | `db79c4e` | R4, which resolves D-Q16's M-1 as option (a) |
+
+- The D-Q16 row in the traceability file, marked "Partial, M-1 open", was stale and is updated.
+- M-2 (End Session keeps the queue) matches the design's recommended option and D-Q6.
+- M-3 (Dart-side changes) is covered by the decisions above.
+- Still gated: vendor patches M-4 (wake lock) and M-5 (Android ≤12 actions), and device QA M-6. `third_party/audio_service` is unchanged since SN-49.
+
+### Workflow (round 5)
+
+- The main session made the F1/F2 changes and ran targeted tests: `test/features/import` (405 passed) and the new queue test (7 passed). Each new test was also run against the pre-fix file, which was restored byte-for-byte afterwards.
+- Then `dart format` (clean) and `flutter analyze` (no issues).
+- First full suite: 4,962 passed, 4 failed (recovery relink, see F1). After the refinement, `test/features/import` + `test/features/recovery` gave 782 passed, then a second full suite gave the result in the table.
+- The seven registrant files (line-ending churn) were left as they were and not committed.
+
 ## BLOCKED_NEEDS_APPROVAL / user decisions
 
 1. **DB v41 on real devices.** The migration runs on a phone's real database the first time a build containing `2a10990` is installed. Take a `.sonusbackup` before any install. Installing is a separate approval.
@@ -472,12 +563,15 @@ Authority: `C:\dev\sonus\SN50_BUG04_Import_Final_Decisions_Claude_Handoff.md`. T
 6. **Open question (A-Q12).** In an edition view, should a song's custom artwork or the edition cover come first? Currently the song's custom artwork wins.
 7. **Editorial proposal.** P-001 to P-050 and N-1 to N-7 await line-by-line approval, plus the four open questions in its §6.
 8. **E-Q19 remainder.** Should finalized weeks also exclude songs and albums no longer in the local library? If yes, plays synced from another device for songs not imported locally would drop out of new finalized weeks, and the SN-32 test "finalized history uses playback-session identity even when song is no longer in library" changes meaning.
-9. **Moments gate date.** New Moment rules start on 2026-11-01 UTC (fixed). It should match the real release date; the alternative is a per-install marker.
+9. ~~**Moments gate date.**~~ **Resolved by `8d2cbfe` (R2), verified in round 5 (F8):** there is no fixed date. Activation needs the `SONUS_MOMENTS_REFINED_APPROVED=true` build flag plus the write-once per-install marker. What remains is item 21.
 10. **Major-zone noise.** A jump straight to #1 can yield the #1 story, Top 2/3/5/10 stories and a consolidated story (6–7 stories). Should majors below the final major be folded into one?
 11. **Old-story repair.** Should already-published stories get the rival fix and the "this stream" removal? That counts as a historical repair, which needs separate approval.
 12. **New template copy.** The 27 new lines (families N-2 to N-6, listed in the 6a report and `moment_headlines.dart`) are drafts awaiting approval and expansion to 6+6 lines.
 13. **Destructive workflows.** Approve or adjust `SN50_Destructive_Workflows_Design.md` §6 items A-T0 to A-T6 (Trash and purge), P-1 to P-5 (Delete from Phone), R-1 to R-3 (ringtones) and M-1 to M-6 (media session, plugin patches 2/3, device QA).
 14. **M-2/M-3 confirmation.** `9547ef0` implemented End Session (keeping the queue) and the Dart-side media-session changes under the approved D-Q3/D-Q6/D-Q1 decisions. The destructive-workflows design doc had listed them as approval items, so please confirm or ask for changes. Device QA and plugin patches were not done.
+    - **Round 5 (F7):** reconciled in documentation. Every behavior traces to an approved D-Q decision or R4, and M-1 is resolved by R4 (`db79c4e`).
+    - An explicit M-2/M-3 sign-off remains yours to give.
+    - M-4/M-5 (vendor patches) and M-6 (device QA) stay gated.
 15. **Round 2 decisions to confirm:**
     - ~~F-Q7 1,000-stream threshold~~: **approved** (handoff rule 6) and pinned by tests in round 4.
     - The BUG-01 mirror policy, which changes C-Q4.
@@ -486,3 +580,6 @@ Authority: `C:\dev\sonus\SN50_BUG04_Import_Final_Decisions_Claude_Handoff.md`. T
 17. **BUG-04 copy** (selection rules approved in round 4; wording is not): **see `SN50_BUG04_Editorial_Approval_Sheet.md` BU-001 to BU-071.** It supersedes the N-8 to N-11 samples. Earlier note: Editorial §7 N-8 (Hot 100 → Bubbling Under drop, proposed rule: Top 40 peak or 5+ Hot 100 weeks), N-9 (extra Bubbling Under climb, proposed: 25+ places, at most one a week), N-10 (recommend no story for falls within Bubbling Under), N-11 (optional arrival wording citing last week's Bubbling Under rank), and the §7.2 review of `song-break-p3`.
 18. **BUG-03 type label:** keep deriving the Other label from the name, or approve a schema change for a stored custom type label.
 19. **Import Review persistence for ambiguous same-title files** (round 4): it needs a pending-file record, or a new review reason plus a file-path payload. Either is a schema/data-contract change. Until approved, these files are reported in the import result only.
+    - Since round 5 (F1), this also holds when the existing song's file is missing or absent.
+20. **Audit hardening F3–F6** (round 5): documented in Round 5 with evidence and fixes, not implemented. F6 (finalization transaction and repository freeze check) is a persistence change.
+21. **Refined Moments release flag:** no committed config sets `SONUS_MOMENTS_REFINED_APPROVED`, so release builds use the earlier rules until it is added to the release config, once the rules are approved for release.

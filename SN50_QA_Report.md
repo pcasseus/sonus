@@ -1,6 +1,6 @@
 # SN-50 QA Report
 
-Branch `sn-50-final-refinement`, worktree `C:\dev\sonus\sonus_next_sn50`. Base `36d4d5d`. Round 1 ended at `14b592f`; refreshed 2026-10-30 at code HEAD `83a7d96` (round 4; none pushed).
+Branch `sn-50-final-refinement`, worktree `C:\dev\sonus\sonus_next_sn50`. Base `36d4d5d`. Round 1 ended at `14b592f`; refreshed 2026-10-30 at code HEAD `420d5d5` (round 5, audit corrections; none pushed).
 
 ## 1. Analyzer and test suite
 
@@ -9,7 +9,8 @@ Branch `sn-50-final-refinement`, worktree `C:\dev\sonus\sonus_next_sn50`. Base `
 | Baseline `36d4d5d` (SN-50 worktree, before edits) | No issues | **4,462 passed, 0 failed** |
 | `14b592f` (end of round 1) | No issues | **4,798 passed, 0 failed** |
 | `2e485ae` (BUG-04, round 3) | No issues | 4,941 passed, 0 failed |
-| `83a7d96` (round 4, latest code) | No issues | **4,954 passed, 0 failed** |
+| `83a7d96` (round 4) | No issues | 4,954 passed, 0 failed |
+| `420d5d5` (round 5: audit F1/F2, latest code) | No issues | **4,967 passed, 0 failed (analyzer clean)** |
 
 The suite has **336 more tests**. Nothing was dropped silently: a few tests that encoded replaced semantics were swapped for tests of the new rule. For example, Phase 1 replaced the two "replace finalized Moments" repository tests with publish-once tests.
 
@@ -121,6 +122,8 @@ These are spec-driven, not bugs, but the user will notice them:
   - a Hot 100 return from Bubbling Under gets a re-entry story (BUG-04);
   - every Bubbling Under climb of 20+ places is a story (round 4).
 - The import result shows "Possible different recordings (not imported)" for same-title files at another track position. They were previously counted as plain duplicates (round 4).
+- Since round 5 (F1), a song whose own file is missing or absent is no longer relinked or bound to a file at another **known** track position on its edition. It is reported the same way. A file at the same position, or for a song listed with no known position (restored libraries), still relinks.
+- The queue shows a song queued twice as two independent rows (round 5, F2). Previously that gave the reorderable list duplicate keys.
 
 ## 8. Environment left untouched
 
@@ -147,5 +150,7 @@ These are spec-driven, not bugs, but the user will notice them:
 - **Destructive workflows:** Trash, Delete from Phone and ringtones are design only (`SN50_Destructive_Workflows_Design.md`).
 - **Copy:** editorial line-by-line approval of the existing copy, the 27 new draft lines and the BUG-04 drafts (Editorial §7).
 - **BUG-03 and BUG-04 on a device:** verified by widget and pipeline tests only.
+- **Audit hardening F3–F6** (round 5): confirmed by code reading only. Not implemented, by instruction. See Progress Round 5.
+- **Refined Moments in a release build:** activation is verified by unit tests (F8). No committed config sets `SONUS_MOMENTS_REFINED_APPROVED`.
 
 **Production is not complete:** release signing, `versionCode`, Supabase migrations and device QA are still release blockers, as in the audit (Part I §9).

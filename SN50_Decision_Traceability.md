@@ -155,6 +155,16 @@ Main test file: `library/presentation/pages/artist_profile_session_b_test.dart` 
 
 Dart-side work is in `9547ef0`. Every row also needs device QA (Design §4.2, approval M-6) before release. Design §6.1 listed M-2 (End Session keeps the queue) and M-3 (Dart-side media changes) as approve-before-implementation items. `9547ef0` implements both. Confirm those approvals were given.
 
+**Round 5 (F7) reconciliation:** every implemented behavior traces to an approved decision, so no unapproved media-session behavior was found:
+- custom Shuffle/Repeat (D-Q1);
+- Stop removed and End Session added (D-Q3);
+- End Session and dismissal keep the queue (D-Q6, which is M-2's recommended option);
+- Recents removal changes nothing (D-Q10);
+- Repeat cycles Off → All → One (D-Q12);
+- paused at the end of the queue, and Play replays the last song (D-Q16 plus R4).
+
+An explicit M-2/M-3 sign-off is still the user's to give. M-4/M-5 (vendor patches) and M-6 (device QA) remain gated, and `third_party/audio_service` is unchanged since SN-49.
+
 | ID | Decision (short) | Status | Commit(s) | Tests / evidence | Notes |
 |---|---|---|---|---|---|
 | D-Q1 | Request Shuffle, Prev, Play/Pause, Next, Repeat | Implemented+tested | `9547ef0` | `media_session_state_mapper_test.dart`, `media_session_wiring_test.dart` | Custom actions, plus 5 drawables kept via `keep.xml`. One UI placement is device QA. |
@@ -172,7 +182,7 @@ Dart-side work is in `9547ef0`. Every row also needs device QA (Design §4.2, ap
 | D-Q13 | External Shuffle/Repeat follow "Remember" | Implemented+tested | `9547ef0` | `system_controls_regression_test.dart` "(D-Q13)" | |
 | D-Q14 | Android ≤12 Shuffle/Repeat via a vendor patch | Gated (plugin) | — | Design §4.1, vendor Patch 3, approval M-5 | |
 | D-Q15 | End Session in the Now Playing overflow and the mini-player menu | Implemented+tested | `9547ef0` | `shell_playback_slot_test.dart` (overflow, long press, screen-reader action), `sonus_mini_player_test.dart` | |
-| D-Q16 | Completed queue stays paused on the last track; no double count | Partial | `9547ef0` | `system_controls_regression_test.dart` "the end of the queue with Repeat off (D-Q16)" | Paused-at-end and the single count are done. **Missing:** the saved session is still cleared on completion, so a finished queue doesn't survive a restart. **Open question M-1:** Play after the end currently does nothing (pinned). |
+| D-Q16 | Completed queue stays paused on the last track; no double count | Implemented+tested | `9547ef0`, `db79c4e` | `system_controls_regression_test.dart` "the end of the queue with Repeat off (D-Q16)", R4 engine and handler tests | Paused-at-end and the single count in `9547ef0`. Since `db79c4e` (R4), the finished session is kept across a restart, and Play after the end replays the last song from 0:00 (M-1 resolved as option (a)). Reconciled in round 5 (F7). |
 | D-Q17 | One authoritative queue shared with Android Auto | No change needed | — | One queue already published to the session (Design §4.1, `media_session_state_mapper.dart:104-112`) | Car-side editing is device QA. |
 | D-Q18 | Queue: subtle atmosphere, highlighted row, no big summary | Implemented+tested | `9547ef0`, `d27aa50` | `shell_playback_slot_test.dart` "(D-Q18)"; `playback_queue_atmosphere_test.dart` | Flat under Decoration Off, High Contrast and Low Effects. |
 | D-Q19 | Mini-player interactive behind nonblocking overlays | Deferred | — | — | Progress Ph8. |
@@ -255,9 +265,9 @@ Not done (by design):
 
 ## 8. Open questions and choices to confirm (collected)
 
-From Progress BLOCKED_NEEDS_APPROVAL: #1 DB v41 on real devices (install approval) · #2 B-Q19 cloud · #3 signed-out edition delete · #4 pre-`e4027e7` unqueued placements (re-queue repair) · #5 A-Q7D repairs · #6 A-Q12 edition-view precedence · #7 editorial P-001–P-050 / N-1–N-7 · #8 E-Q19 library-missing exclusion · #9 Moments gate date · #10 major-zone noise · #11 old-story repair · #12 new template copy · #13 Design §6 approvals (A-T0…A-T8, P-1…P-7, R-1…R-4, M-1…M-7).
+From Progress BLOCKED_NEEDS_APPROVAL: #1 DB v41 on real devices (install approval) · #2 B-Q19 cloud · #3 signed-out edition delete · #4 pre-`e4027e7` unqueued placements (re-queue repair) · #5 A-Q7D repairs · #6 A-Q12 edition-view precedence · #7 editorial P-001–P-050 / N-1–N-7 · #8 E-Q19 library-missing exclusion · ~~#9 Moments gate date~~ (resolved: build flag plus per-install marker, `8d2cbfe`; verified in round 5, F8) · #10 major-zone noise · #11 old-story repair · #12 new template copy · #13 Design §6 approvals (A-T0…A-T8, P-1…P-7, R-1…R-4, M-1…M-7).
 
-Also: D-Q16 M-1 (Play after a completed queue) · C-Q2 Track Studio auto-link policy · Editorial §6 Q1–Q4 · confirm M-2/M-3 were approved before `9547ef0`.
+Also: ~~D-Q16 M-1 (Play after a completed queue)~~ (resolved by R4, `db79c4e`) · #20 audit hardening F3–F6 · #21 refined-Moments release flag not set in any config · C-Q2 Track Studio auto-link policy · Editorial §6 Q1–Q4 · confirm M-2/M-3 were approved before `9547ef0`.
 
 ## 9. Cross-cutting requirements (§0, 1–8)
 
@@ -320,6 +330,6 @@ Updated after `14b592f`: A-Q6A, A-Q6B, C-Q5 and C-Q12 are now Implemented+tested
 | BUG-05 "Ft." connector | User message | Implemented+tested | `7dac818` | `song_credit_line_test.dart` | |
 | BUG-03 Other edition with its own name | Addendum | Implemented+tested | `0f4bb30` | `release_display_title_test.dart`, `release_studio_editions_test.dart` "SN-50 BUG-03", `album_profile_design_test.dart`, player mapper/refresher/media-session tests | Uses `album_editions.title`; no schema change. A separate custom *type label* would need a column: design choice for you. |
 | BUG-04 Bubbling Under and Hot 100 arrivals | Addendum + round-4 handoff | Partial (copy gated) | `2e485ae`, `59a33bd` | `bubbling_under_moments_test.dart` | Done with existing copy: Bubbling Under debut, Bubbling Under re-entry, first Hot 100 entry (also after a return with only Bubbling Under history), Hot 100 re-entry from Bubbling Under, no cross-chart biggest gainer, idempotence, earlier weeks unchanged. Gated: drops, rises beyond the biggest gainer and falls (Editorial §7, N-8 to N-11). |
-| Import-1 same-title, similar-length files | SN-44 carry-over, handoff rule 5 | Partial (Review blocked) | `2e485ae`, `83a7d96` | `recording_identity_import_test.dart`, `import_result_card_test.dart`, `import_execution_summary_test.dart` | Distinct recordings with evidence import separately; re-import idempotent; ambiguous files (another position) reported as possible different recordings, never written. Import Review for them needs new persistence (Progress BLOCKED #19). |
+| Import-1 same-title, similar-length files | SN-44 carry-over, handoff rule 5 | Partial (Review blocked) | `2e485ae`, `83a7d96`, `420d5d5` | `recording_identity_import_test.dart` (incl. group "SN-50 F1"), `import_result_card_test.dart`, `import_execution_summary_test.dart` | Distinct recordings with evidence import separately; re-import idempotent; ambiguous files (another position) reported as possible different recordings, never written. Since `420d5d5` (round 5, F1), this holds even when the existing song's file is missing or absent: it is never relinked or bound to the ambiguous file. Import Review for them needs new persistence (Progress BLOCKED #19). |
 | Round 4 BU rises 20+ / falls 30+ / notable exits | Handoff rules 1–3 | Rises: Implemented+tested; falls and exits: Gated (editorial) | `59a33bd` | `bubbling_under_moments_test.dart` "approved BUG-04 rules" group | Falls and exits are detected (`copyGated`) and never published; copy in the approval sheet. |
 | Round 4 Hot 100 debut / re-entry with BU context | Handoff rule 4 | Implemented+tested; naming last week's BU rank: Gated (editorial) | `2e485ae`, `59a33bd` | `bubbling_under_moments_test.dart` | F05-PP-03 is no longer chosen for these stories; its text is unchanged. Approval sheet BU-001, BU-002, BU-010 to BU-015. |

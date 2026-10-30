@@ -1,10 +1,10 @@
 # SN-50 Restart Instructions (for a fresh Claude Code session)
 
-## State at handoff (2026-10-30, after round 4)
+## State at handoff (2026-10-30, after round 5)
 
 - **Worktree:** `C:\dev\sonus\sonus_next_sn50`. **Branch:** `sn-50-final-refinement` (local only, never pushed).
-- **Last code commit:** `83a7d96` (round 4 import). A docs-only commit with the refreshed reports sits on top of it; check with `git log --oneline -3`.
-- **Last full suite:** **4,954 passed, 0 failed** (`flutter test --concurrency=1`, at `83a7d96`). `flutter analyze`: no issues. Formatting clean on all changed files.
+- **Last code commit:** `420d5d5` (round 5: audit F1 import identity, F2 duplicate queue keys). A docs-only commit with the refreshed reports sits on top of it; check with `git log --oneline -3`.
+- **Last full suite:** **4,967 passed, 0 failed (analyzer clean)** (`flutter test --concurrency=1`, at `420d5d5`). `flutter analyze`: no issues. Formatting clean on all changed files.
 - **Uncommitted changes:** none (only the seven LF-churn registrant files, which are never committed).
 - **SN-49:** `C:\dev\sonus\sonus_next_sn49` @ `36d4d5d`, showing only its seven registrant files, unchanged.
 - **Other worktrees:** unchanged from the baseline snapshot.
@@ -17,11 +17,14 @@
 | Round 1 | `8956e3a` `1a017eb` `e4027e7` `2a10990` `1bce919` `70fdf64` `3dbaaa0` `78750b3` `ba2d575` `9aee76d` `081d4ab` `9547ef0` `14b592f` `91e5ab0` (docs) |
 | Round 2 | `430700d` (R1) `8d2cbfe` (R2/R6) `9a5cdbb` (R3) `db79c4e` (R4) `d27aa50` (partials) `7dac818` (BUG-01/05) `4b6abbf` (BUG-02) `3080338` (docs) |
 | Round 3 | `0f4bb30` (BUG-03) `2e485ae` (BUG-04 + Import-1 / legacy-featured tests) `91f60c1` (docs) |
-| Round 4 | `59a33bd` (BU rules, milestone tests) `83a7d96` (possible different recordings) + docs/approval sheet |
+| Round 4 | `59a33bd` (BU rules, milestone tests) `83a7d96` (possible different recordings) `ce51bd2` (docs/approval sheet) |
+| Round 5 | Read-only code-integrity audit at `ce51bd2`: no web-instruction contamination, no rollback. `420d5d5` (F1 + F2) + docs (F3–F6 documented, F7 reconciled, F8 verified) |
 
 ## Next steps
 
-All safe work is done. What remains needs the user's decisions (`SN50_Progress.md` → BLOCKED_NEEDS_APPROVAL 1–19):
+All safe work is done. What remains needs the user's decisions (`SN50_Progress.md` → BLOCKED_NEEDS_APPROVAL 1–21). Do not repeat the round 5 audit or reopen settled decisions.
+
+The user's next priorities, in order:
 
 1. **`SN50_BUG04_Editorial_Approval_Sheet.md`** (BU-001 to BU-071). Once lines are approved:
    - wire sections D and E from `MomentStoryPlanner.copyGated` (ids `#bu-fall` and `#hot-100-exit`) as new families;
@@ -29,7 +32,12 @@ All safe work is done. What remains needs the user's decisions (`SN50_Progress.m
    - add the C variants to F05.
    - A family needs 6 SD + 6 PP approved lines to ship.
 2. **Import Review persistence** for possible different recordings (BLOCKED #19). It needs schema approval.
-3. A **custom type label for BUG-03** needs schema approval.
+3. **SN-50 final release-readiness review.** Known inputs:
+   - F3–F6 hardening, documented in Progress Round 5, needs authorization; F6 is a persistence change;
+   - the refined-Moments release flag is set in no config (#21);
+   - M-2/M-3 sign-off (#14);
+   - device, cloud and destructive gates.
+4. A **custom type label for BUG-03** needs schema approval.
 
 ## Verification workflow (user-approved)
 
@@ -76,6 +84,9 @@ flutter test --concurrency=1 --reporter=compact > $env:TEMP\sn50_full.txt 2>&1
 - **Live playback display refresh:** `PlaybackDisplayRefresher` (in `PlaybackScope`) listens for library edits and calls `PlaybackCoordinator.refreshTrackDisplay`. It changes only display fields (`displayTitle`, `displayArtist`, `displayAlbum`), never position, session or the history fields.
 - **Edition labels:** `editionTypeLabel` / `editionLabel` in `release_display_title.dart`. An Other edition's label is derived from its title (BUG-03).
 - **Bubbling Under ↔ Hot 100 Moments (BUG-04):** in `MomentStoryPlanner` (entry and `hot-100` stories, `fromBubblingUnderVariants`) and `MomentEditorialDesk._biggestGainers` (`_crossesIntoHot100`). Refined rules only.
+- **Import identity (round 5, F1):** in `AtomicLibraryImporter`, `atKnownOtherPosition` runs **before** any binding check: the song's position on this edition is known and the file's differs. A missing or absent file then never relinks or binds to it. An unknown position (track 0) still relinks, which recovery depends on (`recovery_audio_service_test.dart`).
+- **Queue rows (round 5, F2):** `playback_queue_page.dart` keys rows by occurrence (`songId`, then `songId#n`) through `_QueueContent.entryIds`. The queue model has no entry id, and `PlaybackTrack ==` compares `songId`. Engine, persistence and media session are index-based.
+- **Claude config:** `.claude/settings.local.json` `claudeMdExcludes` keeps the global web-development `~/.claude/CLAUDE.md` out of SN-50 sessions. It applies only in this worktree.
 - **Credits:** Track Studio and Import Review load structured credits plus any older `featured_artists` names not covered. Save writes the mirror from the saved featured credits. Linking only happens through the picker.
 - **Charts and missing music (R1):** `play_time_identity.dart` names entities missing from the library from their last playback session. Only blocked songs are excluded, consistently across Career standings, This Week and finalization.
 - **DB is v41** (Leaked). No schema changes are authorized; anything needing one goes under BLOCKED.
