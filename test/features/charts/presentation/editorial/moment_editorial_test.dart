@@ -1067,6 +1067,85 @@ void main() {
       ]),
     );
 
+    List<MomentStory> climbWithMilestone(
+      int milestone, {
+      ChartMomentEventType type = ChartMomentEventType.lifetimeStreamMilestone,
+    }) => desk.compose(
+      items([
+        event(
+          ChartMomentEventType.rankRise,
+          entity: song('s1'),
+          rank: 40,
+          previousRank: 80,
+          streams: milestone,
+          at: after,
+        ),
+        event(
+          type,
+          entity: type == ChartMomentEventType.artistStreamMilestone
+              ? artistEntity('artist-a')
+              : song('s1'),
+          milestone: milestone,
+          streams: milestone,
+          at: after,
+        ),
+      ]),
+    );
+
+    test('F-Q7: a major stream milestone gets its own story beside the '
+        "play's other story", () {
+      expect(
+        climbWithMilestone(1000).map((story) => story.family),
+        unorderedEquals([
+          MomentFamily.songBigClimb,
+          MomentFamily.songStreamMilestone,
+        ]),
+      );
+      expect(
+        climbWithMilestone(
+          5000,
+          type: ChartMomentEventType.artistStreamMilestone,
+        ).map((story) => story.family),
+        unorderedEquals([
+          MomentFamily.songBigClimb,
+          MomentFamily.artistStreamMilestone,
+        ]),
+      );
+    });
+
+    test('F-Q7: a smaller stream milestone in the same play is supporting '
+        'text, not a story', () {
+      final stories = climbWithMilestone(250);
+
+      expect(stories.map((story) => story.family), [MomentFamily.songBigClimb]);
+      expect(stories.single.body, contains('250 streams'));
+      expect(
+        climbWithMilestone(
+          500,
+          type: ChartMomentEventType.artistStreamMilestone,
+        ).map((story) => story.family),
+        [MomentFamily.songBigClimb],
+      );
+    });
+
+    test('F-Q7: a stream milestone alone is still its own story', () {
+      final stories = desk.compose(
+        items([
+          event(
+            ChartMomentEventType.lifetimeStreamMilestone,
+            entity: song('s1'),
+            milestone: 250,
+            streams: 250,
+            at: after,
+          ),
+        ]),
+      );
+
+      expect(stories.map((story) => story.family), [
+        MomentFamily.songStreamMilestone,
+      ]);
+    });
+
     test('one play tells its debut and its new top artist', () {
       expect(
         debutAndTopArtist(after).map((story) => story.family),

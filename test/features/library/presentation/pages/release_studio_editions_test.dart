@@ -1157,6 +1157,147 @@ void main() {
     expect(key('album-studio-disc-number-field'), findsOneWidget);
   });
 
+  group('SN-50 A-Q7D: a previewed numbering repair', () {
+    LibraryTrack placed(String id, int number, {int disc = 1}) =>
+        base.createTrack(
+          songId: id,
+          title: 'Song $id',
+          albumEditionId: 'edition-standard',
+          albumEditionTitle: 'Standard',
+          albumEditionType: AlbumEditionType.standard,
+          trackNumber: number,
+          discNumber: disc,
+        );
+
+    base.FakeEditionAwareLibraryQueryRepository gapped() =>
+        base.FakeEditionAwareLibraryQueryRepository(
+          album: base.createAlbum(
+            title: 'Glass Harbor',
+            primaryEditionId: 'edition-standard',
+            primaryEditionTitle: 'Standard',
+          ),
+          tracks: [placed('a', 1), placed('b', 3), placed('c', 2, disc: 2)],
+          editions: [
+            base.createLibraryEdition(
+              editionId: 'edition-standard',
+              title: 'Standard',
+              type: AlbumEditionType.standard,
+              isPrimary: true,
+            ),
+          ],
+          editionTracks: {
+            'edition-standard': [
+              placed('a', 1),
+              placed('b', 3),
+              placed('c', 2, disc: 2),
+            ],
+          },
+        );
+
+    testWidgets('no action when each disc counts from 1 without gaps', (
+      tester,
+    ) async {
+      await pump(tester, section: tracklist);
+
+      expect(key('album-studio-fix-numbering'), findsNothing);
+    });
+
+    testWidgets('previews old and new numbers and changes nothing until '
+        'confirmed', (tester) async {
+      final service = _FakeEditions();
+      await pump(
+        tester,
+        editions: service,
+        library: gapped(),
+        section: tracklist,
+      );
+
+      await tester.tap(key('album-studio-fix-numbering'));
+      await tester.pumpAndSettle();
+
+      expect(key('album-studio-fix-numbering-dialog'), findsOneWidget);
+      expect(key('album-studio-fix-numbering-a'), findsNothing);
+      expect(
+        find.descendant(
+          of: key('album-studio-fix-numbering-b'),
+          matching: find.text('3 → 2'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: key('album-studio-fix-numbering-c'),
+          matching: find.text('2 → 1'),
+        ),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(service.calls, isEmpty);
+
+      await tester.tap(key('album-studio-fix-numbering'));
+      await tester.pumpAndSettle();
+      await tester.tap(key('album-studio-confirm-fix-numbering'));
+      await tester.pumpAndSettle();
+
+      expect(service.calls, ['renumber edition-standard overwrite=false']);
+      expect(key('album-studio-confirm-renumber'), findsNothing);
+      expect(find.text('Track numbers fixed.'), findsOneWidget);
+    });
+
+    testWidgets('hand-set numbers change only after the separate question', (
+      tester,
+    ) async {
+      final service = _FakeEditions(manualNumbersOnRenumber: 1);
+      await pump(
+        tester,
+        editions: service,
+        library: gapped(),
+        section: tracklist,
+      );
+
+      Future<void> fix() async {
+        await tester.tap(key('album-studio-fix-numbering'));
+        await tester.pumpAndSettle();
+        await tester.tap(key('album-studio-confirm-fix-numbering'));
+        await tester.pumpAndSettle();
+      }
+
+      await fix();
+      expect(key('album-studio-confirm-renumber'), findsOneWidget);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(service.calls, ['renumber edition-standard overwrite=false']);
+
+      service.calls.clear();
+      await fix();
+      await tester.tap(key('album-studio-confirm-renumber'));
+      await tester.pumpAndSettle();
+      expect(service.calls, [
+        'renumber edition-standard overwrite=false',
+        'renumber edition-standard overwrite=true',
+      ]);
+    });
+
+    testWidgets('the preview fits 320dp at 2x text', (tester) async {
+      await pump(
+        tester,
+        library: gapped(),
+        section: tracklist,
+        textScale: 2,
+        size: const Size(320, 1400),
+      );
+
+      await tester.ensureVisible(key('album-studio-fix-numbering'));
+      await tester.tap(key('album-studio-fix-numbering'));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(key('album-studio-confirm-fix-numbering'), findsOneWidget);
+    });
+  });
+
   testWidgets('editions fit 320dp at 2x text', (tester) async {
     await pump(tester, textScale: 2, size: const Size(320, 1400));
 
@@ -1170,6 +1311,7 @@ class _FakeEditions implements AlbumEditionManagementService {
     this.refuseRemoval,
     this.refuseUpdate,
     this.manualNumbersKept = 0,
+    this.manualNumbersOnRenumber = 0,
   });
 
   final AlbumEditionRefusal? refuseRemoval;
@@ -1177,6 +1319,9 @@ class _FakeEditions implements AlbumEditionManagementService {
 
   /// Hand-set numbers a track-list change reports leaving alone.
   final int manualNumbersKept;
+
+  /// Hand-set numbers a plain renumber reports leaving alone.
+  final int manualNumbersOnRenumber;
   final List<String> calls = [];
 
   @override
@@ -1292,7 +1437,10 @@ class _FakeEditions implements AlbumEditionManagementService {
     DateTime? now,
   }) async {
     calls.add('renumber $editionId overwrite=$overwriteManual');
-    return const EditionRenumberResult(renumbered: 1, manualNumbersKept: 0);
+    return EditionRenumberResult(
+      renumbered: 1,
+      manualNumbersKept: overwriteManual ? 0 : manualNumbersOnRenumber,
+    );
   }
 
   @override

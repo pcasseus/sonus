@@ -13,6 +13,7 @@ import 'package:sonus_next/features/library/domain/entities/library_organization
 import 'package:sonus_next/features/library/domain/entities/song_artist_credit.dart';
 import 'package:sonus_next/features/library/domain/repositories/library_organization_repository.dart';
 import 'package:sonus_next/features/library/presentation/pages/artist_profile_page.dart';
+import 'package:sonus_next/features/player/application/controllers/playback_coordinator.dart';
 
 import 'artist_profile_page_test.dart' as base;
 
@@ -136,6 +137,7 @@ void main() {
     String? projectArtistId,
     Size size = const Size(411, 2400),
     QualifiedPlayRepository? qualifiedPlays,
+    PlaybackCoordinator? playbackCoordinator,
   }) async {
     await tester.binding.setSurfaceSize(size);
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -160,6 +162,7 @@ void main() {
         child: base.buildSubject(
           repository: repository,
           qualifiedPlays: qualifiedPlays,
+          playbackCoordinator: playbackCoordinator,
           home: ArtistProfilePage(
             artistId: artistId,
             projectArtistId: projectArtistId,
@@ -404,6 +407,93 @@ void main() {
     for (final section in ['albums', 'eps', 'singles', 'collaborators']) {
       expect(key('artist-profile-$section'), findsNothing, reason: section);
     }
+  });
+
+  testWidgets('SN-50 B-Q30: Play on a contributor plays its songs on the '
+      'project, not a catalog of its own', (tester) async {
+    final descendants = _release(
+      'descendants',
+      'Descendants',
+      artistId: 'descendants',
+      artistName: 'Descendants',
+      released: DateTime(2015, 7, 31),
+    );
+    final zombies = _release(
+      'zombies',
+      'Zombies',
+      artistId: 'zombies',
+      artistName: 'Zombies',
+      released: DateTime(2018, 2, 16),
+    );
+    final engine = base.FakePlaybackEngine();
+    addTearDown(engine.dispose);
+    await pump(
+      tester,
+      artistId: 'mitchell',
+      projectArtistId: 'descendants',
+      playbackCoordinator: PlaybackCoordinator(engine: engine),
+      repository: _Repo(
+        library: [descendants, zombies],
+        artist: base.createArtist(
+          artistId: 'mitchell',
+          name: 'Mitchell Hope',
+          albumCount: 0,
+          songCount: 3,
+        ),
+        tracks: [
+          base.createTrack(
+            songId: 'isle',
+            title: 'Isle Song',
+            artistId: 'mitchell',
+            artistName: 'Mitchell Hope',
+            albumId: 'descendants',
+            albumTitle: 'Descendants',
+          ),
+          base.createTrack(
+            songId: 'did-i-mention',
+            title: 'Did I Mention',
+            artistId: 'mitchell',
+            artistName: 'Mitchell Hope',
+            albumId: 'descendants',
+            albumTitle: 'Descendants',
+          ),
+          base.createTrack(
+            songId: 'elsewhere',
+            title: 'Elsewhere',
+            artistId: 'mitchell',
+            artistName: 'Mitchell Hope',
+            albumId: 'zombies',
+            albumTitle: 'Zombies',
+          ),
+        ],
+        allTracks: const [],
+      ),
+      libraryAlbums: [descendants, zombies],
+      credits: const [
+        ProjectCollaborator(
+          albumId: 'descendants',
+          artistId: 'mitchell',
+          artistName: 'Mitchell Hope',
+          roles: {SongArtistCreditRole.primary},
+          songCount: 2,
+        ),
+        ProjectCollaborator(
+          albumId: 'zombies',
+          artistId: 'mitchell',
+          artistName: 'Mitchell Hope',
+          roles: {SongArtistCreditRole.primary},
+          songCount: 1,
+        ),
+      ],
+    );
+
+    await tester.tap(key('artist-profile-play-all-button'));
+    await tester.pumpAndSettle();
+
+    expect(
+      {for (final track in engine.lastLoadedTracks!) track.songId},
+      {'isle', 'did-i-mention'},
+    );
   });
 
   testWidgets('a soundtrack says why its artist total leaves out an '

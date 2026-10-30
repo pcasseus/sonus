@@ -4,11 +4,13 @@ import 'dart:developer' as developer;
 import 'package:flutter/material.dart';
 
 import '../../../../../core/design/sonus_theme.dart';
+import '../../../application/models/edition_numbering_repair.dart';
 import '../../../application/models/library_album_edition.dart';
 import '../../../application/models/library_track.dart';
 import '../../../application/repositories/library_query_repository.dart';
 import '../../../application/services/album_edition_management_service.dart';
 import '../../../application/services/edition_follow_up.dart';
+import '../../../application/services/edition_track_numbering.dart';
 import '../../../data/services/edition_follow_up_dismissals.dart';
 import '../../../domain/entities/album_edition.dart';
 import '../../controllers/album_profile_controller.dart';
@@ -564,6 +566,41 @@ class _AlbumStudioEditionsSectionState
     );
   }
 
+  /// A previewed repair of the selected edition's numbering (SN-50
+  /// A-Q7D): nothing changes until the user confirms, and hand-set numbers
+  /// are asked about separately.
+  Future<void> _fixNumbering(
+    LibraryAlbumEdition edition,
+    List<EditionNumberChange> changes,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (_) =>
+          _NumberingRepairDialog(edition: edition, changes: changes),
+    );
+    if (confirmed != true || !mounted) return;
+
+    EditionRenumberResult? result;
+    final saved = await _run(() async {
+      result = await widget.service.renumberEdition(
+        editionId: edition.editionId,
+        userId: widget.userId,
+      );
+    });
+    if (!saved || !mounted) return;
+
+    final renumbered = result?.renumbered ?? 0;
+    final manualNumbers = result?.manualNumbersKept ?? 0;
+    if (renumbered > 0) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Track numbers fixed.')));
+    }
+    if (manualNumbers > 0) {
+      await _offerManualRenumber(edition, manualNumbers);
+    }
+  }
+
   /// Deletes the edition after the checks the service also makes (SN-50
   /// A5): never the last edition, never while songs are only on it, and
   /// the primary edition only with a chosen replacement.
@@ -673,6 +710,9 @@ class _AlbumStudioEditionsSectionState
     final theme = Theme.of(context);
     final edition = _controller.selectedEdition;
     final songsView = widget.view == AlbumStudioEditionsView.tracklist;
+    final numberingRepair = songsView && edition != null
+        ? editionNumberingRepair(_controller.tracks)
+        : const <EditionNumberChange>[];
 
     return Material(
       key: ValueKey<String>(
@@ -773,6 +813,13 @@ class _AlbumStudioEditionsSectionState
                     onPressed: widget.library == null
                         ? null
                         : () => _chooseSongs(edition),
+                  ),
+                if (numberingRepair.isNotEmpty)
+                  _action(
+                    key: 'album-studio-fix-numbering',
+                    icon: Icons.format_list_numbered_rounded,
+                    label: 'Fix numbering',
+                    onPressed: () => _fixNumbering(edition!, numberingRepair),
                   ),
                 if (!songsView)
                   _action(
@@ -889,6 +936,85 @@ Future<bool> _confirmDialog(
     ),
   );
   return result == true;
+}
+
+/// The preview of a numbering repair: each track's number before and
+/// after. Returns true only when the user confirms.
+class _NumberingRepairDialog extends StatelessWidget {
+  const _NumberingRepairDialog({required this.edition, required this.changes});
+
+  final LibraryAlbumEdition edition;
+  final List<EditionNumberChange> changes;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = SonusTheme.of(context).colors;
+    final discs = {for (final change in changes) change.track.discNumber};
+
+    return AlertDialog(
+      key: const ValueKey<String>('album-studio-fix-numbering-dialog'),
+      title: const Text('Fix track numbers?'),
+      scrollable: true,
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            'Each disc of "${edition.title}" will count 1, 2, 3 in the '
+            'order shown. Only this edition changes. You will be asked '
+            'before numbers you set yourself change.',
+          ),
+          const SizedBox(height: 12),
+          for (final change in changes)
+            Padding(
+              key: ValueKey<String>(
+                'album-studio-fix-numbering-${change.track.songId}',
+              ),
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      discs.length > 1
+                          ? 'Disc ${change.track.discNumber}: '
+                                '${change.track.title}'
+                          : change.track.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: colors.textPrimary,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Text(
+                    '${change.from} → ${change.to}',
+                    semanticsLabel: 'from ${change.from} to ${change.to}',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: colors.textPrimary,
+                      fontWeight: FontWeight.w700,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          key: const ValueKey<String>('album-studio-confirm-fix-numbering'),
+          onPressed: () => Navigator.of(context).pop(true),
+          child: const Text('Fix numbering'),
+        ),
+      ],
+    );
+  }
 }
 
 /// Deleting the primary edition: the user chooses the edition that

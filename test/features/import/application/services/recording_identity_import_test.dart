@@ -235,6 +235,25 @@ void main() {
     },
   );
 
+  test('SN-44 Import-1, current source: same title and length at another '
+      'track position is kept as one song, and the copy is flagged', () async {
+    final files = {
+      'track03.mp3': errTime(seconds: 146, trackNumber: 3),
+      'track09.mp3': errTime(seconds: 147, trackNumber: 9),
+    };
+    final (importer, _) = await service(files);
+
+    final results = await importAll(importer, [
+      for (final path in files.keys) candidate(path),
+    ]);
+
+    final db = await appDatabase.database;
+    expect(await SongDao(db).findAll(), hasLength(1));
+    expect(results[1].status, ImportResultStatus.skipped);
+    expect(results[1].skipReason, ImportSkipReason.duplicateRecording);
+    expect(results[1].songId, results[0].songId);
+  });
+
   test('a duplicate file never attaches its lyrics to the kept song', () async {
     final files = {
       'kept.mp3': errTime(seconds: 146),
@@ -249,6 +268,47 @@ void main() {
 
     expect(lyrics.saves[results[0].songId], contains('kept.mp3'));
     expect(lyrics.saves.values, isNot(contains(contains('copy.mp3'))));
+  });
+
+  test('SN-44 Import-2: a Deluxe copy of a kept song never replaces its '
+      'lyrics with its own sidecar', () async {
+    final files = {
+      'standard.mp3': errTime(seconds: 146),
+      'deluxe.mp3': AudioMetadata(
+        title: 'ErrTime',
+        artistName: 'Cardi B',
+        albumTitle: 'Am I The Drama? (Deluxe)',
+        durationSeconds: 146,
+        trackNumber: 1,
+        discNumber: 1,
+        isSingle: false,
+        featuredArtists: const [],
+      ),
+    };
+    final (importer, lyrics) = await service(files);
+
+    final results = await importAll(importer, [
+      candidate('standard.mp3', withLyrics: true),
+      candidate('deluxe.mp3', withLyrics: true),
+    ]);
+
+    expect(results[1].skipReason, ImportSkipReason.sharedWithEdition);
+    expect(results[1].songId, results[0].songId);
+    expect(lyrics.saves[results[0].songId], contains('standard.mp3'));
+    expect(lyrics.saves.values, isNot(contains(contains('deluxe.mp3'))));
+  });
+
+  test('a rescan of the kept file still refreshes its own lyrics', () async {
+    final files = {'kept.mp3': errTime(seconds: 146)};
+    final (importer, lyrics) = await service(files);
+
+    final first = await importAll(importer, [candidate('kept.mp3')]);
+    final rescan = await importAll(importer, [
+      candidate('kept.mp3', withLyrics: true),
+    ]);
+
+    expect(rescan.single.skipReason, ImportSkipReason.knownFile);
+    expect(lyrics.saves[first.single.songId], contains('kept.mp3'));
   });
 
   test('rescanning both recordings changes nothing', () async {

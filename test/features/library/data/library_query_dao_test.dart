@@ -1513,6 +1513,89 @@ void main() {
     });
   });
 
+  // SN-50 A-Q13: when the primary edition has no cover, the release and the
+  // songs that fall back to it show the placeholder, never another edition's
+  // cover.
+  group('a primary edition without a cover', () {
+    Future<_ArtworkQueryFixture> uncoveredPrimary() async {
+      final fixture = await _createArtworkFixture(appDatabase);
+      await fixture.db.update(
+        DatabaseTables.albumEditions,
+        {'artwork_id': null},
+        where: 'id = ?',
+        whereArgs: [fixture.standardEdition.id],
+      );
+      return fixture;
+    }
+
+    test('release cards and the album show the placeholder', () async {
+      final fixture = await uncoveredPrimary();
+      final dao = LibraryQueryDao(fixture.db);
+
+      final card = (await dao.findAlbums()).singleWhere(
+        (album) => album.albumId == fixture.album.id,
+      );
+      final album = (await dao.findAlbumById(fixture.album.id))!;
+      final byArtist = (await dao.findAlbumsByArtistId(
+        fixture.artist.id,
+      )).single;
+
+      expect(card.artworkId, isNull);
+      expect(card.artworkPath, isNull);
+      expect(album.artworkPath, isNull);
+      expect(byArtist.artworkPath, isNull);
+    });
+
+    test('a Deluxe-homed song listed on the primary shows the placeholder, '
+        'not the Deluxe cover', () async {
+      final fixture = await uncoveredPrimary();
+      final song = Song(
+        id: 'song_shared',
+        artistId: fixture.artist.id,
+        albumId: fixture.album.id,
+        albumEditionId: fixture.deluxeEdition.id,
+        title: 'Shared',
+        canonicalTitle: 'shared',
+        trackNumber: 4,
+        durationSeconds: 200,
+        isSingle: false,
+        featuredArtists: const [],
+        createdAt: DateTime.utc(2026, 9, 15),
+        updatedAt: DateTime.utc(2026, 9, 15),
+      );
+      await SongDao(fixture.db).insert(song);
+      await _listIn(fixture.db, fixture.standardEdition.id, [song.id]);
+      await _listIn(fixture.db, fixture.deluxeEdition.id, [song.id]);
+      final dao = LibraryQueryDao(fixture.db);
+
+      final track = (await dao.findTrackById(song.id))!;
+      final listed = (await dao.findTracks()).singleWhere(
+        (track) => track.songId == song.id,
+      );
+      final inPrimary = (await dao.findTracksByAlbumEditionId(
+        fixture.standardEdition.id,
+      )).singleWhere((track) => track.songId == song.id);
+
+      expect(track.artworkId, isNull);
+      expect(track.artworkPath, isNull);
+      expect(listed.artworkId, isNull);
+      expect(inPrimary.artworkId, isNull);
+    });
+
+    test('a song with its own artwork keeps it', () async {
+      final fixture = await uncoveredPrimary();
+      await _listIn(fixture.db, fixture.standardEdition.id, [
+        fixture.alphaSong.id,
+      ]);
+
+      final track = (await LibraryQueryDao(
+        fixture.db,
+      ).findTrackById(fixture.alphaSong.id))!;
+
+      expect(track.artworkId, fixture.songArtwork.id);
+    });
+  });
+
   // SN-50 R5: inside an edition view a song shows its own artwork, then the
   // selected edition's cover, then the primary edition's cover, then the
   // placeholder. Never another non-primary edition's cover.

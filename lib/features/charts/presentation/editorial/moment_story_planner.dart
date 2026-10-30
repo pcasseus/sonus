@@ -55,6 +55,13 @@ class MomentStoryPlanner {
   /// official chart (Top 100).
   static const Set<int> longevityThresholds = {1, 10, 100};
 
+  /// The smallest stream total told as its own story beside another
+  /// achievement of the same play (F-Q7).
+  static const int majorStreamMilestone = 1000;
+
+  static bool isMajorStreamMilestone(ChartMomentEvent event) =>
+      (event.milestoneValue ?? 0) >= majorStreamMilestone;
+
   /// Per finalized chart week, the previous week's #1 that lost the spot.
   final Map<String, ChartEntitySnapshot> _leaders;
   final Set<String> _gainers;
@@ -309,25 +316,28 @@ class MomentStoryPlanner {
       final top = find(const {ChartMomentEventType.artistBecomesTopArtist});
       if (top != null) add('top-artist', MomentFamily.artistTopArtist, [top]);
 
-      // A stream milestone is news only when the play did nothing else.
-      if (stories.isEmpty) {
-        final streams = find(const {
-          ChartMomentEventType.lifetimeStreamMilestone,
-        });
-        final artistStreams = find(const {
-          ChartMomentEventType.artistStreamMilestone,
-        });
-        if (streams != null) {
-          add(
-            'milestone',
-            albums
-                ? MomentFamily.releaseStreamMilestone
-                : MomentFamily.songStreamMilestone,
-            [streams],
-          );
-        } else if (artistStreams != null) {
-          add('milestone', MomentFamily.artistStreamMilestone, [artistStreams]);
-        }
+      // A stream milestone is its own story when the play did nothing else
+      // or when it is a major one; a smaller one is left to the other
+      // story's supporting text (F-Q7).
+      final quiet = stories.isEmpty;
+      bool told(ChartMomentEvent? event) =>
+          event != null && (quiet || isMajorStreamMilestone(event));
+      final streams = find(const {
+        ChartMomentEventType.lifetimeStreamMilestone,
+      });
+      final artistStreams = find(const {
+        ChartMomentEventType.artistStreamMilestone,
+      });
+      if (told(streams)) {
+        add(
+          'milestone',
+          albums
+              ? MomentFamily.releaseStreamMilestone
+              : MomentFamily.songStreamMilestone,
+          [streams!],
+        );
+      } else if (told(artistStreams)) {
+        add('milestone', MomentFamily.artistStreamMilestone, [artistStreams!]);
       }
     }
 

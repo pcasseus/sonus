@@ -77,22 +77,21 @@ class LibraryQueryDao {
   /// A song's artwork outside any edition view (SN-50 A-Q12): its own
   /// artwork, then the primary edition's cover when the song is listed
   /// there, then its home edition's cover, then the primary edition's cover.
+  /// A song listed on a primary edition without a cover shows the
+  /// placeholder, never another edition's cover (A-Q13).
   static String _standaloneArtwork(String column) =>
       '''
-        COALESCE(
-          sa.$column,
-          CASE
-            WHEN EXISTS (
-              SELECT 1
-              FROM ${DatabaseTables.albumEditionTracks} ptl
-              WHERE ptl.album_edition_id = tpe.id
-                AND ptl.song_id = s.id
-            )
-            THEN tpa.$column
-          END,
-          ea.$column,
-          tpa.$column
-        )''';
+        CASE
+          WHEN sa.id IS NOT NULL THEN sa.$column
+          WHEN EXISTS (
+            SELECT 1
+            FROM ${DatabaseTables.albumEditionTracks} ptl
+            WHERE ptl.album_edition_id = tpe.id
+              AND ptl.song_id = s.id
+          )
+          THEN tpa.$column
+          ELSE COALESCE(ea.$column, tpa.$column)
+        END''';
 
   Future<List<LibraryTrack>> findTracks({
     LibraryTrackOrder order = LibraryTrackOrder.title,

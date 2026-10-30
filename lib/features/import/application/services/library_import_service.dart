@@ -188,8 +188,10 @@ class LibraryImportService {
         songId == null ||
         songId.isEmpty ||
         result.failed ||
-        // A copy's sidecar belongs to the copy, not to the song it duplicates.
-        result.skipReason == ImportSkipReason.duplicateRecording) {
+        // A copy's sidecar belongs to the copy, not to the song it duplicates,
+        // including another edition's copy of it.
+        result.skipReason == ImportSkipReason.duplicateRecording ||
+        result.skipReason == ImportSkipReason.sharedWithEdition) {
       return result;
     }
 

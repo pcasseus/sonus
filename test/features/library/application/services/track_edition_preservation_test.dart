@@ -222,6 +222,35 @@ void main() {
       },
     );
 
+    test('SN-44 Edition-1: editing a Deluxe-homed song from the primary '
+        'keeps its Deluxe home', () async {
+      final song = library.deluxeOnly;
+      await AlbumEditionTrackDao(await appDatabase.database).insert(
+        AlbumEditionTrack(
+          albumEditionId: library.standard,
+          songId: song.id,
+          discNumber: 1,
+          trackNumber: 4,
+          sortPosition: 9,
+          createdAt: t0,
+          updatedAt: t0,
+        ),
+      );
+
+      final result = await save(
+        song,
+        title: 'Bonus (renamed)',
+        trackNumber: 6,
+        placementEditionId: library.standard,
+      );
+
+      final after = await memberships(song.id);
+      expect(result.song.albumEditionId, library.deluxe);
+      expect((await stored(song.id)).albumEditionId, library.deluxe);
+      expect(listing(after, library.standard).trackNumber, 6);
+      expect(listing(after, library.deluxe).trackNumber, song.trackNumber);
+    });
+
     test('a listing the song is not in is rejected without changes', () async {
       final song = library.deluxeOnly;
       final before = await memberships(song.id);

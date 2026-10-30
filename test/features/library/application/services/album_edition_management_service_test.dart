@@ -412,6 +412,65 @@ void main() {
       );
       expect(await listedOn(standard), contains(songs['One']));
     });
+
+    test('SN-50 A-Q26: Choose songs never orphans a song on its last '
+        'edition', () async {
+      final (_, standard, songs) = await standardAlbum();
+
+      final result = await editions.updateTrackList(
+        editionId: standard,
+        remove: [songs['One']!, songs['Two']!],
+        now: now,
+      );
+
+      expect(result.removed, 0);
+      expect(result.keptAsLastListing, 2);
+      expect(await listedOn(standard), [
+        songs['One'],
+        songs['Two'],
+        songs['Three'],
+      ]);
+      final db = await appDatabase.database;
+      expect(
+        (await SongDao(db).findById(songs['One']!))!.albumEditionId,
+        standard,
+      );
+    });
+
+    test('SN-50 A-Q26: once on another edition, the last listing can '
+        'go', () async {
+      final (album, standard, songs) = await standardAlbum();
+      final deluxe = await editions.createEdition(
+        albumId: album,
+        title: 'locket (Deluxe)',
+        type: AlbumEditionType.deluxe,
+        now: now,
+      );
+
+      await expectLater(
+        editions.removeTrack(editionId: standard, songId: songs['One']!),
+        refused(AlbumEditionRefusal.lastEditionOfSong),
+      );
+      await editions.updateTrackList(
+        editionId: deluxe.id,
+        add: [songs['One']!],
+        now: now,
+      );
+      final result = await editions.updateTrackList(
+        editionId: standard,
+        remove: [songs['One']!],
+        now: now,
+      );
+
+      expect(result.removed, 1);
+      expect(result.keptAsLastListing, 0);
+      expect(await listedOn(deluxe.id), [songs['One']]);
+      final db = await appDatabase.database;
+      expect(
+        (await SongDao(db).findById(songs['One']!))!.albumEditionId,
+        deluxe.id,
+      );
+    });
   });
 
   group('deleting an edition', () {

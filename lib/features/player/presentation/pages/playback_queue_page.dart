@@ -4,8 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:provider/provider.dart';
 
+import '../../../../core/design/sonus_artwork_palette.dart';
 import '../../../../core/design/sonus_theme.dart';
 import '../../../../core/design/widgets/sonus_artwork_image.dart';
+import '../../../../core/design/widgets/sonus_artwork_atmosphere_builder.dart';
 import '../../../../core/design/widgets/sonus_state_view.dart';
 import '../../application/controllers/playback_coordinator.dart';
 import '../../domain/models/playback_state.dart';
@@ -13,7 +15,11 @@ import '../../domain/models/playback_track.dart';
 import '../controllers/playback_state_controller.dart';
 
 class PlaybackQueuePage extends StatelessWidget {
-  const PlaybackQueuePage({super.key});
+  const PlaybackQueuePage({super.key, this.artworkPalette});
+
+  /// Where the current song's artwork colours come from; the app-wide
+  /// cache by default.
+  final SonusArtworkPalette? artworkPalette;
 
   @override
   Widget build(BuildContext context) {
@@ -21,23 +27,43 @@ class PlaybackQueuePage extends StatelessWidget {
     final coordinator = context.read<PlaybackCoordinator>();
     final colors = SonusTheme.of(context).colors;
 
-    return Scaffold(
-      key: const ValueKey<String>('playback-queue-page'),
-      backgroundColor: colors.background,
-      appBar: AppBar(
-        title: const Text('Queue'),
-        centerTitle: true,
+    // A subtle wash of the current song's artwork behind the list (SN-50
+    // D-Q18); flat theme colours when Decoration is off, High contrast or
+    // Low effects is on, or text would lose contrast.
+    return SonusArtworkAtmosphereBuilder(
+      artworkPath: state.queue.currentTrack?.artworkPath,
+      palette: artworkPalette,
+      builder: (context, atmosphere) => Scaffold(
+        key: const ValueKey<String>('playback-queue-page'),
         backgroundColor: colors.background,
-        surfaceTintColor: Colors.transparent,
+        appBar: AppBar(
+          title: const Text('Queue'),
+          centerTitle: true,
+          backgroundColor: atmosphere.background,
+          surfaceTintColor: Colors.transparent,
+        ),
+        body: DecoratedBox(
+          key: const ValueKey<String>('playback-queue-atmosphere'),
+          decoration: BoxDecoration(
+            color: atmosphere.isTinted ? null : colors.background,
+            gradient: atmosphere.isTinted
+                ? LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [atmosphere.background, colors.background],
+                  )
+                : null,
+          ),
+          child: state.queue.isEmpty
+              ? const SonusStateView(
+                  key: ValueKey<String>('playback-queue-empty'),
+                  icon: Icons.queue_music_rounded,
+                  title: 'Your queue is empty',
+                  message: 'Play or queue a song to see it here.',
+                )
+              : _QueueContent(state: state, coordinator: coordinator),
+        ),
       ),
-      body: state.queue.isEmpty
-          ? const SonusStateView(
-              key: ValueKey<String>('playback-queue-empty'),
-              icon: Icons.queue_music_rounded,
-              title: 'Your queue is empty',
-              message: 'Play or queue a song to see it here.',
-            )
-          : _QueueContent(state: state, coordinator: coordinator),
     );
   }
 }
