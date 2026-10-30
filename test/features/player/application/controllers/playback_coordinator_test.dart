@@ -170,6 +170,72 @@ void main() {
     expect(engine.loadedAutoPlay, isTrue);
   });
 
+  group('SN-50 #22: playTracks starts at the entry asked for', () {
+    test('a song queued twice starts at the copy asked for', () async {
+      final engine = FakePlaybackEngine();
+      final coordinator = PlaybackCoordinator(engine: engine);
+      final queue = [
+        track(songId: 'a'),
+        track(songId: 'b'),
+        track(songId: 'a'),
+      ];
+
+      await coordinator.playTracks(queue, startIndex: 2, autoPlay: false);
+
+      expect(engine.loadedTracks!.map((t) => t.songId), ['a', 'b', 'a']);
+      expect(engine.loadedStartIndex, 2);
+      expect(engine.loadedAutoPlay, isFalse);
+    });
+
+    test(
+      'unplayable entries before it are dropped and the copy kept',
+      () async {
+        final engine = FakePlaybackEngine();
+        final coordinator = PlaybackCoordinator(engine: engine);
+        final queue = [
+          track(songId: 'a'),
+          track(songId: 'gone', isAvailable: false),
+          track(songId: 'b'),
+          track(songId: 'a'),
+        ];
+
+        await coordinator.playTracks(queue, startIndex: 3);
+
+        expect(engine.loadedTracks!.map((t) => t.songId), ['a', 'b', 'a']);
+        expect(engine.loadedStartIndex, 2);
+      },
+    );
+
+    test(
+      'an unplayable start is refused, never swapped for another song',
+      () async {
+        final engine = FakePlaybackEngine();
+        final coordinator = PlaybackCoordinator(engine: engine);
+        final queue = [
+          track(songId: 'a'),
+          track(songId: 'gone', isAvailable: false),
+        ];
+
+        await expectLater(
+          coordinator.playTracks(queue, startIndex: 1),
+          throwsStateError,
+        );
+        expect(engine.loadedTracks, isNull);
+      },
+    );
+
+    test('an out-of-range start is refused', () async {
+      final engine = FakePlaybackEngine();
+      final coordinator = PlaybackCoordinator(engine: engine);
+
+      await expectLater(
+        coordinator.playTracks([track(songId: 'a')], startIndex: 1),
+        throwsRangeError,
+      );
+      expect(engine.loadedTracks, isNull);
+    });
+  });
+
   group('playInContext (SN-45: Previous and Next follow the list)', () {
     test('tapping the third of four queues all four from the third', () async {
       final engine = FakePlaybackEngine();

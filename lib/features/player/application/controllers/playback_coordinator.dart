@@ -48,13 +48,13 @@ class PlaybackCoordinator {
       throw StateError('No playable tracks are available.');
     }
 
-    final remappedStartIndex = playableTracks.indexWhere(
-      (track) => track.songId == requestedTrack.songId,
-    );
-
-    if (remappedStartIndex == -1) {
+    if (!isPlayable(requestedTrack)) {
       throw StateError('Requested start track is unavailable for playback.');
     }
+
+    // The requested entry's own place among the playable ones, so a song
+    // queued twice starts at the copy asked for, not at its first copy.
+    final remappedStartIndex = tracks.take(startIndex).where(isPlayable).length;
 
     await _engine.loadQueue(
       LibraryTrackPlaybackMapper.toPlaybackTracks(playableTracks),

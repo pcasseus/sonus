@@ -259,6 +259,49 @@ void main() {
       return (nextPlayer, nextEngine);
     }
 
+    Future<void> saveSession(List<String> ids, int index, Duration at) async =>
+        storage[PlaybackSessionStore.sessionKey] = jsonEncode(
+          PlaybackSessionSnapshot(
+            songIds: ids,
+            currentIndex: index,
+            position: at,
+          ).toJson(),
+        );
+
+    test('SN-50 #22: after a restart, a queue playing the second copy of a '
+        'song resumes that copy where it was', () async {
+      await saveSession(['a', 'b', 'a'], 2, const Duration(minutes: 1));
+
+      final (restoredPlayer, restoredEngine) = await restart();
+      final state = restoredEngine.currentState;
+      expect(state.queue.tracks.map((t) => t.songId), ['a', 'b', 'a']);
+      expect(state.queue.currentIndex, 2);
+      expect(state.position, const Duration(minutes: 1));
+
+      await PlaybackCoordinator(engine: restoredEngine).play();
+      await settle();
+
+      expect(restoredPlayer.audible, isTrue);
+      expect(restoredEngine.currentState.queue.currentIndex, 2);
+      expect(restoredEngine.currentState.position, const Duration(minutes: 1));
+    });
+
+    test('SN-50 #22: a finished queue ending on the second copy replays that '
+        'copy after a restart (R4)', () async {
+      await saveSession(['a', 'b', 'a'], 2, const Duration(minutes: 3));
+
+      final (restoredPlayer, restoredEngine) = await restart();
+      expect(restoredEngine.currentState.queue.currentIndex, 2);
+
+      await PlaybackCoordinator(engine: restoredEngine).play();
+      await settle();
+
+      expect(restoredPlayer.audible, isTrue);
+      expect(restoredEngine.currentState.queue.currentIndex, 2);
+      expect(restoredEngine.currentState.position, Duration.zero);
+      expect(restoredEngine.currentState.queue.length, 3);
+    });
+
     test('restored just short of the end, Play replays from 0:00', () async {
       storage[PlaybackSessionStore.sessionKey] = jsonEncode(
         const PlaybackSessionSnapshot(

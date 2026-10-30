@@ -316,26 +316,79 @@ void main() {
       expect(saved()!.position, const Duration(seconds: 42));
     });
 
-    test(
-      'SN-50 reconciliation: a saved queue holding the same song twice is '
-      'restored with both copies, in order, at the second copy',
-      () async {
-        save(['a', 'b', 'a'], index: 2, seconds: 42);
+    test('SN-50 reconciliation: a saved queue holding the same song twice is '
+        'restored with both copies, in order, at the second copy', () async {
+      save(['a', 'b', 'a'], index: 2, seconds: 42);
 
-        final outcome = await controller.restore(
-          () => library([_track('a'), _track('b')]),
-        );
+      final outcome = await controller.restore(
+        () => library([_track('a'), _track('b')]),
+      );
 
-        expect(outcome, PlaybackRestoreOutcome.restored);
-        expect(engine.loadedIds, ['a', 'b', 'a']);
-        expect(engine.loadedStartIndex, 2, reason: 'the second copy');
-        expect(engine.seekedTo, const Duration(seconds: 42));
-      },
-      skip:
-          'Behaviour gap: PlaybackCoordinator.playTracks remaps startIndex '
-          'by songId (playback_coordinator.dart:51-53), so the restore '
-          'resumes the first copy (index 0) instead of the second.',
-    );
+      expect(outcome, PlaybackRestoreOutcome.restored);
+      expect(engine.loadedIds, ['a', 'b', 'a']);
+      expect(engine.loadedStartIndex, 2, reason: 'the second copy');
+      expect(engine.seekedTo, const Duration(seconds: 42));
+      expect(engine.loadedAutoPlay, isFalse);
+    });
+
+    test('SN-50 #22: with an unplayable song dropped before it, the second '
+        'copy is still the one resumed', () async {
+      save(['a', 'gone', 'b', 'a'], index: 3, seconds: 42);
+
+      final outcome = await controller.restore(
+        () => library([_track('a'), _track('b')]),
+      );
+
+      expect(outcome, PlaybackRestoreOutcome.restored);
+      expect(engine.loadedIds, ['a', 'b', 'a']);
+      expect(engine.loadedStartIndex, 2);
+      expect(engine.seekedTo, const Duration(seconds: 42));
+    });
+
+    test('SN-50 #22: when the saved song is gone, the next copy of a '
+        'repeated song starts from 0:00, never the first copy', () async {
+      save(['a', 'gone', 'a'], index: 1, seconds: 42);
+
+      final outcome = await controller.restore(() => library([_track('a')]));
+
+      expect(outcome, PlaybackRestoreOutcome.restored);
+      expect(engine.loadedIds, ['a', 'a']);
+      expect(engine.loadedStartIndex, 1);
+      expect(engine.seekedTo, isNull, reason: 'a different song: no seek');
+      expect(engine.loadedAutoPlay, isFalse);
+    });
+
+    test('SN-50 #22: an out-of-range saved index restores nothing and '
+        'plays nothing', () async {
+      storage[PlaybackSessionStore.sessionKey] = jsonEncode({
+        'version': PlaybackSessionSnapshot.version,
+        'songIds': ['a', 'b', 'a'],
+        'currentIndex': 3,
+        'positionMs': 42000,
+      });
+
+      final outcome = await controller.restore(
+        () => library([_track('a'), _track('b')]),
+      );
+
+      expect(outcome, PlaybackRestoreOutcome.nothingSaved);
+      expect(engine.loadCalls, 0);
+      expect(engine.playCalls, 0);
+    });
+
+    test('SN-50 #22: a finished queue ending on the second copy is restored '
+        'at the end of that copy (R4)', () async {
+      save(['a', 'b', 'a'], index: 2, seconds: 180);
+
+      final outcome = await controller.restore(
+        () => library([_track('a'), _track('b')]),
+      );
+
+      expect(outcome, PlaybackRestoreOutcome.restored);
+      expect(engine.loadedStartIndex, 2);
+      expect(engine.seekedTo, const Duration(seconds: 180));
+      expect(engine.playCalls, 0);
+    });
   });
 
   group('snapshot format', () {
