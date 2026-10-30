@@ -73,7 +73,7 @@ class SettingsSyncCard extends StatelessWidget {
           Row(
             children: [
               Icon(
-                syncController.hasAccountConflict
+                syncController.hasAccountConflict || syncController.isPaused
                     ? Icons.cloud_off_rounded
                     : syncController.isSyncing
                     ? Icons.cloud_sync_rounded
@@ -170,6 +170,21 @@ class SettingsSyncCard extends StatelessWidget {
               key: const ValueKey<String>('settings-sync-recovery-hold'),
               style: TextStyle(color: Theme.of(context).colorScheme.error),
             ),
+          ] else if (syncController.isPaused) ...[
+            const SizedBox(height: 16),
+            Text(
+              SyncFailureKind.cloudNotReady.message,
+              key: const ValueKey<String>('settings-sync-paused'),
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+            if (syncController.failureCode case final code?) ...[
+              const SizedBox(height: 4),
+              Text(
+                'Details: $code',
+                key: const ValueKey<String>('settings-sync-error-code'),
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+            ],
           ] else if (syncController.status == SyncStatus.error) ...[
             const SizedBox(height: 16),
             Text(
@@ -273,7 +288,7 @@ class SettingsSyncCard extends StatelessWidget {
           const SizedBox(height: 16),
           FilledButton.icon(
             key: const ValueKey<String>('settings-sync-now-button'),
-            onPressed: canSync ? coordinator.trigger : null,
+            onPressed: canSync ? () => coordinator.trigger(retry: true) : null,
             icon: syncController.isSyncing
                 ? const SizedBox(
                     width: 18,
@@ -284,6 +299,8 @@ class SettingsSyncCard extends StatelessWidget {
             label: Text(
               syncController.isSyncing
                   ? 'Syncing...'
+                  : syncController.isPaused
+                  ? 'Retry'
                   : syncController.status == SyncStatus.error
                   ? 'Try again'
                   : 'Sync now',
@@ -308,6 +325,10 @@ class SettingsSyncCard extends StatelessWidget {
 
     if (controller.isRecoveryHeld) {
       return 'Paused for recovery review';
+    }
+
+    if (controller.isPaused) {
+      return 'Sync paused';
     }
 
     if (controller.isAwaitingCloudChoice) {

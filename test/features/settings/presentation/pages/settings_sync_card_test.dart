@@ -597,6 +597,52 @@ void main() {
       findsOneWidget,
     );
   });
+  testWidgets('SN-50: a paused sync says so, offers Retry, and keeps the '
+      'pending count and last sync time', (tester) async {
+    var calls = 0;
+    final syncController = SyncController.forTesting(
+      synchronize: (userId) {
+        if (++calls == 1) return Future.value(_successResult());
+        return Future.error(CloudContractMismatch('no server revision'));
+      },
+      countPending: (_) async => 2,
+    );
+    await syncController.synchronize('user-1');
+    await syncController.synchronize('user-1');
+    expect(syncController.isPaused, isTrue);
+
+    final coordinator = AutomaticSyncCoordinator(
+      syncController: syncController,
+      networkPolicy: _wifiPolicy(),
+    );
+    coordinator.updateUserId('user-1');
+
+    await tester.pumpWidget(
+      _buildTestApp(
+        accountController: _signedInAccountController(),
+        syncController: syncController,
+        coordinator: coordinator,
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('Sync paused'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('settings-sync-paused')),
+      findsOneWidget,
+    );
+    expect(find.text('Details: CloudContractMismatch'), findsOneWidget);
+    expect(find.text('2'), findsOneWidget, reason: 'pending changes');
+    expect(find.text('Never'), findsNothing, reason: 'last sync time kept');
+
+    final retry = find.widgetWithText(FilledButton, 'Retry');
+    await tester.ensureVisible(retry);
+    await tester.pumpAndSettle();
+    await tester.tap(retry);
+    await tester.pumpAndSettle();
+
+    expect(calls, 3, reason: 'Retry runs one attempt');
+  });
 }
 
 Widget _buildTestApp({

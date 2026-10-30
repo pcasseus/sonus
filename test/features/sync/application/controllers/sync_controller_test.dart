@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:sonus_next/features/account/application/repositories/local_account_binding_repository.dart';
@@ -785,6 +786,153 @@ void main() {
       expect(SyncCancellation.checkpoint, returnsNormally);
       expect(SyncCancellation.current, isNull);
     });
+  });
+  group('SN-50: sync paused for a permanent failure', () {
+    late Map<String, String> stored;
+
+    SyncStatusStore store() => SyncStatusStore.forTesting(
+      getString: (key) async => stored[key],
+      setString: (key, value) async => stored[key] = value,
+    );
+
+    setUp(() => stored = {});
+
+    test('pauses, keeps the pending changes and the last sync time, and '
+        'schedules no automatic retry', () async {
+      var calls = 0;
+      final controller = SyncController.forTesting(
+        synchronize: (userId) async {
+          if (++calls == 1) return _result(userId: userId);
+          throw CloudContractMismatch('no server revision');
+        },
+        statusStore: store(),
+        countPending: (_) async => 4,
+      );
+      addTearDown(controller.dispose);
+
+      expect(await controller.synchronize('user-1'), isTrue);
+      final lastSynced = controller.lastSuccessfulSync;
+
+      expect(await controller.synchronize('user-1'), isFalse);
+
+      expect(controller.status, SyncStatus.paused);
+      expect(controller.isPaused, isTrue);
+      expect(controller.failureKind, SyncFailureKind.cloudNotReady);
+      expect(controller.failureCode, 'CloudContractMismatch');
+      expect(controller.retryPending, isFalse);
+      expect(controller.pendingChanges, 4);
+      expect(controller.lastSuccessfulSync, lastSynced);
+      expect(controller.pausedSince, isNotNull);
+    });
+
+    test(
+      'a temporary failure never pauses, however often it happens',
+      () async {
+        final controller = SyncController.forTesting(
+          synchronize: (_) => Future.error(TimeoutException('slow')),
+          statusStore: store(),
+        );
+        addTearDown(controller.dispose);
+
+        for (var attempt = 0; attempt < 5; attempt++) {
+          await controller.synchronize('user-1');
+        }
+
+        expect(controller.status, SyncStatus.error);
+        expect(controller.isPaused, isFalse);
+        expect(controller.retryPending, isTrue);
+        expect(stored.keys.where((k) => k.startsWith('sync.paused.')), isEmpty);
+      },
+    );
+
+    test('the pause belongs to its account and survives sign-out and '
+        'sign-in', () async {
+      final controller = SyncController.forTesting(
+        synchronize: (userId) => userId == 'user-1'
+            ? Future.error(CloudContractMismatch('no server revision'))
+            : Future.value(_result(userId: userId)),
+        statusStore: store(),
+      );
+      addTearDown(controller.dispose);
+
+      await controller.synchronize('user-1');
+      final since = controller.pausedSince;
+      expect(controller.isPaused, isTrue);
+
+      controller.resetForSignedOut();
+      expect(controller.isPaused, isFalse);
+
+      await controller.activateUser('user-2');
+      expect(controller.isPaused, isFalse);
+      expect(await controller.synchronize('user-2'), isTrue);
+
+      controller.resetForSignedOut();
+      await controller.activateUser('user-1');
+      expect(controller.isPaused, isTrue);
+      expect(controller.failureCode, 'CloudContractMismatch');
+      expect(controller.pausedSince, since);
+    });
+
+    test('a retry that succeeds clears the pause for good', () async {
+      var cloudReady = false;
+      final controller = SyncController.forTesting(
+        synchronize: (userId) => cloudReady
+            ? Future.value(_result(userId: userId))
+            : Future.error(CloudContractMismatch('no server revision')),
+        statusStore: store(),
+      );
+      addTearDown(controller.dispose);
+
+      await controller.synchronize('user-1');
+      expect(controller.isPaused, isTrue);
+
+      cloudReady = true;
+      expect(await controller.synchronize('user-1'), isTrue);
+      expect(controller.status, SyncStatus.success);
+      expect(controller.pausedSince, isNull);
+
+      controller.resetForSignedOut();
+      await controller.activateUser('user-1');
+      expect(controller.isPaused, isFalse);
+    });
+
+    test(
+      'while paused, automatic triggers do nothing; Retry runs once',
+      () async {
+        var calls = 0;
+        final controller = SyncController.forTesting(
+          synchronize: (_) {
+            calls++;
+            return Future.error(CloudContractMismatch('no server revision'));
+          },
+          statusStore: store(),
+        );
+        addTearDown(controller.dispose);
+        final coordinator = AutomaticSyncCoordinator(
+          syncController: controller,
+          networkPolicy: SyncNetworkPolicyService.forTesting(
+            checkConnectivity: () async => [ConnectivityResult.wifi],
+            getBool: (_) async => null,
+            setBool: (_, _) async {},
+            remove: (_) async {},
+          ),
+        );
+        coordinator.updateUserId('user-1');
+        await pumpEventQueue();
+
+        await coordinator.trigger();
+        expect(calls, 1);
+        expect(controller.isPaused, isTrue);
+
+        await coordinator.trigger();
+        await coordinator.trigger();
+        expect(calls, 1, reason: 'no automatic retries while paused');
+
+        await coordinator.trigger(retry: true);
+        expect(calls, 2);
+        expect(controller.isPaused, isTrue);
+      },
+    );
   });
 }
 

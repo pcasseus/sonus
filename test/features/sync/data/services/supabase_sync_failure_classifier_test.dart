@@ -118,4 +118,64 @@ void main() {
     );
     expect(server, 'sonus.sync: sync failed (unknown, 42501)');
   });
+
+  group('SN-50: a cloud that is not ready for this version', () {
+    test('missing tables, columns and functions are permanent', () {
+      for (final code in [
+        '42P01',
+        '42883',
+        '42703',
+        'PGRST202',
+        'PGRST204',
+        'PGRST205',
+      ]) {
+        final kind = classifySupabaseSyncFailure(
+          PostgrestException(message: 'missing', code: code),
+        );
+        expect(kind, SyncFailureKind.cloudNotReady, reason: code);
+        expect(kind.isPermanent, isTrue, reason: code);
+      }
+    });
+
+    test('a conditional write without a valid revision is permanent', () {
+      final error = _thrownBy(
+        () => CloudConditionalWriteResult.fromRpcRow({
+          'outcome': 'applied',
+          'server_revision': null,
+        }),
+      );
+
+      expect(error, isA<CloudContractMismatch>());
+      expect(error, isA<StateError>(), reason: 'still a StateError');
+      expect(
+        classifySupabaseSyncFailure(error!),
+        SyncFailureKind.cloudNotReady,
+      );
+    });
+
+    test('timeouts, offline, sign-in and server errors stay temporary', () {
+      for (final error in <Object>[
+        TimeoutException('x'),
+        const SocketException('unreachable'),
+        const AuthException('expired'),
+        const PostgrestException(message: 'busy', code: '503'),
+        StateError('anything else'),
+      ]) {
+        expect(
+          classifySupabaseSyncFailure(error).isPermanent,
+          isFalse,
+          reason: '$error',
+        );
+      }
+    });
+  });
+}
+
+Object? _thrownBy(void Function() action) {
+  try {
+    action();
+  } catch (error) {
+    return error;
+  }
+  return null;
 }

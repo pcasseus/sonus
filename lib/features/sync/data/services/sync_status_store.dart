@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:shared_preferences/shared_preferences.dart';
 
 typedef SyncStatusGetString = Future<String?> Function(String key);
@@ -18,6 +20,7 @@ class SyncStatusStore {
   SyncStatusStore._({required this._getString, required this._setString});
 
   static const String _lastSuccessfulSyncPrefix = 'sync.last_successful_sync.';
+  static const String _pausedPrefix = 'sync.paused.';
 
   final SyncStatusGetString _getString;
   final SyncStatusSetString _setString;
@@ -45,6 +48,34 @@ class SyncStatusStore {
     );
   }
 
+  /// Why and since when sync is paused for [userId] (a permanent failure),
+  /// or null. Kept per account on this device, across sign-out.
+  Future<SyncPause?> getPause(String userId) async {
+    final value = await _getString('$_pausedPrefix${_normalizeUserId(userId)}');
+    if (value == null || value.trim().isEmpty) return null;
+    try {
+      final json = jsonDecode(value);
+      if (json is! Map) return null;
+      final code = json['code'];
+      final since = DateTime.tryParse('${json['sinceUtc']}');
+      if (code is! String || since == null) return null;
+      return SyncPause(code: code, sinceUtc: since.toUtc());
+    } on FormatException {
+      return null;
+    }
+  }
+
+  Future<void> savePause(String userId, SyncPause pause) => _setString(
+    '$_pausedPrefix${_normalizeUserId(userId)}',
+    jsonEncode({
+      'code': pause.code,
+      'sinceUtc': pause.sinceUtc.toUtc().toIso8601String(),
+    }),
+  );
+
+  Future<void> clearPause(String userId) =>
+      _setString('$_pausedPrefix${_normalizeUserId(userId)}', '');
+
   String _normalizeUserId(String userId) {
     final normalized = userId.trim();
 
@@ -54,4 +85,12 @@ class SyncStatusStore {
 
     return normalized;
   }
+}
+
+/// Sync stopped for a failure that retrying on its own cannot fix.
+class SyncPause {
+  const SyncPause({required this.code, required this.sinceUtc});
+
+  final String code;
+  final DateTime sinceUtc;
 }

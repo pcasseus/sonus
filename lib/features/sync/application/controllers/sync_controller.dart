@@ -24,6 +24,11 @@ enum SyncStatus {
   /// The account already has a cloud library and this device has never
   /// synced with it; nothing moves until the person chooses.
   awaitingCloudChoice,
+
+  /// Stopped by a permanent failure (see [SyncFailureKind.isPermanent]):
+  /// no automatic retries until the person retries and it succeeds.
+  /// Remembered per account on this device, across sign-out.
+  paused,
 }
 
 class SyncController extends ChangeNotifier {
@@ -150,6 +155,13 @@ class SyncController extends ChangeNotifier {
 
   bool get isSyncing => _status == SyncStatus.syncing;
 
+  /// Sync stopped for a permanent failure until the person retries.
+  bool get isPaused => _status == SyncStatus.paused;
+
+  /// When sync was first paused for the current account, if it is.
+  DateTime? get pausedSince => _pausedSince;
+  DateTime? _pausedSince;
+
   bool get hasError =>
       _status == SyncStatus.error || _status == SyncStatus.accountConflict;
 
@@ -212,6 +224,7 @@ class SyncController extends ChangeNotifier {
     _retryPending = false;
     _failureKind = null;
     _failureCode = null;
+    _pausedSince = null;
     notifyListeners();
 
     DateTime? restored;
@@ -220,6 +233,13 @@ class SyncController extends ChangeNotifier {
       restored = await _statusStore.getLastSuccessfulSync(normalizedUserId);
     } catch (error) {
       _log('Could not read the last sync time', error);
+    }
+
+    SyncPause? pause;
+    try {
+      pause = await _statusStore.getPause(normalizedUserId);
+    } catch (error) {
+      _log('Could not read the paused sync state', error);
     }
 
     final pending = await _readPendingCount(normalizedUserId);
@@ -231,6 +251,12 @@ class SyncController extends ChangeNotifier {
 
     _lastSuccessfulSync = restored;
     _pendingChanges = pending ?? _pendingChanges;
+    if (pause != null) {
+      _status = SyncStatus.paused;
+      _failureKind = SyncFailureKind.cloudNotReady;
+      _failureCode = pause.code;
+      _pausedSince = pause.sinceUtc;
+    }
     notifyListeners();
   }
 
@@ -356,7 +382,17 @@ class SyncController extends ChangeNotifier {
       _retryPending = result.hasRemainingPendingChanges;
       _status = SyncStatus.success;
       _lastError = null;
+      final wasPaused = _pausedSince != null;
+      _pausedSince = null;
       notifyListeners();
+
+      if (wasPaused) {
+        try {
+          await _statusStore.clearPause(userId);
+        } catch (error) {
+          _log('Could not clear the paused sync state', error);
+        }
+      }
 
       try {
         await _statusStore.saveLastSuccessfulSync(userId, result.completedAt);
@@ -389,12 +425,29 @@ class SyncController extends ChangeNotifier {
       return false;
     } catch (error) {
       _lastError = error;
-      _retryPending = true;
-      _status = SyncStatus.error;
       final kind = _failureKind = _classifyFailure(error);
       final code = _failureCode = _describeFailure(error);
       _log('Sync failed (${kind.name})', error);
       debugPrint(syncFailureLogLine(kind, code, error));
+
+      if (kind.isPermanent) {
+        // Retrying on its own cannot help: pause until the person retries.
+        // Nothing is dropped; the last sync time is kept.
+        _retryPending = false;
+        _status = SyncStatus.paused;
+        final since = _pausedSince ??= DateTime.now().toUtc();
+        try {
+          await _statusStore.savePause(
+            userId,
+            SyncPause(code: code, sinceUtc: since),
+          );
+        } catch (error) {
+          _log('Could not save the paused sync state', error);
+        }
+      } else {
+        _retryPending = true;
+        _status = SyncStatus.error;
+      }
 
       // Unsent changes stay in the outbox; show how many are waiting.
       final pending = await _readPendingCount(userId);
@@ -523,6 +576,8 @@ class SyncController extends ChangeNotifier {
     _activationGeneration++;
     _failureKind = null;
     _failureCode = null;
+    // The account's paused state stays stored and returns at sign-in.
+    _pausedSince = null;
     _currentUserId = null;
     _status = SyncStatus.idle;
     _lastSuccessfulSync = null;
