@@ -770,13 +770,28 @@ class AtomicLibraryImporter {
 
         if (availableBindings.isNotEmpty) {
           // Another file already plays this recording. Nothing is written for
-          // the copy; the result says which song it duplicates.
+          // the copy; the result says which song it duplicates. A different
+          // disc/track position on the same edition is not evidence of a
+          // different recording, but it is not proof of a copy either, so
+          // that file is reported as a possible different recording.
+          final atOtherPosition =
+              !sharedWithEdition &&
+              metadata.trackNumber > 0 &&
+              !songMemberships.any(
+                (membership) =>
+                    membership.albumEditionId == edition!.id &&
+                    membership.discNumber == metadata.discNumber &&
+                    membership.trackNumber == metadata.trackNumber,
+              );
+
           return ImportResult(
             status: ImportResultStatus.skipped,
             filePath: candidate.filePath,
             songId: song.id,
             skipReason: sharedWithEdition
                 ? ImportSkipReason.sharedWithEdition
+                : atOtherPosition
+                ? ImportSkipReason.possibleAlternateRecording
                 : ImportSkipReason.duplicateRecording,
           );
         }

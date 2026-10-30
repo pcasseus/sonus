@@ -16,6 +16,14 @@ enum ImportSkipReason {
   /// The recording is already in the library from another edition of the
   /// same album; this file's edition now lists it too.
   sharedWithEdition,
+
+  /// Same artist, title, version and album as an existing song, with no
+  /// evidence of a different recording, but listed at a different disc and
+  /// track position on the same edition. It may be another recording, so the
+  /// file is kept out of the library: not bound, not merged and not listed,
+  /// so the user can decide. Without new storage there is no persistent
+  /// review for a file that was not imported, so this is reported only.
+  possibleAlternateRecording,
 }
 
 class ImportResult {

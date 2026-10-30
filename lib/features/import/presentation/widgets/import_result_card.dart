@@ -59,6 +59,12 @@ class ImportResultCard extends StatelessWidget {
         _ResultRow(label: 'Imported', value: summary.importedCount),
         _ResultRow(label: 'Relinked', value: summary.relinkedCount),
         _ResultRow(label: 'Skipped', value: summary.skippedCount),
+        if (summary.possibleAlternateRecordingCount > 0)
+          _ResultRow(
+            key: const ValueKey<String>('import-possible-alternate-row'),
+            label: 'Possible different recordings (not imported)',
+            value: summary.possibleAlternateRecordingCount,
+          ),
         _ResultRow(label: 'Failed', value: summary.failedCount),
         if (reviewCount > 0)
           _ResultRow(label: 'Needs review', value: reviewCount),
@@ -68,7 +74,7 @@ class ImportResultCard extends StatelessWidget {
 }
 
 class _ResultRow extends StatelessWidget {
-  const _ResultRow({required this.label, required this.value});
+  const _ResultRow({super.key, required this.label, required this.value});
 
   final String label;
   final int value;

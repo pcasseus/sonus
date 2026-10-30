@@ -250,8 +250,16 @@ void main() {
     final db = await appDatabase.database;
     expect(await SongDao(db).findAll(), hasLength(1));
     expect(results[1].status, ImportResultStatus.skipped);
-    expect(results[1].skipReason, ImportSkipReason.duplicateRecording);
+    // A different track position is not evidence of a different recording,
+    // but it is not proof of a copy either: it is reported, not merged.
+    expect(results[1].skipReason, ImportSkipReason.possibleAlternateRecording);
     expect(results[1].songId, results[0].songId);
+    expect(
+      (await MediaFileBindingDao(
+        db,
+      ).findBySongId(results[0].songId!)).map((b) => b.filePath),
+      ['track03.mp3'],
+    );
   });
 
   test('SN-50 Import-1: an ambiguous same-title, similar-length file is '
@@ -275,6 +283,9 @@ void main() {
     // The kept song keeps only its own file; the ambiguous file is reported
     // against it, not bound to it, and nothing about the song changes.
     expect(first[0].songId, kept.id);
+    expect(first[1].status, ImportResultStatus.skipped);
+    expect(first[1].skipReason, ImportSkipReason.possibleAlternateRecording);
+    expect(first[1].songId, kept.id);
     expect(keptBindings.map((b) => b.filePath), ['track03.mp3']);
     expect(kept.durationSeconds, 146);
 
@@ -289,8 +300,77 @@ void main() {
     expect((await bindings.findBySongId(kept.id)).map((b) => b.filePath), [
       'track03.mp3',
     ]);
-    expect(again[1].status, isNot(ImportResultStatus.imported));
+    expect(again[1].status, ImportResultStatus.skipped);
+    expect(again[1].skipReason, ImportSkipReason.possibleAlternateRecording);
     expect(again[1].songId, kept.id);
+    expect(await SongImportReviewDao(db).findBySongId(kept.id), isNull);
+  });
+
+  test('the same disc and track position from another path is still a '
+      'duplicate recording', () async {
+    final files = {
+      'a/track03.mp3': errTime(seconds: 146, trackNumber: 3),
+      'b/track03.mp3': errTime(seconds: 147, trackNumber: 3),
+    };
+    final (importer, _) = await service(files);
+
+    final results = await importAll(importer, [
+      for (final path in files.keys) candidate(path),
+    ]);
+
+    final db = await appDatabase.database;
+    expect(await SongDao(db).findAll(), hasLength(1));
+    expect(results[1].status, ImportResultStatus.skipped);
+    expect(results[1].skipReason, ImportSkipReason.duplicateRecording);
+    expect(results[1].songId, results[0].songId);
+  });
+
+  test('a different version label of the same title and length is its own '
+      'song', () async {
+    final files = {
+      'original.mp3': errTime(seconds: 146, trackNumber: 3),
+      'club.mp3': AudioMetadata(
+        title: 'ErrTime (Club Remix)',
+        artistName: 'Cardi B',
+        albumTitle: 'Am I The Drama?',
+        durationSeconds: 146,
+        trackNumber: 9,
+        discNumber: 1,
+        isSingle: false,
+        featuredArtists: const [],
+      ),
+    };
+    final (importer, _) = await service(files);
+
+    final results = await importAll(importer, [
+      for (final path in files.keys) candidate(path),
+    ]);
+
+    final db = await appDatabase.database;
+    expect(await SongDao(db).findAll(), hasLength(2));
+    expect(
+      results.map((r) => r.status),
+      everyElement(ImportResultStatus.imported),
+    );
+    expect(results[0].songId, isNot(results[1].songId));
+  });
+
+  test('a possible different recording never attaches its lyrics to the '
+      'kept song', () async {
+    final files = {
+      'track03.mp3': errTime(seconds: 146, trackNumber: 3),
+      'track09.mp3': errTime(seconds: 147, trackNumber: 9),
+    };
+    final (importer, lyrics) = await service(files);
+
+    final results = await importAll(importer, [
+      candidate('track03.mp3', withLyrics: true),
+      candidate('track09.mp3', withLyrics: true),
+    ]);
+
+    expect(results[1].skipReason, ImportSkipReason.possibleAlternateRecording);
+    expect(lyrics.saves[results[0].songId], contains('track03.mp3'));
+    expect(lyrics.saves.values, isNot(contains(contains('track09.mp3'))));
   });
 
   test('a duplicate file never attaches its lyrics to the kept song', () async {
