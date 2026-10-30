@@ -138,6 +138,26 @@ class MomentEditorialDesk {
     return List.unmodifiable(stories.reversed);
   }
 
+  /// Approved news held back until its headlines are approved (SN-50
+  /// BUG-04, BLOCKED_EDITORIAL), under the same rules as [compose]. Never
+  /// shown; for checks and reports only.
+  List<GatedMoment> copyGated(Iterable<ChartMomentFeedItem> items) {
+    final all = items.toList();
+    final planner = MomentStoryPlanner(
+      all,
+      biggestGainers: _biggestGainers(all, rules),
+    );
+    return [
+      for (final item in all)
+        if (rules.appliesTo(
+          scope: item.scope,
+          occurredAt: item.occurredAt,
+          weekStartUtc: item.weekStartUtc,
+        ))
+          ...planner.copyGated(item),
+    ];
+  }
+
   /// Before the SN-50 rules: one story per group, as first published.
   static List<PlannedMoment> _legacyPlan(
     ChartMomentFeedItem item,

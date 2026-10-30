@@ -12,6 +12,7 @@ import 'package:sonus_next/features/charts/domain/moments/chart_moment_scope.dar
 import 'package:sonus_next/features/charts/presentation/editorial/moment_editorial_desk.dart';
 import 'package:sonus_next/features/charts/presentation/editorial/moment_facts.dart';
 import 'package:sonus_next/features/charts/presentation/editorial/moment_family.dart';
+import 'package:sonus_next/features/charts/presentation/editorial/moment_story_planner.dart';
 import 'package:sonus_next/features/charts/presentation/editorial/moment_headlines.dart';
 import 'package:sonus_next/features/charts/presentation/editorial/moment_publisher.dart';
 import 'package:sonus_next/features/charts/presentation/editorial/moment_visuals.dart';
@@ -1125,6 +1126,21 @@ void main() {
           type: ChartMomentEventType.artistStreamMilestone,
         ).map((story) => story.family),
         [MomentFamily.songBigClimb],
+      );
+    });
+
+    test('F-Q7: 1,000 qualified streams is the first major milestone; '
+        'below it is supporting text', () {
+      expect(MomentStoryPlanner.majorStreamMilestone, 1000);
+      expect(climbWithMilestone(999).map((story) => story.family), [
+        MomentFamily.songBigClimb,
+      ]);
+      expect(
+        climbWithMilestone(1000).map((story) => story.family),
+        unorderedEquals([
+          MomentFamily.songBigClimb,
+          MomentFamily.songStreamMilestone,
+        ]),
       );
     });
 

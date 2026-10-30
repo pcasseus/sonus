@@ -30,6 +30,28 @@ class PlannedMoment {
   final Set<String> excludedVariants;
 }
 
+/// Approved news that has no approved headlines yet (SN-50 BUG-04,
+/// BLOCKED_EDITORIAL). Detected so it can be checked and counted, never
+/// published.
+enum GatedMomentKind {
+  /// A weekly fall of [MomentStoryPlanner.bubblingUnderFallMinimum] or
+  /// more places within Bubbling Under.
+  bubblingUnderFall,
+
+  /// A weekly exit from the Hot 100 into Bubbling Under by a song with a
+  /// Top 40 peak or [MomentStoryPlanner.notableExitWeeks] Hot 100 weeks.
+  notableHot100Exit,
+}
+
+/// A detected [GatedMomentKind] story, with the id it would publish under.
+class GatedMoment {
+  const GatedMoment(this.id, this.kind, this.event);
+
+  final String id;
+  final GatedMomentKind kind;
+  final ChartMomentEvent event;
+}
+
 /// The stories of one recorded group under the SN-50 rules (Session F):
 ///
 /// - every debut and re-entry on a song or release chart, #1–200, is a
@@ -46,6 +68,10 @@ class PlannedMoment {
 ///   arrival, also when the song returns to the chart after charting only
 ///   on Bubbling Under; a song back from Bubbling Under that was on the
 ///   Hot 100 before is a Hot 100 re-entry. Neither is told as a climb;
+/// - every weekly climb of [bubblingUnderRiseMinimum] or more places within
+///   Bubbling Under is a story of its own, outside the daily cap (approved
+///   BUG-04 rule 1); falls and notable Hot 100 exits are only detected
+///   ([copyGated]) until their headlines are approved;
 /// - #1 stories name only the verified displaced leader, and an artist
 ///   replacing their own song at #1 gets self-replacement wording;
 /// - distinct achievements of one play stay distinct stories (F-Q6/F-Q9).
@@ -57,7 +83,8 @@ class MomentStoryPlanner {
     Iterable<ChartMomentFeedItem> items, {
     required Set<String> biggestGainers,
   }) : _leaders = _displacedLeaders(items),
-       _gainers = biggestGainers;
+       _gainers = biggestGainers,
+       _fiveHot100Weeks = _fiveHot100WeeksReached(items);
 
   /// The zone below #1 whose first entry is told on its own; the others
   /// a move enters are told together. #1 is its own story.
@@ -90,6 +117,25 @@ class MomentStoryPlanner {
   /// Per finalized chart week, the previous week's #1 that lost the spot.
   final Map<String, ChartEntitySnapshot> _leaders;
   final Set<String> _gainers;
+
+  /// Per song, the first finalized week its fifth Hot 100 week was
+  /// recorded, from stored longevity milestones.
+  final Map<String, DateTime> _fiveHot100Weeks;
+
+  /// The smallest weekly climb within Bubbling Under told as a story.
+  static const int bubblingUnderRiseMinimum = 20;
+
+  /// The smallest weekly fall within Bubbling Under that is news.
+  static const int bubblingUnderFallMinimum = 30;
+
+  /// A Hot 100 exit into Bubbling Under is news after a peak at or above
+  /// this rank, or after [notableExitWeeks] Hot 100 weeks.
+  static const int notableExitPeak = 40;
+  static const int notableExitWeeks = 5;
+
+  /// Hot 100 arrival headlines that state last week's rank without saying
+  /// it was a Bubbling Under rank, so they read as a Hot 100 climb (E-Q1).
+  static const Set<String> misleadingArrivalVariants = {'song-break-p3'};
 
   List<PlannedMoment> plan(ChartMomentFeedItem item) {
     if (item.scope == ChartMomentScope.live) return const [];
@@ -308,9 +354,13 @@ class MomentStoryPlanner {
           // From Bubbling Under; a re-entry story already tells a return
           // straight into the Hot 100.
           if (event.previousRank != null) {
-            add('hot-100', MomentFamily.songHot100Breakthrough, [
-              event,
-            ], mandatory: true);
+            add(
+              'hot-100',
+              MomentFamily.songHot100Breakthrough,
+              [event],
+              mandatory: true,
+              excludedVariants: misleadingArrivalVariants,
+            );
           }
         } else if (zone == majorThreshold) {
           add('top-$zone', _firstThreshold(albums), [event], mandatory: true);
@@ -365,6 +415,11 @@ class MomentStoryPlanner {
       final rise = find(const {ChartMomentEventType.rankRise});
       if (rise != null && _gainers.contains(item.id)) {
         add('gainer', MomentFamily.songBiggestGainer, [rise]);
+      } else if (rise != null &&
+          _withinBubblingUnder(rise) &&
+          (rise.movementDistance ?? 0) >= bubblingUnderRiseMinimum) {
+        // The biggest gainer's story already tells its climb.
+        add('bu-climb', MomentFamily.songBigClimb, [rise], mandatory: true);
       }
     }
 
@@ -534,6 +589,89 @@ class MomentStoryPlanner {
 
   static String _weekKey(ChartType chartType, DateTime weekStartUtc) =>
       '${chartType.name}:${weekStartUtc.toUtc().millisecondsSinceEpoch}';
+
+  /// The approved news in [item] that cannot be published until its
+  /// headlines are approved. Same rules and ids as [plan].
+  List<GatedMoment> copyGated(ChartMomentFeedItem item) {
+    if (item.scope != ChartMomentScope.finalized ||
+        item.chartType != ChartType.songs ||
+        item.subjectType == ChartMomentFeedSubjectType.artist) {
+      return const [];
+    }
+    final gated = <GatedMoment>[];
+    for (final event in item.events) {
+      if (event.eventType == ChartMomentEventType.rankFall &&
+          _withinBubblingUnder(event) &&
+          (event.movementDistance ?? 0) >= bubblingUnderFallMinimum) {
+        gated.add(
+          GatedMoment(
+            '${item.id}#bu-fall',
+            GatedMomentKind.bubblingUnderFall,
+            event,
+          ),
+        );
+      }
+      if (event.eventType == ChartMomentEventType.thresholdExit &&
+          event.threshold == ChartRankingEngine.officialChartLimit &&
+          (event.currentRank ?? 0) > ChartRankingEngine.officialChartLimit &&
+          _notableExit(event)) {
+        gated.add(
+          GatedMoment(
+            '${item.id}#hot-100-exit',
+            GatedMomentKind.notableHot100Exit,
+            event,
+          ),
+        );
+      }
+    }
+    return gated;
+  }
+
+  /// A verified Top 40 peak, or a fifth Hot 100 week recorded before this
+  /// week. Missing history never counts.
+  bool _notableExit(ChartMomentEvent exit) {
+    final peak = exit.previousPeakRank;
+    if (peak != null && peak <= notableExitPeak) return true;
+    final reached = _fiveHot100Weeks[exit.entity.entityId];
+    return reached != null && reached.isBefore(exit.weekStartUtc);
+  }
+
+  static bool _withinBubblingUnder(ChartMomentEvent event) {
+    const limit = ChartRankingEngine.officialChartLimit;
+    final before = event.previousRank;
+    final now = event.currentRank;
+    return event.chartType == ChartType.songs &&
+        before != null &&
+        now != null &&
+        before > limit &&
+        now > limit &&
+        before <= ChartRankingEngine.extendedStandingsLimit &&
+        now <= ChartRankingEngine.extendedStandingsLimit;
+  }
+
+  static Map<String, DateTime> _fiveHot100WeeksReached(
+    Iterable<ChartMomentFeedItem> items,
+  ) {
+    final reached = <String, DateTime>{};
+    for (final item in items) {
+      if (item.scope != ChartMomentScope.finalized ||
+          item.chartType != ChartType.songs) {
+        continue;
+      }
+      for (final event in item.events) {
+        if (event.eventType ==
+                ChartMomentEventType.totalThresholdWeeksMilestone &&
+            event.threshold == ChartRankingEngine.officialChartLimit &&
+            (event.milestoneValue ?? 0) >= notableExitWeeks) {
+          final id = event.entity.entityId;
+          final week = event.weekStartUtc;
+          final known = reached[id];
+          if (known == null || week.isBefore(known)) reached[id] = week;
+        }
+      }
+    }
+    return reached;
+  }
 
   static Map<String, ChartEntitySnapshot> _displacedLeaders(
     Iterable<ChartMomentFeedItem> items,

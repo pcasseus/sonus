@@ -16,6 +16,8 @@ import 'package:sonus_next/features/charts/domain/models/chart_type.dart';
 import 'package:sonus_next/features/charts/domain/moments/chart_moment_artist_achievement_detector.dart';
 import 'package:sonus_next/features/charts/domain/moments/chart_moment_event.dart';
 import 'package:sonus_next/features/charts/domain/moments/chart_moment_finalized_detector.dart';
+import 'package:sonus_next/features/charts/domain/moments/chart_moment_longevity_calculator.dart';
+import 'package:sonus_next/features/charts/domain/moments/chart_moment_milestone_detector.dart';
 import 'package:sonus_next/features/charts/domain/moments/chart_moment_rules.dart';
 import 'package:sonus_next/features/charts/presentation/editorial/moment_editorial_desk.dart';
 import 'package:sonus_next/features/charts/presentation/editorial/moment_facts.dart';
@@ -124,6 +126,40 @@ class _Weeks {
         createdAt: end,
       ),
     ];
+    // Longevity milestones, as finalization records them (the fifth Hot
+    // 100 week is the evidence for a notable exit).
+    final baseline =
+        previous ??
+        ChartSnapshot(
+          id: 'baseline',
+          chartType: ChartType.songs,
+          weekStartUtc: start.subtract(const Duration(days: 7)),
+          weekEndUtc: start,
+          finalizedAt: start,
+          entries: const [],
+        );
+    const longevity = ChartMomentLongevityCalculator();
+    for (final entry in snapshot.entries) {
+      events.addAll(
+        const ChartMomentMilestoneDetector().detect(
+          snapshot: snapshot,
+          entry: entry,
+          previousLongevity: longevity.calculate(
+            entityId: entry.entity.entityId,
+            snapshot: baseline,
+            history: history,
+          ),
+          currentLongevity: longevity.calculate(
+            entityId: entry.entity.entityId,
+            snapshot: snapshot,
+            history: history,
+          ),
+          previousLifetimeStreams: 0,
+          currentLifetimeStreams: 0,
+          createdAt: end,
+        ),
+      );
+    }
     history.add(snapshot);
     _start = end;
     return (start, events);
@@ -175,10 +211,13 @@ void main() {
 
   tearDown(() => database.close());
 
-  Future<DateTime> publish(DateTime from) async {
+  Future<DateTime> publish(
+    DateTime from, [
+    List<Map<ChartEntitySnapshot, int>>? songWeeks,
+  ]) async {
     final weeks = _Weeks(from);
     late DateTime last;
-    for (final ranks in _songWeeks) {
+    for (final ranks in songWeeks ?? _songWeeks) {
       final (start, events) = weeks.week(ranks);
       last = start;
       await moments.publishFinalizedForWeek(
@@ -189,6 +228,11 @@ void main() {
     }
     return last;
   }
+
+  Future<List<GatedMoment>> gated(ChartMomentRules rules) async =>
+      MomentEditorialDesk(lookups: _Lookups(), rules: rules).copyGated(
+        const ChartMomentFeedAggregator().aggregate(await moments.getRecent()),
+      );
 
   Future<List<MomentStory>> stories(ChartMomentRules rules) async =>
       MomentEditorialDesk(lookups: _Lookups(), rules: rules).compose(
@@ -230,6 +274,10 @@ void main() {
     test('#124 to #87 is a first Hot 100 entry, never a 37-place climb', () {
       expect(families(_arrival), [MomentFamily.songHot100Breakthrough]);
       final story = of(all, _arrival, week3).single;
+      expect(
+        MomentStoryPlanner.misleadingArrivalVariants,
+        isNot(contains(story.variantId)),
+      );
       expect(story.headline, contains('Hot 100'));
       for (final text in [story.headline, story.body ?? '']) {
         expect(text, isNot(contains('37')));
@@ -313,6 +361,161 @@ void main() {
     expect(
       [for (final story in activated) '${story.id}|${story.headline}'],
       [for (final story in legacy) '${story.id}|${story.headline}'],
+    );
+  });
+
+  group('approved BUG-04 rules (rises 20+, falls 30+, notable exits)', () {
+    final a = _song('a'); // #171 -> #139: +32
+    final b = _song('b'); // #140 -> #121: +19
+    final c = _song('c'); // #122 -> #168: -46
+    final d = _song('d'); // #131 -> #160: -29
+    final climbers = [for (var i = 1; i <= 5; i++) _song('e$i')];
+    List<Map<ChartEntitySnapshot, int>> moves() => [
+      {
+        a: 171,
+        b: 140,
+        c: 122,
+        d: 131,
+        for (final (i, song) in climbers.indexed) song: 190 - i,
+      },
+      {
+        a: 139,
+        b: 121,
+        c: 168,
+        d: 160,
+        climbers[0]: 160,
+        climbers[1]: 165,
+        climbers[2]: 150,
+        climbers[3]: 155,
+        climbers[4]: 162,
+      },
+    ];
+
+    List<MomentFamily> families(
+      List<MomentStory> all,
+      ChartEntitySnapshot song,
+      DateTime week,
+    ) => [for (final story in of(all, song, week)) story.family];
+
+    test(
+      'every Bubbling Under climb of 20+ places is a story; +19 is not',
+      () async {
+        final week2 = await publish(_from, moves());
+        final all = await stories(_activated);
+
+        expect(families(all, a, week2), [MomentFamily.songBigClimb]);
+        expect(families(all, b, week2), isEmpty);
+        final story = of(all, a, week2).single;
+        expect(story.id, endsWith('#bu-climb'));
+        expect(story.headline, isNot(contains('Hot 100')));
+      },
+    );
+
+    test('five songs climbing 20+ in one week are five stories, outside '
+        'the daily cap', () async {
+      final week2 = await publish(_from, moves());
+      final all = await stories(_activated);
+
+      final told = [for (final song in climbers) ...families(all, song, week2)];
+      expect(told, hasLength(5));
+      // The week's biggest gainer tells its own climb once.
+      expect(
+        told.where((family) => family == MomentFamily.songBiggestGainer),
+        hasLength(1),
+      );
+      expect(
+        told.where((family) => family == MomentFamily.songBigClimb),
+        hasLength(4),
+      );
+    });
+
+    test('a fall of 30+ within Bubbling Under is detected but held for '
+        'copy approval; -29 is not detected', () async {
+      final week2 = await publish(_from, moves());
+      final all = await stories(_activated);
+      final held = await gated(_activated);
+
+      expect(families(all, c, week2), isEmpty);
+      expect(families(all, d, week2), isEmpty);
+      expect(
+        [
+          for (final moment in held)
+            if (moment.kind == GatedMomentKind.bubblingUnderFall)
+              moment.event.entity.entityId,
+        ],
+        ['c'],
+      );
+    });
+
+    test('a Hot 100 exit into Bubbling Under is held for copy approval '
+        'only after a Top 40 peak or five Hot 100 weeks', () async {
+      final peak35 = _song('peak-35');
+      final fiveWeeks = _song('five-weeks');
+      final fourWeeks = _song('four-weeks');
+      final last = await publish(_from, [
+        {fiveWeeks: 60},
+        {fiveWeeks: 70, fourWeeks: 60},
+        {fiveWeeks: 80, fourWeeks: 70},
+        {fiveWeeks: 90, fourWeeks: 80, peak35: 35},
+        {fiveWeeks: 94, fourWeeks: 94, peak35: 94},
+        {fiveWeeks: 121, fourWeeks: 121, peak35: 121},
+      ]);
+      final held = await gated(_activated);
+      final exits = {
+        for (final moment in held)
+          if (moment.kind == GatedMomentKind.notableHot100Exit)
+            moment.event.entity.entityId: moment,
+      };
+
+      expect(exits.keys, unorderedEquals(['peak-35', 'five-weeks']));
+      expect(exits.values.every((m) => m.event.weekStartUtc == last), isTrue);
+      expect(exits.values.every((m) => m.id.endsWith('#hot-100-exit')), isTrue);
+      // A move across the chart boundary is never a Bubbling Under fall.
+      expect(
+        held.where((m) => m.kind == GatedMomentKind.bubblingUnderFall),
+        isEmpty,
+      );
+      // Nothing about an exit is published.
+      final all = await stories(_activated);
+      for (final song in [peak35, fiveWeeks, fourWeeks]) {
+        expect(of(all, song, last), isEmpty);
+      }
+    });
+
+    test('detection is stable: composing again gives the same stories and '
+        'held items', () async {
+      await publish(_from, moves());
+      final first = await stories(_activated);
+      final firstHeld = await gated(_activated);
+
+      expect(
+        [for (final story in await stories(_activated)) story.id],
+        [for (final story in first) story.id],
+      );
+      expect(
+        [for (final moment in await gated(_activated)) moment.id],
+        [for (final moment in firstHeld) moment.id],
+      );
+      expect({for (final story in first) story.id}, hasLength(first.length));
+    });
+
+    test(
+      'weeks before activation publish and hold exactly what they did',
+      () async {
+        await publish(DateTime.utc(2026, 8, 16), moves());
+
+        expect(
+          [
+            for (final story in await stories(_activated))
+              '${story.id}|${story.headline}',
+          ],
+          [
+            for (final story in await stories(ChartMomentRules.legacy))
+              '${story.id}|${story.headline}',
+          ],
+        );
+        expect(await gated(_activated), isEmpty);
+      },
     );
   });
 }
