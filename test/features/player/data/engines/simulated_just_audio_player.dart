@@ -12,6 +12,7 @@ import 'package:sonus_next/features/player/data/engines/support/playback_audio_p
 /// * Loading sources reports loading, then ready, before the returned
 ///   future completes.
 /// * Audio is only heard while [playing] and ready.
+/// * Seeking a completed source makes it ready again.
 class SimulatedJustAudioPlayer implements PlaybackAudioPlayer {
   final StreamController<Duration> _positions =
       StreamController<Duration>.broadcast(sync: true);
@@ -149,6 +150,11 @@ class SimulatedJustAudioPlayer implements PlaybackAudioPlayer {
     }
     _position = position;
     _positions.add(position);
+
+    // Seeking a completed source prepares it again, like just_audio.
+    if (_processing == ProcessingState.completed) {
+      _setProcessing(ProcessingState.ready);
+    }
   }
 
   @override

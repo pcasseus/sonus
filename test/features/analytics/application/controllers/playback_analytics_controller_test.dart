@@ -738,6 +738,103 @@ void main() {
           'song_2',
         ]);
       });
+
+      group('Play after the queue finished (R4)', () {
+        /// Listens [seconds] more, as the clock and the player report it.
+        Future<void> listen(int seconds) async {
+          now = now.add(Duration(seconds: seconds));
+          player.advanceTo(
+            realEngine.currentState.position + Duration(seconds: seconds),
+          );
+          await settle();
+        }
+
+        test('counts only fresh listening of the replayed song', () async {
+          await coordinator.playTracks([
+            libraryTrack1,
+            libraryTrack2,
+          ], startIndex: 1);
+          await settle();
+          await listen(40);
+          player.advanceTo(const Duration(minutes: 3));
+          player.complete();
+          await settle();
+          expect(qualifiedPlays.values.map((play) => play.songId), ['song_2']);
+
+          await coordinator.togglePlayPause();
+          await settle();
+          expect(player.audible, isTrue);
+          expect(realEngine.currentState.position, Duration.zero);
+          expect(qualifiedPlays.values, hasLength(1));
+
+          // Seeking skips ahead without listening.
+          await listen(20);
+          await coordinator.seek(const Duration(minutes: 2));
+          await settle();
+          await listen(5);
+          await coordinator.pause();
+          await settle();
+          expect(
+            qualifiedPlays.values,
+            hasLength(1),
+            reason: '25 s of fresh listening does not qualify',
+          );
+
+          await coordinator.play();
+          await settle();
+          await listen(10);
+          await coordinator.stop();
+          await settle();
+
+          expect(qualifiedPlays.values.map((play) => play.songId), [
+            'song_2',
+            'song_2',
+          ]);
+        });
+
+        test('a finished session restored after a restart adds nothing '
+            'until fresh listening', () async {
+          final storage = <String, String>{
+            PlaybackSessionStore.sessionKey: jsonEncode(
+              const PlaybackSessionSnapshot(
+                songIds: ['song_1', 'song_2'],
+                currentIndex: 1,
+                position: Duration(minutes: 3),
+              ).toJson(),
+            ),
+          };
+          final restoration = PlaybackRestorationController(
+            store: PlaybackSessionStore.forTesting(
+              getString: (key) async => storage[key],
+              setString: (key, value) async => storage[key] = value,
+              remove: (key) async => storage.remove(key),
+            ),
+            coordinator: coordinator,
+          );
+          addTearDown(restoration.dispose);
+
+          await restoration.restore(() async => [libraryTrack1, libraryTrack2]);
+          await settle();
+          now = now.add(const Duration(minutes: 10));
+          await settle();
+          expect(player.audible, isFalse);
+          expect(playbackSessions.values, isEmpty);
+
+          await coordinator.togglePlayPause();
+          await settle();
+          expect(realEngine.currentState.queue.currentTrack?.songId, 'song_2');
+          expect(realEngine.currentState.position, Duration.zero);
+          await listen(4);
+          expect(qualifiedPlays.values, isEmpty);
+
+          await listen(30);
+          await coordinator.stop();
+          await settle();
+
+          expect(playbackSessions.values, hasLength(1));
+          expect(qualifiedPlays.values.map((play) => play.songId), ['song_2']);
+        });
+      });
     });
   });
 

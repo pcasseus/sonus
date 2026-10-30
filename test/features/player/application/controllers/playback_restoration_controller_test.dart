@@ -244,17 +244,32 @@ void main() {
       },
     );
 
-    test('a finished or cleared queue is not kept', () async {
+    test('a finished queue is kept at the end of its last song (R4)', () async {
+      await controller.restore(() => library(const []));
+      engine.emit(_state(['a', 'b'], index: 1, seconds: 170));
+      await pumpEventQueue();
+
+      engine.emit(
+        _state(
+          ['a', 'b'],
+          index: 1,
+          seconds: 179,
+          status: PlaybackStatus.completed,
+        ).copyWith(duration: const Duration(minutes: 3)),
+      );
+      await pumpEventQueue();
+
+      expect(saved()!.songIds, ['a', 'b']);
+      expect(saved()!.currentIndex, 1);
+      expect(saved()!.position, const Duration(minutes: 3));
+    });
+
+    test('a cleared queue is not kept', () async {
       await controller.restore(() => library(const []));
       engine.emit(_state(['a'], seconds: 0));
       await pumpEventQueue();
+      expect(storage, isNotEmpty);
 
-      engine.emit(_state(['a'], status: PlaybackStatus.completed));
-      await pumpEventQueue();
-      expect(storage, isEmpty);
-
-      engine.emit(_state(['a'], seconds: 0));
-      await pumpEventQueue();
       engine.emit(const PlaybackState());
       await pumpEventQueue();
       expect(storage, isEmpty);

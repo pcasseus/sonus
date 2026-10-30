@@ -152,11 +152,44 @@ class JustAudioPlaybackEngine implements PlaybackEngine {
     }
 
     try {
+      if (_isAtEndOfQueue) {
+        await _replayFinalSong();
+        return;
+      }
+
       await _audioPlayer.play();
     } catch (error) {
       _emitFailure(error);
       rethrow;
     }
+  }
+
+  /// A finished queue, or a restored one paused at its very end. Play then
+  /// replays the final song (SN50-R4) instead of doing nothing.
+  bool get _isAtEndOfQueue {
+    if (_state.status == PlaybackStatus.completed) return true;
+
+    final duration = _state.duration;
+    if (_state.isPlaying || _audioPlayer.hasNext || duration <= Duration.zero) {
+      return false;
+    }
+
+    // A restored or reported end can fall a little short of the duration.
+    final end = duration > const Duration(seconds: 2)
+        ? duration - const Duration(seconds: 1)
+        : duration;
+    return _state.position >= end;
+  }
+
+  /// just_audio keeps `playing` set after completion, so its play() would
+  /// return at once. Clearing it first makes play() start the song again.
+  Future<void> _replayFinalSong() async {
+    if (_audioPlayer.playing) {
+      await _audioPlayer.pause();
+    }
+
+    await _audioPlayer.seek(Duration.zero);
+    await _audioPlayer.play();
   }
 
   @override

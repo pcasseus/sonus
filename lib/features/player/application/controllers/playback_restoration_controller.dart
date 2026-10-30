@@ -157,17 +157,16 @@ class PlaybackRestorationController {
   Future<void> _record(PlaybackState state, {bool force = false}) {
     final queue = state.queue;
 
-    // An emptied queue or a finished one has nothing worth resuming.
-    if (queue.isEmpty ||
-        !queue.hasCurrentTrack ||
-        state.status == PlaybackStatus.completed) {
+    // An emptied queue has nothing worth resuming. A finished one is kept
+    // at its end, so Play after a restart replays the final song (SN50-R4).
+    if (queue.isEmpty || !queue.hasCurrentTrack) {
       return _clear();
     }
 
     final snapshot = PlaybackSessionSnapshot(
       songIds: [for (final track in queue.tracks) track.songId],
       currentIndex: queue.currentIndex,
-      position: state.position,
+      position: _resumePosition(state),
     );
     final last = _lastSaved;
 
@@ -208,6 +207,16 @@ class PlaybackRestorationController {
     });
     _pendingSave = next;
     return next;
+  }
+
+  /// A finished song is saved at its very end, even when the last position
+  /// update came slightly earlier, so it is restored as finished.
+  static Duration _resumePosition(PlaybackState state) {
+    if (state.status == PlaybackStatus.completed &&
+        state.duration > Duration.zero) {
+      return state.duration;
+    }
+    return state.position;
   }
 
   static bool _sameSongs(List<String> a, List<String> b) {
