@@ -344,19 +344,25 @@ class MomentEditorialDesk {
             family == MomentFamily.releaseNewPeak) &&
         peak != null &&
         !used.contains(MomentFact.previousPeak);
-    // SN-50: no single stream moved a finished week (F-Q8/F-Q24).
+    // SN-50 P-005/P-006: no single stream moved a finished week
+    // (F-Q8/F-Q24), so refined weekly stories name the week before.
+    final finishedWeek = facts.weekly && facts.refined;
     if (climbs &&
-        !(facts.weekly && facts.refined) &&
         previous != null &&
         previous != facts.rank &&
         !peakNamed &&
         !used.contains(MomentFact.previousRank)) {
-      // One sentence when the rank before this stream was also the best.
-      sentences.add(
-        tellsPeak && previous == peak
-            ? '$it was at #$previous, its best so far, before this stream.'
-            : '$it was at #$previous before this stream.',
-      );
+      // One sentence when the rank before was also the best.
+      final bestToo = tellsPeak && previous == peak;
+      sentences.add(switch ((finishedWeek, bestToo)) {
+        (true, true) =>
+          '$it was at #$previous the week before, its best '
+              'until then.',
+        (true, false) => '$it was at #$previous the week before.',
+        (false, true) =>
+          '$it was at #$previous, its best so far, before this stream.',
+        (false, false) => '$it was at #$previous before this stream.',
+      });
     }
 
     if (tellsPeak && !(climbs && previous == peak && previous != null)) {

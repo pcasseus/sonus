@@ -247,12 +247,17 @@ class MomentFacts {
   /// The chart, by name, for the rank in this story: the Sonus Hot 100 or
   /// Sonus Bubbling Under for songs, Sonus Albums & EPs for releases.
   String get chart => switch (chartType) {
-    // SN-50: a weekly #101–200 position is never named as the Hot 100.
+    // SN-50 P-003/P-004 (refined stories only): a finished week is the
+    // weekly chart, never "this week's", and a weekly #101–200 position is
+    // never named as the Hot 100. Earlier stories keep their wording.
     ChartType.songs when weekly && refined && bubblingUnder =>
-      "this week's Sonus Bubbling Under",
+      'the weekly Sonus Bubbling Under',
+    ChartType.songs when weekly && refined => 'the weekly Sonus Hot 100',
     ChartType.songs when weekly => "this week's Sonus Hot 100",
     ChartType.songs when bubblingUnder => 'Sonus Bubbling Under',
     ChartType.songs => 'the Sonus Hot 100',
+    ChartType.albums when weekly && refined =>
+      'the weekly Sonus Albums & EPs chart',
     ChartType.albums when weekly => "this week's Sonus Albums & EPs chart",
     ChartType.albums => 'the Sonus Albums & EPs chart',
   };

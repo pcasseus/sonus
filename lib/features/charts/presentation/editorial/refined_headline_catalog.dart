@@ -60,7 +60,30 @@ class RefinedHeadlineCatalog {
   /// The app's refined changes. Each entry needs its own editorial
   /// approval (SN50_Final_Editorial_Approval_and_Implementation_Contract.md).
   static final RefinedHeadlineCatalog standard = RefinedHeadlineCatalog(
-    overrides: [],
+    overrides: [
+      // P-007 to P-009 (Batch 1): finished weeks are never "this week".
+      RefinedOverride(
+        'song-gainer-d6',
+        (f) =>
+            'No song climbed further in the chart week than ${f.subject}, '
+            'up ${f.places} places to #${f.rank}.',
+        approved: true,
+      ),
+      RefinedOverride(
+        'song-gainer-p6',
+        (f) =>
+            '${f.work} leads every climber of the chart week, rising '
+            '${f.places} places to #${f.rank}.',
+        approved: true,
+      ),
+      RefinedOverride(
+        'artist-sim-p4',
+        (f) =>
+            '${f.artist} lands ${f.count} songs in the Top ${f.threshold} of '
+            '${f.chart}.',
+        approved: true,
+      ),
+    ],
     exclusions: [],
     additions: [],
   );
