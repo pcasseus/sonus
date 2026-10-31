@@ -22,6 +22,7 @@ import 'package:sonus_next/features/charts/domain/moments/chart_moment_rules.dar
 import 'package:sonus_next/features/charts/presentation/editorial/moment_editorial_desk.dart';
 import 'package:sonus_next/features/charts/presentation/editorial/moment_facts.dart';
 import 'package:sonus_next/features/charts/presentation/editorial/moment_family.dart';
+import 'package:sonus_next/features/charts/presentation/editorial/moment_publisher.dart';
 import 'package:sonus_next/features/charts/presentation/editorial/moment_story_planner.dart';
 import 'package:sonus_next/features/library/domain/entities/library_organization.dart';
 
@@ -74,7 +75,10 @@ class _Weeks {
 
   DateTime get nextStart => _start;
 
-  (DateTime, List<ChartMomentEvent>) week(Map<ChartEntitySnapshot, int> ranks) {
+  (DateTime, List<ChartMomentEvent>) week(
+    Map<ChartEntitySnapshot, int> ranks, {
+    Map<ChartEntitySnapshot, int> streams = const {},
+  }) {
     final start = _start;
     final end = start.add(const Duration(days: 7));
     final previous = history.isNotEmpty && history.last.weekEndUtc == start
@@ -102,7 +106,7 @@ class _Weeks {
           ChartEntry(
             entity: entity,
             rank: rank,
-            qualifiedStreamCount: 300 - rank,
+            qualifiedStreamCount: streams[entity] ?? 300 - rank,
             lastQualifiedAt: end,
             previousFinalRank: previousRanks[entity.entityId],
             peakRank: rank < (peaks[entity.entityId] ?? 999)
@@ -214,11 +218,15 @@ void main() {
   Future<DateTime> publish(
     DateTime from, [
     List<Map<ChartEntitySnapshot, int>>? songWeeks,
+    List<Map<ChartEntitySnapshot, int>> streams = const [],
   ]) async {
     final weeks = _Weeks(from);
     late DateTime last;
-    for (final ranks in songWeeks ?? _songWeeks) {
-      final (start, events) = weeks.week(ranks);
+    for (final (i, ranks) in (songWeeks ?? _songWeeks).indexed) {
+      final (start, events) = weeks.week(
+        ranks,
+        streams: i < streams.length ? streams[i] : const {},
+      );
       last = start;
       await moments.publishFinalizedForWeek(
         chartType: ChartType.songs,
@@ -519,64 +527,174 @@ void main() {
     );
   });
 
-  group('SN-50 Batch E: chart jumps, held for copy approval', () {
-    Map<String, GatedMoment> held(
-      List<GatedMoment> all,
-      GatedMomentKind kind,
-    ) => {
-      for (final moment in all)
-        if (moment.kind == kind) moment.event.entity.entityId: moment,
-    };
+  group('SN-50 chart jumps (approved CJ-001 to CJ-041)', () {
+    List<MomentStory> jumps(List<MomentStory> all) => [
+      for (final story in all)
+        if (story.family == MomentFamily.songHot100MajorJump ||
+            story.family == MomentFamily.songHot100ClimbRun)
+          story,
+    ];
+    final streamSentence = RegExp('qualified streams', caseSensitive: false);
 
-    test('a Hot 100 climb of 25+ places is detected with its ranks; +24 is '
-        'not', () async {
+    test('a Hot 100 climb of 25+ places is a PulsePop jump story under its '
+        'planned id; +24 is not', () async {
       final jump = _song('jump');
       final small = _song('small');
+      // The week's biggest gainer keeps its own story (rule 4).
+      final gainer = _song('gainer');
       final last = await publish(_from, [
-        {jump: 80, small: 74},
-        {jump: 50, small: 51},
+        {jump: 80, small: 75, gainer: 99},
+        {jump: 50, small: 51, gainer: 20},
       ]);
+      final all = await stories(_activated);
 
-      final jumps = held(
-        await gated(_activated),
-        GatedMomentKind.hot100MajorClimb,
+      final story = of(all, jump, last).singleWhere(
+        (story) => story.family == MomentFamily.songHot100MajorJump,
       );
-
-      expect(jumps.keys, ['jump']);
-      final facts = jumps['jump']!.jump!;
-      expect(facts.fromRank, 80);
-      expect(facts.toRank, 50);
-      expect(facts.placesGained, 30);
-      expect(facts.weeks, 1);
-      expect(jumps['jump']!.event.weekStartUtc, last);
-      expect(jumps['jump']!.id, endsWith('#hot-100-jump'));
+      expect(story.id, endsWith('#hot-100-jump'));
+      expect(story.publisher, MomentPublisher.pulsePop);
+      expect(story.variantId, startsWith('song-jump-p'));
+      expect(story.headline, contains('#50'));
+      expect(story.headline, isNot(contains('stream')));
+      expect(story.facts.jump!.placesGained, 30);
+      // Streams are 300 - rank in this fixture: 250 this week, 220 last.
+      expect(story.body, contains(streamSentence));
+      expect(story.body, contains('250'));
+      expect(story.body, contains('30'));
+      expect(jumps(of(all, small, last)), isEmpty);
+      expect(
+        of(all, gainer, last).map((story) => story.family),
+        contains(MomentFamily.songBiggestGainer),
+      );
+      expect(jumps(of(all, gainer, last)), isEmpty);
     });
 
-    test('three climbing weeks in a row add up; positions and streams stay '
-        'separate facts', () async {
+    test('three climbing weeks worth 30+ places are a Sonus Daily run '
+        'story; positions and streams stay separate facts', () async {
       final climber = _song('climber');
-      await publish(_from, [
+      final last = await publish(_from, [
         {climber: 90},
         {climber: 80},
         {climber: 65},
         {climber: 55},
       ]);
+      final all = await stories(_activated);
 
-      final runs = held(
-        await gated(_activated),
-        GatedMomentKind.hot100ClimbRun,
-      );
-
-      final facts = runs['climber']!.jump!;
+      final story = of(
+        all,
+        climber,
+        last,
+      ).singleWhere((story) => story.family == MomentFamily.songHot100ClimbRun);
+      expect(story.id, endsWith('#hot-100-run'));
+      expect(story.publisher, MomentPublisher.sonusDaily);
+      expect(story.variantId, startsWith('song-run-d'));
+      final facts = story.facts.jump!;
       expect(facts.fromRank, 90);
       expect(facts.toRank, 55);
       expect(facts.weeks, 3);
       expect(facts.placesGained, 35, reason: 'positions, over three weeks');
-      // Streams are 300 - rank in this fixture: 245 this week, 235 last.
-      expect(facts.weekStreams, 245);
-      expect(facts.previousWeekStreams, 235);
       expect(facts.streamGain, 10, reason: 'streams, this week only');
-      expect(runs['climber']!.id, endsWith('#hot-100-run'));
+      // CJ-040 or CJ-041, body text only.
+      expect(
+        story.body,
+        anyOf(
+          contains(
+            'The song earned 245 qualified streams in the finalized chart '
+            'week, 10 more than the preceding week.',
+          ),
+          contains('Qualified streams: 245 (up 10 on last week).'),
+        ),
+      );
+      expect(story.headline, isNot(contains(streamSentence)));
+    });
+
+    test('a jump inside a run is told as the run only (rule 5)', () async {
+      final climber = _song('climber');
+      final big = _song('big');
+      final last = await publish(_from, [
+        {climber: 95},
+        {climber: 85},
+        {climber: 75, big: 99},
+        {climber: 40, big: 10},
+      ]);
+      final all = await stories(_activated);
+
+      expect(jumps(of(all, climber, last)).map((story) => story.family), [
+        MomentFamily.songHot100ClimbRun,
+      ]);
+      expect(of(all, climber, last).single.facts.jump!.placesGained, 55);
+    });
+
+    test('a peak story tells the move; no jump headline repeats it '
+        '(rule 7)', () async {
+      final back = _song('back-to-peak');
+      final big = _song('big');
+      final last = await publish(_from, [
+        {back: 6},
+        {back: 60, big: 99},
+        {back: 6, big: 30},
+      ]);
+      final all = await stories(_activated);
+
+      expect(of(all, back, last).map((story) => story.family), [
+        MomentFamily.songPeakMatch,
+      ]);
+    });
+
+    test('jumps finishing in the Top 40 are never capped; other jumps follow '
+        'the minor cap; runs are never capped (rule 10)', () async {
+      final low = [for (var i = 0; i < 5; i++) _song('low-$i')];
+      final high = [for (var i = 0; i < 5; i++) _song('high-$i')];
+      final big = _song('big');
+      final last = await publish(_from, [
+        {
+          big: 100,
+          for (final (i, song) in low.indexed) song: 90 - i,
+          for (final (i, song) in high.indexed) song: 80 - i,
+        },
+        {
+          big: 2,
+          for (final (i, song) in low.indexed) song: 60 - i,
+          for (final (i, song) in high.indexed) song: 40 - i,
+        },
+      ]);
+      final all = await stories(_activated);
+      List<MomentStory> jumpsOf(List<ChartEntitySnapshot> songs) => [
+        for (final song in songs) ...jumps(of(all, song, last)),
+      ];
+
+      expect(jumpsOf(high), hasLength(5));
+      expect(
+        jumpsOf(low),
+        hasLength(lessThanOrEqualTo(3)),
+        reason: 'capped like other minor stories',
+      );
+      expect(jumpsOf(low), isNotEmpty);
+    });
+
+    test('the streaming sentence needs a verified week, 10+ streams and a '
+        'gain (rule 11)', () async {
+      final fewer = _song('fewer');
+      final quiet = _song('quiet');
+      final big = _song('big');
+      final last = await publish(
+        _from,
+        [
+          {fewer: 80, quiet: 81, big: 99},
+          {fewer: 50, quiet: 51, big: 10},
+        ],
+        [
+          {fewer: 300, quiet: 2},
+          {fewer: 200, quiet: 9},
+        ],
+      );
+      final all = await stories(_activated);
+
+      for (final song in [fewer, quiet]) {
+        final story = jumps(of(all, song, last)).single;
+        expect(story.family, MomentFamily.songHot100MajorJump);
+        expect(story.body ?? '', isNot(contains(streamSentence)));
+      }
     });
 
     test(
@@ -591,12 +709,12 @@ void main() {
           {broken: 60},
         ]);
 
-        final runs = held(
-          await gated(_activated),
-          GatedMomentKind.hot100ClimbRun,
+        expect(
+          (await stories(
+            _activated,
+          )).where((story) => story.family == MomentFamily.songHot100ClimbRun),
+          isEmpty,
         );
-
-        expect(runs, isEmpty);
       },
     );
 
@@ -608,10 +726,7 @@ void main() {
         {arrival: 87, buClimb: 140},
       ]);
 
-      final all = await gated(_activated);
-
-      expect(held(all, GatedMomentKind.hot100MajorClimb), isEmpty);
-      expect(held(all, GatedMomentKind.hot100ClimbRun), isEmpty);
+      expect(jumps(await stories(_activated)), isEmpty);
     });
 
     test('a missing week of history never counts', () async {
@@ -633,44 +748,38 @@ void main() {
         );
       }
 
-      final runs = held(
-        await gated(_activated),
-        GatedMomentKind.hot100ClimbRun,
-      );
-
-      expect(runs, isEmpty);
+      expect(jumps(await stories(_activated)), isEmpty);
     });
 
     test(
-      'nothing about a jump is published, and detection is stable',
+      'composing again tells the same jump stories, word for word',
       () async {
         final jump = _song('jump');
-        final last = await publish(_from, [
-          {jump: 80},
-          {jump: 40},
+        final big = _song('big');
+        await publish(_from, [
+          {jump: 80, big: 99},
+          {jump: 40, big: 5},
         ]);
 
-        final all = await stories(_activated);
-        expect([
-          for (final story in of(all, jump, last))
-            if (story.id.endsWith('#hot-100-jump') ||
-                story.id.endsWith('#hot-100-run'))
-              story.id,
-        ], isEmpty);
+        String key(MomentStory story) =>
+            '${story.id}|${story.headline}|${story.body}';
+        final first = jumps(await stories(_activated));
+        expect(first, hasLength(1));
         expect(
-          [for (final moment in await gated(_activated)) moment.id],
-          [for (final moment in await gated(_activated)) moment.id],
+          [for (final story in jumps(await stories(_activated))) key(story)],
+          [for (final story in first) key(story)],
         );
       },
     );
 
-    test('weeks before activation hold no jumps', () async {
+    test('weeks before activation tell no jumps and hold nothing', () async {
       final jump = _song('jump');
       await publish(DateTime.utc(2026, 8, 16), [
         {jump: 80},
         {jump: 40},
       ]);
 
+      expect(jumps(await stories(_activated)), isEmpty);
       expect(await gated(_activated), isEmpty);
     });
   });

@@ -1,3 +1,4 @@
+import 'chart_jump_facts.dart';
 import '../../application/models/chart_moment_feed_item.dart';
 import '../../application/services/chart_moment_feed_aggregator.dart';
 import '../../domain/models/chart_entity_snapshot.dart';
@@ -7,6 +8,9 @@ import '../../domain/moments/chart_moment_event_type.dart';
 import '../../domain/moments/chart_moment_scope.dart';
 import '../../domain/services/chart_ranking_engine.dart';
 import 'moment_family.dart';
+import 'moment_headlines.dart';
+
+export 'chart_jump_facts.dart';
 
 /// One story the desk writes, from the facts in [item].
 class PlannedMoment {
@@ -15,10 +19,14 @@ class PlannedMoment {
     this.family, {
     this.mandatory = false,
     this.excludedVariants = const {},
+    this.jump,
   });
 
   final ChartMomentFeedItem item;
   final MomentFamily family;
+
+  /// The verified movement and stream facts of a chart-jump story.
+  final ChartJumpFacts? jump;
 
   /// A guaranteed chart entry (F-Q1/F-Q31): never limited by the daily
   /// cap on minor stories (F-Q12).
@@ -42,64 +50,26 @@ enum GatedMomentKind {
   /// Top 40 peak or [MomentStoryPlanner.notableExitWeeks] Hot 100 weeks.
   notableHot100Exit,
 
-  /// A weekly climb of [MomentStoryPlanner.hot100MajorClimbMinimum] or
-  /// more places within the Hot 100 (SN-50 Batch E).
-  hot100MajorClimb,
-
-  /// [MomentStoryPlanner.hot100ClimbRunWeeks] or more consecutive weekly
-  /// climbs within the Hot 100, together worth
-  /// [MomentStoryPlanner.hot100ClimbRunMinimum] places (SN-50 Batch E).
-  hot100ClimbRun,
+  /// A story planned under the SN-50 rules whose family has no approved
+  /// headlines yet (see MomentHeadlines.approvedFamilies): held, never
+  /// published, never told with a plain fallback headline.
+  unapprovedCopy,
 }
 
 /// A detected [GatedMomentKind] story, with the id it would publish under.
 class GatedMoment {
-  const GatedMoment(this.id, this.kind, this.event, {this.jump});
+  const GatedMoment(this.id, this.kind, this.event, {this.family, this.story});
 
   final String id;
   final GatedMomentKind kind;
   final ChartMomentEvent event;
 
-  /// The verified movement and stream facts of a chart jump.
-  final ChartJumpFacts? jump;
-}
+  /// For [GatedMomentKind.unapprovedCopy]: the family it would be told in.
+  final MomentFamily? family;
 
-/// The verified facts of a chart jump, from finalized weeks only. Places
-/// and streams are separate facts: a place gained is never a stream.
-class ChartJumpFacts {
-  const ChartJumpFacts({
-    required this.fromRank,
-    required this.toRank,
-    required this.weeks,
-    this.weekStreams,
-    this.previousWeekStreams,
-  });
-
-  /// The rank before the first climbing week.
-  final int fromRank;
-
-  /// This week's rank.
-  final int toRank;
-
-  /// Consecutive climbing weeks, this one included.
-  final int weeks;
-
-  int get placesGained => fromRank - toRank;
-
-  /// Qualified streams in this finalized week.
-  final int? weekStreams;
-
-  /// Qualified streams in the week before, only when that week's entry was
-  /// verified as this song's previous rank.
-  final int? previousWeekStreams;
-
-  /// More (or fewer) qualified streams than the week before; null unless
-  /// both weeks are known.
-  int? get streamGain {
-    final now = weekStreams;
-    final before = previousWeekStreams;
-    return now == null || before == null ? null : now - before;
-  }
+  /// For [GatedMomentKind.unapprovedCopy]: the planned story, with all of
+  /// its events.
+  final ChartMomentFeedItem? story;
 }
 
 /// The stories of one recorded group under the SN-50 rules (Session F):
@@ -179,13 +149,15 @@ class MomentStoryPlanner {
   /// The smallest weekly fall within Bubbling Under that is news.
   static const int bubblingUnderFallMinimum = 30;
 
-  /// Chart jumps (SN-50 Batch E), held until their headlines and these
-  /// provisional thresholds are approved: the smallest weekly climb within
-  /// the Hot 100, and the shortest run of weekly Hot 100 climbs with the
-  /// smallest total it must reach.
+  /// Chart jumps (SN-50, approved): the smallest weekly climb within the
+  /// Hot 100 told as a major jump, and the shortest run of consecutive
+  /// weekly Hot 100 climbs with the smallest total it must reach.
   static const int hot100MajorClimbMinimum = 25;
   static const int hot100ClimbRunWeeks = 3;
   static const int hot100ClimbRunMinimum = 30;
+
+  /// A major jump finishing at or above this rank is never capped.
+  static const int majorJumpUncappedRank = 40;
 
   /// Per song, its finalized weekly chart entries keyed by the week's end:
   /// the verified history jump detection reads. Weeks before Moments were
@@ -213,6 +185,7 @@ class MomentStoryPlanner {
       List<ChartMomentEvent> events, {
       bool mandatory = false,
       Set<String> excludedVariants = const {},
+      ChartJumpFacts? jump,
     }) => stories.add(
       PlannedMoment(
         ChartMomentFeedAggregator.storyItem(
@@ -222,6 +195,7 @@ class MomentStoryPlanner {
         family,
         mandatory: mandatory,
         excludedVariants: excludedVariants,
+        jump: jump,
       ),
     );
 
@@ -485,6 +459,9 @@ class MomentStoryPlanner {
         // The biggest gainer's story already tells its climb.
         add('bu-climb', MomentFamily.songBigClimb, [rise], mandatory: true);
       }
+      if (rise != null && _withinHot100(rise)) {
+        _addChartJump(item, rise, stories, add);
+      }
     }
 
     if (!weekly) {
@@ -675,37 +652,6 @@ class MomentStoryPlanner {
           ),
         );
       }
-      if (event.eventType == ChartMomentEventType.rankRise &&
-          _withinHot100(event)) {
-        final previous = _previousWeek(event);
-        if ((event.movementDistance ?? 0) >= hot100MajorClimbMinimum) {
-          gated.add(
-            GatedMoment(
-              '${item.id}#hot-100-jump',
-              GatedMomentKind.hot100MajorClimb,
-              event,
-              jump: ChartJumpFacts(
-                fromRank: event.previousRank!,
-                toRank: event.currentRank!,
-                weeks: 1,
-                weekStreams: event.qualifiedStreamCount,
-                previousWeekStreams: previous?.qualifiedStreamCount,
-              ),
-            ),
-          );
-        }
-        final run = _climbRun(event, previous);
-        if (run != null) {
-          gated.add(
-            GatedMoment(
-              '${item.id}#hot-100-run',
-              GatedMomentKind.hot100ClimbRun,
-              event,
-              jump: run,
-            ),
-          );
-        }
-      }
       if (event.eventType == ChartMomentEventType.thresholdExit &&
           event.threshold == ChartRankingEngine.officialChartLimit &&
           (event.currentRank ?? 0) > ChartRankingEngine.officialChartLimit &&
@@ -721,6 +667,82 @@ class MomentStoryPlanner {
     }
     return gated;
   }
+
+  /// Chart jumps (SN-50, approved rules 1–7 and 10): a run of weekly Hot
+  /// 100 climbs is its own story, outside the daily cap, and replaces a
+  /// jump in the same week. A major jump is a story unless the week's
+  /// biggest gainer or a #1, Top 10, zone or peak story already tells the
+  /// move (their supporting text names the climb); it is capped like a
+  /// minor story unless it finishes in the Top 40. Songs only.
+  void _addChartJump(
+    ChartMomentFeedItem item,
+    ChartMomentEvent rise,
+    List<PlannedMoment> stories,
+    void Function(
+      String kind,
+      MomentFamily family,
+      List<ChartMomentEvent> events, {
+      bool mandatory,
+      ChartJumpFacts? jump,
+    })
+    add,
+  ) {
+    final previous = _previousWeek(rise);
+    final run = _climbRun(rise, previous);
+    if (run != null) {
+      add(
+        'hot-100-run',
+        MomentFamily.songHot100ClimbRun,
+        [rise],
+        mandatory: true,
+        jump: run,
+      );
+      return;
+    }
+
+    if ((rise.movementDistance ?? 0) < hot100MajorClimbMinimum ||
+        _gainers.contains(item.id) ||
+        stories.any(
+          (story) =>
+              _toldMove.contains(story.family) &&
+              // Only a story that is told replaces the jump; a held draft
+              // does not, or the move would go untold.
+              MomentHeadlines.approvedFamilies.contains(story.family),
+        )) {
+      return;
+    }
+    add(
+      'hot-100-jump',
+      MomentFamily.songHot100MajorJump,
+      [rise],
+      mandatory: (rise.currentRank ?? 101) <= majorJumpUncappedRank,
+      jump: ChartJumpFacts(
+        fromRank: rise.previousRank!,
+        toRank: rise.currentRank!,
+        weeks: 1,
+        weekStreams: rise.qualifiedStreamCount,
+        previousWeekStreams: previous?.qualifiedStreamCount,
+      ),
+    );
+  }
+
+  /// Stories that already tell a song's move, so a jump headline would only
+  /// repeat it (approved rules 6 and 7).
+  static const Set<MomentFamily> _toldMove = {
+    MomentFamily.songFirstNumberOne,
+    MomentFamily.songReturnsToNumberOne,
+    MomentFamily.songSelfReplacement,
+    // A song's #1 told as its artist's career #1.
+    MomentFamily.artistFirstNumberOne,
+    MomentFamily.artistNthNumberOne,
+    MomentFamily.artistRepeatNumberOne,
+    MomentFamily.songFirstThreshold,
+    MomentFamily.songThresholds,
+    MomentFamily.songNewPeak,
+    MomentFamily.songPeakMatch,
+    MomentFamily.songBiggestGainer,
+    MomentFamily.songHot100Breakthrough,
+  };
 
   /// The run of consecutive weekly Hot 100 climbs ending with [latest],
   /// when it is long and large enough; [previous] is its week before.

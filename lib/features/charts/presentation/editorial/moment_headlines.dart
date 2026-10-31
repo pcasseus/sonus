@@ -57,6 +57,7 @@ const _weeks = {MomentFact.weeks};
 const _run = {MomentFact.weeks, MomentFact.consecutive};
 const _count = {MomentFact.count, MomentFact.threshold};
 const _zones = {MomentFact.rank, MomentFact.thresholdList};
+const _climbRun = {MomentFact.rank, MomentFact.run};
 
 String _p1(MomentFacts f) => MomentFacts.possessive(f.artist);
 String _pc(MomentFacts f) => MomentFacts.possessive(f.careerArtist);
@@ -66,6 +67,50 @@ String _pc(MomentFacts f) => MomentFacts.possessive(f.careerArtist);
 /// voice (energetic, conversational). Both voices state the same facts.
 abstract final class MomentHeadlines {
   static List<HeadlineVariant> of(MomentFamily family) => _library[family]!;
+
+  /// The families whose headlines are approved for publication (SN-50
+  /// release safety). Fail-closed: a family is publishable only when it is
+  /// listed here, so a new family stays held until its lines are approved.
+  /// Not listed (drafts awaiting approval): songSelfReplacement,
+  /// releaseSelfReplacement, songFirstThreshold, releaseFirstThreshold,
+  /// songThresholds, releaseThresholds, artistRepeatNumberOne,
+  /// artistRepeatNumberOneRelease and artistSimultaneousReleases.
+  static const Set<MomentFamily> approvedFamilies = {
+    MomentFamily.songDebutNumberOne,
+    MomentFamily.songDebutTop10,
+    MomentFamily.songDebut,
+    MomentFamily.songBubblingUnderDebut,
+    MomentFamily.songHot100Breakthrough,
+    MomentFamily.songFirstNumberOne,
+    MomentFamily.songReturnsToNumberOne,
+    MomentFamily.songNewPeak,
+    MomentFamily.songPeakMatch,
+    MomentFamily.songBigClimb,
+    MomentFamily.songBiggestGainer,
+    MomentFamily.songReentry,
+    MomentFamily.songStreamMilestone,
+    MomentFamily.songWeeksMilestone,
+    MomentFamily.artistFirstHot100,
+    MomentFamily.artistFirstTop10,
+    MomentFamily.artistNthTop10,
+    MomentFamily.artistFirstNumberOne,
+    MomentFamily.artistNthNumberOne,
+    MomentFamily.artistTopArtist,
+    MomentFamily.artistStreamMilestone,
+    MomentFamily.artistSimultaneous,
+    MomentFamily.releaseDebutNumberOne,
+    MomentFamily.releaseDebut,
+    MomentFamily.releaseReachesNumberOne,
+    MomentFamily.releaseReturnsToNumberOne,
+    MomentFamily.releaseNewPeak,
+    MomentFamily.releaseReentry,
+    MomentFamily.releaseStreamMilestone,
+    MomentFamily.releaseWeeksMilestone,
+    MomentFamily.artistFirstNumberOneRelease,
+    MomentFamily.artistNthNumberOneRelease,
+    MomentFamily.songHot100MajorJump,
+    MomentFamily.songHot100ClimbRun,
+  };
 
   static Iterable<MomentFamily> get families => _library.keys;
 
@@ -2883,6 +2928,181 @@ abstract final class MomentHeadlines {
             'Catalog power: ${f.artist} has ${f.count} releases in the Top '
             '${f.threshold}.',
         requires: _count,
+      ),
+    ],
+    // SN-50 chart jumps, approved line by line (SN50_Chart_Jump_Editorial_
+    // Approval_Sheet.md CJ-001 to CJ-031, with the approved CJ-010,
+    // CJ-011 and CJ-028 wording).
+    MomentFamily.songHot100MajorJump: [
+      HeadlineVariant(
+        'song-jump-d1',
+        _d,
+        (f) =>
+            '${f.subject} jumps ${f.places} places on the weekly Sonus Hot 100, from #${f.previousRank} to #${f.rank}.',
+        requires: _placesFrom,
+      ),
+      HeadlineVariant(
+        'song-jump-d2',
+        _d,
+        (f) =>
+            '${f.subject} climbs from #${f.previousRank} to #${f.rank} on the weekly Sonus Hot 100.',
+        requires: _previous,
+      ),
+      HeadlineVariant(
+        'song-jump-d3',
+        _d,
+        (f) =>
+            'A ${f.places}-place climb takes ${f.subject} to #${f.rank} on the weekly Sonus Hot 100.',
+        requires: _places,
+      ),
+      HeadlineVariant(
+        'song-jump-d4',
+        _d,
+        (f) =>
+            '${f.work} by ${f.artist} rises ${f.places} places to #${f.rank} on the weekly Sonus Hot 100.',
+        requires: _places,
+      ),
+      HeadlineVariant(
+        'song-jump-d5',
+        _d,
+        (f) =>
+            '${f.subject} moves up the weekly Sonus Hot 100, from #${f.previousRank} to #${f.rank}.',
+        requires: _previous,
+      ),
+      HeadlineVariant(
+        'song-jump-d6',
+        _d,
+        (f) =>
+            '${MomentFacts.possessive(f.artist)} ${f.work} gains ${f.places} places on the weekly Sonus Hot 100 and reaches #${f.rank}.',
+        requires: _places,
+      ),
+      HeadlineVariant(
+        'song-jump-p1',
+        _p,
+        (f) =>
+            'Up ${f.places}! ${f.work} leaps to #${f.rank} on the Sonus Hot 100.',
+        requires: _places,
+      ),
+      HeadlineVariant(
+        'song-jump-p2',
+        _p,
+        (f) =>
+            '${f.work} is flying: #${f.previousRank} to #${f.rank} on the Sonus Hot 100.',
+        requires: _previous,
+      ),
+      HeadlineVariant(
+        'song-jump-p3',
+        _p,
+        (f) =>
+            'Big move for ${f.subject}: up ${f.places} spots to #${f.rank} on the Sonus Hot 100.',
+        requires: _places,
+      ),
+      HeadlineVariant(
+        'song-jump-p4',
+        _p,
+        (f) =>
+            '${f.work} by ${f.artist} soars ${f.places} places to #${f.rank} on the Sonus Hot 100.',
+        requires: _places,
+      ),
+      HeadlineVariant(
+        'song-jump-p5',
+        _p,
+        (f) =>
+            'From #${f.previousRank} to #${f.rank}: ${f.work} makes a major jump on the Sonus Hot 100.',
+        requires: _previous,
+      ),
+      HeadlineVariant(
+        'song-jump-p6',
+        _p,
+        (f) =>
+            '${f.subject} surges ${f.places} spots, landing at #${f.rank} on the Sonus Hot 100.',
+        requires: _places,
+      ),
+    ],
+    MomentFamily.songHot100ClimbRun: [
+      HeadlineVariant(
+        'song-run-d1',
+        _d,
+        (f) =>
+            '${f.subject} has climbed the weekly Sonus Hot 100 for ${f.runWeeks} weeks in a row, from #${f.runFromRank} to #${f.rank}.',
+        requires: _climbRun,
+      ),
+      HeadlineVariant(
+        'song-run-d2',
+        _d,
+        (f) =>
+            '${f.runWeeks} straight weekly climbs take ${f.subject} from #${f.runFromRank} to #${f.rank} on the Sonus Hot 100.',
+        requires: _climbRun,
+      ),
+      HeadlineVariant(
+        'song-run-d3',
+        _d,
+        (f) =>
+            '${f.work} by ${f.artist} is up ${f.runPlaces} places over ${f.runWeeks} weeks on the weekly Sonus Hot 100, now #${f.rank}.',
+        requires: _climbRun,
+      ),
+      HeadlineVariant(
+        'song-run-d4',
+        _d,
+        (f) =>
+            '${f.subject} rises again on the weekly Sonus Hot 100, to #${f.rank}: ${f.runPlaces} places in ${f.runWeeks} weeks.',
+        requires: _climbRun,
+      ),
+      HeadlineVariant(
+        'song-run-d5',
+        _d,
+        (f) =>
+            'Week after week, ${f.subject} moves up the Sonus Hot 100: #${f.runFromRank} to #${f.rank} in ${f.runWeeks} weeks.',
+        requires: _climbRun,
+      ),
+      HeadlineVariant(
+        'song-run-d6',
+        _d,
+        (f) =>
+            '${MomentFacts.possessive(f.artist)} ${f.work} keeps climbing the weekly Sonus Hot 100 and reaches #${f.rank}.',
+        requires: _climbRun,
+      ),
+      HeadlineVariant(
+        'song-run-p1',
+        _p,
+        (f) =>
+            '${f.runWeeks} weeks, ${f.runPlaces} places: ${f.work} keeps climbing the Sonus Hot 100.',
+        requires: _climbRun,
+      ),
+      HeadlineVariant(
+        'song-run-p2',
+        _p,
+        (f) =>
+            '${f.work} won\'t stop rising: #${f.runFromRank} to #${f.rank} on the Sonus Hot 100.',
+        requires: _climbRun,
+      ),
+      HeadlineVariant(
+        'song-run-p3',
+        _p,
+        (f) =>
+            'Up, up, up! ${f.subject} climbs for ${f.runWeeks} straight weeks, reaching #${f.rank} on the Sonus Hot 100.',
+        requires: _climbRun,
+      ),
+      HeadlineVariant(
+        'song-run-p4',
+        _p,
+        (f) =>
+            '${MomentFacts.possessive(f.artist)} ${f.work} is on a run, up ${f.runPlaces} spots in ${f.runWeeks} weeks to #${f.rank}.',
+        requires: _climbRun,
+      ),
+      HeadlineVariant(
+        'song-run-p5',
+        _p,
+        (f) =>
+            'The climb continues for ${f.work}: #${f.rank} on the Sonus Hot 100, ${f.runPlaces} places higher than ${f.runWeeks} weeks ago.',
+        requires: _climbRun,
+      ),
+      HeadlineVariant(
+        'song-run-p6',
+        _p,
+        (f) =>
+            '${f.subject} keeps moving up: ${f.runWeeks} weeks, ${f.runPlaces} places, now #${f.rank}.',
+        requires: _climbRun,
       ),
     ],
   };

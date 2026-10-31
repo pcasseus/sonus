@@ -113,7 +113,17 @@ class MomentEditorialDesk {
       final planned = refined ? planner.plan(item) : _legacyPlan(item, gainers);
 
       for (final moment in planned) {
-        final facts = MomentFacts.of(moment.item, lookups, refined: refined);
+        // Release safety: drafts never publish, not even with a plain
+        // fallback headline (MomentHeadlines.approvedFamilies).
+        if (!MomentHeadlines.approvedFamilies.contains(moment.family)) {
+          continue;
+        }
+        final facts = MomentFacts.of(
+          moment.item,
+          lookups,
+          refined: refined,
+          jump: moment.jump,
+        );
         if (!moment.mandatory &&
             moment.family.tierFor(facts.rank) == MomentTier.minor) {
           // The feed is paged in these same days.
@@ -153,8 +163,19 @@ class MomentEditorialDesk {
           scope: item.scope,
           occurredAt: item.occurredAt,
           weekStartUtc: item.weekStartUtc,
-        ))
+        )) ...[
           ...planner.copyGated(item),
+          // Planned stories held by the approved-family guard.
+          for (final moment in planner.plan(item))
+            if (!MomentHeadlines.approvedFamilies.contains(moment.family))
+              GatedMoment(
+                moment.item.id,
+                GatedMomentKind.unapprovedCopy,
+                moment.item.events.first,
+                family: moment.family,
+                story: moment.item,
+              ),
+        ],
     ];
   }
 
@@ -230,7 +251,7 @@ class MomentEditorialDesk {
       publisher: variant.publisher,
       variantId: variant.id,
       headline: headline,
-      body: _supportingText(family, facts, variant),
+      body: _supportingText(family, facts, variant, storyId: item.id),
       kicker: _kicker(family, facts),
       status: _status(family),
       rank: switch (family) {
@@ -262,8 +283,9 @@ class MomentEditorialDesk {
   static String? _supportingText(
     MomentFamily family,
     MomentFacts facts,
-    HeadlineVariant variant,
-  ) {
+    HeadlineVariant variant, {
+    String storyId = '',
+  }) {
     final used = variant.requires;
     final it = facts.chartType == ChartType.songs
         ? 'The song'
@@ -344,7 +366,11 @@ class MomentEditorialDesk {
     };
     // A handful of streams is what every early story has; it is not worth
     // a sentence.
-    if (streams != null &&
+    if (family == MomentFamily.songHot100MajorJump ||
+        family == MomentFamily.songHot100ClimbRun) {
+      final sentence = _jumpStreamSentence(facts.jump, storyId);
+      if (sentence != null) sentences.add(sentence);
+    } else if (streams != null &&
         facts.hasNotableStreams &&
         !milestoneStory &&
         !used.contains(MomentFact.streams)) {
@@ -359,6 +385,24 @@ class MomentEditorialDesk {
 
     if (sentences.isEmpty) return null;
     return sentences.take(2).join(' ');
+  }
+
+  /// The approved streaming sentence of a chart-jump story (CJ-040 or
+  /// CJ-041), body text only: verified comparable weeks, at least
+  /// [MomentFacts.notableStreams] qualified streams this week and a gain.
+  static String? _jumpStreamSentence(ChartJumpFacts? jump, String storyId) {
+    final week = jump?.weekStreams;
+    final gain = jump?.streamGain;
+    if (week == null ||
+        gain == null ||
+        week < MomentFacts.notableStreams ||
+        gain <= 0) {
+      return null;
+    }
+    return _hash('$storyId|streams').isEven
+        ? 'The song earned $week qualified streams in the finalized chart '
+              'week, $gain more than the preceding week.'
+        : 'Qualified streams: $week (up $gain on last week).';
   }
 
   static String _kicker(MomentFamily family, MomentFacts facts) {
@@ -401,7 +445,9 @@ class MomentEditorialDesk {
     MomentFamily.songThresholds ||
     MomentFamily.releaseThresholds => 'NEW PEAK',
     MomentFamily.songPeakMatch => 'PEAK MATCH',
-    MomentFamily.songBigClimb => 'BIG CLIMB',
+    MomentFamily.songBigClimb ||
+    MomentFamily.songHot100MajorJump ||
+    MomentFamily.songHot100ClimbRun => 'BIG CLIMB',
     MomentFamily.songBiggestGainer => 'BIGGEST GAINER',
     MomentFamily.songReentry || MomentFamily.releaseReentry => 'RE-ENTRY',
     MomentFamily.songStreamMilestone ||
@@ -453,7 +499,8 @@ class MomentEditorialDesk {
     MomentFamily.artistRepeatNumberOneRelease ||
     MomentFamily.artistStreamMilestone ||
     MomentFamily.artistSimultaneous ||
-    MomentFamily.artistSimultaneousReleases => MomentPublisher.sonusDaily,
+    MomentFamily.artistSimultaneousReleases ||
+    MomentFamily.songHot100ClimbRun => MomentPublisher.sonusDaily,
     MomentFamily.songDebutNumberOne ||
     MomentFamily.songDebutTop10 ||
     MomentFamily.songHot100Breakthrough ||
@@ -471,7 +518,8 @@ class MomentEditorialDesk {
     MomentFamily.artistFirstTop10 ||
     MomentFamily.artistFirstNumberOne ||
     MomentFamily.artistFirstNumberOneRelease ||
-    MomentFamily.artistTopArtist => MomentPublisher.pulsePop,
+    MomentFamily.artistTopArtist ||
+    MomentFamily.songHot100MajorJump => MomentPublisher.pulsePop,
   };
 
   /// Per finalized week and chart, the story with the largest verified

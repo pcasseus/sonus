@@ -66,12 +66,20 @@ enum MomentFamily {
   artistRepeatNumberOneRelease,
 
   /// Several releases by one artist in a zone at once.
-  artistSimultaneousReleases;
+  artistSimultaneousReleases,
+
+  /// SN-50 chart jumps (approved): a weekly climb of 25+ places within the
+  /// Hot 100.
+  songHot100MajorJump,
+
+  /// SN-50 chart jumps (approved): 3+ consecutive weekly Hot 100 climbs
+  /// worth 30+ places together.
+  songHot100ClimbRun;
 
   /// How much a story matters (SN-45 spam control). Minor stories are
   /// capped per day; the others always appear.
   MomentTier tierFor(int? rank) => switch (this) {
-    songDebut =>
+    songDebut || songHot100MajorJump =>
       rank != null && rank <= 40 ? MomentTier.notable : MomentTier.minor,
     songBubblingUnderDebut || releaseDebut => MomentTier.minor,
     songStreamMilestone ||
@@ -92,7 +100,8 @@ enum MomentFamily {
     artistSimultaneous ||
     songThresholds ||
     releaseThresholds ||
-    artistSimultaneousReleases => MomentTier.notable,
+    artistSimultaneousReleases ||
+    songHot100ClimbRun => MomentTier.notable,
     _ => MomentTier.major,
   };
 

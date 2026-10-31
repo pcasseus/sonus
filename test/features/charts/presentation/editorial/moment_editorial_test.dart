@@ -164,6 +164,12 @@ const sn50Families = {
   MomentFamily.artistSimultaneousReleases,
 };
 
+/// SN-50 chart-jump families, approved line by line (CJ-001 to CJ-031).
+const chartJumpFamilies = {
+  MomentFamily.songHot100MajorJump,
+  MomentFamily.songHot100ClimbRun,
+};
+
 /// Every fact a family can use, so every headline renders.
 MomentFacts fullFacts(MomentFamily family) {
   final release = family.isRelease;
@@ -204,6 +210,13 @@ MomentFacts fullFacts(MomentFamily family) {
     consecutive: true,
     count: 3,
     thresholds: const [75, 50, 40],
+    jump: ChartJumpFacts(
+      fromRank: rank + 40,
+      toRank: rank,
+      weeks: 3,
+      weekStreams: 245,
+      previousWeekStreams: 235,
+    ),
   );
 }
 
@@ -243,7 +256,9 @@ void main() {
     test('the SN-45 catalog keeps its 384 headlines, 192 per publisher', () {
       final legacy = [
         for (final family in MomentFamily.values)
-          if (!sn50Families.contains(family)) ...MomentHeadlines.of(family),
+          if (!sn50Families.contains(family) &&
+              !chartJumpFamilies.contains(family))
+            ...MomentHeadlines.of(family),
       ];
       expect(legacy, hasLength(384));
       expect(
@@ -306,6 +321,111 @@ void main() {
           }
         }
       }
+    });
+
+    test('SN-50 chart jumps: six distinct approved lines per publisher, '
+        'weekly wording, approved publisher', () {
+      final facts = MomentFacts(
+        chartType: ChartType.songs,
+        weekly: true,
+        refined: true,
+        title: 'Paper Moon',
+        artist: 'Mira Vale',
+        rank: 48,
+        previousRank: 80,
+        jump: const ChartJumpFacts(fromRank: 90, toRank: 48, weeks: 3),
+      );
+      for (final family in chartJumpFamilies) {
+        expect(MomentHeadlines.approvedFamilies, contains(family));
+        final variants = MomentHeadlines.of(family);
+        for (final publisher in MomentPublisher.values) {
+          final lines = {
+            for (final v in variants)
+              if (v.publisher == publisher) v.build(facts),
+          };
+          expect(lines, hasLength(6), reason: '$family ${publisher.label}');
+        }
+        for (final variant in variants) {
+          final text = variant.build(facts);
+          expect(text, isNot(contains("this week's")), reason: text);
+          expect(text, isNot(contains('this stream')), reason: text);
+          expect(text, isNot(contains('stream')), reason: text);
+          expect(text, isNot(contains('null')), reason: text);
+          // CJ-026 tells the run's places without the rank.
+          expect(text, anyOf(contains('#48'), contains('42 places')));
+          expect(text, matches(RegExp(r'[.!]$')), reason: text);
+        }
+      }
+      expect(
+        MomentEditorialDesk.publisherFor(MomentFamily.songHot100MajorJump),
+        MomentPublisher.pulsePop,
+      );
+      expect(
+        MomentEditorialDesk.publisherFor(MomentFamily.songHot100ClimbRun),
+        MomentPublisher.sonusDaily,
+      );
+    });
+
+    test('SN-50 chart jumps: the approved revisions render exactly', () {
+      final facts = MomentFacts(
+        chartType: ChartType.songs,
+        weekly: true,
+        refined: true,
+        title: 'Paper Moon',
+        artist: 'Mira Vale',
+        rank: 48,
+        previousRank: 80,
+        jump: const ChartJumpFacts(fromRank: 90, toRank: 48, weeks: 3),
+      );
+      String line(MomentFamily family, String id) => MomentHeadlines.of(
+        family,
+      ).singleWhere((v) => v.id == id).build(facts);
+
+      // CJ-010 and CJ-011.
+      expect(
+        line(MomentFamily.songHot100MajorJump, 'song-jump-p4'),
+        '"Paper Moon" by Mira Vale soars 32 places to #48 on the Sonus '
+        'Hot 100.',
+      );
+      expect(
+        line(MomentFamily.songHot100MajorJump, 'song-jump-p5'),
+        'From #80 to #48: "Paper Moon" makes a major jump on the Sonus '
+        'Hot 100.',
+      );
+      // CJ-001 and CJ-006, as approved.
+      expect(
+        line(MomentFamily.songHot100MajorJump, 'song-jump-d1'),
+        '"Paper Moon" by Mira Vale jumps 32 places on the weekly Sonus Hot '
+        '100, from #80 to #48.',
+      );
+      expect(
+        line(MomentFamily.songHot100MajorJump, 'song-jump-d6'),
+        'Mira Vale\'s "Paper Moon" gains 32 places on the weekly Sonus Hot '
+        '100 and reaches #48.',
+      );
+      // CJ-028, and the run facts of CJ-020.
+      expect(
+        line(MomentFamily.songHot100ClimbRun, 'song-run-p3'),
+        'Up, up, up! "Paper Moon" by Mira Vale climbs for 3 straight weeks, '
+        'reaching #48 on the Sonus Hot 100.',
+      );
+      expect(
+        line(MomentFamily.songHot100ClimbRun, 'song-run-d1'),
+        '"Paper Moon" by Mira Vale has climbed the weekly Sonus Hot 100 for 3 '
+        'weeks in a row, from #90 to #48.',
+      );
+    });
+
+    test('SN-50 release safety: only approved families can publish', () {
+      expect(
+        MomentHeadlines.approvedFamilies.intersection(sn50Families),
+        isEmpty,
+      );
+      expect(MomentHeadlines.approvedFamilies, containsAll(chartJumpFamilies));
+      expect(
+        MomentHeadlines.approvedFamilies,
+        hasLength(MomentFamily.values.length - sn50Families.length),
+      );
     });
 
     test('Bubbling Under keeps its real position: #106, never #6', () {

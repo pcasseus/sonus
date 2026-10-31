@@ -38,6 +38,8 @@ enum MomentCategory {
     MomentFamily.songNewPeak ||
     MomentFamily.songPeakMatch ||
     MomentFamily.songBigClimb ||
+    MomentFamily.songHot100MajorJump ||
+    MomentFamily.songHot100ClimbRun ||
     MomentFamily.songBiggestGainer ||
     MomentFamily.songFirstThreshold ||
     MomentFamily.songThresholds ||

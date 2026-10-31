@@ -29,7 +29,7 @@ import 'package:sonus_next/features/charts/domain/moments/chart_moment_scope.dar
 import 'package:sonus_next/features/charts/presentation/editorial/moment_editorial_desk.dart';
 import 'package:sonus_next/features/charts/presentation/editorial/moment_facts.dart';
 import 'package:sonus_next/features/charts/presentation/editorial/moment_family.dart';
-import 'package:sonus_next/features/charts/presentation/editorial/moment_visuals.dart';
+import 'package:sonus_next/features/charts/presentation/editorial/moment_story_planner.dart';
 import 'package:sonus_next/features/library/application/models/library_album.dart';
 import 'package:sonus_next/features/library/application/models/library_artist.dart';
 import 'package:sonus_next/features/library/application/models/library_track.dart';
@@ -443,6 +443,22 @@ void main() {
     ).compose(const ChartMomentFeedAggregator().aggregate(events)),
   );
 
+  /// Refined stories held by the approved-family guard: planned, never
+  /// published (SN-50 release safety).
+  Future<List<GatedMoment>> held({ChartMomentRules? rules}) =>
+      moments.getRecent().then(
+        (events) => [
+          for (final gated in MomentEditorialDesk(
+            lookups: _Lookups(),
+            rules: rules ?? _activated,
+          ).copyGated(const ChartMomentFeedAggregator().aggregate(events)))
+            if (gated.kind == GatedMomentKind.unapprovedCopy) gated,
+        ],
+      );
+
+  MomentFacts heldFacts(GatedMoment gated) =>
+      MomentFacts.of(gated.story!, _Lookups(), refined: true);
+
   Future<Set<MomentFamily>> reachable(
     _Era era, {
     ChartMomentRules? rules,
@@ -486,8 +502,9 @@ void main() {
     expect(allTimeZones.map((event) => event.threshold).toSet(), {100});
   });
 
-  test('with the SN-50 rules: 31 families publish, including peak matches '
-      'and longevity; releaseWeeksMilestone stays unwired', () async {
+  test('with the SN-50 rules: 22 approved families publish, including peak '
+      'matches and longevity; the nine draft families are held; '
+      'releaseWeeksMilestone stays unwired', () async {
     final families = await reachable(_refined);
 
     expect(families, {
@@ -513,16 +530,27 @@ void main() {
       MomentFamily.releaseNewPeak,
       MomentFamily.releaseReentry,
       MomentFamily.artistFirstNumberOneRelease,
-      MomentFamily.songSelfReplacement,
-      MomentFamily.songFirstThreshold,
-      MomentFamily.songThresholds,
-      MomentFamily.artistRepeatNumberOne,
-      MomentFamily.releaseSelfReplacement,
-      MomentFamily.releaseFirstThreshold,
-      MomentFamily.releaseThresholds,
-      MomentFamily.artistRepeatNumberOneRelease,
-      MomentFamily.artistSimultaneousReleases,
     });
+    // Planned under the rules, but their headlines are not approved.
+    expect(
+      {for (final gated in await held()) gated.family},
+      {
+        MomentFamily.songSelfReplacement,
+        MomentFamily.songFirstThreshold,
+        MomentFamily.songThresholds,
+        MomentFamily.artistRepeatNumberOne,
+        MomentFamily.releaseSelfReplacement,
+        MomentFamily.releaseFirstThreshold,
+        MomentFamily.releaseThresholds,
+        MomentFamily.artistRepeatNumberOneRelease,
+        MomentFamily.artistSimultaneousReleases,
+      },
+    );
+    expect(
+      families.intersection({for (final gated in await held()) gated.family}),
+      isEmpty,
+      reason: 'a held family never publishes',
+    );
   });
 
   test('scenario 7: a #190 debut, then each first zone once, with its '
@@ -545,20 +573,8 @@ void main() {
           expect(story.headline, contains('Sonus Bubbling Under'));
         case MomentFamily.songHot100Breakthrough:
           zones.add(100);
-        case MomentFamily.songFirstThreshold:
-          zones.add(story.facts.threshold!);
-        case MomentFamily.songThresholds:
-          zones.addAll(story.facts.thresholds);
-          expect(
-            story.headline,
-            anyOf(
-              contains(
-                'the Top 50, Top 40, Top 30, Top 25, Top 20, Top 15 and '
-                'Top 5',
-              ),
-              contains('the Top 3 and Top 2'),
-            ),
-          );
+        case MomentFamily.songFirstThreshold || MomentFamily.songThresholds:
+          fail('a draft zone story was published: ${story.headline}');
         case MomentFamily.artistFirstNumberOne:
           zones.add(1);
         default:
@@ -567,6 +583,24 @@ void main() {
       expect(story.facts.weekly, isTrue);
       expect(story.headline, isNot(contains('this stream')));
       expect(story.body ?? '', isNot(contains('this stream')));
+    }
+    // First zones are planned once each, and held until approved.
+    for (final gated in await held()) {
+      final story = gated.story!;
+      if (story.entity.entityId != _p.entityId ||
+          story.weekStartUtc.isAfter(lastWeek)) {
+        continue;
+      }
+      final facts = heldFacts(gated);
+      expect(facts.weekly, isTrue);
+      switch (gated.family) {
+        case MomentFamily.songFirstThreshold:
+          zones.add(facts.threshold!);
+        case MomentFamily.songThresholds:
+          zones.addAll(facts.thresholds);
+        default:
+          break;
+      }
     }
     expect(zones.toSet(), {
       200,
@@ -672,25 +706,48 @@ void main() {
     expect(dethroning.facts.rivalTitle, _q.title);
     expect(dethroning.facts.rivalArtist, 'Juno Park');
 
-    final self = numberOne(_p2, 5);
+    // The artist's own replacement is no dethroning: it is planned as a
+    // self-replacement, which stays held until its lines are approved.
+    final fifth = _refined.weeksFromUtc.add(const Duration(days: 35));
+    expect(
+      all.where(
+        (story) =>
+            story.item.entity.entityId == _p2.entityId &&
+            story.family.isNumberOne &&
+            story.item.weekStartUtc == fifth,
+      ),
+      isEmpty,
+    );
+    final self = (await held()).singleWhere(
+      (gated) =>
+          gated.story!.entity.entityId == _p2.entityId &&
+          gated.story!.weekStartUtc == fifth &&
+          gated.family!.isNumberOne,
+    );
     expect(self.family, MomentFamily.songSelfReplacement);
-    expect(self.facts.rivalTitle, _p.title);
-    expect('"Second Light"'.allMatches(self.headline), hasLength(1));
-    expect('"Paper Moon"'.allMatches(self.headline), hasLength(1));
-    expect('Mira Vale'.allMatches(self.headline), hasLength(1));
-    expect(self.visual.layout, MomentVisualLayout.singleCover);
+    expect(heldFacts(self).rivalTitle, _p.title);
   });
 
   test('a weekly repeat #1 counts the stored weeks and names the weekly '
       'chart', () async {
     await publishWeeks(ChartType.songs, _refined.weeksFromUtc, _songWeeks);
-    final repeat = (await stories()).singleWhere(
-      (story) => story.family == MomentFamily.artistRepeatNumberOne,
+    expect(
+      (await stories()).where(
+        (story) => story.family == MomentFamily.artistRepeatNumberOne,
+      ),
+      isEmpty,
+    );
+    final repeat = (await held()).singleWhere(
+      (gated) => gated.family == MomentFamily.artistRepeatNumberOne,
     );
 
-    expect(repeat.facts.ordinal, 2);
-    expect(repeat.item.entity.entityId, _q3.entityId);
-    expect(repeat.headline, contains('the weekly Sonus Hot 100'));
+    final facts = heldFacts(repeat);
+    expect(facts.ordinal, 2);
+    expect(facts.weekly, isTrue);
+    expect(repeat.story!.entity.entityId, _q3.entityId);
+    // Held under its planned story id.
+    expect(repeat.id, repeat.story!.id);
+    expect(repeat.id, endsWith('#number-one'));
   });
 
   group('SN-50 R2 activation', () {
@@ -819,13 +876,23 @@ void main() {
       final songs = storiesOf(all, 'lucky-star', ChartType.songs);
       expect(songs.map((story) => story.family), [
         MomentFamily.artistFirstNumberOne,
-        MomentFamily.songFirstThreshold,
         MomentFamily.songHot100Breakthrough,
-        MomentFamily.songThresholds,
       ]);
       expect(songs.first.facts.rank, 1);
-      expect(songs[1].facts.threshold, 10);
-      expect(songs.last.facts.thresholds, [
+      final gated = await held();
+      List<GatedMoment> heldOf(String entityId) => [
+        for (final moment in gated)
+          if (moment.story!.entity.entityId == entityId &&
+              moment.story!.subjectType != ChartMomentFeedSubjectType.artist)
+            moment,
+      ];
+      final heldSongs = heldOf('lucky-star');
+      expect(heldSongs.map((moment) => moment.family), [
+        MomentFamily.songFirstThreshold,
+        MomentFamily.songThresholds,
+      ]);
+      expect(heldFacts(heldSongs.first).threshold, 10);
+      expect(heldFacts(heldSongs.last).thresholds, [
         75,
         50,
         40,
@@ -837,21 +904,17 @@ void main() {
         3,
         2,
       ]);
-      expect(
-        songs.last.headline,
-        contains(
-          'the Top 75, Top 50, Top 40, Top 30, Top 25, Top 20, Top 15, '
-          'Top 5, Top 3 and Top 2',
-        ),
-      );
 
       final releases = storiesOf(all, 'album-lucky-star', ChartType.albums);
       expect(releases.map((story) => story.family), [
         MomentFamily.artistFirstNumberOneRelease,
+      ]);
+      final heldReleases = heldOf('album-lucky-star');
+      expect(heldReleases.map((moment) => moment.family), [
         MomentFamily.releaseFirstThreshold,
         MomentFamily.releaseThresholds,
       ]);
-      expect(releases.last.facts.thresholds, [
+      expect(heldFacts(heldReleases.last).thresholds, [
         100,
         75,
         50,
@@ -935,31 +998,49 @@ void main() {
         MomentFamily.songDebutNumberOne,
         MomentFamily.artistFirstNumberOne,
       ]);
-      expect(families(forty, second), [
-        MomentFamily.artistFirstNumberOne,
+      final gated = await held();
+      List<GatedMoment> heldOf(ChartEntitySnapshot song) => [
+        for (final moment in gated)
+          if (moment.story!.entity.entityId == song.entityId &&
+              moment.story!.weekStartUtc == second)
+            moment,
+      ];
+
+      // #40 to #1: the #1 story tells the move (approved rule 6), so no
+      // jump headline; its zones are held drafts.
+      expect(families(forty, second), [MomentFamily.artistFirstNumberOne]);
+      expect(heldOf(forty).map((moment) => moment.family), [
         MomentFamily.songFirstThreshold,
         MomentFamily.songThresholds,
       ]);
-      expect(
-        storiesOf(all, forty.entityId, ChartType.songs).last.facts.thresholds,
-        [30, 25, 20, 15, 5, 3, 2],
-      );
-      expect(families(eighty, second), [
+      expect(heldFacts(heldOf(forty).last).thresholds, [
+        30,
+        25,
+        20,
+        15,
+        5,
+        3,
+        2,
+      ]);
+      // #80 to #8: the week's biggest gainer keeps its story (rule 4).
+      expect(families(eighty, second), [MomentFamily.songBiggestGainer]);
+      expect(heldOf(eighty).map((moment) => moment.family), [
         MomentFamily.songFirstThreshold,
         MomentFamily.songThresholds,
-        MomentFamily.songBiggestGainer,
       ]);
-      expect(
-        storiesOf(
-          all,
-          eighty.entityId,
-          ChartType.songs,
-          weekStartUtc: second,
-        )[1].facts.thresholds,
-        [75, 50, 40, 30, 25, 20, 15],
-      );
-      expect(families(deep, second), [
-        MomentFamily.songHot100Breakthrough,
+      expect(heldFacts(heldOf(eighty).last).thresholds, [
+        75,
+        50,
+        40,
+        30,
+        25,
+        20,
+        15,
+      ]);
+      // #120 to #60: a Hot 100 breakthrough from Bubbling Under, never a
+      // Hot 100 jump.
+      expect(families(deep, second), [MomentFamily.songHot100Breakthrough]);
+      expect(heldOf(deep).map((moment) => moment.family), [
         MomentFamily.songFirstThreshold,
       ]);
 
@@ -984,43 +1065,41 @@ void main() {
   });
 
   group('SN-50 reconciliation', () {
-    void expectSelfReplacement(
-      MomentStory story, {
+    /// A self-replacement is planned (never told as a dethroning), but its
+    /// headlines are not approved, so it is held and nothing publishes.
+    Future<void> expectHeldSelfReplacement(
+      bool Function(ChartMomentFeedItem story) matches, {
       required MomentFamily family,
       required String replaced,
-      required String artist,
-      required List<String> others,
-    }) {
-      expect(story.family, family);
-      expect(story.facts.refined, isTrue);
-      // Only the artist's own previous #1 is mentioned, never a rival.
-      expect(story.facts.rivalTitle, replaced);
-      expect(story.facts.rivalArtist, anyOf(isNull, artist));
-      expect(artist.allMatches(story.headline), hasLength(1));
-      for (final other in others) {
-        expect(story.headline, isNot(contains(other)));
-        expect(story.body ?? '', isNot(contains(other)));
-      }
+      required bool weekly,
+    }) async {
+      final self = (await held()).singleWhere(
+        (gated) => matches(gated.story!) && gated.family!.isNumberOne,
+      );
+      expect(self.family, family);
+      final facts = heldFacts(self);
+      expect(facts.weekly, weekly);
+      // Only the artist's own previous #1 is named, never a rival.
+      expect(facts.rivalTitle, replaced);
+      expect(
+        (await stories()).where(
+          (story) => matches(story.item) && story.family.isNumberOne,
+        ),
+        isEmpty,
+      );
     }
 
     test('SN-50 reconciliation: an all-time song replacing its own '
         'artist\'s #1 is a self-replacement that names no rival', () async {
       await recordRace(_refined);
-      final all = await stories();
 
-      final self = all.singleWhere(
+      await expectHeldSelfReplacement(
         (story) =>
-            story.item.entity.entityId == 'second-wind' &&
-            story.item.chartType == ChartType.songs &&
-            story.family.isNumberOne,
-      );
-      expect(self.facts.weekly, isFalse);
-      expectSelfReplacement(
-        self,
+            story.entity.entityId == 'second-wind' &&
+            story.chartType == ChartType.songs,
         family: MomentFamily.songSelfReplacement,
         replaced: 'First Steps',
-        artist: 'Juno Park',
-        others: ['Wild Card', 'The Lanterns'],
+        weekly: false,
       );
     });
 
@@ -1028,21 +1107,14 @@ void main() {
         'artist\'s #1 release is a self-replacement that names no '
         'rival', () async {
       await recordRace(_refined);
-      final all = await stories();
 
-      final self = all.singleWhere(
+      await expectHeldSelfReplacement(
         (story) =>
-            story.item.entity.entityId == 'album-second-wind' &&
-            story.item.chartType == ChartType.albums &&
-            story.family.isNumberOne,
-      );
-      expect(self.facts.weekly, isFalse);
-      expectSelfReplacement(
-        self,
+            story.entity.entityId == 'album-second-wind' &&
+            story.chartType == ChartType.albums,
         family: MomentFamily.releaseSelfReplacement,
         replaced: 'First Steps (Album)',
-        artist: 'Juno Park',
-        others: ['Wild Card', 'The Lanterns'],
+        weekly: false,
       );
     });
 
@@ -1056,19 +1128,13 @@ void main() {
       );
       final fourth = _refined.weeksFromUtc.add(const Duration(days: 21));
 
-      final self = (await stories()).singleWhere(
+      await expectHeldSelfReplacement(
         (story) =>
-            story.item.entity.entityId == _a2.entityId &&
-            story.item.weekStartUtc == fourth &&
-            story.family.isNumberOne,
-      );
-      expect(self.facts.weekly, isTrue);
-      expectSelfReplacement(
-        self,
+            story.entity.entityId == _a2.entityId &&
+            story.weekStartUtc == fourth,
         family: MomentFamily.releaseSelfReplacement,
         replaced: _a1.title,
-        artist: 'Mira Vale',
-        others: ['Juno Park', 'Glass House', 'Field Notes'],
+        weekly: true,
       );
     });
 

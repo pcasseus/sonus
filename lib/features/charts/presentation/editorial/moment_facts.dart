@@ -5,6 +5,7 @@ import '../../domain/moments/chart_moment_event.dart';
 import '../../domain/moments/chart_moment_event_type.dart';
 import '../../domain/moments/chart_moment_scope.dart';
 import '../../domain/services/chart_ranking_engine.dart';
+import 'chart_jump_facts.dart';
 
 /// What the editorial desk may look up about the library. Everything else
 /// comes from the Moment's own recorded facts.
@@ -91,6 +92,9 @@ enum MomentFact {
 
   /// Two or more zones entered for the first time in one move.
   thresholdList,
+
+  /// A verified run of weekly climbs (SN-50 chart jumps).
+  run,
 }
 
 /// Every verified fact of one story, ready for headlines.
@@ -121,6 +125,7 @@ class MomentFacts {
     this.count,
     this.refined = false,
     this.thresholds = const [],
+    this.jump,
   });
 
   final ChartType chartType;
@@ -179,6 +184,18 @@ class MomentFacts {
   /// Told under the SN-50 rules (see ChartMomentRules).
   final bool refined;
 
+  /// A chart jump's verified movement and stream facts (SN-50).
+  final ChartJumpFacts? jump;
+
+  /// The rank before a run of weekly climbs began.
+  int? get runFromRank => jump?.fromRank;
+
+  /// How many weeks in a row the song has climbed.
+  int? get runWeeks => jump?.weeks;
+
+  /// Places gained over the whole run.
+  int? get runPlaces => jump?.placesGained;
+
   /// Zones first entered in one move, largest first.
   final List<int> thresholds;
 
@@ -224,6 +241,7 @@ class MomentFacts {
     if (consecutive) MomentFact.consecutive,
     if (count != null) MomentFact.count,
     if (thresholds.length >= 2) MomentFact.thresholdList,
+    if (jump case final run? when run.weeks > 1) MomentFact.run,
   };
 
   /// The chart, by name, for the rank in this story: the Sonus Hot 100 or
@@ -378,6 +396,7 @@ class MomentFacts {
     ChartMomentFeedItem item,
     MomentLookups lookups, {
     bool refined = false,
+    ChartJumpFacts? jump,
   }) {
     final dominant = item.events.firstWhere(
       (event) => event.eventType == item.dominantEventType,
@@ -458,6 +477,7 @@ class MomentFacts {
       newTopArtist: topArtist?.entity.title,
       passedTopArtist: topArtist?.relatedEntity?.title,
       refined: refined,
+      jump: jump,
       thresholds: refined ? _firstThresholds(item) : const [],
     );
   }
