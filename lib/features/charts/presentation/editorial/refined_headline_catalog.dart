@@ -509,6 +509,13 @@ class RefinedHeadlineCatalog {
             '${f.careerArtist} collects ${f.aOrdinalText} #1 release with the ${f.releaseWord} ${f.title}!',
         approved: true,
       ),
+      // Batch 9 (contract §6.2): songThresholds, releaseThresholds.
+      RefinedOverride(
+        'song-zones-p1',
+        (f) =>
+            'Up and through: ${f.subject} enters ${f.thresholdList} at #${f.rank}.',
+        approved: true,
+      ),
     ],
     exclusions: [
       // Contract §6.4 (Batch 2): lines that name the song by its primary
@@ -546,8 +553,238 @@ class RefinedHeadlineCatalog {
         when: _notWeeklyFromBubblingUnder,
         approved: true,
       ),
+      // Batch 9 (contract §6.2): songThresholds, releaseThresholds.
+      RefinedExclusion('song-zones-d1', when: _notClimbed, approved: true),
+      RefinedExclusion('song-zones-p1', when: _notClimbed, approved: true),
+      RefinedExclusion('release-zones-d1', when: _notClimbed, approved: true),
     ],
     additions: [
+      // Batch 9 (contract §6.2): songThresholds, releaseThresholds.
+      RefinedAddition(
+        MomentFamily.songThresholds,
+        HeadlineVariant(
+          'song-zones-d2',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              '${f.subject} enters ${f.thresholdList} of ${f.scopedChart} in one move, reaching #${f.rank}.',
+          requires: const {MomentFact.rank, MomentFact.thresholdList},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.songThresholds,
+        HeadlineVariant(
+          'song-zones-d3',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              'At #${f.rank} on ${f.scopedChart}, ${f.subject} is in ${f.thresholdList} for the first time.',
+          requires: const {MomentFact.rank, MomentFact.thresholdList},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.songThresholds,
+        HeadlineVariant(
+          'song-zones-d4',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              '${f.subject} reaches #${f.rank}, its first time in ${f.thresholdList}.',
+          requires: const {MomentFact.rank, MomentFact.thresholdList},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.songThresholds,
+        HeadlineVariant(
+          'song-zones-d5',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              'A move to #${f.rank} takes ${f.subject} into ${f.thresholdList} of ${f.scopedChart} for the first time.',
+          requires: const {MomentFact.rank, MomentFact.thresholdList},
+        ),
+        when: _climbed,
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.songThresholds,
+        HeadlineVariant(
+          'song-zones-d6',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              '${f.subject} records first entries into ${f.thresholdList}, at #${f.rank} on ${f.scopedChart}.',
+          requires: const {MomentFact.rank, MomentFact.thresholdList},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.songThresholds,
+        HeadlineVariant(
+          'song-zones-p2',
+          MomentPublisher.pulsePop,
+          (f) =>
+              'Zone after zone: ${f.work} is now in ${f.thresholdList}, at #${f.rank}!',
+          requires: const {MomentFact.rank, MomentFact.thresholdList},
+        ),
+        when: _climbed,
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.songThresholds,
+        HeadlineVariant(
+          'song-zones-p3',
+          MomentPublisher.pulsePop,
+          (f) =>
+              'Big move for ${f.subject}: into ${f.thresholdList} at #${f.rank}.',
+          requires: const {MomentFact.rank, MomentFact.thresholdList},
+        ),
+        when: _climbed,
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.songThresholds,
+        HeadlineVariant(
+          'song-zones-p4',
+          MomentPublisher.pulsePop,
+          (f) =>
+              '${f.work} enters ${f.thresholdList} all at once, landing at #${f.rank}.',
+          requires: const {MomentFact.rank, MomentFact.thresholdList},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.songThresholds,
+        HeadlineVariant(
+          'song-zones-p5',
+          MomentPublisher.pulsePop,
+          (f) =>
+              'New heights for ${f.work}: ${f.thresholdList}, all for the first time, at #${f.rank}.',
+          requires: const {MomentFact.rank, MomentFact.thresholdList},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.songThresholds,
+        HeadlineVariant(
+          'song-zones-p6',
+          MomentPublisher.pulsePop,
+          (f) =>
+              'Straight into ${f.thresholdList}: ${f.subject} reaches #${f.rank}.',
+          requires: const {MomentFact.rank, MomentFact.thresholdList},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.releaseThresholds,
+        HeadlineVariant(
+          'release-zones-d2',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              'The ${f.releaseWord} ${f.subject} reaches #${f.rank} on ${f.scopedChart}, entering ${f.thresholdList} for the first time.',
+          requires: const {MomentFact.rank, MomentFact.thresholdList},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.releaseThresholds,
+        HeadlineVariant(
+          'release-zones-d3',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              'In one move, ${f.subject} enters ${f.thresholdList} of ${f.scopedChart}, at #${f.rank}.',
+          requires: const {MomentFact.rank, MomentFact.thresholdList},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.releaseThresholds,
+        HeadlineVariant(
+          'release-zones-d4',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              '${f.subject} is in ${f.thresholdList} for the first time, a new best for the ${f.releaseWord} at #${f.rank}.',
+          requires: const {MomentFact.rank, MomentFact.thresholdList},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.releaseThresholds,
+        HeadlineVariant(
+          'release-zones-d5',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              'At #${f.rank}, the ${f.releaseWord} ${f.subject} sits in ${f.thresholdList} for the first time.',
+          requires: const {MomentFact.rank, MomentFact.thresholdList},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.releaseThresholds,
+        HeadlineVariant(
+          'release-zones-d6',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              'First entries into ${f.thresholdList} for the ${f.releaseWord} ${f.subject}, now #${f.rank} on ${f.scopedChart}.',
+          requires: const {MomentFact.rank, MomentFact.thresholdList},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.releaseThresholds,
+        HeadlineVariant(
+          'release-zones-p2',
+          MomentPublisher.pulsePop,
+          (f) => '${f.title} storms into ${f.thresholdList} at #${f.rank}!',
+          requires: const {MomentFact.rank, MomentFact.thresholdList},
+        ),
+        when: _climbed,
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.releaseThresholds,
+        HeadlineVariant(
+          'release-zones-p3',
+          MomentPublisher.pulsePop,
+          (f) =>
+              'Several firsts at once for the ${f.releaseWord} ${f.title}: ${f.thresholdList}, at #${f.rank}.',
+          requires: const {MomentFact.rank, MomentFact.thresholdList},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.releaseThresholds,
+        HeadlineVariant(
+          'release-zones-p4',
+          MomentPublisher.pulsePop,
+          (f) =>
+              'Up, up and in: the ${f.releaseWord} ${f.title} lands in ${f.thresholdList} at #${f.rank}.',
+          requires: const {MomentFact.rank, MomentFact.thresholdList},
+        ),
+        when: _climbed,
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.releaseThresholds,
+        HeadlineVariant(
+          'release-zones-p5',
+          MomentPublisher.pulsePop,
+          (f) =>
+              '${MomentFacts.possessive(f.artist)} ${f.releaseWord} ${f.title} breaks new ground: ${f.thresholdList}, at #${f.rank}.',
+          requires: const {MomentFact.rank, MomentFact.thresholdList},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.releaseThresholds,
+        HeadlineVariant(
+          'release-zones-p6',
+          MomentPublisher.pulsePop,
+          (f) =>
+              'Landmark move for ${f.title}: into ${f.thresholdList} at #${f.rank}.',
+          requires: const {MomentFact.rank, MomentFact.thresholdList},
+        ),
+        when: _climbed,
+        approved: true,
+      ),
       // Batch 8 (contract §6.2): artistRepeatNumberOne, artistRepeatNumberOneRelease, artistSimultaneousReleases.
       RefinedAddition(
         MomentFamily.artistRepeatNumberOne,
@@ -1721,6 +1958,8 @@ bool _weeklyFromBubblingUnder(MomentFacts f) =>
     f.weekly && _fromBubblingUnder(f);
 
 bool _notFromBubblingUnder(MomentFacts f) => !_fromBubblingUnder(f);
+
+bool _notClimbed(MomentFacts f) => !_climbed(f);
 
 /// The story's rank is higher than a known previous one: the song or
 /// release really moved up, so movement wording is true.

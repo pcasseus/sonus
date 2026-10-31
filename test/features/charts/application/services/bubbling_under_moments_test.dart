@@ -545,7 +545,10 @@ void main() {
       final small = _song('small');
       // The week's biggest gainer keeps its own story (rule 4).
       final gainer = _song('gainer');
+      // An earlier week inside the zones, so the jump enters no zone for
+      // the first time (a first zone story would tell the move).
       final last = await publish(_from, [
+        {jump: 45},
         {jump: 80, small: 75, gainer: 99},
         {jump: 50, small: 51, gainer: 20},
       ]);
@@ -625,7 +628,8 @@ void main() {
       expect(jumps(of(all, climber, last)).map((story) => story.family), [
         MomentFamily.songHot100ClimbRun,
       ]);
-      expect(of(all, climber, last).single.facts.jump!.placesGained, 55);
+      // Its first zones (Top 50, Top 40) have their own story.
+      expect(jumps(of(all, climber, last)).single.facts.jump!.placesGained, 55);
     });
 
     test('a peak story tells the move; no jump headline repeats it '
@@ -769,7 +773,10 @@ void main() {
       () async {
         final jump = _song('jump');
         final big = _song('big');
+        // An earlier week inside the zones, so the jump enters no zone for
+        // the first time.
         await publish(_from, [
+          {jump: 35},
           {jump: 80, big: 99},
           {jump: 40, big: 5},
         ]);

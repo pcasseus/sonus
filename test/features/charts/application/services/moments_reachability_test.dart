@@ -369,10 +369,7 @@ const _nineDrafts = {
 
 /// Those still held; each editorial batch that approves a family removes
 /// it here (Batch 6: the first-zone families).
-const _stillDraft = {
-  MomentFamily.songThresholds,
-  MomentFamily.releaseThresholds,
-};
+const _stillDraft = <MomentFamily>{};
 
 final _refined = _Era(DateTime.utc(2026, 11, 1), DateTime(2026, 11, 17));
 

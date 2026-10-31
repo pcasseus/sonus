@@ -166,10 +166,7 @@ const sn50Families = {
 
 /// The SN-50 draft families still held by the approved-family guard; each
 /// editorial batch that approves a family removes it here.
-const stillDraftFamilies = {
-  MomentFamily.songThresholds,
-  MomentFamily.releaseThresholds,
-};
+const stillDraftFamilies = <MomentFamily>{};
 
 /// SN-50 chart-jump families, approved line by line (CJ-001 to CJ-031).
 const chartJumpFamilies = {
