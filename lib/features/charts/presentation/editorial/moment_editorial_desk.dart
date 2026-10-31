@@ -11,6 +11,7 @@ import 'moment_facts.dart';
 import 'moment_family.dart';
 import 'moment_headlines.dart';
 import 'moment_story_planner.dart';
+import 'refined_headline_catalog.dart';
 import 'moment_visuals.dart';
 
 /// One published story: who wrote it, what it says, and what it shows.
@@ -79,6 +80,7 @@ class MomentEditorialDesk {
     required this.lookups,
     this.rules = ChartMomentRules.legacy,
     this.minorStoriesPerDay = 3,
+    this.refinedCatalog,
   });
 
   final MomentLookups lookups;
@@ -86,6 +88,11 @@ class MomentEditorialDesk {
   /// Which stories follow the SN-50 rules; none without an activation.
   final ChartMomentRules rules;
   final int minorStoriesPerDay;
+
+  /// Headlines for stories under the refined rules;
+  /// [RefinedHeadlineCatalog.standard] when null. Stories under the earlier
+  /// rules always use [MomentHeadlines.legacyOf].
+  final RefinedHeadlineCatalog? refinedCatalog;
 
   /// The weekly chart's largest climb worth a story.
   static const int biggestGainerMinimumPlaces = 10;
@@ -199,7 +206,13 @@ class MomentEditorialDesk {
     Set<String> excluded = const {},
   }) {
     final variants = [
-      for (final variant in MomentHeadlines.of(family))
+      for (final variant
+          in facts.refined
+              ? (refinedCatalog ?? RefinedHeadlineCatalog.standard).of(
+                  family,
+                  facts,
+                )
+              : MomentHeadlines.legacyOf(family))
         if (!excluded.contains(variant.id)) variant,
     ];
     final publisher = facts.refined

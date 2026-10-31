@@ -66,7 +66,14 @@ String _pc(MomentFacts f) => MomentFacts.possessive(f.careerArtist);
 /// six in the Sonus Daily voice (polished, factual) and six in the PulsePop
 /// voice (energetic, conversational). Both voices state the same facts.
 abstract final class MomentHeadlines {
-  static List<HeadlineVariant> of(MomentFamily family) => _library[family]!;
+  static List<HeadlineVariant> of(MomentFamily family) => legacyOf(family);
+
+  /// The catalog exactly as published: the only headlines stories under the
+  /// earlier rules (legacy and before activation) ever use. Never edit,
+  /// reorder or extend a family here; refined changes go through
+  /// RefinedHeadlineCatalog (SN-50 contract §5).
+  static List<HeadlineVariant> legacyOf(MomentFamily family) =>
+      _library[family]!;
 
   /// The families whose headlines are approved for publication (SN-50
   /// release safety). Fail-closed: a family is publishable only when it is
