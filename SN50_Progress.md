@@ -848,6 +848,7 @@ Authority: the user's instruction to continue Batches 0 and 1 of `SN50_Final_Edi
 |---|---|---|
 | `f8088b8` | 0: legacy and refined headline views; goldens | **5,147 passed, 0 failed, 0 skipped**. The wrapper shell was stopped for low memory; the test process ran to completion and printed "All tests passed!" (exit code not captured) |
 | `b0f17c4` | 1: completed-week wording for refined stories | **5,152 passed, 1 failed** (exit code 1). The failure was `supabase_sync_resilience_test.dart` "a server that never answers ends the sync as a timeout": the documented sleep flake. Kernel-Power 506/507 show repeated standby during the 221-minute run. Rerun alone: 4/4 passed. Batch 1 touches no sync code. |
+| `97687a3` | 2: refined corrections P-001, P-002, P-010 to P-023; §6.4 guest exclusions (14); P-051 | **5,160 passed, 0 failed, 0 skipped, exit code 0** (captured; run held awake by a per-process `SetThreadExecutionState` request; no standby events) |
 
 **Batch 0 (`f8088b8`).**
 - `MomentHeadlines.legacyOf` is the catalog exactly as published; stories under the earlier rules (legacy and before activation) read only it. `MomentHeadlines.of` is an alias of it.
@@ -872,7 +873,7 @@ Authority: the user's instruction to continue Batches 0 and 1 of `SN50_Final_Edi
 5. **A-Q7D numbering repairs.** Previewed individual repairs of existing gapped editions are not built yet.
 6. **Open question (A-Q12).** In an edition view, should a song's custom artwork or the edition cover come first? Currently the song's custom artwork wins.
 7. **Editorial proposal.** P-001 to P-050 and N-1 to N-7 await line-by-line approval, plus the four open questions in its §6.
-    - **[Round 11]** P-003 to P-009 are done for refined stories (`b0f17c4`). The rest is in `SN50_Final_Editorial_Approval_and_Implementation_Contract.md`, unapproved.
+    - **[Round 11]** P-003 to P-009 (`b0f17c4`), P-001, P-002, P-010 to P-023, the §6.4 guest exclusions and P-051 (`97687a3`) are done for refined stories. Open: `song-weeks-p5` (a guest-dropping line missed by §6.4) and six chart-jump lines with the same problem need decisions. The rest is in `SN50_Final_Editorial_Approval_and_Implementation_Contract.md`, unapproved.
 8. **E-Q19 remainder.** Should finalized weeks also exclude songs and albums no longer in the local library? If yes, plays synced from another device for songs not imported locally would drop out of new finalized weeks, and the SN-32 test "finalized history uses playback-session identity even when song is no longer in library" changes meaning.
 9. ~~**Moments gate date.**~~ **Resolved by `8d2cbfe` (R2), verified in round 5 (F8):** there is no fixed date. Activation needs the `SONUS_MOMENTS_REFINED_APPROVED=true` build flag plus the write-once per-install marker. What remains is item 21.
 10. **Major-zone noise.** A jump straight to #1 can yield the #1 story, Top 2/3/5/10 stories and a consolidated story (6–7 stories). Should majors below the final major be folded into one?
