@@ -862,7 +862,36 @@ Authority: the user's instruction to continue Batches 0 and 1 of `SN50_Final_Edi
 - `song-gainer-d6`, `song-gainer-p6` and `artist-sim-p4` use their refined overrides (P-007 to P-009).
 - Legacy goldens unchanged. The refined before/after comparison shows only 88 headlines ("this week's" → "the weekly") and 64 restored "the week before" sentences.
 
+## Round 12 (2026-10-31): editorial contract Batches 3–9
+
+Authority: the user's sprint instruction authorizing the remaining contract batches 3–9 with its listed revisions, as prospective, refined-only copy and rules. It does not authorize activation: **the refined Moments flag stays off**, R-V (#28) stays mandatory, and global A-0 stays INCONCLUSIVE (the checked phone's date-trigger risk is resolved).
+
+| Commit | Batch | Full suite (`--concurrency=1`, scratchpad `run_suite.ps1`: detached, per-process stay-awake request, real exit code) |
+|---|---|---|
+| `1a55806` | 3: P-024 to P-050 (P-029 revised); full credits for song-weeks-p5 and six chart-jump lines; CJ-041 "on the week before"; 500-id legacy selection sweep | **5,164 passed, 0 failed, 0 skipped, exit code 0** |
+| `3cccb49` | 4: BUG-04 first Hot 100 entry wording (BU-001, BU-002, BU-010 to BU-015) | **5,171 passed, 0 failed, 0 skipped, exit code 0** |
+| `b80b68c` | 5: BUG-04 falls (BU-020 to BU-031) and notable exits (BU-040 to BU-051); `placesDown` | **5,184 passed, 0 failed, 0 skipped, exit code 0** |
+| `bc615c1` | 6: songFirstThreshold, releaseFirstThreshold | **5,189 passed, 0 failed, 0 skipped, exit code 0** |
+| `ea75208` | 7: songSelfReplacement, releaseSelfReplacement | **5,194 passed, 0 failed, 0 skipped, exit code 0** |
+| `bf835bf` | 8: artistRepeatNumberOne, artistRepeatNumberOneRelease, artistSimultaneousReleases | **5,199 passed, 0 failed, 0 skipped, exit code 0** |
+| `5ba4b19` | 9: songThresholds, releaseThresholds | **5,204 passed, 0 failed, 0 skipped, exit code 0** |
+
+Every batch: focused tests, `dart format`, `flutter analyze` (no issues), one full suite with a captured exit code and no standby, boundary check, allowlisted local commit. No overlapping suites. Legacy goldens unchanged throughout (431 catalog lines, 376 stories, 29,500-pick selection sweep).
+
+**Correction to the record:** the Batch 0 report (round 11) described the legacy goldens; the 500-story-id selection sweep required by the contract (§8 item 2) was not part of Batch 0. It was added at the start of Batch 3 (`goldens/legacy_selection_sweep_v1.json`), captured before any Batch 3 change; the legacy path had not changed since `f062551`, as the existing goldens prove. Two commit messages miscount new lines: `bc615c1` says 16 (actual 18) and `bf835bf` says 28 (actual 29). The commits were not rewritten.
+
+**What changed (refined stories only; legacy and pre-activation stories render byte-identically):**
+- **Batch 3:** 27 release-twin overrides (P-024 to P-050, P-029 revised); `song-weeks-p5` and the chart-jump lines CJ-004, CJ-006, CJ-010, CJ-022, CJ-025, CJ-029 credit featured guests through `${f.subject}`; CJ-041 reads "(up N on the week before)". The guest-attribution test covers every approved family with no exceptions.
+- **Batch 4:** BU-001 and BU-002 override `song-break-p3` / `song-break-d2`; BU-010 to BU-015 are new F05 lines (`song-break-d7` to `-d9`, `-p7` to `-p9`). All need a Hot 100 rank and a Bubbling Under previous rank; lines that say "the week before" or "preceding chart week" are weekly only. `misleadingArrivalVariants` is empty; the catalog wording of p3 and d2 is excluded wherever BU-001/BU-002 don't apply. `RefinedOverride` and `RefinedAddition` gained an optional condition.
+- **Batch 5:** new families `songBubblingUnderFall` (`#bu-fall`) and `songHot100Exit` (`#hot-100-exit`), planned under the ids they were held with; `copyGated` now holds nothing. Falls: both ranks #101–200, 30+ places, minor (capped). Exits: Top 40 peak or five Hot 100 weeks; mandatory (uncapped) only with a verified Top 40 peak, otherwise minor; peak lines need that verified peak. New fact `placesDown` (weekly only). Both families have no catalog lines (`legacyOf` returns none); their 24 lines are refined additions. Sonus Daily. **Pending editorial confirmation:** badges "FALL" and "HOT 100 EXIT", and the "Peaks and climbs" filter category.
+- **Batches 6–9:** the nine families are approved with 6 + 6 lines each: revised drafts as overrides, new lines as additions. Movement wording ("moves into", "A move to", "Big move", "Zone after zone", "storms into", "Up, up and in", "Landmark move", "Up and through") needs a real climb from a known previous rank, because a re-entry can enter zones for the first time; the catalog drafts with such wording are excluded otherwise. `release-self-1-d4` uses the neutral "On <chart>, <title> takes over at #1 from <rival>, another release by <artist>." Repeat-#1 ordinals are the detector's distinct #1 songs or releases; roundup counts are distinct `albumId`s. The five chart-less Sonus Daily zone lines rely on the kicker (tested).
+- Under the existing approved overlap rule, a told zone story replaces a chart-jump headline for the same move; five chart-jump test fixtures were given an earlier week inside the zones (or pick the run story) so they keep testing jump rules.
+
+**Totals.** Refined catalog: 64 overrides (45 from this sprint), 115 additions (all from this sprint), 20 exclusions. `approvedFamilies` contains all 45 families; nothing is held. `releaseWeeksMilestone` is still never planned (unchanged). A generic validation test requires 6 distinct Sonus Daily and 6 distinct PulsePop lines that pass the copy rules for every approved family.
+
 ## BLOCKED_NEEDS_APPROVAL / user decisions
+
+**[Round 12]** #12 and #17 are resolved; #7 is resolved except N-1 release lines and the N-7 remainder. New #29 (fall/exit badges and category). Activation still needs #21 and #28.
 
 **[Round 10]** #25 is resolved and #27 is partly resolved (see each item). #12, #17 and #21 remain release blockers. Items are kept in their historical form, with corrections marked.
 
@@ -873,12 +902,13 @@ Authority: the user's instruction to continue Batches 0 and 1 of `SN50_Final_Edi
 5. **A-Q7D numbering repairs.** Previewed individual repairs of existing gapped editions are not built yet.
 6. **Open question (A-Q12).** In an edition view, should a song's custom artwork or the edition cover come first? Currently the song's custom artwork wins.
 7. **Editorial proposal.** P-001 to P-050 and N-1 to N-7 await line-by-line approval, plus the four open questions in its §6.
+    - **[Round 12]** P-024 to P-050 (`1a55806`) complete P-001 to P-050 for refined stories. Remaining: the N-1 release #101–200 lines and the N-7 remainder (exits off both charts: not told, by decision).
     - **[Round 11]** P-003 to P-009 (`b0f17c4`), P-001, P-002, P-010 to P-023, the §6.4 guest exclusions and P-051 (`97687a3`) are done for refined stories. Open: `song-weeks-p5` (a guest-dropping line missed by §6.4) and six chart-jump lines with the same problem need decisions. The rest is in `SN50_Final_Editorial_Approval_and_Implementation_Contract.md`, unapproved.
 8. **E-Q19 remainder.** Should finalized weeks also exclude songs and albums no longer in the local library? If yes, plays synced from another device for songs not imported locally would drop out of new finalized weeks, and the SN-32 test "finalized history uses playback-session identity even when song is no longer in library" changes meaning.
 9. ~~**Moments gate date.**~~ **Resolved by `8d2cbfe` (R2), verified in round 5 (F8):** there is no fixed date. Activation needs the `SONUS_MOMENTS_REFINED_APPROVED=true` build flag plus the write-once per-install marker. What remains is item 21.
 10. **Major-zone noise.** A jump straight to #1 can yield the #1 story, Top 2/3/5/10 stories and a consolidated story (6–7 stories). Should majors below the final major be folded into one?
 11. **Old-story repair.** Should already-published stories get the rival fix and the "this stream" removal? That counts as a historical repair, which needs separate approval.
-12. **New template copy.** The 27 new lines (families N-2 to N-6, listed in the 6a report and `moment_headlines.dart`) are drafts awaiting approval and expansion to 6+6 lines.
+12. ~~**New template copy.**~~ **[Round 12] Resolved: all nine families approved and implemented (`bc615c1`, `ea75208`, `bf835bf`, `5ba4b19`), refined only.** The 27 new lines (families N-2 to N-6, listed in the 6a report and `moment_headlines.dart`) are drafts awaiting approval and expansion to 6+6 lines.
     - **[Round 10]** Still a release blocker. Since `ae0fd05` the nine draft families are outside `MomentHeadlines.approvedFamilies`, so even under the refined rules they are held (`unapprovedCopy`), never published. A family publishes only once its lines are approved and it is added to the set.
 13. **Destructive workflows.** Approve or adjust `SN50_Destructive_Workflows_Design.md` §6 items A-T0 to A-T6 (Trash and purge), P-1 to P-5 (Delete from Phone), R-1 to R-3 (ringtones) and M-1 to M-6 (media session, plugin patches 2/3, device QA).
 14. **M-2/M-3 confirmation.** `9547ef0` implemented End Session (keeping the queue) and the Dart-side media-session changes under the approved D-Q3/D-Q6/D-Q1 decisions. The destructive-workflows design doc had listed them as approval items, so please confirm or ask for changes. Device QA and plugin patches were not done.
@@ -890,7 +920,7 @@ Authority: the user's instruction to continue Batches 0 and 1 of `SN50_Final_Edi
     - The BUG-01 mirror policy, which changes C-Q4.
     - ~~Import-1 identity policy~~: **decided** (handoff rule 5). The Review part is blocked; see item 19.
 16. **`SN50_Additional_Bug_Tweaks_Addendum_v2.md` was referenced but not found** (again in round 3). BUG-05 was implemented from the user's message.
-17. **[Round 10: still open; release blocker]** **BUG-04 copy** (selection rules approved in round 4; wording is not): **see `SN50_BUG04_Editorial_Approval_Sheet.md` BU-001 to BU-071.** It supersedes the N-8 to N-11 samples. Earlier note: Editorial §7 N-8 (Hot 100 → Bubbling Under drop, proposed rule: Top 40 peak or 5+ Hot 100 weeks), N-9 (extra Bubbling Under climb, proposed: 25+ places, at most one a week), N-10 (recommend no story for falls within Bubbling Under), N-11 (optional arrival wording citing last week's Bubbling Under rank), and the §7.2 review of `song-break-p3`.
+17. ~~**BUG-04 copy**~~ **[Round 12] Resolved: BU-001 to BU-051 implemented (`3cccb49`, `b80b68c`); BU-060 to BU-071 deferred by decision.** *(Earlier: "[Round 10: still open; release blocker]".)* **BUG-04 copy** (selection rules approved in round 4; wording is not): **see `SN50_BUG04_Editorial_Approval_Sheet.md` BU-001 to BU-071.** It supersedes the N-8 to N-11 samples. Earlier note: Editorial §7 N-8 (Hot 100 → Bubbling Under drop, proposed rule: Top 40 peak or 5+ Hot 100 weeks), N-9 (extra Bubbling Under climb, proposed: 25+ places, at most one a week), N-10 (recommend no story for falls within Bubbling Under), N-11 (optional arrival wording citing last week's Bubbling Under rank), and the §7.2 review of `song-break-p3`.
 18. **BUG-03 type label:** keep deriving the Other label from the name, or approve a schema change for a stored custom type label.
 19. ~~**Import Review persistence for ambiguous same-title files**~~ **Done as option B (device-local list, no migration) in `2af3a8b` (round 9); wording and the open points in Round 9 D remain.** (round 4): it needs a pending-file record, or a new review reason plus a file-path payload. Either is a schema/data-contract change. Until approved, these files are reported in the import result only.
     - Since round 5 (F1), this also holds when the existing song's file is missing or absent.
@@ -905,3 +935,4 @@ Authority: the user's instruction to continue Batches 0 and 1 of `SN50_Final_Edi
 27. **Import Review wording and SAF existence check** (round 9 D, open points 1–3).
     - **[Round 10]** SAF existence check done in `49c6188`; its two new messages are approved. Still open: the rest of the Import Review wording (round 9 D point 1, `SN50_Round9_Editorial_and_Release_Safety_Review.md` §5: 17 strings and the Imports "N songs need review" count), and the device check of real SAF behaviour (M-6).
 28. **R-V: versioned refined headline catalogs** (2026-10-30, A-0 follow-up): required before `SONUS_MOMENTS_REFINED_APPROVED` is ever enabled, so refined stories already shown keep their headlines when the catalog grows. A-0 (whether any build ever ran refined rules) is INCONCLUSIVE; see `SN50_A0_Build_History_and_Historical_Rendering_Verification.md` and its addendum, including the date-gated builds of 2026-10-29 02:09–16:25 EDT that activate on 2026-11-01 00:00 UTC.
+29. **Fall and exit presentation (round 12):** confirm the badges "FALL" and "HOT 100 EXIT" and the "Peaks and climbs" filter category for `songBubblingUnderFall` and `songHot100Exit` (`b80b68c`), or choose others.

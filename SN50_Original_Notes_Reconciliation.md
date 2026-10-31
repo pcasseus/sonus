@@ -38,6 +38,16 @@ Code `ae0fd05` (5,105 passed) and `49c6188` (5,134 passed), both 0 failed, 0 ski
 - **#22 / #30** (chart movement): Hot 100 jumps (25+ places) and climb runs (3+ weeks, 30+ places) now publish with approved copy under the refined rules (`ae0fd05`). The Bubbling Under falls and exits of #30 remain gated on the BUG-04 sheet (BU-001 to BU-071): a release blocker.
 - **Counts after round 10:** unchanged (COMPLETE 17; PARTIAL 9; UNVERIFIED 1; BLOCKED 5; NOT IMPLEMENTED 3).
 
+## Round 12 update (2026-10-31)
+
+Editorial contract Batches 3–9 (`1a55806` to `5ba4b19`; every full suite exit code 0, last 5,204 passed). All copy is refined-only and **not live in a release build** (the flag is off; activation needs R-V, Progress BLOCKED #28).
+
+- **#22** (zones) and **#27** (self-replacement): copy approved and implemented → **COMPLETE (refined rules; activation pending)**.
+- **#25** ("this week's" / "this stream"): refined stories fixed (`b0f17c4`, `1a55806`); legacy stories keep their words by policy → **COMPLETE (refined rules)**.
+- **#30** (Bubbling Under): falls 30+ and notable exits told (`b80b68c`); rises stay on F10 by decision → **COMPLETE (refined rules)**. Badges/category pending (#29).
+- **#23** (roundups): release roundups approved (`bf835bf`); no all-time roundups → still PARTIAL.
+- **Counts after round 12:** COMPLETE 21; PARTIAL 8; UNVERIFIED 1; BLOCKED 2 (#3, #31); NOT IMPLEMENTED 3.
+
 ## How to read this
 
 - **Authority.** The source code and the existing tests decide each status. Where a document disagrees, the document is stale; see §5.

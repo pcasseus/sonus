@@ -1,6 +1,6 @@
 # SN-50 QA Report
 
-Branch `sn-50-final-refinement`, worktree `C:\dev\sonus\sonus_next_sn50`. Base `36d4d5d`. Round 1 ended at `14b592f`; refreshed 2026-10-31 at code HEAD `97687a3` (round 11 Batch 2; none pushed). *Earlier text: "refreshed 2026-10-30 at code HEAD `49c6188` (round 10…)".* *Earlier text read "code HEAD `11f30a7` (round 9…)", which was stale: round 9 code ended at `cc680e8`.*
+Branch `sn-50-final-refinement`, worktree `C:\dev\sonus\sonus_next_sn50`. Base `36d4d5d`. Round 1 ended at `14b592f`; refreshed 2026-10-31 at code HEAD `5ba4b19` (round 12, editorial Batches 3–9; none pushed). *Earlier text: "refreshed 2026-10-30 at code HEAD `49c6188` (round 10…)".* *Earlier text read "code HEAD `11f30a7` (round 9…)", which was stale: round 9 code ended at `cc680e8`.*
 
 ## 1. Analyzer and test suite
 
@@ -25,7 +25,14 @@ Branch `sn-50-final-refinement`, worktree `C:\dev\sonus\sonus_next_sn50`. Base `
 | `49c6188` (round 10 Batch 2: Import Review file states) | No issues | 5,134 passed, 0 failed, 0 skipped (exit code 0) |
 | `f8088b8` (round 11 Batch 0: legacy/refined headline isolation, goldens) | No issues | 5,147 passed, 0 failed, 0 skipped. Exit code **not captured**: the wrapper shell was stopped for low memory; the test process ran on and printed "All tests passed!". The machine slept during the run. |
 | `b0f17c4` (round 11 Batch 1: completed-week wording) | No issues | **5,152 passed, 1 failed** (exit code 1). **Not a clean run.** The failure was `supabase_sync_resilience_test.dart` "a server that never answers ends the sync as a timeout", during repeated Windows standby (Kernel-Power 506/507, 221-minute run). That file was then rerun alone: 4/4 passed. Batch 1 touches no sync code. |
-| `97687a3` (round 11 Batch 2: refined corrections P-001, P-002, P-010 to P-023, §6.4, P-051; latest code) | No issues | **5,160 passed, 0 failed, 0 skipped, exit code 0** (captured by the runner). The run was held awake with a per-process `SetThreadExecutionState` request (no power-setting change); no standby events during the 7-minute run. |
+| `97687a3` (round 11 Batch 2: refined corrections P-001, P-002, P-010 to P-023, §6.4, P-051) | No issues | **5,160 passed, 0 failed, 0 skipped, exit code 0** (captured by the runner). The run was held awake with a per-process `SetThreadExecutionState` request (no power-setting change); no standby events during the 7-minute run. |
+| `1a55806` (round 12 Batch 3) | No issues | 5,164 passed, 0 failed, 0 skipped, exit code 0 |
+| `3cccb49` (round 12 Batch 4) | No issues | 5,171 passed, 0 failed, 0 skipped, exit code 0 |
+| `b80b68c` (round 12 Batch 5) | No issues | 5,184 passed, 0 failed, 0 skipped, exit code 0 |
+| `bc615c1` (round 12 Batch 6) | No issues | 5,189 passed, 0 failed, 0 skipped, exit code 0 |
+| `ea75208` (round 12 Batch 7) | No issues | 5,194 passed, 0 failed, 0 skipped, exit code 0 |
+| `bf835bf` (round 12 Batch 8) | No issues | 5,199 passed, 0 failed, 0 skipped, exit code 0 |
+| `5ba4b19` (round 12 Batch 9); latest code | No issues | **5,204 passed, 0 failed, 0 skipped, exit code 0** |
 
 The round 6 skip pinned the duplicate-restore gap; `ec59045` fixes it and the test runs again, so nothing is skipped.
 
@@ -149,6 +156,7 @@ These are spec-driven, not bugs, but the user will notice them:
 - A cloud missing what this version needs pauses sync with Retry, instead of retrying forever (round 9 C).
 - Possible different recordings appear in Import Review with Import separately, Same recording and Not now (round 9 D).
 - A possible different recording whose folder Sonus can no longer read, or that could not be checked, now stays in Import Review with a message instead of being removed; a file recorded from its path alone can be imported separately (round 10, `49c6188`).
+- Under the refined Moments rules only (round 12): release lines name the release; first Hot 100 entries from Bubbling Under name both charts; Bubbling Under falls of 30+ and notable Hot 100 exits are told; first zones, multiple zones, self-replacements, repeat #1s and release roundups use approved copy; zone stories replace a jump headline for the same move.
 - Under the refined Moments rules only (round 11): finished weeks are "the weekly …" chart with "the week before" bodies; 16 approved lines use refined wording (P-001, P-002, P-010 to P-023); lines that drop a featured guest are skipped for songs with one; `song-break-p4` is never used. Earlier stories are unchanged.
 - Under the refined Moments rules only: Hot 100 jumps of 25+ places and climb runs are told with the approved copy, and the nine draft families (thresholds, self-replacement, repeat #1, release roundups) are held instead of published (round 10, `ae0fd05`).
 - A finalized chart week and its Moments are now stored together or not at all; a finalized week can never be rewritten (round 8, F6).
@@ -187,7 +195,8 @@ These are spec-driven, not bugs, but the user will notice them:
 - **Chart jumps (round 9 E):** detected and held; copy and thresholds await approval. *Superseded by round 10: approved and told under the refined rules (`ae0fd05`); not live while the flag is off.*
 - **Import Review on Android (round 10):** the SAF file states (`49c6188`) are tested with a fake `Saf` only. Whether a revoked grant raises `SafPermissionException` or answers "not found" needs the device check (M-6).
 - **Round 11:** legacy Moments rendering is pinned by goldens captured before any catalog change (`goldens/legacy_catalog_v1.json`, `goldens/legacy_moments_v1.json`); refined-only copy changes go through `RefinedHeadlineCatalog`. The phone date-trigger check was resolved by your read-only `dumpsys` (install 2026-10-26); global A-0 is INCONCLUSIVE (`SN50_A0_*.md`).
-- **Performer attribution (round 11 Batch 2):** refined stories with a featured guest skip the 14 contract §6.4 lines. Still open, needing approval: `song-weeks-p5` ("N weeks in the Top 10 for "Song" by Artist.", missed by the §6.4 list, pinned by `refined_existing_copy_test.dart`) and six approved chart-jump lines that credit the primary artist alone (`song-jump-d4`, `-d6`, `-p4`, `song-run-d3`, `-d6`, `-p4`).
+- **Round 12 (refined copy, tests only):** every refined headline is verified by unit, widget and composed-story tests; none has been shown in an app build (the flag is off). Activation also needs R-V catalog versioning (BLOCKED #28). The fall/exit badges and category await confirmation (#29).
+- **Performer attribution (round 11 Batch 2):** *[Round 12] The two gaps below are closed in `1a55806`.* refined stories with a featured guest skip the 14 contract §6.4 lines. Still open, needing approval: `song-weeks-p5` ("N weeks in the Top 10 for "Song" by Artist.", missed by the §6.4 list, pinned by `refined_existing_copy_test.dart`) and six approved chart-jump lines that credit the primary artist alone (`song-jump-d4`, `-d6`, `-p4`, `song-run-d3`, `-d6`, `-p4`).
 - **Refined Moments flag (round 10):** still disabled. Release blockers remain: BUG-04 copy, the nine draft families and the P-items.
 - **Sync against a real server:** the round 6 run queue and the round 8 cancellation are tested with fakes and disposable SQLite only; no Supabase contact.
 - ~~**Shuffle order persistence** (BLOCKED #24): known, not changed.~~ *Stale: done in `207e65d` (round 9); only its device check is pending.* The duplicate-song restore start (#22) is fixed in `ec59045`.
