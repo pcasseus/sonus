@@ -3,8 +3,8 @@
 ## State at handoff (2026-10-30, after round 10)
 
 - **Worktree:** `C:\dev\sonus\sonus_next_sn50`. **Branch:** `sn-50-final-refinement` (local only, never pushed).
-- **Last code commit:** `49c6188` (round 10 Batch 2). Round 10: `ae0fd05` (Batch 1), `49c6188` (Batch 2). Round 9: `e3dd5f5` (A), `207e65d` (B), `5c0071b` (C), `2af3a8b` (D), `cc680e8` (E). Before them, `48c2714` (round 8 #23), `9ef4717` (round 8 F6). Before them, `ec59045` (round 7: #22). Before it, round 6 C `11f30a7` (sync run queue). Round 6 code commits: `8c8bffc` (A), `a4085a5` (B), `11f30a7` (C). A docs-only commit with the refreshed reports sits on top; check with `git log --oneline -5`. `a4085a5`'s subject starts with an invisible byte-order mark (PowerShell 5.1 wrote the message file); cosmetic, left as is because amending would rewrite a commit.
-- **Last full suite:** **5,134 passed, 0 failed, 0 skipped**, exit code 0 (`flutter test --concurrency=1`, at `49c6188`). Batch 1 (`ae0fd05`): 5,105 passed. `flutter analyze`: no issues. Formatting clean on all changed files.
+- **Last code commit:** `b0f17c4` (round 11 Batch 1). Round 11: `f8088b8` (Batch 0), `b0f17c4` (Batch 1). Round 10: `ae0fd05` (Batch 1), `49c6188` (Batch 2). Round 9: `e3dd5f5` (A), `207e65d` (B), `5c0071b` (C), `2af3a8b` (D), `cc680e8` (E). Before them, `48c2714` (round 8 #23), `9ef4717` (round 8 F6). Before them, `ec59045` (round 7: #22). Before it, round 6 C `11f30a7` (sync run queue). Round 6 code commits: `8c8bffc` (A), `a4085a5` (B), `11f30a7` (C). A docs-only commit with the refreshed reports sits on top; check with `git log --oneline -5`. `a4085a5`'s subject starts with an invisible byte-order mark (PowerShell 5.1 wrote the message file); cosmetic, left as is because amending would rewrite a commit.
+- **Last full suite:** at `b0f17c4`: **5,152 passed, 1 failed** (exit code 1). The failure was the sync-resilience sleep flake during Windows standby; that file passed 4/4 when rerun alone. This is not a clean full run. At `f8088b8`: 5,147 passed, 0 failed, 0 skipped (exit code not captured). Earlier: 5,134 at `49c6188`. `flutter analyze`: no issues. Formatting clean on all changed files.
 - **Uncommitted changes:** the seven LF-churn registrant files (never committed) and two untracked documents kept uncommitted on purpose: `SN50_Decision_and_Release_Checklist.md` and `SN50_Round9_Editorial_and_Release_Safety_Review.md`. Preserve all of them. Write commit message files from bash or with BOM-free UTF-8, never PowerShell 5.1 `Set-Content -Encoding utf8`.
 - **SN-49:** `C:\dev\sonus\sonus_next_sn49` @ `36d4d5d`, showing only its seven registrant files, unchanged.
 - **Other worktrees:** unchanged from the baseline snapshot.
@@ -24,6 +24,7 @@
 | Round 8 | `9ef4717` (F6 atomic chart finalization) `48c2714` (#23 cooperative sync cancellation) + docs |
 | Round 9 | `e3dd5f5` (Repeat One, Clear queue) `207e65d` (shuffle order) `5c0071b` (paused sync) `2af3a8b` (Import Review list) `cc680e8` (chart jumps, held) + docs `6f5214c`. `SN50_Decision_and_Release_Checklist.md` stays uncommitted. |
 | Round 10 | `ae0fd05` (approved chart jumps; approved-family guard) `49c6188` (Import Review file states, `content://`) + docs |
+| Round 11 | `f8088b8` (Batch 0: legacy/refined headline isolation, goldens) `b0f17c4` (Batch 1: P-003 to P-009, refined only) + docs. Editorial packages, contract and A-0 reports stay uncommitted. |
 
 ## Next steps
 

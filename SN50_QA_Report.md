@@ -1,6 +1,6 @@
 # SN-50 QA Report
 
-Branch `sn-50-final-refinement`, worktree `C:\dev\sonus\sonus_next_sn50`. Base `36d4d5d`. Round 1 ended at `14b592f`; refreshed 2026-10-30 at code HEAD `49c6188` (round 10; none pushed). *Earlier text read "code HEAD `11f30a7` (round 9…)", which was stale: round 9 code ended at `cc680e8`.*
+Branch `sn-50-final-refinement`, worktree `C:\dev\sonus\sonus_next_sn50`. Base `36d4d5d`. Round 1 ended at `14b592f`; refreshed 2026-10-31 at code HEAD `b0f17c4` (round 11; none pushed). *Earlier text: "refreshed 2026-10-30 at code HEAD `49c6188` (round 10…)".* *Earlier text read "code HEAD `11f30a7` (round 9…)", which was stale: round 9 code ended at `cc680e8`.*
 
 ## 1. Analyzer and test suite
 
@@ -22,7 +22,9 @@ Branch `sn-50-final-refinement`, worktree `C:\dev\sonus\sonus_next_sn50`. Base `
 | `5c0071b` (round 9 C: paused sync) | No issues | 5,067 passed, 0 failed |
 | `2af3a8b` + `cc680e8` (round 9 D and E; one run) | No issues | 5,098 passed, 0 failed |
 | `ae0fd05` (round 10 Batch 1: chart jumps, approved-family guard) | No issues | 5,105 passed, 0 failed, 0 skipped (exit code 0) |
-| `49c6188` (round 10 Batch 2: Import Review file states; latest code) | No issues | **5,134 passed, 0 failed, 0 skipped** (exit code 0) |
+| `49c6188` (round 10 Batch 2: Import Review file states) | No issues | 5,134 passed, 0 failed, 0 skipped (exit code 0) |
+| `f8088b8` (round 11 Batch 0: legacy/refined headline isolation, goldens) | No issues | 5,147 passed, 0 failed, 0 skipped. Exit code **not captured**: the wrapper shell was stopped for low memory; the test process ran on and printed "All tests passed!". The machine slept during the run. |
+| `b0f17c4` (round 11 Batch 1: completed-week wording; latest code) | No issues | **5,152 passed, 1 failed** (exit code 1). **Not a clean run.** The failure was `supabase_sync_resilience_test.dart` "a server that never answers ends the sync as a timeout", during repeated Windows standby (Kernel-Power 506/507, 221-minute run). That file was then rerun alone: 4/4 passed. Batch 1 touches no sync code. |
 
 The round 6 skip pinned the duplicate-restore gap; `ec59045` fixes it and the test runs again, so nothing is skipped.
 
@@ -182,6 +184,7 @@ These are spec-driven, not bugs, but the user will notice them:
 - **Device only (round 9):** Repeat One Next/Previous and the restored shuffle order from the notification, lock screen and Android Auto; the Clear queue dialog on a phone.
 - **Chart jumps (round 9 E):** detected and held; copy and thresholds await approval. *Superseded by round 10: approved and told under the refined rules (`ae0fd05`); not live while the flag is off.*
 - **Import Review on Android (round 10):** the SAF file states (`49c6188`) are tested with a fake `Saf` only. Whether a revoked grant raises `SafPermissionException` or answers "not found" needs the device check (M-6).
+- **Round 11:** legacy Moments rendering is pinned by goldens captured before any catalog change (`goldens/legacy_catalog_v1.json`, `goldens/legacy_moments_v1.json`); refined-only copy changes go through `RefinedHeadlineCatalog`. The phone date-trigger check was resolved by your read-only `dumpsys` (install 2026-10-26); global A-0 is INCONCLUSIVE (`SN50_A0_*.md`).
 - **Refined Moments flag (round 10):** still disabled. Release blockers remain: BUG-04 copy, the nine draft families and the P-items.
 - **Sync against a real server:** the round 6 run queue and the round 8 cancellation are tested with fakes and disposable SQLite only; no Supabase contact.
 - ~~**Shuffle order persistence** (BLOCKED #24): known, not changed.~~ *Stale: done in `207e65d` (round 9); only its device check is pending.* The duplicate-song restore start (#22) is fixed in `ec59045`.

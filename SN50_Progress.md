@@ -840,6 +840,27 @@ Analyzer clean and formatting clean for both. The Batch 1 run took 158 minutes b
 
 **Housekeeping.** `dart format` had reformatted `song_import_review_dao.dart` and `import_batch_record.dart` during Batch 2. Verified formatting-only (identical to `dart format` of the committed content, apart from checkout line endings) and restored to their committed contents, as approved. The seven registrant files and the two uncommitted review documents are preserved.
 
+## Round 11 (2026-10-31): refined headline isolation (Batch 0) and completed-week wording (Batch 1)
+
+Authority: the user's instruction to continue Batches 0 and 1 of `SN50_Final_Editorial_Approval_and_Implementation_Contract.md`, taken as approval of Batch 0 and of contract items P-003 (Option A), P-004, P-005 and P-006 ("the week before"), and P-007 to P-009, exactly as written. The rest of the contract is unapproved. Phone check: date-trigger risk RESOLVED for the user's phone (see `SN50_A0_Safety_Handoff.md`); global A-0 INCONCLUSIVE. The refined flag stays off.
+
+| Commit | Batch | Full suite (`--concurrency=1`) |
+|---|---|---|
+| `f8088b8` | 0: legacy and refined headline views; goldens | **5,147 passed, 0 failed, 0 skipped**. The wrapper shell was stopped for low memory; the test process ran to completion and printed "All tests passed!" (exit code not captured) |
+| `b0f17c4` | 1: completed-week wording for refined stories | **5,152 passed, 1 failed** (exit code 1). The failure was `supabase_sync_resilience_test.dart` "a server that never answers ends the sync as a timeout": the documented sleep flake. Kernel-Power 506/507 show repeated standby during the 221-minute run. Rerun alone: 4/4 passed. Batch 1 touches no sync code. |
+
+**Batch 0 (`f8088b8`).**
+- `MomentHeadlines.legacyOf` is the catalog exactly as published; stories under the earlier rules (legacy and before activation) read only it. `MomentHeadlines.of` is an alias of it.
+- `RefinedHeadlineCatalog` (new) serves refined stories: approved overrides in place (same id and position), approved exclusions (optionally conditional), approved additions appended. Unapproved entries are inert.
+- Goldens captured at `f062551` before any change: `goldens/legacy_catalog_v1.json` (431 lines: id, order, publisher, needs, text) and `goldens/legacy_moments_v1.json` (376 stories over 32 families; weekly and career; with and without a featured performer). They must match under the legacy rules, before activation, and with a stored marker while the flag is off (the marker is not read). Written only when missing.
+- A temporary refined snapshot (not committed) was byte-identical before and after Batch 0.
+
+**Batch 1 (`b0f17c4`).** Refined stories only:
+- `MomentFacts.chart` names "the weekly Sonus Hot 100 / Bubbling Under / Albums & EPs chart" (P-003, P-004);
+- the previous-position body returns as "… was at #N the week before" / "… the week before, its best until then." (P-005, P-006);
+- `song-gainer-d6`, `song-gainer-p6` and `artist-sim-p4` use their refined overrides (P-007 to P-009).
+- Legacy goldens unchanged. The refined before/after comparison shows only 88 headlines ("this week's" → "the weekly") and 64 restored "the week before" sentences.
+
 ## BLOCKED_NEEDS_APPROVAL / user decisions
 
 **[Round 10]** #25 is resolved and #27 is partly resolved (see each item). #12, #17 and #21 remain release blockers. Items are kept in their historical form, with corrections marked.
@@ -851,6 +872,7 @@ Analyzer clean and formatting clean for both. The Batch 1 run took 158 minutes b
 5. **A-Q7D numbering repairs.** Previewed individual repairs of existing gapped editions are not built yet.
 6. **Open question (A-Q12).** In an edition view, should a song's custom artwork or the edition cover come first? Currently the song's custom artwork wins.
 7. **Editorial proposal.** P-001 to P-050 and N-1 to N-7 await line-by-line approval, plus the four open questions in its §6.
+    - **[Round 11]** P-003 to P-009 are done for refined stories (`b0f17c4`). The rest is in `SN50_Final_Editorial_Approval_and_Implementation_Contract.md`, unapproved.
 8. **E-Q19 remainder.** Should finalized weeks also exclude songs and albums no longer in the local library? If yes, plays synced from another device for songs not imported locally would drop out of new finalized weeks, and the SN-32 test "finalized history uses playback-session identity even when song is no longer in library" changes meaning.
 9. ~~**Moments gate date.**~~ **Resolved by `8d2cbfe` (R2), verified in round 5 (F8):** there is no fixed date. Activation needs the `SONUS_MOMENTS_REFINED_APPROVED=true` build flag plus the write-once per-install marker. What remains is item 21.
 10. **Major-zone noise.** A jump straight to #1 can yield the #1 story, Top 2/3/5/10 stories and a consolidated story (6–7 stories). Should majors below the final major be folded into one?
@@ -881,3 +903,4 @@ Analyzer clean and formatting clean for both. The Batch 1 run took 158 minutes b
 26. **Paused-sync wording** (round 9): the `cloudNotReady` message and the "Sync paused" and "Retry" labels.
 27. **Import Review wording and SAF existence check** (round 9 D, open points 1–3).
     - **[Round 10]** SAF existence check done in `49c6188`; its two new messages are approved. Still open: the rest of the Import Review wording (round 9 D point 1, `SN50_Round9_Editorial_and_Release_Safety_Review.md` §5: 17 strings and the Imports "N songs need review" count), and the device check of real SAF behaviour (M-6).
+28. **R-V: versioned refined headline catalogs** (2026-10-30, A-0 follow-up): required before `SONUS_MOMENTS_REFINED_APPROVED` is ever enabled, so refined stories already shown keep their headlines when the catalog grows. A-0 (whether any build ever ran refined rules) is INCONCLUSIVE; see `SN50_A0_Build_History_and_Historical_Rendering_Verification.md` and its addendum, including the date-gated builds of 2026-10-29 02:09–16:25 EDT that activate on 2026-11-01 00:00 UTC.
