@@ -889,7 +889,25 @@ Every batch: focused tests, `dart format`, `flutter analyze` (no issues), one fu
 
 **Totals.** Refined catalog: 64 overrides (45 from this sprint), 115 additions (all from this sprint), 20 exclusions. `approvedFamilies` contains all 45 families; nothing is held. `releaseWeeksMilestone` is still never planned (unchanged). A generic validation test requires 6 distinct Sonus Daily and 6 distinct PulsePop lines that pass the copy rules for every approved family.
 
+## Round 13 (2026-10-31): R-V versioned refined headline catalogs (#28)
+
+Authority: BLOCKED #28 (R-V is mandatory before `SONUS_MOMENTS_REFINED_APPROVED` is ever enabled). It does not authorize activation: **the refined Moments flag stays off**, and global A-0 stays INCONCLUSIVE.
+
+| Commit | Change | Full suite (`--concurrency=1`, detached, per-process stay-awake request, real exit code) |
+|---|---|---|
+| `c758884` | R-V: refined stories keep the catalog version they were first told with | **5,218 passed, 0 failed, 0 skipped, exit code 0**, about 7 min 12 s, no standby |
+
+- `ChartMomentRules.catalogVersionFor` gives each refined story the newest catalog version that had started on this install by the story's boundary (the play for real-time and all-time stories, the week's start for weekly ones, the same boundaries as activation). `currentCatalogVersion` is 1; `RefinedHeadlineCatalog.versions` is `{1: standard}`.
+- Version 1 starts at the existing activation instant (no new key). Each later version starts at the first run of a build that carries it: write-once SharedPreferences key `charts.moments.refined_catalog_v<N>_from_utc`, beside the existing marker. A version 1 build writes nothing new. No database or schema change.
+- Missing metadata: a carried version with no recorded start starts "now", later than every story already told; an absent marker is never read as an earlier start. An unreadable or unsaved start, or a start recorded by a newer build, keeps the earlier rules for the run (as for an unreadable activation instant). A refined story whose catalog the build lacks is held, never re-told.
+- `MomentFacts.catalogVersion` lets a later version branch bodies or helpers without touching v1.
+- New golden `goldens/refined_catalog_v1_moments.json` (396 refined stories, 33 families), captured at `bf47f63` before the change, and identical with a hypothetical v2 present (both before and after its start). Legacy goldens unchanged (catalog, stories, 500-id sweep). The refined catalog validation test runs over every carried version.
+- `refined_catalog_versioning_test.dart`: version boundaries, flag-off no-I/O, restart keeps the recorded start, fresh install, corrupt/unsaved/newer starts, held stories, facts carry the version.
+- `dart format` clean and `flutter analyze` no issues on the changed files.
+
 ## BLOCKED_NEEDS_APPROVAL / user decisions
+
+**[Round 13]** #28 (R-V) is implemented in `c758884`. Activation still needs #21 and device QA; the flag stays off.
 
 **[Round 12]** #12 and #17 are resolved; #7 is resolved except N-1 release lines and the N-7 remainder. New #29 (fall/exit badges and category). Activation still needs #21 and #28.
 
@@ -934,5 +952,5 @@ Every batch: focused tests, `dart format`, `flutter analyze` (no issues), one fu
 26. **Paused-sync wording** (round 9): the `cloudNotReady` message and the "Sync paused" and "Retry" labels.
 27. **Import Review wording and SAF existence check** (round 9 D, open points 1–3).
     - **[Round 10]** SAF existence check done in `49c6188`; its two new messages are approved. Still open: the rest of the Import Review wording (round 9 D point 1, `SN50_Round9_Editorial_and_Release_Safety_Review.md` §5: 17 strings and the Imports "N songs need review" count), and the device check of real SAF behaviour (M-6).
-28. **R-V: versioned refined headline catalogs** (2026-10-30, A-0 follow-up): required before `SONUS_MOMENTS_REFINED_APPROVED` is ever enabled, so refined stories already shown keep their headlines when the catalog grows. A-0 (whether any build ever ran refined rules) is INCONCLUSIVE; see `SN50_A0_Build_History_and_Historical_Rendering_Verification.md` and its addendum, including the date-gated builds of 2026-10-29 02:09–16:25 EDT that activate on 2026-11-01 00:00 UTC.
+28. ~~**R-V: versioned refined headline catalogs**~~ **[Round 13] Implemented in `c758884`** (**5,218 passed, 0 failed, 0 skipped, exit code 0**); the flag stays off. (2026-10-30, A-0 follow-up): required before `SONUS_MOMENTS_REFINED_APPROVED` is ever enabled, so refined stories already shown keep their headlines when the catalog grows. A-0 (whether any build ever ran refined rules) is INCONCLUSIVE; see `SN50_A0_Build_History_and_Historical_Rendering_Verification.md` and its addendum, including the date-gated builds of 2026-10-29 02:09–16:25 EDT that activate on 2026-11-01 00:00 UTC.
 29. **Fall and exit presentation (round 12):** confirm the badges "FALL" and "HOT 100 EXIT" and the "Peaks and climbs" filter category for `songBubblingUnderFall` and `songHot100Exit` (`b80b68c`), or choose others.

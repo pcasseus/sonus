@@ -1,6 +1,6 @@
 # SN-50 QA Report
 
-Branch `sn-50-final-refinement`, worktree `C:\dev\sonus\sonus_next_sn50`. Base `36d4d5d`. Round 1 ended at `14b592f`; refreshed 2026-10-31 at code HEAD `5ba4b19` (round 12, editorial Batches 3–9; none pushed). *Earlier text: "refreshed 2026-10-30 at code HEAD `49c6188` (round 10…)".* *Earlier text read "code HEAD `11f30a7` (round 9…)", which was stale: round 9 code ended at `cc680e8`.*
+Branch `sn-50-final-refinement`, worktree `C:\dev\sonus\sonus_next_sn50`. Base `36d4d5d`. Round 1 ended at `14b592f`; refreshed 2026-10-31 at code HEAD `c758884` (round 13, R-V versioned refined catalogs; none pushed). *Earlier text: "refreshed 2026-10-31 at code HEAD `5ba4b19` (round 12, editorial Batches 3–9…)".* *Earlier text: "refreshed 2026-10-30 at code HEAD `49c6188` (round 10…)".* *Earlier text read "code HEAD `11f30a7` (round 9…)", which was stale: round 9 code ended at `cc680e8`.*
 
 ## 1. Analyzer and test suite
 
@@ -32,7 +32,8 @@ Branch `sn-50-final-refinement`, worktree `C:\dev\sonus\sonus_next_sn50`. Base `
 | `bc615c1` (round 12 Batch 6) | No issues | 5,189 passed, 0 failed, 0 skipped, exit code 0 |
 | `ea75208` (round 12 Batch 7) | No issues | 5,194 passed, 0 failed, 0 skipped, exit code 0 |
 | `bf835bf` (round 12 Batch 8) | No issues | 5,199 passed, 0 failed, 0 skipped, exit code 0 |
-| `5ba4b19` (round 12 Batch 9); latest code | No issues | **5,204 passed, 0 failed, 0 skipped, exit code 0** |
+| `5ba4b19` (round 12 Batch 9) | No issues | 5,204 passed, 0 failed, 0 skipped, exit code 0 |
+| `c758884` (round 13: R-V versioned refined catalogs); latest code | No issues | **5,218 passed, 0 failed, 0 skipped, exit code 0** (about 7 min 12 s, no standby) |
 
 The round 6 skip pinned the duplicate-restore gap; `ec59045` fixes it and the test runs again, so nothing is skipped.
 
@@ -196,6 +197,7 @@ These are spec-driven, not bugs, but the user will notice them:
 - **Import Review on Android (round 10):** the SAF file states (`49c6188`) are tested with a fake `Saf` only. Whether a revoked grant raises `SafPermissionException` or answers "not found" needs the device check (M-6).
 - **Round 11:** legacy Moments rendering is pinned by goldens captured before any catalog change (`goldens/legacy_catalog_v1.json`, `goldens/legacy_moments_v1.json`); refined-only copy changes go through `RefinedHeadlineCatalog`. The phone date-trigger check was resolved by your read-only `dumpsys` (install 2026-10-26); global A-0 is INCONCLUSIVE (`SN50_A0_*.md`).
 - **Round 12 (refined copy, tests only):** every refined headline is verified by unit, widget and composed-story tests; none has been shown in an app build (the flag is off). Activation also needs R-V catalog versioning (BLOCKED #28). The fall/exit badges and category await confirmation (#29).
+- **Round 13 (R-V, `c758884`):** catalog versioning is verified by unit and composed-story tests and a refined v1 golden captured before the change (identical with a hypothetical v2). Write-once starts are tested with fake stores only; a real SharedPreferences restart on a device is part of device QA. The flag is still off.
 - **Performer attribution (round 11 Batch 2):** *[Round 12] The two gaps below are closed in `1a55806`.* refined stories with a featured guest skip the 14 contract §6.4 lines. Still open, needing approval: `song-weeks-p5` ("N weeks in the Top 10 for "Song" by Artist.", missed by the §6.4 list, pinned by `refined_existing_copy_test.dart`) and six approved chart-jump lines that credit the primary artist alone (`song-jump-d4`, `-d6`, `-p4`, `song-run-d3`, `-d6`, `-p4`).
 - **Refined Moments flag (round 10):** still disabled. Release blockers remain: BUG-04 copy, the nine draft families and the P-items.
 - **Sync against a real server:** the round 6 run queue and the round 8 cancellation are tested with fakes and disposable SQLite only; no Supabase contact.
