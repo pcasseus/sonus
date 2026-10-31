@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sonus_next/features/import/application/services/metadata_resolver.dart';
 import 'package:sonus_next/features/import/domain/models/audio_metadata.dart';
 import 'package:sonus_next/features/import/domain/models/import_candidate.dart';
+import 'package:sonus_next/features/import/domain/models/import_file_failure.dart';
 import 'package:sonus_next/features/import/domain/models/resolved_metadata.dart';
 import 'package:sonus_next/features/import/domain/services/audio_metadata_reader.dart';
 
@@ -206,4 +207,46 @@ void main() {
       expect(fallback.callCount, 1);
     },
   );
+
+  // SN-50 §4: the fallback is used the same way, but callers can tell why.
+  group('read failure kind', () {
+    for (final (error, kind) in [
+      (const ImportFileMissing('gone'), MetadataReadFailure.missing),
+      (
+        const ImportFileAccessDenied('revoked'),
+        MetadataReadFailure.accessDenied,
+      ),
+      (
+        const ImportTagsUnreadable('no tags'),
+        MetadataReadFailure.tagsUnreadable,
+      ),
+      (StateError('other'), MetadataReadFailure.other),
+    ]) {
+      test('${error.runtimeType} is recorded as ${kind.name}', () async {
+        final resolver = MetadataResolver(
+          primaryReader: FakeMetadataReader(error: error),
+          fallbackReader: FakeMetadataReader(result: metadata),
+        );
+
+        final result = await resolver.resolve(candidate);
+
+        expect(result.source, MetadataSource.fallback);
+        expect(result.metadata.title, 'Song');
+        expect(result.readFailure, kind);
+      });
+    }
+
+    test('readable tags record no failure', () async {
+      final resolver = MetadataResolver(
+        primaryReader: FakeMetadataReader(result: metadata),
+        fallbackReader: FakeMetadataReader(result: metadata),
+      );
+
+      expect((await resolver.resolve(candidate)).readFailure, isNull);
+    });
+
+    test('unreadable tags are still a FormatException', () {
+      expect(const ImportTagsUnreadable('no tags'), isA<FormatException>());
+    });
+  });
 }

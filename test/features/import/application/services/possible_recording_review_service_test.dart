@@ -1,5 +1,7 @@
 // SN-50 §5 Option B: files kept out of the library as possible different
 // recordings wait in a device-local list for the user's decision.
+import 'dart:convert';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -18,9 +20,12 @@ import 'package:sonus_next/features/import/domain/entities/media_file_binding_fa
 import 'package:sonus_next/features/import/domain/entities/song_import_review.dart';
 import 'package:sonus_next/features/import/domain/models/audio_metadata.dart';
 import 'package:sonus_next/features/import/domain/models/import_candidate.dart';
+import 'package:sonus_next/features/import/domain/models/import_file_failure.dart';
 import 'package:sonus_next/features/import/domain/models/import_result.dart';
 import 'package:sonus_next/features/import/domain/models/pending_possible_recording.dart';
+import 'package:sonus_next/features/import/domain/models/resolved_metadata.dart';
 import 'package:sonus_next/features/import/domain/services/audio_metadata_reader.dart';
+import 'package:sonus_next/features/import/domain/services/import_file_probe.dart';
 import 'package:sonus_next/features/library/data/daos/song_dao.dart';
 import 'package:sonus_next/features/library/data/repositories/sqlite_song_repository.dart';
 import 'package:sonus_next/features/library/domain/entities/song.dart';
@@ -36,6 +41,36 @@ class _MetadataByPath implements AudioMetadataReader {
     final metadata = byPath[candidate.filePath];
     if (metadata == null) throw StateError('file is missing');
     return metadata;
+  }
+}
+
+/// Per path, the tags read or the failure thrown; a path it does not know
+/// is missing.
+class _Reader implements AudioMetadataReader {
+  _Reader(this.byPath);
+
+  final Map<String, Object> byPath;
+
+  @override
+  Future<AudioMetadata> read(ImportCandidate candidate) async {
+    return switch (byPath[candidate.filePath]) {
+      final AudioMetadata metadata => metadata,
+      final Object failure? => throw failure,
+      _ => throw const ImportFileMissing('not in the fake'),
+    };
+  }
+}
+
+class _Probe implements ImportFileProbe {
+  _Probe(this.state);
+
+  ImportFileState state;
+  final probed = <String>[];
+
+  @override
+  Future<ImportFileState> probe(String filePath) async {
+    probed.add(filePath);
+    return state;
   }
 }
 
@@ -106,14 +141,16 @@ void main() {
   }
 
   Future<LibraryImportService> importService(
-    Map<String, AudioMetadata> files,
-  ) async {
+    Map<String, AudioMetadata> files, {
+    AudioMetadataReader? primaryReader,
+    AudioMetadataReader? fallbackReader,
+  }) async {
     final db = await appDatabase.database;
 
     return LibraryImportService(
       metadataResolver: MetadataResolver(
-        primaryReader: _MetadataByPath(files),
-        fallbackReader: _Unreadable(),
+        primaryReader: primaryReader ?? _MetadataByPath(files),
+        fallbackReader: fallbackReader ?? _Unreadable(),
       ),
       atomicImporter: AtomicLibraryImporter(appDatabase: appDatabase),
       mediaFileBindingRepository: SqliteMediaFileBindingRepository(
@@ -126,6 +163,7 @@ void main() {
   Future<PossibleRecordingReviewService> reviewService(
     LibraryImportService importer, {
     String? deletedSongId,
+    ImportFileProbe? fileProbe,
   }) async {
     final db = await appDatabase.database;
     final songs = SqliteSongRepository(SongDao(db));
@@ -139,6 +177,7 @@ void main() {
       songRepository: deletedSongId == null
           ? songs
           : _WithoutSong(songs, deletedSongId),
+      fileProbe: fileProbe,
       now: () => now,
     );
   }
@@ -448,6 +487,214 @@ void main() {
 
       final item = (await service.pending()).single;
       expect(item.candidate, isNull);
+    });
+  });
+
+  // SN-50 §4: a missing file, a file Sonus may no longer read and a file
+  // without readable tags are told apart; only a missing or changed file
+  // leaves the list.
+  group('unreachable files', () {
+    final track03 = files['drama/track03.mp3']!;
+    final track09 = files['drama/track09.mp3']!;
+    const pendingKey = 'import.possible_recordings.pending';
+
+    /// Records track09 as pending (read as [first], track09's tags by
+    /// default), then answers [later] for it in the review.
+    Future<(PossibleRecordingReviewService, String)> pendingThen(
+      Object later, {
+      ImportFileProbe? probe,
+      Object? first,
+    }) async {
+      final byPath = <String, Object>{
+        'drama/track03.mp3': track03,
+        'drama/track09.mp3': first ?? track09,
+      };
+      final importer = await importService(
+        files,
+        primaryReader: _Reader(byPath),
+        // A path guess with the same facts as the tags.
+        fallbackReader: _Reader({'drama/track09.mp3': track09}),
+      );
+      final kept = await importer.importCandidate(
+        candidate('drama/track03.mp3'),
+        now: now,
+      );
+      final ambiguous = await importer.importCandidate(
+        candidate('drama/track09.mp3'),
+        now: now,
+      );
+      expect(ambiguous.skipReason, ImportSkipReason.possibleAlternateRecording);
+      byPath['drama/track09.mp3'] = later;
+      return (await reviewService(importer, fileProbe: probe), kept.songId!);
+    }
+
+    /// Import separately of the one pending entry: its outcome, and whether
+    /// the entry is still listed. Nothing in the library may change unless
+    /// it imported.
+    Future<(PossibleRecordingOutcome, bool)> importOnce(
+      PossibleRecordingReviewService service,
+      String keptId,
+    ) async {
+      final before = await rowsOf(keptId);
+      final songsBefore = await countRows(DatabaseTables.songs);
+
+      final result = await service.importSeparately(
+        (await store().getPending()).single,
+      );
+
+      expect(await rowsOf(keptId), before);
+      if (result.outcome != PossibleRecordingOutcome.imported) {
+        expect(await countRows(DatabaseTables.songs), songsBefore);
+      }
+      return (result.outcome, (await store().getPending()).isNotEmpty);
+    }
+
+    test('a lost folder permission keeps the entry', () async {
+      final probe = _Probe(ImportFileState.permissionLost);
+      final (service, keptId) = await pendingThen(track09, probe: probe);
+
+      expect(await importOnce(service, keptId), (
+        PossibleRecordingOutcome.permissionLost,
+        true,
+      ));
+      expect(probe.probed, ['drama/track09.mp3']);
+    });
+
+    test('a file that could not be checked stays listed', () async {
+      final (service, keptId) = await pendingThen(
+        track09,
+        probe: _Probe(ImportFileState.unknown),
+      );
+
+      expect(await importOnce(service, keptId), (
+        PossibleRecordingOutcome.checkFailed,
+        true,
+      ));
+    });
+
+    test('a file the probe finds missing leaves the list', () async {
+      final (service, keptId) = await pendingThen(
+        track09,
+        probe: _Probe(ImportFileState.missing),
+      );
+
+      expect(await importOnce(service, keptId), (
+        PossibleRecordingOutcome.fileUnavailable,
+        false,
+      ));
+    });
+
+    test('a present file imports separately as before', () async {
+      final (service, keptId) = await pendingThen(
+        track09,
+        probe: _Probe(ImportFileState.present),
+      );
+
+      expect(await importOnce(service, keptId), (
+        PossibleRecordingOutcome.imported,
+        false,
+      ));
+    });
+
+    test('listing retires a missing file and keeps one Sonus cannot '
+        'reach', () async {
+      final probe = _Probe(ImportFileState.permissionLost);
+      final (service, _) = await pendingThen(track09, probe: probe);
+
+      expect(await service.pending(), hasLength(1));
+      expect(await store().getPending(), hasLength(1));
+
+      probe.state = ImportFileState.unknown;
+      expect(await service.pending(), hasLength(1));
+
+      probe.state = ImportFileState.missing;
+      expect(await service.pending(), isEmpty);
+      expect(await store().getPending(), isEmpty);
+    });
+
+    test('a read refused for permission keeps the entry', () async {
+      final (service, keptId) = await pendingThen(
+        const ImportFileAccessDenied('revoked'),
+      );
+
+      expect(await importOnce(service, keptId), (
+        PossibleRecordingOutcome.permissionLost,
+        true,
+      ));
+    });
+
+    test('an unexplained read failure keeps the entry', () async {
+      final (service, keptId) = await pendingThen(StateError('hiccup'));
+
+      expect(await importOnce(service, keptId), (
+        PossibleRecordingOutcome.checkFailed,
+        true,
+      ));
+    });
+
+    test('a file missing on read leaves the list', () async {
+      final (service, keptId) = await pendingThen(
+        const ImportFileMissing('gone'),
+      );
+
+      expect(await importOnce(service, keptId), (
+        PossibleRecordingOutcome.fileUnavailable,
+        false,
+      ));
+    });
+
+    test('tags lost since a tag-based entry was recorded retire it', () async {
+      final (service, keptId) = await pendingThen(
+        const ImportTagsUnreadable('no tags'),
+      );
+      expect(
+        (await store().getPending()).single.metadataSource,
+        MetadataSource.embedded,
+      );
+
+      expect(await importOnce(service, keptId), (
+        PossibleRecordingOutcome.fileUnavailable,
+        false,
+      ));
+    });
+
+    test('an entry saved before SN-50 §4 is read as tag-based', () async {
+      final (service, keptId) = await pendingThen(
+        const ImportTagsUnreadable('no tags'),
+        first: const ImportTagsUnreadable('no tags'),
+      );
+      final stored = (jsonDecode(preferences[pendingKey]!) as List)
+          .cast<Map<String, Object?>>();
+      expect(stored.single['metadataSource'], 'fallback');
+      preferences[pendingKey] = jsonEncode([
+        for (final json in stored) {...json}..remove('metadataSource'),
+      ]);
+      final entry = (await store().getPending()).single;
+      expect(entry.metadataSource, isNull);
+      expect(entry.recordedFromPath, isFalse);
+
+      expect(await importOnce(service, keptId), (
+        PossibleRecordingOutcome.fileUnavailable,
+        false,
+      ));
+    });
+
+    test('an entry recorded from its path imports separately; the kept '
+        'song is untouched', () async {
+      final (service, keptId) = await pendingThen(
+        const ImportTagsUnreadable('no tags'),
+        first: const ImportTagsUnreadable('no tags'),
+      );
+      final entry = (await store().getPending()).single;
+      expect(entry.metadataSource, MetadataSource.fallback);
+      expect(entry.recordedFromPath, isTrue);
+      final songsBefore = await countRows(DatabaseTables.songs);
+
+      expect(await importOnce(service, keptId), (
+        PossibleRecordingOutcome.imported,
+        false,
+      ));
+      expect(await countRows(DatabaseTables.songs), songsBefore + 1);
     });
   });
 }

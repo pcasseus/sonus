@@ -1,3 +1,5 @@
+import 'resolved_metadata.dart';
+
 /// A file kept out of the library as a possible different recording of an
 /// existing song, waiting on this device for the user's decision.
 class PendingPossibleRecording {
@@ -14,6 +16,7 @@ class PendingPossibleRecording {
     required this.firstSeenAt,
     this.metadataFallbackPath,
     this.sourceId,
+    this.metadataSource,
   });
 
   final String normalizedPath;
@@ -36,6 +39,13 @@ class PendingPossibleRecording {
   final String? metadataFallbackPath;
   final String? sourceId;
 
+  /// Where the reported tags came from. Null for entries saved before
+  /// SN-50 §4, which were all read from tags.
+  final MetadataSource? metadataSource;
+
+  /// Whether the entry was recorded from the path alone, not from tags.
+  bool get recordedFromPath => metadataSource == MetadataSource.fallback;
+
   /// The path to show the user.
   String get displayPath {
     final fallback = metadataFallbackPath?.trim();
@@ -56,6 +66,7 @@ class PendingPossibleRecording {
       firstSeenAt: firstSeenAt ?? this.firstSeenAt,
       metadataFallbackPath: metadataFallbackPath,
       sourceId: sourceId,
+      metadataSource: metadataSource,
     );
   }
 
@@ -72,6 +83,7 @@ class PendingPossibleRecording {
     'firstSeenAt': firstSeenAt.toUtc().toIso8601String(),
     'metadataFallbackPath': metadataFallbackPath,
     'sourceId': sourceId,
+    if (metadataSource case final source?) 'metadataSource': source.name,
   };
 
   /// Null when [json] is not a complete entry.
@@ -122,6 +134,9 @@ class PendingPossibleRecording {
       firstSeenAt: firstSeenAt.toUtc(),
       metadataFallbackPath: metadataFallbackPath as String?,
       sourceId: sourceId as String?,
+      metadataSource: MetadataSource.values
+          .where((source) => source.name == json['metadataSource'])
+          .firstOrNull,
     );
   }
 }

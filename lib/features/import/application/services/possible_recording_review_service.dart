@@ -7,6 +7,7 @@ import '../../domain/models/import_result.dart';
 import '../../domain/models/pending_possible_recording.dart';
 import '../../domain/models/resolved_metadata.dart';
 import '../../domain/repositories/media_file_binding_repository.dart';
+import '../../domain/services/import_file_probe.dart';
 import 'library_import_service.dart';
 
 /// A pending possible different recording, with the song it may duplicate
@@ -34,6 +35,12 @@ enum PossibleRecordingOutcome {
   /// The file is missing or cannot be read.
   fileUnavailable,
 
+  /// Sonus can no longer read the file's folder; the file stays listed.
+  permissionLost,
+
+  /// The file could not be checked; it stays listed.
+  checkFailed,
+
   /// The song it may duplicate is no longer in the library.
   candidateMissing,
 
@@ -57,6 +64,7 @@ class PossibleRecordingReviewService {
     required this.libraryImportService,
     required this.mediaFileBindingRepository,
     required this.songRepository,
+    this.fileProbe,
     DateTime Function()? now,
   }) : _now = now ?? DateTime.now;
 
@@ -64,10 +72,16 @@ class PossibleRecordingReviewService {
   final LibraryImportService libraryImportService;
   final MediaFileBindingRepository mediaFileBindingRepository;
   final SongRepository songRepository;
+
+  /// Read-only reachability checks (SN-50 §4). Without one, files are only
+  /// judged by reading their tags.
+  final ImportFileProbe? fileProbe;
+
   final DateTime Function() _now;
 
-  /// Pending files, oldest first. A file that has since joined the library
-  /// leaves the list.
+  /// Pending files, oldest first. A file that has since joined the library,
+  /// or that is gone from its folder, leaves the list. A file Sonus can no
+  /// longer reach for another reason stays listed.
   Future<List<PossibleRecordingItem>> pending() async {
     final items = <PossibleRecordingItem>[];
 
@@ -76,6 +90,11 @@ class PossibleRecordingReviewService {
             entry.normalizedPath,
           ) !=
           null) {
+        await store.remove(entry.normalizedPath);
+        continue;
+      }
+
+      if (await fileProbe?.probe(entry.filePath) == ImportFileState.missing) {
         await store.remove(entry.normalizedPath);
         continue;
       }
@@ -93,7 +112,8 @@ class PossibleRecordingReviewService {
 
   /// Imports the file as its own song, flagged for review, after checking
   /// it again. A file that is missing, unreadable or already imported, or
-  /// whose song is gone, leaves the list and nothing is written.
+  /// whose song is gone, leaves the list and nothing is written. A file
+  /// Sonus lost permission to read, or could not check, stays listed.
   Future<PossibleRecordingActionResult> importSeparately(
     PendingPossibleRecording entry,
   ) async {
@@ -121,18 +141,53 @@ class PossibleRecordingReviewService {
       sourceId: entry.sourceId,
     );
 
-    // Read the file again, with its folder's album as a scan would. Tags
-    // that cannot be read (a path guess only) mean the file is gone.
+    switch (await fileProbe?.probe(entry.filePath)) {
+      case ImportFileState.missing:
+        await store.remove(path);
+        return const PossibleRecordingActionResult(
+          PossibleRecordingOutcome.fileUnavailable,
+        );
+      case ImportFileState.permissionLost:
+        return const PossibleRecordingActionResult(
+          PossibleRecordingOutcome.permissionLost,
+        );
+      case ImportFileState.unknown:
+        return const PossibleRecordingActionResult(
+          PossibleRecordingOutcome.checkFailed,
+        );
+      case ImportFileState.present || null:
+        break;
+    }
+
+    // Read the file again, with its folder's album as a scan would.
     final prepared = (await libraryImportService.prepareFolders([
       candidate,
     ]))[path];
 
-    if (prepared == null ||
-        prepared.metadata.source == MetadataSource.fallback) {
+    if (prepared == null) {
       await store.remove(path);
       return const PossibleRecordingActionResult(
         PossibleRecordingOutcome.fileUnavailable,
       );
+    }
+
+    // Only a path guess: why the tags were not read decides.
+    if (prepared.metadata.source == MetadataSource.fallback) {
+      final outcome = switch (prepared.metadata.readFailure) {
+        MetadataReadFailure.accessDenied =>
+          PossibleRecordingOutcome.permissionLost,
+        // Reported from its path in the first place: nothing has changed.
+        MetadataReadFailure.tagsUnreadable when entry.recordedFromPath => null,
+        MetadataReadFailure.missing || MetadataReadFailure.tagsUnreadable =>
+          PossibleRecordingOutcome.fileUnavailable,
+        MetadataReadFailure.other ||
+        null => PossibleRecordingOutcome.checkFailed,
+      };
+
+      if (outcome == PossibleRecordingOutcome.fileUnavailable) {
+        await store.remove(path);
+      }
+      if (outcome != null) return PossibleRecordingActionResult(outcome);
     }
 
     final result = await libraryImportService.importCandidate(

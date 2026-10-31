@@ -48,6 +48,7 @@ import '../../data/repositories/sqlite_media_file_binding_repository.dart';
 import '../../data/repositories/sqlite_song_import_review_repository.dart';
 import '../../data/services/file_system_import_candidate_discovery.dart';
 import '../../data/services/local_lyrics_source_reader.dart';
+import '../../data/services/local_import_file_probe.dart';
 import '../../data/services/media_metadata_reader.dart';
 import '../../data/services/path_fallback_metadata_reader.dart';
 import '../../data/services/possible_recording_store.dart';
@@ -319,6 +320,9 @@ class _ImportScopeState extends State<ImportScope> {
               libraryImportService: libraryImportService,
               mediaFileBindingRepository: mediaFileBindingRepository,
               songRepository: SqliteSongRepository(SongDao(sqliteDatabase)),
+              fileProbe: LocalImportFileProbe(
+                saf: Platform.isAndroid ? _saf : null,
+              ),
             ),
           )
         : null;

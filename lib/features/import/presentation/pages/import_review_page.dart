@@ -399,6 +399,10 @@ class _ImportReviewPageState extends State<ImportReviewPage> {
       PossibleRecordingOutcome.fileUnavailable =>
         'This file is missing or cannot be read. Removed from this list; '
             'nothing was imported.',
+      PossibleRecordingOutcome.permissionLost =>
+        "Sonus can't read this folder any more. Reconnect it in Imports.",
+      PossibleRecordingOutcome.checkFailed =>
+        'Could not check this file. It stays in this list. Try again.',
       PossibleRecordingOutcome.candidateMissing =>
         'The song it may duplicate is no longer in your library. Removed '
             'from this list; rescan to import the file.',

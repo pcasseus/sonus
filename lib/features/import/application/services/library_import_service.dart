@@ -156,11 +156,13 @@ class LibraryImportService {
 
     final ImportResult imported;
     final AudioMetadata metadata;
+    final MetadataSource metadataSource;
 
     try {
       final resolvedMetadata =
           prepared?.metadata ?? await metadataResolver.resolve(candidate);
       metadata = resolvedMetadata.metadata;
+      metadataSource = resolvedMetadata.source;
 
       imported = await atomicImporter.import(
         candidate: candidate,
@@ -190,6 +192,7 @@ class LibraryImportService {
         candidate,
         normalizedPath: normalizedPath,
         metadata: metadata,
+        metadataSource: metadataSource,
         result: imported,
         timestamp: timestamp,
       ),
@@ -204,6 +207,7 @@ class LibraryImportService {
     ImportCandidate candidate, {
     required String normalizedPath,
     required AudioMetadata metadata,
+    required MetadataSource metadataSource,
     required ImportResult result,
     required DateTime timestamp,
   }) async {
@@ -250,6 +254,7 @@ class LibraryImportService {
           firstSeenAt: timestamp.toUtc(),
           metadataFallbackPath: candidate.metadataFallbackPath,
           sourceId: candidate.sourceId,
+          metadataSource: metadataSource,
         ),
       );
     } catch (_) {

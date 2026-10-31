@@ -7,6 +7,7 @@ import 'package:saf/saf.dart';
 
 import '../../domain/models/audio_metadata.dart';
 import '../../domain/models/import_candidate.dart';
+import '../../domain/models/import_file_failure.dart';
 import '../../domain/services/audio_metadata_reader.dart';
 
 class MediaMetadataReader implements AudioMetadataReader {
@@ -40,7 +41,13 @@ class MediaMetadataReader implements AudioMetadataReader {
     final temporaryFile = File(path.join(workingDirectory.path, 'source.mp3'));
 
     try {
-      await safInstance.copyToLocalFile(source, temporaryFile.path);
+      try {
+        await safInstance.copyToLocalFile(source, temporaryFile.path);
+      } on SafNotFoundException catch (error) {
+        throw ImportFileMissing(error.message);
+      } on SafPermissionException catch (error) {
+        throw ImportFileAccessDenied(error.message);
+      }
 
       return await _readPath(temporaryFile.path);
     } finally {
@@ -51,10 +58,14 @@ class MediaMetadataReader implements AudioMetadataReader {
   }
 
   Future<AudioMetadata> _readPath(String filePath) async {
+    if (!await File(filePath).exists()) {
+      throw const ImportFileMissing('Audio file does not exist.');
+    }
+
     final metadata = await MediaMetadata.read(filePath);
 
     if (metadata == null) {
-      throw const FormatException(
+      throw const ImportTagsUnreadable(
         'Audio file does not contain readable metadata.',
       );
     }

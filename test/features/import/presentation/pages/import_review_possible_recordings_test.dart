@@ -65,7 +65,9 @@ class _FakePossibleRecordings implements PossibleRecordingReviewService {
   ) async {
     imported.add(entry.normalizedPath);
     if (importOutcome != PossibleRecordingOutcome.failed &&
-        importOutcome != PossibleRecordingOutcome.stillPending) {
+        importOutcome != PossibleRecordingOutcome.stillPending &&
+        importOutcome != PossibleRecordingOutcome.permissionLost &&
+        importOutcome != PossibleRecordingOutcome.checkFailed) {
       items = [
         for (final item in items)
           if (item.entry.normalizedPath != entry.normalizedPath) item,
@@ -201,6 +203,29 @@ void main() {
     );
     expect(find.byKey(importKey), findsNothing);
   });
+
+  // SN-50 §4: a file Sonus can no longer reach stays listed.
+  for (final (outcome, message) in [
+    (
+      PossibleRecordingOutcome.permissionLost,
+      "Sonus can't read this folder any more. Reconnect it in Imports.",
+    ),
+    (
+      PossibleRecordingOutcome.checkFailed,
+      'Could not check this file. It stays in this list. Try again.',
+    ),
+  ]) {
+    testWidgets('Import separately, ${outcome.name}: says why and keeps the '
+        'file listed', (tester) async {
+      await pumpPage(tester, importOutcome: outcome);
+
+      await tester.tap(find.byKey(importKey));
+      await tester.pumpAndSettle();
+
+      expect(find.text(message), findsOneWidget);
+      expect(find.byKey(importKey), findsOneWidget);
+    });
+  }
 
   testWidgets('Same recording records the choice and leaves the list', (
     tester,

@@ -68,15 +68,24 @@ class ImportMetadataOrigins {
   final ImportMetadataFieldSource genre;
 }
 
+/// Why the tags were not read, when [MetadataSource.fallback] was used.
+enum MetadataReadFailure { missing, accessDenied, tagsUnreadable, other }
+
 class ResolvedMetadata {
   const ResolvedMetadata({
     required this.metadata,
     required this.source,
     this.origins,
+    this.readFailure,
   });
 
   final AudioMetadata metadata;
   final MetadataSource source;
+
+  /// Set only for [MetadataSource.fallback] from [MetadataResolver]: why
+  /// the file's tags could not be read. Imports use the fallback the same
+  /// way whatever the reason.
+  final MetadataReadFailure? readFailure;
 
   /// Per-field origin information is populated by [MetadataResolver].
   ///
