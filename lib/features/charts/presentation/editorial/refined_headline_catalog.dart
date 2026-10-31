@@ -83,8 +83,141 @@ class RefinedHeadlineCatalog {
             '${f.chart}.',
         approved: true,
       ),
+      // P-001, P-002 (Batch 2): "a first", never "its" for people; full credit.
+      RefinedOverride(
+        'artist-hot100-d5',
+        (f) =>
+            '${f.subject} gives ${f.ownerName} a first Sonus Hot 100 entry, '
+            'at #${f.rank}.',
+        approved: true,
+      ),
+      RefinedOverride(
+        'artist-1-d6',
+        (f) => '${f.subject} gives ${f.ownerName} a first #1 on ${f.chart}.',
+        approved: true,
+      ),
+      // P-010: the rank, not the streams, is the entry.
+      RefinedOverride(
+        'artist-hot100-p4',
+        (f) =>
+            '${f.careerArtist} cracks the Sonus Hot 100 for the first time: '
+            '${f.work} enters at #${f.rank} with ${f.streamsText}.',
+        approved: true,
+      ),
+      // P-011, P-012: no name or count said twice.
+      RefinedOverride(
+        'artist-top-p3',
+        (f) =>
+            'Head to head with ${f.rivalTitle}, ${f.title} pulls ahead as your '
+            '#1 artist.',
+        approved: true,
+      ),
+      RefinedOverride(
+        'artist-sim-p2',
+        (f) =>
+            '${f.count} songs, one artist: ${f.artist} is all over the Top '
+            '${f.threshold}.',
+        approved: true,
+      ),
+      // P-013 to P-019: "#1" said once.
+      RefinedOverride(
+        'artist-1-d1',
+        (f) =>
+            '${f.careerArtist} earns a first #1 hit as ${f.work} tops ${f.chart}.',
+        approved: true,
+      ),
+      RefinedOverride(
+        'artist-1-n-d1',
+        (f) =>
+            '${f.careerArtist} earns ${f.aOrdinalText} #1 hit as ${f.work} '
+            'tops ${f.chart}.',
+        approved: true,
+      ),
+      RefinedOverride(
+        'artist-release-1-d1',
+        (f) =>
+            '${f.careerArtist} earns a first #1 ${f.releaseWord} as '
+            '${f.title} tops ${f.chart}.',
+        approved: true,
+      ),
+      RefinedOverride(
+        'artist-release-1-n-d1',
+        (f) =>
+            '${f.careerArtist} earns ${f.aOrdinalText} #1 release as '
+            '${f.title} tops ${f.chart}.',
+        approved: true,
+      ),
+      RefinedOverride(
+        'release-debut-1-d6',
+        (f) =>
+            'A #1 debut for ${f.artist}: the ${f.releaseWord} ${f.title} '
+            'opens at the top of ${f.chart}.',
+        approved: true,
+      ),
+      RefinedOverride(
+        'release-debut-1-p5',
+        (f) => 'New ${f.releaseWord}, new #1: ${f.subject} debuts at the top.',
+        approved: true,
+      ),
+      RefinedOverride(
+        'release-debut-1-p6',
+        (f) =>
+            '${f.artist} lands a #1 debut: ${f.title} enters ${f.chart} at '
+            'the very top.',
+        approved: true,
+      ),
+      // P-020 to P-023: PulsePop voice.
+      RefinedOverride(
+        'song-debut-10-p4',
+        (f) =>
+            'Out of the gate with ${f.streamsText}, ${f.subject} debuts in '
+            'the Top 10 at #${f.rank}.',
+        approved: true,
+      ),
+      RefinedOverride(
+        'song-1-p4',
+        (f) => '${f.streamsText} and the top spot: ${f.subject} hits #1!',
+        approved: true,
+      ),
+      RefinedOverride(
+        'song-debut-p6',
+        (f) =>
+            'New arrival alert: ${f.subject} makes its debut at #${f.rank} on '
+            '${f.chart}.',
+        approved: true,
+      ),
+      RefinedOverride(
+        'release-debut-p3',
+        (f) =>
+            'Straight onto the chart: ${f.subject} enters at #${f.rank} with '
+            '${f.streamsText}.',
+        approved: true,
+      ),
     ],
-    exclusions: [],
+    exclusions: [
+      // Contract §6.4 (Batch 2): lines that name the song by its primary
+      // artist alone, which would leave a featured guest out.
+      RefinedExclusion('song-debut-1-p4', when: _hasGuest, approved: true),
+      RefinedExclusion('song-debut-10-p6', when: _hasGuest, approved: true),
+      RefinedExclusion('song-debut-p2', when: _hasGuest, approved: true),
+      RefinedExclusion('song-bu-debut-p2', when: _hasGuest, approved: true),
+      RefinedExclusion('song-bu-debut-p5', when: _hasGuest, approved: true),
+      RefinedExclusion('song-break-d5', when: _hasGuest, approved: true),
+      RefinedExclusion('song-peak-p2', when: _hasGuest, approved: true),
+      RefinedExclusion('song-repeak-d5', when: _hasGuest, approved: true),
+      RefinedExclusion('song-climb-d5', when: _hasGuest, approved: true),
+      RefinedExclusion('song-gainer-d5', when: _hasGuest, approved: true),
+      RefinedExclusion('song-reentry-d5', when: _hasGuest, approved: true),
+      RefinedExclusion('song-streams-d4', when: _hasGuest, approved: true),
+      RefinedExclusion('song-streams-p6', when: _hasGuest, approved: true),
+      RefinedExclusion('artist-top10-d5', when: _hasGuest, approved: true),
+      // P-051 (Batch 2): "<artist> cracks the Sonus Hot 100" reads as the
+      // artist's first entry. A refined career story is told this way only
+      // when the artist already had one (an artist's first entry gets its
+      // own story), and weekly stories can't verify it, so refined stories
+      // never use it.
+      RefinedExclusion('song-break-p4', approved: true),
+    ],
     additions: [],
   );
 
@@ -121,3 +254,5 @@ class RefinedHeadlineCatalog {
     ];
   }
 }
+
+bool _hasGuest(MomentFacts f) => f.featured != null;
