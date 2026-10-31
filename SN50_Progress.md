@@ -923,6 +923,20 @@ Authority: your round 14 instructions (do the code-only functional items, prepar
 - **Device QA:** `SN50_Android_Device_QA_Checklist.md` (new): backup first, DB v41 upgrade, playback, Repeat One, exact shuffle order, Clear queue, SAF/Import Review, media notification, Android Auto. Nothing in it has been run.
 - **Not done (needs your wording approval):** #26 paused-sync wording and #27 the remaining Import Review strings. No string was changed.
 
+## Round 15 (2026-10-31): approved UI wording (#26, #27, round 14 Sync strings)
+
+| Commit | Change | Full suite |
+|---|---|---|
+| `8b9d670` | Approved copy W1–W26; W15 shown only for a verified missing file | **5,228 passed, 0 failed, exit code 0** |
+
+- **Approved 2026-10-31:** W1–W14, W16–W24 and W26 as recommended; W15 and W25 with your replacement text. W2, W4, W5, W7, W9, W10, W17–W20 and W23 were "keep" (unchanged).
+- **#26 paused sync:** W1 new `cloudNotReady` message; W3 the paused button reads "Try again", like other sync errors.
+- **#27 Import Review:** W6, W8, W11–W16 reworded; W21 Imports card "1 item needs review" / "N items need review"; W22 new card explanation covering songs and pending files.
+- **Round 14 Sync tool:** W24 hint, W25 dialog body (your text), W26 failure message.
+- **W15 eligibility (behaviour change):** "This file could not be found…" and removal from the list now happen only when absence is verified: the probe answers missing, or the read fails with `ImportFileMissing`. Unreadable tags (including entries saved before round 10 §4) and an empty re-read now keep the entry with the approved "Could not check this file. It stays in this list. Try again." Round 10 retired tag-unreadable entries; that is replaced by your W15 rule. Permission loss keeps its entry and message, unchanged.
+- Tests: singular/plural Imports titles, the W1 and W25 texts, the W15 message, and service tests for verified missing (removed) vs. unreadable tags, an empty re-read and an unexplained failure (kept).
+- Not changed (outside the approved list): the Import Review page header "N songs need review" and the Library settings summary "N songs need review.". Both count songs only.
+
 ## BLOCKED_NEEDS_APPROVAL / user decisions
 
 **[Round 14]** #3 is fixed (`5e4ec13`), #4 has the decided manual re-send (`2926496`), #5 was already done, #6 and #8 are decided (#6 in `6f719d5`). Device QA checklist: `SN50_Android_Device_QA_Checklist.md`.
@@ -969,8 +983,8 @@ Authority: your round 14 instructions (do the code-only functional items, prepar
 23. ~~**Sync cooperative cancellation**~~ **Done in `48c2714` (round 8).** A distinct permanent-failure state (Session I) is still open. (round 6): the design proposal in Round 7 (refines Round 6 Batch C), so a hung run can be replaced without a restart; plus a permanent-failure state (Session I).
 24. ~~**Shuffle order persistence**~~ **Done as option C in `207e65d` (round 9).** Device check of system-control order still pending. (round 6 reconciliation): the shuffle permutation is never saved, and shuffle/repeat survive a restart only with "Remember". Keep, or persist by default?
 25. ~~**Chart-jump copy and thresholds**~~ **Approved and implemented in `ae0fd05` (round 10)**, refined rules only. (round 9): `SN50_Chart_Jump_Editorial_Approval_Sheet.md` CJ-001 to CJ-041 and its §D decisions.
-26. **Paused-sync wording** (round 9): the `cloudNotReady` message and the "Sync paused" and "Retry" labels.
-27. **Import Review wording and SAF existence check** (round 9 D, open points 1–3).
+26. ~~**Paused-sync wording**~~ **[Round 15] Approved and done in `8b9d670`.** (round 9): the `cloudNotReady` message and the "Sync paused" and "Retry" labels.
+27. **Import Review wording and SAF existence check** (round 9 D, open points 1–3). **[Round 15] Wording approved and done in `8b9d670`; only the SAF device check (M-6) remains.**
     - **[Round 10]** SAF existence check done in `49c6188`; its two new messages are approved. Still open: the rest of the Import Review wording (round 9 D point 1, `SN50_Round9_Editorial_and_Release_Safety_Review.md` §5: 17 strings and the Imports "N songs need review" count), and the device check of real SAF behaviour (M-6).
 28. ~~**R-V: versioned refined headline catalogs**~~ **[Round 13] Implemented in `c758884`** (**5,218 passed, 0 failed, 0 skipped, exit code 0**); the flag stays off. (2026-10-30, A-0 follow-up): required before `SONUS_MOMENTS_REFINED_APPROVED` is ever enabled, so refined stories already shown keep their headlines when the catalog grows. A-0 (whether any build ever ran refined rules) is INCONCLUSIVE; see `SN50_A0_Build_History_and_Historical_Rendering_Verification.md` and its addendum, including the date-gated builds of 2026-10-29 02:09–16:25 EDT that activate on 2026-11-01 00:00 UTC.
 29. **Fall and exit presentation (round 12):** confirm the badges "FALL" and "HOT 100 EXIT" and the "Peaks and climbs" filter category for `songBubblingUnderFall` and `songHot100Exit` (`b80b68c`), or choose others.

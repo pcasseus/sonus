@@ -36,7 +36,8 @@ Branch `sn-50-final-refinement`, worktree `C:\dev\sonus\sonus_next_sn50`. Base `
 | `c758884` (round 13: R-V versioned refined catalogs) | No issues | **5,218 passed, 0 failed, 0 skipped, exit code 0** (about 7 min 12 s, no standby) |
 | `5e4ec13` (round 14: signed-out primary edition delete, #3) | No issues | 5,221 passed, 0 failed, exit code 0 |
 | `6f719d5` (round 14: A-Q12 edition cover first) | No issues | 5,223 passed, 0 failed, exit code 0 |
-| `2926496` (round 14: re-send edition placements, #4); latest code | No issues | **5,228 passed, 0 failed, exit code 0 (7 min 7 s)** |
+| `2926496` (round 14: re-send edition placements, #4) | No issues | **5,228 passed, 0 failed, exit code 0 (7 min 7 s)** |
+| `8b9d670` (round 15: approved UI wording); latest code | No issues | **5,228 passed, 0 failed, exit code 0** |
 
 The round 6 skip pinned the duplicate-restore gap; `ec59045` fixes it and the test runs again, so nothing is skipped.
 
@@ -210,5 +211,7 @@ These are spec-driven, not bugs, but the user will notice them:
 - ~~**Shuffle order persistence** (BLOCKED #24): known, not changed.~~ *Stale: done in `207e65d` (round 9); only its device check is pending.* The duplicate-song restore start (#22) is fixed in `ec59045`.
 
 - **Round 14:** the signed-out edition guard, the A-Q12 order and the placement re-send are verified by SQLite and widget tests only. Whether a real cloud copy then keeps the re-sent placements needs a real sync (gated). The new Sync strings are not editorially reviewed. Device QA steps are in `SN50_Android_Device_QA_Checklist.md`; none has been run.
+
+- **Round 15 (`8b9d670`):** approved wording W1–W26 is in place, verified by widget and service tests (5,228 passed, 0 failed, exit code 0). The missing-file message and its removal now apply only to verified absence; unreadable tags keep the entry.
 
 **Production is not complete:** release signing, `versionCode`, Supabase migrations and device QA are still release blockers, as in the audit (Part I §9).
