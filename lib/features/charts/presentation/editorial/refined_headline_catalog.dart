@@ -483,6 +483,19 @@ class RefinedHeadlineCatalog {
             '${f.title} reaches the Top ${f.threshold} for the first time, at #${f.rank}!',
         approved: true,
       ),
+      // Batch 7 (contract §6.2): songSelfReplacement, releaseSelfReplacement.
+      RefinedOverride(
+        'release-self-1-d1',
+        (f) =>
+            '${f.careerArtist} replaces ${f.rivalWork} with the ${f.releaseWord} ${f.title} at #1 on ${f.scopedChart}.',
+        approved: true,
+      ),
+      RefinedOverride(
+        'release-self-1-p1',
+        (f) =>
+            '${f.careerArtist} follows one #1 release with another: the ${f.releaseWord} ${f.title} replaces ${f.rivalWork}.',
+        approved: true,
+      ),
     ],
     exclusions: [
       // Contract §6.4 (Batch 2): lines that name the song by its primary
@@ -522,6 +535,205 @@ class RefinedHeadlineCatalog {
       ),
     ],
     additions: [
+      // Batch 7 (contract §6.2): songSelfReplacement, releaseSelfReplacement.
+      RefinedAddition(
+        MomentFamily.songSelfReplacement,
+        HeadlineVariant(
+          'song-self-1-d3',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              '${f.careerArtist} holds #1 on ${f.scopedChart} as ${f.work} succeeds ${f.rivalWork}.',
+          requires: const {MomentFact.rival},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.songSelfReplacement,
+        HeadlineVariant(
+          'song-self-1-d4',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              '${f.work} replaces ${f.rivalWork} at #1 on ${f.scopedChart}; both songs are by ${f.careerArtist}.',
+          requires: const {MomentFact.rival},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.songSelfReplacement,
+        HeadlineVariant(
+          'song-self-1-d5',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              '${f.careerArtist} has a new #1 on ${f.scopedChart}: ${f.work} takes over from ${f.rivalWork}.',
+          requires: const {MomentFact.rival},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.songSelfReplacement,
+        HeadlineVariant(
+          'song-self-1-d6',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              '#1 on ${f.scopedChart} stays with ${f.careerArtist}, as ${f.work} replaces ${f.rivalWork}.',
+          requires: const {MomentFact.rival},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.songSelfReplacement,
+        HeadlineVariant(
+          'song-self-1-p3',
+          MomentPublisher.pulsePop,
+          (f) =>
+              '#1 swap, same artist: ${f.work} takes over from ${f.rivalWork} for ${f.careerArtist}.',
+          requires: const {MomentFact.rival},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.songSelfReplacement,
+        HeadlineVariant(
+          'song-self-1-p4',
+          MomentPublisher.pulsePop,
+          (f) =>
+              '${f.work} bumps ${f.rivalWork} from #1, and ${f.careerArtist} keeps the top spot!',
+          requires: const {MomentFact.rival},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.songSelfReplacement,
+        HeadlineVariant(
+          'song-self-1-p5',
+          MomentPublisher.pulsePop,
+          (f) =>
+              'Still #1, new song: ${f.careerArtist} trades ${f.rivalWork} for ${f.work} at the top.',
+          requires: const {MomentFact.rival},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.songSelfReplacement,
+        HeadlineVariant(
+          'song-self-1-p6',
+          MomentPublisher.pulsePop,
+          (f) =>
+              'One ${f.careerArtist} #1 makes way for another: ${f.work} succeeds ${f.rivalWork}.',
+          requires: const {MomentFact.rival},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.releaseSelfReplacement,
+        HeadlineVariant(
+          'release-self-1-d2',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              'The ${f.releaseWord} ${f.title} succeeds ${f.rivalWork} at #1 on ${f.scopedChart}, keeping the top spot with ${f.careerArtist}.',
+          requires: const {MomentFact.rival},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.releaseSelfReplacement,
+        HeadlineVariant(
+          'release-self-1-d3',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              'The top of ${f.scopedChart} changes hands within ${MomentFacts.possessive(f.careerArtist)} catalog: ${f.title} is the new #1.',
+          requires: const {MomentFact.rival},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.releaseSelfReplacement,
+        HeadlineVariant(
+          'release-self-1-d4',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              'On ${f.scopedChart}, ${f.title} takes over at #1 from ${f.rivalWork}, another release by ${f.careerArtist}.',
+          requires: const {MomentFact.rival},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.releaseSelfReplacement,
+        HeadlineVariant(
+          'release-self-1-d5',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              '${f.title} is ${MomentFacts.possessive(f.careerArtist)} new #1 ${f.releaseWord} on ${f.scopedChart}, replacing ${f.rivalWork}.',
+          requires: const {MomentFact.rival},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.releaseSelfReplacement,
+        HeadlineVariant(
+          'release-self-1-d6',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              'With the ${f.releaseWord} ${f.title}, ${f.careerArtist} follows ${f.rivalWork} at #1 on ${f.scopedChart}.',
+          requires: const {MomentFact.rival},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.releaseSelfReplacement,
+        HeadlineVariant(
+          'release-self-1-p2',
+          MomentPublisher.pulsePop,
+          (f) =>
+              'New ${f.releaseWord}, same #1 artist: ${f.title} replaces ${f.rivalWork} for ${f.careerArtist}!',
+          requires: const {MomentFact.rival},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.releaseSelfReplacement,
+        HeadlineVariant(
+          'release-self-1-p3',
+          MomentPublisher.pulsePop,
+          (f) =>
+              '${f.title} unseats ${f.rivalWork} at #1, and the top spot stays in ${MomentFacts.possessive(f.careerArtist)} hands!',
+          requires: const {MomentFact.rival},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.releaseSelfReplacement,
+        HeadlineVariant(
+          'release-self-1-p4',
+          MomentPublisher.pulsePop,
+          (f) =>
+              'Catalog takeover: ${f.careerArtist} swaps one #1 for another with the ${f.releaseWord} ${f.title}.',
+          requires: const {MomentFact.rival},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.releaseSelfReplacement,
+        HeadlineVariant(
+          'release-self-1-p5',
+          MomentPublisher.pulsePop,
+          (f) =>
+              '${f.careerArtist} still rules #1! The ${f.releaseWord} ${f.title} replaces ${f.rivalWork}.',
+          requires: const {MomentFact.rival},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.releaseSelfReplacement,
+        HeadlineVariant(
+          'release-self-1-p6',
+          MomentPublisher.pulsePop,
+          (f) =>
+              'The #1 ${f.releaseWord} is new, the artist isn\'t: ${f.title} by ${f.careerArtist} replaces ${f.rivalWork}.',
+          requires: const {MomentFact.rival},
+        ),
+        approved: true,
+      ),
       // Batch 6 (contract §6.2): songFirstThreshold, releaseFirstThreshold.
       RefinedAddition(
         MomentFamily.songFirstThreshold,

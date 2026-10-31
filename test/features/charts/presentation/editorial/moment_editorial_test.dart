@@ -167,10 +167,8 @@ const sn50Families = {
 /// The SN-50 draft families still held by the approved-family guard; each
 /// editorial batch that approves a family removes it here.
 const stillDraftFamilies = {
-  MomentFamily.songSelfReplacement,
   MomentFamily.songThresholds,
   MomentFamily.artistRepeatNumberOne,
-  MomentFamily.releaseSelfReplacement,
   MomentFamily.releaseThresholds,
   MomentFamily.artistRepeatNumberOneRelease,
   MomentFamily.artistSimultaneousReleases,

@@ -370,10 +370,8 @@ const _nineDrafts = {
 /// Those still held; each editorial batch that approves a family removes
 /// it here (Batch 6: the first-zone families).
 const _stillDraft = {
-  MomentFamily.songSelfReplacement,
   MomentFamily.songThresholds,
   MomentFamily.artistRepeatNumberOne,
-  MomentFamily.releaseSelfReplacement,
   MomentFamily.releaseThresholds,
   MomentFamily.artistRepeatNumberOneRelease,
   MomentFamily.artistSimultaneousReleases,
@@ -504,6 +502,30 @@ void main() {
           if (_stillDraft.contains(family)) family,
       },
     );
+  }
+
+  /// The one planned story matching [matches], told or held: its family,
+  /// facts and id. A family still in [_stillDraft] is held, never told.
+  Future<(MomentFamily, MomentFacts, String)> plannedOne(
+    bool Function(ChartMomentFeedItem story, MomentFamily family) matches,
+  ) async {
+    final told = [
+      for (final story in await stories())
+        if (matches(story.item, story.family)) story,
+    ];
+    final heldOnes = [
+      for (final gated in await held())
+        if (matches(gated.story!, gated.family!)) gated,
+    ];
+    expect(told.length + heldOnes.length, 1);
+    if (told.isNotEmpty) {
+      final story = told.single;
+      expect(_stillDraft, isNot(contains(story.family)));
+      return (story.family, story.facts, story.id);
+    }
+    final gated = heldOnes.single;
+    expect(_stillDraft, contains(gated.family));
+    return (gated.family!, heldFacts(gated), gated.id);
   }
 
   /// The facts of each planned story, told or held.
@@ -755,25 +777,16 @@ void main() {
     expect(dethroning.facts.rivalArtist, 'Juno Park');
 
     // The artist's own replacement is no dethroning: it is planned as a
-    // self-replacement, which stays held until its lines are approved.
+    // self-replacement (told since Batch 7).
     final fifth = _refined.weeksFromUtc.add(const Duration(days: 35));
-    expect(
-      all.where(
-        (story) =>
-            story.item.entity.entityId == _p2.entityId &&
-            story.family.isNumberOne &&
-            story.item.weekStartUtc == fifth,
-      ),
-      isEmpty,
+    final (family, facts, _) = await plannedOne(
+      (story, family) =>
+          story.entity.entityId == _p2.entityId &&
+          story.weekStartUtc == fifth &&
+          family.isNumberOne,
     );
-    final self = (await held()).singleWhere(
-      (gated) =>
-          gated.story!.entity.entityId == _p2.entityId &&
-          gated.story!.weekStartUtc == fifth &&
-          gated.family!.isNumberOne,
-    );
-    expect(self.family, MomentFamily.songSelfReplacement);
-    expect(heldFacts(self).rivalTitle, _p.title);
+    expect(family, MomentFamily.songSelfReplacement);
+    expect(facts.rivalTitle, _p.title);
   });
 
   test('a weekly repeat #1 counts the stored weeks and names the weekly '
@@ -1118,20 +1131,13 @@ void main() {
       required String replaced,
       required bool weekly,
     }) async {
-      final self = (await held()).singleWhere(
-        (gated) => matches(gated.story!) && gated.family!.isNumberOne,
+      final (planned, facts, _) = await plannedOne(
+        (story, planned) => matches(story) && planned.isNumberOne,
       );
-      expect(self.family, family);
-      final facts = heldFacts(self);
+      expect(planned, family);
       expect(facts.weekly, weekly);
       // Only the artist's own previous #1 is named, never a rival.
       expect(facts.rivalTitle, replaced);
-      expect(
-        (await stories()).where(
-          (story) => matches(story.item) && story.family.isNumberOne,
-        ),
-        isEmpty,
-      );
     }
 
     test('SN-50 reconciliation: an all-time song replacing its own '
