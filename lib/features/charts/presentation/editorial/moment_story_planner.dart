@@ -171,7 +171,10 @@ class MomentStoryPlanner {
 
   /// Hot 100 arrival headlines that state last week's rank without saying
   /// it was a Bubbling Under rank, so they read as a Hot 100 climb (E-Q1).
-  static const Set<String> misleadingArrivalVariants = {'song-break-p3'};
+  ///
+  /// Empty since Batch 4: refined stories tell `song-break-p3` with its
+  /// BU-001 wording, which names the Bubbling Under rank.
+  static const Set<String> misleadingArrivalVariants = {};
 
   List<PlannedMoment> plan(ChartMomentFeedItem item) {
     if (item.scope == ChartMomentScope.live) return const [];

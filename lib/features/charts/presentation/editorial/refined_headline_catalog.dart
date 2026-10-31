@@ -1,6 +1,9 @@
+import '../../domain/models/chart_type.dart';
+import '../../domain/services/chart_ranking_engine.dart';
 import 'moment_facts.dart';
 import 'moment_family.dart';
 import 'moment_headlines.dart';
+import 'moment_publisher.dart';
 
 /// A refined-only rewording of a catalog headline (SN-50 editorial contract
 /// §5). The line keeps its id and its place in the family; only stories told
@@ -11,11 +14,16 @@ class RefinedOverride {
     this.id,
     this.build, {
     this.requires,
+    this.when,
     required this.approved,
   });
 
   final String id;
   final String Function(MomentFacts f) build;
+
+  /// Applies only to stories where this holds (always when null);
+  /// otherwise the line keeps its catalog text.
+  final bool Function(MomentFacts f)? when;
 
   /// The facts the new text needs; the legacy line's when null.
   final Set<MomentFact>? requires;
@@ -37,10 +45,18 @@ class RefinedExclusion {
 /// A headline only refined stories can use, placed after the family's
 /// catalog lines.
 class RefinedAddition {
-  const RefinedAddition(this.family, this.variant, {required this.approved});
+  const RefinedAddition(
+    this.family,
+    this.variant, {
+    this.when,
+    required this.approved,
+  });
 
   final MomentFamily family;
   final HeadlineVariant variant;
+
+  /// Offered only to stories where this holds (always when null).
+  final bool Function(MomentFacts f)? when;
   final bool approved;
 }
 
@@ -422,6 +438,25 @@ class RefinedHeadlineCatalog {
             'weeks to #${f.rank}.',
         approved: true,
       ),
+      // BU-001, BU-002 (Batch 4): a first Hot 100 entry from Bubbling Under
+      // names both charts and never reads as a Hot 100 climb.
+      RefinedOverride(
+        'song-break-p3',
+        (f) =>
+            'Previously #${f.previousRank} on Sonus Bubbling Under, '
+            '${f.work} enters the Sonus Hot 100 at #${f.rank}.',
+        when: _fromBubblingUnder,
+        approved: true,
+      ),
+      RefinedOverride(
+        'song-break-d2',
+        (f) =>
+            '${f.subject} enters the Sonus Hot 100 at #${f.rank}, from '
+            '#${f.previousRank} on Sonus Bubbling Under in the preceding '
+            'chart week.',
+        when: _weeklyFromBubblingUnder,
+        approved: true,
+      ),
     ],
     exclusions: [
       // Contract §6.4 (Batch 2): lines that name the song by its primary
@@ -446,8 +481,104 @@ class RefinedHeadlineCatalog {
       // own story), and weekly stories can't verify it, so refined stories
       // never use it.
       RefinedExclusion('song-break-p4', approved: true),
+      // Batch 4: the catalog wording of song-break-p3 ("jumps from") and
+      // song-break-d2 ("climbs from") never reaches a refined story that
+      // BU-001 or BU-002 does not cover.
+      RefinedExclusion(
+        'song-break-p3',
+        when: _notFromBubblingUnder,
+        approved: true,
+      ),
+      RefinedExclusion(
+        'song-break-d2',
+        when: _notWeeklyFromBubblingUnder,
+        approved: true,
+      ),
     ],
-    additions: [],
+    additions: [
+      // BU-010 to BU-015 (Batch 4). "The week before" lines are weekly only.
+      RefinedAddition(
+        MomentFamily.songHot100Breakthrough,
+        HeadlineVariant(
+          'song-break-d7',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              '${f.subject} enters the Sonus Hot 100 at #${f.rank}; the week '
+              'before, it was #${f.previousRank} on Sonus Bubbling Under.',
+          requires: const {MomentFact.rank, MomentFact.previousRank},
+        ),
+        when: _weeklyFromBubblingUnder,
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.songHot100Breakthrough,
+        HeadlineVariant(
+          'song-break-d8',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              'After #${f.previousRank} on Sonus Bubbling Under, ${f.subject} '
+              'makes its Sonus Hot 100 debut at #${f.rank}.',
+          requires: const {MomentFact.rank, MomentFact.previousRank},
+        ),
+        when: _fromBubblingUnder,
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.songHot100Breakthrough,
+        HeadlineVariant(
+          'song-break-d9',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              '${f.subject} debuts on the Sonus Hot 100 at #${f.rank}, having '
+              'been #${f.previousRank} on Sonus Bubbling Under the week '
+              'before.',
+          requires: const {MomentFact.rank, MomentFact.previousRank},
+        ),
+        when: _weeklyFromBubblingUnder,
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.songHot100Breakthrough,
+        HeadlineVariant(
+          'song-break-p7',
+          MomentPublisher.pulsePop,
+          (f) =>
+              'New to the Sonus Hot 100: ${f.work} arrives at #${f.rank}, '
+              'after #${f.previousRank} on Sonus Bubbling Under the week '
+              'before.',
+          requires: const {MomentFact.rank, MomentFact.previousRank},
+        ),
+        when: _weeklyFromBubblingUnder,
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.songHot100Breakthrough,
+        HeadlineVariant(
+          'song-break-p8',
+          MomentPublisher.pulsePop,
+          (f) =>
+              'From #${f.previousRank} on Sonus Bubbling Under to a Sonus Hot '
+              '100 debut at #${f.rank}: ${f.subject} is in.',
+          requires: const {MomentFact.rank, MomentFact.previousRank},
+        ),
+        when: _fromBubblingUnder,
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.songHot100Breakthrough,
+        HeadlineVariant(
+          'song-break-p9',
+          MomentPublisher.pulsePop,
+          (f) =>
+              'Hot 100 debut! ${f.work} arrives on the Sonus Hot 100 at '
+              '#${f.rank}, having been #${f.previousRank} on Sonus Bubbling '
+              'Under the week before.',
+          requires: const {MomentFact.rank, MomentFact.previousRank},
+        ),
+        when: _weeklyFromBubblingUnder,
+        approved: true,
+      ),
+    ],
   );
 
   final List<RefinedOverride> overrides;
@@ -457,7 +588,8 @@ class RefinedHeadlineCatalog {
   List<HeadlineVariant> of(MomentFamily family, MomentFacts facts) {
     final reworded = {
       for (final override in overrides)
-        if (override.approved) override.id: override,
+        if (override.approved && (override.when?.call(facts) ?? true))
+          override.id: override,
     };
     bool excluded(String id) => exclusions.any(
       (exclusion) =>
@@ -479,9 +611,27 @@ class RefinedHeadlineCatalog {
             ),
           },
       for (final addition in additions)
-        if (addition.approved && addition.family == family) addition.variant,
+        if (addition.approved &&
+            addition.family == family &&
+            (addition.when?.call(facts) ?? true))
+          addition.variant,
     ];
   }
 }
 
 bool _hasGuest(MomentFacts f) => f.featured != null;
+
+/// A Hot 100 arrival whose previous rank is a Bubbling Under position.
+bool _fromBubblingUnder(MomentFacts f) =>
+    f.chartType == ChartType.songs &&
+    (f.rank ?? 101) <= ChartRankingEngine.officialChartLimit &&
+    (f.previousRank ?? 0) > ChartRankingEngine.officialChartLimit;
+
+/// [_fromBubblingUnder] on the weekly chart, where the previous rank is the
+/// preceding finalized week's.
+bool _weeklyFromBubblingUnder(MomentFacts f) =>
+    f.weekly && _fromBubblingUnder(f);
+
+bool _notFromBubblingUnder(MomentFacts f) => !_fromBubblingUnder(f);
+
+bool _notWeeklyFromBubblingUnder(MomentFacts f) => !_weeklyFromBubblingUnder(f);
