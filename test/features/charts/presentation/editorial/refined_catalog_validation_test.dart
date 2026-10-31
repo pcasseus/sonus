@@ -80,35 +80,38 @@ void main() {
       'for now',
       'null',
     ];
-    for (final family in MomentHeadlines.approvedFamilies) {
-      for (final weekly in [true, if (!_weeklyOnly.contains(family)) false]) {
-        final facts = _facts(family, weekly: weekly);
-        final lines = [
-          for (final v in RefinedHeadlineCatalog.standard.of(family, facts))
-            if (v.fits(facts)) v,
-        ];
-        for (final publisher in MomentPublisher.values) {
-          final texts = {
-            for (final v in lines)
-              if (v.publisher == publisher) v.build(facts),
-          };
-          expect(
-            texts.length,
-            greaterThanOrEqualTo(6),
-            reason: '${family.name} weekly:$weekly ${publisher.name}',
-          );
-        }
-        final ids = <String>{};
-        for (final v in lines) {
-          expect(ids.add(v.id), isTrue, reason: 'duplicate ${v.id}');
-          final text = v.build(facts);
-          for (final word in banned) {
-            expect(text.toLowerCase(), isNot(contains(word)), reason: v.id);
+    // Every catalog version this build carries (SN-50 R-V).
+    for (final catalog in RefinedHeadlineCatalog.versions.values) {
+      for (final family in MomentHeadlines.approvedFamilies) {
+        for (final weekly in [true, if (!_weeklyOnly.contains(family)) false]) {
+          final facts = _facts(family, weekly: weekly);
+          final lines = [
+            for (final v in catalog.of(family, facts))
+              if (v.fits(facts)) v,
+          ];
+          for (final publisher in MomentPublisher.values) {
+            final texts = {
+              for (final v in lines)
+                if (v.publisher == publisher) v.build(facts),
+            };
+            expect(
+              texts.length,
+              greaterThanOrEqualTo(6),
+              reason: '${family.name} weekly:$weekly ${publisher.name}',
+            );
           }
-          expect(text, isNot(contains('  ')), reason: v.id);
-          expect(text, matches(RegExp(r'[.!]$')), reason: v.id);
-          if (family.isNumberOne) {
-            expect(text, contains('#1'), reason: v.id);
+          final ids = <String>{};
+          for (final v in lines) {
+            expect(ids.add(v.id), isTrue, reason: 'duplicate ${v.id}');
+            final text = v.build(facts);
+            for (final word in banned) {
+              expect(text.toLowerCase(), isNot(contains(word)), reason: v.id);
+            }
+            expect(text, isNot(contains('  ')), reason: v.id);
+            expect(text, matches(RegExp(r'[.!]$')), reason: v.id);
+            if (family.isNumberOne) {
+              expect(text, contains('#1'), reason: v.id);
+            }
           }
         }
       }

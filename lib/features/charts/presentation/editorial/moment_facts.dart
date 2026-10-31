@@ -127,6 +127,7 @@ class MomentFacts {
     this.consecutive = false,
     this.count,
     this.refined = false,
+    this.catalogVersion,
     this.thresholds = const [],
     this.jump,
   });
@@ -186,6 +187,11 @@ class MomentFacts {
 
   /// Told under the SN-50 rules (see ChartMomentRules).
   final bool refined;
+
+  /// The refined catalog version the story is told with (SN-50 R-V); null
+  /// under the earlier rules. Wording that changes in a later version
+  /// branches on it, so earlier stories keep their words.
+  final int? catalogVersion;
 
   /// A chart jump's verified movement and stream facts (SN-50).
   final ChartJumpFacts? jump;
@@ -415,6 +421,7 @@ class MomentFacts {
     ChartMomentFeedItem item,
     MomentLookups lookups, {
     bool refined = false,
+    int? catalogVersion,
     ChartJumpFacts? jump,
   }) {
     final dominant = item.events.firstWhere(
@@ -496,6 +503,7 @@ class MomentFacts {
       newTopArtist: topArtist?.entity.title,
       passedTopArtist: topArtist?.relatedEntity?.title,
       refined: refined,
+      catalogVersion: catalogVersion,
       jump: jump,
       thresholds: refined ? _firstThresholds(item) : const [],
     );

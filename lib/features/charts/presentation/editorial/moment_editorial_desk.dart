@@ -81,6 +81,7 @@ class MomentEditorialDesk {
     this.rules = ChartMomentRules.legacy,
     this.minorStoriesPerDay = 3,
     this.refinedCatalog,
+    this.refinedCatalogs,
   });
 
   final MomentLookups lookups;
@@ -93,6 +94,10 @@ class MomentEditorialDesk {
   /// [RefinedHeadlineCatalog.standard] when null. Stories under the earlier
   /// rules always use [MomentHeadlines.legacyOf].
   final RefinedHeadlineCatalog? refinedCatalog;
+
+  /// Refined catalogs by version, in place of
+  /// [RefinedHeadlineCatalog.versions] (tests).
+  final Map<int, RefinedHeadlineCatalog>? refinedCatalogs;
 
   /// The weekly chart's largest climb worth a story.
   static const int biggestGainerMinimumPlaces = 10;
@@ -112,11 +117,17 @@ class MomentEditorialDesk {
     String? previousVariant;
 
     for (final item in chronological) {
-      final refined = rules.appliesTo(
+      // SN-50 R-V: the refined catalog version the story was first told
+      // with on this install; null under the earlier rules.
+      final catalogVersion = rules.catalogVersionFor(
         scope: item.scope,
         occurredAt: item.occurredAt,
         weekStartUtc: item.weekStartUtc,
       );
+      final refined = catalogVersion != null;
+      // A refined story whose catalog this build lacks is held rather than
+      // re-told with other words.
+      if (refined && _catalogFor(catalogVersion) == null) continue;
       final planned = refined ? planner.plan(item) : _legacyPlan(item, gainers);
 
       for (final moment in planned) {
@@ -129,6 +140,7 @@ class MomentEditorialDesk {
           moment.item,
           lookups,
           refined: refined,
+          catalogVersion: catalogVersion,
           jump: moment.jump,
         );
         if (!moment.mandatory &&
@@ -186,6 +198,12 @@ class MomentEditorialDesk {
     ];
   }
 
+  /// The refined catalog for [version]; null when this build lacks it.
+  RefinedHeadlineCatalog? _catalogFor(int version) =>
+      refinedCatalogs?[version] ??
+      refinedCatalog ??
+      RefinedHeadlineCatalog.forVersion(version);
+
   /// Before the SN-50 rules: one story per group, as first published.
   static List<PlannedMoment> _legacyPlan(
     ChartMomentFeedItem item,
@@ -208,10 +226,7 @@ class MomentEditorialDesk {
     final variants = [
       for (final variant
           in facts.refined
-              ? (refinedCatalog ?? RefinedHeadlineCatalog.standard).of(
-                  family,
-                  facts,
-                )
+              ? _catalogFor(facts.catalogVersion!)!.of(family, facts)
               : MomentHeadlines.legacyOf(family))
         if (!excluded.contains(variant.id)) variant,
     ];

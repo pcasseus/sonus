@@ -125,4 +125,20 @@ class _Store implements MomentRulesActivationStore {
     writes++;
     if (!dropWrites) value = activatedAtUtc;
   }
+
+  /// Refined catalog starts by version (SN-50 R-V).
+  final catalogStarts = <int, String>{};
+
+  @override
+  Future<String?> readCatalogStart(int version) async {
+    final failure = this.failure;
+    if (failure != null) throw failure;
+    return catalogStarts[version];
+  }
+
+  @override
+  Future<void> writeCatalogStart(int version, String fromUtc) async {
+    writes++;
+    if (!dropWrites) catalogStarts[version] = fromUtc;
+  }
 }

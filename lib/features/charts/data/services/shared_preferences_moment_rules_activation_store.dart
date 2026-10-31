@@ -17,6 +17,10 @@ class SharedPreferencesMomentRulesActivationStore
 
   static const String key = 'charts.moments.rules_activated_utc';
 
+  /// Where refined catalog [version] (2 or later) started (SN-50 R-V).
+  static String catalogStartKey(int version) =>
+      'charts.moments.refined_catalog_v${version}_from_utc';
+
   SharedPreferencesAsync? _preferences;
 
   SharedPreferencesAsync get _platform =>
@@ -28,4 +32,12 @@ class SharedPreferencesMomentRulesActivationStore
   @override
   Future<void> write(String activatedAtUtc) =>
       _platform.setString(key, activatedAtUtc);
+
+  @override
+  Future<String?> readCatalogStart(int version) =>
+      _platform.getString(catalogStartKey(version));
+
+  @override
+  Future<void> writeCatalogStart(int version, String fromUtc) =>
+      _platform.setString(catalogStartKey(version), fromUtc);
 }

@@ -74,8 +74,17 @@ class RefinedHeadlineCatalog {
     this.additions = const [],
   });
 
-  /// The app's refined changes. Each entry needs its own editorial
-  /// approval (SN50_Final_Editorial_Approval_and_Implementation_Contract.md).
+  /// The refined catalog for each version (SN-50 R-V). Version 1 is
+  /// [standard]. A released version never changes: later wording goes into
+  /// a new version, added here with ChartMomentRules.currentCatalogVersion
+  /// raised, so stories told with an earlier version keep their words.
+  static final Map<int, RefinedHeadlineCatalog> versions = {1: standard};
+
+  /// The catalog for [version]; null when this build lacks it.
+  static RefinedHeadlineCatalog? forVersion(int version) => versions[version];
+
+  /// Catalog version 1. Each entry needs its own editorial approval
+  /// (SN50_Final_Editorial_Approval_and_Implementation_Contract.md).
   static final RefinedHeadlineCatalog standard = RefinedHeadlineCatalog(
     overrides: [
       // P-007 to P-009 (Batch 1): finished weeks are never "this week".

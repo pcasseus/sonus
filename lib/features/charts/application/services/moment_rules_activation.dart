@@ -12,6 +12,12 @@ abstract interface class MomentRulesActivationStore {
   Future<String?> read();
 
   Future<void> write(String activatedAtUtc);
+
+  /// Where refined catalog [version] (2 or later) started on this install;
+  /// null until a build carrying it has recorded one (SN-50 R-V).
+  Future<String?> readCatalogStart(int version);
+
+  Future<void> writeCatalogStart(int version, String fromUtc);
 }
 
 /// Decides which Moments rules this run uses (SN-50 R2).
@@ -32,9 +38,11 @@ class MomentRulesActivation {
   MomentRulesActivation({
     required MomentRulesActivationStore store,
     bool approved = buildApproved,
+    int catalogVersion = ChartMomentRules.currentCatalogVersion,
     MomentRulesActivationNow? now,
   }) : _store = store,
        _approved = approved,
+       _catalogVersion = catalogVersion,
        _now = now ?? DateTime.now;
 
   static const bool buildApproved = bool.fromEnvironment(
@@ -43,6 +51,9 @@ class MomentRulesActivation {
 
   final MomentRulesActivationStore _store;
   final bool _approved;
+
+  /// The newest refined catalog version this build carries.
+  final int _catalogVersion;
   final MomentRulesActivationNow _now;
 
   Future<ChartMomentRules>? _resolved;
@@ -60,15 +71,19 @@ class MomentRulesActivation {
 
   Future<ChartMomentRules> _resolve() async {
     try {
-      final stored = await _store.read();
-      if (stored != null) return _rulesFrom(stored);
-
-      await _store.write(_now().toUtc().toIso8601String());
-      final saved = await _store.read();
-      if (saved == null) {
-        throw StateError('The activation instant was not saved.');
+      var stored = await _store.read();
+      if (stored == null) {
+        await _store.write(_now().toUtc().toIso8601String());
+        stored = await _store.read();
+        if (stored == null) {
+          throw StateError('The activation instant was not saved.');
+        }
       }
-      return _rulesFrom(saved);
+      final activated = _instant(stored);
+      return ChartMomentRules(
+        activatedAtUtc: activated,
+        catalogStarts: await _catalogStarts(),
+      );
     } catch (error, stackTrace) {
       developer.log(
         'The Moments rules activation could not be read or saved '
@@ -82,13 +97,46 @@ class MomentRulesActivation {
     }
   }
 
+  /// Where each refined catalog version after the first starts (SN-50
+  /// R-V). A version this build carries but has not recorded starts now:
+  /// later than every story already told, so those keep their catalog. An
+  /// absent instant is never read as an earlier one.
+  ///
+  /// A start recorded by a newer build means stories here were told with a
+  /// catalog this build lacks; rather than re-tell them, the run keeps the
+  /// earlier rules.
+  Future<List<RefinedCatalogStart>> _catalogStarts() async {
+    if (await _store.readCatalogStart(_catalogVersion + 1) != null) {
+      throw StateError(
+        'A newer refined catalog was used on this install than this build '
+        'carries.',
+      );
+    }
+    final starts = <RefinedCatalogStart>[];
+    for (var version = 2; version <= _catalogVersion; version++) {
+      var stored = await _store.readCatalogStart(version);
+      if (stored == null) {
+        await _store.writeCatalogStart(
+          version,
+          _now().toUtc().toIso8601String(),
+        );
+        stored = await _store.readCatalogStart(version);
+        if (stored == null) {
+          throw StateError('Catalog version $version start was not saved.');
+        }
+      }
+      starts.add(RefinedCatalogStart(version, _instant(stored)));
+    }
+    return starts;
+  }
+
   /// An unreadable instant is kept, never replaced: Moments keep the
   /// earlier rules until it is repaired.
-  static ChartMomentRules _rulesFrom(String stored) {
-    final activated = DateTime.tryParse(stored);
-    if (activated == null || !activated.isUtc) {
+  static DateTime _instant(String stored) {
+    final instant = DateTime.tryParse(stored);
+    if (instant == null || !instant.isUtc) {
       throw FormatException('Unreadable activation instant', stored);
     }
-    return ChartMomentRules(activatedAtUtc: activated);
+    return instant;
   }
 }

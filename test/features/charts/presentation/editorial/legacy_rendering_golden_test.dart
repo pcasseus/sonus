@@ -23,12 +23,14 @@ import 'package:sonus_next/features/charts/presentation/editorial/moment_facts.d
 import 'package:sonus_next/features/charts/presentation/editorial/moment_family.dart';
 import 'package:sonus_next/features/charts/presentation/editorial/moment_headlines.dart';
 import 'package:sonus_next/features/charts/presentation/editorial/moment_story_planner.dart';
+import 'package:sonus_next/features/charts/presentation/editorial/refined_headline_catalog.dart';
 import 'package:sonus_next/features/library/domain/entities/library_organization.dart';
 
 const _goldenDir = 'test/features/charts/presentation/editorial/goldens';
 const _storiesGolden = '$_goldenDir/legacy_moments_v1.json';
 const _catalogGolden = '$_goldenDir/legacy_catalog_v1.json';
 const _sweepGolden = '$_goldenDir/legacy_selection_sweep_v1.json';
+const _refinedV1Golden = '$_goldenDir/refined_catalog_v1_moments.json';
 
 class _Lookups implements MomentLookups {
   const _Lookups();
@@ -639,8 +641,15 @@ const _scopes = [ChartMomentScope.allTime, ChartMomentScope.finalized];
 
 /// Every scenario composed on its own, keyed by scenario, scope, featured
 /// flag and source, as the stories a desk with [rules] publishes.
-Map<String, Object?> _renderAll(ChartMomentRules rules) {
-  final desk = MomentEditorialDesk(lookups: const _Lookups(), rules: rules);
+Map<String, Object?> _renderAll(
+  ChartMomentRules rules, {
+  Map<int, RefinedHeadlineCatalog>? catalogs,
+}) {
+  final desk = MomentEditorialDesk(
+    lookups: const _Lookups(),
+    rules: rules,
+    refinedCatalogs: catalogs,
+  );
   final out = <String, Object?>{};
 
   void run(String group, Map<String, _Scenario> scenarios, List<String> xs) {
@@ -825,6 +834,15 @@ class _MarkerStore implements MomentRulesActivationStore {
 
   @override
   Future<void> write(String activatedAtUtc) async => writes++;
+
+  @override
+  Future<String?> readCatalogStart(int version) async {
+    reads++;
+    return '2026-10-02T00:00:00.000Z';
+  }
+
+  @override
+  Future<void> writeCatalogStart(int version, String fromUtc) async => writes++;
 }
 
 void main() {
@@ -861,6 +879,51 @@ void main() {
       expect(store.reads, 0);
       expect(store.writes, 0);
       _expectGolden(_storiesGolden, _renderAll(rules));
+    });
+
+    test('R-V: refined catalog v1 stories match their golden', () {
+      // Captured at bf47f63, before catalog versioning: once refined stories
+      // can be shown, v1 never changes; later wording goes into a new
+      // catalog version.
+      _expectGolden(
+        _refinedV1Golden,
+        _renderAll(ChartMomentRules(activatedAtUtc: DateTime.utc(2026, 1, 1))),
+      );
+    });
+
+    test('R-V: v1 stories stay byte-identical when a version 2 exists', () {
+      // A hypothetical v2 that rewords every line it touches.
+      final v2 = RefinedHeadlineCatalog(
+        overrides: [
+          for (final family in MomentHeadlines.families)
+            for (final v in MomentHeadlines.legacyOf(family))
+              RefinedOverride(v.id, (f) => 'V2 ${v.id}.', approved: true),
+        ],
+      );
+      final catalogs = {1: RefinedHeadlineCatalog.standard, 2: v2};
+      // v2 started after every fixture story: all of them stay v1.
+      _expectGolden(
+        _refinedV1Golden,
+        _renderAll(
+          ChartMomentRules(
+            activatedAtUtc: DateTime.utc(2026, 1, 1),
+            catalogStarts: [RefinedCatalogStart(2, DateTime.utc(2027, 1, 1))],
+          ),
+          catalogs: catalogs,
+        ),
+      );
+      // v2 started before them, with v1's own lines: the version plumbing
+      // itself changes nothing.
+      _expectGolden(
+        _refinedV1Golden,
+        _renderAll(
+          ChartMomentRules(
+            activatedAtUtc: DateTime.utc(2026, 1, 1),
+            catalogStarts: [RefinedCatalogStart(2, DateTime.utc(2026, 2, 1))],
+          ),
+          catalogs: {2: RefinedHeadlineCatalog.standard},
+        ),
+      );
     });
 
     test('the build running these tests has the flag off', () {
