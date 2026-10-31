@@ -389,23 +389,28 @@ class _ImportReviewPageState extends State<ImportReviewPage> {
 
     final message = switch (result?.outcome) {
       PossibleRecordingOutcome.imported =>
-        'Imported as its own song. It is listed for review.',
+        "Imported as a separate song. It's in your review list so you can "
+            'check its details.',
       PossibleRecordingOutcome.handledByImport =>
-        'This file no longer matches that song. It was imported as usual.',
+        'This file no longer looks like a copy of that song, so it was '
+            'imported normally.',
       PossibleRecordingOutcome.stillPending =>
-        'This file now matches a different song. Review it again.',
+        'This file now matches a different song in your library. Check it '
+            'again.',
       PossibleRecordingOutcome.alreadyImported =>
-        'This file is already in your library. Removed from this list.',
+        'This file is already in your library, so it was removed from this '
+            'list.',
       PossibleRecordingOutcome.fileUnavailable =>
-        'This file is missing or cannot be read. Removed from this list; '
-            'nothing was imported.',
+        'This file could not be found, so it was removed from the review '
+            'list. Nothing was imported.',
       PossibleRecordingOutcome.permissionLost =>
         "Sonus can't read this folder any more. Reconnect it in Imports.",
       PossibleRecordingOutcome.checkFailed =>
         'Could not check this file. It stays in this list. Try again.',
       PossibleRecordingOutcome.candidateMissing =>
-        'The song it may duplicate is no longer in your library. Removed '
-            'from this list; rescan to import the file.',
+        'The matching song is no longer in your library, so this file was '
+            'removed from the list. Use Scan for changes in Imports to import '
+            'it.',
       PossibleRecordingOutcome.failed ||
       null => 'Could not import this file. It stays in this list.',
     };
@@ -759,9 +764,9 @@ class _PossibleRecordingsSection extends StatelessWidget {
         ),
         const SizedBox(height: 8),
         Text(
-          'These files have the same title as a song in your library but '
-          'sit at another track position. They were not imported. Choose '
-          'what each one is.',
+          'These files share a title with a song in your library but are at '
+          "a different track position, so they weren't imported. Choose what "
+          'each one is.',
           style: textTheme.bodyLarge?.copyWith(color: secondary),
         ),
         for (final item in items) ...[
@@ -834,7 +839,7 @@ class _PossibleRecordingCard extends StatelessWidget {
           const SizedBox(height: 12),
           Text(
             candidate == null
-                ? 'The song it may duplicate is no longer in your library.'
+                ? 'The matching song is no longer in your library.'
                 : 'May be the same as "${candidate.title}" '
                       '(${_position(candidate.discNumber, candidate.trackNumber, candidate.durationSeconds)})',
             style: textTheme.bodyMedium,

@@ -135,9 +135,11 @@ class _LibraryHealthPageState extends State<LibraryHealthPage> {
       builder: (context) => AlertDialog(
         title: const Text('Re-send placements?'),
         content: const Text(
-          'Songs listed on more than one edition are sent with the next '
-          'sync, and your cloud library takes the placements on this '
-          'device. Songs, files and listening history are not changed.',
+          'Songs listed on more than one edition will be sent with the next '
+          "sync. This device's edition placements will replace the "
+          'corresponding placements currently stored in your cloud library. '
+          'This may overwrite placement changes made on another device. Your '
+          'songs, audio files and listening history will not be deleted.',
         ),
         actions: [
           TextButton(
@@ -287,17 +289,16 @@ class _LibraryHealthPageState extends State<LibraryHealthPage> {
                           _resentPlacements,
                         )) {
                           (true, _) =>
-                            'The placements could not be queued. Nothing '
-                                'was changed.',
+                            'Could not queue the songs. Nothing was '
+                                'changed.',
                           (_, 0) =>
                             'No songs are listed on more than one edition.',
                           (_, final int n) =>
                             '${sonusCount(n, 'song')} will be sent with the '
                                 'next sync.',
                           _ =>
-                            "If a song's place on another edition went back "
-                                "after a sync, send this device's placements "
-                                'again.',
+                            "Use this if a song's track or disc number on "
+                                'another edition changed back after a sync.',
                         }),
                         trailing: TextButton(
                           key: const ValueKey<String>(

@@ -89,7 +89,8 @@ void main() {
       find.byKey(const ValueKey<String>('import-needs-review-card')),
       findsOneWidget,
     );
-    expect(find.text('2 songs need review'), findsOneWidget);
+    expect(find.text('2 items need review'), findsOneWidget);
+    expect(find.text('2 songs need review'), findsNothing);
     expect(
       find.byKey(const ValueKey<String>('open-import-review-button')),
       findsOneWidget,
@@ -143,7 +144,14 @@ void main() {
 
     await tester.pumpAndSettle();
 
-    expect(find.text('1 song needs review'), findsOneWidget);
+    expect(find.text('1 item needs review'), findsOneWidget);
+    expect(
+      find.text(
+        "Check songs Sonus couldn't identify confidently, and files that "
+        'might be different recordings.',
+      ),
+      findsOneWidget,
+    );
 
     await tester.tap(
       find.byKey(const ValueKey<String>('open-import-review-button')),
@@ -173,7 +181,7 @@ void main() {
       find.byKey(const ValueKey<String>('import-needs-review-card')),
       findsNothing,
     );
-    expect(find.text('1 song needs review'), findsNothing);
+    expect(find.text('1 item needs review'), findsNothing);
   });
 }
 

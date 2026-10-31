@@ -178,7 +178,10 @@ void main() {
 
     expect(fake.imported, [path]);
     expect(
-      find.text('Imported as its own song. It is listed for review.'),
+      find.text(
+        "Imported as a separate song. It's in your review list so you can "
+        'check its details.',
+      ),
       findsOneWidget,
     );
     expect(find.byKey(importKey), findsNothing);
@@ -196,8 +199,8 @@ void main() {
 
     expect(
       find.text(
-        'This file is missing or cannot be read. Removed from this list; '
-        'nothing was imported.',
+        'This file could not be found, so it was removed from the review '
+        'list. Nothing was imported.',
       ),
       findsOneWidget,
     );

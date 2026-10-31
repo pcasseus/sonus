@@ -273,6 +273,16 @@ void main() {
       await tester.tap(action);
       await tester.pumpAndSettle();
       expect(find.text('Re-send placements?'), findsOneWidget);
+      expect(
+        find.text(
+          'Songs listed on more than one edition will be sent with the next '
+          "sync. This device's edition placements will replace the "
+          'corresponding placements currently stored in your cloud library. '
+          'This may overwrite placement changes made on another device. Your '
+          'songs, audio files and listening history will not be deleted.',
+        ),
+        findsOneWidget,
+      );
       await tester.tap(find.text('Cancel'));
       await tester.pumpAndSettle();
       expect(await queuedFor(tester), isEmpty);

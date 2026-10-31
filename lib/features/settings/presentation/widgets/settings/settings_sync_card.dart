@@ -299,9 +299,8 @@ class SettingsSyncCard extends StatelessWidget {
             label: Text(
               syncController.isSyncing
                   ? 'Syncing...'
-                  : syncController.isPaused
-                  ? 'Retry'
-                  : syncController.status == SyncStatus.error
+                  : syncController.isPaused ||
+                        syncController.status == SyncStatus.error
                   ? 'Try again'
                   : 'Sync now',
             ),

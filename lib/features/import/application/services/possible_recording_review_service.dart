@@ -32,7 +32,7 @@ enum PossibleRecordingOutcome {
   /// The file is already in the library.
   alreadyImported,
 
-  /// The file is missing or cannot be read.
+  /// The file is verifiably missing; it leaves the list (SN-50 W15).
   fileUnavailable,
 
   /// Sonus can no longer read the file's folder; the file stays listed.
@@ -164,10 +164,11 @@ class PossibleRecordingReviewService {
       candidate,
     ]))[path];
 
+    // Nothing came back for the path: absence is not verified, so the file
+    // stays listed (SN-50 W15).
     if (prepared == null) {
-      await store.remove(path);
       return const PossibleRecordingActionResult(
-        PossibleRecordingOutcome.fileUnavailable,
+        PossibleRecordingOutcome.checkFailed,
       );
     }
 
@@ -178,8 +179,11 @@ class PossibleRecordingReviewService {
           PossibleRecordingOutcome.permissionLost,
         // Reported from its path in the first place: nothing has changed.
         MetadataReadFailure.tagsUnreadable when entry.recordedFromPath => null,
-        MetadataReadFailure.missing || MetadataReadFailure.tagsUnreadable =>
-          PossibleRecordingOutcome.fileUnavailable,
+        MetadataReadFailure.missing => PossibleRecordingOutcome.fileUnavailable,
+        // Unreadable tags are not a missing file: it stays listed (SN-50
+        // W15, 2026-10-31; round 10 retired it).
+        MetadataReadFailure.tagsUnreadable =>
+          PossibleRecordingOutcome.checkFailed,
         MetadataReadFailure.other ||
         null => PossibleRecordingOutcome.checkFailed,
       };

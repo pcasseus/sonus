@@ -635,7 +635,15 @@ void main() {
     expect(find.text('2'), findsOneWidget, reason: 'pending changes');
     expect(find.text('Never'), findsNothing, reason: 'last sync time kept');
 
-    final retry = find.widgetWithText(FilledButton, 'Retry');
+    expect(
+      find.text(
+        "The Sonus cloud doesn't support this version of Sonus yet, so sync "
+        'is paused. Your changes stay on this device. Try again after the '
+        'cloud is updated.',
+      ),
+      findsOneWidget,
+    );
+    final retry = find.widgetWithText(FilledButton, 'Try again');
     await tester.ensureVisible(retry);
     await tester.pumpAndSettle();
     await tester.tap(retry);

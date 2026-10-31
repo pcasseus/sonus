@@ -24,8 +24,9 @@ enum SyncFailureKind {
   /// sync functions are missing or answer differently). Retrying on its own
   /// cannot help, so sync pauses until the person retries (SN-50).
   cloudNotReady(
-    "The Sonus cloud isn't ready for this version of Sonus yet. Your "
-    'changes are kept on this device. Retry once the cloud is updated.',
+    "The Sonus cloud doesn't support this version of Sonus yet, so sync is "
+    'paused. Your changes stay on this device. Try again after the cloud is '
+    'updated.',
   ),
   unknown('Sync could not finish. Your changes are kept.');
 

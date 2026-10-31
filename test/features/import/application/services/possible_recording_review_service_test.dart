@@ -368,7 +368,8 @@ void main() {
       expect(await service.pending(), hasLength(1));
     });
 
-    test('a missing file leaves the list and nothing is written', () async {
+    test('SN-50 W15: a file whose absence is not verified stays listed and '
+        'nothing is written', () async {
       final mutable = Map.of(files);
       final (importer, kept, _) = await importBoth(mutable);
       final service = await reviewService(importer);
@@ -380,8 +381,9 @@ void main() {
         (await store().getPending()).single,
       );
 
-      expect(result.outcome, PossibleRecordingOutcome.fileUnavailable);
-      expect(await store().getPending(), isEmpty);
+      // The reader fails without saying the file is gone.
+      expect(result.outcome, PossibleRecordingOutcome.checkFailed);
+      expect(await store().getPending(), hasLength(1));
       expect(await countRows(DatabaseTables.songs), songsBefore);
       expect(await rowsOf(kept.songId!), before);
     });
@@ -643,7 +645,8 @@ void main() {
       ));
     });
 
-    test('tags lost since a tag-based entry was recorded retire it', () async {
+    test('SN-50 W15: tags lost since a tag-based entry was recorded keep '
+        'it listed; only a verified missing file leaves', () async {
       final (service, keptId) = await pendingThen(
         const ImportTagsUnreadable('no tags'),
       );
@@ -653,8 +656,8 @@ void main() {
       );
 
       expect(await importOnce(service, keptId), (
-        PossibleRecordingOutcome.fileUnavailable,
-        false,
+        PossibleRecordingOutcome.checkFailed,
+        true,
       ));
     });
 
@@ -673,9 +676,10 @@ void main() {
       expect(entry.metadataSource, isNull);
       expect(entry.recordedFromPath, isFalse);
 
+      // SN-50 W15: unreadable tags are not a missing file.
       expect(await importOnce(service, keptId), (
-        PossibleRecordingOutcome.fileUnavailable,
-        false,
+        PossibleRecordingOutcome.checkFailed,
+        true,
       ));
     });
 
