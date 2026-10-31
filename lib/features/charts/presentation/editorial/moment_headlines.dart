@@ -123,6 +123,10 @@ abstract final class MomentHeadlines {
     // SN-50 BUG-04 (Batch 5): BU-020 to BU-031 and BU-040 to BU-051.
     MomentFamily.songBubblingUnderFall,
     MomentFamily.songHot100Exit,
+    // Batch 8 (contract §6.2): artistRepeatNumberOne, artistRepeatNumberOneRelease, artistSimultaneousReleases.
+    MomentFamily.artistRepeatNumberOne,
+    MomentFamily.artistRepeatNumberOneRelease,
+    MomentFamily.artistSimultaneousReleases,
     // Batch 7 (contract §6.2): songSelfReplacement, releaseSelfReplacement.
     MomentFamily.songSelfReplacement,
     MomentFamily.releaseSelfReplacement,

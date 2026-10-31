@@ -496,6 +496,19 @@ class RefinedHeadlineCatalog {
             '${f.careerArtist} follows one #1 release with another: the ${f.releaseWord} ${f.title} replaces ${f.rivalWork}.',
         approved: true,
       ),
+      // Batch 8 (contract §6.2): artistRepeatNumberOne, artistRepeatNumberOneRelease, artistSimultaneousReleases.
+      RefinedOverride(
+        'artist-repeat-1-p1',
+        (f) =>
+            'That\'s ${f.aOrdinalText} #1 song for ${f.careerArtist}: ${f.work} tops the weekly Sonus Hot 100!',
+        approved: true,
+      ),
+      RefinedOverride(
+        'artist-release-repeat-1-p1',
+        (f) =>
+            '${f.careerArtist} collects ${f.aOrdinalText} #1 release with the ${f.releaseWord} ${f.title}!',
+        approved: true,
+      ),
     ],
     exclusions: [
       // Contract §6.4 (Batch 2): lines that name the song by its primary
@@ -535,6 +548,326 @@ class RefinedHeadlineCatalog {
       ),
     ],
     additions: [
+      // Batch 8 (contract §6.2): artistRepeatNumberOne, artistRepeatNumberOneRelease, artistSimultaneousReleases.
+      RefinedAddition(
+        MomentFamily.artistRepeatNumberOne,
+        HeadlineVariant(
+          'artist-repeat-1-d2',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              '${f.work} takes #1 on ${f.scopedChart}, ${f.aOrdinalText} #1 song there for ${f.careerArtist}.',
+          requires: const {MomentFact.rank, MomentFact.ordinal},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.artistRepeatNumberOne,
+        HeadlineVariant(
+          'artist-repeat-1-d3',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              '${f.careerArtist} collects ${f.aOrdinalText} #1 on ${f.scopedChart} with ${f.work}.',
+          requires: const {MomentFact.rank, MomentFact.ordinal},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.artistRepeatNumberOne,
+        HeadlineVariant(
+          'artist-repeat-1-d4',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              'With ${f.work} at the top, ${f.careerArtist} now has ${f.ordinal} #1 songs on ${f.scopedChart}.',
+          requires: const {MomentFact.rank, MomentFact.ordinal},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.artistRepeatNumberOne,
+        HeadlineVariant(
+          'artist-repeat-1-d5',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              '${f.work} is ${MomentFacts.possessive(f.careerArtist)} ${f.ordinalText} #1 song on ${f.scopedChart}.',
+          requires: const {MomentFact.rank, MomentFact.ordinal},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.artistRepeatNumberOne,
+        HeadlineVariant(
+          'artist-repeat-1-d6',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              'The weekly Sonus Hot 100 has a new #1 in ${f.work}, ${f.aOrdinalText} #1 song for ${f.careerArtist}.',
+          requires: const {MomentFact.rank, MomentFact.ordinal},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.artistRepeatNumberOne,
+        HeadlineVariant(
+          'artist-repeat-1-p2',
+          MomentPublisher.pulsePop,
+          (f) =>
+              '${f.careerArtist} is back on top with ${f.aOrdinalText} #1 song: ${f.work}!',
+          requires: const {MomentFact.rank, MomentFact.ordinal},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.artistRepeatNumberOne,
+        HeadlineVariant(
+          'artist-repeat-1-p3',
+          MomentPublisher.pulsePop,
+          (f) =>
+              'Another one! ${f.work} gives ${f.careerArtist} ${f.aOrdinalText} #1 song.',
+          requires: const {MomentFact.rank, MomentFact.ordinal},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.artistRepeatNumberOne,
+        HeadlineVariant(
+          'artist-repeat-1-p4',
+          MomentPublisher.pulsePop,
+          (f) =>
+              '${f.careerArtist} does it again: ${f.work} hits #1 on the weekly Sonus Hot 100.',
+          requires: const {MomentFact.rank, MomentFact.ordinal},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.artistRepeatNumberOne,
+        HeadlineVariant(
+          'artist-repeat-1-p5',
+          MomentPublisher.pulsePop,
+          (f) =>
+              '#1 again for ${f.careerArtist}! This time it\'s ${f.work}, the artist\'s ${f.ordinalText} #1 song.',
+          requires: const {MomentFact.rank, MomentFact.ordinal},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.artistRepeatNumberOne,
+        HeadlineVariant(
+          'artist-repeat-1-p6',
+          MomentPublisher.pulsePop,
+          (f) =>
+              '${f.careerArtist} adds another #1 song: ${f.work} takes the top spot!',
+          requires: const {MomentFact.rank, MomentFact.ordinal},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.artistRepeatNumberOneRelease,
+        HeadlineVariant(
+          'artist-release-repeat-1-d2',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              'The ${f.releaseWord} ${f.title} is ${MomentFacts.possessive(f.careerArtist)} ${f.ordinalText} release to reach #1 on ${f.scopedChart}.',
+          requires: const {MomentFact.rank, MomentFact.ordinal},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.artistRepeatNumberOneRelease,
+        HeadlineVariant(
+          'artist-release-repeat-1-d3',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              '${f.careerArtist} now counts ${f.ordinal} #1 releases on ${f.scopedChart}, the latest being the ${f.releaseWord} ${f.title}.',
+          requires: const {MomentFact.rank, MomentFact.ordinal},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.artistRepeatNumberOneRelease,
+        HeadlineVariant(
+          'artist-release-repeat-1-d4',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              '${MomentFacts.possessive(f.careerArtist)} ${f.ordinalText} #1 release on ${f.scopedChart} is the ${f.releaseWord} ${f.title}.',
+          requires: const {MomentFact.rank, MomentFact.ordinal},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.artistRepeatNumberOneRelease,
+        HeadlineVariant(
+          'artist-release-repeat-1-d5',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              '${f.title} takes #1 on ${f.scopedChart}, adding ${f.aOrdinalText} #1 release to ${MomentFacts.possessive(f.careerArtist)} record.',
+          requires: const {MomentFact.rank, MomentFact.ordinal},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.artistRepeatNumberOneRelease,
+        HeadlineVariant(
+          'artist-release-repeat-1-d6',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              'The ${f.releaseWord} ${f.title} becomes ${MomentFacts.possessive(f.careerArtist)} latest #1 release on ${f.scopedChart}, the ${f.ordinalText} in all.',
+          requires: const {MomentFact.rank, MomentFact.ordinal},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.artistRepeatNumberOneRelease,
+        HeadlineVariant(
+          'artist-release-repeat-1-p2',
+          MomentPublisher.pulsePop,
+          (f) =>
+              'Back at #1! ${f.careerArtist} returns to the top of the Sonus Albums & EPs chart with ${f.title}.',
+          requires: const {MomentFact.rank, MomentFact.ordinal},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.artistRepeatNumberOneRelease,
+        HeadlineVariant(
+          'artist-release-repeat-1-p3',
+          MomentPublisher.pulsePop,
+          (f) =>
+              '#1 again! ${f.title} hands ${f.careerArtist} ${f.aOrdinalText} chart-topping release.',
+          requires: const {MomentFact.rank, MomentFact.ordinal},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.artistRepeatNumberOneRelease,
+        HeadlineVariant(
+          'artist-release-repeat-1-p4',
+          MomentPublisher.pulsePop,
+          (f) =>
+              'Another #1 release for ${f.careerArtist}: the ${f.releaseWord} ${f.title} takes the top spot!',
+          requires: const {MomentFact.rank, MomentFact.ordinal},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.artistRepeatNumberOneRelease,
+        HeadlineVariant(
+          'artist-release-repeat-1-p5',
+          MomentPublisher.pulsePop,
+          (f) =>
+              '${f.title} makes it ${f.ordinal} #1 releases for ${f.careerArtist}!',
+          requires: const {MomentFact.rank, MomentFact.ordinal},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.artistRepeatNumberOneRelease,
+        HeadlineVariant(
+          'artist-release-repeat-1-p6',
+          MomentPublisher.pulsePop,
+          (f) =>
+              'Chart-topper number ${f.ordinal} for ${f.careerArtist}: the ${f.releaseWord} ${f.title} is #1!',
+          requires: const {MomentFact.rank, MomentFact.ordinal},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.artistSimultaneousReleases,
+        HeadlineVariant(
+          'artist-sim-release-d3',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              '${f.artist} holds ${f.count} places in the Top ${f.threshold} of ${f.scopedChart}.',
+          requires: const {MomentFact.count, MomentFact.threshold},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.artistSimultaneousReleases,
+        HeadlineVariant(
+          'artist-sim-release-d4',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              '${f.count} of the Top ${f.threshold} releases on ${f.scopedChart} are by ${f.artist}.',
+          requires: const {MomentFact.count, MomentFact.threshold},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.artistSimultaneousReleases,
+        HeadlineVariant(
+          'artist-sim-release-d5',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              '${f.artist} places ${f.count} releases in the Top ${f.threshold} of ${f.scopedChart}.',
+          requires: const {MomentFact.count, MomentFact.threshold},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.artistSimultaneousReleases,
+        HeadlineVariant(
+          'artist-sim-release-d6',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              '${f.artist} appears ${f.count} times in the Top ${f.threshold} of ${f.scopedChart}.',
+          requires: const {MomentFact.count, MomentFact.threshold},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.artistSimultaneousReleases,
+        HeadlineVariant(
+          'artist-sim-release-p2',
+          MomentPublisher.pulsePop,
+          (f) =>
+              '${f.count} at once! ${f.artist} crowds the Top ${f.threshold}.',
+          requires: const {MomentFact.count, MomentFact.threshold},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.artistSimultaneousReleases,
+        HeadlineVariant(
+          'artist-sim-release-p3',
+          MomentPublisher.pulsePop,
+          (f) =>
+              '${f.artist} is everywhere: ${f.count} releases in the Top ${f.threshold}!',
+          requires: const {MomentFact.count, MomentFact.threshold},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.artistSimultaneousReleases,
+        HeadlineVariant(
+          'artist-sim-release-p4',
+          MomentPublisher.pulsePop,
+          (f) =>
+              'Top ${f.threshold} takeover: ${f.count} releases from ${f.artist}.',
+          requires: const {MomentFact.count, MomentFact.threshold},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.artistSimultaneousReleases,
+        HeadlineVariant(
+          'artist-sim-release-p5',
+          MomentPublisher.pulsePop,
+          (f) =>
+              '${f.artist} stacks the Top ${f.threshold} with ${f.count} releases at the same time.',
+          requires: const {MomentFact.count, MomentFact.threshold},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.artistSimultaneousReleases,
+        HeadlineVariant(
+          'artist-sim-release-p6',
+          MomentPublisher.pulsePop,
+          (f) =>
+              '${f.artist} fills ${f.count} Top ${f.threshold} slots on ${f.scopedChart} at once!',
+          requires: const {MomentFact.count, MomentFact.threshold},
+        ),
+        approved: true,
+      ),
       // Batch 7 (contract §6.2): songSelfReplacement, releaseSelfReplacement.
       RefinedAddition(
         MomentFamily.songSelfReplacement,

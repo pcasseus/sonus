@@ -168,10 +168,7 @@ const sn50Families = {
 /// editorial batch that approves a family removes it here.
 const stillDraftFamilies = {
   MomentFamily.songThresholds,
-  MomentFamily.artistRepeatNumberOne,
   MomentFamily.releaseThresholds,
-  MomentFamily.artistRepeatNumberOneRelease,
-  MomentFamily.artistSimultaneousReleases,
 };
 
 /// SN-50 chart-jump families, approved line by line (CJ-001 to CJ-031).

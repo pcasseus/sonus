@@ -371,10 +371,7 @@ const _nineDrafts = {
 /// it here (Batch 6: the first-zone families).
 const _stillDraft = {
   MomentFamily.songThresholds,
-  MomentFamily.artistRepeatNumberOne,
   MomentFamily.releaseThresholds,
-  MomentFamily.artistRepeatNumberOneRelease,
-  MomentFamily.artistSimultaneousReleases,
 };
 
 final _refined = _Era(DateTime.utc(2026, 11, 1), DateTime(2026, 11, 17));
@@ -792,23 +789,16 @@ void main() {
   test('a weekly repeat #1 counts the stored weeks and names the weekly '
       'chart', () async {
     await publishWeeks(ChartType.songs, _refined.weeksFromUtc, _songWeeks);
-    expect(
-      (await stories()).where(
-        (story) => story.family == MomentFamily.artistRepeatNumberOne,
-      ),
-      isEmpty,
+    // Told since Batch 8, under its planned story id.
+    final (family, facts, id) = await plannedOne(
+      (story, family) =>
+          family == MomentFamily.artistRepeatNumberOne &&
+          story.entity.entityId == _q3.entityId,
     );
-    final repeat = (await held()).singleWhere(
-      (gated) => gated.family == MomentFamily.artistRepeatNumberOne,
-    );
-
-    final facts = heldFacts(repeat);
+    expect(family, MomentFamily.artistRepeatNumberOne);
     expect(facts.ordinal, 2);
     expect(facts.weekly, isTrue);
-    expect(repeat.story!.entity.entityId, _q3.entityId);
-    // Held under its planned story id.
-    expect(repeat.id, repeat.story!.id);
-    expect(repeat.id, endsWith('#number-one'));
+    expect(id, endsWith('#number-one'));
   });
 
   group('SN-50 R2 activation', () {
