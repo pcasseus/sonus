@@ -432,6 +432,11 @@ class LibraryIntegrityService {
     };
   }
 
+  /// Queues songs with placements on other editions for the next sync
+  /// (SN-50 BLOCKED #4). Returns how many were queued.
+  Future<int> resendPlacements({required String userId}) =>
+      editions.resendPlacements(userId: userId);
+
   static String _songs(int n) => _count(n, 'song');
 
   static String _count(int n, String noun, {String? plural}) =>

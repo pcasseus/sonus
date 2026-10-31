@@ -10,6 +10,7 @@ import '../../domain/entities/song.dart';
 import '../../domain/metadata/metadata_field_state.dart';
 import '../../domain/metadata/metadata_fields.dart';
 import '../../domain/repositories/album_edition_repository.dart';
+import '../../domain/repositories/album_edition_track_repository.dart';
 import '../../domain/services/metadata_field_state_service.dart';
 import 'edition_track_numbering.dart';
 
@@ -536,6 +537,40 @@ class AlbumEditionManagementService {
           entityId: editionId,
         ) !=
         null;
+  }
+
+  /// Queues every song listed on an edition other than its home edition
+  /// for the next sync, in one transaction, and returns how many (SN-50
+  /// BLOCKED #4, decided 2026-10-31).
+  ///
+  /// Placements travel with the song's cloud record. Ones edited before
+  /// Track Studio queued them were never sent, so an inbound copy could
+  /// put the old placement back; re-sending makes the cloud match this
+  /// device. Only the outbox changes: no song, listing or number is
+  /// written. The user starts it; it never runs by itself.
+  Future<int> resendPlacements({required String userId}) async {
+    final owner = userId.trim();
+    if (owner.isEmpty) {
+      throw ArgumentError.value(userId, 'userId', 'Must not be blank.');
+    }
+
+    return mutationRunner.run((context) async {
+      final listings = context.albumEditionTrackRepository;
+      if (listings is! AwayFromHomeListings) {
+        throw StateError('Placement re-send is not available here.');
+      }
+
+      final songIds = await (listings as AwayFromHomeListings)
+          .songIdsListedAwayFromHome();
+      for (final songId in songIds) {
+        await context.localSyncRepository.recordUpsert(
+          userId: owner,
+          entityType: CloudDataEntity.song,
+          entityId: songId,
+        );
+      }
+      return songIds.length;
+    });
   }
 
   /// Deletes an edition (SN-50 A5), never the album's last one (A-Q24).

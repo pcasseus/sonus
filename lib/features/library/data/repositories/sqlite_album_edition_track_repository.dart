@@ -2,7 +2,8 @@ import '../../domain/entities/album_edition_track.dart';
 import '../../domain/repositories/album_edition_track_repository.dart';
 import '../daos/album_edition_track_dao.dart';
 
-class SqliteAlbumEditionTrackRepository implements AlbumEditionTrackRepository {
+class SqliteAlbumEditionTrackRepository
+    implements AlbumEditionTrackRepository, AwayFromHomeListings {
   const SqliteAlbumEditionTrackRepository(this.dao);
 
   final AlbumEditionTrackDao dao;
@@ -25,6 +26,11 @@ class SqliteAlbumEditionTrackRepository implements AlbumEditionTrackRepository {
   @override
   Future<List<AlbumEditionTrack>> getBySongId(String songId) {
     return dao.findBySongId(songId);
+  }
+
+  @override
+  Future<List<String>> songIdsListedAwayFromHome() {
+    return dao.songIdsListedAwayFromHome();
   }
 
   @override

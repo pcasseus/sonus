@@ -41,6 +41,10 @@ class _LibraryHealthPageState extends State<LibraryHealthPage> {
   Object? _error;
   bool _busy = false;
 
+  /// What the last placement re-send queued (SN-50 BLOCKED #4).
+  int? _resentPlacements;
+  bool _resendFailed = false;
+
   @override
   void initState() {
     super.initState();
@@ -123,9 +127,57 @@ class _LibraryHealthPageState extends State<LibraryHealthPage> {
     await _verify();
   }
 
+  /// Re-sends placements on other editions with the next sync, after the
+  /// user confirms (SN-50 BLOCKED #4). Only the sync outbox changes.
+  Future<void> _resendPlacements(String userId) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Re-send placements?'),
+        content: const Text(
+          'Songs listed on more than one edition are sent with the next '
+          'sync, and your cloud library takes the placements on this '
+          'device. Songs, files and listening history are not changed.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            key: const ValueKey<String>('library-health-resend-confirm'),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Re-send'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) {
+      return;
+    }
+
+    setState(() {
+      _busy = true;
+      _resendFailed = false;
+      _resentPlacements = null;
+    });
+
+    try {
+      final service = await _resolveService();
+      final queued = await service.resendPlacements(userId: userId);
+      if (mounted) setState(() => _resentPlacements = queued);
+    } catch (_) {
+      if (mounted) setState(() => _resendFailed = true);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final report = _report;
+    final userId = context.watch<AccountController?>()?.user?.id;
     final tokens = SonusTheme.of(context);
     final gutter = tokens.metrics.pageGutter;
 
@@ -217,6 +269,49 @@ class _LibraryHealthPageState extends State<LibraryHealthPage> {
                       ],
                     ),
                   ],
+                if (userId != null) ...[
+                  const SizedBox(height: 16),
+                  SonusFormSection(
+                    title: 'Sync',
+                    icon: Icons.cloud_sync_outlined,
+                    padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
+                    children: [
+                      ListTile(
+                        key: const ValueKey<String>(
+                          'library-health-resend-placements',
+                        ),
+                        leading: const Icon(Icons.cloud_upload_outlined),
+                        title: const Text('Re-send edition placements'),
+                        subtitle: Text(switch ((
+                          _resendFailed,
+                          _resentPlacements,
+                        )) {
+                          (true, _) =>
+                            'The placements could not be queued. Nothing '
+                                'was changed.',
+                          (_, 0) =>
+                            'No songs are listed on more than one edition.',
+                          (_, final int n) =>
+                            '${sonusCount(n, 'song')} will be sent with the '
+                                'next sync.',
+                          _ =>
+                            "If a song's place on another edition went back "
+                                "after a sync, send this device's placements "
+                                'again.',
+                        }),
+                        trailing: TextButton(
+                          key: const ValueKey<String>(
+                            'library-health-resend-placements-action',
+                          ),
+                          onPressed: _busy
+                              ? null
+                              : () => _resendPlacements(userId),
+                          child: const Text('Re-send'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ],
             ),
     );

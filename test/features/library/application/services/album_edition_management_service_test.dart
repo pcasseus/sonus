@@ -833,6 +833,57 @@ void main() {
       expect(after.single.id, deluxe.id);
       expect(after.single.isPrimary, isTrue);
     });
+
+    test('SN-50 #4: re-sending placements queues only songs listed away '
+        'from home, and writes nothing else', () async {
+      final (_, standard, deluxe, songs) = await withDeluxe(bonus: ['Bonus A']);
+      final db = await appDatabase.database;
+      Future<List<Map<String, Object?>>> snapshot(String table) =>
+          db.query(table, orderBy: 'rowid');
+      final songsBefore = await snapshot(DatabaseTables.songs);
+      final listingsBefore = await snapshot(DatabaseTables.albumEditionTracks);
+
+      final queued = await editions.resendPlacements(userId: ' user-9 ');
+
+      // One, Two and Three are homed on Standard and also listed on Deluxe;
+      // Bonus A is homed on Deluxe and listed only there.
+      expect(queued, 3);
+      final rows = await db.query(
+        DatabaseTables.syncOutbox,
+        where: 'user_id = ?',
+        whereArgs: ['user-9'],
+      );
+      expect(
+        {for (final r in rows) r['entity_id']},
+        {songs['One'], songs['Two'], songs['Three']},
+      );
+      expect({for (final r in rows) r['entity_type']}, {'song'});
+      expect({for (final r in rows) r['operation']}, {'upsert'});
+      expect(await snapshot(DatabaseTables.songs), songsBefore);
+      expect(await snapshot(DatabaseTables.albumEditionTracks), listingsBefore);
+      expect(await listedOn(deluxe.id), hasLength(4));
+      expect(await listedOn(standard), hasLength(3));
+    });
+
+    test('SN-50 #4: with no song listed away from home nothing is queued, '
+        'and a blank account is refused', () async {
+      await standardAlbum();
+      final db = await appDatabase.database;
+
+      expect(await editions.resendPlacements(userId: 'user-9'), 0);
+      expect(
+        await db.query(
+          DatabaseTables.syncOutbox,
+          where: 'user_id = ?',
+          whereArgs: ['user-9'],
+        ),
+        isEmpty,
+      );
+      await expectLater(
+        editions.resendPlacements(userId: '  '),
+        throwsArgumentError,
+      );
+    });
   });
 
   test('a failure part-way leaves nothing changed', () async {

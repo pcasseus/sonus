@@ -1712,6 +1712,9 @@ class _FakeEditions implements AlbumEditionManagementService {
   }
 
   @override
+  Future<int> resendPlacements({required String userId}) async => 0;
+
+  @override
   Future<void> deleteEdition({
     required String editionId,
     String? replacementPrimaryId,
