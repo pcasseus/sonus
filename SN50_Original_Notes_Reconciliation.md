@@ -29,6 +29,15 @@ Last full suite: **4,997 passed, 1 skipped, 0 failed**, analyzer clean.
 - **#22 / #30** (thresholds and chart movement): chart jumps and climb runs are detected and held for copy approval (`cc680e8`, `SN50_Chart_Jump_Editorial_Approval_Sheet.md`).
 - **Counts after round 9:** COMPLETE 17 (adds #34); PARTIAL 9; UNVERIFIED 1; BLOCKED 5; NOT IMPLEMENTED 3.
 
+## Round 10 update (2026-10-30)
+
+Code `ae0fd05` (5,105 passed) and `49c6188` (5,134 passed), both 0 failed, 0 skipped, exit code 0. Implementation is complete; device QA is pending. The refined Moments flag stays disabled.
+
+- **#34** (ambiguous recordings): the SAF existence check is done (`49c6188`). A file Sonus lost permission for, or could not check, stays listed; only a missing file is retired, also when the list is read. The optional `metadataSource` key in the device-local list is approved (no SQLite, backup or cloud change). Its two new messages are approved. Still open: the rest of the Import Review wording (Progress BLOCKED #27) and the device check (M-6). Stays COMPLETE in function.
+- **#22 and #27** (thresholds, self-replacement): still BLOCKED. *Correction to §4 "22 and 27 are code-complete but print unapproved draft copy":* since `ae0fd05` they no longer print it. The approved-family guard holds the nine draft families (N-2 to N-6) even under the refined rules, so nothing unapproved can publish; they need their 6 + 6 lines approved.
+- **#22 / #30** (chart movement): Hot 100 jumps (25+ places) and climb runs (3+ weeks, 30+ places) now publish with approved copy under the refined rules (`ae0fd05`). The Bubbling Under falls and exits of #30 remain gated on the BUG-04 sheet (BU-001 to BU-071): a release blocker.
+- **Counts after round 10:** unchanged (COMPLETE 17; PARTIAL 9; UNVERIFIED 1; BLOCKED 5; NOT IMPLEMENTED 3).
+
 ## How to read this
 
 - **Authority.** The source code and the existing tests decide each status. Where a document disagrees, the document is stale; see §5.
@@ -458,6 +467,7 @@ Last full suite: **4,997 passed, 1 skipped, 0 failed**, analyzer clean.
 - **Gap:** the result shows a count only, with no file paths and nothing durable, so the person cannot act on these files later.
 - **Closure:** a durable Import Review item per ambiguous file (path plus candidate song) with keep-both and merge actions, plus tests.
 - **Requires:** schema migration (BLOCKED #19), product decision.
+- **[Round 9/10]** *Superseded:* done without a schema change through the device-local list (`2af3a8b`) and the file states (`49c6188`). Remaining: Import Review wording (BLOCKED #27) and the device check (M-6).
 
 ### 35. Duplicate queue entries, relinking protection, session persistence, media controls — PARTIAL
 - **Live in release build:** yes.
@@ -542,13 +552,13 @@ Six of the 13 COMPLETE items, and items 22 and 27, run **only under the refined 
   - Extra Leak-label surfaces (#5).
   - M-2/M-3 sign-off (#35).
 - **Schema migration**
-  - Import Review persistence for ambiguous files (#34, BLOCKED #19).
+  - ~~Import Review persistence for ambiguous files (#34, BLOCKED #19).~~ *Done without a migration (rounds 9–10).*
   - BUG-03 stored type label (#14, optional).
   - Daily snapshots, if wanted (#29).
 - **Destructive permission:** Trash and Delete from Phone (#3), ringtones (#31), vendor patches M-4/M-5 (#35).
 - **Real device:** the DB v41 install (#5), M-6 media QA (#12, #35), visual chart sign-off (#26), ringtone R-4 (#31).
 - **Cloud:** B-Q19 Leaked sync, the A-Q16 signed-out gap, Trash sync (#3), real-server sync verification (#33).
-- **Persistence change:** F6 finalization transaction and repository freeze check (Progress Round 5).
+- ~~**Persistence change:** F6 finalization transaction and repository freeze check (Progress Round 5).~~ *Done in `9ef4717` (round 8).*
 
 ## 5. Stale statements in the existing reports
 

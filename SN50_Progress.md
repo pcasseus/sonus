@@ -782,8 +782,8 @@ Authority: the user's approval of Batches A–E (based on `SN50_Decision_and_Rel
 - Tests: store (6), service (13), widget (5).
 - **Open:**
   1. Wording of the section, actions and messages (`import_review_page.dart` ~:381–430). The Imports card still says "N songs need review", and N now includes pending files.
-  2. A file whose tags cannot be read (path-only metadata) counts as unreadable; there is no existence check that also covers SAF content:// paths.
-  3. Moved files are retired when acted on or when the new path imports; there is no automatic clean-up during scans.
+  2. A file whose tags cannot be read (path-only metadata) counts as unreadable; there is no existence check that also covers SAF content:// paths. *Resolved in Round 10 (`49c6188`).*
+  3. Moved files are retired when acted on or when the new path imports; there is no automatic clean-up during scans. *Round 10 (`49c6188`): a missing file is retired when Import Review reads its list.*
   4. `_isPossibleAlternate` repeats the importer's position rule rather than refactoring the import path.
 
 **E — chart-jump storytelling.**
@@ -793,12 +793,56 @@ Authority: the user's approval of Batches A–E (based on `SN50_Decision_and_Rel
 - Each carries `ChartJumpFacts`: from and to rank, weeks, places gained, this week's qualified streams, last week's (verified only) and the stream gain. Positions and streams are separate facts.
 - History is the stored finalized rank events, matched by week end (exact across daylight-saving changes) and by rank, so missing history never counts.
 - Bubbling Under moves and BU→Hot 100 arrivals are never jumps. Weeks before activation hold nothing.
-- **Nothing is published:** no headline was added, the 384 originals are unchanged, and the flag stays off.
+- **Nothing is published:** no headline was added, the 384 originals are unchanged, and the flag stays off. *Superseded by Round 10 (`ae0fd05`): the approved jump and run stories are told under the refined rules; the flag is still off.*
 - Drafts: `SN50_Chart_Jump_Editorial_Approval_Sheet.md` (CJ-001 to CJ-041) with six decisions (thresholds, release scope, biggest-gainer overlap, jump/run overlap, publisher, streaming sentence).
 - **No new persistence was needed.** Runs cannot reach before the first recorded Moments week.
 - Tests: `bubbling_under_moments_test.dart` "SN-50 Batch E" (7).
 
+## Round 10 (2026-10-30): approved chart jumps, approved-family guard, Import Review file states
+
+Authority: the user's approval of Batch 1 (chart-jump copy, thresholds and overlaps; the approved-family guard) and Batch 2 (the non-destructive `content://` correction), and the round 10 review accepting both. No migration, schema change, real-data change, cloud operation, plugin patch, device access, push or merge. **The refined Moments release flag stays disabled** (#21).
+
+| Commit | Batch | Full suite (`--concurrency=1`) |
+|---|---|---|
+| `ae0fd05` | 1: approved chart-jump headlines; fail-closed approved-family guard | **5,105 passed, 0 failed, 0 skipped**, exit code 0 |
+| `49c6188` | 2: Android Import Review file states (`content://`) | **5,134 passed, 0 failed, 0 skipped**, exit code 0 |
+
+Analyzer clean and formatting clean for both. The Batch 1 run took 158 minutes because the machine entered modern standby three times (Kernel-Power 506/507); the tests did not hang.
+
+**Implementation complete; device QA pending.** Both batches are verified by unit, widget and disposable-SQLite tests only. The SAF behaviour of Batch 2 still needs the device check (M-6).
+
+**Batch 1: chart jumps (supersedes Round 9 E "Nothing is published").**
+- New families `songHot100MajorJump` and `songHot100ClimbRun`, told only under the refined rules (so not in release builds while the flag is off):
+  - **major jump:** both ranks #1–100 and a weekly climb of 25+ places. Publisher PulsePop. Capped like a minor story unless it finishes in the Top 40;
+  - **climb run:** 3+ consecutive verified weekly Hot 100 climbs worth 30+ places. Publisher Sonus Daily. Outside the daily cap.
+- Overlaps: a run replaces a jump in the same week; no jump story when the song is the week's biggest gainer, or when an approved #1, zone, peak, breakthrough or self-replacement story already tells the move. A held draft never suppresses a jump, so the move is never left untold. Songs only.
+- Copy: CJ-001 to CJ-031 as approved, with the revised **CJ-010**, **CJ-011** and **CJ-028** lines. The body streaming sentence is the revised **CJ-040** ("The song earned N qualified streams in the finalized chart week, G more than the preceding week.") or CJ-041. It appears only when the previous week is verified, this week has at least 10 qualified streams (`MomentFacts.notableStreams`) and the gain is positive. Kicker: BIG CLIMB.
+- `GatedMomentKind.hot100MajorClimb` / `hot100ClimbRun` are replaced by the planned families; `ChartJumpFacts` moved to `chart_jump_facts.dart`.
+
+**Batch 1: approved-family guard.**
+- `MomentHeadlines.approvedFamilies` is fail-closed: 34 of 43 families. The nine SN-50 draft families stay out: `songSelfReplacement`, `releaseSelfReplacement`, `songFirstThreshold`, `releaseFirstThreshold`, `songThresholds`, `releaseThresholds`, `artistRepeatNumberOne`, `artistRepeatNumberOneRelease`, `artistSimultaneousReleases`.
+- `MomentEditorialDesk.compose` skips a planned story outside the set **before** its facts or headline are built, so the neutral fallback headline can never publish a draft. The story is listed as held (`GatedMomentKind.unapprovedCopy`, keeping its planned id and family).
+- Effect: under the refined rules, the N-2 to N-6 stories (thresholds, self-replacement, repeat #1, release roundups) are now held instead of published with draft copy. Legacy and pre-activation stories are unchanged.
+- Composition only: no repository, finalization or schema change. Finalized charts and published Moments are only read.
+- Tests (11 new or changed): `bubbling_under_moments_test.dart` "SN-50 chart jumps (approved CJ-001 to CJ-041)"; `moment_editorial_test.dart` six approved lines per publisher, exact revised renderings, "only approved families can publish"; `moments_reachability_test.dart` "with the SN-50 rules: 22 approved families publish…".
+
+**Batch 2: Import Review file states (closes Round 9 D open points 2 and 3).**
+- Typed read failures: `ImportFileMissing`, `ImportFileAccessDenied` (from the SAF v2 `SafNotFoundException` / `SafPermissionException`) and `ImportTagsUnreadable` (still a `FormatException`). `MetadataResolver` falls back exactly as before and records `ResolvedMetadata.readFailure`.
+- `ImportFileProbe` / `LocalImportFileProbe`: read-only (`File.exists`; `Saf.exists` plus persisted read grants for `content://`). It never deletes, moves, renames or writes.
+- Decisions in `PossibleRecordingReviewService`:
+  - missing → retired, as before; also retired when Import Review reads its list (instead of during scans);
+  - permission lost → **kept**: "Sonus can't read this folder any more. Reconnect it in Imports.";
+  - could not check, or an unexplained read failure → **kept**: "Could not check this file. It stays in this list. Try again.";
+  - unreadable tags → imported separately only if the entry was itself recorded from its path; otherwise retired as before. The candidate song's rows stay unchanged (tested).
+- **Approved compatibility decision:** pending entries carry an optional `metadataSource` key in the device-local SharedPreferences JSON (`import.possible_recordings.pending`). Older entries without it are read as tag-based. This is **not** a SQLite migration and does not change backup or cloud formats; no backup or sync code reads these keys.
+- Both messages are **approved** (round 10 review).
+- Tests (29 new): `metadata_resolver_test.dart` "read failure kind" (6), `local_import_file_probe_test.dart` (10, fakes and a temporary directory only), `possible_recording_review_service_test.dart` "unreachable files" (11), `import_review_possible_recordings_test.dart` (2).
+
+**Housekeeping.** `dart format` had reformatted `song_import_review_dao.dart` and `import_batch_record.dart` during Batch 2. Verified formatting-only (identical to `dart format` of the committed content, apart from checkout line endings) and restored to their committed contents, as approved. The seven registrant files and the two uncommitted review documents are preserved.
+
 ## BLOCKED_NEEDS_APPROVAL / user decisions
+
+**[Round 10]** #25 is resolved and #27 is partly resolved (see each item). #12, #17 and #21 remain release blockers. Items are kept in their historical form, with corrections marked.
 
 1. **DB v41 on real devices.** The migration runs on a phone's real database the first time a build containing `2a10990` is installed. Take a `.sonusbackup` before any install. Installing is a separate approval.
 2. **B-Q19.** Release Leaked rides in the cloud-archive row automatically, like Live, and the archive isn't deployed, so there is no exposure today. A client older than v41 receiving a row that holds only Leaked would fail its local CHECK, the same issue Live has for clients older than v40. Cloud activation is a separate approval.
@@ -812,6 +856,7 @@ Authority: the user's approval of Batches A–E (based on `SN50_Decision_and_Rel
 10. **Major-zone noise.** A jump straight to #1 can yield the #1 story, Top 2/3/5/10 stories and a consolidated story (6–7 stories). Should majors below the final major be folded into one?
 11. **Old-story repair.** Should already-published stories get the rival fix and the "this stream" removal? That counts as a historical repair, which needs separate approval.
 12. **New template copy.** The 27 new lines (families N-2 to N-6, listed in the 6a report and `moment_headlines.dart`) are drafts awaiting approval and expansion to 6+6 lines.
+    - **[Round 10]** Still a release blocker. Since `ae0fd05` the nine draft families are outside `MomentHeadlines.approvedFamilies`, so even under the refined rules they are held (`unapprovedCopy`), never published. A family publishes only once its lines are approved and it is added to the set.
 13. **Destructive workflows.** Approve or adjust `SN50_Destructive_Workflows_Design.md` §6 items A-T0 to A-T6 (Trash and purge), P-1 to P-5 (Delete from Phone), R-1 to R-3 (ringtones) and M-1 to M-6 (media session, plugin patches 2/3, device QA).
 14. **M-2/M-3 confirmation.** `9547ef0` implemented End Session (keeping the queue) and the Dart-side media-session changes under the approved D-Q3/D-Q6/D-Q1 decisions. The destructive-workflows design doc had listed them as approval items, so please confirm or ask for changes. Device QA and plugin patches were not done.
     - **Round 5 (F7):** reconciled in documentation. Every behavior traces to an approved D-Q decision or R4, and M-1 is resolved by R4 (`db79c4e`).
@@ -822,15 +867,17 @@ Authority: the user's approval of Batches A–E (based on `SN50_Decision_and_Rel
     - The BUG-01 mirror policy, which changes C-Q4.
     - ~~Import-1 identity policy~~: **decided** (handoff rule 5). The Review part is blocked; see item 19.
 16. **`SN50_Additional_Bug_Tweaks_Addendum_v2.md` was referenced but not found** (again in round 3). BUG-05 was implemented from the user's message.
-17. **BUG-04 copy** (selection rules approved in round 4; wording is not): **see `SN50_BUG04_Editorial_Approval_Sheet.md` BU-001 to BU-071.** It supersedes the N-8 to N-11 samples. Earlier note: Editorial §7 N-8 (Hot 100 → Bubbling Under drop, proposed rule: Top 40 peak or 5+ Hot 100 weeks), N-9 (extra Bubbling Under climb, proposed: 25+ places, at most one a week), N-10 (recommend no story for falls within Bubbling Under), N-11 (optional arrival wording citing last week's Bubbling Under rank), and the §7.2 review of `song-break-p3`.
+17. **[Round 10: still open; release blocker]** **BUG-04 copy** (selection rules approved in round 4; wording is not): **see `SN50_BUG04_Editorial_Approval_Sheet.md` BU-001 to BU-071.** It supersedes the N-8 to N-11 samples. Earlier note: Editorial §7 N-8 (Hot 100 → Bubbling Under drop, proposed rule: Top 40 peak or 5+ Hot 100 weeks), N-9 (extra Bubbling Under climb, proposed: 25+ places, at most one a week), N-10 (recommend no story for falls within Bubbling Under), N-11 (optional arrival wording citing last week's Bubbling Under rank), and the §7.2 review of `song-break-p3`.
 18. **BUG-03 type label:** keep deriving the Other label from the name, or approve a schema change for a stored custom type label.
 19. ~~**Import Review persistence for ambiguous same-title files**~~ **Done as option B (device-local list, no migration) in `2af3a8b` (round 9); wording and the open points in Round 9 D remain.** (round 4): it needs a pending-file record, or a new review reason plus a file-path payload. Either is a schema/data-contract change. Until approved, these files are reported in the import result only.
     - Since round 5 (F1), this also holds when the existing song's file is missing or absent.
 20. ~~**Audit hardening F3–F6**~~ **Done:** F6 in `9ef4717` (round 8). (round 5; F6 design in Round 7): F3, F4 and F5 are fixed in `a4085a5` (round 6). **F6** (finalization transaction and repository freeze check) remains: a persistence change needing approval.
 21. **Refined Moments release flag:** no committed config sets `SONUS_MOMENTS_REFINED_APPROVED`, so release builds use the earlier rules until it is added to the release config, once the rules are approved for release.
+    - **[Round 10]** Still disabled and still unset in every config. Not to be enabled while #12, #17 and the other unapproved editorial items stand.
 22. ~~**Duplicate-song restore start**~~ **Fixed in `ec59045` (round 7).** (round 6): restoring `[a, b, a]` at the second `a` resumes the first copy (`playback_coordinator.dart:51-53` re-finds the start by song id). A safe fix would pass the index through for restores, without a format change. Not done because it was outside the approved batch scope; its test is skipped with the reason.
 23. ~~**Sync cooperative cancellation**~~ **Done in `48c2714` (round 8).** A distinct permanent-failure state (Session I) is still open. (round 6): the design proposal in Round 7 (refines Round 6 Batch C), so a hung run can be replaced without a restart; plus a permanent-failure state (Session I).
 24. ~~**Shuffle order persistence**~~ **Done as option C in `207e65d` (round 9).** Device check of system-control order still pending. (round 6 reconciliation): the shuffle permutation is never saved, and shuffle/repeat survive a restart only with "Remember". Keep, or persist by default?
-25. **Chart-jump copy and thresholds** (round 9): `SN50_Chart_Jump_Editorial_Approval_Sheet.md` CJ-001 to CJ-041 and its §D decisions.
+25. ~~**Chart-jump copy and thresholds**~~ **Approved and implemented in `ae0fd05` (round 10)**, refined rules only. (round 9): `SN50_Chart_Jump_Editorial_Approval_Sheet.md` CJ-001 to CJ-041 and its §D decisions.
 26. **Paused-sync wording** (round 9): the `cloudNotReady` message and the "Sync paused" and "Retry" labels.
 27. **Import Review wording and SAF existence check** (round 9 D, open points 1–3).
+    - **[Round 10]** SAF existence check done in `49c6188`; its two new messages are approved. Still open: the rest of the Import Review wording (round 9 D point 1, `SN50_Round9_Editorial_and_Release_Safety_Review.md` §5: 17 strings and the Imports "N songs need review" count), and the device check of real SAF behaviour (M-6).

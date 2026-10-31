@@ -1,6 +1,6 @@
 # SN-50 QA Report
 
-Branch `sn-50-final-refinement`, worktree `C:\dev\sonus\sonus_next_sn50`. Base `36d4d5d`. Round 1 ended at `14b592f`; refreshed 2026-10-30 at code HEAD `11f30a7` (round 9, Batches A–E up to `cc680e8`; none pushed).
+Branch `sn-50-final-refinement`, worktree `C:\dev\sonus\sonus_next_sn50`. Base `36d4d5d`. Round 1 ended at `14b592f`; refreshed 2026-10-30 at code HEAD `49c6188` (round 10; none pushed). *Earlier text read "code HEAD `11f30a7` (round 9…)", which was stale: round 9 code ended at `cc680e8`.*
 
 ## 1. Analyzer and test suite
 
@@ -20,11 +20,13 @@ Branch `sn-50-final-refinement`, worktree `C:\dev\sonus\sonus_next_sn50`. Base `
 | `e3dd5f5` (round 9 A: Repeat One, Clear queue) | No issues | 5,049 passed, 0 failed |
 | `207e65d` (round 9 B: shuffle order) | No issues | 5,058 passed, 0 failed |
 | `5c0071b` (round 9 C: paused sync) | No issues | 5,067 passed, 0 failed |
-| `2af3a8b` + `cc680e8` (round 9 D and E, latest code; one run) | No issues | **5,098 passed, 0 failed** |
+| `2af3a8b` + `cc680e8` (round 9 D and E; one run) | No issues | 5,098 passed, 0 failed |
+| `ae0fd05` (round 10 Batch 1: chart jumps, approved-family guard) | No issues | 5,105 passed, 0 failed, 0 skipped (exit code 0) |
+| `49c6188` (round 10 Batch 2: Import Review file states; latest code) | No issues | **5,134 passed, 0 failed, 0 skipped** (exit code 0) |
 
 The round 6 skip pinned the duplicate-restore gap; `ec59045` fixes it and the test runs again, so nothing is skipped.
 
-The suite has **336 more tests**. Nothing was dropped silently: a few tests that encoded replaced semantics were swapped for tests of the new rule. For example, Phase 1 replaced the two "replace finalized Moments" repository tests with publish-once tests.
+The suite has **336 more tests** (figure as of round 1; 672 more than the baseline at `49c6188`). Nothing was dropped silently: a few tests that encoded replaced semantics were swapped for tests of the new rule. For example, Phase 1 replaced the two "replace finalized Moments" repository tests with publish-once tests.
 
 - Tests that pinned old behaviour, which the spec explicitly replaces, were rewritten under names that state the new rule. Examples:
   - the all-edition track count;
@@ -143,6 +145,8 @@ These are spec-driven, not bugs, but the user will notice them:
 - With Remember shuffle and repeat on, a restart keeps the exact shuffled order (round 9 B).
 - A cloud missing what this version needs pauses sync with Retry, instead of retrying forever (round 9 C).
 - Possible different recordings appear in Import Review with Import separately, Same recording and Not now (round 9 D).
+- A possible different recording whose folder Sonus can no longer read, or that could not be checked, now stays in Import Review with a message instead of being removed; a file recorded from its path alone can be imported separately (round 10, `49c6188`).
+- Under the refined Moments rules only: Hot 100 jumps of 25+ places and climb runs are told with the approved copy, and the nine draft families (thresholds, self-replacement, repeat #1, release roundups) are held instead of published (round 10, `ae0fd05`).
 - A finalized chart week and its Moments are now stored together or not at all; a finalized week can never be rewritten (round 8, F6).
 - A timed-out, signed-out or switched sync run stops at its next safe point, so the next sync no longer waits for it to finish (round 8, #23).
 - Restoring a queue that holds a song twice resumes the copy that was playing, not the first copy (round 7, #22).
@@ -171,13 +175,15 @@ These are spec-driven, not bugs, but the user will notice them:
 - **Plugin patches:** Android ≤12 custom actions (D-Q14), wake lock (D-Q11).
 - **Cloud:** Leaked and Live in the archive (B-Q19), sync of release-date precision, cross-device edition deletes.
 - **Destructive workflows:** Trash, Delete from Phone and ringtones are design only (`SN50_Destructive_Workflows_Design.md`).
-- **Copy:** editorial line-by-line approval of the existing copy, the 27 new draft lines and the BUG-04 drafts (Editorial §7).
+- **Copy:** editorial line-by-line approval of the existing copy, the 27 new draft lines and the BUG-04 drafts (Editorial §7). Since round 10 the 27 draft lines cannot publish (approved-family guard).
 - **BUG-03 and BUG-04 on a device:** verified by widget and pipeline tests only.
-- **Audit hardening F3–F6** (round 5): confirmed by code reading only. Not implemented, by instruction. See Progress Round 5.
+- ~~**Audit hardening F3–F6** (round 5): confirmed by code reading only. Not implemented, by instruction. See Progress Round 5.~~ *Stale: F3–F5 fixed in `a4085a5` (round 6), F6 in `9ef4717` (round 8).*
 - **Refined Moments in a release build:** activation is verified by unit tests (F8). No committed config sets `SONUS_MOMENTS_REFINED_APPROVED`.
 - **Device only (round 9):** Repeat One Next/Previous and the restored shuffle order from the notification, lock screen and Android Auto; the Clear queue dialog on a phone.
-- **Chart jumps (round 9 E):** detected and held; copy and thresholds await approval.
+- **Chart jumps (round 9 E):** detected and held; copy and thresholds await approval. *Superseded by round 10: approved and told under the refined rules (`ae0fd05`); not live while the flag is off.*
+- **Import Review on Android (round 10):** the SAF file states (`49c6188`) are tested with a fake `Saf` only. Whether a revoked grant raises `SafPermissionException` or answers "not found" needs the device check (M-6).
+- **Refined Moments flag (round 10):** still disabled. Release blockers remain: BUG-04 copy, the nine draft families and the P-items.
 - **Sync against a real server:** the round 6 run queue and the round 8 cancellation are tested with fakes and disposable SQLite only; no Supabase contact.
-- **Shuffle order persistence** (BLOCKED #24): known, not changed. The duplicate-song restore start (#22) is fixed in `ec59045`.
+- ~~**Shuffle order persistence** (BLOCKED #24): known, not changed.~~ *Stale: done in `207e65d` (round 9); only its device check is pending.* The duplicate-song restore start (#22) is fixed in `ec59045`.
 
 **Production is not complete:** release signing, `versionCode`, Supabase migrations and device QA are still release blockers, as in the audit (Part I §9).
