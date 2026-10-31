@@ -649,7 +649,13 @@ void main() {
       final low = [for (var i = 0; i < 5; i++) _song('low-$i')];
       final high = [for (var i = 0; i < 5; i++) _song('high-$i')];
       final big = _song('big');
+      // An earlier week inside the zones, so the jumps below enter no zone
+      // for the first time (a first zone story would tell the move).
       final last = await publish(_from, [
+        {
+          for (final (i, song) in low.indexed) song: 55 - i,
+          for (final (i, song) in high.indexed) song: 35 - i,
+        },
         {
           big: 100,
           for (final (i, song) in low.indexed) song: 90 - i,
@@ -682,11 +688,15 @@ void main() {
       final big = _song('big');
       final last = await publish(
         _from,
+        // An earlier week inside the zones, so the jumps enter no zone for
+        // the first time.
         [
+          {fewer: 45, quiet: 46},
           {fewer: 80, quiet: 81, big: 99},
           {fewer: 50, quiet: 51, big: 10},
         ],
         [
+          {fewer: 100, quiet: 1},
           {fewer: 300, quiet: 2},
           {fewer: 200, quiet: 9},
         ],

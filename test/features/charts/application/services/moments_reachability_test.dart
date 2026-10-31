@@ -352,6 +352,33 @@ class _Era {
 }
 
 final _legacy = _Era(DateTime.utc(2026, 8, 16), DateTime(2026, 10, 27));
+
+/// The nine SN-50 draft families (N-2 to N-6), held by the approved-family
+/// guard until their lines are approved.
+const _nineDrafts = {
+  MomentFamily.songSelfReplacement,
+  MomentFamily.songFirstThreshold,
+  MomentFamily.songThresholds,
+  MomentFamily.artistRepeatNumberOne,
+  MomentFamily.releaseSelfReplacement,
+  MomentFamily.releaseFirstThreshold,
+  MomentFamily.releaseThresholds,
+  MomentFamily.artistRepeatNumberOneRelease,
+  MomentFamily.artistSimultaneousReleases,
+};
+
+/// Those still held; each editorial batch that approves a family removes
+/// it here (Batch 6: the first-zone families).
+const _stillDraft = {
+  MomentFamily.songSelfReplacement,
+  MomentFamily.songThresholds,
+  MomentFamily.artistRepeatNumberOne,
+  MomentFamily.releaseSelfReplacement,
+  MomentFamily.releaseThresholds,
+  MomentFamily.artistRepeatNumberOneRelease,
+  MomentFamily.artistSimultaneousReleases,
+};
+
 final _refined = _Era(DateTime.utc(2026, 11, 1), DateTime(2026, 11, 17));
 
 /// An approved build first ran as the refined era began (SN-50 R2).
@@ -459,6 +486,35 @@ void main() {
   MomentFacts heldFacts(GatedMoment gated) =>
       MomentFacts.of(gated.story!, _Lookups(), refined: true);
 
+  /// One subject's planned stories, told or held, are exactly [expected];
+  /// only the families still in [_stillDraft] are held.
+  void expectPlanned(
+    List<MomentStory> told,
+    List<GatedMoment> heldStories,
+    List<MomentFamily> expected,
+  ) {
+    expect([
+      for (final story in told) story.family,
+      for (final gated in heldStories) gated.family!,
+    ], unorderedEquals(expected));
+    expect(
+      {for (final gated in heldStories) gated.family},
+      {
+        for (final family in expected)
+          if (_stillDraft.contains(family)) family,
+      },
+    );
+  }
+
+  /// The facts of each planned story, told or held.
+  Map<MomentFamily, MomentFacts> plannedFacts(
+    List<MomentStory> told,
+    List<GatedMoment> heldStories,
+  ) => {
+    for (final story in told) story.family: story.facts,
+    for (final gated in heldStories) gated.family!: heldFacts(gated),
+  };
+
   Future<Set<MomentFamily>> reachable(
     _Era era, {
     ChartMomentRules? rules,
@@ -502,8 +558,8 @@ void main() {
     expect(allTimeZones.map((event) => event.threshold).toSet(), {100});
   });
 
-  test('with the SN-50 rules: 22 approved families publish, including peak '
-      'matches and longevity; the nine draft families are held; '
+  test('with the SN-50 rules: the approved families publish, including peak '
+      'matches and longevity; draft families are held; '
       'releaseWeeksMilestone stays unwired', () async {
     final families = await reachable(_refined);
 
@@ -530,22 +586,10 @@ void main() {
       MomentFamily.releaseNewPeak,
       MomentFamily.releaseReentry,
       MomentFamily.artistFirstNumberOneRelease,
+      ..._nineDrafts.difference(_stillDraft),
     });
-    // Planned under the rules, but their headlines are not approved.
-    expect(
-      {for (final gated in await held()) gated.family},
-      {
-        MomentFamily.songSelfReplacement,
-        MomentFamily.songFirstThreshold,
-        MomentFamily.songThresholds,
-        MomentFamily.artistRepeatNumberOne,
-        MomentFamily.releaseSelfReplacement,
-        MomentFamily.releaseFirstThreshold,
-        MomentFamily.releaseThresholds,
-        MomentFamily.artistRepeatNumberOneRelease,
-        MomentFamily.artistSimultaneousReleases,
-      },
-    );
+    // Planned under the rules, but their headlines are not approved yet.
+    expect({for (final gated in await held()) gated.family}, _stillDraft);
     expect(
       families.intersection({for (final gated in await held()) gated.family}),
       isEmpty,
@@ -573,8 +617,12 @@ void main() {
           expect(story.headline, contains('Sonus Bubbling Under'));
         case MomentFamily.songHot100Breakthrough:
           zones.add(100);
-        case MomentFamily.songFirstThreshold || MomentFamily.songThresholds:
-          fail('a draft zone story was published: ${story.headline}');
+        case MomentFamily.songFirstThreshold:
+          expect(_stillDraft, isNot(contains(story.family)));
+          zones.add(story.facts.threshold!);
+        case MomentFamily.songThresholds:
+          expect(_stillDraft, isNot(contains(story.family)));
+          zones.addAll(story.facts.thresholds);
         case MomentFamily.artistFirstNumberOne:
           zones.add(1);
         default:
@@ -874,11 +922,6 @@ void main() {
       final all = await stories();
 
       final songs = storiesOf(all, 'lucky-star', ChartType.songs);
-      expect(songs.map((story) => story.family), [
-        MomentFamily.artistFirstNumberOne,
-        MomentFamily.songHot100Breakthrough,
-      ]);
-      expect(songs.first.facts.rank, 1);
       final gated = await held();
       List<GatedMoment> heldOf(String entityId) => [
         for (final moment in gated)
@@ -887,12 +930,16 @@ void main() {
             moment,
       ];
       final heldSongs = heldOf('lucky-star');
-      expect(heldSongs.map((moment) => moment.family), [
+      expectPlanned(songs, heldSongs, [
+        MomentFamily.artistFirstNumberOne,
+        MomentFamily.songHot100Breakthrough,
         MomentFamily.songFirstThreshold,
         MomentFamily.songThresholds,
       ]);
-      expect(heldFacts(heldSongs.first).threshold, 10);
-      expect(heldFacts(heldSongs.last).thresholds, [
+      final songFacts = plannedFacts(songs, heldSongs);
+      expect(songFacts[MomentFamily.artistFirstNumberOne]!.rank, 1);
+      expect(songFacts[MomentFamily.songFirstThreshold]!.threshold, 10);
+      expect(songFacts[MomentFamily.songThresholds]!.thresholds, [
         75,
         50,
         40,
@@ -906,15 +953,14 @@ void main() {
       ]);
 
       final releases = storiesOf(all, 'album-lucky-star', ChartType.albums);
-      expect(releases.map((story) => story.family), [
-        MomentFamily.artistFirstNumberOneRelease,
-      ]);
       final heldReleases = heldOf('album-lucky-star');
-      expect(heldReleases.map((moment) => moment.family), [
+      expectPlanned(releases, heldReleases, [
+        MomentFamily.artistFirstNumberOneRelease,
         MomentFamily.releaseFirstThreshold,
         MomentFamily.releaseThresholds,
       ]);
-      expect(heldFacts(heldReleases.last).thresholds, [
+      final releaseFacts = plannedFacts(releases, heldReleases);
+      expect(releaseFacts[MomentFamily.releaseThresholds]!.thresholds, [
         100,
         75,
         50,
@@ -1006,41 +1052,40 @@ void main() {
             moment,
       ];
 
+      List<MomentStory> toldOf(ChartEntitySnapshot song) =>
+          storiesOf(all, song.entityId, ChartType.songs, weekStartUtc: second);
+
       // #40 to #1: the #1 story tells the move (approved rule 6), so no
-      // jump headline; its zones are held drafts.
-      expect(families(forty, second), [MomentFamily.artistFirstNumberOne]);
-      expect(heldOf(forty).map((moment) => moment.family), [
+      // jump headline; its zones are told once approved.
+      expectPlanned(toldOf(forty), heldOf(forty), [
+        MomentFamily.artistFirstNumberOne,
         MomentFamily.songFirstThreshold,
         MomentFamily.songThresholds,
       ]);
-      expect(heldFacts(heldOf(forty).last).thresholds, [
-        30,
-        25,
-        20,
-        15,
-        5,
-        3,
-        2,
-      ]);
+      expect(
+        plannedFacts(
+          toldOf(forty),
+          heldOf(forty),
+        )[MomentFamily.songThresholds]!.thresholds,
+        [30, 25, 20, 15, 5, 3, 2],
+      );
       // #80 to #8: the week's biggest gainer keeps its story (rule 4).
-      expect(families(eighty, second), [MomentFamily.songBiggestGainer]);
-      expect(heldOf(eighty).map((moment) => moment.family), [
+      expectPlanned(toldOf(eighty), heldOf(eighty), [
+        MomentFamily.songBiggestGainer,
         MomentFamily.songFirstThreshold,
         MomentFamily.songThresholds,
       ]);
-      expect(heldFacts(heldOf(eighty).last).thresholds, [
-        75,
-        50,
-        40,
-        30,
-        25,
-        20,
-        15,
-      ]);
+      expect(
+        plannedFacts(
+          toldOf(eighty),
+          heldOf(eighty),
+        )[MomentFamily.songThresholds]!.thresholds,
+        [75, 50, 40, 30, 25, 20, 15],
+      );
       // #120 to #60: a Hot 100 breakthrough from Bubbling Under, never a
       // Hot 100 jump.
-      expect(families(deep, second), [MomentFamily.songHot100Breakthrough]);
-      expect(heldOf(deep).map((moment) => moment.family), [
+      expectPlanned(toldOf(deep), heldOf(deep), [
+        MomentFamily.songHot100Breakthrough,
         MomentFamily.songFirstThreshold,
       ]);
 

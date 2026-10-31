@@ -123,6 +123,9 @@ abstract final class MomentHeadlines {
     // SN-50 BUG-04 (Batch 5): BU-020 to BU-031 and BU-040 to BU-051.
     MomentFamily.songBubblingUnderFall,
     MomentFamily.songHot100Exit,
+    // Batch 6 (contract §6.2): songFirstThreshold, releaseFirstThreshold.
+    MomentFamily.songFirstThreshold,
+    MomentFamily.releaseFirstThreshold,
   };
 
   static Iterable<MomentFamily> get families => _library.keys;

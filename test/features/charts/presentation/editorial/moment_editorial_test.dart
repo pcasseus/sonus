@@ -164,6 +164,18 @@ const sn50Families = {
   MomentFamily.artistSimultaneousReleases,
 };
 
+/// The SN-50 draft families still held by the approved-family guard; each
+/// editorial batch that approves a family removes it here.
+const stillDraftFamilies = {
+  MomentFamily.songSelfReplacement,
+  MomentFamily.songThresholds,
+  MomentFamily.artistRepeatNumberOne,
+  MomentFamily.releaseSelfReplacement,
+  MomentFamily.releaseThresholds,
+  MomentFamily.artistRepeatNumberOneRelease,
+  MomentFamily.artistSimultaneousReleases,
+};
+
 /// SN-50 chart-jump families, approved line by line (CJ-001 to CJ-031).
 const chartJumpFamilies = {
   MomentFamily.songHot100MajorJump,
@@ -430,14 +442,10 @@ void main() {
 
     test('SN-50 release safety: only approved families can publish', () {
       expect(
-        MomentHeadlines.approvedFamilies.intersection(sn50Families),
-        isEmpty,
+        MomentHeadlines.approvedFamilies,
+        MomentFamily.values.toSet().difference(stillDraftFamilies),
       );
       expect(MomentHeadlines.approvedFamilies, containsAll(chartJumpFamilies));
-      expect(
-        MomentHeadlines.approvedFamilies,
-        hasLength(MomentFamily.values.length - sn50Families.length),
-      );
     });
 
     test('Bubbling Under keeps its real position: #106, never #6', () {

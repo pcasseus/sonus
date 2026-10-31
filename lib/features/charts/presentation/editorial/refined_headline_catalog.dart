@@ -458,6 +458,31 @@ class RefinedHeadlineCatalog {
         when: _weeklyFromBubblingUnder,
         approved: true,
       ),
+      // Batch 6 (contract §6.2): songFirstThreshold, releaseFirstThreshold.
+      RefinedOverride(
+        'song-zone-d2',
+        (f) =>
+            'First time in the Top ${f.threshold} of ${f.scopedChart}: ${f.subject} is at #${f.rank}.',
+        approved: true,
+      ),
+      RefinedOverride(
+        'song-zone-p1',
+        (f) =>
+            'Into the Top ${f.threshold}! ${f.subject} gets there for the first time, at #${f.rank}.',
+        approved: true,
+      ),
+      RefinedOverride(
+        'song-zone-p2',
+        (f) =>
+            '${f.work} cracks the Top ${f.threshold} for the first time, at #${f.rank}.',
+        approved: true,
+      ),
+      RefinedOverride(
+        'release-zone-p1',
+        (f) =>
+            '${f.title} reaches the Top ${f.threshold} for the first time, at #${f.rank}!',
+        approved: true,
+      ),
     ],
     exclusions: [
       // Contract §6.4 (Batch 2): lines that name the song by its primary
@@ -497,6 +522,207 @@ class RefinedHeadlineCatalog {
       ),
     ],
     additions: [
+      // Batch 6 (contract §6.2): songFirstThreshold, releaseFirstThreshold.
+      RefinedAddition(
+        MomentFamily.songFirstThreshold,
+        HeadlineVariant(
+          'song-zone-d3',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              '${f.subject} reaches #${f.rank} on ${f.scopedChart}, its first time in the Top ${f.threshold}.',
+          requires: const {MomentFact.rank, MomentFact.threshold},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.songFirstThreshold,
+        HeadlineVariant(
+          'song-zone-d4',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              'A first Top ${f.threshold} position for ${f.subject}: #${f.rank} on ${f.scopedChart}.',
+          requires: const {MomentFact.rank, MomentFact.threshold},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.songFirstThreshold,
+        HeadlineVariant(
+          'song-zone-d5',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              '${f.subject} moves into the Top ${f.threshold} of ${f.scopedChart} at #${f.rank}, a first for the song.',
+          requires: const {MomentFact.rank, MomentFact.threshold},
+        ),
+        when: _climbed,
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.songFirstThreshold,
+        HeadlineVariant(
+          'song-zone-d6',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              'At #${f.rank}, ${f.subject} is inside the Top ${f.threshold} of ${f.scopedChart} for the first time.',
+          requires: const {MomentFact.rank, MomentFact.threshold},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.songFirstThreshold,
+        HeadlineVariant(
+          'song-zone-p3',
+          MomentPublisher.pulsePop,
+          (f) =>
+              'Hello, Top ${f.threshold}! ${f.work} makes it in at #${f.rank}.',
+          requires: const {MomentFact.rank, MomentFact.threshold},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.songFirstThreshold,
+        HeadlineVariant(
+          'song-zone-p4',
+          MomentPublisher.pulsePop,
+          (f) =>
+              '${f.work} breaks new ground at #${f.rank}: a first Top ${f.threshold} spot.',
+          requires: const {MomentFact.rank, MomentFact.threshold},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.songFirstThreshold,
+        HeadlineVariant(
+          'song-zone-p5',
+          MomentPublisher.pulsePop,
+          (f) =>
+              'New territory for ${f.work}: #${f.rank} and a place in the Top ${f.threshold}.',
+          requires: const {MomentFact.rank, MomentFact.threshold},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.songFirstThreshold,
+        HeadlineVariant(
+          'song-zone-p6',
+          MomentPublisher.pulsePop,
+          (f) =>
+              'Top ${f.threshold}, unlocked: ${f.subject} lands at #${f.rank}.',
+          requires: const {MomentFact.rank, MomentFact.threshold},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.releaseFirstThreshold,
+        HeadlineVariant(
+          'release-zone-d2',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              '${f.subject} earns its first Top ${f.threshold} position, at #${f.rank} on ${f.scopedChart}.',
+          requires: const {MomentFact.rank, MomentFact.threshold},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.releaseFirstThreshold,
+        HeadlineVariant(
+          'release-zone-d3',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              '${f.subject} is now a Top ${f.threshold} ${f.releaseWord}: it reaches #${f.rank} on ${f.scopedChart}, a first.',
+          requires: const {MomentFact.rank, MomentFact.threshold},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.releaseFirstThreshold,
+        HeadlineVariant(
+          'release-zone-d4',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              '${f.subject} moves into the Top ${f.threshold} of ${f.scopedChart} at #${f.rank}, the ${f.releaseWord}\'s first time there.',
+          requires: const {MomentFact.rank, MomentFact.threshold},
+        ),
+        when: _climbed,
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.releaseFirstThreshold,
+        HeadlineVariant(
+          'release-zone-d5',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              'At #${f.rank}, the ${f.releaseWord} ${f.subject} enters the Top ${f.threshold} of ${f.scopedChart} for the first time.',
+          requires: const {MomentFact.rank, MomentFact.threshold},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.releaseFirstThreshold,
+        HeadlineVariant(
+          'release-zone-d6',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              'For the ${f.releaseWord} ${f.subject}, #${f.rank} on ${f.scopedChart} means a first Top ${f.threshold} placing.',
+          requires: const {MomentFact.rank, MomentFact.threshold},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.releaseFirstThreshold,
+        HeadlineVariant(
+          'release-zone-p2',
+          MomentPublisher.pulsePop,
+          (f) =>
+              'Top ${f.threshold} for the ${f.releaseWord}! ${f.subject} arrives at #${f.rank}.',
+          requires: const {MomentFact.rank, MomentFact.threshold},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.releaseFirstThreshold,
+        HeadlineVariant(
+          'release-zone-p3',
+          MomentPublisher.pulsePop,
+          (f) =>
+              '${f.title} breaks into the Top ${f.threshold} at #${f.rank}, a first for the ${f.releaseWord}.',
+          requires: const {MomentFact.rank, MomentFact.threshold},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.releaseFirstThreshold,
+        HeadlineVariant(
+          'release-zone-p4',
+          MomentPublisher.pulsePop,
+          (f) =>
+              'New high-water mark: the ${f.releaseWord} ${f.title} enters the Top ${f.threshold} at #${f.rank}.',
+          requires: const {MomentFact.rank, MomentFact.threshold},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.releaseFirstThreshold,
+        HeadlineVariant(
+          'release-zone-p5',
+          MomentPublisher.pulsePop,
+          (f) =>
+              '${MomentFacts.possessive(f.artist)} ${f.releaseWord} ${f.title} makes the Top ${f.threshold} for the first time, at #${f.rank}!',
+          requires: const {MomentFact.rank, MomentFact.threshold},
+        ),
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.releaseFirstThreshold,
+        HeadlineVariant(
+          'release-zone-p6',
+          MomentPublisher.pulsePop,
+          (f) =>
+              'First Top ${f.threshold} spot for ${f.title}: the ${f.releaseWord} lands at #${f.rank}.',
+          requires: const {MomentFact.rank, MomentFact.threshold},
+        ),
+        approved: true,
+      ),
       // BU-020 to BU-031 (Batch 5): falls of 30+ within Bubbling Under.
       RefinedAddition(
         MomentFamily.songBubblingUnderFall,
@@ -950,6 +1176,14 @@ bool _weeklyFromBubblingUnder(MomentFacts f) =>
     f.weekly && _fromBubblingUnder(f);
 
 bool _notFromBubblingUnder(MomentFacts f) => !_fromBubblingUnder(f);
+
+/// The story's rank is higher than a known previous one: the song or
+/// release really moved up, so movement wording is true.
+bool _climbed(MomentFacts f) {
+  final before = f.previousRank;
+  final now = f.rank;
+  return before != null && now != null && before > now;
+}
 
 /// A weekly move between two Bubbling Under positions.
 bool _bubblingUnderFall(MomentFacts f) =>
