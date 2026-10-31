@@ -28,6 +28,7 @@ import 'package:sonus_next/features/library/domain/entities/library_organization
 const _goldenDir = 'test/features/charts/presentation/editorial/goldens';
 const _storiesGolden = '$_goldenDir/legacy_moments_v1.json';
 const _catalogGolden = '$_goldenDir/legacy_catalog_v1.json';
+const _sweepGolden = '$_goldenDir/legacy_selection_sweep_v1.json';
 
 class _Lookups implements MomentLookups {
   const _Lookups();
@@ -666,6 +667,41 @@ Map<String, Object?> _renderAll(ChartMomentRules rules) {
   return out;
 }
 
+/// Which publisher and line the earlier rules pick for each scenario and
+/// scope over 500 story ids (contract §8 item 2). Catches any change to a
+/// family's size, order or fitting set, which would re-pick old headlines.
+Map<String, Object?> _sweep(ChartMomentRules rules) {
+  final desk = MomentEditorialDesk(lookups: const _Lookups(), rules: rules);
+  final out = <String, Object?>{};
+  for (final (group, scenarios) in [
+    ('song', _songScenarios),
+    ('release', _releaseScenarios),
+    ('artist', _artistScenarios),
+  ]) {
+    for (final MapEntry(key: name, value: build) in scenarios.entries) {
+      for (final scope in _scopes) {
+        final picks = <String>[];
+        for (var i = 0; i < 500; i++) {
+          final stories = desk.compose(
+            const ChartMomentFeedAggregator().aggregate(
+              build(scope, 'sweep-$i', ''),
+            ),
+          );
+          picks.add(
+            [
+              for (final s in stories) '${s.publisher.name}:${s.variantId}',
+            ].join('+'),
+          );
+        }
+        if (picks.any((pick) => pick.isNotEmpty)) {
+          out['$group/$name/${scope.name}'] = picks;
+        }
+      }
+    }
+  }
+  return out;
+}
+
 Map<String, Object?> _story(MomentStory s) => {
   'id': s.id,
   'family': s.family.name,
@@ -800,6 +836,10 @@ void main() {
 
     test('stories under the earlier rules match the golden', () {
       _expectGolden(_storiesGolden, _renderAll(ChartMomentRules.legacy));
+    });
+
+    test('the earlier rules pick the same line over 500 story ids', () {
+      _expectGolden(_sweepGolden, _sweep(ChartMomentRules.legacy));
     });
 
     test('stories before the activation instant match the same golden', () {

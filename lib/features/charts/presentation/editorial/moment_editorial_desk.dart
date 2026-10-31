@@ -421,7 +421,8 @@ class MomentEditorialDesk {
     return _hash('$storyId|streams').isEven
         ? 'The song earned $week qualified streams in the finalized chart '
               'week, $gain more than the preceding week.'
-        : 'Qualified streams: $week (up $gain on last week).';
+        // CJ-041, completed-week wording (Batch 3).
+        : 'Qualified streams: $week (up $gain on the week before).';
   }
 
   static String _kicker(MomentFamily family, MomentFacts facts) {

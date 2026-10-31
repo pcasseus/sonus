@@ -602,7 +602,7 @@ void main() {
             'The song earned 245 qualified streams in the finalized chart '
             'week, 10 more than the preceding week.',
           ),
-          contains('Qualified streams: 245 (up 10 on last week).'),
+          contains('Qualified streams: 245 (up 10 on the week before).'),
         ),
       );
       expect(story.headline, isNot(contains(streamSentence)));

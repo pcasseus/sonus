@@ -193,6 +193,235 @@ class RefinedHeadlineCatalog {
             '${f.streamsText}.',
         approved: true,
       ),
+      // P-024 to P-050 (Batch 3): release lines that copied a song line word
+      // for word now name the release (F-Q29).
+      RefinedOverride(
+        'release-debut-1-d1',
+        (f) => '${f.subject} opens its chart run at #1 on ${f.chart}.',
+        approved: true,
+      ),
+      RefinedOverride(
+        'release-debut-1-d3',
+        (f) =>
+            'The ${f.releaseWord} ${f.subject} debuts at #1 on ${f.chart} with '
+            '${f.streamsText}.',
+        approved: true,
+      ),
+      RefinedOverride(
+        'release-debut-d1',
+        (f) =>
+            'The ${f.releaseWord} ${f.subject} debuts at #${f.rank} on ${f.chart}.',
+        approved: true,
+      ),
+      RefinedOverride(
+        'release-debut-d3',
+        (f) =>
+            'The ${f.releaseWord} ${f.subject} opens at #${f.rank} with '
+            '${f.streamsText}.',
+        approved: true,
+      ),
+      RefinedOverride(
+        'release-1-d1',
+        (f) => 'The ${f.releaseWord} ${f.subject} reaches #1 on ${f.chart}.',
+        approved: true,
+      ),
+      // P-029 (revised): never implies the rival had the same format.
+      RefinedOverride(
+        'release-1-d2',
+        (f) =>
+            '${f.subject} succeeds ${f.rivalSubject} at #1 on ${f.chart}, the new '
+            '#1 ${f.releaseWord}.',
+        approved: true,
+      ),
+      RefinedOverride(
+        'release-1-d3',
+        (f) =>
+            '${f.subject} rises from #${f.previousRank} to become the #1 '
+            '${f.releaseWord} on ${f.chart}.',
+        approved: true,
+      ),
+      RefinedOverride(
+        'release-1-d4',
+        (f) =>
+            '${f.subject} tops ${f.chart} with ${f.streamsText}, the new #1 '
+            '${f.releaseWord}.',
+        approved: true,
+      ),
+      RefinedOverride(
+        'release-1-again-d1',
+        (f) => 'The ${f.releaseWord} ${f.subject} returns to #1 on ${f.chart}.',
+        approved: true,
+      ),
+      RefinedOverride(
+        'release-1-again-d2',
+        (f) =>
+            '${f.subject} is the #1 ${f.releaseWord} again, taking over from '
+            '${f.rivalSubject}.',
+        approved: true,
+      ),
+      RefinedOverride(
+        'release-1-again-p1',
+        (f) =>
+            'Back at #1! The ${f.releaseWord} ${f.subject} reclaims the top spot.',
+        approved: true,
+      ),
+      RefinedOverride(
+        'release-1-again-p5',
+        (f) =>
+            'Once more at #1: ${MomentFacts.possessive(f.artist)} '
+            '${f.releaseWord} ${f.title} heads ${f.chart} again.',
+        approved: true,
+      ),
+      RefinedOverride(
+        'release-peak-d1',
+        (f) =>
+            'The ${f.releaseWord} ${f.subject} reaches a new peak of #${f.rank} '
+            'on ${f.chart}.',
+        approved: true,
+      ),
+      RefinedOverride(
+        'release-peak-d4',
+        (f) =>
+            'The ${f.releaseWord} ${f.subject} enters the Top ${f.threshold} at '
+            '#${f.rank} on ${f.chart}.',
+        approved: true,
+      ),
+      RefinedOverride(
+        'release-peak-d5',
+        (f) =>
+            'With ${f.streamsText}, the ${f.releaseWord} ${f.subject} hits a new '
+            'peak of #${f.rank}.',
+        approved: true,
+      ),
+      RefinedOverride(
+        'release-peak-d6',
+        (f) =>
+            '${f.subject} moves from #${f.previousRank} to #${f.rank}, a new peak '
+            'for the ${f.releaseWord}.',
+        approved: true,
+      ),
+      RefinedOverride(
+        'release-peak-p1',
+        (f) =>
+            'New peak for the ${f.releaseWord}! ${f.subject} climbs to #${f.rank}.',
+        approved: true,
+      ),
+      RefinedOverride(
+        'release-peak-p5',
+        (f) =>
+            '${f.streamsText} and a new peak: the ${f.releaseWord} ${f.subject} '
+            'reaches #${f.rank}.',
+        approved: true,
+      ),
+      RefinedOverride(
+        'release-reentry-d1',
+        (f) =>
+            'The ${f.releaseWord} ${f.subject} re-enters ${f.chart} at #${f.rank}.',
+        approved: true,
+      ),
+      RefinedOverride(
+        'release-reentry-d2',
+        (f) =>
+            'Back on ${f.chart}: the ${f.releaseWord} ${f.subject} returns at '
+            '#${f.rank}.',
+        approved: true,
+      ),
+      RefinedOverride(
+        'release-reentry-d4',
+        (f) =>
+            'The ${f.releaseWord} ${f.subject} returns at #${f.rank}, having '
+            'peaked at #${f.previousPeak}.',
+        approved: true,
+      ),
+      RefinedOverride(
+        'release-reentry-p1',
+        (f) =>
+            'The ${f.releaseWord} is back! ${f.subject} re-enters at #${f.rank}.',
+        approved: true,
+      ),
+      RefinedOverride(
+        'release-streams-d1',
+        (f) =>
+            'The ${f.releaseWord} ${f.subject} reaches ${f.milestoneText} on Sonus.',
+        approved: true,
+      ),
+      RefinedOverride(
+        'release-streams-d3',
+        (f) =>
+            'The ${f.releaseWord} ${f.subject} reaches ${f.milestoneText} and '
+            'stands at #${f.rank} on ${f.chart}.',
+        approved: true,
+      ),
+      RefinedOverride(
+        'release-streams-d6',
+        (f) => 'The ${f.releaseWord} ${f.subject} passes ${f.milestoneText}.',
+        approved: true,
+      ),
+      RefinedOverride(
+        'release-streams-p1',
+        (f) =>
+            '${f.milestoneText}! The ${f.releaseWord} ${f.subject} hits a '
+            'streaming milestone.',
+        approved: true,
+      ),
+      RefinedOverride(
+        'release-streams-p5',
+        (f) =>
+            'Milestone unlocked: the ${f.releaseWord} ${f.subject} reaches '
+            '${f.milestoneText}.',
+        approved: true,
+      ),
+      // Batch 3 attribution: the song's full credit, featured guests included.
+      RefinedOverride(
+        'song-weeks-p5',
+        (f) =>
+            '${MomentFacts.weeksText(f.weeks!)} ${f.weeksPlace} for ${f.subject}.',
+        approved: true,
+      ),
+      // Chart-jump lines (CJ-004, CJ-006, CJ-010, CJ-022, CJ-025, CJ-029):
+      // same wording with the song's full credit.
+      RefinedOverride(
+        'song-jump-d4',
+        (f) =>
+            '${f.subject} rises ${f.places} places to #${f.rank} on the weekly '
+            'Sonus Hot 100.',
+        approved: true,
+      ),
+      RefinedOverride(
+        'song-jump-d6',
+        (f) =>
+            '${f.subject} gains ${f.places} places on the weekly Sonus Hot 100 '
+            'and reaches #${f.rank}.',
+        approved: true,
+      ),
+      RefinedOverride(
+        'song-jump-p4',
+        (f) =>
+            '${f.subject} soars ${f.places} places to #${f.rank} on the Sonus Hot '
+            '100.',
+        approved: true,
+      ),
+      RefinedOverride(
+        'song-run-d3',
+        (f) =>
+            '${f.subject} is up ${f.runPlaces} places over ${f.runWeeks} weeks '
+            'on the weekly Sonus Hot 100, now #${f.rank}.',
+        approved: true,
+      ),
+      RefinedOverride(
+        'song-run-d6',
+        (f) =>
+            '${f.subject} keeps climbing the weekly Sonus Hot 100 and reaches '
+            '#${f.rank}.',
+        approved: true,
+      ),
+      RefinedOverride(
+        'song-run-p4',
+        (f) =>
+            '${f.subject} is on a run, up ${f.runPlaces} spots in ${f.runWeeks} '
+            'weeks to #${f.rank}.',
+        approved: true,
+      ),
     ],
     exclusions: [
       // Contract §6.4 (Batch 2): lines that name the song by its primary

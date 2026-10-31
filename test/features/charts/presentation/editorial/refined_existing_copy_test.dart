@@ -34,13 +34,6 @@ const _guestLines = {
   'artist-top10-d5',
 };
 
-/// Chart-jump families: approved separately (CJ-001 to CJ-041) and not part
-/// of this batch's attribution exclusions.
-const _chartJumps = {
-  MomentFamily.songHot100MajorJump,
-  MomentFamily.songHot100ClimbRun,
-};
-
 MomentFacts _facts(
   MomentFamily family, {
   bool refined = true,
@@ -289,9 +282,7 @@ void main() {
     test('with a guest, no refined headline credits the song to its primary '
         'artist alone', () {
       final violations = <String>[];
-      for (final family in MomentHeadlines.approvedFamilies.difference(
-        _chartJumps,
-      )) {
+      for (final family in MomentHeadlines.approvedFamilies) {
         for (final weekly in [false, true]) {
           final facts = _facts(family, guest: 'Guest Voice', weekly: weekly);
           for (final v in RefinedHeadlineCatalog.standard.of(family, facts)) {
@@ -305,10 +296,9 @@ void main() {
           }
         }
       }
-      // song-weeks-p5 ("5 weeks in the Top 10 for "Song" by Artist.") was
-      // missed by the contract's §6.4 list and has no approved exclusion yet.
-      // Chart-jump lines are reviewed separately. Any other gap fails here.
-      expect(violations.toSet(), {'song-weeks-p5'});
+      // Batch 3 closed the last gaps (song-weeks-p5 and six chart-jump
+      // lines). Any line that drops a guest fails here.
+      expect(violations.toSet(), isEmpty);
     });
 
     test('no approved family loses its last fitting line for a publisher', () {
