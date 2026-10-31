@@ -170,6 +170,14 @@ const chartJumpFamilies = {
   MomentFamily.songHot100ClimbRun,
 };
 
+/// Families added for the refined rules only (BUG-04 falls and exits):
+/// no catalog lines; their lines are refined additions, validated in
+/// refined_catalog_validation_test.dart.
+const refinedOnlyFamilies = {
+  MomentFamily.songBubblingUnderFall,
+  MomentFamily.songHot100Exit,
+};
+
 /// Every fact a family can use, so every headline renders.
 MomentFacts fullFacts(MomentFamily family) {
   final release = family.isRelease;
@@ -225,6 +233,10 @@ void main() {
     test('every family has twelve distinct headlines, six per publisher', () {
       final ids = <String>{};
       for (final family in MomentFamily.values) {
+        if (refinedOnlyFamilies.contains(family)) {
+          expect(MomentHeadlines.of(family), isEmpty);
+          continue;
+        }
         final variants = MomentHeadlines.of(family);
         // SN-50 families carry only the approved-direction drafts so far.
         final drafted = sn50Families.contains(family);

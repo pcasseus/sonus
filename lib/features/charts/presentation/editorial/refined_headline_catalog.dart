@@ -4,6 +4,7 @@ import 'moment_facts.dart';
 import 'moment_family.dart';
 import 'moment_headlines.dart';
 import 'moment_publisher.dart';
+import 'moment_story_planner.dart';
 
 /// A refined-only rewording of a catalog headline (SN-50 editorial contract
 /// §5). The line keeps its id and its place in the family; only stories told
@@ -496,6 +497,322 @@ class RefinedHeadlineCatalog {
       ),
     ],
     additions: [
+      // BU-020 to BU-031 (Batch 5): falls of 30+ within Bubbling Under.
+      RefinedAddition(
+        MomentFamily.songBubblingUnderFall,
+        HeadlineVariant(
+          'song-bu-fall-d1',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              '${f.subject} falls from #${f.previousRank} to #${f.rank} on the '
+              'weekly Sonus Bubbling Under.',
+          requires: const {MomentFact.rank, MomentFact.previousRank},
+        ),
+        when: _bubblingUnderFall,
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.songBubblingUnderFall,
+        HeadlineVariant(
+          'song-bu-fall-d2',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              '${f.subject} drops ${f.placesDown} places on the weekly Sonus '
+              'Bubbling Under, to #${f.rank}.',
+          requires: const {MomentFact.rank, MomentFact.placesDown},
+        ),
+        when: _bubblingUnderFall,
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.songBubblingUnderFall,
+        HeadlineVariant(
+          'song-bu-fall-d3',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              '${f.subject} slips to #${f.rank} on the weekly Sonus Bubbling '
+              'Under, down from #${f.previousRank}.',
+          requires: const {MomentFact.rank, MomentFact.previousRank},
+        ),
+        when: _bubblingUnderFall,
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.songBubblingUnderFall,
+        HeadlineVariant(
+          'song-bu-fall-d4',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              'A ${f.placesDown}-place fall on the weekly Sonus Bubbling Under '
+              'takes ${f.subject} to #${f.rank}.',
+          requires: const {MomentFact.rank, MomentFact.placesDown},
+        ),
+        when: _bubblingUnderFall,
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.songBubblingUnderFall,
+        HeadlineVariant(
+          'song-bu-fall-d5',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              '${f.subject} moves down the weekly Sonus Bubbling Under, from '
+              '#${f.previousRank} to #${f.rank}.',
+          requires: const {MomentFact.rank, MomentFact.previousRank},
+        ),
+        when: _bubblingUnderFall,
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.songBubblingUnderFall,
+        HeadlineVariant(
+          'song-bu-fall-d6',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              '${f.subject} loses ${f.placesDown} places on the weekly Sonus '
+              'Bubbling Under and sits at #${f.rank}.',
+          requires: const {MomentFact.rank, MomentFact.placesDown},
+        ),
+        when: _bubblingUnderFall,
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.songBubblingUnderFall,
+        HeadlineVariant(
+          'song-bu-fall-p1',
+          MomentPublisher.pulsePop,
+          (f) =>
+              'Down ${f.placesDown}: ${f.work} slides to #${f.rank} on Sonus '
+              'Bubbling Under.',
+          requires: const {MomentFact.rank, MomentFact.placesDown},
+        ),
+        when: _bubblingUnderFall,
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.songBubblingUnderFall,
+        HeadlineVariant(
+          'song-bu-fall-p2',
+          MomentPublisher.pulsePop,
+          (f) =>
+              '${f.work} takes a tumble on Sonus Bubbling Under, from '
+              '#${f.previousRank} to #${f.rank}.',
+          requires: const {MomentFact.rank, MomentFact.previousRank},
+        ),
+        when: _bubblingUnderFall,
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.songBubblingUnderFall,
+        HeadlineVariant(
+          'song-bu-fall-p3',
+          MomentPublisher.pulsePop,
+          (f) =>
+              'Rough week for ${f.subject}: down to #${f.rank} on Sonus '
+              'Bubbling Under.',
+          requires: const {MomentFact.rank},
+        ),
+        when: _bubblingUnderFall,
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.songBubblingUnderFall,
+        HeadlineVariant(
+          'song-bu-fall-p4',
+          MomentPublisher.pulsePop,
+          (f) =>
+              '${f.work} drops ${f.placesDown} spots to #${f.rank} on Sonus '
+              'Bubbling Under.',
+          requires: const {MomentFact.rank, MomentFact.placesDown},
+        ),
+        when: _bubblingUnderFall,
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.songBubblingUnderFall,
+        HeadlineVariant(
+          'song-bu-fall-p5',
+          MomentPublisher.pulsePop,
+          (f) =>
+              'From #${f.previousRank} to #${f.rank}: ${f.work} loses ground on '
+              'Sonus Bubbling Under.',
+          requires: const {MomentFact.rank, MomentFact.previousRank},
+        ),
+        when: _bubblingUnderFall,
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.songBubblingUnderFall,
+        HeadlineVariant(
+          'song-bu-fall-p6',
+          MomentPublisher.pulsePop,
+          (f) =>
+              '${f.subject} slips ${f.placesDown} places on Sonus Bubbling '
+              'Under, now at #${f.rank}.',
+          requires: const {MomentFact.rank, MomentFact.placesDown},
+        ),
+        when: _bubblingUnderFall,
+        approved: true,
+      ),
+      // BU-040 to BU-051 (Batch 5): notable exits into Bubbling Under.
+      // Both ranks are positions on two charts, never a place count.
+      RefinedAddition(
+        MomentFamily.songHot100Exit,
+        HeadlineVariant(
+          'song-exit-d1',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              '${f.subject} leaves the Sonus Hot 100 and is #${f.rank} on the '
+              'weekly Sonus Bubbling Under.',
+          requires: const {MomentFact.rank},
+        ),
+        when: _hot100Exit,
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.songHot100Exit,
+        HeadlineVariant(
+          'song-exit-d2',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              '${f.subject} slips from #${f.previousRank} on the Sonus Hot 100 '
+              'to #${f.rank} on Sonus Bubbling Under.',
+          requires: const {MomentFact.rank, MomentFact.previousRank},
+        ),
+        when: _hot100Exit,
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.songHot100Exit,
+        HeadlineVariant(
+          'song-exit-d3',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              'Once #${f.previousPeak} on the Sonus Hot 100, ${f.subject} moves '
+              'to Sonus Bubbling Under at #${f.rank}.',
+          requires: const {MomentFact.rank, MomentFact.previousPeak},
+        ),
+        when: _hot100ExitAfterTop40Peak,
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.songHot100Exit,
+        HeadlineVariant(
+          'song-exit-d4',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              '${f.subject} exits the Sonus Hot 100 after peaking at '
+              '#${f.previousPeak}; it is now #${f.rank} on Sonus Bubbling '
+              'Under.',
+          requires: const {MomentFact.rank, MomentFact.previousPeak},
+        ),
+        when: _hot100ExitAfterTop40Peak,
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.songHot100Exit,
+        HeadlineVariant(
+          'song-exit-d5',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              'After its Sonus Hot 100 run, ${f.subject} continues on Sonus '
+              'Bubbling Under at #${f.rank}.',
+          requires: const {MomentFact.rank},
+        ),
+        when: _hot100Exit,
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.songHot100Exit,
+        HeadlineVariant(
+          'song-exit-d6',
+          MomentPublisher.sonusDaily,
+          (f) =>
+              '${f.subject} drops out of the Sonus Hot 100, to #${f.rank} on '
+              'Sonus Bubbling Under.',
+          requires: const {MomentFact.rank},
+        ),
+        when: _hot100Exit,
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.songHot100Exit,
+        HeadlineVariant(
+          'song-exit-p1',
+          MomentPublisher.pulsePop,
+          (f) =>
+              'Out of the Sonus Hot 100: ${f.work} drops to #${f.rank} on Sonus '
+              'Bubbling Under.',
+          requires: const {MomentFact.rank},
+        ),
+        when: _hot100Exit,
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.songHot100Exit,
+        HeadlineVariant(
+          'song-exit-p2',
+          MomentPublisher.pulsePop,
+          (f) =>
+              '${f.work} says goodbye to the Sonus Hot 100 and lands at '
+              '#${f.rank} on Sonus Bubbling Under.',
+          requires: const {MomentFact.rank},
+        ),
+        when: _hot100Exit,
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.songHot100Exit,
+        HeadlineVariant(
+          'song-exit-p3',
+          MomentPublisher.pulsePop,
+          (f) =>
+              'A #${f.previousPeak} peak behind it, ${f.subject} slides to Sonus '
+              'Bubbling Under at #${f.rank}.',
+          requires: const {MomentFact.rank, MomentFact.previousPeak},
+        ),
+        when: _hot100ExitAfterTop40Peak,
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.songHot100Exit,
+        HeadlineVariant(
+          'song-exit-p4',
+          MomentPublisher.pulsePop,
+          (f) =>
+              '${f.work} falls from #${f.previousRank} on the Sonus Hot 100 to '
+              '#${f.rank} on Sonus Bubbling Under.',
+          requires: const {MomentFact.rank, MomentFact.previousRank},
+        ),
+        when: _hot100Exit,
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.songHot100Exit,
+        HeadlineVariant(
+          'song-exit-p5',
+          MomentPublisher.pulsePop,
+          (f) =>
+              'Hot 100 exit: ${f.subject} is now #${f.rank} on Sonus Bubbling '
+              'Under.',
+          requires: const {MomentFact.rank},
+        ),
+        when: _hot100Exit,
+        approved: true,
+      ),
+      RefinedAddition(
+        MomentFamily.songHot100Exit,
+        HeadlineVariant(
+          'song-exit-p6',
+          MomentPublisher.pulsePop,
+          (f) =>
+              'A Sonus Hot 100 run comes to an end: ${f.work} is now #${f.rank} '
+              'on Sonus Bubbling Under.',
+          requires: const {MomentFact.rank},
+        ),
+        when: _hot100Exit,
+        approved: true,
+      ),
       // BU-010 to BU-015 (Batch 4). "The week before" lines are weekly only.
       RefinedAddition(
         MomentFamily.songHot100Breakthrough,
@@ -633,5 +950,24 @@ bool _weeklyFromBubblingUnder(MomentFacts f) =>
     f.weekly && _fromBubblingUnder(f);
 
 bool _notFromBubblingUnder(MomentFacts f) => !_fromBubblingUnder(f);
+
+/// A weekly move between two Bubbling Under positions.
+bool _bubblingUnderFall(MomentFacts f) =>
+    f.weekly &&
+    f.chartType == ChartType.songs &&
+    (f.previousRank ?? 0) > ChartRankingEngine.officialChartLimit &&
+    (f.rank ?? 0) > ChartRankingEngine.officialChartLimit;
+
+/// A weekly move from a Hot 100 position to a Bubbling Under one.
+bool _hot100Exit(MomentFacts f) =>
+    f.weekly &&
+    f.chartType == ChartType.songs &&
+    (f.previousRank ?? 101) <= ChartRankingEngine.officialChartLimit &&
+    (f.rank ?? 0) > ChartRankingEngine.officialChartLimit;
+
+/// [_hot100Exit] with a verified Top 40 peak to name.
+bool _hot100ExitAfterTop40Peak(MomentFacts f) =>
+    _hot100Exit(f) &&
+    (f.previousPeak ?? 101) <= MomentStoryPlanner.notableExitPeak;
 
 bool _notWeeklyFromBubblingUnder(MomentFacts f) => !_weeklyFromBubblingUnder(f);

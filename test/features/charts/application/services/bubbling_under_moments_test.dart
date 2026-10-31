@@ -329,9 +329,11 @@ void main() {
       expect(of(all, _up, week3).single.headline, isNot(contains('Hot 100')));
     });
 
-    test('a fall within Bubbling Under and a drop out of the Hot 100 have no '
-        'approved copy yet, so they publish nothing', () {
-      expect(families(_down), isEmpty);
+    test('a 46-place fall within Bubbling Under is a story (Batch 5); a drop '
+        'out of the Hot 100 without a Top 40 peak or five weeks is not', () {
+      expect(families(_down), [MomentFamily.songBubblingUnderFall]);
+      expect(of(all, _down, week3).single.id, endsWith('#bu-fall'));
+      // #94, #94, then #121: a #94 peak and two Hot 100 weeks.
       expect(families(_drop), isEmpty);
     });
 
@@ -437,26 +439,22 @@ void main() {
       );
     });
 
-    test('a fall of 30+ within Bubbling Under is detected but held for '
-        'copy approval; -29 is not detected', () async {
+    test('a fall of 30+ within Bubbling Under is told under its held id '
+        '(Batch 5); -29 is not', () async {
       final week2 = await publish(_from, moves());
       final all = await stories(_activated);
-      final held = await gated(_activated);
 
-      expect(families(all, c, week2), isEmpty);
+      expect(families(all, c, week2), [MomentFamily.songBubblingUnderFall]);
+      final story = of(all, c, week2).single;
+      expect(story.id, endsWith('#bu-fall'));
+      expect(story.headline, contains('Bubbling Under'));
+      expect(story.headline, isNot(contains('Hot 100')));
       expect(families(all, d, week2), isEmpty);
-      expect(
-        [
-          for (final moment in held)
-            if (moment.kind == GatedMomentKind.bubblingUnderFall)
-              moment.event.entity.entityId,
-        ],
-        ['c'],
-      );
+      expect(await gated(_activated), isEmpty);
     });
 
-    test('a Hot 100 exit into Bubbling Under is held for copy approval '
-        'only after a Top 40 peak or five Hot 100 weeks', () async {
+    test('a Hot 100 exit into Bubbling Under is told (Batch 5) only after a '
+        'Top 40 peak or five Hot 100 weeks', () async {
       final peak35 = _song('peak-35');
       final fiveWeeks = _song('five-weeks');
       final fourWeeks = _song('four-weeks');
@@ -468,26 +466,31 @@ void main() {
         {fiveWeeks: 94, fourWeeks: 94, peak35: 94},
         {fiveWeeks: 121, fourWeeks: 121, peak35: 121},
       ]);
-      final held = await gated(_activated);
+      final all = await stories(_activated);
       final exits = {
-        for (final moment in held)
-          if (moment.kind == GatedMomentKind.notableHot100Exit)
-            moment.event.entity.entityId: moment,
+        for (final song in [peak35, fiveWeeks, fourWeeks])
+          for (final story in of(all, song, last))
+            if (story.family == MomentFamily.songHot100Exit)
+              song.entityId: story,
       };
 
       expect(exits.keys, unorderedEquals(['peak-35', 'five-weeks']));
-      expect(exits.values.every((m) => m.event.weekStartUtc == last), isTrue);
-      expect(exits.values.every((m) => m.id.endsWith('#hot-100-exit')), isTrue);
+      expect(exits.values.every((s) => s.id.endsWith('#hot-100-exit')), isTrue);
       // A move across the chart boundary is never a Bubbling Under fall.
-      expect(
-        held.where((m) => m.kind == GatedMomentKind.bubblingUnderFall),
-        isEmpty,
-      );
-      // Nothing about an exit is published.
-      final all = await stories(_activated);
       for (final song in [peak35, fiveWeeks, fourWeeks]) {
-        expect(of(all, song, last), isEmpty);
+        expect(
+          families(all, song, last),
+          isNot(contains(MomentFamily.songBubblingUnderFall)),
+        );
       }
+      // Only a verified Top 40 peak is ever named.
+      const peakLines = {'song-exit-d3', 'song-exit-d4', 'song-exit-p3'};
+      expect(peakLines, isNot(contains(exits['five-weeks']!.variantId)));
+      for (final story in exits.values) {
+        expect(story.headline, isNot(contains('27')));
+        expect(story.headline, contains('Bubbling Under'));
+      }
+      expect(await gated(_activated), isEmpty);
     });
 
     test('detection is stable: composing again gives the same stories and '

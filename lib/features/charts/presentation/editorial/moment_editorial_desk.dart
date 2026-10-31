@@ -481,6 +481,8 @@ class MomentEditorialDesk {
     MomentFamily.artistTopArtist => 'TOP ARTIST',
     MomentFamily.artistSimultaneous ||
     MomentFamily.artistSimultaneousReleases => 'RECORD',
+    MomentFamily.songBubblingUnderFall => 'FALL',
+    MomentFamily.songHot100Exit => 'HOT 100 EXIT',
   };
 
   /// Who writes a story under the SN-50 rules (F-Q28), by its character
@@ -520,7 +522,9 @@ class MomentEditorialDesk {
     MomentFamily.artistStreamMilestone ||
     MomentFamily.artistSimultaneous ||
     MomentFamily.artistSimultaneousReleases ||
-    MomentFamily.songHot100ClimbRun => MomentPublisher.sonusDaily,
+    MomentFamily.songHot100ClimbRun ||
+    MomentFamily.songBubblingUnderFall ||
+    MomentFamily.songHot100Exit => MomentPublisher.sonusDaily,
     MomentFamily.songDebutNumberOne ||
     MomentFamily.songDebutTop10 ||
     MomentFamily.songHot100Breakthrough ||

@@ -74,7 +74,15 @@ enum MomentFamily {
 
   /// SN-50 chart jumps (approved): 3+ consecutive weekly Hot 100 climbs
   /// worth 30+ places together.
-  songHot100ClimbRun;
+  songHot100ClimbRun,
+
+  /// SN-50 BUG-04 (approved rule 2): a weekly fall of 30+ places within
+  /// Sonus Bubbling Under. Refined rules only.
+  songBubblingUnderFall,
+
+  /// SN-50 BUG-04 (approved rule 3): a notable weekly exit from the Hot
+  /// 100 into Sonus Bubbling Under. Refined rules only.
+  songHot100Exit;
 
   /// How much a story matters (SN-45 spam control). Minor stories are
   /// capped per day; the others always appear.
@@ -102,6 +110,9 @@ enum MomentFamily {
     releaseThresholds ||
     artistSimultaneousReleases ||
     songHot100ClimbRun => MomentTier.notable,
+    // Capped like other minor stories; an exit after a verified Top 40
+    // peak is planned as mandatory (uncapped) instead.
+    songBubblingUnderFall || songHot100Exit => MomentTier.minor,
     _ => MomentTier.major,
   };
 

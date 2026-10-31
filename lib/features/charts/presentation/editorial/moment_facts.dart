@@ -95,6 +95,9 @@ enum MomentFact {
 
   /// A verified run of weekly climbs (SN-50 chart jumps).
   run,
+
+  /// Places lost since the preceding finalized week (SN-50 BUG-04).
+  placesDown,
 }
 
 /// Every verified fact of one story, ready for headlines.
@@ -208,6 +211,16 @@ class MomentFacts {
     return before == null || now == null || before <= now ? null : before - now;
   }
 
+  /// Places lost since the preceding finalized week; weekly stories
+  /// only, where the previous rank is that week's finalized rank.
+  int? get placesDown {
+    final before = previousRank;
+    final now = rank;
+    return !weekly || before == null || now == null || now <= before
+        ? null
+        : now - before;
+  }
+
   bool get bubblingUnder =>
       chartType == ChartType.songs &&
       rank != null &&
@@ -242,6 +255,7 @@ class MomentFacts {
     if (count != null) MomentFact.count,
     if (thresholds.length >= 2) MomentFact.thresholdList,
     if (jump case final run? when run.weeks > 1) MomentFact.run,
+    if (placesDown != null) MomentFact.placesDown,
   };
 
   /// The chart, by name, for the rank in this story: the Sonus Hot 100 or

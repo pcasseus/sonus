@@ -38,18 +38,9 @@ class PlannedMoment {
   final Set<String> excludedVariants;
 }
 
-/// Approved news that has no approved headlines yet (SN-50 BUG-04,
-/// BLOCKED_EDITORIAL). Detected so it can be checked and counted, never
-/// published.
+/// Approved news held back from publication (SN-50). Since Batch 5 the
+/// BUG-04 falls and exits are told (songBubblingUnderFall, songHot100Exit).
 enum GatedMomentKind {
-  /// A weekly fall of [MomentStoryPlanner.bubblingUnderFallMinimum] or
-  /// more places within Bubbling Under.
-  bubblingUnderFall,
-
-  /// A weekly exit from the Hot 100 into Bubbling Under by a song with a
-  /// Top 40 peak or [MomentStoryPlanner.notableExitWeeks] Hot 100 weeks.
-  notableHot100Exit,
-
   /// A story planned under the SN-50 rules whose family has no approved
   /// headlines yet (see MomentHeadlines.approvedFamilies): held, never
   /// published, never told with a plain fallback headline.
@@ -465,6 +456,23 @@ class MomentStoryPlanner {
       if (rise != null && _withinHot100(rise)) {
         _addChartJump(item, rise, stories, add);
       }
+      // BUG-04 approved rule 2: a fall of 30+ places within Bubbling Under,
+      // capped like any minor story.
+      final fall = find(const {ChartMomentEventType.rankFall});
+      if (fall != null &&
+          _withinBubblingUnder(fall) &&
+          (fall.movementDistance ?? 0) >= bubblingUnderFallMinimum) {
+        add('bu-fall', MomentFamily.songBubblingUnderFall, [fall]);
+      }
+      // BUG-04 approved rule 3: a notable exit into Bubbling Under; never
+      // capped after a verified Top 40 peak.
+      final exit = _hot100Exit(item);
+      if (exit != null) {
+        final peak = exit.previousPeakRank;
+        add('hot-100-exit', MomentFamily.songHot100Exit, [
+          exit,
+        ], mandatory: peak != null && peak <= notableExitPeak);
+      }
     }
 
     if (!weekly) {
@@ -634,41 +642,23 @@ class MomentStoryPlanner {
   static String _weekKey(ChartType chartType, DateTime weekStartUtc) =>
       '${chartType.name}:${weekStartUtc.toUtc().millisecondsSinceEpoch}';
 
-  /// The approved news in [item] that cannot be published until its
-  /// headlines are approved. Same rules and ids as [plan].
-  List<GatedMoment> copyGated(ChartMomentFeedItem item) {
-    if (item.scope != ChartMomentScope.finalized ||
-        item.chartType != ChartType.songs ||
-        item.subjectType == ChartMomentFeedSubjectType.artist) {
-      return const [];
-    }
-    final gated = <GatedMoment>[];
+  /// Approved news in [item] detected but not yet told. Empty since
+  /// Batch 5, which tells the BUG-04 falls and exits under the same ids
+  /// (`#bu-fall`, `#hot-100-exit`).
+  List<GatedMoment> copyGated(ChartMomentFeedItem item) => const [];
+
+  /// The weekly exit from the Hot 100 into Bubbling Under in [item], when
+  /// it is notable (a Top 40 peak or five earlier Hot 100 weeks).
+  ChartMomentEvent? _hot100Exit(ChartMomentFeedItem item) {
     for (final event in item.events) {
-      if (event.eventType == ChartMomentEventType.rankFall &&
-          _withinBubblingUnder(event) &&
-          (event.movementDistance ?? 0) >= bubblingUnderFallMinimum) {
-        gated.add(
-          GatedMoment(
-            '${item.id}#bu-fall',
-            GatedMomentKind.bubblingUnderFall,
-            event,
-          ),
-        );
-      }
       if (event.eventType == ChartMomentEventType.thresholdExit &&
           event.threshold == ChartRankingEngine.officialChartLimit &&
           (event.currentRank ?? 0) > ChartRankingEngine.officialChartLimit &&
           _notableExit(event)) {
-        gated.add(
-          GatedMoment(
-            '${item.id}#hot-100-exit',
-            GatedMomentKind.notableHot100Exit,
-            event,
-          ),
-        );
+        return event;
       }
     }
-    return gated;
+    return null;
   }
 
   /// Chart jumps (SN-50, approved rules 1–7 and 10): a run of weekly Hot

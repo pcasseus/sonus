@@ -45,7 +45,9 @@ enum MomentCategory {
     MomentFamily.songThresholds ||
     MomentFamily.releaseNewPeak ||
     MomentFamily.releaseFirstThreshold ||
-    MomentFamily.releaseThresholds => peaks,
+    MomentFamily.releaseThresholds ||
+    MomentFamily.songBubblingUnderFall ||
+    MomentFamily.songHot100Exit => peaks,
     MomentFamily.songStreamMilestone ||
     MomentFamily.songWeeksMilestone ||
     MomentFamily.releaseStreamMilestone ||

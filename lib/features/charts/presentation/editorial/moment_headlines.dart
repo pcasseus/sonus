@@ -72,8 +72,11 @@ abstract final class MomentHeadlines {
   /// earlier rules (legacy and before activation) ever use. Never edit,
   /// reorder or extend a family here; refined changes go through
   /// RefinedHeadlineCatalog (SN-50 contract §5).
+  ///
+  /// Families added for the refined rules only (BUG-04 falls and exits)
+  /// have no catalog lines; their lines are refined additions.
   static List<HeadlineVariant> legacyOf(MomentFamily family) =>
-      _library[family]!;
+      _library[family] ?? const [];
 
   /// The families whose headlines are approved for publication (SN-50
   /// release safety). Fail-closed: a family is publishable only when it is
@@ -117,6 +120,9 @@ abstract final class MomentHeadlines {
     MomentFamily.artistNthNumberOneRelease,
     MomentFamily.songHot100MajorJump,
     MomentFamily.songHot100ClimbRun,
+    // SN-50 BUG-04 (Batch 5): BU-020 to BU-031 and BU-040 to BU-051.
+    MomentFamily.songBubblingUnderFall,
+    MomentFamily.songHot100Exit,
   };
 
   static Iterable<MomentFamily> get families => _library.keys;
