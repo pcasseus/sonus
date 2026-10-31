@@ -55,12 +55,12 @@ Test paths are under `test/features/` unless they start with `test/core/`. Basen
 | A-Q8A | Disc Organization stays accessible; headings only for real multi-disc editions | Implemented+tested | `e4027e7` | `album_profile_page_test.dart`, `release_studio_editions_test.dart` | One shared `spansMultipleDiscs` rule. |
 | A-Q9 | A disc move puts the track at the end of the destination disc | Implemented+tested | `1a017eb` | `album_edition_track_ordering_service_test.dart` | |
 | A-Q10 | Historical charts and Moments stay frozen | Implemented+tested | `8956e3a` | `chart_finalization_restore_test.dart` (freeze suite), `chart_finalization_service_test.dart`, `sqlite_chart_moment_repository_test.dart` | |
-| A-Q12 | Context-aware song artwork | Implemented+tested | `e4027e7`, `9aee76d` | `library_query_dao_test.dart`, `album_edition_track_order_test.dart`, `moment_editorial_test.dart` | **Open question** (Progress BLOCKED #6): in an edition view, song custom art currently comes before the edition cover. |
+| A-Q12 | Context-aware song artwork | Implemented+tested | `e4027e7`, `9aee76d`, `6f719d5` | `library_query_dao_test.dart`, `album_profile_edition_artwork_test.dart`, `album_edition_track_order_test.dart`, `moment_editorial_test.dart` | **[Round 14] Decided 2026-10-31:** in an edition view the edition cover comes first, then the song's own art, then the primary cover (`6f719d5`). *Earlier: open question, song art first.* |
 | A-Q13 | Primary without artwork shows a neutral placeholder, not another edition's cover | Implemented+tested | `3dbaaa0`, `d27aa50` | `chart_album_presentation_test.dart`; `library_query_dao_test.dart` "SN-50 A-Q13" | Songs listed on a coverless primary now get the placeholder too. A-Q12 precedence is still an open question. |
 | A-Q14A | Cards show the displayed edition's track count | Implemented+tested | `1a017eb` | `library_query_dao_test.dart` | `songCount` keeps the all-edition count. |
 | A-Q14B | The primary-edition count drives possible-Single review | Implemented+tested | `1a017eb` | `library_query_dao_test.dart` | Can move a release into review and off the current chart. Finalized weeks are unaffected. |
 | A-Q15 | Block deletion until exclusive songs are relocated | Implemented+tested | `2a10990` | `album_edition_management_service_test.dart` | |
-| A-Q16 | Block unsafe cloud-linked edition deletes | Partial | `2a10990` | `album_edition_management_service_test.dart` "SN-50 A-Q16" | A primary in the signed-in user's cloud baseline is refused. **Missing (Gated: cloud):** the signed-out gap (Progress BLOCKED #3). No remote propagation was added. |
+| A-Q16 | Block unsafe cloud-linked edition deletes | Implemented+tested | `2a10990`, `5e4ec13` | `album_edition_management_service_test.dart` "SN-50 A-Q16"; `sqlite_cloud_revision_baseline_repository_test.dart` | A primary in the signed-in user's cloud baseline is refused; **[Round 14]** signed out, a primary with a baseline for any account on this device is refused too (`5e4ec13`, local read only). No remote propagation was added; A-Q16B stays gated. |
 | A-Q16B | Fail closed for older or incompatible devices | Gated (cloud) | — | — | Needs deletion reconciliation and a cloud design. Remote deletion is not authorized. |
 | A-Q17A | No speculative mass rewrite of titles, art, dates or genres | No change needed | `e4027e7`, `2a10990` | No migration rewrites them. v41 copies all 12 v40 columns unchanged. `albums.title`/`canonical_title` are never written. | Genuine conflicts are flagged (A-Q17B). |
 | A-Q17B | Genre conflicts get a review indicator; stored values unchanged | Implemented+tested | `e4027e7` | `release_studio_editions_test.dart` | |
@@ -208,7 +208,7 @@ An explicit M-2/M-3 sign-off is still the user's to give. M-4/M-5 (vendor patche
 | E-Q15C | Distinct NEW/RE-ENTRY colors plus non-color cues | Implemented+tested | `3dbaaa0` | `chart_movement_indicator_test.dart`, `sonus_theme_catalog_test.dart` (3:1) | |
 | E-Q16 | (as E-Q15C) | Implemented+tested | `3dbaaa0` | as E-Q15C | |
 | E-Q18 | "Best so far #N" separate from the official peak | Implemented+tested | `78750b3` | `chart_snapshot_builder_service_test.dart`, `charts_page_test.dart` | |
-| E-Q19 | One eligibility policy at finalization, then frozen | Partial | `78750b3` | `chart_snapshot_builder_service_test.dart` "SN-50 one eligibility policy (E-Q19)" | Songs blocked at finalization are excluded. **Open question** (Progress BLOCKED #8): exclude songs and albums no longer in the local library? The Trash leg waits on Session C. |
+| E-Q19 | One eligibility policy at finalization, then frozen | Partial | `78750b3` | `chart_snapshot_builder_service_test.dart` "SN-50 one eligibility policy (E-Q19)" | Songs blocked at finalization are excluded. **[Round 14] Decided 2026-10-31:** songs and albums missing from the local library stay (playback-session identity); no change. The Trash leg waits on Session C. |
 
 ## 6. Session F: Sonus Moments
 
@@ -265,7 +265,7 @@ Not done (by design):
 
 ## 8. Open questions and choices to confirm (collected)
 
-From Progress BLOCKED_NEEDS_APPROVAL: #1 DB v41 on real devices (install approval) · #2 B-Q19 cloud · #3 signed-out edition delete · #4 pre-`e4027e7` unqueued placements (re-queue repair) · #5 A-Q7D repairs · #6 A-Q12 edition-view precedence · #7 editorial P-001–P-050 / N-1–N-7 · #8 E-Q19 library-missing exclusion · ~~#9 Moments gate date~~ (resolved: build flag plus per-install marker, `8d2cbfe`; verified in round 5, F8) · #10 major-zone noise · #11 old-story repair · #12 new template copy · #13 Design §6 approvals (A-T0…A-T8, P-1…P-7, R-1…R-4, M-1…M-7).
+From Progress BLOCKED_NEEDS_APPROVAL: #1 DB v41 on real devices (install approval) · #2 B-Q19 cloud · ~~#3 signed-out edition delete~~ (`5e4ec13`) · ~~#4 pre-`e4027e7` unqueued placements~~ (manual re-send, `2926496`) · ~~#5 A-Q7D repairs~~ (already done) · ~~#6 A-Q12 edition-view precedence~~ (`6f719d5`) · #7 editorial P-001–P-050 / N-1–N-7 · ~~#8 E-Q19 library-missing exclusion~~ (decided: keep) · ~~#9 Moments gate date~~ (resolved: build flag plus per-install marker, `8d2cbfe`; verified in round 5, F8) · #10 major-zone noise · #11 old-story repair · #12 new template copy · #13 Design §6 approvals (A-T0…A-T8, P-1…P-7, R-1…R-4, M-1…M-7).
 
 Also: ~~D-Q16 M-1 (Play after a completed queue)~~ (resolved by R4, `db79c4e`) · #20 audit hardening F3–F6 · #21 refined-Moments release flag not set in any config · C-Q2 Track Studio auto-link policy · Editorial §6 Q1–Q4 · confirm M-2/M-3 were approved before `9547ef0`.
 

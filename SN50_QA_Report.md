@@ -1,6 +1,6 @@
 # SN-50 QA Report
 
-Branch `sn-50-final-refinement`, worktree `C:\dev\sonus\sonus_next_sn50`. Base `36d4d5d`. Round 1 ended at `14b592f`; refreshed 2026-10-31 at code HEAD `c758884` (round 13, R-V versioned refined catalogs; none pushed). *Earlier text: "refreshed 2026-10-31 at code HEAD `5ba4b19` (round 12, editorial Batches 3–9…)".* *Earlier text: "refreshed 2026-10-30 at code HEAD `49c6188` (round 10…)".* *Earlier text read "code HEAD `11f30a7` (round 9…)", which was stale: round 9 code ended at `cc680e8`.*
+Branch `sn-50-final-refinement`, worktree `C:\dev\sonus\sonus_next_sn50`. Base `36d4d5d`. Round 1 ended at `14b592f`; refreshed 2026-10-31 at code HEAD `2926496` (round 14: #3, A-Q12, #4; none pushed). *Earlier text: "refreshed 2026-10-31 at code HEAD `c758884` (round 13, R-V versioned refined catalogs; none pushed)".* *Earlier text: "refreshed 2026-10-31 at code HEAD `5ba4b19` (round 12, editorial Batches 3–9…)".* *Earlier text: "refreshed 2026-10-30 at code HEAD `49c6188` (round 10…)".* *Earlier text read "code HEAD `11f30a7` (round 9…)", which was stale: round 9 code ended at `cc680e8`.*
 
 ## 1. Analyzer and test suite
 
@@ -33,7 +33,10 @@ Branch `sn-50-final-refinement`, worktree `C:\dev\sonus\sonus_next_sn50`. Base `
 | `ea75208` (round 12 Batch 7) | No issues | 5,194 passed, 0 failed, 0 skipped, exit code 0 |
 | `bf835bf` (round 12 Batch 8) | No issues | 5,199 passed, 0 failed, 0 skipped, exit code 0 |
 | `5ba4b19` (round 12 Batch 9) | No issues | 5,204 passed, 0 failed, 0 skipped, exit code 0 |
-| `c758884` (round 13: R-V versioned refined catalogs); latest code | No issues | **5,218 passed, 0 failed, 0 skipped, exit code 0** (about 7 min 12 s, no standby) |
+| `c758884` (round 13: R-V versioned refined catalogs) | No issues | **5,218 passed, 0 failed, 0 skipped, exit code 0** (about 7 min 12 s, no standby) |
+| `5e4ec13` (round 14: signed-out primary edition delete, #3) | No issues | 5,221 passed, 0 failed, exit code 0 |
+| `6f719d5` (round 14: A-Q12 edition cover first) | No issues | 5,223 passed, 0 failed, exit code 0 |
+| `2926496` (round 14: re-send edition placements, #4); latest code | No issues | **5,228 passed, 0 failed, exit code 0 (7 min 7 s)** |
 
 The round 6 skip pinned the duplicate-restore gap; `ec59045` fixes it and the test runs again, so nothing is skipped.
 
@@ -162,6 +165,9 @@ These are spec-driven, not bugs, but the user will notice them:
 - Under the refined Moments rules only: Hot 100 jumps of 25+ places and climb runs are told with the approved copy, and the nine draft families (thresholds, self-replacement, repeat #1, release roundups) are held instead of published (round 10, `ae0fd05`).
 - A finalized chart week and its Moments are now stored together or not at all; a finalized week can never be rewritten (round 8, F6).
 - A timed-out, signed-out or switched sync run stops at its next safe point, so the next sync no longer waits for it to finish (round 8, #23).
+- In an edition view, a song with its own artwork now shows that edition's cover when the edition has one (round 14, A-Q12, decided).
+- Signed out, deleting a primary edition that any account on this device synced is refused, as it already was signed in (round 14, #3).
+- Verify Library has a Sync section, when signed in, with Re-send edition placements (round 14, #4); it only queues songs for the next sync after a confirmation.
 - Restoring a queue that holds a song twice resumes the copy that was playing, not the first copy (round 7, #22).
 - A sync run longer than 10 minutes is reported as timed out (changes kept, retry pending); no second run starts until it has ended; a sync queued for a signed-out or switched account no longer signs it back in (round 6 C).
 
@@ -202,5 +208,7 @@ These are spec-driven, not bugs, but the user will notice them:
 - **Refined Moments flag (round 10):** still disabled. Release blockers remain: BUG-04 copy, the nine draft families and the P-items.
 - **Sync against a real server:** the round 6 run queue and the round 8 cancellation are tested with fakes and disposable SQLite only; no Supabase contact.
 - ~~**Shuffle order persistence** (BLOCKED #24): known, not changed.~~ *Stale: done in `207e65d` (round 9); only its device check is pending.* The duplicate-song restore start (#22) is fixed in `ec59045`.
+
+- **Round 14:** the signed-out edition guard, the A-Q12 order and the placement re-send are verified by SQLite and widget tests only. Whether a real cloud copy then keeps the re-sent placements needs a real sync (gated). The new Sync strings are not editorially reviewed. Device QA steps are in `SN50_Android_Device_QA_Checklist.md`; none has been run.
 
 **Production is not complete:** release signing, `versionCode`, Supabase migrations and device QA are still release blockers, as in the audit (Part I §9).

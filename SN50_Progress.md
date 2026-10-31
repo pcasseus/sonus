@@ -905,7 +905,27 @@ Authority: BLOCKED #28 (R-V is mandatory before `SONUS_MOMENTS_REFINED_APPROVED`
 - `refined_catalog_versioning_test.dart`: version boundaries, flag-off no-I/O, restart keeps the recorded start, fresh install, corrupt/unsaved/newer starts, held stories, facts carry the version.
 - `dart format` clean and `flutter analyze` no issues on the changed files.
 
+## Round 14 (2026-10-31): device readiness and remaining functional work
+
+Authority: your round 14 instructions (do the code-only functional items, prepare device QA) and three decisions you made on 2026-10-31: A-Q12 edition cover first, E-Q19 keep library-missing songs, and #4 a manual re-send button. The refined Moments flag stays off; no migration, cloud, device, plugin or audio-file change.
+
+| Commit | Change | Full suite (`--concurrency=1`, detached runner, real exit code) |
+|---|---|---|
+| `5e4ec13` | A-Q16 (#3): signed out, a primary edition another account on this device synced is refused | **5,221 passed, 0 failed, exit code 0** (7 min 5 s) |
+| `6f719d5` | A-Q12 (#6): edition cover first in an edition view | **5,223 passed, 0 failed, exit code 0** |
+| `2926496` | #4: Verify Library → Sync → Re-send edition placements | 5,228 passed, 0 failed, exit code 0 (7 min 7 s) |
+
+- **#3 (`5e4ec13`).** `deleteEdition`'s cloud check used to return "not in the cloud" whenever no one was signed in. It now asks the new read-only `CloudBaselinePresence.hasAnyRevision` (SQLite baseline repository only) whether any account on this device has a baseline for the edition, and refuses with the existing `primaryInCloud` message. Signed-in behaviour, sync code and the schema are unchanged. Non-primary deletes are unaffected. Tests: signed out (`null`, blank) is refused; a baseline for another edition or for a song with the same id does not count; the DAO query matches type and id and writes nothing.
+- **#6 A-Q12 (`6f719d5`).** `findTracksByAlbumEditionId` now orders artwork edition cover → song's own artwork → primary cover → placeholder (`COALESCE(ea, sa, tpa)`). Only edition views change: lists outside an edition view, Moments covers and history keep the song's own artwork first. A coverless edition still shows the song's own artwork before the primary cover. Two tests that pinned the old order were rewritten under names stating the new rule.
+- **#4 (`2926496`).** `AlbumEditionManagementService.resendPlacements(userId:)` queues, in one transaction, an upsert for every song listed on an edition other than its home edition (new read-only `AwayFromHomeListings` query), and returns how many. It writes only the sync outbox: no song, listing or number. Verify Library shows a **Sync** section with "Re-send edition placements" only when signed in; it runs only after a confirmation dialog and reports the count. The next sync then sends this device's placements and the cloud copy takes them. It never runs by itself. **New UI strings (not editorially reviewed):** section "Sync"; tile "Re-send edition placements"; hint "If a song's place on another edition went back after a sync, send this device's placements again."; dialog "Re-send placements?" / "Songs listed on more than one edition are sent with the next sync, and your cloud library takes the placements on this device. Songs, files and listening history are not changed." / Cancel / Re-send; results "N songs will be sent with the next sync.", "No songs are listed on more than one edition.", "The placements could not be queued. Nothing was changed."
+- **#5 A-Q7D** was already done in round 1–2 (`1a017eb`, `d27aa50`: Release Studio → Fix numbering previews old → new, changes nothing until confirmed, and asks separately before touching hand-set numbers). The BLOCKED entry was stale.
+- **#8 E-Q19:** decided "keep": finalized weeks keep songs and albums missing from the local library (playback-session identity). No code change.
+- **Device QA:** `SN50_Android_Device_QA_Checklist.md` (new): backup first, DB v41 upgrade, playback, Repeat One, exact shuffle order, Clear queue, SAF/Import Review, media notification, Android Auto. Nothing in it has been run.
+- **Not done (needs your wording approval):** #26 paused-sync wording and #27 the remaining Import Review strings. No string was changed.
+
 ## BLOCKED_NEEDS_APPROVAL / user decisions
+
+**[Round 14]** #3 is fixed (`5e4ec13`), #4 has the decided manual re-send (`2926496`), #5 was already done, #6 and #8 are decided (#6 in `6f719d5`). Device QA checklist: `SN50_Android_Device_QA_Checklist.md`.
 
 **[Round 13]** #28 (R-V) is implemented in `c758884`. Activation still needs #21 and device QA; the flag stays off.
 
@@ -915,14 +935,14 @@ Authority: BLOCKED #28 (R-V is mandatory before `SONUS_MOMENTS_REFINED_APPROVED`
 
 1. **DB v41 on real devices.** The migration runs on a phone's real database the first time a build containing `2a10990` is installed. Take a `.sonusbackup` before any install. Installing is a separate approval.
 2. **B-Q19.** Release Leaked rides in the cloud-archive row automatically, like Live, and the archive isn't deployed, so there is no exposure today. A client older than v41 receiving a row that holds only Leaked would fail its local CHECK, the same issue Live has for clients older than v40. Cloud activation is a separate approval.
-3. **Edition delete while signed out.** The `primaryInCloud` gate checks only the signed-in user's baselines. Closing that gap needs a sync-code change, which needs approval.
-4. **Placement edits never queued.** Track Studio placements made before `e4027e7` can still be reverted by an inbound copy (fixing this would need a re-queue repair, which needs approval).
-5. **A-Q7D numbering repairs.** Previewed individual repairs of existing gapped editions are not built yet.
-6. **Open question (A-Q12).** In an edition view, should a song's custom artwork or the edition cover come first? Currently the song's custom artwork wins.
+3. ~~**Edition delete while signed out.**~~ **[Round 14] Fixed in `5e4ec13`** without a sync-code change: signed out, a primary edition with a baseline for any account on this device is refused. (Cross-device edition deletes, A-Q16B, stay gated: cloud.) The `primaryInCloud` gate checks only the signed-in user's baselines. Closing that gap needs a sync-code change, which needs approval.
+4. ~~**Placement edits never queued.**~~ **[Round 14] Decided 2026-10-31: a manual repair. Done in `2926496`** (Verify Library → Sync → Re-send edition placements, signed in, after confirmation). Track Studio placements made before `e4027e7` can still be reverted by an inbound copy (fixing this would need a re-queue repair, which needs approval).
+5. ~~**A-Q7D numbering repairs.**~~ **[Round 14] Stale: already done in `1a017eb`/`d27aa50`** (Fix numbering with preview). Previewed individual repairs of existing gapped editions are not built yet.
+6. ~~**Open question (A-Q12).**~~ **[Round 14] Decided 2026-10-31: the edition cover comes first; done in `6f719d5`.** In an edition view, should a song's custom artwork or the edition cover come first? Currently the song's custom artwork wins.
 7. **Editorial proposal.** P-001 to P-050 and N-1 to N-7 await line-by-line approval, plus the four open questions in its §6.
     - **[Round 12]** P-024 to P-050 (`1a55806`) complete P-001 to P-050 for refined stories. Remaining: the N-1 release #101–200 lines and the N-7 remainder (exits off both charts: not told, by decision).
     - **[Round 11]** P-003 to P-009 (`b0f17c4`), P-001, P-002, P-010 to P-023, the §6.4 guest exclusions and P-051 (`97687a3`) are done for refined stories. Open: `song-weeks-p5` (a guest-dropping line missed by §6.4) and six chart-jump lines with the same problem need decisions. The rest is in `SN50_Final_Editorial_Approval_and_Implementation_Contract.md`, unapproved.
-8. **E-Q19 remainder.** Should finalized weeks also exclude songs and albums no longer in the local library? If yes, plays synced from another device for songs not imported locally would drop out of new finalized weeks, and the SN-32 test "finalized history uses playback-session identity even when song is no longer in library" changes meaning.
+8. ~~**E-Q19 remainder.**~~ **[Round 14] Decided 2026-10-31: no; finalized weeks keep library-missing songs and albums. No change.** Should finalized weeks also exclude songs and albums no longer in the local library? If yes, plays synced from another device for songs not imported locally would drop out of new finalized weeks, and the SN-32 test "finalized history uses playback-session identity even when song is no longer in library" changes meaning.
 9. ~~**Moments gate date.**~~ **Resolved by `8d2cbfe` (R2), verified in round 5 (F8):** there is no fixed date. Activation needs the `SONUS_MOMENTS_REFINED_APPROVED=true` build flag plus the write-once per-install marker. What remains is item 21.
 10. **Major-zone noise.** A jump straight to #1 can yield the #1 story, Top 2/3/5/10 stories and a consolidated story (6–7 stories). Should majors below the final major be folded into one?
 11. **Old-story repair.** Should already-published stories get the rival fix and the "this stream" removal? That counts as a historical repair, which needs separate approval.
