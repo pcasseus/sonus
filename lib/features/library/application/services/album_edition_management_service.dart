@@ -1,4 +1,5 @@
 import '../../../../core/identity/text_normalizer.dart';
+import '../../../sync/application/repositories/cloud_revision_baseline_repository.dart';
 import '../../../sync/application/services/sync_mutation_context.dart';
 import '../../../sync/application/services/sync_mutation_runner.dart';
 import '../../../sync/domain/models/sync_data_contract.dart';
@@ -510,14 +511,24 @@ class AlbumEditionManagementService {
 
   /// Whether the edition has reached [userId]'s cloud. Without a way to
   /// tell, it is treated as there.
+  ///
+  /// Signed out, it counts as there when any account on this device has a
+  /// baseline for it (SN-50 A-Q16): the delete would otherwise reach no
+  /// cloud, and that account's other devices would keep it as primary.
   static Future<bool> _inCloud(
     SyncMutationContext context,
     String? userId,
     String editionId,
   ) async {
     final owner = userId?.trim();
-    if (owner == null || owner.isEmpty) return false;
     final baselines = context.cloudRevisionBaselineRepository;
+    if (owner == null || owner.isEmpty) {
+      if (baselines is! CloudBaselinePresence) return false;
+      return (baselines as CloudBaselinePresence).hasAnyRevision(
+        entityType: CloudDataEntity.albumEdition,
+        entityId: editionId,
+      );
+    }
     if (baselines == null) return true;
     return await baselines.getRevision(
           userId: owner,

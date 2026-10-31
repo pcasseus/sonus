@@ -776,6 +776,63 @@ void main() {
       );
       expect(queued.single['operation'], 'delete');
     });
+
+    test('SN-50 A-Q16: signed out, a primary edition another account on '
+        'this device synced is refused', () async {
+      final (album, standard, deluxe, _) = await withDeluxe();
+      final db = await appDatabase.database;
+      await CloudRevisionBaselineDao(db).saveObservedRevision(
+        userId: 'user-1',
+        entityType: CloudDataEntity.albumEdition,
+        entityId: standard,
+        serverRevision: 2,
+      );
+
+      for (final signedOut in [null, '', '  ']) {
+        await expectLater(
+          editions.deleteEdition(
+            editionId: standard,
+            replacementPrimaryId: deluxe.id,
+            userId: signedOut,
+          ),
+          refused(AlbumEditionRefusal.primaryInCloud),
+          reason: 'userId: "$signedOut"',
+        );
+      }
+      final after = await editionsOf(album);
+      expect(after, hasLength(2));
+      expect(after.singleWhere((e) => e.isPrimary).id, standard);
+    });
+
+    test('SN-50 A-Q16: signed out, a primary edition no account synced is '
+        'deleted as before', () async {
+      final (album, standard, deluxe, _) = await withDeluxe();
+      final db = await appDatabase.database;
+      // A baseline for a different edition, and one for a song with the
+      // same id, do not count.
+      await CloudRevisionBaselineDao(db).saveObservedRevision(
+        userId: 'user-1',
+        entityType: CloudDataEntity.albumEdition,
+        entityId: deluxe.id,
+        serverRevision: 1,
+      );
+      await CloudRevisionBaselineDao(db).saveObservedRevision(
+        userId: 'user-1',
+        entityType: CloudDataEntity.song,
+        entityId: standard,
+        serverRevision: 1,
+      );
+
+      await editions.deleteEdition(
+        editionId: standard,
+        replacementPrimaryId: deluxe.id,
+        now: now,
+      );
+
+      final after = await editionsOf(album);
+      expect(after.single.id, deluxe.id);
+      expect(after.single.isPrimary, isTrue);
+    });
   });
 
   test('a failure part-way leaves nothing changed', () async {
