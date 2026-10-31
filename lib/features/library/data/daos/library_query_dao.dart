@@ -626,6 +626,11 @@ class LibraryQueryDao {
         .toList(growable: false);
   }
 
+  /// The tracks listed on an edition, as its edition view shows them.
+  ///
+  /// Artwork (SN-50 A-Q12, decided 2026-10-31): the edition's own cover,
+  /// then the song's own artwork, then the primary edition's cover, then
+  /// the placeholder; never another edition's cover.
   Future<List<LibraryTrack>> findTracksByAlbumEditionId(
     String editionId,
   ) async {
@@ -657,8 +662,8 @@ class LibraryQueryDao {
         s.created_at AS created_at,
         m.file_path AS file_path,
         COALESCE(m.is_available, 0) AS is_available,
-        COALESCE(sa.id, ea.id, tpa.id) AS artwork_id,
-        COALESCE(sa.file_path, ea.file_path, tpa.file_path) AS artwork_path
+        COALESCE(ea.id, sa.id, tpa.id) AS artwork_id,
+        COALESCE(ea.file_path, sa.file_path, tpa.file_path) AS artwork_path
       FROM ${DatabaseTables.albumEditionTracks} aet
       INNER JOIN ${DatabaseTables.songs} s
         ON s.id = aet.song_id

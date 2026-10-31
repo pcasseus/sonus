@@ -40,9 +40,9 @@ const _standardCover = r'C:\Artwork\R5\standard.jpg';
 const _deluxeCover = r'C:\Artwork\R5\deluxe.jpg';
 const _songCover = r'C:\Artwork\R5\custom.jpg';
 
-/// SN-50 R5 on the Album page, over the real library queries: in an edition
-/// view a song shows its own artwork, then that edition's cover, then the
-/// primary edition's cover, then the placeholder.
+/// SN-50 A-Q12 on the Album page, over the real library queries: in an
+/// edition view a song shows that edition's cover, then its own artwork,
+/// then the primary edition's cover, then the placeholder.
 void main() {
   sqfliteFfiInit();
 
@@ -120,20 +120,20 @@ void main() {
     return file.file.path;
   }
 
-  testWidgets('the song\'s own artwork wins; otherwise the edition on '
-      'screen gives its cover', (tester) async {
+  testWidgets('the edition on screen gives its cover, even over a song\'s '
+      'own artwork', (tester) async {
     await tester.runAsync(() => _seed(appDatabase));
 
     final standard = await queuedArtwork(tester, _standard);
     expect(standard, {
-      'song_custom': _songCover,
+      'song_custom': _standardCover,
       'song_shared': _standardCover,
     });
     expect(headerCover(tester), _standardCover);
 
     final deluxe = await queuedArtwork(tester, _deluxe);
     expect(deluxe, {
-      'song_custom': _songCover,
+      'song_custom': _deluxeCover,
       'song_shared': _deluxeCover,
       'song_bonus': _deluxeCover,
     });

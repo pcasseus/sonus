@@ -1599,9 +1599,10 @@ void main() {
     });
   });
 
-  // SN-50 R5: inside an edition view a song shows its own artwork, then the
-  // selected edition's cover, then the primary edition's cover, then the
-  // placeholder. Never another non-primary edition's cover.
+  // SN-50 A-Q12 (decided 2026-10-31): inside an edition view a song shows
+  // the selected edition's cover, then its own artwork, then the primary
+  // edition's cover, then the placeholder. Never another non-primary
+  // edition's cover.
   group('song artwork inside an edition view', () {
     Future<AlbumEdition> bareEdition(_ArtworkQueryFixture fixture) async {
       final bare = AlbumEdition(
@@ -1625,7 +1626,8 @@ void main() {
       editionId,
     )).singleWhere((track) => track.songId == songId).artworkId;
 
-    test("the song's own artwork wins in every edition", () async {
+    test("the selected edition's cover wins over the song's own "
+        "artwork", () async {
       final fixture = await _createArtworkFixture(appDatabase);
       final song = fixture.alphaSong.id;
       await _listIn(fixture.db, fixture.standardEdition.id, [song]);
@@ -1633,10 +1635,35 @@ void main() {
 
       expect(
         await artworkIn(fixture, fixture.standardEdition.id, song),
-        fixture.songArtwork.id,
+        fixture.standardArtwork.id,
       );
       expect(
         await artworkIn(fixture, fixture.deluxeEdition.id, song),
+        fixture.deluxeArtwork.id,
+      );
+    });
+
+    test("in an edition without a cover the song's own artwork comes "
+        "before the primary cover", () async {
+      final fixture = await _createArtworkFixture(appDatabase);
+      final bare = await bareEdition(fixture);
+      final song = fixture.alphaSong.id;
+      await _listIn(fixture.db, fixture.standardEdition.id, [song]);
+      await _listIn(fixture.db, bare.id, [song]);
+
+      expect(await artworkIn(fixture, bare.id, song), fixture.songArtwork.id);
+    });
+
+    test("outside an edition view the song's own artwork still "
+        "wins", () async {
+      final fixture = await _createArtworkFixture(appDatabase);
+      final song = fixture.alphaSong.id;
+      await _listIn(fixture.db, fixture.standardEdition.id, [song]);
+      await _listIn(fixture.db, fixture.deluxeEdition.id, [song]);
+
+      final tracks = await LibraryQueryDao(fixture.db).findTracks();
+      expect(
+        tracks.singleWhere((track) => track.songId == song).artworkId,
         fixture.songArtwork.id,
       );
     });
