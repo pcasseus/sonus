@@ -274,38 +274,59 @@ class AllTimeSpotlightCard extends StatelessWidget {
                         ],
                       ),
                       const SizedBox(height: 12),
+                      // Charts 2.0 C3: a compact #1, artwork beside the
+                      // title instead of a full-width cover.
                       LayoutBuilder(
                         builder: (context, constraints) {
-                          final size = constraints.maxWidth.clamp(0.0, 320.0);
-                          return Center(
-                            child: _Artwork(
-                              key: ValueKey<String>('charts-artwork-$id'),
-                              path: artworkPath,
-                              size: size,
-                              chartType: chartType,
-                            ),
+                          final size = (constraints.maxWidth * 0.36).clamp(
+                            72.0,
+                            128.0,
+                          );
+                          return Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              _Artwork(
+                                key: ValueKey<String>('charts-artwork-$id'),
+                                path: artworkPath,
+                                size: size,
+                                chartType: chartType,
+                              ),
+                              const SizedBox(width: 14),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      shownTitle,
+                                      maxLines: 3,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: theme.textTheme.headlineSmall
+                                          ?.copyWith(
+                                            color: colors.textPrimary,
+                                            fontWeight: FontWeight.w900,
+                                          ),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      shownSubtitle,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: theme.textTheme.bodyLarge
+                                          ?.copyWith(
+                                            color: colors.textSecondary,
+                                          ),
+                                    ),
+                                    if (status != null) ...[
+                                      const SizedBox(height: 8),
+                                      _StatusBadge(status: status!),
+                                    ],
+                                  ],
+                                ),
+                              ),
+                            ],
                           );
                         },
                       ),
-                      const SizedBox(height: 14),
-                      Text(
-                        shownTitle,
-                        style: theme.textTheme.headlineSmall?.copyWith(
-                          color: colors.textPrimary,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        shownSubtitle,
-                        style: theme.textTheme.bodyLarge?.copyWith(
-                          color: colors.textSecondary,
-                        ),
-                      ),
-                      if (status != null) ...[
-                        const SizedBox(height: 8),
-                        _StatusBadge(status: status!),
-                      ],
                       const SizedBox(height: 14),
                       _TileGrid(
                         columns: 2,

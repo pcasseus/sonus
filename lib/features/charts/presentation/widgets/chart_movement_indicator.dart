@@ -10,10 +10,22 @@ import '../models/chart_entry_movement.dart';
 ///
 /// The colour goes on the icon only. Chart colours are guaranteed 3:1, which
 /// suits icons; the text keeps the primary text colour for 4.5:1.
+/// Which part of a C2 indicator to draw: compact chart rows (C3) show the
+/// movement at the end and the achievement badge beside the artist.
+enum ChartIndicatorPart { all, movement, achievement }
+
 class ChartMovementIndicator extends StatelessWidget {
-  const ChartMovementIndicator({super.key, required this.entry, this.movement});
+  const ChartMovementIndicator({
+    super.key,
+    required this.entry,
+    this.movement,
+    this.part = ChartIndicatorPart.all,
+  });
 
   final ChartEntry entry;
+
+  /// Only used with [movement].
+  final ChartIndicatorPart part;
 
   /// Charts 2.0 C2: the row's movement and achievement. Without it the
   /// indicator shows the stored movement as before.
@@ -93,6 +105,9 @@ class ChartMovementIndicator extends StatelessWidget {
       ),
       ChartAchievement.none => null,
     };
+    if (part == ChartIndicatorPart.achievement) {
+      return achievement ?? const SizedBox.shrink();
+    }
 
     final (IconData? icon, Color colour) = switch (m.kind) {
       ChartMoveKind.up ||
@@ -133,7 +148,7 @@ class ChartMovementIndicator extends StatelessWidget {
               ),
               style: TextStyle(color: colors.textSecondary, fontSize: 10),
             ),
-          if (achievement != null) ...[
+          if (achievement != null && part == ChartIndicatorPart.all) ...[
             if (showMove) const SizedBox(height: 2),
             achievement,
           ],

@@ -25,6 +25,7 @@ import '../models/chart_week_label.dart';
 import '../models/charts_presentation_mode.dart';
 import '../controllers/charts_controller.dart';
 import '../widgets/all_time_chart_cards.dart';
+import '../widgets/chart_board_rows.dart';
 import '../widgets/chart_entry_card.dart';
 import '../widgets/chart_extended_divider.dart';
 import '../widgets/chart_info_sheet.dart';
@@ -62,106 +63,129 @@ class ChartsPage extends StatelessWidget {
     }
 
     final entries = controller.isShowingCharts
-        ? controller.entries
+        ? controller.boardEntries
         : const <ChartEntry>[];
 
-    // Entries are built lazily: a Top 200 chart only builds the cards that
-    // are on screen. The divider sits before the first extended standing.
-    final extendedStart = entries.indexWhere(
-      (entry) => entry.isOffChartStanding,
-    );
-    final rowCount = entries.length + (extendedStart < 0 ? 0 : 1);
+    // Each chart board keeps its own scroll position (Charts 2.0 C3).
+    final scrollKey = controller.isShowingCharts
+        ? 'charts-scroll-${controller.chartType.name}-${controller.board.name}'
+        : 'charts-scroll';
 
     return _ScrollToTopHost(
-      builder: (scroll) => RefreshIndicator(
+      builder: (scroll, rows) => RefreshIndicator(
         onRefresh: controller.refresh,
-        child: CustomScrollView(
-          key: const PageStorageKey<String>('charts-scroll'),
+        child: _ChartScrollRail(
           controller: scroll,
-          physics: const AlwaysScrollableScrollPhysics(),
-          slivers: [
-            SliverPadding(
-              padding: const EdgeInsets.fromLTRB(20, 22, 20, 0),
-              sliver: SliverList.list(
-                children: [
-                  const _ChartsHeader(),
-                  const SizedBox(height: 18),
-                  _ChartsPresentationSelector(controller: controller),
-                  const SizedBox(height: 20),
-
-                  if (controller.isShowingCharts) ...[
-                    _ChartTypeSelector(controller: controller),
+          enabled: entries.length > 25,
+          child: CustomScrollView(
+            key: PageStorageKey<String>(scrollKey),
+            controller: scroll,
+            physics: const AlwaysScrollableScrollPhysics(),
+            slivers: [
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(20, 22, 20, 0),
+                sliver: SliverList.list(
+                  children: [
+                    const _ChartsHeader(),
                     const SizedBox(height: 18),
-                    _WeekNavigator(controller: controller),
-                    const SizedBox(height: 18),
-                    _ViewSizeSelector(controller: controller),
+                    _ChartsPresentationSelector(controller: controller),
+                    const SizedBox(height: 20),
 
-                    const SizedBox(height: 22),
+                    if (controller.isShowingCharts) ...[
+                      _ChartTypeSelector(controller: controller),
+                      const SizedBox(height: 18),
+                      _WeekNavigator(controller: controller),
+                      const SizedBox(height: 18),
+                      _ChartBoardSelector(controller: controller),
+                      if (controller.board == ChartBoard.top100) ...[
+                        const SizedBox(height: 14),
+                        _ViewSizeSelector(controller: controller),
+                      ],
 
-                    if (controller.hasError && hasChart) ...[
-                      _RefreshErrorBanner(onRetry: controller.refresh),
-                      const SizedBox(height: 16),
-                    ],
+                      const SizedBox(height: 22),
 
-                    if (entries.isEmpty)
-                      controller.isViewingThisWeek
-                          ? const _ChartsMessage(
-                              key: ValueKey<String>('charts-empty'),
-                              icon: Icons.leaderboard_outlined,
-                              title: 'No chart entries this week yet',
-                              message:
-                                  'Qualified listens this week will appear here as you listen.',
-                            )
-                          : const _ChartsMessage(
-                              key: ValueKey<String>('charts-empty'),
-                              icon: Icons.leaderboard_outlined,
-                              title: 'No chart entries yet',
-                              message:
-                                  'Every qualified listen counts toward your Sonus Hot 100 career standings.',
-                            )
-                    else ...[
-                      _ChartSummary(
-                        chartType: controller.chartType,
-                        positionCount: entries.length,
-                        isWeeklyHistory: controller.isViewingHistory,
-                        isThisWeek: controller.isViewingThisWeek,
-                      ),
-                      const SizedBox(height: 14),
-                    ],
-                  ] else
-                    _MomentsFeedHeader(controller: controller),
-                ],
-              ),
-            ),
-            SliverPadding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 40),
-              sliver: controller.isShowingMoments
-                  ? _momentsFeedSliver(controller)
-                  : SliverList.builder(
-                      itemCount: rowCount,
-                      itemBuilder: (context, index) {
-                        if (index == extendedStart) {
-                          return ChartExtendedDivider(
-                            chartType: controller.chartType,
-                          );
-                        }
+                      if (controller.hasError && hasChart) ...[
+                        _RefreshErrorBanner(onRetry: controller.refresh),
+                        const SizedBox(height: 16),
+                      ],
 
-                        final entryIndex =
-                            extendedStart >= 0 && index > extendedStart
-                            ? index - 1
-                            : index;
-
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
-                          child: _ChartEntryItem(
-                            entry: entries[entryIndex],
-                            controller: controller,
+                      if (entries.isEmpty &&
+                          controller.board == ChartBoard.extended)
+                        _ChartsMessage(
+                          key: const ValueKey<String>('charts-board-empty'),
+                          icon: Icons.bubble_chart_outlined,
+                          title: controller.chartType == ChartType.songs
+                              ? 'Nothing is bubbling under yet'
+                              : 'No positions below #100 yet',
+                          message: controller.chartType == ChartType.songs
+                              ? 'Songs ranked #101–200 appear here once more than 100 songs have qualified listens.'
+                              : 'Releases ranked #101–200 appear here once more than 100 releases have qualified listens.',
+                        )
+                      else if (entries.isEmpty)
+                        controller.isViewingThisWeek
+                            ? const _ChartsMessage(
+                                key: ValueKey<String>('charts-empty'),
+                                icon: Icons.leaderboard_outlined,
+                                title: 'No chart entries this week yet',
+                                message:
+                                    'Qualified listens this week will appear here as you listen.',
+                              )
+                            : const _ChartsMessage(
+                                key: ValueKey<String>('charts-empty'),
+                                icon: Icons.leaderboard_outlined,
+                                title: 'No chart entries yet',
+                                message:
+                                    'Every qualified listen counts toward your Sonus Hot 100 career standings.',
+                              )
+                      else ...[
+                        _ChartSummary(
+                          chartType: controller.chartType,
+                          board: controller.board,
+                          positionCount: entries.length,
+                          onJump: () => _jumpToRank(
+                            context,
+                            scroll: scroll,
+                            rows: rows,
+                            entries: entries,
                           ),
-                        );
-                      },
-                    ),
-            ),
-          ],
+                          isWeeklyHistory: controller.isViewingHistory,
+                          isThisWeek: controller.isViewingThisWeek,
+                        ),
+                        const SizedBox(height: 14),
+                      ],
+                    ] else
+                      _MomentsFeedHeader(controller: controller),
+                  ],
+                ),
+              ),
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 40),
+                sliver: controller.isShowingMoments
+                    ? _momentsFeedSliver(controller)
+                    : SliverList.builder(
+                        // Built lazily: only the rows on screen exist.
+                        itemCount: entries.length,
+                        itemBuilder: (context, index) {
+                          final entry = entries[index];
+                          final compact = _isCompactRow(controller, entry);
+                          return _RankAnchor(
+                            rank: entry.rank,
+                            rows: rows,
+                            child: Padding(
+                              padding: EdgeInsets.only(
+                                bottom: compact ? 0 : 10,
+                              ),
+                              child: _ChartEntryItem(
+                                entry: entry,
+                                controller: controller,
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -174,7 +198,7 @@ class ChartsPage extends StatelessWidget {
 class _ScrollToTopHost extends StatefulWidget {
   const _ScrollToTopHost({required this.builder});
 
-  final Widget Function(ScrollController controller) builder;
+  final Widget Function(ScrollController controller, _ChartRows rows) builder;
 
   @override
   State<_ScrollToTopHost> createState() => _ScrollToTopHostState();
@@ -184,6 +208,7 @@ class _ScrollToTopHostState extends State<_ScrollToTopHost> {
   static const double _showAfter = 800;
 
   final ScrollController _scroll = ScrollController();
+  final _ChartRows _rows = _ChartRows();
   bool _show = false;
 
   @override
@@ -219,7 +244,7 @@ class _ScrollToTopHostState extends State<_ScrollToTopHost> {
     final motion = SonusTheme.of(context).motion;
     return Stack(
       children: [
-        widget.builder(_scroll),
+        widget.builder(_scroll, _rows),
         PositionedDirectional(
           end: 16,
           bottom: 16,
@@ -1124,10 +1149,19 @@ class _ViewSizeSelector extends StatelessWidget {
 
   final ChartsController controller;
 
+  /// Positions 101–200 have their own board.
+  static final _top100Sizes = [
+    for (final size in ChartViewSize.values)
+      if (size.limit <= 100) size,
+  ];
+
   @override
   Widget build(BuildContext context) {
     final tokens = SonusTheme.of(context);
     final colors = tokens.colors;
+    final current = controller.viewSize.limit > 100
+        ? ChartViewSize.top100
+        : controller.viewSize;
 
     // Its own scroll storage: without it, this horizontal scroller shares the
     // chart list's slot and reopens at the list's vertical offset.
@@ -1138,22 +1172,22 @@ class _ViewSizeSelector extends StatelessWidget {
         scrollDirection: Axis.horizontal,
         child: Row(
           children: [
-            for (final size in ChartViewSize.values) ...[
+            for (final size in _top100Sizes) ...[
               // Styled here only; the checkmark marks the selection without
               // relying on colour.
               ChoiceChip(
                 key: ValueKey<String>('charts-size-${size.limit}'),
                 label: Text('Top ${size.limit}'),
-                selected: controller.viewSize == size,
+                selected: current == size,
                 showCheckmark: true,
                 selectedColor: colors.selection,
                 backgroundColor: Colors.transparent,
                 checkmarkColor: colors.textPrimary,
                 labelStyle: TextStyle(
-                  color: controller.viewSize == size
+                  color: current == size
                       ? colors.textPrimary
                       : colors.textSecondary,
-                  fontWeight: controller.viewSize == size
+                  fontWeight: current == size
                       ? FontWeight.w800
                       : FontWeight.w500,
                 ),
@@ -1167,7 +1201,7 @@ class _ViewSizeSelector extends StatelessWidget {
                   controller.selectViewSize(size);
                 },
               ),
-              if (size != ChartViewSize.values.last) const SizedBox(width: 8),
+              if (size != _top100Sizes.last) const SizedBox(width: 8),
             ],
           ],
         ),
@@ -1179,12 +1213,16 @@ class _ViewSizeSelector extends StatelessWidget {
 class _ChartSummary extends StatelessWidget {
   const _ChartSummary({
     required this.chartType,
+    required this.board,
+    required this.onJump,
     required this.positionCount,
     required this.isWeeklyHistory,
     required this.isThisWeek,
   });
 
   final ChartType chartType;
+  final ChartBoard board;
+  final VoidCallback onJump;
   final int positionCount;
   final bool isWeeklyHistory;
   final bool isThisWeek;
@@ -1194,7 +1232,7 @@ class _ChartSummary extends StatelessWidget {
     final theme = Theme.of(context);
     final colors = SonusTheme.of(context).colors;
 
-    final name = ChartZoneNames.chart(chartType);
+    final name = _boardName(chartType, board);
 
     // The name and count wrap under each other with large text instead of
     // overflowing; the information button stays at the end of the row.
@@ -1228,6 +1266,13 @@ class _ChartSummary extends StatelessWidget {
             ],
           ),
         ),
+        if (positionCount > 10)
+          IconButton(
+            key: const ValueKey<String>('charts-jump-to-rank'),
+            tooltip: 'Jump to a position',
+            icon: Icon(Icons.pin_outlined, color: colors.textSecondary),
+            onPressed: onJump,
+          ),
         IconButton(
           key: const ValueKey<String>('charts-info-button'),
           tooltip: 'About the $name',
@@ -1315,9 +1360,13 @@ class _ChartEntryItem extends StatelessWidget {
       final stats = allTime.statsFor(entry);
       final weeklyPeak = controller.weeklyPeakFor(entry);
 
-      return entry.rank == 1
+      final compact = _isCompactRow(controller, entry);
+      final cardKey = compact
+          ? ValueKey<String>('charts-entry-card-${entry.entity.entityId}')
+          : key;
+      final card = entry.rank == 1
           ? AllTimeSpotlightCard(
-              key: key,
+              key: cardKey,
               entry: entry,
               chartType: chartType,
               stats: stats,
@@ -1331,7 +1380,7 @@ class _ChartEntryItem extends StatelessWidget {
               onTap: onTap,
             )
           : AllTimeEntryCard(
-              key: key,
+              key: cardKey,
               entry: entry,
               chartType: chartType,
               stats: stats,
@@ -1344,10 +1393,24 @@ class _ChartEntryItem extends StatelessWidget {
               movement: controller.movementFor(entry),
               onTap: onTap,
             );
+      return _tiered(
+        card: card,
+        compact: compact,
+        artworkPath: artworkPath,
+        title: presentation?.title ?? song?.title ?? entry.entity.title,
+        subtitle:
+            song?.subtitle ?? ChartEntryCard.subtitleFor(entry, chartType),
+        status: status,
+        onTap: onTap,
+      );
     }
 
-    return ChartEntryCard(
-      key: ValueKey<String>('charts-entry-${entry.entity.entityId}'),
+    final compact = _isCompactRow(controller, entry);
+    final id = entry.entity.entityId;
+    final card = ChartEntryCard(
+      key: ValueKey<String>(
+        compact ? 'charts-entry-card-$id' : 'charts-entry-$id',
+      ),
       entry: entry,
       chartType: chartType,
       artworkPath: artworkPath,
@@ -1361,6 +1424,53 @@ class _ChartEntryItem extends StatelessWidget {
       movement: controller.movementFor(entry),
       onTap: onTap,
     );
+
+    return _tiered(
+      card: card,
+      compact: compact,
+      artworkPath: artworkPath,
+      title: presentation?.title ?? song?.title ?? entry.entity.title,
+      subtitle: song?.subtitle ?? ChartEntryCard.subtitleFor(entry, chartType),
+      status: status,
+      onTap: onTap,
+    );
+  }
+
+  /// Charts 2.0 C3 tiers: a featured #1, artwork-framed #2–10, and compact
+  /// rows for #11–100 and Bubbling Under with the full card on expand.
+  Widget _tiered({
+    required Widget card,
+    required bool compact,
+    required String? artworkPath,
+    required String title,
+    required String subtitle,
+    required ChartEntryStatus? status,
+    required VoidCallback? onTap,
+  }) {
+    final id = entry.entity.entityId;
+    if (compact) {
+      return ChartCompactRow(
+        key: ValueKey<String>('charts-entry-$id'),
+        entry: entry,
+        movement: controller.movementFor(entry),
+        title: title,
+        subtitle: subtitle,
+        artworkPath: artworkPath,
+        fallbackIcon: controller.chartType == ChartType.songs
+            ? Icons.music_note_rounded
+            : Icons.album_rounded,
+        status: status,
+        details: card,
+        onTap: onTap,
+      );
+    }
+    if (entry.rank == 1) {
+      return ChartFeaturedFrame(
+        chartName: ChartZoneNames.chart(controller.chartType),
+        child: card,
+      );
+    }
+    return ChartTopTenFrame(artworkPath: artworkPath, child: card);
   }
 }
 
@@ -1634,4 +1744,229 @@ void _openAlbum(BuildContext context, LibraryAlbum album, {String? editionId}) {
       ),
     ),
   );
+}
+
+bool _isCompactRow(ChartsController controller, ChartEntry entry) =>
+    controller.board == ChartBoard.extended ||
+    ChartRowTier.of(entry) == ChartRowTier.compact;
+
+String _boardName(ChartType type, ChartBoard board) => switch ((type, board)) {
+  (_, ChartBoard.top100) => ChartZoneNames.chart(type),
+  (ChartType.songs, ChartBoard.extended) => ChartZoneNames.bubblingUnder,
+  (ChartType.albums, ChartBoard.extended) =>
+    '${ChartZoneNames.releases} #101–200',
+};
+
+/// Hot 100 | Bubbling Under (Albums & EPs: Top 100 | #101–200).
+class _ChartBoardSelector extends StatelessWidget {
+  const _ChartBoardSelector({required this.controller});
+
+  final ChartsController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final songs = controller.chartType == ChartType.songs;
+    return SonusSegmentedSelector<ChartBoard>(
+      key: const ValueKey<String>('charts-board-selector'),
+      segments: [
+        SonusSegment(
+          value: ChartBoard.top100,
+          icon: Icons.local_fire_department_rounded,
+          label: songs ? 'Hot 100' : 'Top 100',
+        ),
+        SonusSegment(
+          value: ChartBoard.extended,
+          icon: Icons.bubble_chart_outlined,
+          label: songs ? 'Bubbling Under' : '#101–200',
+        ),
+      ],
+      selected: controller.board,
+      onChanged: controller.selectBoard,
+    );
+  }
+}
+
+/// The built rows, by rank, so jump-to-rank can find one.
+class _ChartRows {
+  final Map<int, BuildContext> byRank = {};
+}
+
+class _RankAnchor extends StatefulWidget {
+  const _RankAnchor({
+    required this.rank,
+    required this.rows,
+    required this.child,
+  });
+
+  final int rank;
+  final _ChartRows rows;
+  final Widget child;
+
+  @override
+  State<_RankAnchor> createState() => _RankAnchorState();
+}
+
+class _RankAnchorState extends State<_RankAnchor> {
+  @override
+  Widget build(BuildContext context) {
+    widget.rows.byRank[widget.rank] = context;
+    return widget.child;
+  }
+
+  @override
+  void dispose() {
+    if (identical(widget.rows.byRank[widget.rank], context)) {
+      widget.rows.byRank.remove(widget.rank);
+    }
+    super.dispose();
+  }
+}
+
+/// A draggable scroll thumb for long boards (the fast-scroll rail). It
+/// shows while scrolling only, so nothing stays on screen at rest.
+class _ChartScrollRail extends StatelessWidget {
+  const _ChartScrollRail({
+    required this.controller,
+    required this.enabled,
+    required this.child,
+  });
+
+  final ScrollController controller;
+  final bool enabled;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!enabled) return child;
+    return Scrollbar(
+      key: const ValueKey<String>('charts-scroll-rail'),
+      controller: controller,
+      interactive: true,
+      thickness: 6,
+      radius: const Radius.circular(3),
+      child: child,
+    );
+  }
+}
+
+/// Asks for a position and scrolls to it (Charts 2.0 C3).
+Future<void> _jumpToRank(
+  BuildContext context, {
+  required ScrollController scroll,
+  required _ChartRows rows,
+  required List<ChartEntry> entries,
+}) async {
+  if (entries.isEmpty) return;
+  final first = entries.first.rank;
+  final last = entries.last.rank;
+  final rank = await showDialog<int>(
+    context: context,
+    builder: (context) => _JumpToRankDialog(first: first, last: last),
+  );
+  if (rank == null || !scroll.hasClients || !context.mounted) return;
+  final target = entries.indexWhere((entry) => entry.rank >= rank);
+  if (target < 0) return;
+  final targetRank = entries[target].rank;
+  final motion = SonusTheme.of(context).motion;
+
+  // Rows are built lazily: step towards the row using the heights of the
+  // rows already built, then bring it into view.
+  for (var pass = 0; pass < 8; pass++) {
+    final built = rows.byRank[targetRank];
+    if (built != null && built.mounted) {
+      await Scrollable.ensureVisible(
+        built,
+        alignment: 0.15,
+        duration: motion.reduced ? Duration.zero : motion.medium,
+        curve: motion.curve,
+      );
+      return;
+    }
+    final known = [
+      for (final entry in rows.byRank.entries)
+        if (entry.value.mounted && entry.value.findRenderObject() is RenderBox)
+          entry,
+    ];
+    if (known.isEmpty) return;
+    var heights = 0.0;
+    for (final entry in known) {
+      heights += (entry.value.findRenderObject()! as RenderBox).size.height;
+    }
+    final average = heights / known.length;
+    known.sort((a, b) => a.key.compareTo(b.key));
+    final anchor = targetRank < known.first.key ? known.first : known.last;
+    final anchorIndex = entries.indexWhere((e) => e.rank == anchor.key);
+    final delta = (target - anchorIndex) * average;
+    final position = scroll.position;
+    scroll.jumpTo(
+      (position.pixels + delta).clamp(
+        position.minScrollExtent,
+        position.maxScrollExtent,
+      ),
+    );
+    await WidgetsBinding.instance.endOfFrame;
+    if (!context.mounted) return;
+  }
+}
+
+class _JumpToRankDialog extends StatefulWidget {
+  const _JumpToRankDialog({required this.first, required this.last});
+
+  final int first;
+  final int last;
+
+  @override
+  State<_JumpToRankDialog> createState() => _JumpToRankDialogState();
+}
+
+class _JumpToRankDialogState extends State<_JumpToRankDialog> {
+  final TextEditingController _text = TextEditingController();
+  String? _error;
+
+  @override
+  void dispose() {
+    _text.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final value = int.tryParse(_text.text.trim());
+    if (value == null || value < widget.first || value > widget.last) {
+      setState(
+        () => _error = 'Enter a number from ${widget.first} to ${widget.last}',
+      );
+      return;
+    }
+    Navigator.of(context).pop(value);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Jump to position'),
+      content: TextField(
+        key: const ValueKey<String>('charts-jump-field'),
+        controller: _text,
+        autofocus: true,
+        keyboardType: TextInputType.number,
+        textInputAction: TextInputAction.go,
+        decoration: InputDecoration(
+          labelText: 'Position (${widget.first}–${widget.last})',
+          errorText: _error,
+        ),
+        onSubmitted: (_) => _submit(),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          key: const ValueKey<String>('charts-jump-go'),
+          onPressed: _submit,
+          child: const Text('Go'),
+        ),
+      ],
+    );
+  }
 }

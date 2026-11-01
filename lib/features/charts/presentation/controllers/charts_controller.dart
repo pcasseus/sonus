@@ -57,6 +57,11 @@ typedef PlayEditionLoader = Future<String?> Function(String playId);
 /// stored stories; nothing is moved or rewritten.
 enum MomentsSection { recent, archive }
 
+/// The two boards of one chart (Charts 2.0 C3): positions 1–100 (the Sonus
+/// Hot 100, or the Albums & EPs Top 100) and 101–200 (Sonus Bubbling
+/// Under, or #101–200). Each is its own list with its own scroll position.
+enum ChartBoard { top100, extended }
+
 /// Which Moments rules this run uses (SN-50 R2).
 typedef MomentRulesLoader = Future<ChartMomentRules> Function();
 
@@ -200,6 +205,33 @@ class ChartsController extends ChangeNotifier {
   ChartType get chartType => _chartType;
 
   ChartViewSize get viewSize => _viewSize;
+
+  ChartBoard _board = ChartBoard.top100;
+  ChartBoard get board => _board;
+
+  /// What is read: the chosen Top N for the Top 100 board, all 200 for the
+  /// extended board. The person's Top N choice is kept.
+  ChartViewSize get _effectiveSize => _board == ChartBoard.extended
+      ? ChartViewSize.top200
+      : _viewSize.limit > 100
+      ? ChartViewSize.top100
+      : _viewSize;
+
+  Future<void> selectBoard(ChartBoard value) async {
+    if (_isDisposed || _board == value) return;
+    _board = value;
+    if (!isViewingAllTime) {
+      _notify();
+      return;
+    }
+    await _loadAllTimeOnly();
+  }
+
+  /// [entries] on the selected board, in rank order.
+  List<ChartEntry> get boardEntries => List.unmodifiable([
+    for (final entry in entries)
+      if ((_board == ChartBoard.top100) == entry.isOfficiallyCharting) entry,
+  ]);
 
   ChartsPresentationMode get presentationMode => _presentationMode;
 
@@ -1236,7 +1268,7 @@ class ChartsController extends ChangeNotifier {
       final allTime = await _allTimeCharts.load(
         chartType: _chartType,
         referenceLocal: referenceLocal,
-        viewSize: _viewSize,
+        viewSize: _effectiveSize,
       );
 
       if (isStale()) {
@@ -1346,7 +1378,7 @@ class ChartsController extends ChangeNotifier {
       final allTime = await _allTimeCharts.load(
         chartType: _chartType,
         referenceLocal: _now(),
-        viewSize: _viewSize,
+        viewSize: _effectiveSize,
       );
 
       if (generation != _requestGeneration) {
@@ -1409,7 +1441,7 @@ class ChartsController extends ChangeNotifier {
   }
 
   ChartSnapshot _limitSnapshot(ChartSnapshot source) {
-    if (source.entries.length <= _viewSize.limit) {
+    if (source.entries.length <= _effectiveSize.limit) {
       return source;
     }
 
@@ -1420,7 +1452,7 @@ class ChartsController extends ChangeNotifier {
       weekEndUtc: source.weekEndUtc,
       finalizedAt: source.finalizedAt,
       revision: source.revision,
-      entries: List.unmodifiable(source.entries.take(_viewSize.limit)),
+      entries: List.unmodifiable(source.entries.take(_effectiveSize.limit)),
     );
   }
 }

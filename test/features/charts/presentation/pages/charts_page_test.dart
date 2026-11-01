@@ -38,6 +38,7 @@ import 'package:sonus_next/features/charts/presentation/controllers/charts_contr
 import 'package:sonus_next/features/charts/presentation/news/moment_post_card.dart';
 import 'package:sonus_next/features/charts/presentation/editorial/moment_publisher.dart';
 import 'package:sonus_next/features/charts/presentation/pages/charts_page.dart';
+import 'package:sonus_next/features/charts/presentation/widgets/chart_board_rows.dart';
 import 'package:sonus_next/features/player/application/controllers/playback_coordinator.dart';
 import 'package:sonus_next/features/player/domain/models/playback_repeat_mode.dart';
 import 'package:sonus_next/features/player/domain/models/playback_state.dart';
@@ -55,7 +56,14 @@ void main() {
     await _pumpPage(tester, controller);
 
     expect(find.text('SONUS'), findsOneWidget);
-    expect(find.text('Hot 100'), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('charts-title')),
+        matching: find.text('Hot 100'),
+        matchRoot: true,
+      ),
+      findsOneWidget,
+    );
 
     expect(find.text('Songs'), findsWidgets);
     expect(find.text('Albums & EPs'), findsOneWidget);
@@ -65,7 +73,9 @@ void main() {
     expect(find.text('Top 50'), findsOneWidget);
     expect(find.text('Top 75'), findsOneWidget);
     expect(find.text('Top 100'), findsOneWidget);
-    expect(find.text('Top 200'), findsOneWidget);
+    // #101–200 have their own board instead of a Top 200 size.
+    expect(find.text('Top 200'), findsNothing);
+    expect(find.text('Bubbling Under'), findsOneWidget);
 
     expect(find.text('CURRENT'), findsOneWidget);
     expect(find.text('Career standings'), findsOneWidget);
@@ -407,9 +417,7 @@ void main() {
     final controller = await _controller();
 
     await _pumpPage(tester, controller);
-    await tester.tap(find.byKey(const ValueKey<String>('charts-size-200')));
-    await tester.pumpAndSettle();
-    // The Top 200 no longer adds a notice above the chart.
+    // The chart has no notice above it.
     expect(find.textContaining('are Sonus Bubbling Under'), findsNothing);
 
     expect(find.byTooltip('About the Sonus Hot 100'), findsOneWidget);
@@ -529,9 +537,10 @@ void main() {
     }
 
     await _pumpPage(tester, controller, size: const Size(800, 20000));
-    await tester.tap(find.byKey(const ValueKey<String>('charts-size-200')));
-    await tester.pumpAndSettle();
     expectClean('songs');
+    await tester.tap(find.text('Bubbling Under'));
+    await tester.pumpAndSettle();
+    expectClean('songs bubbling under');
 
     await tester.tap(find.byKey(const ValueKey<String>('charts-info-button')));
     await tester.pumpAndSettle();
@@ -602,6 +611,12 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('September 20–26, 2026'), findsOneWidget);
+    expect(find.text('NEW'), findsOneWidget);
+    // #80 is a compact row; its full card opens in place of the row.
+    await tester.tap(
+      find.byKey(const ValueKey<String>('charts-row-expand-songs_1')),
+    );
+    await tester.pumpAndSettle();
     expect(find.text('Last week #150 (Bubbling Under)'), findsOneWidget);
     expect(find.text('NEW'), findsOneWidget);
     expect(find.text('Debut #80 · Sep 20, 2026'), findsOneWidget);
@@ -777,6 +792,18 @@ void main() {
         textScale: 1.6,
       );
 
+      // At this size the chips start below the first screen.
+      await tester.scrollUntilVisible(
+        find.byKey(const ValueKey<String>('charts-size-selector')),
+        120,
+        scrollable: scrollable.first,
+      );
+      await tester.pumpAndSettle();
+      final shownAt = tester
+          .state<ScrollableState>(scrollable.first)
+          .position
+          .pixels;
+
       await tester.tap(
         find.byKey(const ValueKey<String>('charts-size-100')),
         warnIfMissed: false,
@@ -803,7 +830,7 @@ void main() {
       // the list is still moving.
       unawaited(
         page.position.animateTo(
-          0,
+          shownAt,
           duration: const Duration(milliseconds: 400),
           curve: Curves.linear,
         ),
@@ -830,6 +857,9 @@ void main() {
         findsNothing,
       );
 
+      // #101–200 are on the Bubbling Under board.
+      await tester.tap(find.text('Bubbling Under'));
+      await tester.pumpAndSettle();
       await jumpToEnd(tester);
 
       expect(
@@ -846,7 +876,7 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('a labelled boundary separates #100 from extended #101', (
+    testWidgets('the Hot 100 and Bubbling Under are separate boards', (
       tester,
     ) async {
       final controller = await _controller(
@@ -855,43 +885,245 @@ void main() {
 
       await _pumpPage(tester, controller);
 
-      const divider = ValueKey<String>('charts-extended-divider');
-      expect(find.text('Sonus Bubbling Under · #101–200'), findsOneWidget);
-
-      final dividerTop = tester.getTopLeft(find.byKey(divider)).dy;
-      final official = find.byKey(
-        const ValueKey<String>('charts-entry-songs_100'),
+      Finder row(int rank) => find.byKey(
+        ValueKey<String>('charts-entry-songs_$rank'),
+        skipOffstage: false,
       );
-      final extended = find.byKey(
-        const ValueKey<String>('charts-entry-songs_101'),
+      expect(row(100), findsOneWidget);
+      expect(row(101), findsNothing);
+      expect(
+        find.byKey(const ValueKey<String>('charts-extended-divider')),
+        findsNothing,
       );
 
-      expect(tester.getBottomLeft(official).dy, lessThanOrEqualTo(dividerTop));
-      expect(tester.getTopLeft(extended).dy, greaterThan(dividerTop));
+      await tester.tap(find.text('Bubbling Under'));
+      await tester.pumpAndSettle();
 
+      expect(row(100), findsNothing);
+      expect(row(101), findsOneWidget);
+      expect(find.text('Sonus Bubbling Under'), findsOneWidget);
       // Bubbling Under keeps the real Top 200 position: #101, never #1.
       expect(
-        find.descendant(of: extended, matching: find.text('101')),
+        find.descendant(of: row(101), matching: find.text('101')),
         findsOneWidget,
       );
       expect(
-        find.descendant(of: extended, matching: find.text('1')),
+        find.descendant(of: row(101), matching: find.text('1')),
         findsNothing,
       );
-      expect(
-        find.descendant(of: extended, matching: find.text('BUBBLING UNDER')),
-        findsOneWidget,
-      );
+    });
 
-      // Official entries are never badged as extended, and extended ones are.
-      expect(
-        find.byKey(const ValueKey<String>('charts-extended-songs_100')),
-        findsNothing,
-      );
-      expect(
-        find.byKey(const ValueKey<String>('charts-extended-songs_101')),
-        findsOneWidget,
-      );
+    group('Charts 2.0 C3 boards', () {
+      testWidgets('#1 is featured, #2–10 framed, #11+ compact rows', (
+        tester,
+      ) async {
+        final controller = await _controller(live: _rankedSnapshot(30));
+        await _pumpPage(tester, controller, size: const Size(411, 20000));
+
+        expect(
+          find.byKey(const ValueKey<String>('charts-featured-frame')),
+          findsOneWidget,
+        );
+        expect(
+          find.descendant(
+            of: find.byKey(const ValueKey<String>('charts-featured-frame')),
+            matching: find.byKey(
+              const ValueKey<String>('charts-entry-songs_1'),
+            ),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey<String>('charts-top-ten-frame')),
+          findsNWidgets(9),
+        );
+        expect(find.byType(ChartCompactRow), findsNWidgets(20));
+        expect(
+          find.byKey(const ValueKey<String>('charts-row-songs_11')),
+          findsOneWidget,
+        );
+        // The compact row's full card is one tap away and replaces the row.
+        expect(
+          find.byKey(const ValueKey<String>('charts-entry-card-songs_11')),
+          findsNothing,
+        );
+        await tester.tap(
+          find.byKey(const ValueKey<String>('charts-row-expand-songs_11')),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const ValueKey<String>('charts-entry-card-songs_11')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey<String>('charts-row-songs_11')),
+          findsNothing,
+        );
+        await tester.tap(
+          find.byKey(const ValueKey<String>('charts-row-collapse-songs_11')),
+        );
+        await tester.pumpAndSettle();
+        expect(
+          find.byKey(const ValueKey<String>('charts-row-songs_11')),
+          findsOneWidget,
+        );
+        expect(tester.takeException(), isNull);
+      });
+
+      testWidgets('compact rows read rank, title, artist and movement', (
+        tester,
+      ) async {
+        final semantics = tester.ensureSemantics();
+        final controller = await _controller(live: _rankedSnapshot(15));
+        await _pumpPage(tester, controller, size: const Size(411, 20000));
+
+        expect(
+          find.bySemanticsLabel(RegExp(r'^Number 12, Song 12, Artist 12')),
+          findsOneWidget,
+        );
+        semantics.dispose();
+      });
+
+      testWidgets('Bubbling Under is all compact, from #101, with no Top N', (
+        tester,
+      ) async {
+        final controller = await _controller(live: _rankedSnapshot(120));
+        await _pumpPage(tester, controller, size: const Size(411, 20000));
+
+        expect(find.text('Top 100'), findsOneWidget);
+        await tester.tap(find.text('Bubbling Under'));
+        await tester.pumpAndSettle();
+
+        expect(controller.board, ChartBoard.extended);
+        expect(find.text('Top 100'), findsNothing);
+        expect(
+          find.byKey(const ValueKey<String>('charts-featured-frame')),
+          findsNothing,
+        );
+        expect(
+          find.byKey(const ValueKey<String>('charts-top-ten-frame')),
+          findsNothing,
+        );
+        expect(find.byType(ChartCompactRow), findsNWidgets(20));
+        expect(find.text('20 positions'), findsOneWidget);
+        // The chosen Top N is kept for the Hot 100 board.
+        expect(controller.viewSize, ChartViewSize.top100);
+        expect(tester.takeException(), isNull);
+      });
+
+      testWidgets('an empty Bubbling Under says so', (tester) async {
+        final controller = await _controller(live: _rankedSnapshot(12));
+        await _pumpPage(tester, controller);
+
+        await tester.tap(find.text('Bubbling Under'));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const ValueKey<String>('charts-board-empty')),
+          findsOneWidget,
+        );
+      });
+
+      testWidgets('each board remembers its own scroll position', (
+        tester,
+      ) async {
+        final controller = await _controller(live: _rankedSnapshot(200));
+        await _pumpPage(tester, controller, size: const Size(411, 900));
+
+        ScrollPosition position() =>
+            tester.state<ScrollableState>(scrollable.first).position;
+
+        position().jumpTo(3000);
+        await tester.pumpAndSettle();
+
+        await controller.selectBoard(ChartBoard.extended);
+        await tester.pumpAndSettle();
+        expect(position().pixels, 0);
+        position().jumpTo(1200);
+        await tester.pumpAndSettle();
+
+        await controller.selectBoard(ChartBoard.top100);
+        await tester.pumpAndSettle();
+        expect(position().pixels, 3000);
+
+        await controller.selectBoard(ChartBoard.extended);
+        await tester.pumpAndSettle();
+        expect(position().pixels, 1200);
+      });
+
+      testWidgets('jump to rank brings a lazily built row into view', (
+        tester,
+      ) async {
+        final controller = await _controller(live: _rankedSnapshot(100));
+        await _pumpPage(tester, controller, size: const Size(411, 900));
+
+        final target = find.byKey(
+          const ValueKey<String>('charts-entry-songs_87'),
+        );
+        expect(target, findsNothing);
+
+        await tester.tap(
+          find.byKey(const ValueKey<String>('charts-jump-to-rank')),
+        );
+        await tester.pumpAndSettle();
+        // Out of range is refused.
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('charts-jump-field')),
+          '150',
+        );
+        await tester.tap(find.byKey(const ValueKey<String>('charts-jump-go')));
+        await tester.pumpAndSettle();
+        expect(find.text('Enter a number from 1 to 100'), findsOneWidget);
+
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('charts-jump-field')),
+          '87',
+        );
+        await tester.tap(find.byKey(const ValueKey<String>('charts-jump-go')));
+        await tester.pumpAndSettle();
+
+        expect(target, findsOneWidget);
+        final top = tester.getTopLeft(target).dy;
+        expect(top, inInclusiveRange(0, 900 - 60));
+        expect(tester.takeException(), isNull);
+      });
+
+      testWidgets('long boards get a draggable rail, short ones do not', (
+        tester,
+      ) async {
+        final controller = await _controller(live: _rankedSnapshot(100));
+        await _pumpPage(tester, controller);
+        final rail = find.byKey(const ValueKey<String>('charts-scroll-rail'));
+        expect(rail, findsOneWidget);
+        expect(tester.widget<Scrollbar>(rail).interactive, isTrue);
+        // Shown while scrolling only: nothing stays on screen at rest.
+        expect(tester.widget<Scrollbar>(rail).thumbVisibility, isNot(true));
+
+        final short = await _controller(live: _rankedSnapshot(20));
+        await _pumpPage(tester, short);
+        expect(rail, findsNothing);
+        expect(
+          find.byKey(const ValueKey<String>('charts-jump-to-rank')),
+          findsOneWidget,
+        );
+
+        final tiny = await _controller(live: _rankedSnapshot(8));
+        await _pumpPage(tester, tiny);
+        expect(
+          find.byKey(const ValueKey<String>('charts-jump-to-rank')),
+          findsNothing,
+        );
+      });
+
+      testWidgets('albums use Top 100 and #101–200 boards', (tester) async {
+        final controller = await _controller();
+        await _pumpPage(tester, controller);
+        await controller.selectChartType(ChartType.albums);
+        await tester.pumpAndSettle();
+
+        expect(find.text('#101–200'), findsOneWidget);
+        expect(find.text('Bubbling Under'), findsNothing);
+      });
     });
 
     testWidgets('a chart without extended standings has no boundary', (
@@ -934,7 +1166,14 @@ void main() {
         );
 
         expect(tester.takeException(), isNull);
-        expect(find.text('Hot 100'), findsOneWidget);
+        expect(
+          find.descendant(
+            of: find.byKey(const ValueKey<String>('charts-title')),
+            matching: find.text('Hot 100'),
+            matchRoot: true,
+          ),
+          findsOneWidget,
+        );
         expect(
           find.byKey(const ValueKey<String>('charts-entry-songs_1')),
           findsOneWidget,
@@ -1042,7 +1281,14 @@ void main() {
       await tester.tap(find.byKey(const ValueKey<String>('charts-older-week')));
       await tester.pumpAndSettle();
 
-      expect(find.text('Hot 100'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey<String>('charts-title')),
+          matching: find.text('Hot 100'),
+          matchRoot: true,
+        ),
+        findsOneWidget,
+      );
       expect(find.text('This week'), findsOneWidget);
       expect(find.text('IN PROGRESS'), findsOneWidget);
       expect(find.text('CURRENT'), findsNothing);
