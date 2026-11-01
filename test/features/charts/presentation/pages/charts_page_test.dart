@@ -1633,7 +1633,16 @@ void main() {
     await tester.tap(find.text('Moments'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.widgetWithText(ChoiceChip, other.label));
+    // Charts 2.0 C1: one compact menu per filter.
+    await tester.tap(
+      find.byKey(const ValueKey<String>('charts-moments-filter-Publisher')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(
+        ValueKey<String>('charts-moments-filter-Publisher-${other.name}'),
+      ),
+    );
     await tester.pumpAndSettle();
     expect(find.text(story.headline), findsNothing);
     expect(
@@ -1721,6 +1730,261 @@ void main() {
     expect(tester.takeException(), isNull);
     expect(find.text('Artist 1 Ft. Guest One, Guest Two'), findsOneWidget);
     expect(_postPart('credit'), findsOneWidget);
+  });
+
+  group('Charts 2.0 C1: Moments feed and archive', () {
+    // "Now" is 28 Sep 2026: the week of 27 Sep is running; earlier weeks
+    // are finalized.
+    ChartMomentEvent archived(int week, {String? title, int day = 0}) =>
+        _momentEvent(
+          id: 'old-$week-$day',
+          scope: ChartMomentScope.allTime,
+          type: ChartMomentEventType.debut,
+          currentRank: 20 + week,
+          currentPeakRank: 20 + week,
+          weekStartUtc: DateTime.utc(
+            2026,
+            9,
+            20,
+          ).subtract(Duration(days: 7 * week)),
+          occurredAt: DateTime.utc(
+            2026,
+            9,
+            21 + day,
+            12,
+          ).subtract(Duration(days: 7 * week)),
+          title: title ?? 'Old Song $week-$day',
+          entityId: 'songs_old_$week$day',
+        );
+
+    ChartMomentEvent running({String id = 'now'}) => _momentEvent(
+      id: id,
+      scope: ChartMomentScope.finalized,
+      type: ChartMomentEventType.newPeak,
+      currentRank: 3,
+      currentPeakRank: 3,
+      occurredAt: DateTime.utc(2026, 9, 28, 9),
+    );
+
+    testWidgets('a finalized week\'s stories move from Recent to the Archive', (
+      tester,
+    ) async {
+      final controller = await _controller(
+        moments: [
+          running(),
+          archived(0, title: 'Archived Hit'),
+        ],
+      );
+      final current = controller.momentStories.firstWhere(
+        (s) => !controller.isArchivedMoment(s),
+      );
+      final old = controller.momentStories.firstWhere(
+        controller.isArchivedMoment,
+      );
+
+      await _pumpPage(tester, controller);
+      await tester.tap(find.text('Moments'));
+      await tester.pumpAndSettle();
+      expect(find.text(current.headline), findsOneWidget);
+      expect(find.text(old.headline), findsNothing);
+
+      await tester.tap(find.text('Archive'));
+      await tester.pumpAndSettle();
+      expect(find.text(old.headline), findsOneWidget);
+      expect(find.text(current.headline), findsNothing);
+      expect(old.headline, isNotEmpty, reason: 'stored wording, unchanged');
+    });
+
+    testWidgets('the Archive reads every page and searches all of it', (
+      tester,
+    ) async {
+      final controller = await _controller(
+        momentPageSize: 1,
+        moments: [
+          running(),
+          for (var week = 0; week < 6; week++) archived(week),
+          archived(3, title: 'Needle In The Haystack', day: 2),
+        ],
+      );
+      expect(controller.hasMoreMoments, isTrue, reason: 'paged reads');
+
+      await _pumpPage(tester, controller);
+      await tester.tap(find.text('Moments'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Archive'));
+      await tester.pumpAndSettle();
+
+      expect(controller.hasMoreMoments, isFalse, reason: 'every page read');
+      expect(controller.sectionMomentStories, hasLength(7));
+
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('charts-moments-search')),
+        'needle haystack',
+      );
+      await tester.pumpAndSettle();
+      expect(controller.sectionMomentStories, hasLength(1));
+      expect(
+        controller.sectionMomentStories.single.facts.title,
+        'Needle In The Haystack',
+      );
+
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('charts-moments-search')),
+        '',
+      );
+      await tester.pumpAndSettle();
+      final weeks = controller.archivedMomentWeeks;
+      expect(weeks, hasLength(6));
+      expect(weeks.first.isAfter(weeks.last), isTrue, reason: 'newest first');
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('charts-moments-week')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(
+          ValueKey<String>(
+            'charts-moments-week-${weeks[3].millisecondsSinceEpoch}',
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(controller.sectionMomentStories, hasLength(2));
+      expect(controller.momentWeek, weeks[3]);
+      expect(
+        // Labels use the local date of the week's start.
+        find.textContaining(
+          RegExp(r'Week of \d+ Aug 2026'),
+          findRichText: true,
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a filter in Recent reads the whole collection', (
+      tester,
+    ) async {
+      final controller = await _controller(
+        momentPageSize: 1,
+        moments: [
+          running(),
+          running(id: 'now-2'),
+          for (var week = 0; week < 4; week++) archived(week),
+        ],
+      );
+      final story = controller.momentStories.first;
+      controller.selectMomentPublisher(story.publisher);
+      await tester.runAsync(() => controller.loadAllMoments());
+      expect(controller.hasMoreMoments, isFalse);
+      expect(
+        controller.sectionMomentStories.every(
+          (s) =>
+              s.publisher == story.publisher && !controller.isArchivedMoment(s),
+        ),
+        isTrue,
+      );
+    });
+
+    testWidgets('nothing is drawn over the artwork; the facts sit below it', (
+      tester,
+    ) async {
+      final controller = await _controller(moments: [running()]);
+      final story = controller.momentStories.single;
+
+      await _pumpPage(tester, controller);
+      await tester.tap(find.text('Moments'));
+      await tester.pumpAndSettle();
+
+      final card = find.byKey(ValueKey<String>('moment-post-${story.id}'));
+      expect(
+        find.descendant(of: card, matching: find.byType(PositionedDirectional)),
+        findsNothing,
+      );
+      final image = find.byKey(
+        ValueKey<String>('moment-post-image-left-${story.id}'),
+      );
+      final status = find.byKey(
+        ValueKey<String>('moment-post-status-${story.id}'),
+      );
+      final kicker = find.byKey(
+        ValueKey<String>('moment-post-kicker-${story.id}'),
+      );
+      expect(status, findsOneWidget);
+      expect(kicker, findsOneWidget);
+      expect(
+        tester.getTopLeft(status).dy,
+        greaterThan(tester.getBottomLeft(image).dy),
+      );
+      expect(find.text('#3'), findsOneWidget);
+    });
+
+    testWidgets('a floating Back to top appears far down and returns', (
+      tester,
+    ) async {
+      final controller = await _controller(
+        moments: [
+          for (var i = 0; i < 12; i++)
+            _momentEvent(
+              id: 'p$i',
+              scope: ChartMomentScope.finalized,
+              type: ChartMomentEventType.newPeak,
+              currentRank: 3 + i,
+              currentPeakRank: 3 + i,
+              occurredAt: DateTime.utc(2026, 9, 28, 1 + i),
+              title: 'Peak $i',
+              entityId: 'songs_p$i',
+            ),
+        ],
+      );
+      await _pumpPage(tester, controller, size: const Size(400, 800));
+      await tester.tap(find.text('Moments'));
+      await tester.pumpAndSettle();
+
+      final button = find.byKey(const ValueKey<String>('charts-scroll-to-top'));
+      expect(
+        tester
+            .widget<AnimatedOpacity>(
+              find.ancestor(of: button, matching: find.byType(AnimatedOpacity)),
+            )
+            .opacity,
+        0,
+      );
+      await tester.drag(
+        find.byKey(const PageStorageKey<String>('charts-scroll')),
+        const Offset(0, -2400),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(button);
+      await tester.pumpAndSettle();
+      final scrollable = tester.state<ScrollableState>(
+        find
+            .descendant(
+              of: find.byKey(const PageStorageKey<String>('charts-scroll')),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      expect(scrollable.position.pixels, 0);
+    });
+
+    for (final id in SonusThemeId.values) {
+      testWidgets('${id.label}: sections, menus and search fit 320 dp at 2x '
+          'text', (tester) async {
+        final controller = await _controller(moments: [running(), archived(0)]);
+        await _pumpPage(
+          tester,
+          controller,
+          size: const Size(320, 1400),
+          textScale: 2,
+          theme: SonusThemeFactory.build(SonusAppearanceSpec(themeId: id)),
+        );
+        await tester.tap(find.text('Moments'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Archive'));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+      });
+    }
   });
 }
 
@@ -1909,8 +2173,11 @@ ChartMomentEvent _momentEvent({
   int? streams,
   String? artistId,
   DateTime? occurredAt,
+  DateTime? weekStartUtc,
+  String title = 'Song 1',
+  String entityId = 'songs_1',
 }) {
-  final weekStart = DateTime.utc(2026, 9, 27);
+  final weekStart = weekStartUtc ?? DateTime.utc(2026, 9, 27);
   final at = occurredAt ?? DateTime.utc(2026, 10, 4, 1);
 
   return ChartMomentEvent(
@@ -1921,8 +2188,8 @@ ChartMomentEvent _momentEvent({
     scope: scope,
     eventType: type,
     entity: ChartEntitySnapshot(
-      entityId: 'songs_1',
-      title: 'Song 1',
+      entityId: entityId,
+      title: title,
       artistId: artistId,
       artistName: 'Artist 1',
       albumTitle: 'Album 1',

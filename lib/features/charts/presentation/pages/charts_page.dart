@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../../core/design/sonus_count_label.dart';
 import '../../../../core/design/sonus_theme.dart';
+import '../../../../core/design/widgets/sonus_segmented_selector.dart';
 import '../../../../core/design/widgets/sonus_decorations.dart';
 import '../../../library/application/models/library_album.dart';
 import '../../../library/application/models/library_track.dart';
@@ -71,95 +72,173 @@ class ChartsPage extends StatelessWidget {
     );
     final rowCount = entries.length + (extendedStart < 0 ? 0 : 1);
 
-    return RefreshIndicator(
-      onRefresh: controller.refresh,
-      child: CustomScrollView(
-        key: const PageStorageKey<String>('charts-scroll'),
-        physics: const AlwaysScrollableScrollPhysics(),
-        slivers: [
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(20, 22, 20, 0),
-            sliver: SliverList.list(
-              children: [
-                const _ChartsHeader(),
-                const SizedBox(height: 18),
-                _ChartsPresentationSelector(controller: controller),
-                const SizedBox(height: 20),
-
-                if (controller.isShowingCharts) ...[
-                  _ChartTypeSelector(controller: controller),
+    return _ScrollToTopHost(
+      builder: (scroll) => RefreshIndicator(
+        onRefresh: controller.refresh,
+        child: CustomScrollView(
+          key: const PageStorageKey<String>('charts-scroll'),
+          controller: scroll,
+          physics: const AlwaysScrollableScrollPhysics(),
+          slivers: [
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(20, 22, 20, 0),
+              sliver: SliverList.list(
+                children: [
+                  const _ChartsHeader(),
                   const SizedBox(height: 18),
-                  _WeekNavigator(controller: controller),
-                  const SizedBox(height: 18),
-                  _ViewSizeSelector(controller: controller),
+                  _ChartsPresentationSelector(controller: controller),
+                  const SizedBox(height: 20),
 
-                  const SizedBox(height: 22),
+                  if (controller.isShowingCharts) ...[
+                    _ChartTypeSelector(controller: controller),
+                    const SizedBox(height: 18),
+                    _WeekNavigator(controller: controller),
+                    const SizedBox(height: 18),
+                    _ViewSizeSelector(controller: controller),
 
-                  if (controller.hasError && hasChart) ...[
-                    _RefreshErrorBanner(onRetry: controller.refresh),
-                    const SizedBox(height: 16),
-                  ],
+                    const SizedBox(height: 22),
 
-                  if (entries.isEmpty)
-                    controller.isViewingThisWeek
-                        ? const _ChartsMessage(
-                            key: ValueKey<String>('charts-empty'),
-                            icon: Icons.leaderboard_outlined,
-                            title: 'No chart entries this week yet',
-                            message:
-                                'Qualified listens this week will appear here as you listen.',
-                          )
-                        : const _ChartsMessage(
-                            key: ValueKey<String>('charts-empty'),
-                            icon: Icons.leaderboard_outlined,
-                            title: 'No chart entries yet',
-                            message:
-                                'Every qualified listen counts toward your Sonus Hot 100 career standings.',
-                          )
-                  else ...[
-                    _ChartSummary(
-                      chartType: controller.chartType,
-                      positionCount: entries.length,
-                      isWeeklyHistory: controller.isViewingHistory,
-                      isThisWeek: controller.isViewingThisWeek,
+                    if (controller.hasError && hasChart) ...[
+                      _RefreshErrorBanner(onRetry: controller.refresh),
+                      const SizedBox(height: 16),
+                    ],
+
+                    if (entries.isEmpty)
+                      controller.isViewingThisWeek
+                          ? const _ChartsMessage(
+                              key: ValueKey<String>('charts-empty'),
+                              icon: Icons.leaderboard_outlined,
+                              title: 'No chart entries this week yet',
+                              message:
+                                  'Qualified listens this week will appear here as you listen.',
+                            )
+                          : const _ChartsMessage(
+                              key: ValueKey<String>('charts-empty'),
+                              icon: Icons.leaderboard_outlined,
+                              title: 'No chart entries yet',
+                              message:
+                                  'Every qualified listen counts toward your Sonus Hot 100 career standings.',
+                            )
+                    else ...[
+                      _ChartSummary(
+                        chartType: controller.chartType,
+                        positionCount: entries.length,
+                        isWeeklyHistory: controller.isViewingHistory,
+                        isThisWeek: controller.isViewingThisWeek,
+                      ),
+                      const SizedBox(height: 14),
+                    ],
+                  ] else
+                    _MomentsFeedHeader(controller: controller),
+                ],
+              ),
+            ),
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 40),
+              sliver: controller.isShowingMoments
+                  ? _momentsFeedSliver(controller)
+                  : SliverList.builder(
+                      itemCount: rowCount,
+                      itemBuilder: (context, index) {
+                        if (index == extendedStart) {
+                          return ChartExtendedDivider(
+                            chartType: controller.chartType,
+                          );
+                        }
+
+                        final entryIndex =
+                            extendedStart >= 0 && index > extendedStart
+                            ? index - 1
+                            : index;
+
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: _ChartEntryItem(
+                            entry: entries[entryIndex],
+                            controller: controller,
+                          ),
+                        );
+                      },
                     ),
-                    const SizedBox(height: 14),
-                  ],
-                ] else
-                  _MomentsFeedHeader(controller: controller),
-              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Hosts a scroll view with a floating "Back to top" button that appears
+/// once the page is scrolled well down (Charts 2.0 C1). The button sits in
+/// the page, which ends above the mini-player, so it never covers it.
+class _ScrollToTopHost extends StatefulWidget {
+  const _ScrollToTopHost({required this.builder});
+
+  final Widget Function(ScrollController controller) builder;
+
+  @override
+  State<_ScrollToTopHost> createState() => _ScrollToTopHostState();
+}
+
+class _ScrollToTopHostState extends State<_ScrollToTopHost> {
+  static const double _showAfter = 800;
+
+  final ScrollController _scroll = ScrollController();
+  bool _show = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _scroll.addListener(_update);
+  }
+
+  void _update() {
+    final show = _scroll.hasClients && _scroll.offset > _showAfter;
+    if (show != _show) setState(() => _show = show);
+  }
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  void _toTop() {
+    final motion = SonusTheme.of(context).motion;
+    if (motion.reduced) {
+      _scroll.jumpTo(0);
+    } else {
+      unawaited(
+        _scroll.animateTo(0, duration: motion.long, curve: motion.curve),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final motion = SonusTheme.of(context).motion;
+    return Stack(
+      children: [
+        widget.builder(_scroll),
+        PositionedDirectional(
+          end: 16,
+          bottom: 16,
+          child: IgnorePointer(
+            ignoring: !_show,
+            child: AnimatedOpacity(
+              opacity: _show ? 1 : 0,
+              duration: motion.short,
+              child: FloatingActionButton.small(
+                key: const ValueKey<String>('charts-scroll-to-top'),
+                heroTag: null,
+                tooltip: 'Back to top',
+                onPressed: _show ? _toTop : null,
+                child: const Icon(Icons.vertical_align_top_rounded),
+              ),
             ),
           ),
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(20, 0, 20, 40),
-            sliver: controller.isShowingMoments
-                ? _momentsFeedSliver(controller)
-                : SliverList.builder(
-                    itemCount: rowCount,
-                    itemBuilder: (context, index) {
-                      if (index == extendedStart) {
-                        return ChartExtendedDivider(
-                          chartType: controller.chartType,
-                        );
-                      }
-
-                      final entryIndex =
-                          extendedStart >= 0 && index > extendedStart
-                          ? index - 1
-                          : index;
-
-                      return Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: _ChartEntryItem(
-                          entry: entries[entryIndex],
-                          controller: controller,
-                        ),
-                      );
-                    },
-                  ),
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
@@ -344,6 +423,13 @@ class _MomentsFeedHeader extends StatelessWidget {
       );
     }
 
+    final archive = controller.momentsSection == MomentsSection.archive;
+    final narrowed =
+        controller.isFilteringMoments ||
+        (archive &&
+            (controller.momentQuery.trim().isNotEmpty ||
+                controller.momentWeek != null));
+    final complete = !controller.hasMoreForSection;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -351,9 +437,46 @@ class _MomentsFeedHeader extends StatelessWidget {
           _MomentsRefreshErrorBanner(onRetry: controller.refresh),
           const SizedBox(height: 14),
         ],
+        SonusSegmentedSelector<MomentsSection>(
+          key: const ValueKey<String>('charts-moments-section'),
+          segments: const [
+            SonusSegment(
+              value: MomentsSection.recent,
+              icon: Icons.bolt_rounded,
+              label: 'Recent',
+            ),
+            SonusSegment(
+              value: MomentsSection.archive,
+              icon: Icons.inventory_2_outlined,
+              label: 'Archive',
+            ),
+          ],
+          selected: controller.momentsSection,
+          onChanged: controller.selectMomentsSection,
+        ),
+        const SizedBox(height: 12),
+        if (archive) ...[
+          _MomentsArchiveSearch(controller: controller),
+          const SizedBox(height: 10),
+        ],
         _MomentsFilters(controller: controller),
         const SizedBox(height: 16),
-        if (controller.visibleMomentStories.isEmpty && !hasMore)
+        if (controller.sectionMomentStories.isEmpty && complete && !narrowed)
+          _ChartsMessage(
+            key: ValueKey<String>(
+              'charts-moments-${archive ? 'archive' : 'recent'}-empty',
+            ),
+            icon: archive
+                ? Icons.inventory_2_outlined
+                : Icons.auto_awesome_outlined,
+            title: archive
+                ? 'No archived Moments yet'
+                : 'No Moments this chart week yet',
+            message: archive
+                ? 'Stories move here when their chart week is finalized.'
+                : 'Earlier stories are in the Archive.',
+          ),
+        if (controller.sectionMomentStories.isEmpty && complete && narrowed)
           _ChartsMessage(
             key: const ValueKey<String>('charts-moments-filtered-empty'),
             icon: Icons.filter_list_off_rounded,
@@ -363,6 +486,8 @@ class _MomentsFeedHeader extends StatelessWidget {
               onPressed: () {
                 controller.selectMomentCategory(null);
                 controller.selectMomentPublisher(null);
+                controller.searchMoments('');
+                controller.selectMomentWeek(null);
               },
               child: const Text('Show all Moments'),
             ),
@@ -372,7 +497,8 @@ class _MomentsFeedHeader extends StatelessWidget {
   }
 }
 
-/// One chronological feed, narrowed by category and publisher (F-Q25).
+/// One chronological feed, narrowed by category and publisher (F-Q25),
+/// with one compact menu each (Charts 2.0 C1). Both apply together.
 class _MomentsFilters extends StatelessWidget {
   const _MomentsFilters({required this.controller});
 
@@ -380,11 +506,12 @@ class _MomentsFilters extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
+    return Wrap(
       key: const ValueKey<String>('charts-moments-filters'),
-      crossAxisAlignment: CrossAxisAlignment.start,
+      spacing: 8,
+      runSpacing: 8,
       children: [
-        _MomentsFilterGroup<MomentCategory>(
+        _MomentsMenu<MomentCategory>(
           label: 'Category',
           allLabel: 'All stories',
           values: MomentCategory.values,
@@ -392,8 +519,7 @@ class _MomentsFilters extends StatelessWidget {
           selected: controller.momentCategory,
           onSelected: controller.selectMomentCategory,
         ),
-        const SizedBox(height: 10),
-        _MomentsFilterGroup<MomentPublisher>(
+        _MomentsMenu<MomentPublisher>(
           label: 'Publisher',
           allLabel: 'All publishers',
           values: MomentPublisher.values,
@@ -401,13 +527,15 @@ class _MomentsFilters extends StatelessWidget {
           selected: controller.momentPublisher,
           onSelected: controller.selectMomentPublisher,
         ),
+        if (controller.momentsSection == MomentsSection.archive)
+          _MomentsWeekMenu(controller: controller),
       ],
     );
   }
 }
 
-class _MomentsFilterGroup<T extends Enum> extends StatelessWidget {
-  const _MomentsFilterGroup({
+class _MomentsMenu<T extends Enum> extends StatelessWidget {
+  const _MomentsMenu({
     required this.label,
     required this.allLabel,
     required this.values,
@@ -425,39 +553,199 @@ class _MomentsFilterGroup<T extends Enum> extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tokens = SonusTheme.of(context);
-    final theme = Theme.of(context);
-
-    Widget chip(String text, T? value) => ChoiceChip(
-      key: ValueKey<String>('charts-moments-filter-$label-${value?.name}'),
-      label: Text(text),
-      selected: selected == value,
-      onSelected: (_) => onSelected(value),
+    final current = selected;
+    return _MenuButton<T?>(
+      key: ValueKey<String>('charts-moments-filter-$label'),
+      label: label,
+      value: current == null ? allLabel : labelOf(current),
+      active: current != null,
+      items: [
+        (null, allLabel),
+        for (final value in values) (value, labelOf(value)),
+      ],
+      itemKey: (value) =>
+          ValueKey<String>('charts-moments-filter-$label-${value?.name}'),
+      selected: current,
+      onSelected: onSelected,
     );
+  }
+}
 
+class _MomentsWeekMenu extends StatelessWidget {
+  const _MomentsWeekMenu({required this.controller});
+
+  final ChartsController controller;
+
+  static String _week(DateTime startUtc) {
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
+    final local = startUtc.toLocal();
+    return 'Week of ${local.day} ${months[local.month - 1]} ${local.year}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final week = controller.momentWeek;
+    return _MenuButton<DateTime?>(
+      key: const ValueKey<String>('charts-moments-week'),
+      label: 'Week',
+      value: week == null ? 'All weeks' : _week(week),
+      active: week != null,
+      items: [
+        (null, 'All weeks'),
+        for (final start in controller.archivedMomentWeeks)
+          (start, _week(start)),
+      ],
+      itemKey: (value) => ValueKey<String>(
+        'charts-moments-week-${value?.millisecondsSinceEpoch}',
+      ),
+      selected: week,
+      onSelected: controller.selectMomentWeek,
+    );
+  }
+}
+
+/// A compact "Label: value" menu button, at least 44 dp tall.
+class _MenuButton<V> extends StatelessWidget {
+  const _MenuButton({
+    super.key,
+    required this.label,
+    required this.value,
+    required this.active,
+    required this.items,
+    required this.itemKey,
+    required this.selected,
+    required this.onSelected,
+  });
+
+  final String label;
+  final String value;
+  final bool active;
+  final List<(V, String)> items;
+  final Key Function(V value) itemKey;
+  final V selected;
+  final void Function(V value) onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = SonusTheme.of(context);
+    final colors = tokens.colors;
     return Semantics(
-      container: true,
-      label: '$label filter',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: theme.textTheme.labelLarge?.copyWith(
-              color: tokens.colors.textSecondary,
-              fontWeight: FontWeight.w700,
+      button: true,
+      label: '$label: $value',
+      excludeSemantics: true,
+      child: PopupMenuButton<int>(
+        tooltip: label,
+        onSelected: (index) => onSelected(items[index].$1),
+        itemBuilder: (_) => [
+          for (var i = 0; i < items.length; i++)
+            CheckedPopupMenuItem<int>(
+              key: itemKey(items[i].$1),
+              value: i,
+              checked: items[i].$1 == selected,
+              child: Text(items[i].$2),
+            ),
+        ],
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 44),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          decoration: BoxDecoration(
+            color: active
+                ? colors.accentPrimary.withValues(alpha: 0.16)
+                : colors.raisedSurface,
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(
+              color: active ? colors.accentPrimary : colors.border,
             ),
           ),
-          const SizedBox(height: 6),
-          Wrap(
-            spacing: 8,
-            runSpacing: 4,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              chip(allLabel, null),
-              for (final value in values) chip(labelOf(value), value),
+              Flexible(
+                child: Text.rich(
+                  TextSpan(
+                    children: [
+                      TextSpan(
+                        text: '$label: ',
+                        style: TextStyle(color: colors.textSecondary),
+                      ),
+                      TextSpan(
+                        text: value,
+                        style: TextStyle(
+                          color: colors.textPrimary,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ],
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              Icon(Icons.arrow_drop_down_rounded, color: colors.textSecondary),
             ],
           ),
-        ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Archive search by headline, song, artist or release.
+class _MomentsArchiveSearch extends StatefulWidget {
+  const _MomentsArchiveSearch({required this.controller});
+
+  final ChartsController controller;
+
+  @override
+  State<_MomentsArchiveSearch> createState() => _MomentsArchiveSearchState();
+}
+
+class _MomentsArchiveSearchState extends State<_MomentsArchiveSearch> {
+  late final TextEditingController _text = TextEditingController(
+    text: widget.controller.momentQuery,
+  );
+
+  @override
+  void dispose() {
+    _text.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      key: const ValueKey<String>('charts-moments-search'),
+      controller: _text,
+      onChanged: widget.controller.searchMoments,
+      textInputAction: TextInputAction.search,
+      decoration: InputDecoration(
+        hintText: 'Search artist, song, release or headline',
+        prefixIcon: const Icon(Icons.search_rounded),
+        suffixIcon: _text.text.isEmpty
+            ? null
+            : IconButton(
+                tooltip: 'Clear search',
+                icon: const Icon(Icons.close_rounded),
+                onPressed: () {
+                  _text.clear();
+                  widget.controller.searchMoments('');
+                  setState(() {});
+                },
+              ),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(22)),
+        isDense: true,
       ),
     );
   }
@@ -465,8 +753,8 @@ class _MomentsFilterGroup<T extends Enum> extends StatelessWidget {
 
 /// The stories, built as they scroll into view, then the next page.
 Widget _momentsFeedSliver(ChartsController controller) {
-  final stories = controller.visibleMomentStories;
-  final hasFooter = controller.hasMoreMoments;
+  final stories = controller.sectionMomentStories;
+  final hasFooter = controller.hasMoreForSection;
   final now = controller.currentTime();
 
   return SliverList.builder(

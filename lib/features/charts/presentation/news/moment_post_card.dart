@@ -115,7 +115,18 @@ class MomentPostCard extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 14),
-              MergeSemantics(child: _Collage(story: story)),
+              // Charts 2.0 C1: nothing is drawn over the artwork; the
+              // kicker, rank and status sit under it, read with it.
+              MergeSemantics(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _Collage(story: story),
+                    const SizedBox(height: 10),
+                    _StoryMeta(story: story),
+                  ],
+                ),
+              ),
               if (hasLinks) ...[
                 const SizedBox(height: 12),
                 Wrap(
@@ -295,37 +306,6 @@ class _Collage extends StatelessWidget {
                 ],
               ],
             ),
-            PositionedDirectional(
-              top: 10,
-              start: 10,
-              end: 10,
-              child: Align(
-                alignment: AlignmentDirectional.centerStart,
-                child: _Pill(
-                  label: story.kicker.toUpperCase(),
-                  icon: Icons.auto_awesome_rounded,
-                  maxLines: 2,
-                  background: colors.artworkScrim,
-                  foreground: colors.onArtworkScrim,
-                ),
-              ),
-            ),
-            if (story.rank != null)
-              PositionedDirectional(
-                bottom: 10,
-                start: 10,
-                child: _RankBadge(rank: story.rank!),
-              ),
-            PositionedDirectional(
-              bottom: 10,
-              end: 10,
-              child: _Pill(
-                key: ValueKey<String>('moment-post-status-$id'),
-                label: story.status,
-                background: colors.artworkScrim,
-                foreground: colors.onArtworkScrim,
-              ),
-            ),
           ],
         ),
       ),
@@ -362,6 +342,41 @@ class _CollageImage extends StatelessWidget {
   }
 }
 
+/// The story's kicker, chart rank and status, under the artwork.
+class _StoryMeta extends StatelessWidget {
+  const _StoryMeta({required this.story});
+
+  final MomentStory story;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = SonusTheme.of(context).colors;
+    final id = story.id;
+    return Wrap(
+      spacing: 8,
+      runSpacing: 6,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        _Pill(
+          key: ValueKey<String>('moment-post-kicker-$id'),
+          label: story.kicker.toUpperCase(),
+          icon: Icons.auto_awesome_rounded,
+          maxLines: 2,
+          background: colors.accentPrimary.withValues(alpha: 0.16),
+          foreground: colors.textPrimary,
+        ),
+        if (story.rank != null) _RankBadge(rank: story.rank!),
+        _Pill(
+          key: ValueKey<String>('moment-post-status-$id'),
+          label: story.status,
+          background: colors.surface,
+          foreground: colors.textSecondary,
+        ),
+      ],
+    );
+  }
+}
+
 class _RankBadge extends StatelessWidget {
   const _RankBadge({required this.rank});
 
@@ -372,15 +387,15 @@ class _RankBadge extends StatelessWidget {
     final colors = SonusTheme.of(context).colors;
 
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
       decoration: BoxDecoration(
-        color: colors.artworkScrim,
-        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: colors.border),
+        borderRadius: BorderRadius.circular(999),
       ),
       child: Text(
         '#$rank',
-        style: Theme.of(context).textTheme.titleLarge?.copyWith(
-          color: colors.onArtworkScrim,
+        style: Theme.of(context).textTheme.labelLarge?.copyWith(
+          color: colors.textPrimary,
           fontWeight: FontWeight.w900,
           fontFeatures: const [FontFeature.tabularFigures()],
         ),

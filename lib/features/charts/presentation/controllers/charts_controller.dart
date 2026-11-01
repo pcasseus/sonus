@@ -51,6 +51,11 @@ typedef DeluxeEditionsLoader = Future<List<LibraryAlbumEdition>> Function();
 /// The album edition a qualified play was of, or null if the play is gone.
 typedef PlayEditionLoader = Future<String?> Function(String playId);
 
+/// The two Moments views (Charts 2.0 C1): stories whose chart week is
+/// still running, and stories from finalized weeks. Both read the same
+/// stored stories; nothing is moved or rewritten.
+enum MomentsSection { recent, archive }
+
 /// Which Moments rules this run uses (SN-50 R2).
 typedef MomentRulesLoader = Future<ChartMomentRules> Function();
 
@@ -138,6 +143,10 @@ class ChartsController extends ChangeNotifier {
 
   MomentCategory? _momentCategory;
   MomentPublisher? _momentPublisher;
+  MomentsSection _momentsSection = MomentsSection.recent;
+  String _momentQuery = '';
+  DateTime? _momentWeek;
+  bool _loadingAllMoments = false;
 
   /// The newest story when Moments was last open (F-Q26, R6). Without a
   /// store, until it is read, or before the first visit, there is no
@@ -308,12 +317,137 @@ class ChartsController extends ChangeNotifier {
     if (_momentCategory == value) return;
     _momentCategory = value;
     _notify();
+    _completeMomentsIfNeeded();
   }
 
   void selectMomentPublisher(MomentPublisher? value) {
     if (_momentPublisher == value) return;
     _momentPublisher = value;
     _notify();
+    _completeMomentsIfNeeded();
+  }
+
+  MomentsSection get momentsSection => _momentsSection;
+
+  /// The Archive search text (headline, song, artist, release).
+  String get momentQuery => _momentQuery;
+
+  /// The Archive's chart week (its start, UTC), or null for every week.
+  DateTime? get momentWeek => _momentWeek;
+
+  /// Whether every stored Moment is being read so a filtered or archive
+  /// view covers the whole collection.
+  bool get isLoadingAllMoments => _loadingAllMoments;
+
+  void selectMomentsSection(MomentsSection value) {
+    if (_momentsSection == value) return;
+    _momentsSection = value;
+    _notify();
+    _completeMomentsIfNeeded();
+  }
+
+  void searchMoments(String query) {
+    if (_momentQuery == query) return;
+    _momentQuery = query;
+    _notify();
+    _completeMomentsIfNeeded();
+  }
+
+  void selectMomentWeek(DateTime? weekStartUtc) {
+    if (_momentWeek == weekStartUtc) return;
+    _momentWeek = weekStartUtc;
+    _notify();
+    _completeMomentsIfNeeded();
+  }
+
+  /// Whether [story]'s chart week has finalized (its week has ended). A
+  /// finalized week's stories leave Recent for the Archive.
+  bool isArchivedMoment(MomentStory story) =>
+      !story.item.weekEndUtc.isAfter(_now().toUtc());
+
+  bool get _momentsNeedEveryPage =>
+      _momentsSection == MomentsSection.archive ||
+      isFilteringMoments ||
+      _momentQuery.trim().isNotEmpty ||
+      _momentWeek != null;
+
+  /// The stories of the selected section, after category, publisher and,
+  /// in the Archive, search and week. Newest first.
+  List<MomentStory> get sectionMomentStories {
+    final archive = _momentsSection == MomentsSection.archive;
+    final words = archive ? _searchWords(_momentQuery) : const <String>[];
+    final week = archive ? _momentWeek : null;
+    return List.unmodifiable([
+      for (final story in visibleMomentStories)
+        if (isArchivedMoment(story) == archive &&
+            (week == null || story.item.weekStartUtc.isAtSameMomentAs(week)) &&
+            (words.isEmpty || _matchesMoment(story, words)))
+          story,
+    ]);
+  }
+
+  /// The chart weeks (starts, UTC) with archived stories, newest first.
+  List<DateTime> get archivedMomentWeeks {
+    final weeks = <int, DateTime>{};
+    for (final story in momentStories) {
+      if (!isArchivedMoment(story)) continue;
+      final start = story.item.weekStartUtc.toUtc();
+      weeks[start.millisecondsSinceEpoch] = start;
+    }
+    return List.unmodifiable(
+      weeks.values.toList()..sort((a, b) => b.compareTo(a)),
+    );
+  }
+
+  /// Whether the selected section may still grow as older pages are read.
+  /// Unfiltered Recent is complete once a finalized story is loaded, since
+  /// everything older is finalized too.
+  bool get hasMoreForSection {
+    if (!hasMoreMoments) return false;
+    if (_momentsNeedEveryPage) return true;
+    return !momentStories.any(isArchivedMoment);
+  }
+
+  static List<String> _searchWords(String query) => [
+    for (final word in query.toLowerCase().split(RegExp(r'\s+')))
+      if (word.isNotEmpty) word,
+  ];
+
+  static bool _matchesMoment(MomentStory story, List<String> words) {
+    final f = story.facts;
+    final haystack = [
+      story.headline,
+      ?story.body,
+      f.title,
+      f.artist,
+      ?f.album,
+      ?f.ownerName,
+      ?f.featured,
+      ?f.rivalTitle,
+      ?f.rivalArtist,
+    ].join(' ').toLowerCase();
+    return words.every(haystack.contains);
+  }
+
+  /// Reads every remaining page when the view needs the whole collection.
+  void _completeMomentsIfNeeded() {
+    if (_momentsNeedEveryPage) unawaited(loadAllMoments());
+  }
+
+  /// Reads older pages until none remain (or one fails). Filters, search
+  /// and the Archive then cover every stored story.
+  Future<void> loadAllMoments() async {
+    if (_loadingAllMoments || _isDisposed) return;
+    _loadingAllMoments = true;
+    _notify();
+    try {
+      while (!_isDisposed && hasMoreMoments && _momentPageError == null) {
+        await loadMoreMoments();
+      }
+    } finally {
+      _loadingAllMoments = false;
+      _notify();
+    }
   }
 
   /// Whether older Moments may still be read.
@@ -588,16 +722,24 @@ class ChartsController extends ChangeNotifier {
 
   /// Reads the next page of older Moments. Safe to call repeatedly: it
   /// does nothing while a read runs or when nothing older remains.
-  Future<void> loadMoreMoments() async {
+  Future<void> loadMoreMoments() {
+    // A read already running: callers wait for it rather than skip it.
+    final running = _moreMomentsRead;
+    if (running != null) return running;
     final pager = _momentPager;
-
-    if (_isDisposed ||
-        pager == null ||
-        !pager.hasMore ||
-        _isLoadingMoreMoments) {
-      return;
+    if (_isDisposed || pager == null || !pager.hasMore) {
+      return Future<void>.value();
     }
+    final read = _readMoreMoments(pager);
+    _moreMomentsRead = read;
+    return read.whenComplete(() {
+      if (identical(_moreMomentsRead, read)) _moreMomentsRead = null;
+    });
+  }
 
+  Future<void>? _moreMomentsRead;
+
+  Future<void> _readMoreMoments(ChartMomentFeedPager pager) async {
     _isLoadingMoreMoments = true;
     _momentPageError = null;
     _notify();
