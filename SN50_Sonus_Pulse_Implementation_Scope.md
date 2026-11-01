@@ -60,6 +60,8 @@ Everything here is class A or B: no schema change, migration, cloud, playback or
 
 Groups for full suites: P1–P2, P3–P4, P5–P6.
 
+**Status (2026-10-31):** MVP approved. **P1 done** (`PulsePeriod`, `PulsePeriodData`, `PulseListeningRecords` with `SqlitePulseListeningRecords`, `PulseInsightsService`; 20 tests). It reads through a new bounded read-only source, so no existing repository interface changed. Lifetime streams per entity and per-item trend lines move to P5 (detail). No in-memory cache yet; P2's controller can add one for finished periods.
+
 ## 5. Risks
 
 - Retiring Monthly/Year pages removes some existing tables (completion rate, lifetime streams per row); the spec keeps them in "More about this month" and the detail, but confirm nothing you rely on is dropped.
