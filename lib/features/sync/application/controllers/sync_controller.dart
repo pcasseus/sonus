@@ -119,6 +119,11 @@ class SyncController extends ChangeNotifier {
   Future<bool>? _queued;
   String? _queuedUserId;
 
+  /// Whether every request behind [_queued] was automatic. An explicit
+  /// request (Try again, bringing the cloud library) joining it makes the
+  /// run explicit, so it is never skipped for a pause (DQA-01).
+  bool _queuedAutomaticOnly = false;
+
   SyncFailureKind? _failureKind;
   String? _failureCode;
 
@@ -280,7 +285,12 @@ class SyncController extends ChangeNotifier {
     }
   }
 
-  Future<bool> synchronize(String userId) {
+  /// Runs one sync for [userId]. With [automatic] (app resume, network
+  /// change), the run is skipped when it reaches its turn if sync is paused
+  /// for this account, in memory or as saved: a request queued before the
+  /// pause was recorded never makes a second attempt (DQA-01). Explicit
+  /// requests always run.
+  Future<bool> synchronize(String userId, {bool automatic = false}) {
     final normalizedUserId = userId.trim();
 
     if (normalizedUserId.isEmpty) {
@@ -291,6 +301,7 @@ class SyncController extends ChangeNotifier {
 
     final queued = _queued;
     if (queued != null && _queuedUserId == normalizedUserId) {
+      if (!automatic) _queuedAutomaticOnly = false;
       return queued;
     }
 
@@ -298,6 +309,7 @@ class SyncController extends ChangeNotifier {
     final run = completer.future;
     _queued = run;
     _queuedUserId = normalizedUserId;
+    _queuedAutomaticOnly = automatic;
     final epoch = _sessionEpoch;
 
     // Behind a run that never ends, the caller still gets an answer within
@@ -314,9 +326,16 @@ class SyncController extends ChangeNotifier {
 
     _pending = _pending.then((_) async {
       _cancelTimer(waitLimit);
+      var automaticOnly = automatic;
       if (identical(_queued, run)) {
+        automaticOnly = _queuedAutomaticOnly;
         _queued = null;
         _queuedUserId = null;
+      }
+
+      if (automaticOnly && await _isPausedFor(normalizedUserId)) {
+        if (!completer.isCompleted) completer.complete(false);
+        return;
       }
 
       var ended = Future<void>.value();
@@ -336,6 +355,19 @@ class SyncController extends ChangeNotifier {
     });
 
     return run;
+  }
+
+  /// Whether sync is paused for [userId]: the active account's state, or
+  /// the saved pause. An unreadable store counts as not paused, as at
+  /// activation.
+  Future<bool> _isPausedFor(String userId) async {
+    if (_currentUserId == userId && isPaused) return true;
+    try {
+      return await _statusStore.getPause(userId) != null;
+    } catch (error) {
+      _log('Could not read the paused sync state', error);
+      return false;
+    }
   }
 
   Future<bool> _runSynchronization(

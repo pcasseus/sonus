@@ -89,7 +89,7 @@ class AutomaticSyncCoordinator extends ChangeNotifier {
     _mobileConsentRequired = false;
     notifyListeners();
 
-    await _syncController.synchronize(userId);
+    await _syncController.synchronize(userId, automatic: !retry);
   }
 
   Future<void> allowMobileDataAndSync() async {

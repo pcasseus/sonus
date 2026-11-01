@@ -1011,6 +1011,120 @@ void main() {
       expect(calls, 1);
       expect(controller.isPaused, isFalse);
     });
+
+    group('DQA-01 follow-up: no second automatic attempt', () {
+      AutomaticSyncCoordinator coordinatorFor(SyncController controller) =>
+          AutomaticSyncCoordinator(
+            syncController: controller,
+            networkPolicy: SyncNetworkPolicyService.forTesting(
+              checkConnectivity: () async => [ConnectivityResult.wifi],
+              getBool: (_) async => null,
+              setBool: (_, _) async {},
+              remove: (_) async {},
+            ),
+          );
+
+      test('two network events during a failing run sync once', () async {
+        var calls = 0;
+        final release = Completer<void>();
+        final controller = SyncController.forTesting(
+          synchronize: (_) async {
+            calls++;
+            await release.future;
+            throw CloudContractMismatch('no server revision');
+          },
+          statusStore: store(),
+        );
+        addTearDown(controller.dispose);
+        final coordinator = coordinatorFor(controller);
+        coordinator.updateUserId('user-1');
+        await pumpEventQueue();
+
+        // As on the device: the second network event arrives after the
+        // first run has started, and before it fails, so it passes the
+        // coordinator's pause check and queues a second run.
+        final first = coordinator.trigger();
+        await pumpEventQueue();
+        expect(calls, 1);
+        final second = coordinator.trigger();
+        await pumpEventQueue();
+        release.complete();
+        await Future.wait([first, second]);
+
+        expect(calls, 1, reason: 'the queued automatic run sees the pause');
+        expect(controller.isPaused, isTrue);
+        expect(stored.keys.where((k) => k.startsWith('sync.paused.')), [
+          'sync.paused.user-1',
+        ]);
+      });
+
+      test('Try again joining a queued automatic run still runs it', () async {
+        var calls = 0;
+        final release = Completer<void>();
+        final controller = SyncController.forTesting(
+          synchronize: (_) async {
+            calls++;
+            await release.future;
+            throw CloudContractMismatch('no server revision');
+          },
+          statusStore: store(),
+        );
+        addTearDown(controller.dispose);
+        final coordinator = coordinatorFor(controller);
+        coordinator.updateUserId('user-1');
+        await pumpEventQueue();
+
+        final first = coordinator.trigger();
+        await pumpEventQueue();
+        final queuedAutomatic = coordinator.trigger();
+        await pumpEventQueue();
+        final retry = coordinator.trigger(retry: true);
+        await pumpEventQueue();
+        release.complete();
+        await Future.wait([first, queuedAutomatic, retry]);
+
+        expect(calls, 2, reason: 'the explicit request is never skipped');
+        expect(controller.isPaused, isTrue);
+      });
+
+      test('a saved pause skips an automatic run but not an explicit one, '
+          'and only for its own account', () async {
+        final calls = <String>[];
+        final first = SyncController.forTesting(
+          synchronize: (_) =>
+              Future.error(CloudContractMismatch('no server revision')),
+          statusStore: store(),
+        );
+        await first.synchronize('user-1');
+        first.dispose();
+
+        final controller = SyncController.forTesting(
+          synchronize: (userId) async {
+            calls.add(userId);
+            return _result(userId: userId);
+          },
+          statusStore: store(),
+          countPending: (_) async => 7,
+        );
+        addTearDown(controller.dispose);
+
+        expect(
+          await controller.synchronize('user-1', automatic: true),
+          isFalse,
+        );
+        expect(calls, isEmpty);
+        expect(controller.pendingChanges, 0, reason: 'nothing was touched');
+
+        expect(await controller.synchronize('user-2', automatic: true), isTrue);
+        expect(calls, ['user-2']);
+
+        controller.resetForSignedOut();
+        expect(await controller.synchronize('user-1'), isTrue);
+        expect(calls, ['user-2', 'user-1']);
+        // A cleared pause is stored blank, which reads as not paused.
+        expect(stored['sync.paused.user-1'], isEmpty);
+      });
+    });
   });
 }
 
