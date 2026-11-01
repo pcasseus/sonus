@@ -47,6 +47,9 @@ class _Lookups implements MomentLookups {
 
   /// Songs whose id ends in "-f" have a featured performer.
   @override
+  List<String> guestsOf(String songId) => const [];
+
+  @override
   List<String> featuredOf(String songId) =>
       songId.endsWith('-f') ? const ['Guest Voice'] : const [];
 

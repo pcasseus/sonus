@@ -70,11 +70,15 @@ abstract final class MomentVisuals {
     final related = item.relatedEntity;
     final namesRival = variant.requires.contains(MomentFact.rival);
 
-    // Stories before the SN-50 rules keep their earlier cover rule (A4).
+    // SN-50 and device-polish stories show a song's own artwork, else its
+    // edition's cover, as Now Playing does (a Deluxe-only song showed the
+    // standard album's cover). Stories published before them keep their
+    // earlier cover rule (A4, F-Q17/C-23).
+    final current = facts.refined || facts.polished;
     MomentImage cover(String id, {required bool song}) => MomentImage(
       kind: MomentImageKind.cover,
       entityId: id,
-      path: switch ((song, facts.refined)) {
+      path: switch ((song, current)) {
         (true, true) => lookups.currentSongCover(id),
         (true, false) => lookups.songCover(id),
         (false, true) => lookups.currentReleaseCover(id),

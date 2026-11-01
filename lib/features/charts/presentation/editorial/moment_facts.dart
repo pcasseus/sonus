@@ -22,6 +22,10 @@ abstract interface class MomentLookups {
   /// The song's featured credits, exactly as stored.
   List<String> featuredOf(String songId);
 
+  /// The song's guest credits (role guest), in credit order. Guests are
+  /// never featured artists.
+  List<String> guestsOf(String songId);
+
   /// A library artist with exactly this name, if there is one.
   String? artistIdNamed(String name);
 
@@ -129,6 +133,8 @@ class MomentFacts {
     this.refined = false,
     this.catalogVersion,
     this.polished = false,
+    this.featuredArtists = const [],
+    this.guests = const [],
     this.thresholds = const [],
     this.jump,
   });
@@ -198,6 +204,24 @@ class MomentFacts {
   /// .tellsEveryChartEvent): weekly stories name the weekly chart, as
   /// refined ones do. Earlier stories keep their wording.
   final bool polished;
+
+  /// Every featured artist on the song, in credit order: device-polish
+  /// stories name them all ([subject]); earlier stories named one only.
+  final List<String> featuredArtists;
+
+  /// Guest credits, told apart from featured artists (device polish).
+  final List<String> guests;
+
+  /// "A", "A and B", "A, B and C", or for longer credits "A, B and 3
+  /// others", so a headline stays readable.
+  static String nameList(List<String> names) {
+    if (names.length <= 1) return names.join();
+    if (names.length <= 3) {
+      return '${names.sublist(0, names.length - 1).join(', ')} and '
+          '${names.last}';
+    }
+    return '${names[0]}, ${names[1]} and ${names.length - 2} others';
+  }
 
   /// A chart jump's verified movement and stream facts (SN-50).
   final ChartJumpFacts? jump;
@@ -327,6 +351,8 @@ class MomentFacts {
   /// The story's subject as a headline names it: "Song" by Artist (feat.
   /// Guest), or Title by Artist for a release, or the artist's name.
   String get subject => switch (chartType) {
+    ChartType.songs when polished && featuredArtists.isNotEmpty =>
+      '"$title" by $artist featuring ${nameList(featuredArtists)}',
     ChartType.songs when featured != null =>
       '"$title" by $artist featuring $featured',
     ChartType.songs => '"$title" by $artist',
@@ -508,6 +534,18 @@ class MomentFacts {
       // An artist rival is named on its own, never "Name by Name".
       rivalArtist: isArtistStory ? null : rivalEvent?.relatedEntity?.artistName,
       featured: featured.length == 1 ? featured.single : null,
+      featuredArtists: songs && polished
+          ? List.unmodifiable([
+              for (final name in featured)
+                if (name.trim().isNotEmpty) name.trim(),
+            ])
+          : const [],
+      guests: songs && polished
+          ? List.unmodifiable([
+              for (final name in lookups.guestsOf(entity.entityId))
+                if (name.trim().isNotEmpty) name.trim(),
+            ])
+          : const [],
       newTopArtist: topArtist?.entity.title,
       passedTopArtist: topArtist?.relatedEntity?.title,
       refined: refined,

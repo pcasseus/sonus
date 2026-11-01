@@ -78,6 +78,9 @@ class _Lookups implements MomentLookups {
   ReleaseFormat? songReleaseFormat(String songId) => ReleaseFormat.album;
 
   @override
+  List<String> guestsOf(String songId) => const [];
+
+  @override
   List<String> featuredOf(String songId) => const [];
 
   @override

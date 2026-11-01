@@ -150,7 +150,7 @@ void main() {
       expect(story.headline, contains('#40'));
       expect(story.occurredAt, _at(90));
       expect(story.updates.map((u) => u.text), [
-        'Song lg climbs 4 places to #36 on the Sonus Hot 100.',
+        '"Song lg" by Name artist-a climbs 4 places to #36 on the Sonus Hot 100.',
         'UPDATE: Song lg climbs another 8 places to #28.',
         'UPDATE: Song lg climbs another 13 places to #15.',
       ]);

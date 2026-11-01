@@ -1499,6 +1499,10 @@ class _ControllerMomentLookups implements MomentLookups {
   }
 
   @override
+  List<String> guestsOf(String songId) =>
+      _controller._tracksById[songId]?.guestArtists ?? const [];
+
+  @override
   List<String> featuredOf(String songId) =>
       _controller._tracksById[songId]?.featuredArtists ?? const [];
 

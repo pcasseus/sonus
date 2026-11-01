@@ -97,6 +97,7 @@ abstract final class DevelopingStories {
     List<ChartMomentEvent> chain, {
     required String title,
     required String chart,
+    String? subject,
   }) {
     final updates = <MomentStoryUpdate>[];
     int? lastRank;
@@ -109,7 +110,8 @@ abstract final class DevelopingStories {
       final end = newHigh ? ', a new career high.' : '.';
       final String text;
       if (lastRank == null) {
-        text = '$title climbs $places to #$now on $chart$end';
+        // The first line names the song with its credits.
+        text = '${subject ?? title} climbs $places to #$now on $chart$end';
       } else if (before == lastRank) {
         text = 'UPDATE: $title climbs another $places to #$now$end';
       } else if (before > lastRank) {

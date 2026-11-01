@@ -262,6 +262,7 @@ class MomentEditorialDesk {
       chain,
       title: facts.title,
       chart: facts.chart,
+      subject: facts.subject,
     );
     final daily = _hash('${item.id}|publisher').isEven;
     final publisher = daily
@@ -507,6 +508,16 @@ class MomentEditorialDesk {
         : 'The ${facts.releaseWord}';
     final sentences = <String>[];
 
+    // Device polish: a headline that names the song without its featured
+    // artists is followed by them, first, so every new story credits them.
+    final featuredArtists = facts.featuredArtists;
+    final credited =
+        featuredArtists.isNotEmpty &&
+        !variant.build(facts).contains(featuredArtists.first);
+    if (credited) {
+      sentences.add('Featuring ${MomentFacts.nameList(featuredArtists)}.');
+    }
+
     final newTop = facts.newTopArtist;
     final passed = facts.passedTopArtist;
     if (newTop != null && passed != null) {
@@ -604,8 +615,20 @@ class MomentEditorialDesk {
       );
     }
 
+    // Device polish: guests are credited apart from featured artists.
+    final guests = facts.guests;
+    if (guests.isNotEmpty) {
+      sentences.add(
+        guests.length == 1
+            ? 'With a guest appearance by ${guests.single}.'
+            : 'With guest appearances by ${MomentFacts.nameList(guests)}.',
+      );
+    }
+
     if (sentences.isEmpty) return null;
-    return sentences.take(2).join(' ');
+    return sentences
+        .take(2 + (guests.isEmpty ? 0 : 1) + (credited ? 1 : 0))
+        .join(' ');
   }
 
   /// The approved streaming sentence of a chart-jump story (CJ-040 or

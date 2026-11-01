@@ -80,6 +80,10 @@ class _Lookups implements MomentLookups {
   }
 
   @override
+  List<String> guestsOf(String songId) =>
+      tracks[songId]?.guestArtists ?? const [];
+
+  @override
   List<String> featuredOf(String songId) =>
       tracks[songId]?.featuredArtists ?? const [];
 

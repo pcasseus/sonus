@@ -25,6 +25,7 @@ class FakeLookups implements MomentLookups {
     this.formats = const {},
     this.songFormats = const {},
     this.featured = const {},
+    this.guests = const {},
     this.covers = const {},
     this.portraits = const {},
     this.currentCovers = const {},
@@ -36,6 +37,9 @@ class FakeLookups implements MomentLookups {
   /// The format of each song's release; Album when missing.
   final Map<String, ReleaseFormat?> songFormats;
   final Map<String, List<String>> featured;
+
+  /// Guest credits (role guest), never featured.
+  final Map<String, List<String>> guests;
   final Map<String, String> covers;
   final Map<String, String> portraits;
 
@@ -54,6 +58,9 @@ class FakeLookups implements MomentLookups {
       songFormats.containsKey(songId)
       ? songFormats[songId]
       : ReleaseFormat.album;
+
+  @override
+  List<String> guestsOf(String songId) => guests[songId] ?? const [];
 
   @override
   List<String> featuredOf(String songId) => featured[songId] ?? const [];
