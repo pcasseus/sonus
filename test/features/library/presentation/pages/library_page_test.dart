@@ -225,7 +225,7 @@ void main() {
 
       expect(find.text('Available Artist'), findsOneWidget);
       expect(find.text('Missing Artist'), findsNothing);
-      expect(find.text('1 artist in your library'), findsOneWidget);
+      expect(find.text('1 artist'), findsOneWidget);
     });
 
     testWidgets(
@@ -292,7 +292,7 @@ void main() {
       ]) {
         expect(find.text(name), findsOneWidget, reason: name);
       }
-      expect(find.text('4 artists in your library'), findsOneWidget);
+      expect(find.text('4 artists'), findsOneWidget);
     });
 
     // Regression (SN-48I emulator QA): large counts overflowed the card's

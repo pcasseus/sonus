@@ -104,10 +104,9 @@ void main() {
 
       expect(find.text('Lead Artist'), findsOneWidget);
       expect(find.text('Cast Member'), findsNothing);
-      expect(
-        find.textContaining('1 more is listed under a project'),
-        findsOneWidget,
-      );
+      // A plain count of the artists listed; no note about grouping.
+      expect(find.text('1 artist'), findsOneWidget);
+      expect(find.textContaining('listed under a project'), findsNothing);
     });
 
     testWidgets('everyone is shown when organization cannot be read', (

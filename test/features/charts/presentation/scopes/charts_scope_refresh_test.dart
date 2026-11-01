@@ -89,6 +89,11 @@ void main() {
     await settle(tester);
 
     expect(find.text('Title s1'), findsOneWidget);
+    // The full card, with its stream count, is the row's details.
+    await tester.tap(
+      find.byKey(const ValueKey<String>('charts-row-expand-s1')),
+    );
+    await settle(tester);
     expect(
       find.bySemanticsLabel(RegExp('3 lifetime streams,')),
       findsOneWidget,
@@ -118,6 +123,10 @@ void main() {
 
     final perLoad = afterOpening;
     expect(playRepository.getAllCalls, afterOpening + perLoad);
+    await tester.tap(
+      find.byKey(const ValueKey<String>('charts-row-expand-s1')),
+    );
+    await settle(tester);
     expect(find.bySemanticsLabel(RegExp('1 lifetime stream,')), findsOneWidget);
 
     await tester.pumpWidget(const SizedBox());

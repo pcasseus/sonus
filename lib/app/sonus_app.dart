@@ -22,6 +22,7 @@ import '../features/recovery/presentation/scopes/recovery_scope.dart';
 import '../features/settings/application/controllers/appearance_controller.dart';
 import '../features/settings/presentation/scopes/appearance_scope.dart';
 import '../features/shell/presentation/pages/app_shell_page.dart';
+import '../features/shell/presentation/widgets/keyboard_inset_guard.dart';
 import '../features/shell/presentation/widgets/playback_host.dart';
 import '../features/shell/presentation/widgets/sonus_system_bars.dart';
 import '../features/sync/application/services/sync_run_guard.dart';
@@ -132,10 +133,13 @@ class _SonusAppState extends State<SonusApp> {
                                             // One mini-player for every route.
                                             builder: (context, navigator) =>
                                                 SonusSystemBars(
-                                                  child: PlaybackHost(
-                                                    navigatorKey: _navigatorKey,
-                                                    routes: _playbackRoutes,
-                                                    child: navigator!,
+                                                  child: KeyboardInsetGuard(
+                                                    child: PlaybackHost(
+                                                      navigatorKey:
+                                                          _navigatorKey,
+                                                      routes: _playbackRoutes,
+                                                      child: navigator!,
+                                                    ),
                                                   ),
                                                 ),
                                             home: const AppShellPage(),

@@ -340,6 +340,81 @@ void main() {
     expect(find.byKey(const ValueKey<String>('song-stats-peak')), findsNothing);
   });
 
+  // SN-50 device QA ("lovergirl"): #133 on the career standings row the
+  // Charts page opens on, #2 live this week, never finalized.
+  testWidgets('career standings and this week are named apart', (tester) async {
+    await _pump(
+      tester,
+      SongStats(
+        identity: _empty().identity,
+        chart: SongChartHistory(
+          weeks: const [],
+          live: SongLiveChart(
+            entry: _liveEntry(2),
+            weekStartUtc: _week(6),
+            weekEndUtc: _week(7),
+          ),
+          career: const SongCareerStanding(rank: 133),
+        ),
+        listening: _empty().listening,
+      ),
+    );
+    expect(tester.takeException(), isNull);
+    expect(find.text('Career standings'), findsOneWidget);
+    expect(
+      tester
+          .widget<Text>(
+            find.byKey(const ValueKey<String>('song-stats-career-rank')),
+          )
+          .data,
+      '#133',
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('song-stats-career')),
+        matching: find.text('Sonus Bubbling Under'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('This week'), findsWidgets);
+    expect(
+      tester
+          .widget<Text>(
+            find.byKey(const ValueKey<String>('song-stats-live-rank')),
+          )
+          .data,
+      '#2',
+    );
+    // Not "no weeks have finalized": this song is on none of them.
+    expect(find.textContaining('No finalized weeks yet'), findsNothing);
+    expect(
+      find.textContaining('Not on a finalized weekly chart yet'),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey<String>('song-stats-peak')), findsNothing);
+  });
+
+  testWidgets('career standing only: no empty week chart', (tester) async {
+    await _pump(
+      tester,
+      SongStats(
+        identity: _empty().identity,
+        chart: SongChartHistory(
+          weeks: const [],
+          career: const SongCareerStanding(rank: 40),
+        ),
+        listening: _empty().listening,
+      ),
+    );
+    expect(tester.takeException(), isNull);
+    expect(
+      find.byKey(const ValueKey<String>('song-stats-career')),
+      findsOneWidget,
+    );
+    expect(find.text('Position by week'), findsNothing);
+    expect(find.text('No chart stats available'), findsNothing);
+  });
+
   testWidgets('Play starts the song in its context; status songs have no '
       'Play', (tester) async {
     final engine = _Engine();

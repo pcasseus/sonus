@@ -404,9 +404,18 @@ class _ChartHistorySectionState extends State<_ChartHistorySection> {
         ? weeks
         : weeks.take(_collapsedWeeks).toList();
 
+    final weekly = history.hasFinalized || history.live != null;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        // The career standings are what the Charts page opens on; the live
+        // card is this week's chart. Both are named, so a song high this
+        // week but low in its career reads as two charts, not a conflict.
+        if (history.career case final career?) ...[
+          _CareerCard(career: career),
+          const SizedBox(height: 12),
+        ],
         if (history.live case final live?) ...[
           _LiveCard(live: live, now: widget.now),
           const SizedBox(height: 12),
@@ -417,28 +426,30 @@ class _ChartHistorySectionState extends State<_ChartHistorySection> {
           const _Note(
             key: ValueKey<String>('song-stats-no-finalized'),
             text:
-                'No finalized weeks yet. Positions become permanent when a '
-                'chart week is finalized.',
+                'Not on a finalized weekly chart yet. A week becomes '
+                'permanent when it is finalized with this song on it.',
           ),
-        const SizedBox(height: 12),
-        SonusSurfaceCard(
-          padding: const EdgeInsets.fromLTRB(12, 14, 12, 10),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const _CardTitle('Position by week'),
-              const SizedBox(height: 8),
-              SongRankHistoryChart(history: history),
-              const SizedBox(height: 6),
-              _Note(
-                text: history.live == null
-                    ? 'Finalized weeks. Gaps are weeks off the chart.'
-                    : 'Solid points are finalized weeks; the hollow point '
-                          'is this week, live and provisional.',
-              ),
-            ],
+        if (weekly) ...[
+          const SizedBox(height: 12),
+          SonusSurfaceCard(
+            padding: const EdgeInsets.fromLTRB(12, 14, 12, 10),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const _CardTitle('Position by week'),
+                const SizedBox(height: 8),
+                SongRankHistoryChart(history: history),
+                const SizedBox(height: 6),
+                _Note(
+                  text: history.live == null
+                      ? 'Finalized weeks. Gaps are weeks off the chart.'
+                      : 'Solid points are finalized weeks; the hollow point '
+                            'is this week, live and provisional.',
+                ),
+              ],
+            ),
           ),
-        ),
+        ],
         if (weeks.isNotEmpty) ...[
           const SizedBox(height: 12),
           SonusSurfaceCard(
@@ -464,6 +475,70 @@ class _ChartHistorySectionState extends State<_ChartHistorySection> {
           ),
         ],
       ],
+    );
+  }
+}
+
+/// The song's place in the career standings (all-time, by lifetime
+/// streams), as its row on the Charts page shows it.
+class _CareerCard extends StatelessWidget {
+  const _CareerCard({required this.career});
+
+  final SongCareerStanding career;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = SonusTheme.of(context).colors;
+    final theme = Theme.of(context);
+    final zone = career.isHot100
+        ? ChartZoneNames.hot100
+        : ChartZoneNames.bubblingUnder;
+
+    return SonusSurfaceCard(
+      key: const ValueKey<String>('song-stats-career'),
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Career standings',
+            style: theme.textTheme.titleSmall?.copyWith(
+              color: colors.textPrimary,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Wrap(
+            spacing: 10,
+            runSpacing: 2,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Text(
+                '#${career.rank}',
+                key: const ValueKey<String>('song-stats-career-rank'),
+                style: theme.textTheme.headlineMedium?.copyWith(
+                  color: colors.textPrimary,
+                  fontWeight: FontWeight.w900,
+                  fontFeatures: const [FontFeature.tabularFigures()],
+                ),
+              ),
+              Text(
+                zone,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: colors.textSecondary,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          const _Note(
+            text:
+                'All time, by lifetime streams: the chart the Charts page '
+                'opens on.',
+          ),
+        ],
+      ),
     );
   }
 }

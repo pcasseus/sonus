@@ -20,6 +20,14 @@ abstract interface class MomentRulesActivationStore {
   Future<void> writeCatalogStart(int version, String fromUtc);
 }
 
+/// Where the climb wording revision's start is kept (SN-50 device polish).
+abstract interface class MomentClimbWordingStore {
+  /// Null until a build carrying the wording has recorded one.
+  Future<String?> readClimbWordingStart();
+
+  Future<void> writeClimbWordingStart(String fromUtc);
+}
+
 /// Decides which Moments rules this run uses (SN-50 R2).
 ///
 /// Only a build compiled with
@@ -39,10 +47,12 @@ class MomentRulesActivation {
     required MomentRulesActivationStore store,
     bool approved = buildApproved,
     int catalogVersion = ChartMomentRules.currentCatalogVersion,
+    MomentClimbWordingStore? climbWording,
     MomentRulesActivationNow? now,
   }) : _store = store,
        _approved = approved,
        _catalogVersion = catalogVersion,
+       _climbWording = climbWording,
        _now = now ?? DateTime.now;
 
   static const bool buildApproved = bool.fromEnvironment(
@@ -54,19 +64,70 @@ class MomentRulesActivation {
 
   /// The newest refined catalog version this build carries.
   final int _catalogVersion;
+
+  /// Where the climb wording starts; without it, no story changes words.
+  final MomentClimbWordingStore? _climbWording;
   final MomentRulesActivationNow _now;
 
   Future<ChartMomentRules>? _resolved;
 
+  /// The start once read; only a resolved instant is kept, so a read that
+  /// never finishes cannot hold up later loads.
+  DateTime? _climbWordingStart;
+
   /// The rules for this run. Shared by every caller; retried after a
   /// storage failure, which falls back to the earlier rules meanwhile.
-  Future<ChartMomentRules> rules() {
-    if (!_approved) return Future.value(ChartMomentRules.legacy);
+  Future<ChartMomentRules> rules() async {
+    final climbFrom = await _climbWordingFrom();
+    if (!_approved) {
+      return climbFrom == null
+          ? ChartMomentRules.legacy
+          : ChartMomentRules(climbWordingFromUtc: climbFrom);
+    }
 
-    return _resolved ??= _resolve().then((rules) {
+    final rules = await (_resolved ??= _resolve().then((rules) {
       if (rules.activatedAtUtc == null) _resolved = null;
       return rules;
-    });
+    }));
+    return climbFrom == null
+        ? rules
+        : ChartMomentRules(
+            activatedAtUtc: rules.activatedAtUtc,
+            catalogStarts: rules.catalogStarts,
+            climbWordingFromUtc: climbFrom,
+          );
+  }
+
+  /// The climb wording's start on this install, recorded once on the first
+  /// run that carries it. Stories already told happened before it, so they
+  /// keep their words. Unreadable or unsaved: no story changes words this
+  /// run, and a later run tries again.
+  Future<DateTime?> _climbWordingFrom() async {
+    final known = _climbWordingStart;
+    if (known != null) return known;
+    final store = _climbWording;
+    if (store == null) return null;
+    try {
+      var stored = await store.readClimbWordingStart();
+      if (stored == null) {
+        await store.writeClimbWordingStart(_now().toUtc().toIso8601String());
+        stored = await store.readClimbWordingStart();
+        if (stored == null) {
+          throw StateError('The climb wording start was not saved.');
+        }
+      }
+      return _climbWordingStart = _instant(stored);
+    } catch (error, stackTrace) {
+      developer.log(
+        'The Moments climb wording start could not be read or saved '
+        '(${error.runtimeType}); stories keep their first wording',
+        name: 'sonus.charts',
+        level: 900,
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return null;
+    }
   }
 
   Future<ChartMomentRules> _resolve() async {

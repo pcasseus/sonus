@@ -366,6 +366,11 @@ class _StoryMeta extends StatelessWidget {
           foreground: colors.textPrimary,
         ),
         if (story.rank != null) _RankBadge(rank: story.rank!),
+        if (story.climb case final climb?)
+          _ClimbBadge(
+            key: ValueKey<String>('moment-post-climb-$id'),
+            places: climb,
+          ),
         _Pill(
           key: ValueKey<String>('moment-post-status-$id'),
           label: story.status,
@@ -398,6 +403,48 @@ class _RankBadge extends StatelessWidget {
           color: colors.textPrimary,
           fontWeight: FontWeight.w900,
           fontFeatures: const [FontFeature.tabularFigures()],
+        ),
+      ),
+    );
+  }
+}
+
+/// How many places the song climbed, beside the story rather than in it:
+/// shown for every story with a comparable rise, so stories published
+/// before their headlines named it show it too without changing words.
+class _ClimbBadge extends StatelessWidget {
+  const _ClimbBadge({super.key, required this.places});
+
+  final int places;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = SonusTheme.of(context).colors;
+    final spoken = places == 1 ? 'Up 1 place' : 'Up $places places';
+
+    return Semantics(
+      label: spoken,
+      excludeSemantics: true,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          border: Border.all(color: colors.chartUp.withValues(alpha: 0.7)),
+          borderRadius: BorderRadius.circular(999),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.arrow_upward_rounded, size: 14, color: colors.chartUp),
+            const SizedBox(width: 2),
+            Text(
+              '$places',
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                color: colors.chartUp,
+                fontWeight: FontWeight.w900,
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+            ),
+          ],
         ),
       ),
     );

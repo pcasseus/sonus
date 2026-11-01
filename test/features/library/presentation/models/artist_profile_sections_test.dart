@@ -340,10 +340,11 @@ void main() {
 
       final live = shelves[ArtistReleaseShelf.live]!.single;
       expect(live.summary, '1 track');
-      expect(live.notes, ['Format needs review']);
-      expect(shelves[ArtistReleaseShelf.leaked]!.single.notes, [
-        'Format needs review',
-      ]);
+      expect(live.formatNeedsReview, isTrue);
+      expect(live.notes, isEmpty);
+      final leaked = shelves[ArtistReleaseShelf.leaked]!.single;
+      expect(leaked.formatNeedsReview, isTrue);
+      expect(leaked.notes, isEmpty);
       expect(shelves.containsKey(ArtistReleaseShelf.needsReview), isFalse);
     });
 
@@ -354,9 +355,9 @@ void main() {
         formats: {'short': null},
       );
 
-      expect(shelves[ArtistReleaseShelf.albums]!.single.notes, [
-        'Format needs review',
-      ]);
+      final inferred = shelves[ArtistReleaseShelf.albums]!.single;
+      expect(inferred.formatNeedsReview, isTrue);
+      expect(inferred.notes, isEmpty);
       final review = shelves[ArtistReleaseShelf.needsReview]!.single;
       expect(review.summary, '3 tracks');
       expect(review.notes, isEmpty);

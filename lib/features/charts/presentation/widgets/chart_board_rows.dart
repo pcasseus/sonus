@@ -30,9 +30,9 @@ enum ChartRowTier {
 bool chartThemeIsGreyscale(Color accent) =>
     (accent.r - accent.g).abs() < 0.02 && (accent.g - accent.b).abs() < 0.02;
 
-/// #1: a bold frame in the theme's own gradient around the entry's card,
-/// with a "No. 1" ribbon. Plain under high contrast, low effects and
-/// Decoration Off; greyscale in Monochrome.
+/// #1: a slim frame in the theme's own gradient around the compact row,
+/// over a tint of it; the row shows a trophy beside the rank. Plain under
+/// high contrast, low effects and Decoration Off; greyscale in Monochrome.
 class ChartFeaturedFrame extends StatelessWidget {
   const ChartFeaturedFrame({
     super.key,
@@ -51,66 +51,48 @@ class ChartFeaturedFrame extends StatelessWidget {
     final gradient = tokens.decoration.allowGradients;
     final a = grey ? colors.textSecondary : colors.accentPrimary;
     final b = grey ? colors.textPrimary : colors.accentSecondary;
-    final radius = BorderRadius.circular(tokens.metrics.cardRadius + 6);
+    final radius = BorderRadius.circular(tokens.metrics.cardRadius + 2);
 
-    return Container(
-      key: const ValueKey<String>('charts-featured-frame'),
-      padding: const EdgeInsets.all(2),
-      decoration: BoxDecoration(
-        borderRadius: radius,
-        gradient: gradient
-            ? LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [a, b],
-              )
-            : null,
-        color: gradient ? null : colors.focus,
-      ),
-      child: DecoratedBox(
+    return Semantics(
+      container: true,
+      label: 'No. 1 · $chartName',
+      child: Container(
+        key: const ValueKey<String>('charts-featured-frame'),
+        padding: const EdgeInsets.all(2),
         decoration: BoxDecoration(
-          color: colors.surface,
-          borderRadius: BorderRadius.circular(tokens.metrics.cardRadius + 4),
+          borderRadius: radius,
           gradient: gradient
               ? LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [
-                    Color.alphaBlend(a.withValues(alpha: 0.22), colors.surface),
-                    colors.surface,
-                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [a, b],
                 )
               : null,
+          color: gradient ? null : colors.focus,
         ),
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Semantics(
-                header: true,
-                child: Row(
-                  children: [
-                    Icon(Icons.emoji_events_rounded, size: 18, color: a),
-                    const SizedBox(width: 6),
-                    Flexible(
-                      child: Text(
-                        'No. 1 · $chartName',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                          color: colors.textPrimary,
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: 0.8,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(tokens.metrics.cardRadius),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: colors.surface,
+              gradient: gradient
+                  ? LinearGradient(
+                      begin: Alignment.centerLeft,
+                      end: Alignment.centerRight,
+                      colors: [
+                        Color.alphaBlend(
+                          a.withValues(alpha: 0.24),
+                          colors.surface,
                         ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 8),
-              child,
-            ],
+                        Color.alphaBlend(
+                          b.withValues(alpha: 0.08),
+                          colors.surface,
+                        ),
+                      ],
+                    )
+                  : null,
+            ),
+            child: Material(type: MaterialType.transparency, child: child),
           ),
         ),
       ),
@@ -118,8 +100,9 @@ class ChartFeaturedFrame extends StatelessWidget {
   }
 }
 
-/// #2–10: the entry's card with an accent from its own artwork (theme
-/// colours when the artwork has none). Monochrome uses no tint.
+/// #2–10: the compact row in a slim frame with an accent from its own
+/// artwork (theme colours when the artwork has none), over a light tint of
+/// it. Monochrome uses no tint.
 class ChartTopTenFrame extends StatefulWidget {
   const ChartTopTenFrame({
     super.key,
@@ -172,7 +155,10 @@ class _ChartTopTenFrameState extends State<ChartTopTenFrame> {
     final grey = chartThemeIsGreyscale(colors.accentPrimary);
     final gradient = tokens.decoration.allowGradients && !grey;
     final accent = grey ? colors.border : _art?.accent ?? colors.accentPrimary;
-    final radius = BorderRadius.circular(tokens.metrics.cardRadius + 3);
+    final radius = BorderRadius.circular(tokens.metrics.cardRadius + 1.5);
+    final tint = grey || !tokens.decoration.allowGradients
+        ? colors.surface
+        : Color.alphaBlend(accent.withValues(alpha: 0.1), colors.surface);
     return Container(
       key: const ValueKey<String>('charts-top-ten-frame'),
       padding: const EdgeInsets.all(1.5),
@@ -184,16 +170,16 @@ class _ChartTopTenFrameState extends State<ChartTopTenFrame> {
         color: gradient ? null : colors.border,
       ),
       child: ClipRRect(
-        borderRadius: BorderRadius.circular(tokens.metrics.cardRadius + 1.5),
-        child: widget.child,
+        borderRadius: BorderRadius.circular(tokens.metrics.cardRadius),
+        child: Material(color: tint, child: widget.child),
       ),
     );
   }
 }
 
-/// #11–100 and Bubbling Under: one line per position — rank, genuine
-/// artwork, title and artist, and the C2 movement — with the entry's full
-/// card one tap away.
+/// Every position: one line — rank, genuine artwork, title and artist,
+/// and the C2 movement — with the entry's full card one tap away. #1–10
+/// are the same row inside a frame ([tier]); #1 adds a trophy.
 class ChartCompactRow extends StatefulWidget {
   const ChartCompactRow({
     super.key,
@@ -207,10 +193,14 @@ class ChartCompactRow extends StatefulWidget {
     this.status,
     this.onTap,
     this.onLongPress,
+    this.tier = ChartRowTier.compact,
   });
 
   final ChartEntry entry;
   final ChartEntryMovement movement;
+
+  /// The frame around the row; a framed row has no divider of its own.
+  final ChartRowTier tier;
   final String title;
   final String subtitle;
   final String? artworkPath;
@@ -266,85 +256,164 @@ class _ChartCompactRowState extends State<ChartCompactRow> {
           constraints: const BoxConstraints(minHeight: 60),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
-            child: Row(
-              children: [
-                SizedBox(
-                  width: MediaQuery.textScalerOf(context).scale(34),
-                  child: Text(
-                    '${entry.rank}',
-                    key: ValueKey<String>('charts-rank-$id'),
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      color: entry.isOffChartStanding
-                          ? colors.textSecondary
-                          : colors.textPrimary,
-                      fontWeight: FontWeight.w900,
-                      fontFeatures: const [FontFeature.tabularFigures()],
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                SonusArtworkImage(
-                  path: widget.artworkPath,
-                  size: 44,
-                  placeholderIcon: widget.fallbackIcon,
-                ),
-                const SizedBox(width: 10),
-                Expanded(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final scaler = MediaQuery.textScalerOf(context);
+                // The rank keeps up to three digits at any text size,
+                // without taking the title's room.
+                final rankWidth = scaler.scale(34).clamp(34.0, 56.0);
+                const movementWidth = 76.0;
+                final fixed = rankWidth + 8 + 44 + 10 + 6 + movementWidth;
+                // Too little room for a readable title beside the
+                // movement: it moves under the title instead.
+                final stacked = constraints.maxWidth - fixed < 120;
+
+                final rank = SizedBox(
+                  width: rankWidth,
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text(
-                        widget.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodyLarge?.copyWith(
-                          color: colors.textPrimary,
-                          fontWeight: FontWeight.w700,
+                      if (widget.tier == ChartRowTier.featured)
+                        Icon(
+                          Icons.emoji_events_rounded,
+                          key: const ValueKey<String>('charts-number-one'),
+                          size: 16,
+                          color: chartThemeIsGreyscale(colors.accentPrimary)
+                              ? colors.textPrimary
+                              : colors.accentPrimary,
                         ),
-                      ),
-                      Row(
-                        children: [
-                          if (widget.movement.achievement !=
-                              ChartAchievement.none) ...[
-                            ChartMovementIndicator(
-                              entry: entry,
-                              movement: widget.movement,
-                              part: ChartIndicatorPart.achievement,
-                            ),
-                            const SizedBox(width: 6),
-                          ],
-                          Expanded(
-                            child: Text(
-                              status == null
-                                  ? widget.subtitle
-                                  : '$status · ${widget.subtitle}',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: colors.textSecondary,
-                              ),
-                            ),
-                          ),
-                        ],
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          '${entry.rank}',
+                          key: ValueKey<String>('charts-rank-$id'),
+                          textAlign: TextAlign.center,
+                          style:
+                              (widget.tier == ChartRowTier.compact
+                                      ? theme.textTheme.titleMedium
+                                      : theme.textTheme.titleLarge)
+                                  ?.copyWith(
+                                    color: entry.isOffChartStanding
+                                        ? colors.textSecondary
+                                        : colors.textPrimary,
+                                    fontWeight: FontWeight.w900,
+                                    fontFeatures: const [
+                                      FontFeature.tabularFigures(),
+                                    ],
+                                  ),
+                        ),
                       ),
                     ],
                   ),
-                ),
-                const SizedBox(width: 6),
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 76),
-                  child: FittedBox(
-                    fit: BoxFit.scaleDown,
-                    alignment: Alignment.centerRight,
-                    child: ChartMovementIndicator(
-                      entry: entry,
-                      movement: widget.movement,
-                      part: ChartIndicatorPart.movement,
-                    ),
+                );
+                final hasAchievement =
+                    widget.movement.achievement != ChartAchievement.none;
+                final achievement = ChartMovementIndicator(
+                  entry: entry,
+                  movement: widget.movement,
+                  part: ChartIndicatorPart.achievement,
+                );
+                final move = ChartMovementIndicator(
+                  entry: entry,
+                  movement: widget.movement,
+                  part: ChartIndicatorPart.movement,
+                );
+                final title = Text(
+                  widget.title,
+                  maxLines: stacked ? 2 : 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodyLarge?.copyWith(
+                    color: colors.textPrimary,
+                    fontWeight: FontWeight.w700,
                   ),
-                ),
-              ],
+                );
+                final subtitle = Text(
+                  status == null
+                      ? widget.subtitle
+                      : '$status · ${widget.subtitle}',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: colors.textSecondary,
+                  ),
+                );
+
+                return Row(
+                  children: [
+                    rank,
+                    const SizedBox(width: 8),
+                    SonusArtworkImage(
+                      path: widget.artworkPath,
+                      size: 44,
+                      placeholderIcon: widget.fallbackIcon,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: stacked
+                          ? Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                title,
+                                const SizedBox(height: 2),
+                                // Scale down rather than overflow.
+                                FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  alignment: AlignmentDirectional.centerStart,
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      move,
+                                      if (hasAchievement) ...[
+                                        const SizedBox(width: 6),
+                                        achievement,
+                                      ],
+                                    ],
+                                  ),
+                                ),
+                                subtitle,
+                              ],
+                            )
+                          : Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                title,
+                                Row(
+                                  children: [
+                                    if (hasAchievement) ...[
+                                      // Scales down rather than overflow
+                                      // at large text.
+                                      Flexible(
+                                        child: FittedBox(
+                                          fit: BoxFit.scaleDown,
+                                          alignment:
+                                              AlignmentDirectional.centerStart,
+                                          child: achievement,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 6),
+                                    ],
+                                    Expanded(child: subtitle),
+                                  ],
+                                ),
+                              ],
+                            ),
+                    ),
+                    if (!stacked) ...[
+                      const SizedBox(width: 6),
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(
+                          maxWidth: movementWidth,
+                        ),
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerRight,
+                          child: move,
+                        ),
+                      ),
+                    ],
+                  ],
+                );
+              },
             ),
           ),
         ),
@@ -383,7 +452,8 @@ class _ChartCompactRowState extends State<ChartCompactRow> {
               ),
             ],
           ),
-        Divider(height: 1, color: colors.divider),
+        if (widget.tier == ChartRowTier.compact)
+          Divider(height: 1, color: colors.divider),
       ],
     );
   }

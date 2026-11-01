@@ -2,6 +2,7 @@
 
 import '../../analytics/application/services/pulse/pulse_listening_records.dart';
 import '../../charts/application/services/this_week_chart_service.dart';
+import '../../charts/domain/entities/all_time_chart.dart';
 import '../../charts/domain/models/chart_type.dart';
 import '../../charts/domain/repositories/chart_entity_history_reader.dart';
 import '../../charts/domain/services/chart_week_resolver.dart';
@@ -27,6 +28,7 @@ class SongStatsService implements SongStatsLoader {
     required Future<SongListeningRecords> Function() records,
     required LibraryQueryRepository library,
     Future<ProvisionalWeekChart?> Function()? liveSongs,
+    Future<AllTimeChart?> Function()? careerSongs,
     DateTime Function()? nowLocal,
     ChartWeekResolver weekResolver = const ChartWeekResolver(),
     this.trendWeeks = 8,
@@ -34,6 +36,7 @@ class SongStatsService implements SongStatsLoader {
        _records = records,
        _library = library,
        _liveSongs = liveSongs,
+       _careerSongs = careerSongs,
        _nowLocal = nowLocal ?? DateTime.now,
        _weekResolver = weekResolver;
 
@@ -41,6 +44,10 @@ class SongStatsService implements SongStatsLoader {
   final Future<SongListeningRecords> Function() _records;
   final LibraryQueryRepository _library;
   final Future<ProvisionalWeekChart?> Function()? _liveSongs;
+
+  /// The career standings (all-time songs chart, #1–200), as the Charts
+  /// page ranks them.
+  final Future<AllTimeChart?> Function()? _careerSongs;
   final DateTime Function() _nowLocal;
   final ChartWeekResolver _weekResolver;
 
@@ -53,6 +60,7 @@ class SongStatsService implements SongStatsLoader {
     final trackFuture = _library.getTrackById(songId);
     final weeksFuture = _charts.finalizedWeeksFor(ChartType.songs, songId);
     final liveFuture = _readLive();
+    final careerFuture = _readCareer();
 
     final records = await recordsFuture;
     final segmentsFuture = records.segmentsForSong(songId);
@@ -64,6 +72,10 @@ class SongStatsService implements SongStatsLoader {
     final track = await trackFuture;
     final stored = await weeksFuture;
     final live = await liveFuture;
+    final career = await careerFuture;
+    final careerEntry = career?.entries
+        .where((entry) => entry.entity.entityId == songId)
+        .firstOrNull;
 
     final liveEntry = live?.snapshot.entries
         .where((entry) => entry.entity.entityId == songId)
@@ -78,6 +90,9 @@ class SongStatsService implements SongStatsLoader {
               weekEndUtc: live.snapshot.weekEndUtc,
               bestSoFarRank: live.bestSoFarRank(songId),
             ),
+      career: careerEntry == null
+          ? null
+          : SongCareerStanding(rank: careerEntry.rank),
     );
 
     final listening = _listening(
@@ -112,6 +127,18 @@ class SongStatsService implements SongStatsLoader {
     );
 
     return SongStats(identity: identity, chart: chart, listening: listening);
+  }
+
+  Future<AllTimeChart?> _readCareer() async {
+    final read = _careerSongs;
+    if (read == null) return null;
+    try {
+      final chart = await read();
+      return chart?.chartType == ChartType.songs ? chart : null;
+    } on Object {
+      // Optional, like the live week.
+      return null;
+    }
   }
 
   Future<ProvisionalWeekChart?> _readLive() async {

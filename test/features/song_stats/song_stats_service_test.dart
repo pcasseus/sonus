@@ -7,6 +7,7 @@ import 'package:sonus_next/core/database/schema/analytics_schema.dart';
 import 'package:sonus_next/features/analytics/application/services/pulse/pulse_listening_records.dart';
 import 'package:sonus_next/features/charts/application/services/this_week_chart_service.dart';
 import 'package:sonus_next/features/charts/data/repositories/sqlite_chart_repository.dart';
+import 'package:sonus_next/features/charts/domain/entities/all_time_chart.dart';
 import 'package:sonus_next/features/charts/domain/entities/chart_entry.dart';
 import 'package:sonus_next/features/charts/domain/entities/chart_snapshot.dart';
 import 'package:sonus_next/features/charts/domain/models/chart_entity_snapshot.dart';
@@ -150,12 +151,14 @@ SongStatsService _service({
   _Records? records,
   LibraryTrack? libraryTrack,
   Future<ProvisionalWeekChart?> Function()? live,
+  Future<AllTimeChart?> Function()? career,
   DateTime? now,
 }) => SongStatsService(
   charts: _Charts(weeks),
   records: () async => records ?? _Records(),
   library: _Library(libraryTrack),
   liveSongs: live,
+  careerSongs: career,
   nowLocal: () => now ?? DateTime(2026, 11, 18, 12),
 );
 
@@ -250,6 +253,60 @@ void main() {
       expect(stats.chart.live!.bestSoFarRank, 2);
       expect(stats.chart.peakRank, 9, reason: 'finalized weeks only');
       expect(stats.chart.weeks, hasLength(2));
+    });
+
+    // SN-50 device QA ("lovergirl"): #133 in the career standings, which
+    // the Charts page opens on, and #2 on this week's live chart, with no
+    // finalized week: three different charts, each shown under its name.
+    test('career standings and the live week are separate charts', () async {
+      final live = ProvisionalWeekChart(
+        snapshot: ChartSnapshot(
+          id: 'live',
+          chartType: ChartType.songs,
+          weekStartUtc: week(2),
+          weekEndUtc: week(3),
+          entries: [entry('other', 1), entry('song', 2)],
+        ),
+        bestSoFarRanks: const {},
+      );
+      final career = AllTimeChart(
+        chartType: ChartType.songs,
+        comparisonStartUtc: week(2),
+        entries: [
+          for (var rank = 1; rank <= 132; rank++) entry('s$rank', rank),
+          entry('song', 133),
+        ],
+      );
+      final stats = await _service(
+        live: () async => live,
+        career: () async => career,
+      ).load('song');
+
+      expect(stats.chart.career!.rank, 133);
+      expect(stats.chart.career!.isHot100, isFalse);
+      expect(stats.chart.live!.rank, 2);
+      expect(stats.chart.hasFinalized, isFalse);
+      expect(stats.chart.peakRank, isNull, reason: 'neither sets a peak');
+      expect(stats.chart.isEmpty, isFalse);
+    });
+
+    test('an albums career chart or a failing one is not used', () async {
+      final albums = AllTimeChart(
+        chartType: ChartType.albums,
+        comparisonStartUtc: week(2),
+        entries: [entry('song', 1)],
+      );
+      expect(
+        (await _service(career: () async => albums).load('song')).chart.career,
+        isNull,
+      );
+      expect(
+        (await _service(
+          career: () async => throw StateError('boom'),
+          weeks: [stored(0, 20)],
+        ).load('song')).chart.career,
+        isNull,
+      );
     });
 
     test('a failing live chart still shows finalized history', () async {

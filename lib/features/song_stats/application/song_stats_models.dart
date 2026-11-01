@@ -134,10 +134,21 @@ class SongLiveChart {
   bool get isHot100 => entry.rank <= 100;
 }
 
+/// The song's place in the career standings: the all-time chart the
+/// Charts page opens on ("Career standings"), ranked by lifetime streams.
+/// It is a different chart from the live week: a song played a lot this
+/// week but rarely before can be high this week and low in its career.
+class SongCareerStanding {
+  const SongCareerStanding({required this.rank});
+
+  final int rank;
+  bool get isHot100 => rank <= 100;
+}
+
 /// The song's recorded chart history: finalized weeks (permanent) and the
-/// live week (provisional), kept apart.
+/// live week (provisional), kept apart, and its career standing.
 class SongChartHistory {
-  SongChartHistory({required List<SongChartWeek> weeks, this.live})
+  SongChartHistory({required List<SongChartWeek> weeks, this.live, this.career})
     : weeks = List.unmodifiable(weeks);
 
   static final SongChartHistory none = SongChartHistory(weeks: const []);
@@ -146,7 +157,10 @@ class SongChartHistory {
   final List<SongChartWeek> weeks;
   final SongLiveChart? live;
 
-  bool get isEmpty => weeks.isEmpty && live == null;
+  /// Null when the song is not in the career standings' top 200.
+  final SongCareerStanding? career;
+
+  bool get isEmpty => weeks.isEmpty && live == null && career == null;
   bool get hasFinalized => weeks.isNotEmpty;
 
   SongChartWeek? get lastFinalized => weeks.isEmpty ? null : weeks.last;

@@ -196,12 +196,13 @@ void main() {
       }
 
       card('album', ['Album · 10 tracks'], absent: ['Format needs review']);
-      card('inferred', ['Album · 10 tracks', 'Format needs review']);
+      // An unconfirmed format is no longer named on the card.
+      card('inferred', ['Album · 10 tracks'], absent: ['Format needs review']);
       card('ost', ['Album · 10 tracks', 'Soundtrack']);
       card('ep', ['EP · 4 tracks']);
       card('single', ['Single · 1 track']);
-      card('live', ['2 tracks', 'Format needs review'], absent: ['Live']);
-      card('tape', ['Album · 10 tracks', 'Format needs review']);
+      card('live', ['2 tracks'], absent: ['Live', 'Format needs review']);
+      card('tape', ['Album · 10 tracks'], absent: ['Format needs review']);
       card('both', ['Album · 10 tracks', 'Live']);
       card('demo', ['2 tracks'], absent: ['Format needs review']);
       card('lost', ['Album · 10 tracks', 'Unavailable']);
@@ -222,7 +223,7 @@ void main() {
         );
 
         expect(tester.takeException(), isNull, reason: id.label);
-        expect(find.text('Format needs review'), findsWidgets);
+        expect(find.text('Format needs review'), findsNothing);
       }
     });
   });

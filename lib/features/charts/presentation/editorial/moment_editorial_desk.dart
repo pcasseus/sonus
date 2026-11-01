@@ -6,6 +6,7 @@ import '../../domain/moments/chart_moment_event_type.dart';
 import '../../domain/moments/chart_moment_rules.dart';
 import '../../domain/moments/chart_moment_scope.dart';
 import '../../domain/services/chart_ranking_engine.dart';
+import 'moment_climb.dart';
 import 'moment_publisher.dart';
 import 'moment_facts.dart';
 import 'moment_family.dart';
@@ -28,6 +29,7 @@ class MomentStory {
     required this.visual,
     this.body,
     this.rank,
+    this.climb,
   });
 
   final ChartMomentFeedItem item;
@@ -52,6 +54,10 @@ class MomentStory {
   /// The chart position badge. Stories about an artist show none, except
   /// the artist's own #1 among your artists (F-Q23).
   final int? rank;
+
+  /// Places a rising song climbed, shown beside the headline; null without
+  /// a comparable rise (MomentClimb). Never changes the headline itself.
+  final int? climb;
   final MomentVisual visual;
 
   String get id => item.id;
@@ -223,10 +229,21 @@ class MomentEditorialDesk {
     String? previousVariant, {
     Set<String> excluded = const {},
   }) {
+    final climb = MomentClimb.of(item, family, facts);
+    // From the climb wording's start on, a rising song's story under the
+    // earlier rules names the places it climbed; earlier stories keep the
+    // published catalog's words.
+    final statesClimb =
+        !facts.refined &&
+        climb != null &&
+        MomentClimb.headlineFamilies.contains(family) &&
+        rules.statesClimb(item.occurredAt);
     final variants = [
       for (final variant
           in facts.refined
               ? _catalogFor(facts.catalogVersion!)!.of(family, facts)
+              : statesClimb
+              ? ClimbHeadlines.of(family)
               : MomentHeadlines.legacyOf(family))
         if (!excluded.contains(variant.id)) variant,
     ];
@@ -289,6 +306,7 @@ class MomentEditorialDesk {
         MomentFamily.artistStreamMilestone => null,
         _ => facts.rank,
       },
+      climb: climb,
       visual: MomentVisuals.select(
         item: item,
         family: family,

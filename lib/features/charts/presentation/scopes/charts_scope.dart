@@ -28,6 +28,7 @@ import '../../../song_stats/application/song_listening_records.dart';
 import '../../../song_stats/application/song_stats_service.dart';
 import '../../../song_stats/data/sqlite_song_listening_records.dart';
 import '../../domain/models/chart_type.dart';
+import '../../domain/models/chart_view_size.dart';
 
 class ChartsScope extends StatefulWidget {
   const ChartsScope({
@@ -69,10 +70,10 @@ class _ChartsScopeState extends State<ChartsScope> {
 
   /// One per process, so its instant is recorded once however often
   /// scopes and controllers are recreated.
-  static final MomentRulesActivation _deviceRulesActivation =
-      MomentRulesActivation(
-        store: SharedPreferencesMomentRulesActivationStore(),
-      );
+  static final MomentRulesActivation _deviceRulesActivation = () {
+    final store = SharedPreferencesMomentRulesActivationStore();
+    return MomentRulesActivation(store: store, climbWording: store);
+  }();
 
   @override
   void didChangeDependencies() {
@@ -250,6 +251,13 @@ class _ChartsScopeState extends State<ChartsScope> {
             chartType: ChartType.songs,
             referenceLocal: now(),
           ),
+      // The career standings the Charts page opens on, ranked the same way
+      // (#1–200), so a row's rank there matches Song Stats.
+      careerSongs: () => allTimeCharts.load(
+        chartType: ChartType.songs,
+        referenceLocal: now(),
+        viewSize: ChartViewSize.top200,
+      ),
       nowLocal: now,
     );
 

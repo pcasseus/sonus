@@ -14,7 +14,11 @@ import 'chart_moment_scope.dart';
 /// at or after it, so the week running at activation keeps the earlier
 /// rules. Both compare UTC instants, whatever the device time zone.
 class ChartMomentRules {
-  const ChartMomentRules({this.activatedAtUtc, this.catalogStarts = const []});
+  const ChartMomentRules({
+    this.activatedAtUtc,
+    this.catalogStarts = const [],
+    this.climbWordingFromUtc,
+  });
 
   /// No activation: every Moment follows the earlier rules.
   static const ChartMomentRules legacy = ChartMomentRules();
@@ -30,6 +34,22 @@ class ChartMomentRules {
   /// 1 starts at [activatedAtUtc]; each later version at the first run of a
   /// build that carries it (write-once, see MomentRulesActivation).
   final List<RefinedCatalogStart> catalogStarts;
+
+  /// Where stories under the earlier rules start naming how many places a
+  /// rising song climbed (SN-50 device polish): the first run of a build
+  /// that carries the wording, recorded once. Null keeps every story's
+  /// first wording. It changes headlines only, never which Moments are
+  /// recorded or told.
+  final DateTime? climbWordingFromUtc;
+
+  /// Whether a story that happened at [occurredAt] is told with the climb
+  /// wording. Stories from before the start keep the words they were first
+  /// published with; a story's own instant is used for every scope, since
+  /// none can have been shown before it happened.
+  bool statesClimb(DateTime occurredAt) {
+    final from = climbWordingFromUtc;
+    return from != null && !occurredAt.toUtc().isBefore(from.toUtc());
+  }
 
   /// Whether a Moment of [scope] that happened at [occurredAt], on the
   /// chart week starting at [weekStartUtc], is told under the new rules.

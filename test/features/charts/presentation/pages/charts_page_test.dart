@@ -36,6 +36,7 @@ import 'package:sonus_next/features/charts/domain/models/chart_week.dart';
 import 'package:sonus_next/features/charts/domain/services/chart_week_resolver.dart';
 import 'package:sonus_next/features/charts/presentation/controllers/charts_controller.dart';
 import 'package:sonus_next/features/charts/presentation/news/moment_post_card.dart';
+import 'package:sonus_next/features/charts/presentation/editorial/moment_category.dart';
 import 'package:sonus_next/features/charts/presentation/editorial/moment_publisher.dart';
 import 'package:sonus_next/features/charts/presentation/pages/charts_page.dart';
 import 'package:sonus_next/features/charts/presentation/widgets/chart_board_rows.dart';
@@ -48,6 +49,16 @@ import 'package:sonus_next/features/player/domain/services/playback_engine.dart'
 import '../../support/moment_page_fakes.dart';
 import 'package:sonus_next/features/song_stats/application/song_stats_models.dart';
 import 'package:sonus_next/features/song_stats/application/song_stats_service.dart';
+
+/// Since the SN-50 device polish every position, #1–10 included, is a
+/// compact row; its full card is one tap away.
+Future<void> _showDetails(WidgetTester tester, String id) async {
+  final button = find.byKey(ValueKey<String>('charts-row-expand-$id'));
+  await tester.ensureVisible(button);
+  await tester.pumpAndSettle();
+  await tester.tap(button);
+  await tester.pumpAndSettle();
+}
 
 void main() {
   testWidgets('renders branded Hot 100 controls and the career standings', (
@@ -85,6 +96,7 @@ void main() {
     expect(find.textContaining('Last week'), findsNothing);
     expect(find.text('Song 1'), findsOneWidget);
     expect(find.text('Artist 1 • Album 1'), findsOneWidget);
+    await _showDetails(tester, 'songs_1');
     expect(
       find.byKey(const ValueKey<String>('charts-spotlight-songs_1')),
       findsOneWidget,
@@ -290,7 +302,7 @@ void main() {
 
     expect(controller.isViewingAllTime, isTrue);
     expect(find.text('Song 1'), findsOneWidget);
-    expect(find.text('HISTORICAL'), findsOneWidget);
+    expect(find.textContaining('HISTORICAL · '), findsOneWidget);
 
     await tester.tap(
       find.byKey(const ValueKey<String>('charts-entry-songs_1')),
@@ -335,7 +347,7 @@ void main() {
     await _pumpPage(tester, controller);
 
     expect(find.text('Song 1'), findsOneWidget);
-    expect(find.text('BLACKLISTED'), findsOneWidget);
+    expect(find.textContaining('BLACKLISTED · '), findsOneWidget);
 
     await tester.tap(
       find.byKey(const ValueKey<String>('charts-entry-songs_1')),
@@ -357,7 +369,7 @@ void main() {
     await _pumpPage(tester, controller);
 
     expect(find.text('Song 1'), findsOneWidget);
-    expect(find.text('UNAVAILABLE'), findsOneWidget);
+    expect(find.textContaining('UNAVAILABLE · '), findsOneWidget);
 
     await tester.tap(
       find.byKey(const ValueKey<String>('charts-entry-songs_1')),
@@ -389,8 +401,7 @@ void main() {
     await tester.pump();
 
     expect(find.text('Song 1'), findsOneWidget);
-    expect(find.text('Artist 1 • Album 1'), findsOneWidget);
-    expect(find.text('HISTORICAL'), findsOneWidget);
+    expect(find.text('HISTORICAL · Artist 1 • Album 1'), findsOneWidget);
 
     await tester.tap(
       find.byKey(const ValueKey<String>('charts-entry-songs_1')),
@@ -423,7 +434,7 @@ void main() {
     await tester.pump();
 
     expect(find.text('Album 1'), findsOneWidget);
-    expect(find.text('Artist 1'), findsOneWidget);
+    expect(find.textContaining('Artist 1'), findsOneWidget);
 
     await tester.tap(
       find.byKey(const ValueKey<String>('charts-entry-albums_1')),
@@ -604,6 +615,7 @@ void main() {
     );
 
     await _pumpPage(tester, controller);
+    await _showDetails(tester, 'songs_1');
 
     final spotlight = find.byKey(
       const ValueKey<String>('charts-longevity-songs_1'),
@@ -692,6 +704,7 @@ void main() {
       expect(find.text('Album 1 (deluxe_b)'), findsOneWidget);
       expect(find.text('Album 1'), findsNothing);
       // One combined position and stream total for the release.
+      await _showDetails(tester, 'albums_1');
       expect(find.text('12'), findsOneWidget);
 
       await tester.tap(
@@ -952,6 +965,58 @@ void main() {
     });
 
     group('Charts 2.0 C3 boards', () {
+      testWidgets('SN-50 device polish: #1–10 are about as compact as the '
+          'rows below them', (tester) async {
+        final controller = await _controller(live: _rankedSnapshot(30));
+        await _pumpPage(tester, controller, size: const Size(411, 20000));
+
+        double height(String id) => tester
+            .getSize(find.byKey(ValueKey<String>('charts-entry-$id')))
+            .height;
+        final row = height('songs_11');
+        // The frames add only a few pixels.
+        expect(height('songs_1'), lessThan(row * 1.2));
+        expect(height('songs_5'), lessThan(row * 1.2));
+        // #1 keeps its gradient frame and a trophy; #2–10 their frames.
+        expect(
+          find.byKey(const ValueKey<String>('charts-number-one')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey<String>('charts-top-ten-frame')),
+          findsNWidgets(9),
+        );
+        // Movement and details stay on every framed row.
+        expect(
+          find.byKey(const ValueKey<String>('charts-movement-songs_2')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const ValueKey<String>('charts-row-expand-songs_1')),
+          findsOneWidget,
+        );
+        expect(tester.takeException(), isNull);
+      });
+
+      testWidgets('SN-50 device polish: compact #1–10 fit 320dp at 2x text '
+          'in every theme', (tester) async {
+        for (final id in SonusThemeId.values) {
+          final controller = await _controller(live: _rankedSnapshot(12));
+          await _pumpPage(
+            tester,
+            controller,
+            theme: SonusThemeFactory.build(SonusAppearanceSpec(themeId: id)),
+            size: const Size(320, 6000),
+            textScale: 2,
+          );
+          expect(tester.takeException(), isNull, reason: id.label);
+          expect(
+            find.byKey(const ValueKey<String>('charts-featured-frame')),
+            findsOneWidget,
+          );
+        }
+      });
+
       testWidgets('#1 is featured, #2–10 framed, #11+ compact rows', (
         tester,
       ) async {
@@ -975,7 +1040,8 @@ void main() {
           find.byKey(const ValueKey<String>('charts-top-ten-frame')),
           findsNWidgets(9),
         );
-        expect(find.byType(ChartCompactRow), findsNWidgets(20));
+        // Every position is a compact row; #1–10 sit inside frames.
+        expect(find.byType(ChartCompactRow), findsNWidgets(30));
         expect(
           find.byKey(const ValueKey<String>('charts-row-songs_11')),
           findsOneWidget,
@@ -1216,6 +1282,10 @@ void main() {
           find.byKey(const ValueKey<String>('charts-entry-songs_1')),
           findsOneWidget,
         );
+        for (final id in ['songs_1', 'songs_2', 'songs_3']) {
+          await _showDetails(tester, id);
+        }
+        expect(tester.takeException(), isNull);
         expect(
           find.byKey(const ValueKey<String>('charts-longevity-songs_1')),
           findsOneWidget,
@@ -1228,6 +1298,14 @@ void main() {
         controller.showOlderWeek();
         await tester.pumpAndSettle();
         expect(tester.takeException(), isNull);
+        for (final id in ['songs_1', 'songs_2', 'songs_3']) {
+          if (find
+              .byKey(ValueKey<String>('charts-row-expand-$id'))
+              .evaluate()
+              .isNotEmpty) {
+            await _showDetails(tester, id);
+          }
+        }
         expect(find.text('Top 10 streak: 2 weeks'), findsNWidgets(3));
       });
     }
@@ -1337,6 +1415,7 @@ void main() {
       );
 
       // songs_2 led earlier this week; its official peak is last week's #2.
+      await _showDetails(tester, 'songs_2');
       expect(
         find.descendant(
           of: find.byKey(const ValueKey<String>('charts-entry-songs_2')),
@@ -1351,6 +1430,7 @@ void main() {
         ),
         findsOneWidget,
       );
+      await _showDetails(tester, 'songs_1');
       expect(
         find.byKey(const ValueKey<String>('charts-last-week-songs_1')),
         findsOneWidget,
@@ -1427,6 +1507,8 @@ void main() {
           find.byKey(const ValueKey<String>('charts-this-week-note')),
           findsOneWidget,
         );
+        await _showDetails(tester, 'songs_3');
+        expect(tester.takeException(), isNull);
         expect(
           find.byKey(const ValueKey<String>('charts-best-so-far-songs_3')),
           findsOneWidget,
@@ -1937,6 +2019,145 @@ void main() {
     await tester.tap(find.text('Show all Moments'));
     await tester.pumpAndSettle();
     expect(find.text(story.headline), findsOneWidget);
+  });
+
+  group('SN-50 device polish: Moments filters', () {
+    Future<ChartsController> withStory() => _controller(
+      moments: [
+        _momentEvent(
+          id: 'final-peak',
+          scope: ChartMomentScope.finalized,
+          type: ChartMomentEventType.newPeak,
+          currentRank: 3,
+          currentPeakRank: 3,
+        ),
+      ],
+    );
+
+    Rect rectOf(WidgetTester tester, String key) =>
+        tester.getRect(find.byKey(ValueKey<String>(key)));
+
+    testWidgets('Category and Publisher sit side by side on a phone', (
+      tester,
+    ) async {
+      final controller = await withStory();
+      await _pumpPage(tester, controller, size: const Size(411, 1600));
+      await tester.tap(find.text('Moments'));
+      await tester.pumpAndSettle();
+
+      final category = rectOf(tester, 'charts-moments-filter-Category');
+      final publisher = rectOf(tester, 'charts-moments-filter-Publisher');
+      expect(category.top, publisher.top);
+      expect(publisher.left, greaterThan(category.right));
+      expect(category.width, closeTo(publisher.width, 1));
+      expect(
+        find.byKey(const ValueKey<String>('charts-moments-filters-row')),
+        findsOneWidget,
+      );
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('they stack at 320dp with 2x text', (tester) async {
+      final controller = await withStory();
+      await _pumpPage(
+        tester,
+        controller,
+        size: const Size(320, 2400),
+        textScale: 2,
+      );
+      await tester.tap(find.text('Moments'));
+      await tester.pumpAndSettle();
+
+      final category = rectOf(tester, 'charts-moments-filter-Category');
+      final publisher = rectOf(tester, 'charts-moments-filter-Publisher');
+      expect(publisher.top, greaterThanOrEqualTo(category.bottom));
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a long selection truncates, and filters still apply', (
+      tester,
+    ) async {
+      final controller = await withStory();
+      final story = controller.momentStories.single;
+      await _pumpPage(tester, controller, size: const Size(360, 1600));
+      await tester.tap(find.text('Moments'));
+      await tester.pumpAndSettle();
+
+      final longest = MomentCategory.values.reduce(
+        (a, b) => a.label.length >= b.label.length ? a : b,
+      );
+      await tester.tap(
+        find.byKey(const ValueKey<String>('charts-moments-filter-Category')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(
+          ValueKey<String>('charts-moments-filter-Category-${longest.name}'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+      expect(controller.momentCategory, longest);
+      expect(
+        find.byKey(const ValueKey<String>('charts-moments-filters-row')),
+        findsOneWidget,
+      );
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('charts-moments-filter-Category')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(
+          const ValueKey<String>('charts-moments-filter-Category-null'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text(story.headline), findsOneWidget);
+    });
+
+    testWidgets('the Archive keeps its week menu below them', (tester) async {
+      final controller = await withStory();
+      await _pumpPage(tester, controller, size: const Size(411, 1600));
+      await tester.tap(find.text('Moments'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Archive'));
+      await tester.pumpAndSettle();
+
+      final category = rectOf(tester, 'charts-moments-filter-Category');
+      final week = rectOf(tester, 'charts-moments-week');
+      expect(week.top, greaterThanOrEqualTo(category.bottom));
+      expect(tester.takeException(), isNull);
+    });
+  });
+
+  testWidgets('SN-50 device polish: a rising song shows how far it climbed '
+      'beside its story', (tester) async {
+    final controller = await _controller(
+      moments: [
+        _momentEvent(
+          id: 'climb',
+          scope: ChartMomentScope.allTime,
+          type: ChartMomentEventType.rankRise,
+          previousRank: 20,
+          currentRank: 8,
+        ),
+      ],
+    );
+    final story = controller.momentStories.single;
+    expect(story.climb, 12);
+
+    final semantics = tester.ensureSemantics();
+    await _pumpPage(tester, controller, size: const Size(411, 1600));
+    await tester.tap(find.text('Moments'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byKey(ValueKey<String>('moment-post-climb-${story.id}')),
+      findsOneWidget,
+    );
+    expect(find.bySemanticsLabel(RegExp('Up 12 places')), findsWidgets);
+    semantics.dispose();
   });
 
   testWidgets('F-Q25: older Moments load as the feed reaches its end', (

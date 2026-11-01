@@ -168,14 +168,14 @@ class ChartsPage extends StatelessWidget {
                         itemCount: entries.length,
                         itemBuilder: (context, index) {
                           final entry = entries[index];
-                          final compact = _isCompactRow(controller, entry);
+                          final framed =
+                              _rowTier(controller, entry) !=
+                              ChartRowTier.compact;
                           return _RankAnchor(
                             rank: entry.rank,
                             rows: rows,
                             child: Padding(
-                              padding: EdgeInsets.only(
-                                bottom: compact ? 0 : 10,
-                              ),
+                              padding: EdgeInsets.only(bottom: framed ? 6 : 0),
                               child: _ChartEntryItem(
                                 entry: entry,
                                 controller: controller,
@@ -525,37 +525,73 @@ class _MomentsFeedHeader extends StatelessWidget {
 
 /// One chronological feed, narrowed by category and publisher (F-Q25),
 /// with one compact menu each (Charts 2.0 C1). Both apply together.
+///
+/// Category and Publisher sit side by side, sharing the width, on phone
+/// widths; they stack when the text is too large or the screen too narrow
+/// for two readable menus. The Archive's week menu follows on its own row.
 class _MomentsFilters extends StatelessWidget {
   const _MomentsFilters({required this.controller});
 
   final ChartsController controller;
 
+  /// The width, in unscaled text units, two menus need side by side.
+  static const double sideBySideWidth = 300;
+
   @override
   Widget build(BuildContext context) {
-    return Wrap(
+    final scale = MediaQuery.textScalerOf(context).scale(1);
+    return LayoutBuilder(
       key: const ValueKey<String>('charts-moments-filters'),
-      spacing: 8,
-      runSpacing: 8,
-      children: [
-        _MomentsMenu<MomentCategory>(
+      builder: (context, constraints) {
+        final sideBySide = constraints.maxWidth / scale >= sideBySideWidth;
+        final category = _MomentsMenu<MomentCategory>(
           label: 'Category',
           allLabel: 'All stories',
           values: MomentCategory.values,
           labelOf: (category) => category.label,
           selected: controller.momentCategory,
           onSelected: controller.selectMomentCategory,
-        ),
-        _MomentsMenu<MomentPublisher>(
+          fill: true,
+          captioned: sideBySide,
+        );
+        final publisher = _MomentsMenu<MomentPublisher>(
           label: 'Publisher',
           allLabel: 'All publishers',
           values: MomentPublisher.values,
           labelOf: (publisher) => publisher.label,
           selected: controller.momentPublisher,
           onSelected: controller.selectMomentPublisher,
-        ),
-        if (controller.momentsSection == MomentsSection.archive)
-          _MomentsWeekMenu(controller: controller),
-      ],
+          fill: true,
+          captioned: sideBySide,
+        );
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (sideBySide)
+              Row(
+                key: const ValueKey<String>('charts-moments-filters-row'),
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: category),
+                  const SizedBox(width: 8),
+                  Expanded(child: publisher),
+                ],
+              )
+            else ...[
+              category,
+              const SizedBox(height: 8),
+              publisher,
+            ],
+            if (controller.momentsSection == MomentsSection.archive) ...[
+              const SizedBox(height: 8),
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: _MomentsWeekMenu(controller: controller),
+              ),
+            ],
+          ],
+        );
+      },
     );
   }
 }
@@ -568,6 +604,8 @@ class _MomentsMenu<T extends Enum> extends StatelessWidget {
     required this.labelOf,
     required this.selected,
     required this.onSelected,
+    this.fill = false,
+    this.captioned = false,
   });
 
   final String label;
@@ -576,6 +614,8 @@ class _MomentsMenu<T extends Enum> extends StatelessWidget {
   final String Function(T value) labelOf;
   final T? selected;
   final void Function(T? value) onSelected;
+  final bool fill;
+  final bool captioned;
 
   @override
   Widget build(BuildContext context) {
@@ -585,6 +625,8 @@ class _MomentsMenu<T extends Enum> extends StatelessWidget {
       label: label,
       value: current == null ? allLabel : labelOf(current),
       active: current != null,
+      fill: fill,
+      captioned: captioned,
       items: [
         (null, allLabel),
         for (final value in values) (value, labelOf(value)),
@@ -654,6 +696,8 @@ class _MenuButton<V> extends StatelessWidget {
     required this.itemKey,
     required this.selected,
     required this.onSelected,
+    this.fill = false,
+    this.captioned = false,
   });
 
   final String label;
@@ -663,6 +707,13 @@ class _MenuButton<V> extends StatelessWidget {
   final Key Function(V value) itemKey;
   final V selected;
   final void Function(V value) onSelected;
+
+  /// Takes the width it is given, rather than its text's width.
+  final bool fill;
+
+  /// The label as a small caption above the value, so a half-width menu
+  /// keeps the selection readable; otherwise "Label: value" on one line.
+  final bool captioned;
 
   @override
   Widget build(BuildContext context) {
@@ -697,27 +748,52 @@ class _MenuButton<V> extends StatelessWidget {
             ),
           ),
           child: Row(
-            mainAxisSize: MainAxisSize.min,
+            mainAxisSize: fill ? MainAxisSize.max : MainAxisSize.min,
             children: [
               Flexible(
-                child: Text.rich(
-                  TextSpan(
-                    children: [
-                      TextSpan(
-                        text: '$label: ',
-                        style: TextStyle(color: colors.textSecondary),
-                      ),
-                      TextSpan(
-                        text: value,
-                        style: TextStyle(
-                          color: colors.textPrimary,
-                          fontWeight: FontWeight.w700,
+                fit: fill ? FlexFit.tight : FlexFit.loose,
+                child: captioned
+                    ? Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            label,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.labelSmall
+                                ?.copyWith(color: colors.textSecondary),
+                          ),
+                          Text(
+                            value,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: colors.textPrimary,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      )
+                    : Text.rich(
+                        TextSpan(
+                          children: [
+                            TextSpan(
+                              text: '$label: ',
+                              style: TextStyle(color: colors.textSecondary),
+                            ),
+                            TextSpan(
+                              text: value,
+                              style: TextStyle(
+                                color: colors.textPrimary,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ],
                         ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                    ],
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
               ),
               Icon(Icons.arrow_drop_down_rounded, color: colors.textSecondary),
             ],
@@ -1367,14 +1443,13 @@ class _ChartEntryItem extends StatelessWidget {
 
     final allTime = controller.allTimeChart;
     if (controller.isViewingAllTime && allTime != null) {
-      final key = ValueKey<String>('charts-entry-${entry.entity.entityId}');
       final stats = allTime.statsFor(entry);
       final weeklyPeak = controller.weeklyPeakFor(entry);
 
-      final compact = _isCompactRow(controller, entry);
-      final cardKey = compact
-          ? ValueKey<String>('charts-entry-card-${entry.entity.entityId}')
-          : key;
+      // Every position is a compact row; its full card opens from it.
+      final cardKey = ValueKey<String>(
+        'charts-entry-card-${entry.entity.entityId}',
+      );
       final card = entry.rank == 1
           ? AllTimeSpotlightCard(
               key: cardKey,
@@ -1408,7 +1483,6 @@ class _ChartEntryItem extends StatelessWidget {
             );
       return _tiered(
         card: card,
-        compact: compact,
         artworkPath: artworkPath,
         title: presentation?.title ?? song?.title ?? entry.entity.title,
         subtitle:
@@ -1419,12 +1493,9 @@ class _ChartEntryItem extends StatelessWidget {
       );
     }
 
-    final compact = _isCompactRow(controller, entry);
     final id = entry.entity.entityId;
     final card = ChartEntryCard(
-      key: ValueKey<String>(
-        compact ? 'charts-entry-card-$id' : 'charts-entry-$id',
-      ),
+      key: ValueKey<String>('charts-entry-card-$id'),
       entry: entry,
       chartType: chartType,
       artworkPath: artworkPath,
@@ -1442,7 +1513,6 @@ class _ChartEntryItem extends StatelessWidget {
 
     return _tiered(
       card: card,
-      compact: compact,
       artworkPath: artworkPath,
       title: presentation?.title ?? song?.title ?? entry.entity.title,
       subtitle: song?.subtitle ?? ChartEntryCard.subtitleFor(entry, chartType),
@@ -1452,11 +1522,11 @@ class _ChartEntryItem extends StatelessWidget {
     );
   }
 
-  /// Charts 2.0 C3 tiers: a featured #1, artwork-framed #2–10, and compact
-  /// rows for #11–100 and Bubbling Under with the full card on expand.
+  /// Charts 2.0 C3 tiers, compact since the SN-50 device polish: every
+  /// position is one compact row with the full card on expand; #1 keeps a
+  /// slim gradient frame and trophy, #2–10 a slim artwork-tinted frame.
   Widget _tiered({
     required Widget card,
-    required bool compact,
     required String? artworkPath,
     required String title,
     required String subtitle,
@@ -1465,30 +1535,34 @@ class _ChartEntryItem extends StatelessWidget {
     required VoidCallback? onLongPress,
   }) {
     final id = entry.entity.entityId;
-    if (compact) {
-      return ChartCompactRow(
-        key: ValueKey<String>('charts-entry-$id'),
-        entry: entry,
-        movement: controller.movementFor(entry),
-        title: title,
-        subtitle: subtitle,
-        artworkPath: artworkPath,
-        fallbackIcon: controller.chartType == ChartType.songs
-            ? Icons.music_note_rounded
-            : Icons.album_rounded,
-        status: status,
-        details: card,
-        onTap: onTap,
-        onLongPress: onLongPress,
-      );
-    }
-    if (entry.rank == 1) {
-      return ChartFeaturedFrame(
+    final tier = _rowTier(controller, entry);
+    final row = ChartCompactRow(
+      key: ValueKey<String>('charts-entry-$id'),
+      entry: entry,
+      movement: controller.movementFor(entry),
+      title: title,
+      subtitle: subtitle,
+      artworkPath: artworkPath,
+      fallbackIcon: controller.chartType == ChartType.songs
+          ? Icons.music_note_rounded
+          : Icons.album_rounded,
+      status: status,
+      details: card,
+      onTap: onTap,
+      onLongPress: onLongPress,
+      tier: tier,
+    );
+    return switch (tier) {
+      ChartRowTier.compact => row,
+      ChartRowTier.featured => ChartFeaturedFrame(
         chartName: ChartZoneNames.chart(controller.chartType),
-        child: card,
-      );
-    }
-    return ChartTopTenFrame(artworkPath: artworkPath, child: card);
+        child: row,
+      ),
+      ChartRowTier.topTen => ChartTopTenFrame(
+        artworkPath: artworkPath,
+        child: row,
+      ),
+    };
   }
 }
 
@@ -1779,9 +1853,12 @@ void _openAlbum(BuildContext context, LibraryAlbum album, {String? editionId}) {
   );
 }
 
-bool _isCompactRow(ChartsController controller, ChartEntry entry) =>
-    controller.board == ChartBoard.extended ||
-    ChartRowTier.of(entry) == ChartRowTier.compact;
+/// The row's frame: #1 and #2–10 on the Top 100 board; Bubbling Under
+/// and #101–200 rows are never framed.
+ChartRowTier _rowTier(ChartsController controller, ChartEntry entry) =>
+    controller.board == ChartBoard.extended
+    ? ChartRowTier.compact
+    : ChartRowTier.of(entry);
 
 String _boardName(ChartType type, ChartBoard board) => switch ((type, board)) {
   (_, ChartBoard.top100) => ChartZoneNames.chart(type),

@@ -76,9 +76,10 @@ class ArtistReleaseCard {
   }
 
   /// Short text indicators, most important first. Never colour alone.
+  /// An unconfirmed format is not named on the card: [formatNeedsReview]
+  /// stays available to the format editor and review flows.
   List<String> get notes => [
     if (isUnavailable) 'Unavailable',
-    if (formatNeedsReview) 'Format needs review',
     if (alsoLive) 'Live',
     if (kind case final kind?) kind.label,
   ];
