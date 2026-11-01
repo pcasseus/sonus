@@ -405,6 +405,10 @@ class ChartSnapshotBuilderService {
       qualifiedStreamCount: result.qualifiedStreamCount,
       lastQualifiedAt: result.lastQualifiedAt,
       previousFinalRank: result.previousFinalRank,
+      previousExtendedRank: result.previousExtendedRank,
+      priorPeakRank: result.priorPeakRank,
+      firstChartedAt: result.firstChartedAt,
+      firstHot100At: result.firstHot100At,
       peakRank: result.peakRank,
       peakAchievedAt: result.peakAchievedAt,
       weeksOnChart: _resolvedWeeksOnChart(

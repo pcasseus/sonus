@@ -30,6 +30,7 @@ import '../../domain/moments/chart_moment_scope.dart';
 import '../../domain/repositories/chart_moment_repository.dart';
 import '../../domain/repositories/chart_repository.dart';
 import '../editorial/moment_category.dart';
+import '../models/chart_entry_movement.dart';
 import '../editorial/moment_editorial_desk.dart';
 import '../editorial/moment_facts.dart';
 import '../editorial/moment_family.dart';
@@ -481,6 +482,21 @@ class ChartsController extends ChangeNotifier {
   }
 
   AllTimeChart? get allTimeChart => _allTimeChart;
+
+  /// How [entry] moved and what it achieved, for this view (Charts 2.0
+  /// C2): live views (this week, career standings) are provisional and
+  /// highlight NEW / RE-ENTRY for 24 hours; finalized weeks show facts.
+  ChartEntryMovement movementFor(ChartEntry entry) {
+    final week = isViewingHistory ? selectedHistoricalSnapshot : null;
+    return ChartEntryMovement.of(
+      entry,
+      live: !isViewingHistory,
+      now: _now(),
+      weekStartUtc: week?.weekStartUtc,
+      weekEndUtc: week?.weekEndUtc,
+      previousExtendedRank: previousExtendedRankFor(entry),
+    );
+  }
 
   ChartSnapshot? get selectedHistoricalSnapshot {
     final index = _historyIndex;

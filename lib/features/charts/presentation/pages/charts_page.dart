@@ -1327,6 +1327,7 @@ class _ChartEntryItem extends StatelessWidget {
               longevity: longevity,
               title: presentation?.title ?? song?.title,
               subtitle: song?.subtitle,
+              movement: controller.movementFor(entry),
               onTap: onTap,
             )
           : AllTimeEntryCard(
@@ -1340,6 +1341,7 @@ class _ChartEntryItem extends StatelessWidget {
               longevity: longevity,
               title: presentation?.title ?? song?.title,
               subtitle: song?.subtitle,
+              movement: controller.movementFor(entry),
               onTap: onTap,
             );
     }
@@ -1356,6 +1358,7 @@ class _ChartEntryItem extends StatelessWidget {
       weeklyPeakRank: controller.isViewingThisWeek
           ? controller.weeklyPeakFor(entry)
           : null,
+      movement: controller.movementFor(entry),
       onTap: onTap,
     );
   }

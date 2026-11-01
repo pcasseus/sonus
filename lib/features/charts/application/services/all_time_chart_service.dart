@@ -211,6 +211,11 @@ class AllTimeChartService {
       qualifiedStreamCount: result.lifetimeStreamCount,
       lastQualifiedAt: result.lastQualifiedAt,
       previousFinalRank: result.previousRank,
+      // The all-time comparison ranks cover the Top 200.
+      previousExtendedRank: result.previousRank,
+      priorPeakRank: result.priorPeakRank,
+      firstChartedAt: result.firstChartedAt,
+      firstHot100At: result.firstHot100At,
       peakRank: result.peakRank,
       peakAchievedAt: result.peakAchievedAt,
       weeksOnChart: 0,

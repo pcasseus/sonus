@@ -162,6 +162,10 @@ class ChartRankingEngine {
               state.hasEnteredOfficialChartThisWeek,
           hasReenteredOfficialChartThisWeek:
               state.hasReenteredOfficialChartThisWeek,
+          previousExtendedRank: history?.previousExtendedRank,
+          priorPeakRank: priorPeakRank,
+          firstChartedAt: state.firstChartedAt,
+          firstHot100At: state.firstHot100At,
         ),
       );
     }
@@ -320,6 +324,10 @@ class _MutableChartState {
   bool hasEnteredOfficialChartThisWeek = false;
   bool hasReenteredOfficialChartThisWeek = false;
 
+  /// First moment in this replay at a Top 200 / Top 100 position.
+  DateTime? firstChartedAt;
+  DateTime? firstHot100At;
+
   bool _wasOfficiallyCharting = false;
 
   void observeRank({required int rank, required DateTime observedAt}) {
@@ -329,6 +337,10 @@ class _MutableChartState {
     }
 
     final isOfficiallyCharting = rank <= ChartRankingEngine.officialChartLimit;
+    if (rank <= ChartRankingEngine.extendedStandingsLimit) {
+      firstChartedAt ??= observedAt.toUtc();
+    }
+    if (isOfficiallyCharting) firstHot100At ??= observedAt.toUtc();
 
     if (isOfficiallyCharting) {
       if (!hasEnteredOfficialChartThisWeek) {

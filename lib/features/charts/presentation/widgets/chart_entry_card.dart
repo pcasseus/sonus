@@ -12,6 +12,7 @@ import '../../domain/models/chart_type.dart';
 import '../models/chart_longevity.dart';
 import 'chart_extended_divider.dart';
 import 'chart_longevity_facts.dart';
+import '../models/chart_entry_movement.dart';
 import 'chart_movement_indicator.dart';
 import 'chart_rank_tier.dart';
 
@@ -46,6 +47,7 @@ class ChartEntryCard extends StatefulWidget {
     this.longevity,
     this.previousExtendedRank,
     this.bestSoFarRank,
+    this.movement,
   });
 
   /// Displayed artwork size. Images are decoded at this size so a 200-row
@@ -194,6 +196,9 @@ class ChartEntryCard extends StatefulWidget {
     ].join(' • ');
   }
 
+  /// Charts 2.0 C2 movement and achievement for this view.
+  final ChartEntryMovement? movement;
+
   @override
   State<ChartEntryCard> createState() => _ChartEntryCardState();
 }
@@ -227,7 +232,11 @@ class _ChartEntryCardState extends State<ChartEntryCard> {
       previousExtendedRank: widget.previousExtendedRank,
       bestSoFarRank: widget.bestSoFarRank,
     );
-    final rank = _RankColumn(entry: entry, color: tier.rankColor);
+    final rank = _RankColumn(
+      entry: entry,
+      color: tier.rankColor,
+      movement: widget.movement,
+    );
     final artwork = _ChartArtwork(
       key: ValueKey<String>('charts-artwork-${entry.entity.entityId}'),
       path: widget.artworkPath,
@@ -358,7 +367,9 @@ class _ChartEntryCardState extends State<ChartEntryCard> {
 }
 
 class _RankColumn extends StatelessWidget {
-  const _RankColumn({required this.entry, required this.color});
+  const _RankColumn({required this.entry, required this.color, this.movement});
+
+  final ChartEntryMovement? movement;
 
   final ChartEntry entry;
   final Color color;
@@ -386,7 +397,7 @@ class _RankColumn extends StatelessWidget {
           // than widening the column and misaligning the artwork.
           FittedBox(
             fit: BoxFit.scaleDown,
-            child: ChartMovementIndicator(entry: entry),
+            child: ChartMovementIndicator(entry: entry, movement: movement),
           ),
         ],
       ),

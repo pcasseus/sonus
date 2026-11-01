@@ -15,6 +15,7 @@ import '../models/chart_longevity.dart';
 import 'chart_extended_divider.dart';
 import 'chart_entry_card.dart';
 import 'chart_longevity_facts.dart';
+import '../models/chart_entry_movement.dart';
 import 'chart_movement_indicator.dart';
 import 'chart_rank_tier.dart';
 
@@ -176,7 +177,11 @@ class AllTimeSpotlightCard extends StatelessWidget {
     this.title,
     this.subtitle,
     this.onTap,
+    this.movement,
   });
+
+  /// Charts 2.0 C2 movement and achievement for this view.
+  final ChartEntryMovement? movement;
 
   final ChartEntry entry;
   final ChartType chartType;
@@ -252,8 +257,20 @@ class AllTimeSpotlightCard extends StatelessWidget {
                               fontSize: 34,
                             ),
                           ),
-                          const Spacer(),
-                          ChartMovementIndicator(entry: entry),
+                          const SizedBox(width: 12),
+                          // Shrinks rather than overflowing at large text.
+                          Expanded(
+                            child: Align(
+                              alignment: AlignmentDirectional.centerEnd,
+                              child: FittedBox(
+                                fit: BoxFit.scaleDown,
+                                child: ChartMovementIndicator(
+                                  entry: entry,
+                                  movement: movement,
+                                ),
+                              ),
+                            ),
+                          ),
                         ],
                       ),
                       const SizedBox(height: 12),
@@ -389,7 +406,11 @@ class AllTimeEntryCard extends StatelessWidget {
     this.title,
     this.subtitle,
     this.onTap,
+    this.movement,
   });
+
+  /// Charts 2.0 C2 movement and achievement for this view.
+  final ChartEntryMovement? movement;
 
   final ChartEntry entry;
   final ChartType chartType;
@@ -509,7 +530,7 @@ class AllTimeEntryCard extends StatelessWidget {
                               constraints.maxWidth - besides <
                               ChartEntryCard.minDetailsWidth + 60;
                           final lead = [
-                            _Rank(entry: entry),
+                            _Rank(entry: entry, movement: movement),
                             const SizedBox(width: 12),
                             _Artwork(
                               key: ValueKey<String>('charts-artwork-$id'),
@@ -826,9 +847,10 @@ class _TrendIcon extends StatelessWidget {
 }
 
 class _Rank extends StatelessWidget {
-  const _Rank({required this.entry});
+  const _Rank({required this.entry, this.movement});
 
   final ChartEntry entry;
+  final ChartEntryMovement? movement;
 
   @override
   Widget build(BuildContext context) {
@@ -854,7 +876,7 @@ class _Rank extends StatelessWidget {
           const SizedBox(height: 4),
           FittedBox(
             fit: BoxFit.scaleDown,
-            child: ChartMovementIndicator(entry: entry),
+            child: ChartMovementIndicator(entry: entry, movement: movement),
           ),
         ],
       ),
