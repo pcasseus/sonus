@@ -278,4 +278,50 @@ void main() {
       expect(clearEnabled(tester), isFalse);
     });
   });
+
+  // SN-50 device QA: played entries stay in the queue, dimmed and
+  // labelled; played is per entry, so one copy of a song can be played and
+  // the other still to come.
+  group('played entries', () {
+    Finder played(String entryId) =>
+        find.byKey(ValueKey<String>('queue-played-$entryId'));
+
+    testWidgets('played, current and upcoming rows', (tester) async {
+      await pumpQueue(tester, const [_a, _b, _a, _b], startIndex: 2);
+
+      expect(tester.takeException(), isNull);
+      expect(played('song-a'), findsOneWidget);
+      expect(played('song-b'), findsOneWidget);
+      expect(find.text('Played · Harbor Lights'), findsNWidgets(2));
+      // The current copy is highlighted, not marked played.
+      expect(
+        find.byKey(const ValueKey<String>('queue-current-song-a#2')),
+        findsOneWidget,
+      );
+      expect(played('song-a#2'), findsNothing);
+      // The later copy of song B is still to come.
+      expect(played('song-b#2'), findsNothing);
+      final dimmed = tester.widget<Opacity>(
+        find.descendant(of: row('song-a'), matching: find.byType(Opacity)),
+      );
+      expect(dimmed.opacity, lessThan(1));
+    });
+
+    testWidgets('a played entry can still be chosen', (tester) async {
+      await pumpQueue(tester, const [_a, _b, _a], startIndex: 2);
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('queue-track-open-song-b')),
+      );
+      await settle(tester);
+
+      expect(engine.currentState.queue.currentIndex, 1);
+      expect(
+        find.byKey(const ValueKey<String>('queue-current-song-b')),
+        findsOneWidget,
+      );
+      expect(played('song-a'), findsOneWidget);
+      expect(played('song-a#2'), findsNothing);
+    });
+  });
 }

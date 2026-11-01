@@ -134,7 +134,12 @@ class MomentEditorialDesk {
       // A refined story whose catalog this build lacks is held rather than
       // re-told with other words.
       if (refined && _catalogFor(catalogVersion) == null) continue;
-      final planned = refined ? planner.plan(item) : _legacyPlan(item, gainers);
+      // SN-50 device polish: from its start, every recorded chart
+      // achievement is told, without the daily cap.
+      final complete = !refined && rules.tellsEveryChartEvent(item.occurredAt);
+      final planned = refined
+          ? planner.plan(item)
+          : _legacyPlan(item, gainers, complete: complete);
 
       for (final moment in planned) {
         // Release safety: drafts never publish, not even with a plain
@@ -147,9 +152,11 @@ class MomentEditorialDesk {
           lookups,
           refined: refined,
           catalogVersion: catalogVersion,
+          polished: complete,
           jump: moment.jump,
         );
         if (!moment.mandatory &&
+            !complete &&
             moment.family.tierFor(facts.rank) == MomentTier.minor) {
           // The feed is paged in these same days.
           final day = ChartMomentFeedPager.localDay(item.occurredAt);
@@ -213,11 +220,13 @@ class MomentEditorialDesk {
   /// Before the SN-50 rules: one story per group, as first published.
   static List<PlannedMoment> _legacyPlan(
     ChartMomentFeedItem item,
-    Set<String> gainers,
-  ) {
+    Set<String> gainers, {
+    bool complete = false,
+  }) {
     final family = MomentFamily.of(
       item,
       biggestGainer: gainers.contains(item.id),
+      complete: complete,
     );
     return family == null ? const [] : [PlannedMoment(item, family)];
   }
@@ -602,12 +611,14 @@ class MomentEditorialDesk {
       );
       // SN-50 BUG-04: a move from Bubbling Under into the Hot 100 is a
       // Hot 100 arrival, not a climb on it (E-Q1).
+      // The device polish follows it too, from its start.
       if (_crossesIntoHot100(rise) &&
-          rules.appliesTo(
-            scope: item.scope,
-            occurredAt: item.occurredAt,
-            weekStartUtc: item.weekStartUtc,
-          )) {
+          (rules.appliesTo(
+                scope: item.scope,
+                occurredAt: item.occurredAt,
+                weekStartUtc: item.weekStartUtc,
+              ) ||
+              rules.tellsEveryChartEvent(item.occurredAt))) {
         continue;
       }
       final places = rise.movementDistance ?? 0;

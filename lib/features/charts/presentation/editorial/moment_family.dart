@@ -156,10 +156,19 @@ enum MomentFamily {
   /// The story [item] tells, or null when its facts are not news (most
   /// weekly movement, or what the permanent chart already told).
   /// [biggestGainer] marks the week's largest verified climb.
+  ///
+  /// With [complete] (the SN-50 device polish), every recorded debut,
+  /// re-entry, new peak and climb is news, on the weekly charts too and at
+  /// any position: [ofEveryAchievement].
   static MomentFamily? of(
     ChartMomentFeedItem item, {
     bool biggestGainer = false,
+    bool complete = false,
   }) {
+    if (complete) {
+      final every = ofEveryAchievement(item, biggestGainer: biggestGainer);
+      if (every != null) return every;
+    }
     final weekly = item.scope == ChartMomentScope.finalized;
     if (item.scope == ChartMomentScope.live) return null;
 
@@ -295,6 +304,62 @@ enum MomentFamily {
       ChartMomentEventType.artistSimultaneousThresholdSongs
           when (dominant.threshold ?? 99) <= 10 =>
         artistSimultaneous,
+      _ => null,
+    };
+  }
+
+  /// Chart achievements the earlier rules left untold (weekly debuts below
+  /// the Top 10, Bubbling Under and #101–200 release debuts, weekly
+  /// re-entries and new peaks at any position, and every weekly climb); null
+  /// for everything [of] already tells, which keeps its own family.
+  ///
+  /// A weekly climb between Bubbling Under and the Hot 100 is a change of
+  /// chart: it is told as reaching the Hot 100, never as a number of places.
+  static MomentFamily? ofEveryAchievement(
+    ChartMomentFeedItem item, {
+    bool biggestGainer = false,
+  }) {
+    if (item.scope == ChartMomentScope.live) return null;
+    final weekly = item.scope == ChartMomentScope.finalized;
+    final dominant = item.events.firstWhere(
+      (event) => event.eventType == item.dominantEventType,
+    );
+    final rank = dominant.currentRank;
+    final previous = dominant.previousRank;
+    if (rank == null) return null;
+    const limit = ChartRankingEngine.officialChartLimit;
+
+    if (item.chartType == ChartType.albums) {
+      return switch (item.dominantEventType) {
+        ChartMomentEventType.debut when rank > 1 => releaseDebut,
+        ChartMomentEventType.newPeak when rank > 1 => releaseNewPeak,
+        ChartMomentEventType.reentry when rank > 1 => releaseReentry,
+        _ => null,
+      };
+    }
+
+    final hasCareerNews = item.events.any(
+      (event) =>
+          event.eventType == ChartMomentEventType.artistFirstNumberOneSong ||
+          event.eventType == ChartMomentEventType.artistNthNumberOneSong ||
+          event.eventType == ChartMomentEventType.artistFirstThresholdSong ||
+          event.eventType == ChartMomentEventType.artistNthThresholdSong,
+    );
+    if (hasCareerNews && !weekly) return null;
+
+    return switch (item.dominantEventType) {
+      ChartMomentEventType.debut when weekly && rank > 10 =>
+        rank <= limit ? songDebut : songBubblingUnderDebut,
+      ChartMomentEventType.newPeak when weekly && rank > 1 => songNewPeak,
+      ChartMomentEventType.reentry when rank > 1 => songReentry,
+      ChartMomentEventType.rankRise
+          when weekly &&
+              !biggestGainer &&
+              previous != null &&
+              previous > rank =>
+        previous > limit && rank <= limit
+            ? songHot100Breakthrough
+            : songBigClimb,
       _ => null,
     };
   }

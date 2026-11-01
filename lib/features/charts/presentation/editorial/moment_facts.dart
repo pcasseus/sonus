@@ -128,6 +128,7 @@ class MomentFacts {
     this.count,
     this.refined = false,
     this.catalogVersion,
+    this.polished = false,
     this.thresholds = const [],
     this.jump,
   });
@@ -192,6 +193,11 @@ class MomentFacts {
   /// under the earlier rules. Wording that changes in a later version
   /// branches on it, so earlier stories keep their words.
   final int? catalogVersion;
+
+  /// Told under the SN-50 device polish (ChartMomentRules
+  /// .tellsEveryChartEvent): weekly stories name the weekly chart, as
+  /// refined ones do. Earlier stories keep their wording.
+  final bool polished;
 
   /// A chart jump's verified movement and stream facts (SN-50).
   final ChartJumpFacts? jump;
@@ -270,13 +276,14 @@ class MomentFacts {
     // SN-50 P-003/P-004 (refined stories only): a finished week is the
     // weekly chart, never "this week's", and a weekly #101–200 position is
     // never named as the Hot 100. Earlier stories keep their wording.
-    ChartType.songs when weekly && refined && bubblingUnder =>
+    ChartType.songs when weekly && (refined || polished) && bubblingUnder =>
       'the weekly Sonus Bubbling Under',
-    ChartType.songs when weekly && refined => 'the weekly Sonus Hot 100',
+    ChartType.songs when weekly && (refined || polished) =>
+      'the weekly Sonus Hot 100',
     ChartType.songs when weekly => "this week's Sonus Hot 100",
     ChartType.songs when bubblingUnder => 'Sonus Bubbling Under',
     ChartType.songs => 'the Sonus Hot 100',
-    ChartType.albums when weekly && refined =>
+    ChartType.albums when weekly && (refined || polished) =>
       'the weekly Sonus Albums & EPs chart',
     ChartType.albums when weekly => "this week's Sonus Albums & EPs chart",
     ChartType.albums => 'the Sonus Albums & EPs chart',
@@ -422,6 +429,7 @@ class MomentFacts {
     MomentLookups lookups, {
     bool refined = false,
     int? catalogVersion,
+    bool polished = false,
     ChartJumpFacts? jump,
   }) {
     final dominant = item.events.firstWhere(
@@ -504,6 +512,7 @@ class MomentFacts {
       passedTopArtist: topArtist?.relatedEntity?.title,
       refined: refined,
       catalogVersion: catalogVersion,
+      polished: polished,
       jump: jump,
       thresholds: refined ? _firstThresholds(item) : const [],
     );

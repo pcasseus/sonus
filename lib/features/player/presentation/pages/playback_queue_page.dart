@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:provider/provider.dart';
 
+import '../../data/engines/support/sonus_shuffle_order.dart';
 import '../../../../core/design/sonus_artwork_palette.dart';
 import '../../../../core/design/sonus_theme.dart';
 import '../../../../core/design/widgets/sonus_artwork_image.dart';
@@ -139,6 +140,13 @@ class _QueueContent extends StatelessWidget {
     final queue = state.queue;
     final gutter = SonusTheme.of(context).metrics.pageGutter;
     final ids = entryIds(queue.tracks);
+    // Played in this cycle, per entry: before the current one in play
+    // order (the shuffle order while shuffled).
+    final played = playedQueueIndices(
+      length: queue.length,
+      currentIndex: queue.currentIndex,
+      shuffleOrder: state.shuffleEnabled ? coordinator.shuffleOrder : null,
+    );
 
     // The current song is the highlighted row; there is no separate
     // summary card repeating it (SN-50 D-Q18).
@@ -169,6 +177,7 @@ class _QueueContent extends StatelessWidget {
             index: index,
             count: queue.length,
             isCurrent: isCurrent,
+            isPlayed: !isCurrent && played.contains(index),
             coordinator: coordinator,
           );
         },
@@ -186,6 +195,7 @@ class _QueueTrackRow extends StatelessWidget {
     required this.count,
     required this.isCurrent,
     required this.coordinator,
+    this.isPlayed = false,
   });
 
   /// This entry's identity in the queue (see [_QueueContent.entryIds]).
@@ -194,6 +204,9 @@ class _QueueTrackRow extends StatelessWidget {
   final int index;
   final int count;
   final bool isCurrent;
+
+  /// Already played in this cycle: dimmed and labelled, still selectable.
+  final bool isPlayed;
   final PlaybackCoordinator coordinator;
 
   void _move(int newIndex) {
@@ -234,7 +247,10 @@ class _QueueTrackRow extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(8, 6, 0, 6),
               child: Row(
                 children: [
-                  SonusArtworkImage(path: track.artworkPath, size: 48),
+                  Opacity(
+                    opacity: isPlayed ? 0.45 : 1,
+                    child: SonusArtworkImage(path: track.artworkPath, size: 48),
+                  ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(
@@ -258,7 +274,9 @@ class _QueueTrackRow extends StatelessWidget {
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: theme.textTheme.bodyLarge?.copyWith(
-                                  color: colors.textPrimary,
+                                  color: isPlayed
+                                      ? colors.textSecondary
+                                      : colors.textPrimary,
                                   fontWeight: isCurrent
                                       ? FontWeight.w800
                                       : FontWeight.w600,
@@ -269,7 +287,12 @@ class _QueueTrackRow extends StatelessWidget {
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          track.displayArtist,
+                          isPlayed
+                              ? 'Played · ${track.displayArtist}'
+                              : track.displayArtist,
+                          key: isPlayed
+                              ? ValueKey<String>('queue-played-$entryId')
+                              : null,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodyMedium?.copyWith(

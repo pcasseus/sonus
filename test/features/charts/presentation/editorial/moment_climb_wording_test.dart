@@ -21,7 +21,7 @@ MomentEditorialDesk _desk(ChartMomentRules rules) => MomentEditorialDesk(
   rules: rules,
 );
 
-final _climbRules = ChartMomentRules(climbWordingFromUtc: _start);
+final _climbRules = ChartMomentRules(devicePolishFromUtc: _start);
 
 MomentStory _story(
   ChartMomentRules rules, {
@@ -60,7 +60,7 @@ MomentStory _story(
 }
 
 class _MemoryStore
-    implements MomentRulesActivationStore, MomentClimbWordingStore {
+    implements MomentRulesActivationStore, MomentDevicePolishStore {
   String? climb;
   int climbWrites = 0;
   bool failClimb = false;
@@ -74,13 +74,13 @@ class _MemoryStore
   @override
   Future<void> writeCatalogStart(int version, String fromUtc) async {}
   @override
-  Future<String?> readClimbWordingStart() async {
+  Future<String?> readDevicePolishStart() async {
     if (failClimb) throw StateError('unreadable');
     return climb;
   }
 
   @override
-  Future<void> writeClimbWordingStart(String fromUtc) async {
+  Future<void> writeDevicePolishStart(String fromUtc) async {
     climbWrites++;
     climb = fromUtc;
   }
@@ -242,11 +242,11 @@ void main() {
       final first = MomentRulesActivation(
         store: store,
         approved: false,
-        climbWording: store,
+        devicePolish: store,
         now: () => _start,
       );
       final rules = await first.rules();
-      expect(rules.climbWordingFromUtc, _start);
+      expect(rules.devicePolishFromUtc, _start);
       expect(rules.activatedAtUtc, isNull);
       expect(
         rules.appliesTo(
@@ -260,10 +260,10 @@ void main() {
       final later = MomentRulesActivation(
         store: store,
         approved: false,
-        climbWording: store,
+        devicePolish: store,
         now: () => _after,
       );
-      expect((await later.rules()).climbWordingFromUtc, _start);
+      expect((await later.rules()).devicePolishFromUtc, _start);
       expect(store.climbWrites, 1);
     });
 
@@ -272,10 +272,10 @@ void main() {
       final rules = await MomentRulesActivation(
         store: store,
         approved: false,
-        climbWording: store,
+        devicePolish: store,
         now: () => _start,
       ).rules();
-      expect(rules.climbWordingFromUtc, isNull);
+      expect(rules.devicePolishFromUtc, isNull);
       expect(store.climbWrites, 0);
     });
 

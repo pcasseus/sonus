@@ -17,7 +17,7 @@ class ChartMomentRules {
   const ChartMomentRules({
     this.activatedAtUtc,
     this.catalogStarts = const [],
-    this.climbWordingFromUtc,
+    this.devicePolishFromUtc,
   });
 
   /// No activation: every Moment follows the earlier rules.
@@ -35,21 +35,32 @@ class ChartMomentRules {
   /// build that carries it (write-once, see MomentRulesActivation).
   final List<RefinedCatalogStart> catalogStarts;
 
-  /// Where stories under the earlier rules start naming how many places a
-  /// rising song climbed (SN-50 device polish): the first run of a build
-  /// that carries the wording, recorded once. Null keeps every story's
-  /// first wording. It changes headlines only, never which Moments are
-  /// recorded or told.
-  final DateTime? climbWordingFromUtc;
+  /// Where the SN-50 device polish starts for stories under the earlier
+  /// rules: the first run of a build that carries it, recorded once. From
+  /// then on a rising song's headline names the places it climbed
+  /// ([statesClimb]) and every recorded chart achievement is told, with no
+  /// daily cap ([tellsEveryChartEvent]). Null keeps every story as first
+  /// published. It changes which recorded Moments are told and how, never
+  /// which are recorded.
+  final DateTime? devicePolishFromUtc;
 
-  /// Whether a story that happened at [occurredAt] is told with the climb
-  /// wording. Stories from before the start keep the words they were first
-  /// published with; a story's own instant is used for every scope, since
-  /// none can have been shown before it happened.
-  bool statesClimb(DateTime occurredAt) {
-    final from = climbWordingFromUtc;
+  /// Whether a story that happened at [occurredAt] follows the device
+  /// polish. Stories from before the start keep what they were first
+  /// published as, so nothing is re-told or backfilled; a story's own
+  /// instant is used for every scope, since none can have been shown before
+  /// it happened.
+  bool _polished(DateTime occurredAt) {
+    final from = devicePolishFromUtc;
     return from != null && !occurredAt.toUtc().isBefore(from.toUtc());
   }
+
+  /// Whether a rising song's headline names the places it climbed.
+  bool statesClimb(DateTime occurredAt) => _polished(occurredAt);
+
+  /// Whether every recorded chart achievement is told: every debut,
+  /// re-entry, new peak and climb on the weekly charts as well as the
+  /// permanent one, and no daily cap on smaller stories.
+  bool tellsEveryChartEvent(DateTime occurredAt) => _polished(occurredAt);
 
   /// Whether a Moment of [scope] that happened at [occurredAt], on the
   /// chart week starting at [weekStartUtc], is told under the new rules.

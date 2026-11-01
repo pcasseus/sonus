@@ -167,25 +167,3 @@ class JustAudioPlayerAdapter implements PlaybackAudioPlayer {
   @override
   Future<void> dispose() => _audioPlayer.dispose();
 }
-
-/// A shuffle order that starts from a saved permutation (SN-50 #24): the
-/// first fill lays the saved indices down exactly; later inserts, removals
-/// and an explicit reshuffle behave like [DefaultShuffleOrder].
-class RestoredShuffleOrder extends DefaultShuffleOrder {
-  RestoredShuffleOrder(List<int> saved) : _saved = List.of(saved);
-
-  List<int>? _saved;
-
-  @override
-  void insert(int index, int count) {
-    final saved = _saved;
-    if (saved != null && indices.isEmpty && index == 0) {
-      _saved = null;
-      if (count == saved.length) {
-        indices.addAll(saved);
-        return;
-      }
-    }
-    super.insert(index, count);
-  }
-}

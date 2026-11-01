@@ -109,6 +109,8 @@ class SimulatedJustAudioPlayer implements PlaybackAudioPlayer {
     _shuffleOrder = shuffleOrder ?? DefaultShuffleOrder(random: Random(7));
     _shuffleOrder.clear();
     _shuffleOrder.insert(0, sources.length);
+    // just_audio shuffles every source it loads, the start first.
+    _shuffleOrder.shuffle(initialIndex: initialIndex);
     _setProcessing(ProcessingState.loading);
     _index = initialIndex;
     _indexes.add(initialIndex);
@@ -226,7 +228,24 @@ class SimulatedJustAudioPlayer implements PlaybackAudioPlayer {
   }
 
   @override
-  Future<void> moveAudioSource(int oldIndex, int newIndex) async {}
+  Future<void> moveAudioSource(int oldIndex, int newIndex) async {
+    _shuffleOrder
+      ..removeRange(oldIndex, oldIndex + 1)
+      ..insert(newIndex, 1);
+    final current = _index;
+    if (current == null) return;
+    final moved = current == oldIndex
+        ? newIndex
+        : oldIndex < current && current <= newIndex
+        ? current - 1
+        : newIndex <= current && current < oldIndex
+        ? current + 1
+        : current;
+    if (moved != current) {
+      _index = moved;
+      _indexes.add(moved);
+    }
+  }
 
   @override
   Future<void> shuffle() async => _shuffleOrder.shuffle(initialIndex: _index);

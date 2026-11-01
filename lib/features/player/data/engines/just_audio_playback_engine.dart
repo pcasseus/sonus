@@ -11,6 +11,7 @@ import '../../domain/models/playback_track.dart';
 import '../../domain/models/playback_transition_cause.dart';
 import '../../domain/services/playback_engine.dart';
 import '../../domain/services/shuffle_order_playback.dart';
+import 'support/sonus_shuffle_order.dart';
 import 'support/playback_audio_player.dart';
 
 class JustAudioPlaybackEngine
@@ -152,9 +153,12 @@ class JustAudioPlaybackEngine
         sources,
         initialIndex: startIndex,
         initialPosition: Duration.zero,
-        shuffleOrder: shuffleOrder == null
-            ? null
-            : RestoredShuffleOrder(shuffleOrder),
+        // Always Sonus's order: a shuffle cycle never repeats an entry on
+        // its own (SN-50 device QA), and a saved order is restored exactly.
+        shuffleOrder: _shuffleOrder = SonusShuffleOrder(
+          saved: shuffleOrder,
+          currentIndex: () => _state.queue.currentIndex,
+        ),
       );
 
       // When the player was already playing, the new queue is audible now
@@ -363,6 +367,19 @@ class JustAudioPlaybackEngine
     }
 
     try {
+      // Shuffled, the chosen entry plays next in the cycle: whatever has
+      // played stays played, and nothing upcoming is skipped.
+      final order = shuffleOrder;
+      if (changesTrack && order != null && _state.queue.hasCurrentTrack) {
+        _shuffleOrder?.arrange(
+          orderPlayingNext(
+            order,
+            current: _state.queue.currentIndex,
+            target: index,
+          ),
+        );
+        await _audioPlayer.shuffle();
+      }
       await _audioPlayer.seek(Duration.zero, index: index);
     } catch (error) {
       if (changesTrack &&
@@ -488,6 +505,8 @@ class JustAudioPlaybackEngine
     );
 
     try {
+      // A moved entry keeps its place in the shuffled play order.
+      _shuffleOrder?.beginMove();
       await _audioPlayer.moveAudioSource(oldIndex, newIndex);
 
       _emit(
@@ -502,12 +521,23 @@ class JustAudioPlaybackEngine
     }
   }
 
+  /// The play order of the loaded queue (SN-50 device QA).
+  SonusShuffleOrder? _shuffleOrder;
+
   @override
   Future<void> setShuffleEnabled(bool enabled) async {
     _ensureNotDisposed();
 
     try {
       if (enabled) {
+        // Turning shuffle on keeps the entries already played (before the
+        // current one in queue order) first; only the rest are shuffled.
+        final queue = _state.queue;
+        if (!_state.shuffleEnabled && queue.hasCurrentTrack) {
+          _shuffleOrder?.arrange(
+            orderKeepingPlayed(queue.length, current: queue.currentIndex),
+          );
+        }
         await _audioPlayer.shuffle();
       }
 

@@ -10,7 +10,7 @@ import '../../application/services/moment_rules_activation.dart';
 /// it back keeps the original instant, otherwise an approved build
 /// records a new one when it next runs.
 class SharedPreferencesMomentRulesActivationStore
-    implements MomentRulesActivationStore, MomentClimbWordingStore {
+    implements MomentRulesActivationStore, MomentDevicePolishStore {
   SharedPreferencesMomentRulesActivationStore([
     SharedPreferencesAsync? preferences,
   ]) : _preferences = preferences;
@@ -22,7 +22,7 @@ class SharedPreferencesMomentRulesActivationStore
       'charts.moments.refined_catalog_v${version}_from_utc';
 
   /// Where the climb wording revision started (SN-50 device polish).
-  static const String climbWordingKey = 'charts.moments.climb_wording_from_utc';
+  static const String devicePolishKey = 'charts.moments.device_polish_from_utc';
 
   SharedPreferencesAsync? _preferences;
 
@@ -45,10 +45,10 @@ class SharedPreferencesMomentRulesActivationStore
       _platform.setString(catalogStartKey(version), fromUtc);
 
   @override
-  Future<String?> readClimbWordingStart() =>
-      _platform.getString(climbWordingKey);
+  Future<String?> readDevicePolishStart() =>
+      _platform.getString(devicePolishKey);
 
   @override
-  Future<void> writeClimbWordingStart(String fromUtc) =>
-      _platform.setString(climbWordingKey, fromUtc);
+  Future<void> writeDevicePolishStart(String fromUtc) =>
+      _platform.setString(devicePolishKey, fromUtc);
 }

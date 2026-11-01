@@ -72,7 +72,7 @@ class _ChartsScopeState extends State<ChartsScope> {
   /// scopes and controllers are recreated.
   static final MomentRulesActivation _deviceRulesActivation = () {
     final store = SharedPreferencesMomentRulesActivationStore();
-    return MomentRulesActivation(store: store, climbWording: store);
+    return MomentRulesActivation(store: store, devicePolish: store);
   }();
 
   @override

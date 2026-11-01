@@ -2160,6 +2160,48 @@ void main() {
     semantics.dispose();
   });
 
+  testWidgets('SN-50 device polish: Recent and Archive hold every debut at '
+      'high volume', (tester) async {
+    List<ChartMomentEvent> debuts(String prefix, DateTime day, int count) => [
+      for (var i = 0; i < count; i++)
+        _momentEvent(
+          id: '$prefix-$i',
+          scope: ChartMomentScope.allTime,
+          type: ChartMomentEventType.debut,
+          currentRank: 30 + i,
+          occurredAt: day.add(Duration(minutes: i)),
+          weekStartUtc: DateTime.utc(
+            day.year,
+            day.month,
+            day.day,
+          ).subtract(Duration(days: day.weekday % 7)),
+          title: 'Song $prefix $i',
+          entityId: 'songs_$prefix$i',
+        ),
+    ];
+    final controller = await _controller(
+      devicePolishFromUtc: DateTime.utc(2026, 9, 1),
+      moments: [
+        ...debuts('now', DateTime.utc(2026, 9, 28, 1), 40),
+        ...debuts('old', DateTime.utc(2026, 9, 21, 1), 40),
+      ],
+    );
+    while (controller.hasMoreMoments) {
+      await controller.loadMoreMoments();
+    }
+
+    final ids = controller.momentStories.map((s) => s.item.entity.entityId);
+    expect(ids.toSet(), hasLength(80));
+
+    controller.selectMomentsSection(MomentsSection.recent);
+    final recent = controller.sectionMomentStories.length;
+    controller.selectMomentsSection(MomentsSection.archive);
+    final archive = controller.sectionMomentStories.length;
+    expect(recent + archive, 80);
+    expect(recent, greaterThan(0));
+    expect(archive, greaterThan(0));
+  });
+
   testWidgets('F-Q25: older Moments load as the feed reaches its end', (
     tester,
   ) async {
@@ -2505,6 +2547,7 @@ Future<ChartsController> _controller({
   ThisWeekChartService? thisWeek,
   MomentsLastSeenStore? momentsLastSeen,
   int momentPageSize = ChartMomentFeedPager.defaultPageSize,
+  DateTime? devicePolishFromUtc,
 }) async {
   final resolvedLive =
       live ?? _snapshot(id: 'live', start: DateTime.utc(2026, 9, 27));
@@ -2532,8 +2575,10 @@ Future<ChartsController> _controller({
     thisWeekCharts: thisWeek,
     momentsLastSeen: momentsLastSeen,
     momentPageSize: momentPageSize,
-    momentRules: () async =>
-        ChartMomentRules(activatedAtUtc: DateTime.utc(2026, 11, 1)),
+    momentRules: () async => ChartMomentRules(
+      activatedAtUtc: DateTime.utc(2026, 11, 1),
+      devicePolishFromUtc: devicePolishFromUtc,
+    ),
   );
 
   await controller.load();
