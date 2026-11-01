@@ -20,7 +20,15 @@ import 'pulse_listening_records.dart';
 ///   slice as the day's total, so an item can never exceed its day.
 /// - Artists follow the existing lead-artist attribution; releases are
 ///   `album_id`; Singles are left out of release rankings only.
-class PulseInsightsService {
+/// What the Pulse controller needs from the data layer.
+abstract interface class PulsePeriodLoader {
+  /// The start of the first recorded session (UTC), or null.
+  Future<DateTime?> firstHistoryAt();
+
+  Future<PulsePeriodData> load(PulsePeriod period);
+}
+
+class PulseInsightsService implements PulsePeriodLoader {
   PulseInsightsService({
     required PulseListeningRecords records,
     ListeningArtistAttribution? artistAttribution,
@@ -39,6 +47,10 @@ class PulseInsightsService {
   final AnalyticsBehaviorMetricsService? _behaviorMetrics;
   final DateTime Function() _nowLocal;
 
+  @override
+  Future<DateTime?> firstHistoryAt() => _records.firstSessionStartedAt();
+
+  @override
   Future<PulsePeriodData> load(PulsePeriod period) async {
     final window = period.window;
 
