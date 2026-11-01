@@ -3,9 +3,11 @@ import 'dart:developer' as developer;
 import 'package:sqflite/sqflite.dart';
 
 import '../../../../core/database/app_database.dart';
+import '../../../../core/database/database_tables.dart';
 import '../../domain/entities/chart_snapshot.dart';
 import '../../domain/models/chart_type.dart';
 import '../../domain/moments/chart_moment_event.dart';
+import '../../domain/repositories/chart_entity_history_reader.dart';
 import '../../domain/repositories/chart_repository.dart';
 import '../../domain/repositories/chart_week_finalizer.dart';
 import '../daos/chart_entry_dao.dart';
@@ -26,7 +28,8 @@ class FinalizedChartWeekFrozen extends StateError {
       );
 }
 
-class SqliteChartRepository implements ChartRepository, ChartWeekFinalizer {
+class SqliteChartRepository
+    implements ChartRepository, ChartWeekFinalizer, ChartEntityHistoryReader {
   const SqliteChartRepository(this.database);
 
   final AppDatabase database;
@@ -206,6 +209,44 @@ class SqliteChartRepository implements ChartRepository, ChartWeekFinalizer {
         ),
       ),
     );
+  }
+
+  @override
+  Future<List<ChartEntityWeek>> finalizedWeeksFor(
+    ChartType chartType,
+    String entityId,
+  ) async {
+    final db = await database.database;
+    final rows = await db.rawQuery(
+      '''
+      SELECT e.*,
+             s.week_start_utc AS snapshot_week_start_utc,
+             s.week_end_utc AS snapshot_week_end_utc,
+             s.finalized_at AS snapshot_finalized_at
+      FROM ${DatabaseTables.chartEntries} e
+      JOIN ${DatabaseTables.chartSnapshots} s ON s.id = e.chart_snapshot_id
+      WHERE s.chart_type = ?
+        AND s.finalized_at IS NOT NULL
+        AND e.entity_id = ?
+      ORDER BY s.week_start_utc ASC
+      ''',
+      [chartType.name, entityId],
+    );
+    return [
+      for (final row in rows)
+        ChartEntityWeek(
+          weekStartUtc: DateTime.parse(
+            row['snapshot_week_start_utc']! as String,
+          ).toUtc(),
+          weekEndUtc: DateTime.parse(
+            row['snapshot_week_end_utc']! as String,
+          ).toUtc(),
+          finalizedAt: DateTime.parse(
+            row['snapshot_finalized_at']! as String,
+          ).toUtc(),
+          entry: ChartEntryRowMapper.fromRow(row),
+        ),
+    ];
   }
 
   @override

@@ -26,6 +26,7 @@ import '../../application/repositories/library_search_repository.dart';
 import '../controllers/library_search_controller.dart';
 import '../../../account/application/controllers/account_controller.dart';
 import '../../../library/application/services/song_block_service.dart';
+import '../../../song_stats/presentation/song_stats_navigation.dart';
 
 class SearchPage extends StatefulWidget {
   const SearchPage({super.key});
@@ -547,6 +548,14 @@ class _SearchPageState extends State<SearchPage> {
                   _addToQueue(track);
                 case _TrackSearchAction.addToPlaylist:
                   showAddToPlaylistFlow(context, track);
+                case _TrackSearchAction.viewStats:
+                  unawaited(
+                    openSongStats(
+                      context,
+                      songId: track.songId,
+                      initialTitle: track.displayTitle,
+                    ),
+                  );
                 case _TrackSearchAction.goToArtist:
                   _openTrackArtist(track);
                 case _TrackSearchAction.goToAlbum:
@@ -1014,6 +1023,10 @@ class _TrackResultTile extends StatelessWidget {
                 title: Text('Add to playlist'),
               ),
             ),
+            songStatsMenuItem(
+              _TrackSearchAction.viewStats,
+              key: ValueKey<String>('search-track-stats-${track.songId}'),
+            ),
             const PopupMenuDivider(),
             PopupMenuItem<_TrackSearchAction>(
               value: _TrackSearchAction.trackStudio,
@@ -1077,6 +1090,7 @@ enum _TrackSearchAction {
   playNext,
   addToQueue,
   addToPlaylist,
+  viewStats,
   goToArtist,
   goToAlbum,
   select,

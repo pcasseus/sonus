@@ -23,6 +23,7 @@ import '../../application/services/playlist_service.dart';
 import '../controllers/playlist_detail_controller.dart';
 import '../widgets/add_to_playlist_sheet.dart';
 import '../widgets/playlist_cover.dart';
+import '../../../song_stats/presentation/song_stats_navigation.dart';
 
 class PlaylistDetailPage extends StatefulWidget {
   const PlaylistDetailPage({
@@ -736,6 +737,14 @@ class _PlaylistTrackTile extends StatelessWidget {
                   unawaited(onAddToQueue());
                 case _TrackAction.addToPlaylist:
                   unawaited(onAddToPlaylist());
+                case _TrackAction.viewStats:
+                  unawaited(
+                    openSongStats(
+                      context,
+                      songId: track.songId,
+                      initialTitle: track.displayTitle,
+                    ),
+                  );
                 case _TrackAction.select:
                   onSelect();
                 case _TrackAction.moveUp:
@@ -778,6 +787,10 @@ class _PlaylistTrackTile extends StatelessWidget {
                   title: Text('Add to playlist'),
                   contentPadding: EdgeInsets.zero,
                 ),
+              ),
+              songStatsMenuItem(
+                _TrackAction.viewStats,
+                key: ValueKey<String>('playlist-track-stats-${track.songId}'),
               ),
               const PopupMenuItem(
                 value: _TrackAction.select,
@@ -1026,6 +1039,7 @@ enum _TrackAction {
   playNext,
   addToQueue,
   addToPlaylist,
+  viewStats,
   select,
   moveUp,
   moveDown,

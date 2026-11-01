@@ -41,6 +41,7 @@ class ChartEntryCard extends StatefulWidget {
     required this.chartType,
     required this.artworkPath,
     this.onTap,
+    this.onLongPress,
     this.status,
     this.isAllTime = false,
     this.weeklyPeakRank,
@@ -69,6 +70,9 @@ class ChartEntryCard extends StatefulWidget {
 
   /// Null leaves the entry visible but not interactive.
   final VoidCallback? onTap;
+
+  /// Charts 2.0 C4: the song's playback actions.
+  final VoidCallback? onLongPress;
   final ChartEntryStatus? status;
 
   /// Whether the entry is on the permanent career standings. There,
@@ -276,6 +280,7 @@ class _ChartEntryCardState extends State<ChartEntryCard> {
           clipBehavior: Clip.antiAlias,
           child: InkWell(
             onTap: widget.onTap,
+            onLongPress: widget.onLongPress,
             onFocusChange: _handleFocusChange,
             child: Semantics(
               label: ChartEntryCard.semanticLabelFor(

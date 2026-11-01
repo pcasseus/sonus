@@ -21,6 +21,7 @@ import 'package:sonus_next/features/playlists/data/daos/playlist_dao.dart';
 import 'package:sonus_next/features/playlists/data/repositories/sqlite_playlist_repository.dart';
 import 'package:sonus_next/features/playlists/presentation/pages/playlist_detail_page.dart';
 import 'package:sonus_next/features/sync/data/repositories/sync_mutation_transaction_runner.dart';
+import 'package:sonus_next/features/song_stats/presentation/song_stats_page.dart';
 
 void main() {
   sqfliteFfiInit();
@@ -273,6 +274,65 @@ void main() {
     expect(message, findsOneWidget);
     expect(await playlistRepository.getItems(playlist.id), hasLength(2));
   });
+  // Charts 2.0 C4: every song menu opens the one Song Stats page.
+  testWidgets('row menu opens Song Stats', (tester) async {
+    await _seedSongs(
+      appDatabase,
+      now: now,
+      songIds: const ['song_ember'],
+      availableSongIds: const {'song_ember'},
+    );
+    final playlist = await service.createPlaylist(name: 'Ember Hours');
+    final item = await service.addSong(
+      playlistId: playlist.id,
+      songId: 'song_ember',
+    );
+    final db = await appDatabase.database;
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          Provider<PlaylistService?>.value(value: service),
+          Provider<PlaybackCoordinator>.value(value: playbackCoordinator),
+          ChangeNotifierProvider<PlaybackStateController>.value(
+            value: playbackStateController,
+          ),
+          Provider<LibraryQueryRepository?>.value(
+            value: SqliteLibraryQueryRepository(LibraryQueryDao(db)),
+          ),
+          Provider<TrackProfileEditingService?>.value(
+            value: TrackProfileEditingService(
+              mutationRunner: SyncMutationTransactionRunner(
+                appDatabase: appDatabase,
+              ),
+            ),
+          ),
+        ],
+        child: MaterialApp(
+          home: PlaylistDetailPage(
+            playlistId: playlist.id,
+            initialName: playlist.name,
+          ),
+        ),
+      ),
+    );
+
+    final row = find.byKey(ValueKey<String>('playlist-track-${item.id}'));
+    await _pumpUntilFound(tester, row);
+
+    await tester.tap(find.byTooltip('Song options'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('View Stats'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(SongStatsPage), findsOneWidget);
+    expect(
+      tester.widget<SongStatsPage>(find.byType(SongStatsPage)).songId,
+      'song_ember',
+    );
+    expect(item.songId, 'song_ember');
+  });
+
   testWidgets('row menu opens Track Studio and saves the song (C-Q12)', (
     tester,
   ) async {
@@ -321,6 +381,9 @@ void main() {
     await _pumpUntilFound(tester, row);
 
     await tester.tap(find.byTooltip('Song options'));
+    await tester.pumpAndSettle();
+    // The menu is longer than this test window since View Stats (C4).
+    await tester.ensureVisible(find.text('Track Studio'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Track Studio'));
     final titleField = find.byKey(const ValueKey<String>('track-title-field'));

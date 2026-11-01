@@ -19,6 +19,7 @@ import 'package:sonus_next/features/library/application/models/library_artist.da
 import 'package:sonus_next/features/library/application/models/library_track.dart';
 import 'package:sonus_next/features/library/presentation/pages/artist_profile_page.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
+import 'package:sonus_next/features/song_stats/presentation/song_stats_page.dart';
 
 void main() {
   group('ranking weeks', () {
@@ -157,6 +158,26 @@ void main() {
       expect(find.text('Go to artist'), findsOneWidget);
     },
   );
+
+  // Charts 2.0 C4: the Home song sheet opens the one Song Stats page.
+  testWidgets('popular track sheet opens Song Stats', (tester) async {
+    final controller = await _loadedController(_snapshot());
+
+    await _pumpHome(tester, controller);
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('home-popular-track-song_popular')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('View Stats'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(SongStatsPage), findsOneWidget);
+    expect(
+      tester.widget<SongStatsPage>(find.byType(SongStatsPage)).songId,
+      'song_popular',
+    );
+  });
 
   testWidgets('blocked recently added track remains visible and disabled', (
     tester,

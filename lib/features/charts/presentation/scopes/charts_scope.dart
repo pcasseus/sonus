@@ -24,6 +24,10 @@ import '../../../library/application/services/library_organization_service.dart'
 import '../../application/services/library_release_chart_eligibility.dart';
 import '../../../analytics/presentation/scopes/listening_artist_attribution_lookup.dart';
 import '../../../analytics/application/services/listening_artist_attribution.dart';
+import '../../../song_stats/application/song_listening_records.dart';
+import '../../../song_stats/application/song_stats_service.dart';
+import '../../../song_stats/data/sqlite_song_listening_records.dart';
+import '../../domain/models/chart_type.dart';
 
 class ChartsScope extends StatefulWidget {
   const ChartsScope({
@@ -60,6 +64,7 @@ class _ChartsScopeState extends State<ChartsScope> {
   PlaybackSessionRepository? _playbackSessions;
 
   ChartsController? _controller;
+  SongStatsLoader? _songStats;
   LibraryChangeRefresher? _refresher;
 
   /// One per process, so its instant is recorded once however often
@@ -130,6 +135,7 @@ class _ChartsScopeState extends State<ChartsScope> {
   void _recreateController() {
     final previousController = _controller;
     _controller = null;
+    _songStats = null;
 
     _refresher?.dispose();
     _refresher = null;
@@ -221,6 +227,32 @@ class _ChartsScopeState extends State<ChartsScope> {
     );
 
     _controller = controller;
+
+    // Song Stats (Charts 2.0 C4): read-only, from the same chart history,
+    // the same provisional week rules and Pulse's listening definitions.
+    final thisWeekSongs = ThisWeekChartService(
+      builder: builder,
+      releaseEligibility: releaseEligibility,
+    );
+    final now = widget.now ?? DateTime.now;
+    Future<SongListeningRecords>? songRecords;
+    _songStats = SongStatsService(
+      charts: charts,
+      library: library,
+      records: () => songRecords ??= database.database.then(
+        (db) => SqliteSongListeningRecords(db),
+      ),
+      // The week the chart already built when it is current; otherwise
+      // the same provisional week, built the same way.
+      liveSongs: () async =>
+          controller.loadedLiveSongWeek(now()) ??
+          await thisWeekSongs.load(
+            chartType: ChartType.songs,
+            referenceLocal: now(),
+          ),
+      nowLocal: now,
+    );
+
     // New qualified plays move the all-time chart; imports and edits change
     // titles, artwork and membership. Never sent for playback progress.
     _refresher = LibraryChangeRefresher(
@@ -234,9 +266,12 @@ class _ChartsScopeState extends State<ChartsScope> {
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider<ChartsController?>.value(
-      value: _controller,
-      child: widget.child,
+    return Provider<SongStatsLoader?>.value(
+      value: _songStats,
+      child: ChangeNotifierProvider<ChartsController?>.value(
+        value: _controller,
+        child: widget.child,
+      ),
     );
   }
 

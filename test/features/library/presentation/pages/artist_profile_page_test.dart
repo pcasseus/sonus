@@ -34,6 +34,7 @@ import 'package:sonus_next/features/player/domain/models/playback_repeat_mode.da
 import 'package:sonus_next/features/player/domain/models/playback_state.dart';
 import 'package:sonus_next/features/player/domain/models/playback_track.dart';
 import 'package:sonus_next/features/player/domain/services/playback_engine.dart';
+import 'package:sonus_next/features/song_stats/presentation/song_stats_page.dart';
 
 void main() {
   group('ArtistProfilePage', () {
@@ -367,6 +368,41 @@ void main() {
       expect(engine.lastAutoPlay, isTrue);
 
       await engine.dispose();
+    });
+
+    // Charts 2.0 C4: every song menu opens the one Song Stats page.
+    testWidgets('artist song menu opens Song Stats', (tester) async {
+      final repository = FakeLibraryQueryRepository(
+        artist: createArtist(),
+        albums: [createAlbum()],
+        tracks: [createTrack(songId: 'song-quay', title: 'Quay Lights')],
+      );
+
+      await tester.pumpWidget(
+        buildSubject(
+          repository: repository,
+          qualifiedPlays: FakeQualifiedPlayRepository([
+            qualifiedPlay('song-quay'),
+          ]),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final menu = find.byKey(
+        const ValueKey<String>('artist-top-track-menu-song-quay'),
+      );
+      await tester.ensureVisible(menu);
+      await tester.pumpAndSettle();
+      await tester.tap(menu);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('View Stats'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(SongStatsPage), findsOneWidget);
+      expect(
+        tester.widget<SongStatsPage>(find.byType(SongStatsPage)).songId,
+        'song-quay',
+      );
     });
 
     testWidgets('SN-50 C-Q12: song menu offers Go to album and Select', (

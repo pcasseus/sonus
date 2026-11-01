@@ -206,6 +206,7 @@ class ChartCompactRow extends StatefulWidget {
     required this.details,
     this.status,
     this.onTap,
+    this.onLongPress,
   });
 
   final ChartEntry entry;
@@ -221,6 +222,9 @@ class ChartCompactRow extends StatefulWidget {
 
   /// Opens the song (Song Stats in C4).
   final VoidCallback? onTap;
+
+  /// Charts 2.0 C4: the song's playback actions.
+  final VoidCallback? onLongPress;
 
   @override
   State<ChartCompactRow> createState() => _ChartCompactRowState();
@@ -256,6 +260,7 @@ class _ChartCompactRowState extends State<ChartCompactRow> {
       child: InkWell(
         key: ValueKey<String>('charts-row-$id'),
         onTap: widget.onTap,
+        onLongPress: widget.onLongPress,
         borderRadius: BorderRadius.circular(tokens.metrics.controlRadius),
         child: ConstrainedBox(
           constraints: const BoxConstraints(minHeight: 60),

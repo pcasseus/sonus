@@ -177,6 +177,7 @@ class AllTimeSpotlightCard extends StatelessWidget {
     this.title,
     this.subtitle,
     this.onTap,
+    this.onLongPress,
     this.movement,
   });
 
@@ -200,6 +201,9 @@ class AllTimeSpotlightCard extends StatelessWidget {
   /// current credits.
   final String? subtitle;
   final VoidCallback? onTap;
+
+  /// Charts 2.0 C4: the song's playback actions.
+  final VoidCallback? onLongPress;
 
   @override
   Widget build(BuildContext context) {
@@ -228,6 +232,7 @@ class AllTimeSpotlightCard extends StatelessWidget {
           children: [
             InkWell(
               onTap: onTap,
+              onLongPress: onLongPress,
               onFocusChange: onFocusChange,
               child: Semantics(
                 button: onTap != null,
@@ -427,6 +432,7 @@ class AllTimeEntryCard extends StatelessWidget {
     this.title,
     this.subtitle,
     this.onTap,
+    this.onLongPress,
     this.movement,
   });
 
@@ -450,6 +456,9 @@ class AllTimeEntryCard extends StatelessWidget {
   /// current credits.
   final String? subtitle;
   final VoidCallback? onTap;
+
+  /// Charts 2.0 C4: the song's playback actions.
+  final VoidCallback? onLongPress;
 
   @override
   Widget build(BuildContext context) {
@@ -508,6 +517,7 @@ class AllTimeEntryCard extends StatelessWidget {
           children: [
             InkWell(
               onTap: onTap,
+              onLongPress: onLongPress,
               onFocusChange: onFocusChange,
               child: Semantics(
                 button: onTap != null,

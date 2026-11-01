@@ -7,6 +7,7 @@ import '../../../../../core/design/sonus_theme.dart';
 import '../../../application/models/library_track.dart';
 import '../../../application/models/song_credit_line.dart';
 import '../../controllers/track_selection_controller.dart';
+import '../../../../song_stats/presentation/song_stats_navigation.dart';
 
 /// Text scale above which rows switch to their large-text layout, as in
 /// the shared Sonus data components.
@@ -284,6 +285,14 @@ class _TrackTile extends StatelessWidget {
                       unawaited(onAddToQueue());
                     case _TrackMenuAction.addToPlaylist:
                       unawaited(onAddToPlaylist());
+                    case _TrackMenuAction.viewStats:
+                      unawaited(
+                        openSongStats(
+                          context,
+                          songId: track.songId,
+                          initialTitle: track.displayTitle,
+                        ),
+                      );
                     case _TrackMenuAction.goToAlbum:
                       onGoToAlbum();
                     case _TrackMenuAction.select:
@@ -320,6 +329,10 @@ class _TrackTile extends StatelessWidget {
                       title: Text('Add to playlist'),
                       contentPadding: EdgeInsets.zero,
                     ),
+                  ),
+                  songStatsMenuItem(
+                    _TrackMenuAction.viewStats,
+                    key: ValueKey<String>('$keyPrefix-stats-${track.songId}'),
                   ),
                   const PopupMenuItem(
                     value: _TrackMenuAction.goToAlbum,
@@ -465,6 +478,7 @@ enum _TrackMenuAction {
   playNext,
   addToQueue,
   addToPlaylist,
+  viewStats,
   goToAlbum,
   select,
   trackStudio,

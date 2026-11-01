@@ -550,6 +550,21 @@ class ChartsController extends ChangeNotifier {
 
   /// The week in progress, limited to the view size. Null unless This Week
   /// is shown. Never finalized and never stored.
+  /// Song Stats (Charts 2.0 C4): the live songs week this controller has
+  /// already built, when it covers [nowUtc]; null otherwise, so the caller
+  /// builds its own. Read-only.
+  ProvisionalWeekChart? loadedLiveSongWeek(DateTime nowUtc) {
+    final week = _thisWeek;
+    if (week == null || week.snapshot.chartType != ChartType.songs) {
+      return null;
+    }
+    final at = nowUtc.toUtc();
+    return !at.isBefore(week.snapshot.weekStartUtc) &&
+            at.isBefore(week.snapshot.weekEndUtc)
+        ? week
+        : null;
+  }
+
   ChartSnapshot? get thisWeekSnapshot {
     final thisWeek = _thisWeek;
 

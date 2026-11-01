@@ -50,6 +50,7 @@ import 'package:sonus_next/features/player/domain/models/playback_repeat_mode.da
 import 'package:sonus_next/features/player/domain/models/playback_state.dart';
 import 'package:sonus_next/features/player/domain/models/playback_track.dart';
 import 'package:sonus_next/features/player/domain/services/playback_engine.dart';
+import 'package:sonus_next/features/song_stats/presentation/song_stats_page.dart';
 
 void main() {
   group('AlbumProfilePage', () {
@@ -3190,6 +3191,33 @@ void main() {
         expect(service.lastOrderedSongIds, ['song-b', 'song-c', 'song-a']);
       },
     );
+
+    // Charts 2.0 C4: every song menu opens the one Song Stats page.
+    testWidgets('album track menu opens Song Stats', (tester) async {
+      final repository = FakeLibraryQueryRepository(
+        album: createAlbum(),
+        tracks: [createTrack(songId: 'stats-song', title: 'Stats Song')],
+      );
+
+      await tester.pumpWidget(buildSubject(repository: repository));
+      await tester.pumpAndSettle();
+
+      final menu = find.byKey(
+        const ValueKey<String>('album-track-menu-stats-song'),
+      );
+      await tester.ensureVisible(menu);
+      await tester.pumpAndSettle();
+      await tester.tap(menu);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('View Stats'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(SongStatsPage), findsOneWidget);
+      expect(
+        tester.widget<SongStatsPage>(find.byType(SongStatsPage)).songId,
+        'stats-song',
+      );
+    });
 
     testWidgets('Album Track Studio opens from the track menu', (tester) async {
       final repository = FakeLibraryQueryRepository(

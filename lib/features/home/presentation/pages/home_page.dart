@@ -20,6 +20,7 @@ import '../../application/models/home_popular_track.dart';
 import '../../application/models/home_ranking_week.dart';
 import '../../application/models/home_top_artist.dart';
 import '../controllers/home_controller.dart';
+import '../../../song_stats/presentation/song_stats_navigation.dart';
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
@@ -1119,6 +1120,21 @@ Future<void> _showTrackContext(
                 onTap: () {
                   Navigator.of(sheetContext).pop();
                   unawaited(showAddToPlaylistFlow(context, track));
+                },
+              ),
+              ListTile(
+                key: ValueKey<String>('home-track-stats-${track.songId}'),
+                leading: const Icon(Icons.insights_rounded),
+                title: const Text('View Stats'),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  unawaited(
+                    openSongStats(
+                      context,
+                      songId: track.songId,
+                      initialTitle: track.displayTitle,
+                    ),
+                  );
                 },
               ),
               ListTile(

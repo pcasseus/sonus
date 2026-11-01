@@ -48,6 +48,7 @@ import '../widgets/track_selection_bar.dart';
 import 'artist_profile_page.dart';
 import 'release_studio_page.dart';
 import 'track_studio_page.dart';
+import '../../../song_stats/presentation/song_stats_navigation.dart';
 
 class AlbumProfilePage extends StatefulWidget {
   const AlbumProfilePage({
@@ -1759,6 +1760,14 @@ class _TrackTile extends StatelessWidget {
                     unawaited(onAddToQueue());
                   case _TrackMenuAction.addToPlaylist:
                     unawaited(onAddToPlaylist());
+                  case _TrackMenuAction.viewStats:
+                    unawaited(
+                      openSongStats(
+                        context,
+                        songId: track.songId,
+                        initialTitle: track.displayTitle,
+                      ),
+                    );
                   case _TrackMenuAction.goToArtist:
                     onGoToArtist();
                   case _TrackMenuAction.select:
@@ -1795,6 +1804,10 @@ class _TrackTile extends StatelessWidget {
                     title: Text('Add to playlist'),
                     contentPadding: EdgeInsets.zero,
                   ),
+                ),
+                songStatsMenuItem(
+                  _TrackMenuAction.viewStats,
+                  key: ValueKey<String>('album-track-stats-${track.songId}'),
                 ),
                 const PopupMenuItem(
                   value: _TrackMenuAction.goToArtist,
@@ -1921,6 +1934,7 @@ enum _TrackMenuAction {
   playNext,
   addToQueue,
   addToPlaylist,
+  viewStats,
   goToArtist,
   select,
   trackStudio,

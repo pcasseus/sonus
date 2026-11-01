@@ -34,6 +34,7 @@ import 'package:sonus_next/features/player/application/controllers/playback_coor
 import 'package:sonus_next/features/player/domain/models/playback_state.dart';
 import 'package:sonus_next/features/player/domain/services/playback_engine.dart';
 import 'package:sonus_next/features/sync/application/services/sync_mutation_runner.dart';
+import 'package:sonus_next/features/song_stats/presentation/song_stats_page.dart';
 
 void main() {
   group('TracksPage', () {
@@ -362,6 +363,29 @@ void main() {
 
       expect(find.text('Recovered Song'), findsOneWidget);
       expect(find.text('1 song in your library'), findsOneWidget);
+    });
+
+    // Charts 2.0 C4: every song menu opens the one Song Stats page.
+    testWidgets('track menu opens Song Stats', (tester) async {
+      final repository = FakeLibraryQueryRepository(
+        tracks: [createTrack(songId: 'song-stats', title: 'Stats Song')],
+      );
+
+      await tester.pumpWidget(buildSubject(repository: repository));
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('track-menu-song-stats')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('View Stats'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(SongStatsPage), findsOneWidget);
+      expect(
+        tester.widget<SongStatsPage>(find.byType(SongStatsPage)).songId,
+        'song-stats',
+      );
     });
 
     testWidgets('signed-out user can blacklist a song from the track menu', (

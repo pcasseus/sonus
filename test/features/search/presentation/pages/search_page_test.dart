@@ -31,6 +31,7 @@ import 'package:sonus_next/features/search/application/models/library_search_res
 import 'package:sonus_next/features/search/application/repositories/library_search_repository.dart';
 import 'package:sonus_next/features/search/presentation/pages/search_page.dart';
 import 'package:sonus_next/features/sync/application/services/sync_mutation_runner.dart';
+import 'package:sonus_next/features/song_stats/presentation/song_stats_page.dart';
 
 void main() {
   group('SearchPage', () {
@@ -659,6 +660,38 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(ArtistProfilePage), findsOneWidget);
+    });
+
+    // Charts 2.0 C4: every song menu opens the one Song Stats page.
+    testWidgets('track menu opens Song Stats', (tester) async {
+      await tester.pumpWidget(
+        _SearchTestApp(
+          repository: _FakeSearchRepository(result: _results()),
+          libraryQueryRepository: _FakeLibraryQueryRepository(
+            artist: _results().artists.single,
+          ),
+        ),
+      );
+
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('search-field')),
+        'query',
+      );
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump();
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('search-track-menu-song-1')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('View Stats'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(SongStatsPage), findsOneWidget);
+      expect(
+        tester.widget<SongStatsPage>(find.byType(SongStatsPage)).songId,
+        'song-1',
+      );
     });
 
     testWidgets('track menu can open album profile', (tester) async {

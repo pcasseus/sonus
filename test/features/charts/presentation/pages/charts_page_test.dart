@@ -46,6 +46,8 @@ import 'package:sonus_next/features/player/domain/models/playback_track.dart';
 import 'package:sonus_next/features/player/domain/services/playback_engine.dart';
 
 import '../../support/moment_page_fakes.dart';
+import 'package:sonus_next/features/song_stats/application/song_stats_models.dart';
+import 'package:sonus_next/features/song_stats/application/song_stats_service.dart';
 
 void main() {
   testWidgets('renders branded Hot 100 controls and the career standings', (
@@ -149,12 +151,47 @@ void main() {
     expect(find.text('No chart entries yet'), findsOneWidget);
   });
 
-  testWidgets('live song tap opens chart track actions', (tester) async {
+  // Charts 2.0 C4: a tap opens Song Stats; the song's actions stay one
+  // long press away.
+  testWidgets('live song tap opens Song Stats', (tester) async {
+    final controller = await _controller();
+    final stats = _FakeSongStatsLoader();
+
+    await _pumpPage(tester, controller, songStats: stats);
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('charts-entry-songs_1')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey<String>('song-stats-page')), findsOne);
+    expect(stats.requested, ['songs_1']);
+    expect(find.text('Chart History'), findsOneWidget);
+  });
+
+  testWidgets('a Bubbling Under row opens Song Stats', (tester) async {
+    final controller = await _controller(live: _rankedSnapshot(130));
+    final stats = _FakeSongStatsLoader();
+
+    await _pumpPage(tester, controller, songStats: stats);
+    await controller.selectBoard(ChartBoard.extended);
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('charts-row-songs_101')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(stats.requested, ['songs_101']);
+    expect(find.byKey(const ValueKey<String>('song-stats-page')), findsOne);
+  });
+
+  testWidgets('live song long press opens chart track actions', (tester) async {
     final controller = await _controller();
 
     await _pumpPage(tester, controller);
 
-    await tester.tap(
+    await tester.longPress(
       find.byKey(const ValueKey<String>('charts-entry-songs_1')),
     );
 
@@ -190,7 +227,7 @@ void main() {
     expect(find.text('Song 1 (stored title)'), findsOneWidget);
     expect(find.text('HISTORICAL'), findsNothing);
 
-    await tester.tap(
+    await tester.longPress(
       find.byKey(const ValueKey<String>('charts-entry-songs_1')),
     );
 
@@ -201,7 +238,7 @@ void main() {
   });
 
   // SN-50 E-Q8: opening a finalized week's song never touches what is
-  // playing; only an explicit Play in its sheet does.
+  // playing; only an explicit Play on Song Stats does (Charts 2.0 C4).
   testWidgets('historical song row leaves the queue alone until Play is '
       'chosen', (tester) async {
     final engine = _RecordingPlaybackEngine();
@@ -219,6 +256,7 @@ void main() {
       tester,
       controller,
       playback: PlaybackCoordinator(engine: engine),
+      songStats: _FakeSongStatsLoader(track: _track()),
     );
     controller.showOlderWeek();
     await tester.pump();
@@ -228,10 +266,10 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Play'), findsOneWidget);
+    expect(find.byKey(const ValueKey<String>('song-stats-page')), findsOne);
     expect(engine.calls, isEmpty);
 
-    await tester.tap(find.text('Play'));
+    await tester.tap(find.byKey(const ValueKey<String>('song-stats-play')));
     await tester.pumpAndSettle();
 
     expect(engine.calls, ['loadQueue']);
@@ -2289,14 +2327,18 @@ Future<void> _pumpPage(
   Size size = const Size(800, 1600),
   double textScale = 1,
   PlaybackCoordinator? playback,
+  SongStatsLoader? songStats,
 }) async {
   await tester.binding.setSurfaceSize(size);
 
   addTearDown(() => tester.binding.setSurfaceSize(null));
 
   await tester.pumpWidget(
-    Provider<PlaybackCoordinator?>.value(
-      value: playback,
+    MultiProvider(
+      providers: [
+        Provider<PlaybackCoordinator?>.value(value: playback),
+        Provider<SongStatsLoader?>.value(value: songStats),
+      ],
       child: ChangeNotifierProvider<ChartsController?>.value(
         value: controller,
         child: MaterialApp(
@@ -2843,4 +2885,36 @@ class _RecordingPlaybackEngine implements PlaybackEngine {
 
   @override
   Future<void> dispose() async {}
+}
+
+/// Song Stats for any song: no chart history or listening, optionally the
+/// library [track].
+class _FakeSongStatsLoader implements SongStatsLoader {
+  _FakeSongStatsLoader({this.track});
+
+  final LibraryTrack? track;
+  final List<String> requested = [];
+
+  @override
+  Future<SongStats> load(String songId) async {
+    requested.add(songId);
+    return SongStats(
+      identity: SongStatsIdentity(
+        songId: songId,
+        title: track?.displayTitle ?? songId,
+        artistLine: track?.creditLine ?? '',
+        status: SongStatsStatus.of(track),
+        track: track,
+      ),
+      chart: SongChartHistory.none,
+      listening: SongListeningStats(
+        streams: 0,
+        listened: Duration.zero,
+        allPlays: 0,
+        firstPlayedAt: null,
+        lastPlayedAt: null,
+        weeks: const [],
+      ),
+    );
+  }
 }

@@ -6,6 +6,7 @@ import '../../../../core/design/sonus_count_label.dart';
 import '../../../../core/design/sonus_theme.dart';
 import '../../../../core/design/widgets/sonus_segmented_selector.dart';
 import '../../../../core/design/widgets/sonus_decorations.dart';
+import '../../../song_stats/presentation/song_stats_navigation.dart';
 import '../../../library/application/models/library_album.dart';
 import '../../../library/application/models/library_track.dart';
 import '../../../library/presentation/pages/album_profile_page.dart';
@@ -1339,19 +1340,29 @@ class _ChartEntryItem extends StatelessWidget {
         ? ChartEntryStatus.historical
         : null;
 
-    final VoidCallback? onTap = canInteract
-        ? () {
-            if (chartType == ChartType.songs && track != null) {
-              unawaited(
-                _showChartTrackContext(context, track, controller.entryTracks),
-              );
-              return;
-            }
-
-            if (chartType == ChartType.albums && album != null) {
-              _openAlbum(context, album, editionId: presentation?.editionId);
-            }
-          }
+    // Charts 2.0 C4: a song row opens Song Stats, whatever the song's
+    // status (its chart history stays). Playback stays a separate action:
+    // Play on Song Stats, or the song's actions on a long press.
+    final VoidCallback? onTap = switch (chartType) {
+      ChartType.songs => () => unawaited(
+        openSongStats(
+          context,
+          songId: entry.entity.entityId,
+          initialTitle: song?.title ?? entry.entity.title,
+          playContext: controller.entryTracks,
+        ),
+      ),
+      ChartType.albums =>
+        canInteract && album != null
+            ? () =>
+                  _openAlbum(context, album, editionId: presentation?.editionId)
+            : null,
+    };
+    final VoidCallback? onLongPress =
+        chartType == ChartType.songs && canInteract && track != null
+        ? () => unawaited(
+            _showChartTrackContext(context, track, controller.entryTracks),
+          )
         : null;
 
     final allTime = controller.allTimeChart;
@@ -1378,6 +1389,7 @@ class _ChartEntryItem extends StatelessWidget {
               subtitle: song?.subtitle,
               movement: controller.movementFor(entry),
               onTap: onTap,
+              onLongPress: onLongPress,
             )
           : AllTimeEntryCard(
               key: cardKey,
@@ -1392,6 +1404,7 @@ class _ChartEntryItem extends StatelessWidget {
               subtitle: song?.subtitle,
               movement: controller.movementFor(entry),
               onTap: onTap,
+              onLongPress: onLongPress,
             );
       return _tiered(
         card: card,
@@ -1402,6 +1415,7 @@ class _ChartEntryItem extends StatelessWidget {
             song?.subtitle ?? ChartEntryCard.subtitleFor(entry, chartType),
         status: status,
         onTap: onTap,
+        onLongPress: onLongPress,
       );
     }
 
@@ -1423,6 +1437,7 @@ class _ChartEntryItem extends StatelessWidget {
           : null,
       movement: controller.movementFor(entry),
       onTap: onTap,
+      onLongPress: onLongPress,
     );
 
     return _tiered(
@@ -1433,6 +1448,7 @@ class _ChartEntryItem extends StatelessWidget {
       subtitle: song?.subtitle ?? ChartEntryCard.subtitleFor(entry, chartType),
       status: status,
       onTap: onTap,
+      onLongPress: onLongPress,
     );
   }
 
@@ -1446,6 +1462,7 @@ class _ChartEntryItem extends StatelessWidget {
     required String subtitle,
     required ChartEntryStatus? status,
     required VoidCallback? onTap,
+    required VoidCallback? onLongPress,
   }) {
     final id = entry.entity.entityId;
     if (compact) {
@@ -1462,6 +1479,7 @@ class _ChartEntryItem extends StatelessWidget {
         status: status,
         details: card,
         onTap: onTap,
+        onLongPress: onLongPress,
       );
     }
     if (entry.rank == 1) {
@@ -1691,6 +1709,21 @@ Future<void> _showChartTrackContext(
                 onTap: () {
                   Navigator.of(sheetContext).pop();
                   unawaited(showAddToPlaylistFlow(context, track));
+                },
+              ),
+              ListTile(
+                key: ValueKey<String>('charts-track-stats-${track.songId}'),
+                leading: const Icon(Icons.insights_rounded),
+                title: const Text('View Stats'),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  unawaited(
+                    openSongStats(
+                      context,
+                      songId: track.songId,
+                      initialTitle: track.displayTitle,
+                    ),
+                  );
                 },
               ),
               ListTile(
