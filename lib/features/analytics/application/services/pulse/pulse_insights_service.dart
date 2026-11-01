@@ -100,10 +100,10 @@ class PulseInsightsService implements PulsePeriodLoader {
         _day(day, acc.days[day], today: today, firstDay: firstDay),
     ];
 
-    final previous = await _comparison(period.previous, firstDay);
+    final previous = await _comparison(period.previous, firstDay, attributor);
     final sameLastYear = period.samePeriodLastYear == period.previous
         ? previous
-        : await _comparison(period.samePeriodLastYear, firstDay);
+        : await _comparison(period.samePeriodLastYear, firstDay, attributor);
 
     return PulsePeriodData(
       period: period,
@@ -166,7 +166,14 @@ class PulseInsightsService implements PulsePeriodLoader {
 
   /// [period]'s metrics per local day, aligned with [PulsePeriod.days], by
   /// the same slicing as [load].
-  Future<List<PulseMetrics>> dailyTotalsFor(PulsePeriod period) async {
+  Future<List<PulseMetrics>> dailyTotalsFor(PulsePeriod period) async =>
+      (await _summary(period, ArtistAttributor.identity)).days;
+
+  /// Per-day metrics plus the distinct lead artists and songs streamed.
+  Future<({List<PulseMetrics> days, int artists, int tracks})> _summary(
+    PulsePeriod period,
+    ArtistAttributor attributor,
+  ) async {
     final window = period.window;
     final segmentsFuture = _records.segmentsOverlapping(window);
     final streamsFuture = _records.qualifiedPlays(window);
@@ -175,6 +182,8 @@ class PulseInsightsService implements PulsePeriodLoader {
     final days = <DateTime, _MutableMetrics>{};
     _MutableMetrics dayOf(DateTime day) =>
         days.putIfAbsent(day, _MutableMetrics.new);
+    final artists = <String>{};
+    final tracks = <String>{};
 
     for (final segment in await segmentsFuture) {
       _sliceSegment(segment, window, (_, localDay, _, ms) {
@@ -182,16 +191,25 @@ class PulseInsightsService implements PulsePeriodLoader {
       });
     }
     for (final play in await streamsFuture) {
-      if (window.contains(play.at)) dayOf(_dayOf(play.at.toLocal())).streams++;
+      if (!window.contains(play.at)) continue;
+      dayOf(_dayOf(play.at.toLocal())).streams++;
+      tracks.add(play.songId);
+      artists.add(
+        attributor.artistFor(artistId: play.artistId, albumId: play.albumId),
+      );
     }
     for (final play in await playsFuture) {
       if (window.contains(play.at)) {
         dayOf(_dayOf(play.at.toLocal())).allPlays++;
       }
     }
-    return List.unmodifiable([
-      for (final day in period.days) days[day]?.freeze() ?? PulseMetrics.zero,
-    ]);
+    return (
+      days: List<PulseMetrics>.unmodifiable([
+        for (final day in period.days) days[day]?.freeze() ?? PulseMetrics.zero,
+      ]),
+      artists: artists.length,
+      tracks: tracks.length,
+    );
   }
 
   /// Rule 3: a comparison needs the whole comparison period inside recorded
@@ -203,6 +221,7 @@ class PulseInsightsService implements PulsePeriodLoader {
   Future<PulseComparison> _comparison(
     PulsePeriod comparison,
     DateTime? firstDay,
+    ArtistAttributor attributor,
   ) async {
     if (!comparisonEligible(comparison, firstDay)) {
       return PulseComparison(
@@ -211,7 +230,8 @@ class PulseInsightsService implements PulsePeriodLoader {
         totals: null,
       );
     }
-    final days = await dailyTotalsFor(comparison);
+    final summary = await _summary(comparison, attributor);
+    final days = summary.days;
     var listened = Duration.zero;
     var streams = 0;
     var allPlays = 0;
@@ -229,6 +249,14 @@ class PulseInsightsService implements PulsePeriodLoader {
         allPlays: allPlays,
       ),
       days: days,
+      overview: PulseOverview(
+        listened: listened,
+        streams: streams,
+        allPlays: allPlays,
+        activeDays: days.where((d) => d.streams > 0).length,
+        artists: summary.artists,
+        tracks: summary.tracks,
+      ),
     );
   }
 

@@ -54,6 +54,36 @@ class PulseMetrics {
       '$allPlays plays)';
 }
 
+/// The six overview numbers (spec §4). Active days are days with at least
+/// one qualified stream, as in the existing Insights; artists and tracks
+/// are distinct lead artists and songs streamed.
+class PulseOverview {
+  const PulseOverview({
+    required this.listened,
+    required this.streams,
+    required this.allPlays,
+    required this.activeDays,
+    required this.artists,
+    required this.tracks,
+  });
+
+  final Duration listened;
+  final int streams;
+  final int allPlays;
+  final int activeDays;
+  final int artists;
+  final int tracks;
+
+  static const zero = PulseOverview(
+    listened: Duration.zero,
+    streams: 0,
+    allPlays: 0,
+    activeDays: 0,
+    artists: 0,
+    tracks: 0,
+  );
+}
+
 /// Whether a day can hold data, so "no history" and "not yet" are never
 /// drawn as zero (rule 2).
 enum PulseDayState {
@@ -136,6 +166,7 @@ class PulseComparison {
     required this.availability,
     required this.totals,
     this.days,
+    this.overview,
   });
 
   final PulsePeriod period;
@@ -149,6 +180,9 @@ class PulseComparison {
   /// [period]'s days (day of month, or day of year), for the hero's ghost.
   /// Null unless available.
   final List<PulseMetrics>? days;
+
+  /// The comparison period's overview numbers; null unless available.
+  final PulseOverview? overview;
 
   bool get isAvailable => availability == PulseComparisonAvailability.available;
 }
@@ -251,6 +285,21 @@ class PulsePeriodData {
         ),
     ]);
   }
+
+  /// The six overview numbers for this period.
+  PulseOverview get overview => PulseOverview(
+    listened: totals.listened,
+    streams: totals.streams,
+    allPlays: totals.allPlays,
+    activeDays: days.where((d) => d.metrics.streams > 0).length,
+    artists: _streamed(PulseEntityKind.artist),
+    tracks: _streamed(PulseEntityKind.track),
+  );
+
+  int _streamed(PulseEntityKind kind) => (_entityTotals[kind] ?? const {})
+      .values
+      .where((m) => m.streams > 0)
+      .length;
 
   /// [id]'s totals in the period, or zero.
   PulseMetrics totalsFor(PulseEntityKind kind, String id) =>

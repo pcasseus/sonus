@@ -559,6 +559,69 @@ void main() {
     });
   });
 
+  group('overview', () {
+    test(
+      'active days are days with a stream; artists and tracks are '
+      'streamed ones, after attribution; the comparison has the same',
+      () async {
+        // September: two lead artists via attribution, two tracks.
+        await play(
+          startLocal: DateTime(2026, 9, 1, 9),
+          listened: const Duration(minutes: 3),
+          song: 'song_1',
+          artist: 'contributor',
+          album: 'project_album',
+        );
+        await play(
+          startLocal: DateTime(2026, 9, 2, 9),
+          listened: const Duration(minutes: 3),
+          song: 'song_2',
+          artist: 'owner',
+          album: 'project_album',
+        );
+        // October: one streamed track on two days, one short play only.
+        await play(
+          startLocal: DateTime(2026, 10, 4, 9),
+          listened: const Duration(minutes: 3),
+          song: 'song_1',
+          artist: 'owner',
+        );
+        await play(
+          startLocal: DateTime(2026, 10, 6, 9),
+          listened: const Duration(minutes: 3),
+          song: 'song_1',
+          artist: 'owner',
+        );
+        await play(
+          startLocal: DateTime(2026, 10, 7, 9),
+          listened: const Duration(seconds: 10),
+          song: 'song_short',
+          artist: 'someone',
+        );
+
+        final data = await service(
+          attribution: const _ProjectOwner(),
+        ).load(PulsePeriod.month(2026, 10));
+
+        final overview = data.overview;
+        expect(overview.activeDays, 2, reason: 'the 7th has no stream');
+        expect(overview.tracks, 1);
+        expect(overview.artists, 1);
+        expect(overview.allPlays, 3);
+        final before = data.previous.overview!;
+        expect(before.activeDays, 2);
+        expect(before.tracks, 2);
+        expect(
+          before.artists,
+          1,
+          reason: 'the contributor counts for the owner',
+        );
+        expect(before.streams, 2);
+        expect(data.previous.days, hasLength(30));
+      },
+    );
+  });
+
   group('per-item contribution', () {
     test('every item is within its day in every measure, and absent on '
         'days without it', () async {
