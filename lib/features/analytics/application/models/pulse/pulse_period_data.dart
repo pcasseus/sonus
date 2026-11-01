@@ -135,6 +135,7 @@ class PulseComparison {
     required this.period,
     required this.availability,
     required this.totals,
+    this.days,
   });
 
   final PulsePeriod period;
@@ -143,6 +144,11 @@ class PulseComparison {
   /// The comparison period's totals; null unless [availability] is
   /// [PulseComparisonAvailability.available].
   final PulseMetrics? totals;
+
+  /// The comparison period's metrics per local day, aligned with
+  /// [period]'s days (day of month, or day of year), for the hero's ghost.
+  /// Null unless available.
+  final List<PulseMetrics>? days;
 
   bool get isAvailable => availability == PulseComparisonAvailability.available;
 }

@@ -222,6 +222,7 @@ abstract final class SonusThemeFactory {
       onAccentPrimary: onPrimary,
       accentSecondary: palette.secondary,
       onAccentSecondary: onSecondary,
+      accentTertiary: palette.tertiary,
       selection: palette.primary.withValues(alpha: 0.18),
       focus: highContrast ? palette.text : palette.primary,
       chartUp: palette.chartUp,
