@@ -937,6 +937,14 @@ Authority: your round 14 instructions (do the code-only functional items, prepar
 - Tests: singular/plural Imports titles, the W1 and W25 texts, the W15 message, and service tests for verified missing (removed) vs. unreadable tags, an empty re-read and an unexplained failure (kept).
 - Not changed (outside the approved list): the Import Review page header "N songs need review" and the Library settings summary "N songs need review.". Both count songs only.
 
+## Round 16 (2026-10-31/11-01): Sonus Pulse 2.0 (P1–P6) and DQA-01
+
+- **DQA-01 (cloud sync never completing, ~30 GB of failed uploads):** fixed in `c3c6812` and `d2516d5`, verified on the device (sync pauses with `cloudNotReady`, 6 KB uploaded, no rerun after a restart). The production cloud still lacks migrations `20261015`+ (gated).
+- **Sonus Pulse 2.0** replaces the Monthly/Year layouts on the Insights destination (`PulseInsightsPage`, `PulseInsightsScope`). The Monthly page stays reachable from Listening settings. Batches P1 `56db2a4`, P2 `02d38c4`, P3 `a7622c7` + `7c62836`, P4 `deb7a31`, P5 `3c4064a`, P6 (this round): see `SN50_Sonus_Pulse_Implementation_Scope.md`.
+- **P6:** page assembly (header, saved Month/Year, Minutes/Streams, hero, comparisons, six tiles, "More about", Year Months and Milestones, three ranking cards with inline detail); Play through `PlaybackCoordinator.playInContext`; Open artist/album through the existing profile pages; "About these numbers" and "Show as list" sheets; release subtitles show a stated Album/EP format only; wide landscape layout. One layout defect found by rendering (ranking card titles collapsing at 320 dp with large text) was fixed.
+- **Full suites:** P1–P2 5,275; P3–P4 5,363; P5–P6 **5,407 passed, 0 failed, exit 0**.
+- **Schema/cloud/chart/Moments:** unchanged; refined Moments flag off. One design token added (`SonusColors.accentTertiary`, the palette's existing tertiary).
+
 ## BLOCKED_NEEDS_APPROVAL / user decisions
 
 **[Round 14]** #3 is fixed (`5e4ec13`), #4 has the decided manual re-send (`2926496`), #5 was already done, #6 and #8 are decided (#6 in `6f719d5`). Device QA checklist: `SN50_Android_Device_QA_Checklist.md`.

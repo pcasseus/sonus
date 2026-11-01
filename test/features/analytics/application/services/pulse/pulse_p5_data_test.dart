@@ -180,6 +180,42 @@ void main() {
     expect(await s.lifetimeStreams(PulseEntityKind.track, 'never'), 0);
   });
 
+  test(
+    'release subtitles add a stated format only, never an assumed one',
+    () async {
+      await seed();
+      final data = await service().load(PulsePeriod.month(2026, 10));
+      final directory = await PulseEntityDirectoryService(
+        library: _Library(
+          tracks: const [],
+          artists: const [],
+          albums: [
+            for (final id in ['lp', 'ep'])
+              LibraryAlbum(
+                albumId: id,
+                title: id.toUpperCase(),
+                artistId: 'owner',
+                artistName: 'Owner Now',
+                trackCount: 2,
+                dateAdded: DateTime(2026),
+              ),
+          ],
+        ),
+        playbackSessions: _Sessions(db),
+        statedReleaseFormats: () async => {'ep': 'EP'},
+      ).load(data);
+      expect(
+        directory.infoFor(PulseEntityKind.release, 'ep').subtitle,
+        'Owner Now · EP',
+      );
+      expect(
+        directory.infoFor(PulseEntityKind.release, 'lp').subtitle,
+        'Owner Now',
+        reason: 'no stated format: nothing is invented',
+      );
+    },
+  );
+
   group('directory', () {
     LibraryTrack track(
       String id, {

@@ -261,15 +261,15 @@ class _PulseRankingCardState extends State<PulseRankingCard> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: Semantics(
-                header: true,
-                child: Text(widget.title, style: theme.text.sectionHeading),
-              ),
-            ),
-            PopupMenuButton<PulseMeasure>(
+        // Narrow or large text: the metric menu goes under the title so
+        // the title keeps its width.
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final title = Semantics(
+              header: true,
+              child: Text(widget.title, style: theme.text.sectionHeading),
+            );
+            final menu = PopupMenuButton<PulseMeasure>(
               key: ValueKey('pulse-metric-${widget.kind.name}'),
               tooltip: 'Rank by',
               initialValue: _metric,
@@ -298,8 +298,22 @@ class _PulseRankingCardState extends State<PulseRankingCard> {
                   ],
                 ),
               ),
-            ),
-          ],
+            );
+            final stacked =
+                constraints.maxWidth < 340 ||
+                MediaQuery.textScalerOf(context).scale(1) >= 1.3;
+            return stacked
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [title, menu],
+                  )
+                : Row(
+                    children: [
+                      Expanded(child: title),
+                      menu,
+                    ],
+                  );
+          },
         ),
         if (available > PulseRankingCard.sizes.first)
           Padding(

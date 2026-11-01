@@ -4,7 +4,7 @@ import 'package:provider/provider.dart';
 import '../../../../core/design/sonus_theme.dart';
 import '../../../../core/design/widgets/sonus_brand_mark.dart';
 import '../../../charts/presentation/pages/charts_page.dart';
-import '../../../analytics/presentation/pages/listening_insights_page.dart';
+import '../../../analytics/presentation/pages/pulse_insights_page.dart';
 import '../../../home/presentation/pages/home_page.dart';
 import '../../../import/presentation/pages/imports_page.dart';
 import '../../../library/presentation/pages/library_page.dart';
@@ -111,7 +111,9 @@ class _AppShellPageState extends State<AppShellPage>
       AppDestination.playlists => const PlaylistsPage(),
       AppDestination.settings => const SettingsPage(),
       AppDestination.hot100 => const ChartsPage(),
-      AppDestination.insights => const ListeningInsightsPage(),
+      // Sonus Pulse 2.0 replaces the Monthly/Year layouts (which remain
+      // available elsewhere, e.g. Monthly in Listening settings).
+      AppDestination.insights => const PulseInsightsPage(),
     };
 
     return KeyedSubtree(

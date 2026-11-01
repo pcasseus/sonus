@@ -113,11 +113,18 @@ class PulseEntityDirectoryService implements PulseDirectoryLoader {
   const PulseEntityDirectoryService({
     required LibraryQueryRepository library,
     required PlaybackSessionRepository playbackSessions,
+    Future<Map<String, String>> Function()? statedReleaseFormats,
   }) : _library = library,
-       _playbackSessions = playbackSessions;
+       _playbackSessions = playbackSessions,
+       _statedReleaseFormats = statedReleaseFormats;
 
   final LibraryQueryRepository _library;
   final PlaybackSessionRepository _playbackSessions;
+
+  /// Release formats the person (or an accepted suggestion) stated, as
+  /// labels ("EP", "Album") by album id. Releases without a stated format
+  /// get no label: Pulse never assumes one.
+  final Future<Map<String, String>> Function()? _statedReleaseFormats;
 
   @override
   Future<PulseEntityDirectory> load(PulsePeriodData data) async {
@@ -134,6 +141,12 @@ class PulseEntityDirectoryService implements PulseDirectoryLoader {
     final artists = {for (final a in await artistsFuture) a.artistId: a};
     final albums = {for (final a in await albumsFuture) a.albumId: a};
     final latest = _Latest(await sessionsFuture);
+    var formats = const <String, String>{};
+    try {
+      formats = await _statedReleaseFormats?.call() ?? const {};
+    } catch (_) {
+      // Formats are decoration only: without them, releases show the owner.
+    }
 
     final entries = <(PulseEntityKind, String), PulseEntityInfo>{};
 
@@ -186,11 +199,10 @@ class PulseEntityDirectoryService implements PulseDirectoryLoader {
         kind: PulseEntityKind.release,
         id: id,
         title: _name(album?.title, snapshot?.albumTitle, 'Unknown release'),
-        subtitle: _name(
-          album?.artistName,
-          snapshot?.artistName,
-          'Unknown artist',
-        ),
+        subtitle: [
+          _name(album?.artistName, snapshot?.artistName, 'Unknown artist'),
+          ?formats[id],
+        ].join(' · '),
         artworkPath: album?.artworkPath,
         status: album == null
             ? PulseEntityStatus.historical
