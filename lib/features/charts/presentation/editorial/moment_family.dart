@@ -82,7 +82,11 @@ enum MomentFamily {
 
   /// SN-50 BUG-04 (approved rule 3): a notable weekly exit from the Hot
   /// 100 into Sonus Bubbling Under. Refined rules only.
-  songHot100Exit;
+  songHot100Exit,
+
+  // SN-50 complete coverage: a release climbing the Albums & EPs chart
+  // (device-polish stories only; ClimbHeadlines has its lines).
+  releaseClimb;
 
   /// How much a story matters (SN-45 spam control). Minor stories are
   /// capped per day; the others always appear.
@@ -102,6 +106,7 @@ enum MomentFamily {
     songNewPeak ||
     songPeakMatch ||
     releaseNewPeak ||
+    releaseClimb ||
     artistFirstHot100 ||
     artistNthTop10 ||
     artistStreamMilestone ||
@@ -117,6 +122,7 @@ enum MomentFamily {
   };
 
   bool get isRelease => switch (this) {
+    releaseClimb ||
     releaseDebutNumberOne ||
     releaseDebut ||
     releaseReachesNumberOne ||
@@ -334,6 +340,9 @@ enum MomentFamily {
         ChartMomentEventType.debut when rank > 1 => releaseDebut,
         ChartMomentEventType.newPeak when rank > 1 => releaseNewPeak,
         ChartMomentEventType.reentry when rank > 1 => releaseReentry,
+        ChartMomentEventType.rankRise
+            when rank > 1 && previous != null && previous > rank =>
+          releaseClimb,
         _ => null,
       };
     }
@@ -352,14 +361,16 @@ enum MomentFamily {
         rank <= limit ? songDebut : songBubblingUnderDebut,
       ChartMomentEventType.newPeak when weekly && rank > 1 => songNewPeak,
       ChartMomentEventType.reentry when rank > 1 => songReentry,
+      // From Bubbling Under into the Hot 100: an arrival, on either chart.
+      ChartMomentEventType.rankRise
+          when previous != null && previous > limit && rank <= limit =>
+        songHot100Breakthrough,
       ChartMomentEventType.rankRise
           when weekly &&
               !biggestGainer &&
               previous != null &&
               previous > rank =>
-        previous > limit && rank <= limit
-            ? songHot100Breakthrough
-            : songBigClimb,
+        songBigClimb,
       _ => null,
     };
   }

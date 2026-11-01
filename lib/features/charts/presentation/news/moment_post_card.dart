@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../../../core/design/sonus_theme.dart';
 import '../../../../core/design/widgets/sonus_decorations.dart';
 import '../../domain/models/chart_type.dart';
+import '../editorial/moment_developing.dart';
 import '../editorial/moment_editorial_desk.dart';
 import '../editorial/moment_publisher.dart';
 import '../editorial/moment_visuals.dart';
@@ -78,6 +79,23 @@ class MomentPostCard extends StatelessWidget {
                       occurredAt: story.occurredAt,
                       now: now,
                     ),
+                    if (story.isDeveloping) ...[
+                      const SizedBox(height: 8),
+                      Align(
+                        alignment: AlignmentDirectional.centerStart,
+                        child: _Pill(
+                          key: ValueKey<String>(
+                            'moment-post-updated-${story.id}',
+                          ),
+                          label: 'UPDATED',
+                          icon: Icons.update_rounded,
+                          background: colors.accentPrimary.withValues(
+                            alpha: 0.16,
+                          ),
+                          foreground: colors.textPrimary,
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 12),
                     Text(
                       story.headline,
@@ -127,6 +145,10 @@ class MomentPostCard extends StatelessWidget {
                   ],
                 ),
               ),
+              if (story.isDeveloping) ...[
+                const SizedBox(height: 8),
+                _UpdateThread(story: story),
+              ],
               if (hasLinks) ...[
                 const SizedBox(height: 12),
                 Wrap(
@@ -167,6 +189,102 @@ class MomentPostCard extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// A developing story's thread: every climb it tells, newest first,
+/// behind a button so the feed stays compact. No animation.
+class _UpdateThread extends StatefulWidget {
+  const _UpdateThread({required this.story});
+
+  final MomentStory story;
+
+  @override
+  State<_UpdateThread> createState() => _UpdateThreadState();
+}
+
+class _UpdateThreadState extends State<_UpdateThread> {
+  bool _open = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = SonusTheme.of(context).colors;
+    final theme = Theme.of(context);
+    final story = widget.story;
+    final updates = story.updates.reversed.toList();
+    final count = updates.length;
+    final localizations = MaterialLocalizations.of(context);
+
+    String time(MomentStoryUpdate update) => localizations.formatTimeOfDay(
+      TimeOfDay.fromDateTime(update.occurredAt.toLocal()),
+    );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Align(
+          alignment: AlignmentDirectional.centerStart,
+          child: TextButton.icon(
+            key: ValueKey<String>('moment-post-thread-${story.id}'),
+            onPressed: () => setState(() => _open = !_open),
+            icon: Icon(
+              _open ? Icons.expand_less_rounded : Icons.expand_more_rounded,
+            ),
+            label: Text(_open ? 'Hide updates' : 'Show all $count updates'),
+          ),
+        ),
+        if (_open)
+          for (final (index, update) in updates.indexed)
+            Padding(
+              key: ValueKey<String>(
+                'moment-post-update-${story.id}-${update.eventId}',
+              ),
+              padding: const EdgeInsets.only(top: 6),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6, right: 10),
+                    child: Icon(
+                      index == 0
+                          ? Icons.radio_button_checked_rounded
+                          : Icons.radio_button_unchecked_rounded,
+                      size: 12,
+                      color: index == 0
+                          ? colors.accentPrimary
+                          : colors.textSecondary,
+                    ),
+                  ),
+                  Expanded(
+                    child: MergeSemantics(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            time(update),
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: colors.textSecondary,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          Text(
+                            update.text,
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: index == 0
+                                  ? colors.textPrimary
+                                  : colors.textSecondary,
+                              height: 1.3,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+      ],
     );
   }
 }

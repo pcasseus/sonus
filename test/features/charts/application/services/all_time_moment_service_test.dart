@@ -114,6 +114,68 @@ void main() {
     expect(first, isNotEmpty);
   });
 
+  // SN-50 complete coverage: from the device-polish start every climb is
+  // recorded, on both charts, once, whatever is replayed.
+  test('every climb from the device-polish start, once', () async {
+    library.add('a');
+    library.add('b');
+    library.add('c');
+    final early = _today.subtract(const Duration(hours: 5));
+    plays.add('a', early);
+    plays.add('a', early.add(const Duration(minutes: 1)));
+    plays.add('b', early.add(const Duration(minutes: 2)));
+    plays.add('b', early.add(const Duration(minutes: 3)));
+    plays.add('c', early.add(const Duration(minutes: 4)));
+    // c: #3 -> #3 (tied on 2, reached later), then 3 streams: #3 -> #1.
+    plays.add('c', _today.subtract(const Duration(hours: 2)));
+    plays.add('c', _today.subtract(const Duration(hours: 1)));
+
+    final rules = ChartMomentRules(
+      devicePolishFromUtc: _today.subtract(const Duration(hours: 3)).toUtc(),
+    );
+    await service().record(referenceLocal: _today, rules: rules);
+    final first = await saved();
+    final climbs = [
+      for (final e in first)
+        if (e.eventType == ChartMomentEventType.rankRise) e,
+    ];
+    expect(
+      climbs.map((e) => (e.chartType, e.previousRank, e.currentRank)).toSet(),
+      {(ChartType.songs, 3, 1), (ChartType.albums, 3, 1)},
+    );
+
+    // Refreshing or restarting records nothing again.
+    await service().record(referenceLocal: _today, rules: rules);
+    await service().record(
+      referenceLocal: _today.add(const Duration(minutes: 5)),
+      rules: rules,
+    );
+    expect((await saved()).map((e) => e.id), first.map((e) => e.id));
+  });
+
+  test(
+    'without the device-polish start, small climbs are not recorded',
+    () async {
+      library.add('a');
+      library.add('b');
+      plays.add('a', _today.subtract(const Duration(hours: 5)));
+      plays.add('a', _today.subtract(const Duration(hours: 4)));
+      plays.add('b', _today.subtract(const Duration(hours: 3)));
+      plays.add('b', _today.subtract(const Duration(hours: 2)));
+      plays.add('b', _today.subtract(const Duration(hours: 1)));
+
+      await service().record(referenceLocal: _today);
+      expect(
+        (await saved()).where(
+          (e) =>
+              e.eventType == ChartMomentEventType.rankRise &&
+              (e.previousRank! - e.currentRank!) < 15,
+        ),
+        isEmpty,
+      );
+    },
+  );
+
   test('a new play adds only what it achieved', () async {
     library.add('a');
     library.add('b');

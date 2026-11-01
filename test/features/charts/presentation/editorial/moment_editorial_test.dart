@@ -177,6 +177,11 @@ const chartJumpFamilies = {
 /// Families added for the refined rules only (BUG-04 falls and exits):
 /// no catalog lines; their lines are refined additions, validated in
 /// refined_catalog_validation_test.dart.
+/// Families added by the SN-50 device polish: their lines are in
+/// ClimbHeadlines (moment_climb.dart), validated in
+/// moment_developing_stories_test.dart, never in a published catalog.
+const devicePolishFamilies = {MomentFamily.releaseClimb};
+
 const refinedOnlyFamilies = {
   MomentFamily.songBubblingUnderFall,
   MomentFamily.songHot100Exit,
@@ -237,7 +242,8 @@ void main() {
     test('every family has twelve distinct headlines, six per publisher', () {
       final ids = <String>{};
       for (final family in MomentFamily.values) {
-        if (refinedOnlyFamilies.contains(family)) {
+        if (refinedOnlyFamilies.contains(family) ||
+            devicePolishFamilies.contains(family)) {
           expect(MomentHeadlines.of(family), isEmpty);
           continue;
         }

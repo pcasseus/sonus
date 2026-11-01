@@ -83,6 +83,8 @@ void main() {
     // Every catalog version this build carries (SN-50 R-V).
     for (final catalog in RefinedHeadlineCatalog.versions.values) {
       for (final family in MomentHeadlines.approvedFamilies) {
+        // Device-polish families are told only outside the refined rules.
+        if (family == MomentFamily.releaseClimb) continue;
         for (final weekly in [true, if (!_weeklyOnly.contains(family)) false]) {
           final facts = _facts(family, weekly: weekly);
           final lines = [

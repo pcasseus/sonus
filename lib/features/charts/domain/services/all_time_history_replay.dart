@@ -26,7 +26,8 @@ enum AllTimeAchievementType {
   returnsToNumberOne,
 
   /// A climb of at least [AllTimeHistoryReplay.bigClimbPlaces] places into
-  /// the Top 100 with one play.
+  /// the Top 100 with one play; from [AllTimeHistoryReplay.run]'s
+  /// `everyClimbFromUtc` on, any climb at all (SN-50 complete coverage).
   bigClimb,
 
   /// The entity's qualified plays reached [AllTimeAchievement.milestone]
@@ -214,11 +215,15 @@ class AllTimeHistoryReplay {
   /// From [thresholdEntriesFromUtc] on, every first entry into one of the
   /// [thresholdZones] after the debut is an achievement as well, and a #1
   /// never hides the Top 100 entry or re-entry it makes (SN-50 R3).
+  /// From [everyClimbFromUtc] on, every play that moves its entity up is
+  /// also a climb ([AllTimeAchievementType.bigClimb]), however small, beside
+  /// whatever else that play achieved; ranks are never changed by it.
   AllTimeReplayResult run({
     required Iterable<ChartRankingEvent> events,
     required DateTime referenceLocal,
     DateTime? achievementsFromUtc,
     DateTime? thresholdEntriesFromUtc,
+    DateTime? everyClimbFromUtc,
     bool collectAchievements = true,
     List<int> streamMilestones = const [],
     String? Function(String entityId)? groupOf,
@@ -343,6 +348,26 @@ class AllTimeHistoryReplay {
             previousLeader: previousLeader,
           );
           if (achievement != null) achievements.add(achievement);
+
+          // SN-50 complete coverage: every real move up is told, once per
+          // play (the same key as a big climb, so never twice).
+          final climbsFrom = everyClimbFromUtc?.toUtc();
+          if (climbsFrom != null &&
+              !at.isBefore(climbsFrom) &&
+              previousRank != null &&
+              rank < previousRank &&
+              achievement?.type != AllTimeAchievementType.bigClimb) {
+            achievements.add(
+              _make(
+                state,
+                AllTimeAchievementType.bigClimb,
+                rank: rank,
+                previousRank: previousRank,
+                playId: playId,
+                at: at,
+              ),
+            );
+          }
 
           if (state.everInTop && refined) {
             for (final zone in thresholdZones) {

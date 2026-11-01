@@ -44,6 +44,7 @@ enum MomentCategory {
     MomentFamily.songFirstThreshold ||
     MomentFamily.songThresholds ||
     MomentFamily.releaseNewPeak ||
+    MomentFamily.releaseClimb ||
     MomentFamily.releaseFirstThreshold ||
     MomentFamily.releaseThresholds ||
     MomentFamily.songBubblingUnderFall ||

@@ -451,6 +451,8 @@ class ChartsController extends ChangeNotifier {
     final haystack = [
       story.headline,
       ?story.body,
+      // A developing story is found by any of its updates.
+      for (final update in story.updates) update.text,
       f.title,
       f.artist,
       ?f.album,

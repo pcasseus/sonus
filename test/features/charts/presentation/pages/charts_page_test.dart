@@ -2202,6 +2202,110 @@ void main() {
     expect(archive, greaterThan(0));
   });
 
+  group('SN-50 developing stories on the card', () {
+    Future<ChartsController> developing() => _controller(
+      devicePolishFromUtc: DateTime.utc(2026, 9, 1),
+      moments: [
+        for (final (i, (from, to)) in [(40, 36), (36, 28), (28, 15)].indexed)
+          _momentEvent(
+            id: 'climb-$i',
+            scope: ChartMomentScope.allTime,
+            type: ChartMomentEventType.rankRise,
+            previousRank: from,
+            currentRank: to,
+            occurredAt: DateTime.utc(2026, 9, 28, 14, i * 20),
+          ),
+      ],
+    );
+
+    testWidgets('one story, marked updated, with its thread on request', (
+      tester,
+    ) async {
+      final controller = await developing();
+      final story = controller.momentStories.single;
+      expect(story.isDeveloping, isTrue);
+
+      final semantics = tester.ensureSemantics();
+      await _pumpPage(tester, controller, size: const Size(411, 2000));
+      await tester.tap(find.text('Moments'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(ValueKey<String>('moment-post-updated-${story.id}')),
+        findsOneWidget,
+      );
+      expect(
+        find.text('UPDATE: Song 1 climbs another 8 places to #28.'),
+        findsNothing,
+      );
+      await tester.tap(
+        find.byKey(ValueKey<String>('moment-post-thread-${story.id}')),
+      );
+      await tester.pumpAndSettle();
+      for (final update in story.updates) {
+        expect(find.text(update.text), findsOneWidget);
+      }
+      expect(find.bySemanticsLabel(RegExp('UPDATED')), findsWidgets);
+      expect(find.text('Hide updates'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      semantics.dispose();
+    });
+
+    testWidgets('the thread fits 320dp at 2x text in every theme', (
+      tester,
+    ) async {
+      for (final id in SonusThemeId.values) {
+        final controller = await developing();
+        final story = controller.momentStories.single;
+        await _pumpPage(
+          tester,
+          controller,
+          theme: SonusThemeFactory.build(SonusAppearanceSpec(themeId: id)),
+          size: const Size(320, 4000),
+          textScale: 2,
+        );
+        await tester.tap(find.text('Moments'));
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(ValueKey<String>('moment-post-thread-${story.id}')),
+        );
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull, reason: id.label);
+      }
+    });
+
+    testWidgets('Archive search finds a story by any of its updates', (
+      tester,
+    ) async {
+      final controller = await _controller(
+        devicePolishFromUtc: DateTime.utc(2026, 9, 1),
+        moments: [
+          for (final (i, (from, to)) in [(40, 36), (36, 28)].indexed)
+            _momentEvent(
+              id: 'old-climb-$i',
+              scope: ChartMomentScope.allTime,
+              type: ChartMomentEventType.rankRise,
+              previousRank: from,
+              currentRank: to,
+              weekStartUtc: DateTime.utc(2026, 9, 20),
+              occurredAt: DateTime.utc(2026, 9, 21, 14, i * 20),
+            ),
+        ],
+      );
+      while (controller.hasMoreMoments) {
+        await controller.loadMoreMoments();
+      }
+      final story = controller.momentStories.single;
+      expect(story.isDeveloping, isTrue);
+
+      controller.selectMomentsSection(MomentsSection.archive);
+      controller.searchMoments('another 8 places');
+      expect(controller.sectionMomentStories.map((s) => s.id), [story.id]);
+      controller.searchMoments('nowhere to be found');
+      expect(controller.sectionMomentStories, isEmpty);
+    });
+  });
+
   testWidgets('F-Q25: older Moments load as the feed reaches its end', (
     tester,
   ) async {

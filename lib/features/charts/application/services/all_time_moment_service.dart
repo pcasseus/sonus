@@ -214,6 +214,8 @@ class AllTimeMomentService {
       referenceLocal: referenceLocal,
       achievementsFromUtc: from,
       thresholdEntriesFromUtc: rules.activatedAtUtc,
+      // SN-50 complete coverage, from the device-polish start: every climb.
+      everyClimbFromUtc: rules.devicePolishFromUtc,
       streamMilestones: switch (chartType) {
         ChartType.songs => songStreamMilestones,
         ChartType.albums => releaseStreamMilestones,

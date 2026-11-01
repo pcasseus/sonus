@@ -24,6 +24,7 @@ abstract final class MomentClimb {
     MomentFamily.songPeakMatch,
     MomentFamily.songFirstNumberOne,
     MomentFamily.songReturnsToNumberOne,
+    MomentFamily.releaseClimb,
   };
 
   /// Stories that show the climb beside the headline (every story, old or
@@ -44,9 +45,7 @@ abstract final class MomentClimb {
     MomentFamily family,
     MomentFacts facts,
   ) {
-    if (!families.contains(family) || facts.chartType != ChartType.songs) {
-      return null;
-    }
+    if (!families.contains(family)) return null;
     for (final event in item.events) {
       if (event.eventType == ChartMomentEventType.debut ||
           event.eventType == ChartMomentEventType.reentry) {
@@ -56,8 +55,12 @@ abstract final class MomentClimb {
     final before = facts.previousRank;
     final now = facts.rank;
     if (before == null || now == null || now >= before) return null;
+    // Albums & EPs is one chart; songs move between two.
     const limit = ChartRankingEngine.officialChartLimit;
-    if ((before > limit) != (now > limit)) return null;
+    if (facts.chartType == ChartType.songs &&
+        (before > limit) != (now > limit)) {
+      return null;
+    }
     return before - now;
   }
 
@@ -176,6 +179,40 @@ abstract final class ClimbHeadlines {
         'climb-first1-p1',
         _p,
         (f) => 'Top spot! ${f.subject} rises ${_n(f)} to #1 on ${f.chart}.',
+        requires: _climb,
+      ),
+    ],
+    MomentFamily.releaseClimb: [
+      HeadlineVariant(
+        'climb-release-d1',
+        _d,
+        (f) =>
+            '${f.work} by ${f.artist} climbs ${_n(f)} to #${f.rank} on '
+            '${f.chart}.',
+        requires: _climb,
+      ),
+      HeadlineVariant(
+        'climb-release-d2',
+        _d,
+        (f) =>
+            "${MomentFacts.possessive(f.artist)} ${f.releaseWord} ${f.title} "
+            'rises ${_n(f)} to #${f.rank} on ${f.chart}.',
+        requires: _climb,
+      ),
+      HeadlineVariant(
+        'climb-release-p1',
+        _p,
+        (f) =>
+            'Moving up: ${f.work} by ${f.artist} gains ${_n(f)}, now #${f.rank} '
+            'on ${f.chart}.',
+        requires: _climb,
+      ),
+      HeadlineVariant(
+        'climb-release-p2',
+        _p,
+        (f) =>
+            '${f.artist} on the rise: ${f.work} climbs ${_n(f)} to '
+            '#${f.rank} on ${f.chart}.',
         requires: _climb,
       ),
     ],
