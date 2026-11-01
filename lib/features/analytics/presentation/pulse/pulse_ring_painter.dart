@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
@@ -184,12 +185,11 @@ class PulseRingPainter extends CustomPainter {
         }
         paint.color = palette.text;
       } else if (ramp.fill == PulseFill.gradient) {
-        paint.shader = LinearGradient(
-          colors: [
-            ramp.base.withValues(alpha: alpha),
-            spoke.tip.withValues(alpha: alpha),
-          ],
-        ).createShader(Rect.fromPoints(start, end));
+        // Along the spoke itself: base at the inner ring, tip outward.
+        paint.shader = ui.Gradient.linear(start, end, [
+          ramp.base.withValues(alpha: alpha),
+          spoke.tip.withValues(alpha: alpha),
+        ]);
       } else {
         paint.color = spoke.tip.withValues(alpha: alpha);
       }
