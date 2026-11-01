@@ -214,4 +214,6 @@ These are spec-driven, not bugs, but the user will notice them:
 
 - **Round 15 (`8b9d670`):** approved wording W1–W26 is in place, verified by widget and service tests (5,228 passed, 0 failed, exit code 0). The missing-file message and its removal now apply only to verified absence; unreadable tags keep the entry.
 
+- **Device QA, first pass (2026-10-31, `f00a89d` on the Galaxy S26 Ultra, offline):** results are in `SN50_Android_Device_QA_Checklist.md` → Results. The v41 migration is confirmed on the device ("Schema version 41"). Library, playlist and stream counts match the v40 backup, and there are no crashes or Sonus exceptions. **One failure:** the APK was built without `tool/build-release.ps1`, so sign-in and sync are off in this build. Data is unaffected; the fix is a rebuild and `adb install -r` (needs approval). Targeted suites passed 3,062 of 3,062. Still open: notification and lock-screen checks, Bluetooth, Android Auto, SAF revoke (M-6), real sync, and the Leaked toggle and new backup. *§8's "no phone or ADB access" applied to earlier rounds; this pass used read-only ADB and navigation-only taps.*
+
 **Production is not complete:** release signing, `versionCode`, Supabase migrations and device QA are still release blockers, as in the audit (Part I §9).

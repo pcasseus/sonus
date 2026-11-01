@@ -1,6 +1,27 @@
 # SN-50 Android Device QA Checklist
 
-Prepared 2026-10-31 (round 14) for code HEAD on `sn-50-final-refinement`. **Nothing here has been run.** Installing a build on a phone, ADB, an emulator or the Android Auto DHU each needs your separate permission.
+Prepared 2026-10-31 (round 14) for code HEAD on `sn-50-final-refinement`. *Earlier text: "**Nothing here has been run.**" The first device pass is recorded below.* Installing a build on a phone, ADB, an emulator or the Android Auto DHU each needs your separate permission.
+
+## Results: first device pass (2026-10-31)
+
+Galaxy S26 Ultra (SM-S948U), Android 17 (`CP2A.260605.016.S948USQS4BZIG`). APK from `f00a89d`, SHA-256 `07ab0347…dc5a7`, installed with `adb install -r` at 19:26:12. The phone was offline throughout (Airplane mode on, Wi-Fi off). The automated pass used read-only ADB and navigation-only UI taps (accessibility tree). Nothing played, and no setting, import or record was changed.
+
+| Result | Item |
+|---|---|
+| **FAIL (build)** | §0: the APK was built with plain `flutter build apk --release`, not `tool/build-release.ps1`. The account settings are missing, and the device shows "Sign-in is not configured for this build". Data is unaffected: the stored session is left alone, and only sign-in and sync are unavailable. Fix: rebuild with the script and reinstall with `-r` (needs approval). |
+| PASS (device) | §0: backup `sonus-backup-20261031230436.sonusbackup` (DB v40, SHA-256 `0cdc0123…dc25`) has matching copies on the phone (`Download/Sonus Backup/`) and the PC (`phone_backups\…-before-sn50-v41\`). The flag is not set. |
+| PASS (device) | §1: the app opens without an error screen. About shows "Schema version 41". The library shows 881 songs, 97 albums and 74 artists, the same as the v40 backup. Insights shows 177 October streams, the same as the backup's qualified plays. The playlist "Chart Filler" has 228 songs, also the same. |
+| PASS (device) | §1: Charts open. Only one week, "in progress, final after Oct 31", is expected after the 2026-10-26 reset. Moments open with text and covers under the legacy rules. |
+| PASS (device) | §1: Release Studio shows the "Leaked release" switch, off (PRIMA). It was **not** toggled. |
+| PASS (user, manual) | §2–§5 basics: playback, skipping, Repeat One with manual Next, shuffle, queue restore after force-stop, and Clear queue keeping the playing song. |
+| PASS (device) | Navigation: Home, Hot 100 (Charts and Moments), Insights (Monthly and Year), Library to artist to album to Edit Release, Playlists to the playlist, Settings (Playback, Library & Imports, Unavailable songs, Review metadata, About, Account & Cloud). No crashes, ANRs or Sonus exceptions in logcat, and the crash buffer is empty. |
+| PASS (device) | Preferences kept: theme "Concrete & Spray · Street Bold" and High contrast on. "Remember shuffle and repeat" is **off** (your setting), so §4's persistence check needs it on. |
+| PASS (device) | The media session is active with Previous, Play and Next plus Shuffle and Repeat custom actions. The notification is a foreground transport notification with 3 actions. |
+| Observation | Android notifications for Sonus are **Blocked** (App info; appop `POST_NOTIFICATION: ignore`). The media notification still posts, but One UI placement and the lock screen need a manual look. |
+| Observation | 4 unavailable songs (Cardi B, *Am I The Drama?*): the files were moved or deleted before SN-50. |
+| AUTOMATED TEST ONLY | §2–§5 details, §6 Import Review states, §9 sync-paused wording and the signed-out guard. Targeted suites: player 378, database 153, recovery 376, import 461, sync 745, account 42, settings 175, charts 665 and playlists 67, all passed. |
+| MANUAL REQUIRED | §2 duplicate-queue and end-of-queue checks; §3–§4 notification, lock-screen and restored shuffle order (needs "Remember" on); §5 Cancel in the dialog; §7 swipe, Recents, End Session and Deluxe edition name; Bluetooth. These all play music and so add listening history. |
+| BLOCKED | §6 SAF import and grant revocation (no imports or revokes allowed); §8 Android Auto (no DHU or car); §9 sync and the signed-in delete guard (offline, and sign-in is off in this build); §1 Leaked toggle and new-backup check (data writes not authorized in this pass). |
 
 Media-session detail (notification placement, swipe, Bluetooth after kill, wake lock) is already specified per decision in `SN50_Destructive_Workflows_Design.md` §4.2. This list adds the SN-50 checks and the order to run them in. Record pass/fail, device, Android version and build SHA for each line.
 
