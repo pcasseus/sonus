@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 
 import '../../application/models/pulse/pulse_period.dart';
 import '../../application/models/pulse/pulse_period_data.dart';
+import '../../application/services/pulse/pulse_entity_directory.dart';
 import '../../application/services/pulse/pulse_insights_service.dart';
 import '../../data/pulse_preferences_store.dart';
 
@@ -37,8 +38,10 @@ class PulseInsightsController extends ChangeNotifier {
   PulseInsightsController({
     required PulsePeriodLoader loader,
     PulsePreferencesStore? preferences,
+    PulseDirectoryLoader? directory,
     DateTime Function()? nowLocal,
   }) : _loader = loader,
+       _directoryLoader = directory,
        _preferences = preferences,
        _nowLocal = nowLocal ?? DateTime.now {
     _selection = PulseSelection(
@@ -49,6 +52,10 @@ class PulseInsightsController extends ChangeNotifier {
   }
 
   final PulsePeriodLoader _loader;
+  final PulseDirectoryLoader? _directoryLoader;
+  PulseEntityDirectory _directory = PulseEntityDirectory.empty;
+  PulsePeriodData? _comparisonData;
+  final Map<(PulseEntityKind, String), int> _lifetime = {};
   final PulsePreferencesStore? _preferences;
   final DateTime Function() _nowLocal;
 
@@ -78,6 +85,47 @@ class PulseInsightsController extends ChangeNotifier {
   PulsePeriodData? get data => _data;
 
   bool get isShowingSelectedPeriod => _data?.period == _selection.period;
+
+  /// Names, artwork and status for the shown period's ranked items.
+  PulseEntityDirectory get directory => _directory;
+
+  /// The chosen comparison period's full data, for rank movement; null with
+  /// no comparison, an ineligible one, or before it has loaded.
+  PulsePeriodData? get comparisonData {
+    final data = _comparisonData;
+    final comparison = this.comparison;
+    if (data == null || comparison == null || !comparison.isAvailable) {
+      return null;
+    }
+    return data.period == comparison.period ? data : null;
+  }
+
+  /// [id]'s lifetime qualified streams, or null when they can't be read.
+  /// Remembered for the session; cleared by [refresh].
+  Future<int?> lifetimeStreams(PulseEntityKind kind, String id) async {
+    final loader = _loader;
+    if (loader is! PulseLifetimeLoader) return null;
+    final known = _lifetime[(kind, id)];
+    if (known != null) return known;
+    try {
+      final value = await (loader as PulseLifetimeLoader).lifetimeStreams(
+        kind,
+        id,
+      );
+      _lifetime[(kind, id)] = value;
+      return value;
+    } catch (error, stackTrace) {
+      developer.log(
+        'Lifetime streams could not be read: ${error.runtimeType}',
+        name: 'sonus.insights',
+        level: 900,
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return null;
+    }
+  }
+
   bool get isLoading => _isLoading;
 
   /// The last load's error, also when earlier data is still shown (the
@@ -227,12 +275,14 @@ class PulseInsightsController extends ChangeNotifier {
     _selection = next;
     _save();
     _notify();
+    _loadExtras(_generation);
   }
 
   /// Reloads from history: clears the session cache and re-reads where
   /// history starts (it changes after a restore or the first play).
   Future<void> refresh() async {
     _cache.clear();
+    _lifetime.clear();
     final generation = ++_generation;
     try {
       _firstHistoryAt = await _loader.firstHistoryAt();
@@ -287,6 +337,7 @@ class PulseInsightsController extends ChangeNotifier {
       _error = null;
       _isLoading = false;
       _notify();
+      await _loadExtras(generation);
       return;
     }
     _isLoading = true;
@@ -303,6 +354,54 @@ class PulseInsightsController extends ChangeNotifier {
     } catch (error, stackTrace) {
       if (generation != _generation || _disposed) return;
       _fail(error, stackTrace);
+      return;
+    }
+    await _loadExtras(generation);
+  }
+
+  /// The directory and the comparison period's data for the shown period.
+  /// Failures leave them empty: rankings still show, with neutral names
+  /// and no rank movement, rather than an error.
+  Future<void> _loadExtras(int generation) async {
+    final data = _data;
+    if (data == null || !isShowingSelectedPeriod) return;
+    final directoryLoader = _directoryLoader;
+    if (directoryLoader != null) {
+      try {
+        final directory = await directoryLoader.load(data);
+        if (generation != _generation || _disposed) return;
+        _directory = directory;
+        _notify();
+      } catch (error, stackTrace) {
+        developer.log(
+          'Pulse names could not be loaded: ${error.runtimeType}',
+          name: 'sonus.insights',
+          level: 900,
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }
+    }
+    final comparison = this.comparison;
+    if (comparison == null || !comparison.isAvailable) return;
+    if (_comparisonData?.period == comparison.period) return;
+    final cached = _cache[comparison.period];
+    try {
+      final loaded = cached ?? await _loader.load(comparison.period);
+      if (generation != _generation || _disposed) return;
+      if (!comparison.period.endLocal.isAfter(_nowLocal())) {
+        _cache[comparison.period] = loaded;
+      }
+      _comparisonData = loaded;
+      _notify();
+    } catch (error, stackTrace) {
+      developer.log(
+        'Pulse comparison could not be loaded: ${error.runtimeType}',
+        name: 'sonus.insights',
+        level: 900,
+        error: error,
+        stackTrace: stackTrace,
+      );
     }
   }
 

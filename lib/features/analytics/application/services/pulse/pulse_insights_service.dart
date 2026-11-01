@@ -28,7 +28,12 @@ abstract interface class PulsePeriodLoader {
   Future<PulsePeriodData> load(PulsePeriod period);
 }
 
-class PulseInsightsService implements PulsePeriodLoader {
+/// Lifetime totals for an item's detail.
+abstract interface class PulseLifetimeLoader {
+  Future<int> lifetimeStreams(PulseEntityKind kind, String id);
+}
+
+class PulseInsightsService implements PulsePeriodLoader, PulseLifetimeLoader {
   PulseInsightsService({
     required PulseListeningRecords records,
     ListeningArtistAttribution? artistAttribution,
@@ -143,7 +148,34 @@ class PulseInsightsService implements PulsePeriodLoader {
           },
       },
       releasesOffRankings: excluded,
+      trackArtists: Map.unmodifiable(acc.trackArtists),
+      trackReleases: Map.unmodifiable(acc.trackReleases),
     );
+  }
+
+  /// [id]'s qualified streams across all recorded history, with the same
+  /// attribution as the rankings (a release counts across its editions).
+  @override
+  Future<int> lifetimeStreams(PulseEntityKind kind, String id) async {
+    final attributor = await ArtistAttributor.of(_artistAttribution);
+    final plays = await _records.qualifiedPlays(
+      const AnalyticsTimeWindow(startUtc: null, endUtc: null),
+    );
+    var count = 0;
+    for (final play in plays) {
+      final match = switch (kind) {
+        PulseEntityKind.track => play.songId == id,
+        PulseEntityKind.release => play.albumId == id,
+        PulseEntityKind.artist =>
+          attributor.artistFor(
+                artistId: play.artistId,
+                albumId: play.albumId,
+              ) ==
+              id,
+      };
+      if (match) count++;
+    }
+    return count;
   }
 
   /// Totals of [period] alone, for comparisons.
@@ -367,6 +399,8 @@ class _Accumulator {
   final lastActivity = {
     for (final kind in PulseEntityKind.values) kind: <String, DateTime>{},
   };
+  final trackArtists = <String, String>{};
+  final trackReleases = <String, String>{};
 
   void addListening({
     required PulseSegmentRecord segment,
@@ -417,12 +451,15 @@ class _Accumulator {
     DateTime at,
     void Function(_MutableMetrics) add,
   ) {
+    final leadArtist = _attributor.artistFor(
+      artistId: artistId,
+      albumId: albumId,
+    );
+    trackArtists[songId] = leadArtist;
+    trackReleases[songId] = albumId;
     final ids = {
       PulseEntityKind.track: songId,
-      PulseEntityKind.artist: _attributor.artistFor(
-        artistId: artistId,
-        albumId: albumId,
-      ),
+      PulseEntityKind.artist: leadArtist,
       PulseEntityKind.release: albumId,
     };
     for (final MapEntry(key: kind, value: id) in ids.entries) {

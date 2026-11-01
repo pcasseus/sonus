@@ -205,7 +205,11 @@ class PulsePeriodData {
     required Map<PulseEntityKind, Map<String, Map<DateTime, PulseMetrics>>>
     entityDays,
     required Set<String> releasesOffRankings,
-  }) : _entityTotals = entityTotals,
+    Map<String, String> trackArtists = const {},
+    Map<String, String> trackReleases = const {},
+  }) : _trackArtists = trackArtists,
+       _trackReleases = trackReleases,
+       _entityTotals = entityTotals,
        _entityLastActivity = entityLastActivity,
        _entityDays = entityDays,
        _releasesOffRankings = releasesOffRankings;
@@ -232,6 +236,115 @@ class PulsePeriodData {
   final Map<PulseEntityKind, Map<String, Map<DateTime, PulseMetrics>>>
   _entityDays;
   final Set<String> _releasesOffRankings;
+
+  /// Each track's lead artist (after attribution) and release, as played.
+  final Map<String, String> _trackArtists;
+  final Map<String, String> _trackReleases;
+
+  /// The lead artist a track's plays count for, or null if not heard.
+  String? artistOfTrack(String songId) => _trackArtists[songId];
+
+  /// The release (album id) a track was heard on, or null.
+  String? releaseOfTrack(String songId) => _trackReleases[songId];
+
+  /// [artistId]'s tracks heard in the period, ranked by [measure].
+  List<PulseRankedEntity> tracksOfArtist(
+    String artistId,
+    PulseMeasure measure, {
+    int? limit,
+  }) => _filtered(
+    ranking(PulseEntityKind.track, measure),
+    (id) => _trackArtists[id] == artistId,
+    limit,
+  );
+
+  /// [albumId]'s tracks heard in the period, ranked by [measure].
+  List<PulseRankedEntity> tracksOfRelease(
+    String albumId,
+    PulseMeasure measure, {
+    int? limit,
+  }) => _filtered(
+    ranking(PulseEntityKind.track, measure),
+    (id) => _trackReleases[id] == albumId,
+    limit,
+  );
+
+  /// The releases [artistId]'s tracks were heard on, each with the sum of
+  /// that artist's tracks on it (their contribution), ranked by [measure].
+  List<PulseRankedEntity> releaseContributionsOf(
+    String artistId,
+    PulseMeasure measure,
+  ) {
+    final sums = <String, (Duration, int, int, DateTime)>{};
+    for (final track in tracksOfArtist(artistId, measure)) {
+      final release = _trackReleases[track.id];
+      if (release == null) continue;
+      final m = track.metrics;
+      final current = sums[release];
+      sums[release] = current == null
+          ? (m.listened, m.streams, m.allPlays, track.lastActivityAt)
+          : (
+              current.$1 + m.listened,
+              current.$2 + m.streams,
+              current.$3 + m.allPlays,
+              track.lastActivityAt.isAfter(current.$4)
+                  ? track.lastActivityAt
+                  : current.$4,
+            );
+    }
+    final entries = sums.entries.toList()
+      ..sort((a, b) {
+        final va = PulseMetrics(
+          listened: a.value.$1,
+          streams: a.value.$2,
+          allPlays: a.value.$3,
+        ).valueOf(measure);
+        final vb = PulseMetrics(
+          listened: b.value.$1,
+          streams: b.value.$2,
+          allPlays: b.value.$3,
+        ).valueOf(measure);
+        final byValue = vb.compareTo(va);
+        if (byValue != 0) return byValue;
+        final byRecency = b.value.$4.compareTo(a.value.$4);
+        return byRecency != 0 ? byRecency : a.key.compareTo(b.key);
+      });
+    return List.unmodifiable([
+      for (var i = 0; i < entries.length; i++)
+        PulseRankedEntity(
+          kind: PulseEntityKind.release,
+          id: entries[i].key,
+          rank: i + 1,
+          metrics: PulseMetrics(
+            listened: entries[i].value.$1,
+            streams: entries[i].value.$2,
+            allPlays: entries[i].value.$3,
+          ),
+          lastActivityAt: entries[i].value.$4,
+        ),
+    ]);
+  }
+
+  List<PulseRankedEntity> _filtered(
+    List<PulseRankedEntity> ranked,
+    bool Function(String id) keep,
+    int? limit,
+  ) {
+    final kept = ranked.where((e) => keep(e.id)).toList();
+    final cut = limit == null || kept.length <= limit
+        ? kept
+        : kept.sublist(0, limit);
+    return List.unmodifiable([
+      for (var i = 0; i < cut.length; i++)
+        PulseRankedEntity(
+          kind: cut[i].kind,
+          id: cut[i].id,
+          rank: i + 1,
+          metrics: cut[i].metrics,
+          lastActivityAt: cut[i].lastActivityAt,
+        ),
+    ]);
+  }
 
   /// Whether the period starts before recorded history ("History starts
   /// …"); true when there is no history at all.

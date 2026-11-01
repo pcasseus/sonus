@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:sonus_next/features/analytics/application/models/pulse/pulse_period.dart';
 import 'package:sonus_next/features/analytics/application/models/pulse/pulse_period_data.dart';
+import 'package:sonus_next/features/analytics/application/services/pulse/pulse_entity_directory.dart';
 import 'package:sonus_next/features/analytics/application/services/pulse/pulse_insights_service.dart';
 import 'package:sonus_next/features/analytics/data/pulse_preferences_store.dart';
 import 'package:sonus_next/features/analytics/presentation/controllers/pulse_insights_controller.dart';
@@ -50,6 +51,7 @@ void main() {
       expect(c.status, PulseViewStatus.ready);
       expect(c.data!.period, PulsePeriod.month(2026, 10));
       expect(c.comparison, same(c.data!.previous));
+      expect(c.comparisonData, isNull, reason: 'not eligible');
     });
 
     test('restores the saved period, measure and comparison', () async {
@@ -300,10 +302,117 @@ void main() {
       await opening;
     });
   });
+
+  group('P5 extras', () {
+    test(
+      'an eligible comparison loads its period once, for rank movement',
+      () async {
+        loader.previousAvailable = true;
+        final c = controller();
+        await c.initialize();
+
+        expect(loader.loaded, [
+          PulsePeriod.month(2026, 10),
+          PulsePeriod.month(2026, 9),
+        ]);
+        expect(c.comparisonData!.period, PulsePeriod.month(2026, 9));
+
+        c.setComparison(PulseComparisonChoice.none);
+        expect(c.comparisonData, isNull);
+
+        await c.previousPeriod();
+        expect(
+          loader.loaded.where((p) => p == PulsePeriod.month(2026, 9)),
+          hasLength(1),
+          reason: 'September was cached as a finished period',
+        );
+      },
+    );
+
+    test('names come from the directory loader after the data', () async {
+      final directory = _FakeDirectory();
+      final c = PulseInsightsController(
+        loader: loader,
+        directory: directory,
+        nowLocal: () => now,
+      );
+      addTearDown(c.dispose);
+      await c.initialize();
+
+      expect(directory.loads, 1);
+      expect(
+        c.directory.infoFor(PulseEntityKind.track, 'song').title,
+        'Known Song',
+      );
+    });
+
+    test('a failing directory leaves neutral names, not an error', () async {
+      final c = PulseInsightsController(
+        loader: loader,
+        directory: _FakeDirectory(fail: true),
+        nowLocal: () => now,
+      );
+      addTearDown(c.dispose);
+      await c.initialize();
+
+      expect(c.status, PulseViewStatus.ready);
+      expect(c.error, isNull);
+      expect(
+        c.directory.infoFor(PulseEntityKind.track, 'song').title,
+        'Unknown track',
+      );
+    });
+
+    test('lifetime streams are read once per item per session', () async {
+      final c = controller();
+      await c.initialize();
+
+      expect(await c.lifetimeStreams(PulseEntityKind.artist, 'a'), 1234);
+      expect(await c.lifetimeStreams(PulseEntityKind.artist, 'a'), 1234);
+      expect(loader.lifetimeCalls, 1);
+      await c.refresh();
+      await c.lifetimeStreams(PulseEntityKind.artist, 'a');
+      expect(loader.lifetimeCalls, 2);
+    });
+  });
 }
 
-class _FakeLoader implements PulsePeriodLoader {
+class _FakeDirectory implements PulseDirectoryLoader {
+  _FakeDirectory({this.fail = false});
+
+  final bool fail;
+  int loads = 0;
+
+  @override
+  Future<PulseEntityDirectory> load(PulsePeriodData data) async {
+    loads++;
+    if (fail) throw StateError('library unreadable');
+    return PulseEntityDirectory({
+      (PulseEntityKind.track, 'song'): const PulseEntityInfo(
+        kind: PulseEntityKind.track,
+        id: 'song',
+        title: 'Known Song',
+        subtitle: 'Known Artist',
+        artworkPath: null,
+        status: PulseEntityStatus.current,
+      ),
+    });
+  }
+}
+
+class _FakeLoader implements PulsePeriodLoader, PulseLifetimeLoader {
   _FakeLoader(this.first);
+
+  /// Whether the previous period is an eligible comparison. Off by
+  /// default, so only the selected period loads.
+  bool previousAvailable = false;
+  int lifetimeCalls = 0;
+
+  @override
+  Future<int> lifetimeStreams(PulseEntityKind kind, String id) async {
+    lifetimeCalls++;
+    return 1234;
+  }
 
   final DateTime? first;
   final loaded = <PulsePeriod>[];
@@ -343,8 +452,10 @@ class _FakeLoader implements PulsePeriodLoader {
       hours: const [],
       previous: PulseComparison(
         period: period.previous,
-        availability: PulseComparisonAvailability.available,
-        totals: PulseMetrics.zero,
+        availability: previousAvailable
+            ? PulseComparisonAvailability.available
+            : PulseComparisonAvailability.notEnoughHistory,
+        totals: previousAvailable ? PulseMetrics.zero : null,
       ),
       samePeriodLastYear: PulseComparison(
         period: period.samePeriodLastYear,
