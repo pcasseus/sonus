@@ -2,12 +2,14 @@ import 'dart:async';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show PostgrestException;
 
 import 'package:sonus_next/features/account/application/repositories/local_account_binding_repository.dart';
 import 'package:sonus_next/features/sync/application/controllers/sync_controller.dart';
 import 'package:sonus_next/features/sync/application/models/sync_failure.dart';
 import 'package:sonus_next/features/sync/application/services/automatic_sync_coordinator.dart';
 import 'package:sonus_next/features/sync/application/services/sync_network_policy_service.dart';
+import 'package:sonus_next/features/sync/data/services/supabase_sync_failure_classifier.dart';
 import 'package:sonus_next/features/sync/data/services/sync_status_store.dart';
 import 'package:sonus_next/features/sync/application/services/sync_service.dart';
 import 'package:sonus_next/features/sync/application/services/sync_cancellation.dart';
@@ -933,6 +935,82 @@ void main() {
         expect(controller.isPaused, isTrue);
       },
     );
+
+    test('DQA-01: a missing cloud column pauses through the Supabase '
+        'classifier', () async {
+      final controller = SyncController.forTesting(
+        synchronize: (_) => Future.error(
+          const PostgrestException(
+            message: 'column artwork_assets.server_revision does not exist',
+            code: '42703',
+          ),
+        ),
+        statusStore: store(),
+        classifyFailure: classifySupabaseSyncFailure,
+        describeFailure: describeSupabaseSyncFailure,
+      );
+      addTearDown(controller.dispose);
+
+      expect(await controller.synchronize('user-1'), isFalse);
+
+      expect(controller.isPaused, isTrue);
+      expect(controller.failureKind, SyncFailureKind.cloudNotReady);
+      expect(controller.failureCode, '42703');
+      expect(stored.keys.where((k) => k.startsWith('sync.paused.')), [
+        'sync.paused.user-1',
+      ]);
+    });
+
+    test('DQA-01: after a restart, an automatic trigger waits for the stored '
+        'pause and does not sync; Retry still runs', () async {
+      // First launch: the run fails permanently and the pause is saved.
+      final first = SyncController.forTesting(
+        synchronize: (_) =>
+            Future.error(CloudContractMismatch('no server revision')),
+        statusStore: store(),
+      );
+      await first.synchronize('user-1');
+      expect(first.isPaused, isTrue);
+      first.dispose();
+
+      // Next launch: reading the stored state is slow, and the lifecycle
+      // bridge triggers right after updateUserId, without waiting.
+      var calls = 0;
+      final slowStore = SyncStatusStore.forTesting(
+        getString: (key) async {
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+          return stored[key];
+        },
+        setString: (key, value) async => stored[key] = value,
+      );
+      final controller = SyncController.forTesting(
+        synchronize: (userId) async {
+          calls++;
+          return _result(userId: userId);
+        },
+        statusStore: slowStore,
+      );
+      addTearDown(controller.dispose);
+      final coordinator = AutomaticSyncCoordinator(
+        syncController: controller,
+        networkPolicy: SyncNetworkPolicyService.forTesting(
+          checkConnectivity: () async => [ConnectivityResult.wifi],
+          getBool: (_) async => null,
+          setBool: (_, _) async {},
+          remove: (_) async {},
+        ),
+      );
+
+      coordinator.updateUserId('user-1');
+      await coordinator.trigger();
+
+      expect(calls, 0, reason: 'the stored pause blocks automatic runs');
+      expect(controller.isPaused, isTrue);
+
+      await coordinator.trigger(retry: true);
+      expect(calls, 1);
+      expect(controller.isPaused, isFalse);
+    });
   });
 }
 

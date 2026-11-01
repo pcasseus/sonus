@@ -138,10 +138,23 @@ class OutboundSyncProcessor {
     this.acknowledgeEntry,
     this.albumEditionTrackRepository,
     this.songArtistCreditRepository,
+    this.isPermanentFailure,
     ArtworkVersionGenerator? newArtworkVersion,
     OutboundClock? now,
   }) : _newArtworkVersion = newArtworkVersion ?? const Uuid().v4,
        _now = now ?? DateTime.now;
+
+  /// Whether an entry's error means the cloud cannot accept this version
+  /// of Sonus (a missing table, column or function). Such an error ends
+  /// the push at once instead of being tried again for every later entry,
+  /// so the run fails fast and sync pauses (DQA-01).
+  final bool Function(Object error)? isPermanentFailure;
+
+  /// Dependencies that already failed in the current push run, by kind and
+  /// id. A later entry that needs one fails with the same error instead of
+  /// writing (and, for artwork, uploading) it again (DQA-01). Runs on one
+  /// processor are serialized, and the map is cleared when each run starts.
+  final Map<String, (Object, StackTrace)> _failedDependencies = {};
 
   final LocalSyncRepository localSyncRepository;
   final ArtistRepository artistRepository;
@@ -199,6 +212,7 @@ class OutboundSyncProcessor {
   }
 
   Future<OutboundPushReport> _pushPendingOnce(String userId) async {
+    _failedDependencies.clear();
     final trimmedUserId = userId.trim();
 
     if (trimmedUserId.isEmpty) {
@@ -286,8 +300,16 @@ class OutboundSyncProcessor {
           ensuredSongIds: ensuredSongIds,
         );
       } catch (error, stackTrace) {
+        // The cloud cannot take this version's writes: every later entry
+        // would fail the same way. Stop here; nothing more is written, the
+        // entry stays pending, and the run reports the error (DQA-01).
+        if (isPermanentFailure?.call(error) ?? false) {
+          Error.throwWithStackTrace(error, stackTrace);
+        }
+
         // A failed entry stays pending. Later entries still run; any that
-        // depend on it re-attempt the dependency and fail the same way.
+        // depend on a dependency that failed in this run fail with the same
+        // error without writing it again.
         failures.add(
           OutboundEntryFailure(
             entry: entry,
@@ -694,7 +716,39 @@ class OutboundSyncProcessor {
     );
   }
 
+  /// Runs [write] for the dependency [key] unless it already failed in this
+  /// run, in which case its error is raised again without any cloud call.
+  Future<void> _onceInRun(String key, Future<void> Function() write) async {
+    final failed = _failedDependencies[key];
+    if (failed != null) {
+      Error.throwWithStackTrace(failed.$1, failed.$2);
+    }
+    try {
+      await write();
+    } on SyncCancelled {
+      rethrow;
+    } catch (error, stackTrace) {
+      _failedDependencies[key] = (error, stackTrace);
+      rethrow;
+    }
+  }
+
   Future<void> _ensureArtwork(
+    String artworkId, {
+    required String userId,
+    required Set<String> ensuredArtworkIds,
+    SyncOutboxEntry? explicitEntry,
+  }) => _onceInRun(
+    'artwork:${artworkId.trim()}',
+    () => _ensureArtworkUncached(
+      artworkId,
+      userId: userId,
+      ensuredArtworkIds: ensuredArtworkIds,
+      explicitEntry: explicitEntry,
+    ),
+  );
+
+  Future<void> _ensureArtworkUncached(
     String artworkId, {
     required String userId,
     required Set<String> ensuredArtworkIds,
@@ -863,6 +917,23 @@ class OutboundSyncProcessor {
     required Set<String> ensuredArtworkIds,
     required Set<String> ensuredArtistIds,
     SyncOutboxEntry? explicitEntry,
+  }) => _onceInRun(
+    'artist:${artistId.trim()}',
+    () => _ensureArtistUncached(
+      artistId,
+      userId: userId,
+      ensuredArtworkIds: ensuredArtworkIds,
+      ensuredArtistIds: ensuredArtistIds,
+      explicitEntry: explicitEntry,
+    ),
+  );
+
+  Future<void> _ensureArtistUncached(
+    String artistId, {
+    required String userId,
+    required Set<String> ensuredArtworkIds,
+    required Set<String> ensuredArtistIds,
+    SyncOutboxEntry? explicitEntry,
   }) async {
     final normalizedArtistId = artistId.trim();
 
@@ -990,6 +1061,25 @@ class OutboundSyncProcessor {
     required Set<String> ensuredArtistIds,
     required Set<String> ensuredAlbumIds,
     SyncOutboxEntry? explicitEntry,
+  }) => _onceInRun(
+    'album:${albumId.trim()}',
+    () => _ensureAlbumUncached(
+      albumId,
+      userId: userId,
+      ensuredArtworkIds: ensuredArtworkIds,
+      ensuredArtistIds: ensuredArtistIds,
+      ensuredAlbumIds: ensuredAlbumIds,
+      explicitEntry: explicitEntry,
+    ),
+  );
+
+  Future<void> _ensureAlbumUncached(
+    String albumId, {
+    required String userId,
+    required Set<String> ensuredArtworkIds,
+    required Set<String> ensuredArtistIds,
+    required Set<String> ensuredAlbumIds,
+    SyncOutboxEntry? explicitEntry,
   }) async {
     final normalizedAlbumId = albumId.trim();
 
@@ -1029,6 +1119,27 @@ class OutboundSyncProcessor {
   }
 
   Future<void> _ensureAlbumEdition(
+    String albumEditionId, {
+    required String userId,
+    required Set<String> ensuredArtworkIds,
+    required Set<String> ensuredArtistIds,
+    required Set<String> ensuredAlbumIds,
+    required Set<String> ensuredAlbumEditionIds,
+    SyncOutboxEntry? explicitEntry,
+  }) => _onceInRun(
+    'album_edition:${albumEditionId.trim()}',
+    () => _ensureAlbumEditionUncached(
+      albumEditionId,
+      userId: userId,
+      ensuredArtworkIds: ensuredArtworkIds,
+      ensuredArtistIds: ensuredArtistIds,
+      ensuredAlbumIds: ensuredAlbumIds,
+      ensuredAlbumEditionIds: ensuredAlbumEditionIds,
+      explicitEntry: explicitEntry,
+    ),
+  );
+
+  Future<void> _ensureAlbumEditionUncached(
     String albumEditionId, {
     required String userId,
     required Set<String> ensuredArtworkIds,
@@ -1084,6 +1195,29 @@ class OutboundSyncProcessor {
   }
 
   Future<void> _ensureSong(
+    String songId, {
+    required String userId,
+    required Set<String> ensuredArtworkIds,
+    required Set<String> ensuredArtistIds,
+    required Set<String> ensuredAlbumIds,
+    required Set<String> ensuredAlbumEditionIds,
+    required Set<String> ensuredSongIds,
+    SyncOutboxEntry? explicitEntry,
+  }) => _onceInRun(
+    'song:${songId.trim()}',
+    () => _ensureSongUncached(
+      songId,
+      userId: userId,
+      ensuredArtworkIds: ensuredArtworkIds,
+      ensuredArtistIds: ensuredArtistIds,
+      ensuredAlbumIds: ensuredAlbumIds,
+      ensuredAlbumEditionIds: ensuredAlbumEditionIds,
+      ensuredSongIds: ensuredSongIds,
+      explicitEntry: explicitEntry,
+    ),
+  );
+
+  Future<void> _ensureSongUncached(
     String songId, {
     required String userId,
     required Set<String> ensuredArtworkIds,

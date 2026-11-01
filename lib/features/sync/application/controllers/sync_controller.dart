@@ -195,8 +195,16 @@ class SyncController extends ChangeNotifier {
     _ => null,
   };
 
-  Future<void> activateUser(String userId) =>
-      _activate(userId, newSession: true);
+  /// Completes once [userId]'s stored sync state (including a pause) has
+  /// been read. Calling it again for the active account waits for the same
+  /// activation instead of starting another, so an automatic trigger can
+  /// check [isPaused] only after the pause is known (DQA-01).
+  Future<void> activateUser(String userId) {
+    if (_currentUserId == userId.trim()) return _activation;
+    return _activation = _activate(userId, newSession: true);
+  }
+
+  Future<void> _activation = Future<void>.value();
 
   Future<void> _activate(String userId, {required bool newSession}) async {
     final normalizedUserId = userId.trim();
@@ -348,7 +356,7 @@ class SyncController extends ChangeNotifier {
     }
 
     if (_currentUserId != userId) {
-      await _activate(userId, newSession: false);
+      await (_activation = _activate(userId, newSession: false));
     }
 
     // A run whose account was signed out or switched while it ran, or whose

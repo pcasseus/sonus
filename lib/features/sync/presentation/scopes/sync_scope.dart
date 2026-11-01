@@ -181,6 +181,10 @@ class _SyncScopeState extends State<SyncScope> {
       ),
       cloudArtworkStorage: SupabaseCloudArtworkStorage(client: client),
       cloudSyncGateway: SupabaseCloudSyncGateway(client: client),
+      // A cloud without this version's tables, columns or functions ends
+      // the push at once, so the run pauses instead of retrying (DQA-01).
+      isPermanentFailure: (error) =>
+          classifySupabaseSyncFailure(error).isPermanent,
       cloudRevisionBaselineRepository: revisionBaselines,
       pushArtistMutation:
           receiptPipeline?.pushUpsert ?? artistWriteCoordinator.push,
