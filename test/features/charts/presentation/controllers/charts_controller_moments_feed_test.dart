@@ -361,8 +361,8 @@ void main() {
   });
 
   group('covers and credits', () {
-    test('SN-50 song stories show the song\'s own picture; earlier ones '
-        'keep the primary cover', () async {
+    test('SN-50 song stories show the song\'s own picture, earlier ones '
+        'too (approved device QA correction)', () async {
       final loaded = await _controller(
         events: [
           _debut('new', at: DateTime(2026, 11, 3, 12), rank: 20),
@@ -379,7 +379,7 @@ void main() {
       };
 
       expect(byTitle['Song new']!.visual.left.path, '/art/deluxe-new.jpg');
-      expect(byTitle['Song old']!.visual.left.path, '/art/primary.jpg');
+      expect(byTitle['Song old']!.visual.left.path, '/art/deluxe-old.jpg');
     });
 
     test('SN-50 song stories name every performer; earlier stories and '
@@ -407,8 +407,8 @@ void main() {
     });
 
     test('SN-50 reconciliation: a refined release Moment shows the Deluxe '
-        'cover; a pre-activation release Moment keeps its old '
-        'cover', () async {
+        'cover; a pre-activation release Moment now shows it '
+        'too', () async {
       Future<String?> coverOf(DateTime at) async {
         final loaded = await _controller(
           events: [_releaseDebut('one', at: at)],
@@ -434,7 +434,7 @@ void main() {
       }
 
       expect(await coverOf(DateTime(2026, 11, 3, 12)), '/art/deluxe.jpg');
-      expect(await coverOf(DateTime(2026, 10, 20, 12)), '/art/primary.jpg');
+      expect(await coverOf(DateTime(2026, 10, 20, 12)), '/art/deluxe.jpg');
     });
   });
 }

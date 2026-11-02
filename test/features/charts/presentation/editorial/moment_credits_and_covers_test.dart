@@ -3,13 +3,15 @@
 // Playing does. Both for stories from the device-polish start; earlier
 // stories keep exactly what they published.
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sonus_next/features/charts/domain/models/chart_type.dart';
 import 'package:sonus_next/features/charts/domain/moments/chart_moment_event.dart';
 import 'package:sonus_next/features/charts/domain/moments/chart_moment_event_type.dart';
 import 'package:sonus_next/features/charts/domain/moments/chart_moment_rules.dart';
 import 'package:sonus_next/features/charts/presentation/editorial/moment_editorial_desk.dart';
 import 'package:sonus_next/features/charts/presentation/editorial/moment_facts.dart';
 
-import 'moment_editorial_test.dart' show FakeLookups, event, items, song;
+import 'moment_editorial_test.dart'
+    show FakeLookups, artistEntity, event, items, release, song;
 
 final _start = DateTime.utc(2026, 11, 2);
 final _after = DateTime.utc(2026, 11, 3, 12);
@@ -199,9 +201,113 @@ void main() {
       expect(story.visual.left.path, '/art/girls-trip.jpg');
     });
 
-    test('earlier stories keep the cover they were published with', () {
+    // Approved correction: earlier stories show the same picture, read
+    // when shown; their words, publisher and identity stay exactly as they
+    // were published.
+    test('earlier stories of a Deluxe-only song show its edition cover', () {
       final story = _compose([_debut(at: _before)]).single;
-      expect(story.visual.left.path, '/art/midnight-sun.jpg');
+      expect(story.visual.left.path, '/art/girls-trip.jpg');
+    });
+
+    test('earlier stories keep every word, publisher and identity', () {
+      final lookups = _lookups(
+        featured: {
+          'amb': ['Madison Beer', 'BAMBII'],
+        },
+      );
+      for (final rules in [ChartMomentRules.legacy, _polished]) {
+        final now = _compose(
+          [_debut(at: _before)],
+          lookups: lookups,
+          rules: rules,
+        );
+        final plain = _compose(
+          [_debut(at: _before)],
+          lookups: _lookups(),
+          rules: ChartMomentRules.legacy,
+        );
+        expect(now.single.id, plain.single.id);
+        expect(now.single.headline, plain.single.headline);
+        expect(now.single.body, plain.single.body);
+        expect(now.single.publisher, plain.single.publisher);
+        expect(now.single.variantId, plain.single.variantId);
+        expect(now.single.occurredAt, plain.single.occurredAt);
+        expect(now.single.rank, plain.single.rank);
+        expect(now.single.headline, isNot(contains('BAMBII')));
+      }
+    });
+
+    test('without artwork of its own a song falls back to the album cover, '
+        'then the placeholder', () {
+      final fallback = MomentEditorialDesk(
+        lookups: FakeLookups(
+          artists: const {'artist-a': 'Zara Larsson'},
+          covers: const {'plain': '/art/album.jpg'},
+        ),
+        rules: _polished,
+      ).compose(items([_debut(id: 'plain', at: _before)])).single;
+      expect(fallback.visual.left.path, '/art/album.jpg');
+
+      final none = MomentEditorialDesk(
+        lookups: FakeLookups(artists: const {'artist-a': 'Zara Larsson'}),
+        rules: _polished,
+      ).compose(items([_debut(id: 'bare', at: _before)])).single;
+      expect(none.visual.left.path, isNull);
+    });
+
+    test(
+      'release stories show the current release cover, earlier ones too',
+      () {
+        for (final at in [_before, _after]) {
+          final story =
+              MomentEditorialDesk(
+                    lookups: FakeLookups(
+                      artists: const {'artist-a': 'Zara Larsson'},
+                      covers: const {'r1': '/art/standard.jpg'},
+                      currentCovers: const {'r1': '/art/deluxe.jpg'},
+                    ),
+                    rules: _polished,
+                  )
+                  .compose(
+                    items([
+                      event(
+                        ChartMomentEventType.debut,
+                        entity: release('r1'),
+                        chartType: ChartType.albums,
+                        source: 'r1-$at',
+                        at: at,
+                        rank: 12,
+                      ),
+                    ]),
+                  )
+                  .single;
+          expect(story.visual.left.path, '/art/deluxe.jpg', reason: '$at');
+        }
+      },
+    );
+
+    test('assigned artist artwork is kept: artist stories show the '
+        'portrait', () {
+      final story =
+          MomentEditorialDesk(
+            lookups: FakeLookups(
+              artists: const {'artist-a': 'Zara Larsson'},
+              portraits: const {'artist-a': '/art/zara-top-artists.jpg'},
+            ),
+            rules: _polished,
+          ).compose(
+            items([
+              event(
+                ChartMomentEventType.artistStreamMilestone,
+                entity: artistEntity('artist-a'),
+                source: 'milestone',
+                at: _before,
+                milestone: 100,
+              ),
+            ]),
+          );
+      expect(story, isNotEmpty);
+      expect(story.single.visual.left.path, '/art/zara-top-artists.jpg');
     });
 
     test('developing stories use the same artwork', () {

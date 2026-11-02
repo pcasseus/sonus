@@ -70,20 +70,19 @@ abstract final class MomentVisuals {
     final related = item.relatedEntity;
     final namesRival = variant.requires.contains(MomentFact.rival);
 
-    // SN-50 and device-polish stories show a song's own artwork, else its
-    // edition's cover, as Now Playing does (a Deluxe-only song showed the
-    // standard album's cover). Stories published before them keep their
-    // earlier cover rule (A4, F-Q17/C-23).
-    final current = facts.refined || facts.polished;
+    // Every story, whenever it was published, shows the picture the rest
+    // of Sonus shows (SN-50 device QA, approved for earlier stories too):
+    // a song's own artwork, then the primary edition's cover when the song
+    // is on it, then its home edition's cover (A-Q12/A-Q13, as Now
+    // Playing); a release's current cover (A-Q21/A-Q28). Read-only: the
+    // picture is resolved when shown, nothing stored changes, and the
+    // story's words are untouched.
     MomentImage cover(String id, {required bool song}) => MomentImage(
       kind: MomentImageKind.cover,
       entityId: id,
-      path: switch ((song, current)) {
-        (true, true) => lookups.currentSongCover(id),
-        (true, false) => lookups.songCover(id),
-        (false, true) => lookups.currentReleaseCover(id),
-        (false, false) => lookups.releaseCover(id),
-      },
+      path: song
+          ? lookups.currentSongCover(id)
+          : lookups.currentReleaseCover(id),
     );
     MomentImage portrait(String id) => MomentImage(
       kind: MomentImageKind.portrait,

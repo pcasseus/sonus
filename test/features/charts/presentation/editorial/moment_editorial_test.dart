@@ -1482,8 +1482,8 @@ void main() {
       expect(roundup.rank, isNull);
     });
 
-    test('F-Q17/C-23: SN-50 stories use the current covers; earlier ones '
-        'keep theirs', () {
+    test('F-Q17/C-23: every story uses the current covers, earlier '
+        'ones too (approved device QA correction)', () {
       final covered = MomentEditorialDesk(
         lookups: FakeLookups(
           artists: {'artist-a': 'Name artist-a'},
@@ -1515,7 +1515,7 @@ void main() {
       };
 
       expect(byEntity['s-new']!.visual.left.path, '/deluxe.jpg');
-      expect(byEntity['s-old']!.visual.left.path, '/primary.jpg');
+      expect(byEntity['s-old']!.visual.left.path, '/deluxe.jpg');
     });
   });
 }
