@@ -82,3 +82,23 @@ config/sonus.prod.json
 
 # Byte-exact database fixtures from earlier releases (restore compatibility).
 !test/fixtures/recovery/*.db
+
+# Personal Sonus data and device artifacts: never commit backups, exports,
+# captures or release binaries.
+*.sonusbackup
+*.apk
+*.aab
+*.idsig
+*.logcat
+*.hprof
+/test_runs/
+netstats*.txt
+logcat*.txt
+!test/fixtures/recovery/*.sonusbackup
+
+# Account-specific production restore tooling (SN-50 R1-R9): it names the
+# production project, the account and local backup folders. Kept locally.
+/supabase/deploy/sn50_*
+
+# Release decision checklist, kept local by decision (SN-50).
+/SN50_Decision_and_Release_Checklist.md
