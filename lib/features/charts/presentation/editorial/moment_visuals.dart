@@ -74,7 +74,8 @@ abstract final class MomentVisuals {
     // of Sonus shows (SN-50 device QA, approved for earlier stories too):
     // a song's own artwork, then the primary edition's cover when the song
     // is on it, then its home edition's cover (A-Q12/A-Q13, as Now
-    // Playing); a release's current cover (A-Q21/A-Q28). Read-only: the
+    // Playing); a release's current cover, from its edition with the most
+    // songs, as the album chart shows it (A-Q28). Read-only: the
     // picture is resolved when shown, nothing stored changes, and the
     // story's words are untouched.
     MomentImage cover(String id, {required bool song}) => MomentImage(

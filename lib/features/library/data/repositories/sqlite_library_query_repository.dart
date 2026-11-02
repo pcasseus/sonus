@@ -3,19 +3,19 @@ import '../../../search/application/repositories/library_search_repository.dart'
 import '../../application/models/library_album.dart';
 import '../../application/models/library_album_edition.dart';
 import '../../application/models/library_artist.dart';
+import '../../application/models/library_release_edition.dart';
 import '../../application/models/library_track.dart';
 import '../../application/models/library_track_order.dart';
 import '../../application/models/project_collaborator.dart';
 import '../../application/models/project_song_credit.dart';
 import '../../application/repositories/library_query_repository.dart';
-import '../../domain/entities/album_edition.dart';
 import '../daos/library_query_dao.dart';
 
 class SqliteLibraryQueryRepository
     implements
         LibraryQueryRepository,
         AlbumEditionQueryRepository,
-        DeluxeEditionQueryRepository,
+        ReleaseEditionQueryRepository,
         StructuredArtistQueryRepository,
         ProjectCollaboratorQueryRepository,
         ProjectSongCreditQueryRepository,
@@ -96,8 +96,8 @@ class SqliteLibraryQueryRepository
   }
 
   @override
-  Future<List<LibraryAlbumEdition>> getDeluxeEditions() {
-    return dao.findEditionsOfType(AlbumEditionType.deluxe);
+  Future<List<LibraryReleaseEdition>> getReleaseEditions() {
+    return dao.findReleaseEditions();
   }
 
   @override

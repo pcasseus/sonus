@@ -22,6 +22,7 @@ class MomentPostCard extends StatelessWidget {
     required this.story,
     required this.now,
     this.credit,
+    this.releaseTitle,
     this.onOpenSong,
     this.onOpenAlbum,
     this.onOpenArtist,
@@ -32,6 +33,12 @@ class MomentPostCard extends StatelessWidget {
 
   /// The song's role-aware performer line, as text only (F-Q19/F-Q20).
   final String? credit;
+
+  /// The current title of the release the release button opens, when it
+  /// differs from the recorded one (an album story opening the release's
+  /// edition with the most songs). Only the button's spoken name uses it;
+  /// the headline and body keep their recorded words.
+  final String? releaseTitle;
   final VoidCallback? onOpenSong;
   final VoidCallback? onOpenAlbum;
   final VoidCallback? onOpenArtist;
@@ -47,7 +54,7 @@ class MomentPostCard extends StatelessWidget {
         onOpenSong != null || onOpenAlbum != null || onOpenArtist != null;
     final facts = story.facts;
     final releaseName = facts.chartType == ChartType.albums
-        ? facts.title
+        ? releaseTitle ?? facts.title
         : facts.album;
 
     // SN-49: one container per story, so a screen reader moves story by

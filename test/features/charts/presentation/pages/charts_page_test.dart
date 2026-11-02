@@ -7,6 +7,7 @@ import 'package:sonus_next/core/design/sonus_theme_factory.dart';
 import 'package:sonus_next/core/design/sonus_theme_id.dart';
 import 'package:sonus_next/features/library/application/models/library_album.dart';
 import 'package:sonus_next/features/library/application/models/library_album_edition.dart';
+import 'package:sonus_next/features/library/application/models/library_release_edition.dart';
 import 'package:sonus_next/features/library/application/models/library_artist.dart';
 import 'package:sonus_next/features/library/application/models/library_track.dart';
 import 'package:sonus_next/features/library/application/models/library_track_order.dart';
@@ -672,26 +673,43 @@ void main() {
     expect(find.text('Debut #80 · Sep 20, 2026'), findsOneWidget);
   });
 
-  group('Deluxe-first album standings', () {
-    LibraryAlbumEdition deluxe(
+  group('album standings show the edition with the most songs', () {
+    LibraryReleaseEdition deluxe(
       String id, {
+      int tracks = 16,
       String? title,
       String? artworkPath,
       DateTime? releaseDate,
-    }) => LibraryAlbumEdition(
-      editionId: id,
-      albumId: 'albums_1',
-      title: title ?? 'Album 1 ($id)',
-      type: AlbumEditionType.deluxe,
-      isPrimary: false,
-      releaseDate: releaseDate,
-      artworkPath: artworkPath,
-      dateAdded: DateTime.utc(2026, 9, 2),
+    }) => LibraryReleaseEdition(
+      edition: LibraryAlbumEdition(
+        editionId: id,
+        albumId: 'albums_1',
+        title: title ?? 'Album 1 ($id)',
+        type: AlbumEditionType.deluxe,
+        isPrimary: false,
+        releaseDate: releaseDate,
+        artworkPath: artworkPath,
+        dateAdded: DateTime.utc(2026, 9, 2),
+      ),
+      trackCount: tracks,
+    );
+
+    LibraryReleaseEdition standard(int tracks) => LibraryReleaseEdition(
+      edition: LibraryAlbumEdition(
+        editionId: 'standard_1',
+        albumId: 'albums_1',
+        title: 'Standard',
+        type: AlbumEditionType.standard,
+        isPrimary: true,
+        dateAdded: DateTime.utc(2026, 9, 1),
+      ),
+      trackCount: tracks,
     );
 
     testWidgets('shows the Deluxe and opens it', (tester) async {
       final controller = await _controller(
-        deluxeEditions: () async => [
+        releaseEditions: () async => [
+          standard(12),
           deluxe('deluxe_a', releaseDate: DateTime.utc(2024, 5, 1)),
           deluxe('deluxe_b', releaseDate: DateTime.utc(2025, 5, 1)),
         ],
@@ -728,7 +746,7 @@ void main() {
             finalized: true,
           ),
         ],
-        deluxeEditions: () async => [deluxe('deluxe_a')],
+        releaseEditions: () async => [standard(12), deluxe('deluxe_a')],
       );
 
       await _pumpPage(tester, controller);
@@ -744,7 +762,7 @@ void main() {
       tester,
     ) async {
       final controller = await _controller(
-        deluxeEditions: () async => throw StateError('offline'),
+        releaseEditions: () async => throw StateError('offline'),
       );
 
       await _pumpPage(tester, controller);
@@ -752,6 +770,24 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Album 1'), findsOneWidget);
+    });
+
+    testWidgets('a shorter Deluxe leaves the longer standard edition shown', (
+      tester,
+    ) async {
+      final controller = await _controller(
+        releaseEditions: () async => [
+          standard(14),
+          deluxe('deluxe_a', tracks: 3, artworkPath: 'C:/covers/deluxe.jpg'),
+        ],
+      );
+
+      await _pumpPage(tester, controller);
+      await controller.selectChartType(ChartType.albums);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Album 1'), findsOneWidget);
+      expect(find.text('Album 1 (deluxe_a)'), findsNothing);
     });
   });
 
@@ -2647,7 +2683,7 @@ Future<ChartsController> _controller({
   List<LibraryArtist> artists = const [],
   List<ChartMomentEvent> moments = const [],
   ReleaseFormatsLoader? releaseFormats,
-  DeluxeEditionsLoader? deluxeEditions,
+  ReleaseEditionsLoader? releaseEditions,
   ThisWeekChartService? thisWeek,
   MomentsLastSeenStore? momentsLastSeen,
   int momentPageSize = ChartMomentFeedPager.defaultPageSize,
@@ -2675,7 +2711,7 @@ Future<ChartsController> _controller({
     moments: _FakeChartMomentRepository(events: moments),
     now: () => DateTime(2026, 9, 28, 12),
     releaseFormats: releaseFormats,
-    deluxeEditions: deluxeEditions,
+    releaseEditions: releaseEditions,
     thisWeekCharts: thisWeek,
     momentsLastSeen: momentsLastSeen,
     momentPageSize: momentPageSize,

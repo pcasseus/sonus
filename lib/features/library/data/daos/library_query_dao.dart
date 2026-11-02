@@ -4,12 +4,12 @@ import '../../../../core/database/database_tables.dart';
 import '../../application/models/library_album.dart';
 import '../../application/models/library_album_edition.dart';
 import '../../application/models/library_artist.dart';
+import '../../application/models/library_release_edition.dart';
 import '../../application/models/library_track.dart';
 import '../../application/models/library_track_order.dart';
 import '../../application/models/project_collaborator.dart';
 import '../../application/models/project_song_credit.dart';
 import '../../application/models/song_display_title.dart';
-import '../../domain/entities/album_edition.dart';
 import '../../domain/entities/song_artist_credit.dart';
 import '../../../search/application/models/library_search_results.dart';
 import '../mappers/library_album_row_mapper.dart';
@@ -589,22 +589,45 @@ class LibraryQueryDao {
         ON aa.id = ae.artwork_id
       ''';
 
-  /// Every edition of [type] across the library, in one query.
-  Future<List<LibraryAlbumEdition>> findEditionsOfType(
-    AlbumEditionType type,
-  ) async {
-    final rows = await db.rawQuery(
-      '''
-      $_editionColumns
-      WHERE ae.type = ?
+  /// Every edition across the library with its song count, in one query.
+  /// A song counts once per edition, and only when it belongs to the
+  /// edition's own release, exactly as [findTracksByAlbumEditionId] lists
+  /// the edition's tracks.
+  Future<List<LibraryReleaseEdition>> findReleaseEditions() async {
+    final rows = await db.rawQuery('''
+      SELECT
+        ae.id AS album_edition_id,
+        ae.album_id AS album_id,
+        ae.title AS album_edition_title,
+        ae.type AS edition_type,
+        ae.is_primary AS is_primary,
+        ae.release_date AS release_date,
+        ae.release_date_precision AS release_date_precision,
+        ae.genre AS genre,
+        ae.artwork_id AS artwork_id,
+        aa.file_path AS artwork_path,
+        ae.created_at AS created_at,
+        (
+          SELECT COUNT(DISTINCT et.song_id)
+          FROM ${DatabaseTables.albumEditionTracks} et
+          INNER JOIN ${DatabaseTables.songs} es
+            ON es.id = et.song_id
+            AND es.album_id = ae.album_id
+          WHERE et.album_edition_id = ae.id
+        ) AS edition_track_count
+      FROM ${DatabaseTables.albumEditions} ae
+      LEFT JOIN ${DatabaseTables.artworkAssets} aa
+        ON aa.id = ae.artwork_id
       ORDER BY ae.album_id ASC, ae.id ASC
-      ''',
-      [type.name],
-    );
+      ''');
 
-    return rows
-        .map(LibraryAlbumEditionRowMapper.fromRow)
-        .toList(growable: false);
+    return [
+      for (final row in rows)
+        LibraryReleaseEdition(
+          edition: LibraryAlbumEditionRowMapper.fromRow(row),
+          trackCount: row['edition_track_count'] as int? ?? 0,
+        ),
+    ];
   }
 
   Future<List<LibraryAlbumEdition>> findAlbumEditions(String albumId) async {

@@ -210,9 +210,9 @@ class _ChartsScopeState extends State<ChartsScope> {
       allTimeMoments: allTimeMoments,
       now: widget.now,
       releaseFormats: organization?.releaseFormatsForDisplay,
-      deluxeEditions: switch (library) {
-        final DeluxeEditionQueryRepository editions =>
-          editions.getDeluxeEditions,
+      releaseEditions: switch (library) {
+        final ReleaseEditionQueryRepository editions =>
+          editions.getReleaseEditions,
         _ => null,
       },
       thisWeekCharts: ThisWeekChartService(

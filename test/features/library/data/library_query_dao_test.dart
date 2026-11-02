@@ -508,18 +508,39 @@ void main() {
     expect(albums.single.primaryEditionType, AlbumEditionType.expanded);
   });
 
-  test('editions of a type are read across the library at once', () async {
+  test('every edition is read with its song count at once', () async {
+    final fixture = await _createFixture(appDatabase);
+    await _list(fixture, fixture.standardEdition, [
+      fixture.alphaSong,
+      fixture.betaSong,
+    ]);
+    await _list(fixture, fixture.deluxeEdition, [
+      fixture.alphaSong,
+      fixture.betaSong,
+      fixture.zuluSong,
+    ]);
+
+    final editions = await LibraryQueryDao(fixture.db).findReleaseEditions();
+    final byId = {
+      for (final candidate in editions) candidate.edition.editionId: candidate,
+    };
+
+    expect(editions, hasLength(2));
+    expect(byId[fixture.standardEdition.id]!.trackCount, 2);
+    // A song shared with the standard edition counts on each edition once.
+    expect(byId[fixture.deluxeEdition.id]!.trackCount, 3);
+    final deluxe = byId[fixture.deluxeEdition.id]!.edition;
+    expect(deluxe.albumId, fixture.album.id);
+    expect(deluxe.type, AlbumEditionType.deluxe);
+    expect(deluxe.releaseDate, DateTime.utc(2026, 6, 20));
+  });
+
+  test('an edition without listed songs counts none', () async {
     final fixture = await _createFixture(appDatabase);
 
-    final deluxes = await LibraryQueryDao(
-      fixture.db,
-    ).findEditionsOfType(AlbumEditionType.deluxe);
+    final editions = await LibraryQueryDao(fixture.db).findReleaseEditions();
 
-    expect(deluxes, hasLength(1));
-    expect(deluxes.single.editionId, fixture.deluxeEdition.id);
-    expect(deluxes.single.albumId, fixture.album.id);
-    expect(deluxes.single.type, AlbumEditionType.deluxe);
-    expect(deluxes.single.releaseDate, DateTime.utc(2026, 6, 20));
+    expect(editions.map((candidate) => candidate.trackCount), everyElement(0));
   });
 
   test(

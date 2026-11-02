@@ -41,7 +41,8 @@ abstract interface class MomentLookups {
   String? currentSongCover(String songId);
 
   /// The release's cover for SN-50 stories: the current album chart's,
-  /// Deluxe first (A-Q21, A-Q28).
+  /// from its edition with the most songs (A-Q28: an edition without a
+  /// cover keeps the placeholder).
   String? currentReleaseCover(String albumId);
 
   /// The artist's portrait, or their banner without one.

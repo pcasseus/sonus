@@ -955,6 +955,7 @@ class _MomentPost extends StatelessWidget {
       story: story,
       now: now,
       credit: controller.creditForMoment(story),
+      releaseTitle: controller.releaseTitleForMoment(item),
       onOpenSong: playable
           ? () => unawaited(_showChartTrackContext(context, track, [track]))
           : null,

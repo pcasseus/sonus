@@ -4,6 +4,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sonus_next/core/design/sonus_theme_factory.dart';
+import 'package:sonus_next/features/charts/domain/models/chart_type.dart';
 import 'package:sonus_next/features/charts/domain/moments/chart_moment_event_type.dart';
 import 'package:sonus_next/features/charts/presentation/editorial/moment_editorial_desk.dart';
 import 'package:sonus_next/features/charts/presentation/news/moment_post_card.dart';
@@ -116,6 +117,64 @@ void main() {
     expect(find.bySemanticsLabel('Open Album, Album of s2'), findsOneWidget);
     // The visible words stay short.
     expect(find.text('Artist'), findsNWidgets(2));
+    handle.dispose();
+  });
+
+  testWidgets('a release button names the edition it opens; the story '
+      'keeps its recorded words', (tester) async {
+    final handle = tester.ensureSemantics();
+    final story =
+        MomentEditorialDesk(
+              lookups: fixtures.FakeLookups(
+                artists: {'artist-a': 'Name artist-a'},
+              ),
+              minorStoriesPerDay: 100,
+            )
+            .compose(
+              fixtures.items([
+                fixtures.event(
+                  ChartMomentEventType.debut,
+                  entity: fixtures.release('r1'),
+                  chartType: ChartType.albums,
+                  rank: 3,
+                  streams: 40,
+                  source: 'p1',
+                ),
+              ]),
+            )
+            .single;
+
+    Future<void> show({String? releaseTitle}) => tester.pumpWidget(
+      MaterialApp(
+        theme: SonusThemeFactory.build(const SonusAppearanceSpec()),
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: MomentPostCard(
+              story: story,
+              now: DateTime.utc(2026, 10, 27),
+              releaseTitle: releaseTitle,
+              onOpenAlbum: () {},
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final recorded = story.facts.title;
+    await show();
+    expect(
+      find.bySemanticsLabel('Open ${story.facts.releaseLabel}, $recorded'),
+      findsOneWidget,
+    );
+
+    await show(releaseTitle: 'Release r1 (Deluxe)');
+    expect(
+      find.bySemanticsLabel(
+        'Open ${story.facts.releaseLabel}, Release r1 (Deluxe)',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text(story.headline), findsOneWidget);
     handle.dispose();
   });
 

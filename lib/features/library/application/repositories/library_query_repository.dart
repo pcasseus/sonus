@@ -1,6 +1,7 @@
 import '../models/library_album.dart';
 import '../models/library_album_edition.dart';
 import '../models/library_artist.dart';
+import '../models/library_release_edition.dart';
 import '../models/library_track.dart';
 import '../models/library_track_order.dart';
 import '../models/project_collaborator.dart';
@@ -41,10 +42,11 @@ abstract interface class AlbumEditionQueryRepository {
   Future<List<LibraryTrack>> getTracksByAlbumEditionId(String editionId);
 }
 
-/// Deluxe editions across the library, for current chart presentation
-/// (SN-50 A-Q21).
-abstract interface class DeluxeEditionQueryRepository {
-  Future<List<LibraryAlbumEdition>> getDeluxeEditions();
+/// Every edition across the library with its song count, in one query, for
+/// album-level presentation: the edition with the most songs represents
+/// its release (SN-50).
+abstract interface class ReleaseEditionQueryRepository {
+  Future<List<LibraryReleaseEdition>> getReleaseEditions();
 }
 
 /// Credited performers by project, in one query for the whole library.

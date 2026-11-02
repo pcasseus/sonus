@@ -23,6 +23,7 @@ import 'package:sonus_next/features/charts/presentation/editorial/moment_publish
 import 'package:sonus_next/features/charts/presentation/models/charts_presentation_mode.dart';
 import 'package:sonus_next/features/library/application/models/library_album.dart';
 import 'package:sonus_next/features/library/application/models/library_album_edition.dart';
+import 'package:sonus_next/features/library/application/models/library_release_edition.dart';
 import 'package:sonus_next/features/library/application/models/library_track.dart';
 import 'package:sonus_next/features/library/application/repositories/library_query_repository.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
@@ -414,17 +415,7 @@ void main() {
           events: [_releaseDebut('one', at: at)],
           tracks: [_track('one')],
           editions: [_edition('primary', primary: true), _edition('deluxe')],
-          deluxes: [
-            LibraryAlbumEdition(
-              editionId: 'deluxe',
-              albumId: 'album-1',
-              title: 'Album One (Deluxe)',
-              type: AlbumEditionType.deluxe,
-              isPrimary: false,
-              dateAdded: DateTime.utc(2026, 9, 1),
-              artworkPath: '/art/deluxe.jpg',
-            ),
-          ],
+          releaseEditions: _longerDeluxe,
         );
         final story = loaded.controller.momentStories.singleWhere(
           (story) => story.item.chartType == ChartType.albums,
@@ -437,7 +428,115 @@ void main() {
       expect(await coverOf(DateTime(2026, 10, 20, 12)), '/art/deluxe.jpg');
     });
   });
+
+  group('the release is presented by its edition with the most songs', () {
+    final at = DateTime(2026, 11, 3, 12);
+
+    test('a shorter Deluxe leaves the standard cover on release stories, '
+        "while a Deluxe-only song keeps its own edition's picture", () async {
+      final loaded = await _controller(
+        events: [
+          _releaseDebut('one', at: at),
+          _debut('bonus', at: at, rank: 20),
+        ],
+        // The library resolves a Deluxe-only song's picture from the
+        // edition it lives on (A-Q12/A-Q13).
+        tracks: [_track('bonus', artworkPath: '/art/deluxe.jpg')],
+        editions: [_edition('primary', primary: true), _edition('deluxe')],
+        releaseEditions: _shorterDeluxe,
+      );
+      final stories = loaded.controller.momentStories;
+      final release = stories.singleWhere(
+        (story) => story.item.chartType == ChartType.albums,
+      );
+      final song = stories.singleWhere(
+        (story) => story.item.chartType == ChartType.songs,
+      );
+
+      expect(release.visual.left.path, '/art/primary.jpg');
+      expect(song.visual.left.path, '/art/deluxe.jpg');
+    });
+
+    test('a longer Deluxe gives release stories its cover and opens it; '
+        "the story's words stay as recorded", () async {
+      final loaded = await _controller(
+        events: [_releaseDebut('one', at: at)],
+        tracks: [_track('one')],
+        editions: [_edition('primary', primary: true), _edition('deluxe')],
+        releaseEditions: _longerDeluxe,
+      );
+      final story = loaded.controller.momentStories.single;
+      final target = await loaded.controller.releaseTargetForMoment(story.item);
+
+      expect(story.visual.left.path, '/art/deluxe.jpg');
+      expect(story.facts.title, 'Album One');
+      expect(target?.editionId, 'deluxe');
+    });
+
+    test('the release button names the edition a refined story opens; '
+        'earlier stories keep the recorded name', () async {
+      final loaded = await _controller(
+        events: [
+          _releaseDebut('new', at: at),
+          _releaseDebut('old', at: DateTime(2026, 10, 20, 12)),
+          _debut('song', at: at, rank: 20),
+        ],
+        tracks: [_track('song')],
+        editions: [_edition('primary', primary: true), _edition('deluxe')],
+        releaseEditions: _longerDeluxe,
+      );
+      final titles = {
+        for (final story in loaded.controller.momentStories)
+          story.item.id: loaded.controller.releaseTitleForMoment(story.item),
+      };
+
+      expect(titles.values.whereType<String>(), ['Album One (Deluxe)']);
+      expect(titles.length, 3);
+    });
+
+    test('a shorter Deluxe opens the primary edition', () async {
+      final loaded = await _controller(
+        events: [_releaseDebut('one', at: at)],
+        tracks: [_track('one')],
+        editions: [_edition('primary', primary: true), _edition('deluxe')],
+        releaseEditions: _shorterDeluxe,
+      );
+      final target = await loaded.controller.releaseTargetForMoment(
+        loaded.controller.momentStories.single.item,
+      );
+
+      expect(target?.editionId, 'primary');
+    });
+  });
 }
+
+LibraryReleaseEdition _countedEdition(
+  String id, {
+  required int tracks,
+  bool primary = false,
+  String? artworkPath,
+}) => LibraryReleaseEdition(
+  edition: LibraryAlbumEdition(
+    editionId: id,
+    albumId: 'album-1',
+    title: primary ? 'Album One' : 'Album One (Deluxe)',
+    type: primary ? AlbumEditionType.standard : AlbumEditionType.deluxe,
+    isPrimary: primary,
+    dateAdded: DateTime.utc(2026, 9, 1),
+    artworkPath: artworkPath,
+  ),
+  trackCount: tracks,
+);
+
+final _longerDeluxe = [
+  _countedEdition('primary', tracks: 12, primary: true),
+  _countedEdition('deluxe', tracks: 16, artworkPath: '/art/deluxe.jpg'),
+];
+
+final _shorterDeluxe = [
+  _countedEdition('primary', tracks: 12, primary: true),
+  _countedEdition('deluxe', tracks: 4, artworkPath: '/art/deluxe.jpg'),
+];
 
 /// What a reader sees of each story.
 List<String> _summary(List<MomentStory> stories) => [
@@ -563,7 +662,7 @@ Future<({ChartsController controller, _PagedMoments moments})> _controller({
   List<LibraryTrack>? tracks,
   List<LibraryAlbumEdition> editions = const [],
   Map<String, String> playEditions = const {},
-  List<LibraryAlbumEdition>? deluxes,
+  List<LibraryReleaseEdition>? releaseEditions,
 }) async {
   final moments = _PagedMoments(events);
   final controller = ChartsController(
@@ -590,7 +689,9 @@ Future<({ChartsController controller, _PagedMoments moments})> _controller({
     now: () => DateTime(2026, 11, 5, 12),
     momentsLastSeen: store,
     playEdition: (playId) async => playEditions[playId],
-    deluxeEditions: deluxes == null ? null : () async => deluxes,
+    releaseEditions: releaseEditions == null
+        ? null
+        : () async => releaseEditions,
     momentPageSize: pageSize,
     momentRules: () async =>
         ChartMomentRules(activatedAtUtc: DateTime.utc(2026, 11, 1)),

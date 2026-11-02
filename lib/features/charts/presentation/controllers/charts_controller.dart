@@ -7,7 +7,7 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 
 import '../../../library/application/models/library_album.dart';
-import '../../../library/application/models/library_album_edition.dart';
+import '../../../library/application/models/library_release_edition.dart';
 import '../../../library/application/models/library_artist.dart';
 import '../../../library/application/models/library_track.dart';
 import '../../../library/application/repositories/library_query_repository.dart';
@@ -47,7 +47,8 @@ typedef ReleaseFormatsLoader = Future<Map<String, ReleaseFormat?>> Function();
 
 /// Every Deluxe edition in the library, for the current album chart's
 /// titles and covers.
-typedef DeluxeEditionsLoader = Future<List<LibraryAlbumEdition>> Function();
+/// Every edition with its song count, for album-level presentation.
+typedef ReleaseEditionsLoader = Future<List<LibraryReleaseEdition>> Function();
 
 /// The album edition a qualified play was of, or null if the play is gone.
 typedef PlayEditionLoader = Future<String?> Function(String playId);
@@ -95,7 +96,7 @@ class ChartsController extends ChangeNotifier {
         const ChartMomentFeedAggregator(),
     ChartsControllerNow? now,
     ReleaseFormatsLoader? releaseFormats,
-    DeluxeEditionsLoader? deluxeEditions,
+    ReleaseEditionsLoader? releaseEditions,
     ThisWeekChartService? thisWeekCharts,
     MomentsLastSeenStore? momentsLastSeen,
     PlayEditionLoader? playEdition,
@@ -110,7 +111,7 @@ class ChartsController extends ChangeNotifier {
        _momentFeedAggregator = momentFeedAggregator,
        _now = now ?? DateTime.now,
        _loadReleaseFormats = releaseFormats,
-       _loadDeluxeEditions = deluxeEditions,
+       _loadReleaseEditions = releaseEditions,
        _thisWeekCharts = thisWeekCharts,
        _momentsLastSeen = momentsLastSeen,
        _loadPlayEdition = playEdition,
@@ -135,7 +136,7 @@ class ChartsController extends ChangeNotifier {
   final ReleaseFormatsLoader? _loadReleaseFormats;
   Map<String, ReleaseFormat?> _releaseFormats = const {};
 
-  final DeluxeEditionsLoader? _loadDeluxeEditions;
+  final ReleaseEditionsLoader? _loadReleaseEditions;
   Map<String, ChartAlbumPresentation> _albumPresentations = const {};
 
   /// The published stories for the current feed, composed once per load.
@@ -647,7 +648,8 @@ class ChartsController extends ChangeNotifier {
   }
 
   /// The title, cover and edition the current album chart shows for a
-  /// release: Deluxe first (SN-50 A-Q21). Null on weekly history, whose
+  /// release: its edition with the most songs (SN-50; see
+  /// [ChartAlbumPresentation.resolve]). Null on weekly history, whose
   /// rows keep their stored titles, and for releases not in the library.
   ChartAlbumPresentation? albumPresentationFor(ChartEntry entry) {
     if (!isViewingAllTime || _chartType != ChartType.albums) {
@@ -972,6 +974,25 @@ class ChartsController extends ChangeNotifier {
       : null;
 
   /// The album a Moment is about, or the album of its song.
+  /// The release title an album-chart story's release button names: the
+  /// title of the edition it opens (the release's edition with the most
+  /// songs) for stories under the SN-50 rules, as [releaseTargetForMoment]
+  /// opens it. Null keeps the recorded name: for earlier stories, song
+  /// stories and releases not in the library. Presentation only; the
+  /// story's own words never change.
+  String? releaseTitleForMoment(ChartMomentFeedItem item) {
+    if (item.chartType != ChartType.albums) return null;
+    if (!_momentRules.appliesTo(
+      scope: item.scope,
+      occurredAt: item.occurredAt,
+      weekStartUtc: item.weekStartUtc,
+    )) {
+      return null;
+    }
+    final album = albumForMoment(item);
+    return album == null ? null : _albumPresentations[album.albumId]?.title;
+  }
+
   LibraryAlbum? albumForMoment(ChartMomentFeedItem item) =>
       switch (item.chartType) {
         ChartType.songs => _albumsById[trackForMoment(item)?.albumId],
@@ -1050,12 +1071,12 @@ class ChartsController extends ChangeNotifier {
   }
 
   /// Fails open like formats: without editions releases show their primary.
-  Future<List<LibraryAlbumEdition>> _readDeluxeEditions() async {
+  Future<List<LibraryReleaseEdition>> _readReleaseEditions() async {
     try {
-      return await _loadDeluxeEditions?.call() ?? const [];
+      return await _loadReleaseEditions?.call() ?? const [];
     } catch (error, stackTrace) {
       developer.log(
-        'Deluxe editions could not be read (${error.runtimeType}); '
+        'Release editions could not be read (${error.runtimeType}); '
         'albums show their primary edition',
         name: 'sonus.charts',
         level: 900,
@@ -1302,7 +1323,7 @@ class ChartsController extends ChangeNotifier {
       final albums = await _library.getAlbums();
       final artists = await _library.getArtists();
       final formats = await _readReleaseFormats();
-      final deluxes = await _readDeluxeEditions();
+      final editions = await _readReleaseEditions();
 
       var momentFeedItems = _momentFeedItems;
       var momentPager = _momentPager;
@@ -1344,7 +1365,7 @@ class ChartsController extends ChangeNotifier {
       _tracksById = {for (final track in tracks) track.songId: track};
 
       _albumsById = {for (final album in albums) album.albumId: album};
-      _albumPresentations = _albumPresentationsOf(albums, deluxes);
+      _albumPresentations = _albumPresentationsOf(albums, editions);
 
       _artistsById = {for (final artist in artists) artist.artistId: artist};
       _releaseFormats = formats;
@@ -1420,11 +1441,11 @@ class ChartsController extends ChangeNotifier {
 
   static Map<String, ChartAlbumPresentation> _albumPresentationsOf(
     List<LibraryAlbum> albums,
-    List<LibraryAlbumEdition> deluxes,
+    List<LibraryReleaseEdition> editions,
   ) {
-    final byAlbum = <String, List<LibraryAlbumEdition>>{};
-    for (final edition in deluxes) {
-      byAlbum.putIfAbsent(edition.albumId, () => []).add(edition);
+    final byAlbum = <String, List<LibraryReleaseEdition>>{};
+    for (final candidate in editions) {
+      byAlbum.putIfAbsent(candidate.edition.albumId, () => []).add(candidate);
     }
 
     return Map.unmodifiable({
@@ -1535,7 +1556,8 @@ class _ControllerMomentLookups implements MomentLookups {
         _nonEmpty(_controller._albumsById[track.albumId]?.artworkPath);
   }
 
-  /// A Deluxe without a cover keeps the placeholder (A-Q28).
+  /// The represented edition's cover; an edition without one keeps the
+  /// placeholder (A-Q28).
   @override
   String? currentReleaseCover(String albumId) {
     final presentation = _controller._albumPresentations[albumId];
