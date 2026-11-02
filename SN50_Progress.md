@@ -945,6 +945,43 @@ Authority: your round 14 instructions (do the code-only functional items, prepar
 - **Full suites:** P1–P2 5,275; P3–P4 5,363; P5–P6 **5,407 passed, 0 failed, exit 0**.
 - **Schema/cloud/chart/Moments:** unchanged; refined Moments flag off. One design token added (`SonusColors.accentTertiary`, the palette's existing tertiary).
 
+## Round 17 (2026-11-01/02): cloud sync restore (R1–R9), album edition rule, history privacy fix
+
+- **Cloud sync restore: complete; R9 PASSED 2026-11-02.** The phone was the authoritative copy. The steps:
+  - The account's obsolete cloud library (190 rows) and its 36 orphaned Storage files were backed up, verified and retired.
+  - The 12 pending migrations were applied, after recording the 5 already deployed in the migration history.
+  - The phone's first sync ran in three runs. The first uploaded the library and archive, the second the crop images and crop records. The third, a check run, wrote nothing.
+
+  The cloud now matches the phone:
+  - 74 artists, 97 albums, 107 editions and 881 songs, all at revision 1;
+  - 197 artwork rows, each with its Storage file;
+  - archive: 1 playlist, 283 listening sessions, 431 all-time Moments, 98 crops and 45 release classifications;
+  - no orphans, no tombstones and no rows from other accounts. RLS is on and the bucket is private.
+
+  The phone backups taken before and after the sync are identical in every row of all 20 tables and in all 229 artwork files. Finalized charts are unchanged.
+
+  The account-specific runbook and scripts stay local; `/supabase/deploy/sn50_*` is ignored. They name the production project, the account and local backup folders.
+- **Album presentation: the edition with the most songs represents the release.** This replaces "Deluxe first" (A-Q21).
+  - **What uses it:** the Albums Chart (title, cover, and the edition opened), release Moment covers, and the release button of refined album Moments. That button's spoken label names the edition it opens.
+  - **Counting:** each song once, and only songs of the edition's own release, exactly as the edition's track list shows them.
+  - **Ties:** a Deluxe (most recently released, then most recently added), then the primary edition, then recency.
+  - **Unchanged:** A-Q28 still applies (an edition without a cover keeps the placeholder). Moment headline and body text, song artwork, finalized weeks, stored records and sync payloads are unchanged.
+  - **Checks:** full suite **5,596 passed, 0 failed, exit 0**; analyzer clean; a debug build succeeds.
+- **History privacy fix (approved 2026-11-02, before the first push of SN-50).** The phone's serial number was removed from `SN50_Android_Device_QA_Checklist.md` in the 24 unpushed commits that carried it. Nothing else changed: same files, messages, authors and dates.
+
+  The commit hashes cited in earlier entries and docs map as follows (old → new):
+
+  | Old | New | Old | New | Old | New |
+  |---|---|---|---|---|---|
+  | `32dfc5f` | `379cb7b` | `ad8a6ec` | `a393ec9` | `09ffa7c` | `4bac1af` |
+  | `c3c6812` | `f0f2cdb` | `65ff309` | `a7e70e5` | `eac92ec` | `8f1d27e` |
+  | `d2516d5` | `96fd9cf` | `4dad9a4` | `770fc69` | `56db2a4` | `0285e53` |
+  | `02d38c4` | `69335a8` | `a7622c7` | `b11f358` | `7c62836` | `b674495` |
+  | `deb7a31` | `eb74bd3` | `3c4064a` | `42ffa2f` | `0b5f22c` | `1f161b9` |
+  | `43c5cd7` | `9e85b08` | `23573bf` | `7640802` | `4d985c3` | `1f6e7db` |
+  | `7517776` | `c0f2794` | `5924cff` | `96d3e93` | `e68e63c` | `9c60c4e` |
+  | `bca3a5a` | `bbb8b05` | `3b61321` | `1827bd7` | `5331d23` | `14d81f5` |
+
 ## BLOCKED_NEEDS_APPROVAL / user decisions
 
 **[Round 14]** #3 is fixed (`5e4ec13`), #4 has the decided manual re-send (`2926496`), #5 was already done, #6 and #8 are decided (#6 in `6f719d5`). Device QA checklist: `SN50_Android_Device_QA_Checklist.md`.

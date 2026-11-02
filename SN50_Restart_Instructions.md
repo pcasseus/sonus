@@ -61,7 +61,7 @@ The user's next priorities, in order:
 
 ## Tooling
 
-The scripts are in the **old** scratchpad: `C:\Users\patri\AppData\Local\Temp\claude\C--dev-sonus-sonus-next-sn49\4ce5fc24-049c-4db3-a342-c1342ba00ef4\scratchpad\`. A new session may get a different scratchpad, so recreate them if they're missing.
+The scripts are in the **old** scratchpad: the SN-49 session's Claude Code scratchpad (under `%LOCALAPPDATA%\Temp\claude\`). A new session may get a different scratchpad, so recreate them if they're missing.
 
 - **`commit\commit.ps1 -MessageFile <f> -PathsFile <f>`:**
   - checks the branch, stages the allowlist and requires an exact staged-set match;
