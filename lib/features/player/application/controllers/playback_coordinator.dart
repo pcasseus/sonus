@@ -3,6 +3,7 @@ import '../../domain/models/playback_repeat_mode.dart';
 import '../../domain/models/playback_state.dart';
 import '../../domain/models/playback_track.dart';
 import '../../domain/services/playback_engine.dart';
+import '../../domain/services/shuffle_order_playback.dart';
 import '../mappers/library_track_playback_mapper.dart';
 
 class PlaybackCoordinator {
@@ -26,10 +27,21 @@ class PlaybackCoordinator {
     ], autoPlay: autoPlay);
   }
 
+  /// The engine's shuffled play order (queue indices) while shuffle is on,
+  /// when the engine can report it (SN-50 #24).
+  List<int>? get shuffleOrder => switch (_engine) {
+    final ShuffleOrderPlayback engine => engine.shuffleOrder,
+    _ => null,
+  };
+
+  /// [shuffleOrder], when given, is the play order to restore (SN-50 #24).
+  /// It is used only if every track is playable, so its indices still
+  /// match, and the engine supports it; otherwise it is ignored.
   Future<void> playTracks(
     List<LibraryTrack> tracks, {
     int startIndex = 0,
     bool autoPlay = true,
+    List<int>? shuffleOrder,
   }) async {
     if (tracks.isEmpty) {
       await _engine.stop();
@@ -48,12 +60,23 @@ class PlaybackCoordinator {
       throw StateError('No playable tracks are available.');
     }
 
-    final remappedStartIndex = playableTracks.indexWhere(
-      (track) => track.songId == requestedTrack.songId,
-    );
-
-    if (remappedStartIndex == -1) {
+    if (!isPlayable(requestedTrack)) {
       throw StateError('Requested start track is unavailable for playback.');
+    }
+
+    // The requested entry's own place among the playable ones, so a song
+    // queued twice starts at the copy asked for, not at its first copy.
+    final remappedStartIndex = tracks.take(startIndex).where(isPlayable).length;
+
+    if (_engine case final ShuffleOrderPlayback ordered
+        when shuffleOrder != null && playableTracks.length == tracks.length) {
+      await ordered.loadQueueInShuffleOrder(
+        LibraryTrackPlaybackMapper.toPlaybackTracks(playableTracks),
+        shuffleOrder: shuffleOrder,
+        startIndex: remappedStartIndex,
+        autoPlay: autoPlay,
+      );
+      return;
     }
 
     await _engine.loadQueue(
@@ -130,6 +153,25 @@ class PlaybackCoordinator {
     );
   }
 
+  /// Appends [tracks] in the given order, skipping songs that cannot be
+  /// queued, as [addToQueue] refuses them. Returns how many were added.
+  Future<int> addTracksToQueue(List<LibraryTrack> tracks) async {
+    var added = 0;
+
+    for (final track in tracks) {
+      if (!isPlayable(track)) {
+        continue;
+      }
+
+      await _engine.appendTrack(
+        LibraryTrackPlaybackMapper.toPlaybackTrack(track),
+      );
+      added++;
+    }
+
+    return added;
+  }
+
   Future<void> removeBlockedSongFromQueue(String songId) {
     return removeSongFromQueue(songId);
   }
@@ -157,6 +199,27 @@ class PlaybackCoordinator {
     return _engine.removeTrackAt(index);
   }
 
+  /// Removes every queue entry except the one playing, which keeps playing
+  /// from where it is (SN-50 A2). Songs, files, history and playlists are
+  /// untouched; End Session is separate. Returns how many were removed.
+  Future<int> clearQueue() async {
+    final initial = currentState.queue;
+    if (!initial.hasCurrentTrack) return 0;
+
+    var removed = 0;
+    // Recomputed each step from the live queue, never from the first
+    // snapshot, and bounded so a concurrent change cannot loop forever.
+    for (var step = 0; step < initial.length - 1; step++) {
+      final queue = currentState.queue;
+      if (!queue.hasCurrentTrack || queue.length <= 1) break;
+      final last = queue.length - 1;
+      final index = queue.currentIndex == last ? last - 1 : last;
+      await _engine.removeTrackAt(index);
+      removed++;
+    }
+    return removed;
+  }
+
   Future<void> moveQueueTrack({required int oldIndex, required int newIndex}) {
     return _engine.moveTrack(oldIndex: oldIndex, newIndex: newIndex);
   }
@@ -170,6 +233,21 @@ class PlaybackCoordinator {
   }
 
   Future<void> stop() => _engine.stop();
+
+  /// Shows [tracks]' current titles and credit lines wherever they are
+  /// queued or playing, after their details were edited (SN-50 BUG-01).
+  /// Playback continues where it is, and listening history keeps the title
+  /// and artist each track was queued with. Returns whether anything
+  /// changed.
+  bool refreshTrackDisplay(Iterable<LibraryTrack> tracks) {
+    if (_engine case final PlaybackDisplayRefresh engine) {
+      return engine.refreshTrackDisplay(
+        tracks.map(LibraryTrackPlaybackMapper.toPlaybackTrack),
+      );
+    }
+
+    return false;
+  }
 
   /// Ends the paused session from the mini-player (SN-45): playback stops
   /// and the queue empties, so the bar, notification and saved session go

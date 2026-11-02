@@ -1,8 +1,11 @@
+import 'dart:async';
+
 import 'package:audio_service/audio_service.dart' as media;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sonus_next/features/player/application/controllers/playback_coordinator.dart';
 import 'package:sonus_next/features/player/application/services/media_session/media_browse_catalog.dart';
 import 'package:sonus_next/features/player/application/services/media_session/sonus_audio_handler.dart';
+import 'package:sonus_next/features/player/domain/models/playback_state.dart';
 
 import 'media_browse_catalog_test.dart'
     show FakeBrowseLibrary, libraryAlbum, libraryTrack;
@@ -39,6 +42,70 @@ void main() {
   });
 
   tearDown(() => engine.dispose());
+
+  group('the resume card resumes the saved session (SN-50 D-Q9)', () {
+    setUp(() {
+      library.recent = [libraryTrack('r1'), libraryTrack('r2')];
+    });
+
+    test(
+      'it offers the current song of the saved session, not Recent',
+      () async {
+        handler
+          ..attach(coordinator)
+          ..attachCatalog(catalog);
+        engine.emit(queuedState(index: 1, status: PlaybackStatus.idle));
+
+        final items = await handler.getChildren(
+          media.AudioService.recentRootId,
+        );
+
+        expect(items.single.id, '${SonusAudioHandler.resumePrefix}b');
+        expect(items.single.title, 'Song b');
+        expect(items.single.playable, isTrue);
+      },
+    );
+
+    test('playing it resumes the saved queue and position', () async {
+      handler
+        ..attach(coordinator)
+        ..attachCatalog(catalog);
+      engine.emit(queuedState(index: 1, status: PlaybackStatus.idle));
+
+      await handler.playFromMediaId('${SonusAudioHandler.resumePrefix}b');
+
+      expect(engine.commands, ['play']);
+      expect(engine.loads, isEmpty);
+    });
+
+    test('after a restart it waits for the saved queue', () async {
+      final restored = Completer<void>();
+      handler
+        ..attach(coordinator, restored: restored.future)
+        ..attachCatalog(catalog);
+
+      final children = handler.getChildren(media.AudioService.recentRootId);
+      await pumpEventQueue();
+      engine.emit(queuedState(status: PlaybackStatus.paused));
+      restored.complete();
+
+      expect((await children).single.id, '${SonusAudioHandler.resumePrefix}a');
+    });
+
+    test('with no saved session it falls back to Recent', () async {
+      handler
+        ..attach(coordinator)
+        ..attachCatalog(catalog);
+
+      final items = await handler.getChildren(media.AudioService.recentRootId);
+      expect(items.single.id, 'sonus:recent/song:r1');
+
+      await handler.playFromMediaId('${SonusAudioHandler.resumePrefix}r2');
+      expect(engine.loads.single.$1, ['r1', 'r2']);
+      expect(engine.loads.single.$2, 1);
+      expect(engine.loads.single.$3, isTrue);
+    });
+  });
 
   group('when ready', () {
     setUp(() {

@@ -1,6 +1,7 @@
 // ignore_for_file: prefer_initializing_formals
 
 import '../../../analytics/domain/entities/qualified_play.dart';
+import '../../../analytics/domain/repositories/playback_session_repository.dart';
 import '../../../analytics/domain/repositories/qualified_play_repository.dart';
 import '../../../library/application/repositories/library_query_repository.dart';
 import '../../domain/entities/all_time_chart.dart';
@@ -15,22 +16,29 @@ import '../../domain/services/all_time_history_replay.dart';
 import '../../domain/services/chart_ranking_engine.dart';
 import '../../domain/services/chart_week_resolver.dart';
 import '../../domain/services/release_chart_eligibility.dart';
+import 'play_time_identity.dart';
 
 /// Builds the permanent all-time chart from every qualified play.
 ///
 /// A play counts toward the song it played and the album it belonged to when
 /// it qualified, so a song shared by Standard and Deluxe editions adds one
 /// play to one album. This matches the lifetime totals Chart Moments use.
+///
+/// Only blocked songs are left out. A song or release no longer in the
+/// library keeps its verified listening and shows as it was heard
+/// (SN-50 R1).
 class AllTimeChartService {
   const AllTimeChartService({
     required QualifiedPlayRepository qualifiedPlays,
     required LibraryQueryRepository library,
+    PlaybackSessionRepository? playbackSessions,
     AllTimeChartRankingEngine rankingEngine = const AllTimeChartRankingEngine(),
     AllTimeHistoryReplay replay = const AllTimeHistoryReplay(),
     ChartWeekResolver weekResolver = const ChartWeekResolver(),
     ReleaseChartEligibility? releaseEligibility,
   }) : _qualifiedPlays = qualifiedPlays,
        _library = library,
+       _playbackSessions = playbackSessions,
        _rankingEngine = rankingEngine,
        _replay = replay,
        _weekResolver = weekResolver,
@@ -38,6 +46,7 @@ class AllTimeChartService {
 
   final QualifiedPlayRepository _qualifiedPlays;
   final LibraryQueryRepository _library;
+  final PlaybackSessionRepository? _playbackSessions;
   final AllTimeChartRankingEngine _rankingEngine;
   final AllTimeHistoryReplay _replay;
   final ChartWeekResolver _weekResolver;
@@ -55,8 +64,20 @@ class AllTimeChartService {
         ? await excludedReleaseIds(_releaseEligibility)
         : const <String>{};
     final plays = await _qualifiedPlays.getAll();
-    final entities = await _currentEntities(chartType)
-      ..removeWhere((id, _) => excluded.contains(id));
+    final (:entities, :blockedIds) = await _currentEntities(chartType);
+    entities.removeWhere((id, _) => excluded.contains(id));
+    entities.addAll(
+      await loadPlayTimeIdentities(
+        sessions: _playbackSessions,
+        plays: plays.where((play) {
+          final id = _entityIdFor(play, chartType);
+          return !entities.containsKey(id) &&
+              !blockedIds.contains(id) &&
+              !excluded.contains(id);
+        }),
+        chartType: chartType,
+      ),
+    );
 
     // A Single's plays never enter the release chart, so it neither takes
     // a place nor pushes other releases down.
@@ -132,37 +153,45 @@ class AllTimeChartService {
     });
   }
 
-  /// Songs that are in the library and not blocked, or albums in the
-  /// library, keyed by id.
-  Future<Map<String, ChartEntitySnapshot>> _currentEntities(
-    ChartType chartType,
-  ) async {
+  /// Songs in the library that are not blocked, or albums in the library,
+  /// keyed by id, and the blocked song ids.
+  Future<({Map<String, ChartEntitySnapshot> entities, Set<String> blockedIds})>
+  _currentEntities(ChartType chartType) async {
     switch (chartType) {
       case ChartType.songs:
         final tracks = await _library.getTracks();
-        return {
-          for (final track in tracks)
-            if (!track.isBlocked)
-              track.songId: ChartEntitySnapshot(
-                entityId: track.songId,
-                title: track.title,
-                artistId: track.artistId,
-                artistName: track.artistName,
-                albumTitle: track.albumTitle,
-              ),
-        };
+        return (
+          entities: {
+            for (final track in tracks)
+              if (!track.isBlocked)
+                track.songId: ChartEntitySnapshot(
+                  entityId: track.songId,
+                  title: track.title,
+                  artistId: track.artistId,
+                  artistName: track.artistName,
+                  albumTitle: track.albumTitle,
+                ),
+          },
+          blockedIds: {
+            for (final track in tracks)
+              if (track.isBlocked) track.songId,
+          },
+        );
 
       case ChartType.albums:
         final albums = await _library.getAlbums();
-        return {
-          for (final album in albums)
-            album.albumId: ChartEntitySnapshot(
-              entityId: album.albumId,
-              title: album.title,
-              artistId: album.artistId,
-              artistName: album.artistName,
-            ),
-        };
+        return (
+          entities: {
+            for (final album in albums)
+              album.albumId: ChartEntitySnapshot(
+                entityId: album.albumId,
+                title: album.title,
+                artistId: album.artistId,
+                artistName: album.artistName,
+              ),
+          },
+          blockedIds: const <String>{},
+        );
     }
   }
 
@@ -182,6 +211,11 @@ class AllTimeChartService {
       qualifiedStreamCount: result.lifetimeStreamCount,
       lastQualifiedAt: result.lastQualifiedAt,
       previousFinalRank: result.previousRank,
+      // The all-time comparison ranks cover the Top 200.
+      previousExtendedRank: result.previousRank,
+      priorPeakRank: result.priorPeakRank,
+      firstChartedAt: result.firstChartedAt,
+      firstHot100At: result.firstHot100At,
       peakRank: result.peakRank,
       peakAchievedAt: result.peakAchievedAt,
       weeksOnChart: 0,

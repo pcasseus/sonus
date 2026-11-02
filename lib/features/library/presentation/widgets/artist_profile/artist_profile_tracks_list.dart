@@ -5,6 +5,9 @@ import 'package:flutter/material.dart';
 
 import '../../../../../core/design/sonus_theme.dart';
 import '../../../application/models/library_track.dart';
+import '../../../application/models/song_credit_line.dart';
+import '../../controllers/track_selection_controller.dart';
+import '../../../../song_stats/presentation/song_stats_navigation.dart';
 
 /// Text scale above which rows switch to their large-text layout, as in
 /// the shared Sonus data components.
@@ -26,8 +29,11 @@ class ArtistProfileTracksList extends StatelessWidget {
     required this.onChangeArtwork,
     required this.onClearArtwork,
     required this.onSetBlocked,
+    required this.onGoToAlbum,
+    this.selection,
     this.keyPrefix = 'artist-track',
     this.streamCounts,
+    this.firstRank = 1,
     this.tileColor,
     this.profileArtistId,
   });
@@ -45,6 +51,9 @@ class ArtistProfileTracksList extends StatelessWidget {
   /// and stream count, in the order of [tracks].
   final Map<String, int>? streamCounts;
 
+  /// The rank of the first row, when this list continues a ranking.
+  final int firstRank;
+
   final Color? tileColor;
   final bool Function(LibraryTrack track) isTrackPlayable;
   final bool canEditArtwork;
@@ -59,6 +68,10 @@ class ArtistProfileTracksList extends StatelessWidget {
   final Future<void> Function(LibraryTrack track) onChangeArtwork;
   final Future<void> Function(LibraryTrack track) onClearArtwork;
   final Future<void> Function(LibraryTrack track, bool isBlocked) onSetBlocked;
+  final void Function(LibraryTrack track) onGoToAlbum;
+
+  /// The page's multi-select, when its rows can be selected.
+  final TrackSelectionController? selection;
 
   @override
   Widget build(BuildContext context) {
@@ -68,6 +81,7 @@ class ArtistProfileTracksList extends StatelessWidget {
 
     final largeText =
         MediaQuery.textScalerOf(context).scale(1) > _largeTextScale;
+    final selection = this.selection;
 
     return Column(
       key: ValueKey<String>('$keyPrefix-list'),
@@ -76,7 +90,7 @@ class ArtistProfileTracksList extends StatelessWidget {
           _TrackTile(
             track: track,
             keyPrefix: keyPrefix,
-            rank: streamCounts == null ? null : index + 1,
+            rank: streamCounts == null ? null : firstRank + index,
             streamCount: streamCounts?[track.songId],
             largeText: largeText,
             tileColor: tileColor,
@@ -94,6 +108,16 @@ class ArtistProfileTracksList extends StatelessWidget {
             onChangeArtwork: () => onChangeArtwork(track),
             onClearArtwork: () => onClearArtwork(track),
             onSetBlocked: (isBlocked) => onSetBlocked(track, isBlocked),
+            onGoToAlbum: () => onGoToAlbum(track),
+            selected: selection != null && selection.isActive
+                ? selection.isSelected(track.songId)
+                : null,
+            onSelect: selection == null
+                ? null
+                : () => selection.start(track.songId),
+            onToggleSelected: selection == null
+                ? null
+                : () => selection.toggle(track.songId),
           ),
       ],
     );
@@ -121,6 +145,10 @@ class _TrackTile extends StatelessWidget {
     required this.onChangeArtwork,
     required this.onClearArtwork,
     required this.onSetBlocked,
+    required this.onGoToAlbum,
+    required this.selected,
+    required this.onSelect,
+    required this.onToggleSelected,
   });
 
   final LibraryTrack track;
@@ -143,9 +171,30 @@ class _TrackTile extends StatelessWidget {
   final Future<void> Function() onChangeArtwork;
   final Future<void> Function() onClearArtwork;
   final Future<void> Function(bool isBlocked) onSetBlocked;
+  final VoidCallback onGoToAlbum;
+
+  /// Null outside selection mode.
+  final bool? selected;
+
+  /// Null when the list has no multi-select.
+  final VoidCallback? onSelect;
+  final VoidCallback? onToggleSelected;
 
   @override
   Widget build(BuildContext context) {
+    final selected = this.selected;
+
+    if (selected == null) return _buildRow(context, null);
+
+    return Semantics(
+      checked: selected,
+      selected: selected,
+      child: _buildRow(context, selected),
+    );
+  }
+
+  Widget _buildRow(BuildContext context, bool? selected) {
+    final selecting = selected != null;
     final theme = Theme.of(context);
     final colors = SonusTheme.of(context).colors;
     final rank = this.rank;
@@ -158,7 +207,8 @@ class _TrackTile extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 3),
       child: ListTile(
         key: ValueKey<String>('$keyPrefix-${track.songId}'),
-        enabled: isPlayable,
+        enabled: isPlayable || selecting,
+        selected: selected ?? false,
         tileColor: tileColor ?? colors.surface,
         textColor: colors.textPrimary,
         shape: RoundedRectangleBorder(
@@ -171,6 +221,15 @@ class _TrackTile extends StatelessWidget {
         leading: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
+            if (selecting)
+              ExcludeFocus(
+                child: ExcludeSemantics(
+                  child: Checkbox(
+                    value: selected,
+                    onChanged: (_) => onToggleSelected?.call(),
+                  ),
+                ),
+              ),
             // The rank column would squeeze titles at large text sizes.
             if (rank != null && !largeText)
               SizedBox(
@@ -191,7 +250,7 @@ class _TrackTile extends StatelessWidget {
           ],
         ),
         title: Text(
-          track.title,
+          track.displayTitle,
           maxLines: largeText ? 3 : 1,
           overflow: TextOverflow.ellipsis,
           style: theme.textTheme.bodyLarge?.copyWith(
@@ -215,83 +274,118 @@ class _TrackTile extends StatelessWidget {
                   fontFeatures: tabular,
                 ),
               ),
-            PopupMenuButton<_TrackMenuAction>(
-              key: ValueKey<String>('$keyPrefix-menu-${track.songId}'),
-              enabled:
-                  isPlayable || canEditArtwork || canEditTrack || canSetBlocked,
-              onSelected: (action) {
-                switch (action) {
-                  case _TrackMenuAction.playNext:
-                    unawaited(onPlayNext());
-                  case _TrackMenuAction.addToQueue:
-                    unawaited(onAddToQueue());
-                  case _TrackMenuAction.addToPlaylist:
-                    unawaited(onAddToPlaylist());
-                  case _TrackMenuAction.trackStudio:
-                    unawaited(onEditTrack());
-                  case _TrackMenuAction.toggleBlocked:
-                    unawaited(onSetBlocked(!track.isSongBlocked));
-                }
-              },
-              itemBuilder: (context) => [
-                PopupMenuItem(
-                  value: _TrackMenuAction.playNext,
-                  enabled: isPlayable,
-                  child: const ListTile(
-                    leading: Icon(Icons.skip_next_rounded),
-                    title: Text('Play next'),
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                ),
-                PopupMenuItem(
-                  value: _TrackMenuAction.addToQueue,
-                  enabled: isPlayable,
-                  child: const ListTile(
-                    leading: Icon(Icons.queue_music_rounded),
-                    title: Text('Add to queue'),
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                ),
-                PopupMenuItem(
-                  value: _TrackMenuAction.addToPlaylist,
-                  child: const ListTile(
-                    leading: Icon(Icons.playlist_add_rounded),
-                    title: Text('Add to playlist'),
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                ),
-                PopupMenuItem(
-                  value: _TrackMenuAction.trackStudio,
-                  enabled: canEditTrack || canEditArtwork,
-                  child: const ListTile(
-                    leading: Icon(Icons.edit_outlined),
-                    title: Text('Track Studio'),
-                    contentPadding: EdgeInsets.zero,
-                  ),
-                ),
-                PopupMenuItem(
-                  value: _TrackMenuAction.toggleBlocked,
-                  enabled: canSetBlocked,
-                  child: ListTile(
-                    leading: Icon(
-                      track.isSongBlocked
-                          ? Icons.lock_open_rounded
-                          : Icons.block_rounded,
+            if (!selecting)
+              PopupMenuButton<_TrackMenuAction>(
+                key: ValueKey<String>('$keyPrefix-menu-${track.songId}'),
+                onSelected: (action) {
+                  switch (action) {
+                    case _TrackMenuAction.playNext:
+                      unawaited(onPlayNext());
+                    case _TrackMenuAction.addToQueue:
+                      unawaited(onAddToQueue());
+                    case _TrackMenuAction.addToPlaylist:
+                      unawaited(onAddToPlaylist());
+                    case _TrackMenuAction.viewStats:
+                      unawaited(
+                        openSongStats(
+                          context,
+                          songId: track.songId,
+                          initialTitle: track.displayTitle,
+                        ),
+                      );
+                    case _TrackMenuAction.goToAlbum:
+                      onGoToAlbum();
+                    case _TrackMenuAction.select:
+                      onSelect?.call();
+                    case _TrackMenuAction.trackStudio:
+                      unawaited(onEditTrack());
+                    case _TrackMenuAction.toggleBlocked:
+                      unawaited(onSetBlocked(!track.isSongBlocked));
+                  }
+                },
+                itemBuilder: (context) => [
+                  PopupMenuItem(
+                    value: _TrackMenuAction.playNext,
+                    enabled: isPlayable,
+                    child: const ListTile(
+                      leading: Icon(Icons.skip_next_rounded),
+                      title: Text('Play next'),
+                      contentPadding: EdgeInsets.zero,
                     ),
-                    title: Text(
-                      track.isSongBlocked
-                          ? 'Remove from blacklist'
-                          : 'Blacklist song',
-                    ),
-                    contentPadding: EdgeInsets.zero,
                   ),
-                ),
-                const PopupMenuDivider(),
-              ],
-            ),
+                  PopupMenuItem(
+                    value: _TrackMenuAction.addToQueue,
+                    enabled: isPlayable,
+                    child: const ListTile(
+                      leading: Icon(Icons.queue_music_rounded),
+                      title: Text('Add to queue'),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: _TrackMenuAction.addToPlaylist,
+                    child: const ListTile(
+                      leading: Icon(Icons.playlist_add_rounded),
+                      title: Text('Add to playlist'),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+                  songStatsMenuItem(
+                    _TrackMenuAction.viewStats,
+                    key: ValueKey<String>('$keyPrefix-stats-${track.songId}'),
+                  ),
+                  const PopupMenuItem(
+                    value: _TrackMenuAction.goToAlbum,
+                    child: ListTile(
+                      leading: Icon(Icons.album_outlined),
+                      title: Text('Go to album'),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+                  if (onSelect != null)
+                    const PopupMenuItem(
+                      value: _TrackMenuAction.select,
+                      child: ListTile(
+                        leading: Icon(Icons.check_box_outlined),
+                        title: Text('Select'),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                    ),
+                  const PopupMenuDivider(),
+                  PopupMenuItem(
+                    value: _TrackMenuAction.trackStudio,
+                    enabled: canEditTrack || canEditArtwork,
+                    child: const ListTile(
+                      leading: Icon(Icons.edit_outlined),
+                      title: Text('Track Studio'),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+                  PopupMenuItem(
+                    value: _TrackMenuAction.toggleBlocked,
+                    enabled: canSetBlocked,
+                    child: ListTile(
+                      leading: Icon(
+                        track.isSongBlocked
+                            ? Icons.lock_open_rounded
+                            : Icons.block_rounded,
+                      ),
+                      title: Text(
+                        track.isSongBlocked
+                            ? 'Remove from blacklist'
+                            : 'Blacklist song',
+                      ),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+                ],
+              ),
           ],
         ),
-        onTap: isPlayable
+        onLongPress: selecting ? onToggleSelected : onSelect,
+        onTap: selecting
+            ? onToggleSelected
+            : isPlayable
             ? () {
                 unawaited(onPlay());
               }
@@ -316,21 +410,33 @@ class _TrackTile extends StatelessWidget {
       parts.add('Unavailable');
     }
 
+    // Only the song's own flag, never its release's (B-Q12/B-Q31).
+    if (track.isLeak) {
+      parts.add('Leak');
+    }
+
     final streamCount = this.streamCount;
 
     if (streamCount != null) {
       parts.add(streamCount == 1 ? '1 stream' : '$streamCount streams');
     }
 
-    final artistName = track.artistName.trim();
+    final credit = songCreditLine(
+      primaryArtistName: track.artistName,
+      coPrimaryArtists: track.coPrimaryArtists,
+      featuredArtists: track.featuredArtists,
+      guestArtists: track.guestArtists,
+      omitPrimary: !showArtist,
+    );
 
-    if (showArtist && artistName.isNotEmpty) {
-      parts.add(artistName);
+    if (credit.isNotEmpty) {
+      parts.add(credit);
     }
 
-    final albumTitle = track.albumTitle.trim();
+    final albumTitle = track.albumDisplayTitle.trim();
 
-    if (albumTitle.isNotEmpty) {
+    // A single named like its song says it once (B-Q20).
+    if (albumTitle.isNotEmpty && !_sameTitle(albumTitle, track)) {
       parts.add(albumTitle);
     }
 
@@ -353,6 +459,12 @@ class _TrackTile extends StatelessWidget {
     );
   }
 
+  static bool _sameTitle(String albumTitle, LibraryTrack track) {
+    final album = albumTitle.toLowerCase();
+    return album == track.title.trim().toLowerCase() ||
+        album == track.displayTitle.trim().toLowerCase();
+  }
+
   String _formatDuration(int seconds) {
     final safeSeconds = seconds < 0 ? 0 : seconds;
     final minutes = safeSeconds ~/ 60;
@@ -366,6 +478,9 @@ enum _TrackMenuAction {
   playNext,
   addToQueue,
   addToPlaylist,
+  viewStats,
+  goToAlbum,
+  select,
   trackStudio,
   toggleBlocked,
 }

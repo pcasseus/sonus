@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:sonus_next/core/design/sonus_theme_factory.dart';
@@ -31,6 +32,8 @@ class FakePlaybackEngine implements PlaybackEngine {
   int pauseCalls = 0;
   int previousCalls = 0;
   int nextCalls = 0;
+  int stopCalls = 0;
+  int loadCalls = 0;
 
   Duration? lastSeekPosition;
   int seekCount = 0;
@@ -78,7 +81,9 @@ class FakePlaybackEngine implements PlaybackEngine {
     List<PlaybackTrack> tracks, {
     int startIndex = 0,
     bool autoPlay = false,
-  }) async {}
+  }) async {
+    loadCalls++;
+  }
 
   @override
   Future<void> seek(Duration position) async {
@@ -119,7 +124,9 @@ class FakePlaybackEngine implements PlaybackEngine {
   }
 
   @override
-  Future<void> stop() async {}
+  Future<void> stop() async {
+    stopCalls++;
+  }
 
   @override
   Future<void> dispose() async {
@@ -772,6 +779,93 @@ void main() {
     await engine.dispose();
   });
 
+  group('End session keeps the queue (SN-50 D-Q3/D-Q15)', () {
+    const playing = PlaybackState(
+      queue: PlaybackQueue(tracks: [track1, track2], currentIndex: 0),
+      status: PlaybackStatus.playing,
+      position: Duration(minutes: 1),
+      duration: Duration(minutes: 3),
+    );
+
+    testWidgets('from the Now Playing overflow menu', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(320, 640));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final engine = FakePlaybackEngine(initialState: playing);
+      addTearDown(engine.dispose);
+      await tester.pumpWidget(buildSubject(engine));
+      await tester.tap(find.byKey(const ValueKey<String>('mini-player-open')));
+      await tester.pumpAndSettle();
+
+      final more = find.byKey(const ValueKey<String>('now-playing-more'));
+      expect(find.byTooltip('More options'), findsOneWidget);
+      expect(tester.getSize(more).height, greaterThanOrEqualTo(44));
+      await tester.tap(more);
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.byKey(const ValueKey<String>('now-playing-end-session')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(engine.stopCalls, 1);
+      expect(engine.loadCalls, 0, reason: 'the queue is never cleared');
+    });
+
+    testWidgets('from the mini-player long-press menu', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(320, 640));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final engine = FakePlaybackEngine(initialState: playing);
+      addTearDown(engine.dispose);
+      await tester.pumpWidget(buildSubject(engine));
+
+      await tester.longPress(
+        find.byKey(const ValueKey<String>('mini-player-open')),
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('Stops playback and keeps your queue'), findsOneWidget);
+      await tester.tap(
+        find.byKey(const ValueKey<String>('mini-player-end-session')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(engine.stopCalls, 1);
+      expect(engine.loadCalls, 0);
+      expect(find.text('End session'), findsNothing, reason: 'menu closed');
+      expect(find.byKey(const ValueKey<String>('mini-player')), findsOneWidget);
+    });
+
+    testWidgets('as a screen-reader action on the mini-player', (tester) async {
+      final semantics = tester.ensureSemantics();
+      final engine = FakePlaybackEngine(initialState: playing);
+      addTearDown(engine.dispose);
+      await tester.pumpWidget(buildSubject(engine));
+
+      final miniPlayer = find.semantics.byLabel(
+        RegExp('^Now playing First Song'),
+      );
+      final endSession = CustomSemanticsAction.getIdentifier(
+        const CustomSemanticsAction(label: 'End session'),
+      );
+      expect(
+        miniPlayer
+            .evaluate()
+            .single
+            .getSemanticsData()
+            .customSemanticsActionIds,
+        contains(endSession),
+      );
+      tester.semantics.performAction(
+        miniPlayer,
+        SemanticsAction.customAction,
+        args: endSession,
+      );
+      await tester.pump();
+
+      expect(engine.stopCalls, 1);
+      expect(engine.loadCalls, 0);
+      semantics.dispose();
+    });
+  });
+
   group('now playing seek', () {
     Future<FakePlaybackEngine> openNowPlaying(WidgetTester tester) async {
       await tester.binding.setSurfaceSize(const Size(430, 932));
@@ -1029,9 +1123,10 @@ void main() {
       findsNothing,
     );
 
+    // The highlighted row is enough; no summary card repeats it (D-Q18).
     expect(
       find.byKey(const ValueKey<String>('queue-current-summary')),
-      findsOneWidget,
+      findsNothing,
     );
 
     await engine.dispose();

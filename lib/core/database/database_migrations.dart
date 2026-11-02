@@ -16,6 +16,7 @@ import 'schema/lyrics_schema.dart';
 import 'schema/playlist_schema.dart';
 import 'schema/sync_schema.dart';
 import 'schema/organization_schema.dart';
+import 'schema/release_date_precision_backfill.dart';
 
 abstract final class DatabaseMigrations {
   static Future<void> migrate(
@@ -467,12 +468,46 @@ abstract final class DatabaseMigrations {
         await OrganizationSchema.addReleaseFormats(db);
         return;
 
+      case 39:
+        // SN-49: how much of each release date is known. Existing dates
+        // keep their value; only dates read from file tags, which hold a
+        // year alone, are marked as year-only.
+        if (!await _tableExists(db, DatabaseTables.albumEditions)) return;
+        await _addColumnIfMissing(
+          db,
+          table: DatabaseTables.albumEditions,
+          columnName: 'release_date_precision',
+          definition:
+              "TEXT CHECK (release_date_precision IS NULL OR "
+              "release_date_precision IN ('year', 'month', 'day'))",
+        );
+        await ReleaseDatePrecisionBackfill.run(db);
+        return;
+
+      case 40:
+        // SN-49: Live beside the format and the kind. Every classification
+        // row is kept as it was.
+        await OrganizationSchema.addLiveClassification(db);
+        return;
+
+      case 41:
+        // SN-50: Leaked, set only by the user, beside the other release
+        // facts. Every classification row is kept as it was.
+        await OrganizationSchema.addLeakedClassification(db);
+        return;
+
       default:
         throw UnsupportedError(
           'No Sonus database migration exists for version $targetVersion.',
         );
     }
   }
+
+  static Future<bool> _tableExists(Database db, String table) async =>
+      (await db.rawQuery(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+        [table],
+      )).isNotEmpty;
 
   static Future<void> _addColumnIfMissing(
     Database db, {

@@ -11,6 +11,8 @@ void main() {
     bool isAvailable = true,
     String? artworkId = 'artwork_1',
     String? artworkPath = r'C:\Sonus\Artwork\cover.jpg',
+    String albumEditionTitle = 'Album',
+    AlbumEditionType albumEditionType = AlbumEditionType.standard,
   }) {
     return LibraryTrack(
       songId: songId,
@@ -20,8 +22,8 @@ void main() {
       albumId: 'album_1',
       albumTitle: 'Album',
       albumEditionId: 'edition_1',
-      albumEditionTitle: 'Album',
-      albumEditionType: AlbumEditionType.standard,
+      albumEditionTitle: albumEditionTitle,
+      albumEditionType: albumEditionType,
       trackNumber: 1,
       durationSeconds: 245,
       isSingle: false,
@@ -94,5 +96,75 @@ void main() {
     ]);
 
     expect(tracks.map((track) => track.songId), ['song_1', 'song_2', 'song_3']);
+  });
+
+  test('shows the version suffix and every credit role while keeping the '
+      'stored title and artist that history records (SN-50 C-Q1/C-Q8)', () {
+    final track = LibraryTrack(
+      songId: 'song_v',
+      title: 'Track',
+      artistId: 'artist_1',
+      artistName: 'Artist',
+      albumId: 'album_1',
+      albumTitle: 'Album',
+      albumEditionId: 'edition_1',
+      albumEditionTitle: 'Album',
+      albumEditionType: AlbumEditionType.standard,
+      trackNumber: 1,
+      durationSeconds: 245,
+      isSingle: false,
+      featuredArtists: const ['Cy Lark'],
+      coPrimaryArtists: const ['Ben Moor'],
+      guestArtists: const ['Eve Shore'],
+      versionLabel: 'Live',
+      dateAdded: DateTime.utc(2026, 9, 11),
+      filePath: r'C:\Music\Track.mp3',
+      isAvailable: true,
+    );
+
+    final playbackTrack = LibraryTrackPlaybackMapper.toPlaybackTrack(track);
+
+    expect(playbackTrack.title, 'Track');
+    expect(playbackTrack.artistName, 'Artist');
+    expect(playbackTrack.displayTitle, 'Track (Live)');
+    expect(
+      playbackTrack.displayArtist,
+      'Artist & Ben Moor Ft. Cy Lark with Eve Shore',
+    );
+  });
+
+  test('a track without extras displays its stored title and artist', () {
+    final playbackTrack = LibraryTrackPlaybackMapper.toPlaybackTrack(
+      libraryTrack(),
+    );
+
+    expect(playbackTrack.displayTitle, 'Track');
+    expect(playbackTrack.displayArtist, 'Artist');
+    expect(playbackTrack.displayAlbum, 'Album');
+  });
+
+  test('shows the name of the playing edition, keeping the stored album '
+      'title for history (SN-50 BUG-03)', () {
+    final playbackTrack = LibraryTrackPlaybackMapper.toPlaybackTrack(
+      libraryTrack(
+        albumEditionTitle: 'Album (Remixes)',
+        albumEditionType: AlbumEditionType.other,
+      ),
+    );
+
+    expect(playbackTrack.displayAlbum, 'Album (Remixes)');
+    expect(playbackTrack.albumTitle, 'Album');
+    expect(playbackTrack.albumEditionTitle, 'Album (Remixes)');
+  });
+
+  test('a generic edition title displays the album title', () {
+    final playbackTrack = LibraryTrackPlaybackMapper.toPlaybackTrack(
+      libraryTrack(
+        albumEditionTitle: 'Other',
+        albumEditionType: AlbumEditionType.other,
+      ),
+    );
+
+    expect(playbackTrack.displayAlbum, 'Album');
   });
 }

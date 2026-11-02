@@ -251,10 +251,10 @@ class _BlacklistedSongTile extends StatelessWidget {
     // removing them from the blacklist is the one action.
     return SonusTrackTile(
       key: ValueKey<String>('blacklisted-song-${track.songId}'),
-      title: track.title,
-      subtitle: track.artistName,
+      title: track.displayTitle,
+      subtitle: track.creditLine,
       detail: [
-        track.albumTitle,
+        track.albumDisplayTitle,
         if (unavailable) 'Unavailable',
       ].where((part) => part.trim().isNotEmpty).join(' • '),
       artworkPath: track.artworkPath,

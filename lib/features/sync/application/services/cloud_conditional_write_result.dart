@@ -1,3 +1,5 @@
+import '../models/sync_failure.dart';
+
 enum CloudConditionalWriteOutcome { applied, replayed, conflict, notFound }
 
 class CloudConditionalWriteResult {
@@ -14,7 +16,7 @@ class CloudConditionalWriteResult {
     final rawRevision = row['server_revision'];
 
     if (rawOutcome is! String) {
-      throw StateError('Invalid conditional-write outcome.');
+      throw CloudContractMismatch('Invalid conditional-write outcome.');
     }
 
     final outcome = switch (rawOutcome) {
@@ -22,12 +24,14 @@ class CloudConditionalWriteResult {
       'replayed' => CloudConditionalWriteOutcome.replayed,
       'conflict' => CloudConditionalWriteOutcome.conflict,
       'not_found' => CloudConditionalWriteOutcome.notFound,
-      _ => throw StateError('Unknown conditional-write outcome: $rawOutcome.'),
+      _ => throw CloudContractMismatch(
+        'Unknown conditional-write outcome: $rawOutcome.',
+      ),
     };
 
     if (outcome == CloudConditionalWriteOutcome.notFound) {
       if (rawRevision != null) {
-        throw StateError(
+        throw CloudContractMismatch(
           'A not_found conditional write must not have a server revision.',
         );
       }
@@ -39,7 +43,7 @@ class CloudConditionalWriteResult {
     }
 
     if (rawRevision is! int || rawRevision < 1) {
-      throw StateError(
+      throw CloudContractMismatch(
         'Conditional-write result requires a valid server revision.',
       );
     }

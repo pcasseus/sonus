@@ -21,3 +21,13 @@ abstract interface class CloudRevisionBaselineRepository {
     required int serverRevision,
   });
 }
+
+/// Optional read-only capability: whether any account on this device has
+/// a cloud baseline for an entity (SN-50 A-Q16). Used when nobody is
+/// signed in, so a guard can still tell that an entity reached a cloud.
+abstract interface class CloudBaselinePresence {
+  Future<bool> hasAnyRevision({
+    required CloudDataEntity entityType,
+    required String entityId,
+  });
+}

@@ -483,7 +483,7 @@ class _MusicBrainzSearchDialogState extends State<MusicBrainzSearchDialog> {
     final releaseDate = candidate.releaseDate;
 
     if (releaseDate != null) {
-      parts.add('${releaseDate.year}');
+      parts.add(releaseDate.label);
     }
 
     final duration = candidate.durationSeconds;

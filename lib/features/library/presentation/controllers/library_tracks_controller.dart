@@ -169,7 +169,7 @@ class LibraryTracksController extends ChangeNotifier {
       return false;
     }
 
-    await service.updateTrackWithCredits(
+    final result = await service.updateTrackWithCredits(
       userId: userId,
       songId: track.songId,
       title: title,
@@ -190,7 +190,7 @@ class LibraryTracksController extends ChangeNotifier {
 
     await refresh();
 
-    return true;
+    return result.changed;
   }
 
   bool canSetTrackBlocked(String? userId) {

@@ -11,6 +11,59 @@ class ExplicitFeatureCredit {
 class ArtistCreditParser {
   const ArtistCreditParser();
 
+  /// Splits a comma-separated list of artist names, keeping a name that
+  /// itself contains commas, such as "Crane, The Lantern", whole when it
+  /// matches one of [knownNames] (compared ignoring case and the spacing
+  /// around commas). The longest known name wins; other parts split at
+  /// each comma. Blank parts are dropped.
+  List<String> splitNameList(
+    String text, {
+    Iterable<String> knownNames = const [],
+  }) {
+    final known = {
+      for (final name in knownNames)
+        if (name.contains(',')) _commaCanonical(name),
+    };
+    final parts = text.split(',').map((part) => part.trim()).toList();
+    final names = <String>[];
+    var start = 0;
+
+    while (start < parts.length) {
+      if (parts[start].isEmpty) {
+        start++;
+        continue;
+      }
+
+      var end = start + 1;
+
+      for (
+        var candidateEnd = parts.length;
+        candidateEnd > end;
+        candidateEnd--
+      ) {
+        final candidate = parts.sublist(start, candidateEnd).join(', ');
+
+        if (known.contains(_commaCanonical(candidate))) {
+          end = candidateEnd;
+          break;
+        }
+      }
+
+      names.add(parts.sublist(start, end).join(', '));
+      start = end;
+    }
+
+    return List<String>.unmodifiable(names);
+  }
+
+  static String _commaCanonical(String name) {
+    return name
+        .trim()
+        .toLowerCase()
+        .replaceAll(RegExp(r'\s*,\s*'), ', ')
+        .replaceAll(RegExp(r'\s+'), ' ');
+  }
+
   ExplicitFeatureCredit? parseExplicitFeatureCredit(String rawCredit) {
     final cleaned = rawCredit.trim();
 

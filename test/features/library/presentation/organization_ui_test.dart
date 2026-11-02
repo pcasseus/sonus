@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:sonus_next/core/design/sonus_theme_factory.dart';
 import 'package:sonus_next/features/library/application/models/library_album.dart';
 import 'package:sonus_next/features/library/application/models/project_collaborator.dart';
+import 'package:sonus_next/features/library/application/models/project_song_credit.dart';
 import 'package:sonus_next/features/library/application/repositories/library_query_repository.dart';
 import 'package:sonus_next/features/library/application/services/library_organization_service.dart';
 import 'package:sonus_next/features/library/domain/entities/song_artist_credit.dart';
@@ -15,53 +16,57 @@ import 'pages/library_page_test.dart' as lib;
 
 // Soundtrack collaborators and reversible Library organization (UI).
 void main() {
-  group('structured collaborators', () {
-    ProjectCollaborator credit(
+  group('credited collaborators', () {
+    ProjectSongCredit credit(
       String album,
+      String song,
       String artist,
-      Set<SongArtistCreditRole> roles,
-      int songs,
-    ) => ProjectCollaborator(
+      SongArtistCreditRole role,
+    ) => ProjectSongCredit(
       albumId: album,
+      songId: song,
       artistId: artist,
-      artistName: 'Name $artist',
-      roles: roles,
-      songCount: songs,
+      creditedName: 'Name $artist',
+      role: role,
     );
 
     test('lists every credited performer once, by role, then songs', () {
-      final result = ArtistProfileSections.structuredCollaborators(
-        projectArtistId: 'owner',
+      final tracks = [
+        for (final id in ['a1', 'a2', 'b1', 'b2', 'b3', 's1'])
+          lib.createTrack(songId: id, artistId: 'owner', albumId: 'ost'),
+      ];
+      final result = ArtistProfileSections.creditedCollaborators(
+        ownerArtistId: 'owner',
         credits: [
-          credit('ost', 'owner', {SongArtistCreditRole.primary}, 9),
-          credit('ost', 'guest', {SongArtistCreditRole.featured}, 4),
-          credit('ost', 'lead-a', {SongArtistCreditRole.primary}, 2),
-          credit('ost', 'lead-b', {SongArtistCreditRole.primary}, 5),
+          credit('ost', 'a1', 'owner', SongArtistCreditRole.primary),
+          credit('ost', 'a1', 'lead-a', SongArtistCreditRole.primary),
+          credit('ost', 'a2', 'lead-a', SongArtistCreditRole.primary),
+          for (final song in ['b1', 'b2', 'b3'])
+            credit('ost', song, 'lead-b', SongArtistCreditRole.primary),
+          credit('ost', 'b1', 'guest', SongArtistCreditRole.featured),
           // Merged across the owner's projects.
-          credit('sequel', 'lead-a', {SongArtistCreditRole.coPrimary}, 4),
+          credit('sequel', 's1', 'lead-a', SongArtistCreditRole.coPrimary),
         ],
-        projectTracks: [
-          lib.createTrack(songId: 'a1', artistId: 'lead-a', albumId: 'ost'),
-        ],
+        projectTracks: tracks,
+        tracksById: {for (final track in tracks) track.songId: track},
         artistsById: const {},
       );
 
       expect(
         [for (final c in result) c.artistId],
         [
-          'lead-a', // primary, 6 songs
-          'lead-b', // primary, 5 songs
+          'lead-a', // primary, 3 songs
+          'lead-b', // primary, 3 songs
           'guest', // featured
         ],
       );
-      expect(result.first.displaySongCount, 6);
+      expect(result.first.displaySongCount, 3);
       expect(result.first.roles, {
         SongArtistCreditRole.primary,
         SongArtistCreditRole.coPrimary,
       });
-      expect([for (final t in result.first.tracks) t.songId], ['a1']);
       expect(result.last.leadRole, SongArtistCreditRole.featured);
-      expect(result.last.tracks, isEmpty);
+      expect([for (final t in result.last.tracks) t.songId], ['b1']);
     });
   });
 
@@ -99,10 +104,9 @@ void main() {
 
       expect(find.text('Lead Artist'), findsOneWidget);
       expect(find.text('Cast Member'), findsNothing);
-      expect(
-        find.textContaining('1 more is listed under a project'),
-        findsOneWidget,
-      );
+      // A plain count of the artists listed; no note about grouping.
+      expect(find.text('1 artist'), findsOneWidget);
+      expect(find.textContaining('listed under a project'), findsNothing);
     });
 
     testWidgets('everyone is shown when organization cannot be read', (

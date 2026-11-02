@@ -176,6 +176,9 @@ void main() {
       find.byKey(const ValueKey<String>('settings-sync-error')),
       findsOneWidget,
     );
+    // SN-49: an unexplained failure shows a short code, never a message.
+    expect(find.text('Details: StateError'), findsOneWidget);
+    expect(find.textContaining('network failure'), findsNothing);
   });
 
   testWidgets('a stalled sync leaves Syncing, explains, and retries', (
@@ -347,6 +350,73 @@ void main() {
     expect(granted, isTrue);
     expect(find.text('Up to date'), findsOneWidget);
     expect(bring, findsNothing);
+  });
+
+  testWidgets('SN-49: signing in leaves cloud sync off until it is turned '
+      'on; nothing is sent before', (tester) async {
+    final accountController = _signedInAccountController();
+    var granted = false;
+    var sent = 0;
+
+    final syncController = SyncController.forTesting(
+      synchronize: (userId) async {
+        if (!granted) {
+          throw const SyncNeedsCloudLibraryChoice(cloudHasLibrary: false);
+        }
+        sent++;
+        return SyncRunResult(
+          userId: userId,
+          startedAt: DateTime.utc(2026, 10, 25),
+          completedAt: DateTime.utc(2026, 10, 25, 0, 0, 1),
+          claimedUnownedCount: 0,
+          pendingBeforePush: 3,
+          pulledRecordCount: 0,
+          pendingAfterSync: 0,
+        );
+      },
+      grantCloudLibrary: (_) async => granted = true,
+    );
+
+    await syncController.synchronize('user-1');
+
+    final coordinator = AutomaticSyncCoordinator(
+      syncController: syncController,
+      networkPolicy: _wifiPolicy(),
+    );
+
+    coordinator.updateUserId('user-1');
+
+    await tester.pumpWidget(
+      _buildTestApp(
+        accountController: accountController,
+        syncController: syncController,
+        coordinator: coordinator,
+      ),
+    );
+
+    expect(syncController.hasError, isFalse, reason: 'a choice, not a failure');
+    expect(find.text('Off on this device'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('settings-sync-first-upload-choice')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('settings-sync-cloud-choice')),
+      findsNothing,
+    );
+    expect(sent, 0);
+
+    final start = find.byKey(
+      const ValueKey<String>('settings-sync-start-first-upload'),
+    );
+    await tester.ensureVisible(start);
+    await tester.pumpAndSettle();
+    await tester.tap(start);
+    await tester.pumpAndSettle();
+
+    expect(granted, isTrue);
+    expect(sent, 1);
+    expect(find.text('Up to date'), findsOneWidget);
   });
 
   testWidgets('mobile-data consent can allow sync', (tester) async {
@@ -526,6 +596,60 @@ void main() {
       ),
       findsOneWidget,
     );
+  });
+  testWidgets('SN-50: a paused sync says so, offers Retry, and keeps the '
+      'pending count and last sync time', (tester) async {
+    var calls = 0;
+    final syncController = SyncController.forTesting(
+      synchronize: (userId) {
+        if (++calls == 1) return Future.value(_successResult());
+        return Future.error(CloudContractMismatch('no server revision'));
+      },
+      countPending: (_) async => 2,
+    );
+    await syncController.synchronize('user-1');
+    await syncController.synchronize('user-1');
+    expect(syncController.isPaused, isTrue);
+
+    final coordinator = AutomaticSyncCoordinator(
+      syncController: syncController,
+      networkPolicy: _wifiPolicy(),
+    );
+    coordinator.updateUserId('user-1');
+
+    await tester.pumpWidget(
+      _buildTestApp(
+        accountController: _signedInAccountController(),
+        syncController: syncController,
+        coordinator: coordinator,
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('Sync paused'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey<String>('settings-sync-paused')),
+      findsOneWidget,
+    );
+    expect(find.text('Details: CloudContractMismatch'), findsOneWidget);
+    expect(find.text('2'), findsOneWidget, reason: 'pending changes');
+    expect(find.text('Never'), findsNothing, reason: 'last sync time kept');
+
+    expect(
+      find.text(
+        "The Sonus cloud doesn't support this version of Sonus yet, so sync "
+        'is paused. Your changes stay on this device. Try again after the '
+        'cloud is updated.',
+      ),
+      findsOneWidget,
+    );
+    final retry = find.widgetWithText(FilledButton, 'Try again');
+    await tester.ensureVisible(retry);
+    await tester.pumpAndSettle();
+    await tester.tap(retry);
+    await tester.pumpAndSettle();
+
+    expect(calls, 3, reason: 'Retry runs one attempt');
   });
 }
 

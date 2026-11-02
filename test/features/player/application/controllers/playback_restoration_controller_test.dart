@@ -244,17 +244,32 @@ void main() {
       },
     );
 
-    test('a finished or cleared queue is not kept', () async {
+    test('a finished queue is kept at the end of its last song (R4)', () async {
+      await controller.restore(() => library(const []));
+      engine.emit(_state(['a', 'b'], index: 1, seconds: 170));
+      await pumpEventQueue();
+
+      engine.emit(
+        _state(
+          ['a', 'b'],
+          index: 1,
+          seconds: 179,
+          status: PlaybackStatus.completed,
+        ).copyWith(duration: const Duration(minutes: 3)),
+      );
+      await pumpEventQueue();
+
+      expect(saved()!.songIds, ['a', 'b']);
+      expect(saved()!.currentIndex, 1);
+      expect(saved()!.position, const Duration(minutes: 3));
+    });
+
+    test('a cleared queue is not kept', () async {
       await controller.restore(() => library(const []));
       engine.emit(_state(['a'], seconds: 0));
       await pumpEventQueue();
+      expect(storage, isNotEmpty);
 
-      engine.emit(_state(['a'], status: PlaybackStatus.completed));
-      await pumpEventQueue();
-      expect(storage, isEmpty);
-
-      engine.emit(_state(['a'], seconds: 0));
-      await pumpEventQueue();
       engine.emit(const PlaybackState());
       await pumpEventQueue();
       expect(storage, isEmpty);
@@ -280,7 +295,148 @@ void main() {
     });
   });
 
+  group('SN-50 reconciliation: duplicate songs', () {
+    test('SN-50 reconciliation: a queue holding the same song twice is '
+        'saved with both copies, in order, at the second copy', () async {
+      await controller.restore(() => library(const []));
+
+      // Queue [a, b, a], listening to the second copy of a.
+      engine.emit(
+        _state(
+          ['a', 'b', 'a'],
+          index: 2,
+          seconds: 42,
+          status: PlaybackStatus.paused,
+        ),
+      );
+      await pumpEventQueue();
+
+      expect(saved()!.songIds, ['a', 'b', 'a']);
+      expect(saved()!.currentIndex, 2);
+      expect(saved()!.position, const Duration(seconds: 42));
+    });
+
+    test('SN-50 reconciliation: a saved queue holding the same song twice is '
+        'restored with both copies, in order, at the second copy', () async {
+      save(['a', 'b', 'a'], index: 2, seconds: 42);
+
+      final outcome = await controller.restore(
+        () => library([_track('a'), _track('b')]),
+      );
+
+      expect(outcome, PlaybackRestoreOutcome.restored);
+      expect(engine.loadedIds, ['a', 'b', 'a']);
+      expect(engine.loadedStartIndex, 2, reason: 'the second copy');
+      expect(engine.seekedTo, const Duration(seconds: 42));
+      expect(engine.loadedAutoPlay, isFalse);
+    });
+
+    test('SN-50 #22: with an unplayable song dropped before it, the second '
+        'copy is still the one resumed', () async {
+      save(['a', 'gone', 'b', 'a'], index: 3, seconds: 42);
+
+      final outcome = await controller.restore(
+        () => library([_track('a'), _track('b')]),
+      );
+
+      expect(outcome, PlaybackRestoreOutcome.restored);
+      expect(engine.loadedIds, ['a', 'b', 'a']);
+      expect(engine.loadedStartIndex, 2);
+      expect(engine.seekedTo, const Duration(seconds: 42));
+    });
+
+    test('SN-50 #22: when the saved song is gone, the next copy of a '
+        'repeated song starts from 0:00, never the first copy', () async {
+      save(['a', 'gone', 'a'], index: 1, seconds: 42);
+
+      final outcome = await controller.restore(() => library([_track('a')]));
+
+      expect(outcome, PlaybackRestoreOutcome.restored);
+      expect(engine.loadedIds, ['a', 'a']);
+      expect(engine.loadedStartIndex, 1);
+      expect(engine.seekedTo, isNull, reason: 'a different song: no seek');
+      expect(engine.loadedAutoPlay, isFalse);
+    });
+
+    test('SN-50 #22: an out-of-range saved index restores nothing and '
+        'plays nothing', () async {
+      storage[PlaybackSessionStore.sessionKey] = jsonEncode({
+        'version': PlaybackSessionSnapshot.version,
+        'songIds': ['a', 'b', 'a'],
+        'currentIndex': 3,
+        'positionMs': 42000,
+      });
+
+      final outcome = await controller.restore(
+        () => library([_track('a'), _track('b')]),
+      );
+
+      expect(outcome, PlaybackRestoreOutcome.nothingSaved);
+      expect(engine.loadCalls, 0);
+      expect(engine.playCalls, 0);
+    });
+
+    test('SN-50 #22: a finished queue ending on the second copy is restored '
+        'at the end of that copy (R4)', () async {
+      save(['a', 'b', 'a'], index: 2, seconds: 180);
+
+      final outcome = await controller.restore(
+        () => library([_track('a'), _track('b')]),
+      );
+
+      expect(outcome, PlaybackRestoreOutcome.restored);
+      expect(engine.loadedStartIndex, 2);
+      expect(engine.seekedTo, const Duration(seconds: 180));
+      expect(engine.playCalls, 0);
+    });
+  });
+
   group('snapshot format', () {
+    test('SN-50 #24: the shuffled order round-trips inside version 1', () {
+      const snapshot = PlaybackSessionSnapshot(
+        songIds: ['a', 'b', 'a'],
+        currentIndex: 2,
+        position: Duration(seconds: 3),
+        shuffleOrder: [2, 0, 1],
+      );
+
+      final json = snapshot.toJson();
+      expect(json['version'], 1);
+      expect(PlaybackSessionSnapshot.fromJson(json), snapshot);
+    });
+
+    test('SN-50 #24: a saved session without an order still reads', () {
+      final restored = PlaybackSessionSnapshot.fromJson({
+        'version': 1,
+        'songIds': ['a', 'b'],
+        'currentIndex': 1,
+        'positionMs': 0,
+      });
+
+      expect(restored, isNotNull);
+      expect(restored!.shuffleOrder, isNull);
+    });
+
+    test('SN-50 #24: an unusable order is dropped, never the session', () {
+      for (final order in <Object?>[
+        [0, 0],
+        [0],
+        [0, 2],
+        ['0', '1'],
+        'shuffled',
+      ]) {
+        final restored = PlaybackSessionSnapshot.fromJson({
+          'version': 1,
+          'songIds': ['a', 'b'],
+          'currentIndex': 1,
+          'positionMs': 0,
+          'shuffleOrder': order,
+        });
+
+        expect(restored, isNotNull, reason: '$order');
+        expect(restored!.shuffleOrder, isNull, reason: '$order');
+      }
+    });
     test('round-trips', () {
       const snapshot = PlaybackSessionSnapshot(
         songIds: ['a', 'b'],

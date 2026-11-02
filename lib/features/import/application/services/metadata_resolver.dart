@@ -1,5 +1,6 @@
 import '../../domain/models/audio_metadata.dart';
 import '../../domain/models/import_candidate.dart';
+import '../../domain/models/import_file_failure.dart';
 import '../../domain/models/resolved_metadata.dart';
 import '../../domain/services/audio_metadata_reader.dart';
 
@@ -17,7 +18,7 @@ class MetadataResolver {
 
     try {
       primary = await primaryReader.read(candidate);
-    } catch (_) {
+    } catch (error) {
       final metadata = await fallbackReader.read(candidate);
 
       return ResolvedMetadata(
@@ -26,6 +27,12 @@ class MetadataResolver {
         origins: const ImportMetadataOrigins.all(
           ImportMetadataFieldSource.fallback,
         ),
+        readFailure: switch (error) {
+          ImportFileMissing() => MetadataReadFailure.missing,
+          ImportFileAccessDenied() => MetadataReadFailure.accessDenied,
+          ImportTagsUnreadable() => MetadataReadFailure.tagsUnreadable,
+          _ => MetadataReadFailure.other,
+        },
       );
     }
 

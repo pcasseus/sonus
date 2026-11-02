@@ -5,9 +5,10 @@ import '../database_tables.dart';
 /// How the library is organized beyond the credits themselves: what kind of
 /// release an album is, and where an artist is shown.
 ///
-/// Both tables are device-local (not in backups, not synced). Their rows
-/// cascade away with their album or artist, and survive restores, which
-/// update albums and artists in place.
+/// Both tables are in backups and travel in the cloud archive, but their
+/// writes are not queued as sync mutations. Their rows cascade away with
+/// their album or artist, and survive restores, which update albums and
+/// artists in place.
 abstract final class OrganizationSchema {
   static Future<void> create(DatabaseExecutor db) async {
     await createAlbumReleaseClassifications(db);
@@ -22,6 +23,11 @@ abstract final class OrganizationSchema {
   ///   compilation). Null means unclassified.
   /// - `format` (SN-45): Single, EP or Album. Null means not stated, which
   ///   counts as an Album; it is never inferred from track counts.
+  /// - `live` (SN-49): 1 for a live recording, 0 for the user's "not
+  ///   live". Null means not stated.
+  /// - `leaked` (SN-50): 1 when the user marked the whole release as
+  ///   leaked. Null otherwise. Only the user sets it, so it has no
+  ///   authority, and it never follows the songs' own leak flags.
   ///
   /// Each has its own authority, so a manual choice of one never hides the
   /// other. A row exists only while at least one of them is set.
@@ -52,11 +58,74 @@ abstract final class OrganizationSchema {
         format_source_reference TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
+        live INTEGER CHECK (live IS NULL OR live IN (0, 1)),
+        live_authority TEXT
+          CHECK (
+            live_authority IS NULL OR
+            live_authority IN ('external', 'manual')
+          ),
+        live_source_reference TEXT,
+        leaked INTEGER CHECK (leaked IS NULL OR leaked = 1),
         CHECK ((kind IS NULL) = (authority IS NULL)),
         CHECK ((format IS NULL) = (format_authority IS NULL)),
-        CHECK (kind IS NOT NULL OR format IS NOT NULL)
+        CHECK ((live IS NULL) = (live_authority IS NULL)),
+        CHECK (
+          kind IS NOT NULL OR format IS NOT NULL OR live IS NOT NULL OR
+          leaked IS NOT NULL
+        )
       )
     ''');
+  }
+
+  /// SN-50: adds Leaked beside the kind, the format and Live. Every
+  /// existing row is copied unchanged, all version 40 columns included.
+  static Future<void> addLeakedClassification(DatabaseExecutor db) async {
+    const table = DatabaseTables.albumReleaseClassifications;
+    const staging = '${table}_rebuild';
+    const copied =
+        'album_id, kind, authority, source_reference, format, '
+        'format_authority, format_source_reference, created_at, updated_at, '
+        'live, live_authority, live_source_reference';
+
+    final existing = await db.rawQuery('SELECT COUNT(*) AS count FROM $table');
+    if (existing.single['count'] == 0) {
+      // Nothing to copy: replace the empty table directly.
+      await db.execute('DROP TABLE $table');
+      await createAlbumReleaseClassifications(db);
+      return;
+    }
+
+    await createAlbumReleaseClassifications(db, table: staging);
+    await db.execute(
+      'INSERT INTO $staging ($copied) SELECT $copied FROM $table',
+    );
+    await db.execute('DROP TABLE $table');
+    await db.execute('ALTER TABLE $staging RENAME TO $table');
+  }
+
+  /// SN-49: adds Live beside the classification and the format. Every
+  /// existing row is copied unchanged.
+  static Future<void> addLiveClassification(DatabaseExecutor db) async {
+    const table = DatabaseTables.albumReleaseClassifications;
+    const staging = '${table}_rebuild';
+    const copied =
+        'album_id, kind, authority, source_reference, format, '
+        'format_authority, format_source_reference, created_at, updated_at';
+
+    final existing = await db.rawQuery('SELECT COUNT(*) AS count FROM $table');
+    if (existing.single['count'] == 0) {
+      // Nothing to copy: replace the empty table directly.
+      await db.execute('DROP TABLE $table');
+      await createAlbumReleaseClassifications(db);
+      return;
+    }
+
+    await createAlbumReleaseClassifications(db, table: staging);
+    await db.execute(
+      'INSERT INTO $staging ($copied) SELECT $copied FROM $table',
+    );
+    await db.execute('DROP TABLE $table');
+    await db.execute('ALTER TABLE $staging RENAME TO $table');
   }
 
   /// SN-45: adds the release format beside the classification. Every

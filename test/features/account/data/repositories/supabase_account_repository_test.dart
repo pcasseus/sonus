@@ -1,12 +1,15 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:sonus_next/features/account/application/services/google_auth_credential.dart';
 import 'package:sonus_next/features/account/application/services/google_auth_gateway.dart';
 import 'package:sonus_next/features/account/application/services/supabase_auth_gateway.dart';
 import 'package:sonus_next/features/account/data/repositories/supabase_account_repository.dart';
+import 'package:sonus_next/features/account/domain/entities/account_failure.dart';
 
 void main() {
   group('SupabaseAccountRepository', () {
@@ -114,10 +117,98 @@ void main() {
 
       await expectLater(
         repository.signInWithGoogle(),
-        throwsA(isA<StateError>()),
+        throwsA(
+          isA<AccountFailure>()
+              .having((f) => f.kind, 'kind', AccountFailureKind.unknown)
+              .having((f) => f.cause, 'cause', isA<StateError>()),
+        ),
       );
 
       await supabase.dispose();
+    });
+
+    group('SN-49: failures say what to do', () {
+      const credential = GoogleAuthCredential(
+        idToken: 'google-id-token',
+        accessToken: 'google-access-token',
+      );
+
+      Future<AccountFailure> failure({
+        Object? googleError,
+        Object? supabaseError,
+      }) async {
+        final supabase = _FakeSupabaseAuthGateway(signInError: supabaseError);
+        addTearDown(supabase.dispose);
+        final repository = SupabaseAccountRepository(
+          supabaseAuthGateway: supabase,
+          googleAuthGateway: _FakeGoogleAuthGateway(
+            signInResult: credential,
+            signInError: googleError,
+          ),
+        );
+        try {
+          await repository.signInWithGoogle();
+        } on AccountFailure catch (error) {
+          return error;
+        }
+        fail('sign-in should have failed');
+      }
+
+      test('offline: no connection to the account service', () async {
+        expect(
+          (await failure(
+            supabaseError: AuthRetryableFetchException(message: 'offline'),
+          )).kind,
+          AccountFailureKind.offline,
+        );
+        expect(
+          (await failure(googleError: const SocketException('no route'))).kind,
+          AccountFailureKind.offline,
+        );
+      });
+
+      test('Google setup: an unregistered package or signing key', () async {
+        for (final error in [
+          const GoogleSignInException(
+            code: GoogleSignInExceptionCode.clientConfigurationError,
+          ),
+          const GoogleSignInException(
+            code: GoogleSignInExceptionCode.providerConfigurationError,
+          ),
+          const GoogleSignInException(
+            code: GoogleSignInExceptionCode.unknownError,
+            description: 'No credential available: [28444] Developer console',
+          ),
+        ]) {
+          expect(
+            (await failure(googleError: error)).kind,
+            AccountFailureKind.googleSetup,
+          );
+        }
+      });
+
+      test('interrupted, server refused, and anything else', () async {
+        expect(
+          (await failure(
+            googleError: const GoogleSignInException(
+              code: GoogleSignInExceptionCode.interrupted,
+            ),
+          )).kind,
+          AccountFailureKind.interrupted,
+        );
+        expect(
+          (await failure(
+            supabaseError: const AuthApiException(
+              'Provider not enabled',
+              statusCode: '400',
+            ),
+          )).kind,
+          AccountFailureKind.serverRejected,
+        );
+        final other = await failure(googleError: ArgumentError('x'));
+        expect(other.kind, AccountFailureKind.unknown);
+        expect(other.cause, isA<ArgumentError>(), reason: 'kept for logs');
+      });
     });
 
     test('signOut signs out of both Supabase and Google', () async {
@@ -197,15 +288,22 @@ Session _session(User user) {
 }
 
 class _FakeGoogleAuthGateway implements GoogleAuthGateway {
-  _FakeGoogleAuthGateway({this.signInResult, this.signOutError});
+  _FakeGoogleAuthGateway({
+    this.signInResult,
+    this.signOutError,
+    this.signInError,
+  });
 
   final GoogleAuthCredential? signInResult;
   final Object? signOutError;
+  final Object? signInError;
 
   int signOutCallCount = 0;
 
   @override
   Future<GoogleAuthCredential?> signIn() async {
+    final error = signInError;
+    if (error != null) throw error;
     return signInResult;
   }
 
@@ -226,6 +324,7 @@ class _FakeSupabaseAuthGateway implements SupabaseAuthGateway {
     this.currentUser,
     this.signInUser,
     this.signOutError,
+    this.signInError,
   });
 
   @override
@@ -233,6 +332,7 @@ class _FakeSupabaseAuthGateway implements SupabaseAuthGateway {
 
   final User? signInUser;
   final Object? signOutError;
+  final Object? signInError;
 
   final StreamController<AuthState> _controller =
       StreamController<AuthState>.broadcast();
@@ -266,6 +366,8 @@ class _FakeSupabaseAuthGateway implements SupabaseAuthGateway {
     lastIdToken = idToken;
     lastAccessToken = accessToken;
 
+    final error = signInError;
+    if (error != null) throw error;
     return AuthResponse(user: signInUser);
   }
 

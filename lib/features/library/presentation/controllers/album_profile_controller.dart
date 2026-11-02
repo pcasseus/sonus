@@ -20,6 +20,7 @@ import '../../domain/entities/song_artist_credit.dart';
 import '../../domain/entities/song.dart';
 import '../../domain/repositories/song_artist_credit_repository.dart';
 import '../../domain/entities/album_edition.dart';
+import '../../domain/entities/release_date.dart';
 
 class AlbumProfileController extends ChangeNotifier {
   AlbumProfileController({
@@ -179,6 +180,7 @@ class AlbumProfileController extends ChangeNotifier {
     required AlbumEditionType editionType,
     required DateTime? releaseDate,
     required String? genre,
+    ReleaseDatePrecision? releaseDatePrecision,
     String? artistId,
   }) async {
     final service = _albumProfileEditingService;
@@ -200,8 +202,35 @@ class AlbumProfileController extends ChangeNotifier {
       editionTitle: editionTitle,
       editionType: editionType,
       releaseDate: releaseDate,
+      releaseDatePrecision: releaseDatePrecision,
       genre: genre,
       artistId: artistId,
+    );
+
+    await refresh();
+
+    return true;
+  }
+
+  /// Sets the selected edition's own release date (SN-50 A-Q6C), or the
+  /// primary edition's when editions cannot be read. Null clears it.
+  Future<bool> updateSelectedEditionReleaseDate({
+    String? userId,
+    required ReleaseDate? releaseDate,
+  }) async {
+    final service = _albumProfileEditingService;
+    final editionId =
+        _selectedEdition?.editionId ?? _album?.primaryEditionId?.trim();
+
+    if (service == null || editionId == null || editionId.isEmpty) {
+      return false;
+    }
+
+    await service.updateEditionReleaseDate(
+      userId: userId,
+      editionId: editionId,
+      releaseDate: releaseDate?.instant,
+      releaseDatePrecision: releaseDate?.precision,
     );
 
     await refresh();
@@ -284,7 +313,10 @@ class AlbumProfileController extends ChangeNotifier {
     return true;
   }
 
-  Future<bool> updateSelectedEditionTrackPlacement({
+  /// Saves [track]'s placement on the selected edition. Returns null when
+  /// nothing changed.
+  Future<AlbumEditionTrackPlacementResult?>
+  updateSelectedEditionTrackPlacement({
     String? userId,
     required LibraryTrack track,
     required int discNumber,
@@ -297,7 +329,7 @@ class AlbumProfileController extends ChangeNotifier {
         selectedEdition == null ||
         _repository is! AlbumEditionQueryRepository ||
         track.albumEditionId != selectedEdition.editionId) {
-      return false;
+      return null;
     }
 
     final result = await service.updateTrackPlacement(
@@ -309,12 +341,12 @@ class AlbumProfileController extends ChangeNotifier {
     );
 
     if (!result.changed) {
-      return false;
+      return null;
     }
 
     await refresh();
 
-    return true;
+    return result;
   }
 
   Future<List<SongArtistCredit>> getTrackAdditionalCredits(
@@ -400,7 +432,7 @@ class AlbumProfileController extends ChangeNotifier {
       return false;
     }
 
-    await service.updateTrackWithCredits(
+    final result = await service.updateTrackWithCredits(
       userId: userId,
       songId: track.songId,
       title: title,
@@ -421,7 +453,7 @@ class AlbumProfileController extends ChangeNotifier {
 
     await refresh();
 
-    return true;
+    return result.changed;
   }
 
   bool canSetTrackBlocked(String? userId) {

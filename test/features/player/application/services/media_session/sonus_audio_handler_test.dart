@@ -1,7 +1,11 @@
+import 'dart:async';
+
 import 'package:audio_service/audio_service.dart' as media;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sonus_next/features/player/application/controllers/playback_coordinator.dart';
+import 'package:sonus_next/features/player/application/services/media_session/media_session_state_mapper.dart';
 import 'package:sonus_next/features/player/application/services/media_session/sonus_audio_handler.dart';
+import 'package:sonus_next/features/player/domain/models/playback_repeat_mode.dart';
 import 'package:sonus_next/features/player/domain/models/playback_state.dart';
 
 import 'media_session_test_support.dart';
@@ -112,6 +116,62 @@ void main() {
       );
     });
 
+    test('system Shuffle toggles and Repeat cycles Off, All, One, Off '
+        '(SN-50 D-Q1/D-Q12)', () async {
+      await emit(queuedState());
+      await handler.customAction(MediaSessionStateMapper.shuffleAction);
+      await emit(queuedState(shuffle: true));
+      await handler.customAction(MediaSessionStateMapper.shuffleAction);
+
+      for (final mode in [
+        PlaybackRepeatMode.off,
+        PlaybackRepeatMode.all,
+        PlaybackRepeatMode.one,
+      ]) {
+        await emit(queuedState(repeat: mode));
+        await handler.customAction(MediaSessionStateMapper.repeatAction);
+      }
+
+      expect(engine.commands, [
+        'shuffle:true',
+        'shuffle:false',
+        'repeat:all',
+        'repeat:one',
+        'repeat:off',
+      ]);
+    });
+
+    test('an unknown custom action is logged and ignored', () async {
+      await handler.customAction('sonus.unknown');
+
+      expect(engine.commands, isEmpty);
+      expect(logs.single.$1, contains('sonus.unknown'));
+    });
+
+    test('dismissing the notification ends the session but keeps the queue '
+        '(SN-50 D-Q5/D-Q6/D-Q7)', () async {
+      await emit(queuedState(status: PlaybackStatus.paused));
+
+      await handler.onNotificationDeleted();
+
+      // A stop, never the mini-player's queue-clearing dismissal.
+      expect(engine.commands, ['stop']);
+      expect(engine.loads, isEmpty);
+      expect(
+        handler.playbackState.value.processingState,
+        media.AudioProcessingState.idle,
+      );
+    });
+
+    test('removing Sonus from Recents changes nothing (SN-50 D-Q10)', () async {
+      await emit(queuedState());
+
+      await handler.onTaskRemoved();
+
+      expect(engine.commands, isEmpty);
+      expect(handler.playbackState.value.playing, isTrue);
+    });
+
     test('a failing command is logged, never thrown at Android', () async {
       engine.failWith = StateError('engine disposed');
 
@@ -178,6 +238,39 @@ void main() {
 
       expect(handler.mediaItem.value!.id, 'b');
       expect(handler.playbackState.value.queueIndex, 1);
+    });
+
+    test('an edited credit line is republished for the playing song and '
+        'the queue, keeping the position (SN-50 BUG-01)', () async {
+      handler.attach(coordinator);
+      await emit(queuedState(position: const Duration(seconds: 30)));
+      final queues = <List<media.MediaItem>>[];
+      final subscription = handler.queue.stream.skip(1).listen(queues.add);
+      addTearDown(subscription.cancel);
+
+      await emit(
+        queuedState(
+          position: const Duration(seconds: 30),
+          tracks: [
+            mediaTrack('a').copyWith(displayArtist: 'Artist a Ft. Cy Lark'),
+            mediaTrack('b'),
+            mediaTrack('c').copyWith(displayArtist: 'Artist c Ft. Dee Rune'),
+          ],
+        ),
+      );
+
+      expect(handler.mediaItem.value!.artist, 'Artist a Ft. Cy Lark');
+      expect(queues, hasLength(1));
+      expect(queues.single.map((item) => item.artist), [
+        'Artist a Ft. Cy Lark',
+        'Artist b',
+        'Artist c Ft. Dee Rune',
+      ]);
+      expect(
+        handler.playbackState.value.updatePosition,
+        const Duration(seconds: 30),
+      );
+      expect(engine.commands, isEmpty);
     });
 
     test('pausing, buffering and errors are published', () async {
@@ -287,10 +380,61 @@ void main() {
     });
 
     test('commands while detached are ignored and logged', () async {
-      await handler.play();
+      await handler.pause();
 
       expect(engine.commands, isEmpty);
       expect(logs.single.$1, contains('not ready'));
+    });
+  });
+
+  group('Play restores the saved session first (SN-50 D-Q8)', () {
+    test('Play waits for the saved queue, then plays it', () async {
+      final restored = Completer<void>();
+      handler.attach(coordinator, restored: restored.future);
+
+      final playing = handler.play();
+      await pumpEventQueue();
+      expect(engine.commands, isEmpty);
+
+      engine.emit(queuedState(status: PlaybackStatus.paused));
+      restored.complete();
+      await playing;
+
+      expect(engine.commands, ['play']);
+      expect(engine.loads, isEmpty, reason: 'the saved queue is kept');
+    });
+
+    test('Play that starts Sonus waits for the player to attach', () async {
+      final playing = handler.play();
+      await pumpEventQueue();
+
+      engine.emit(queuedState(status: PlaybackStatus.paused));
+      handler.attach(coordinator, restored: Future<void>.value());
+      await playing;
+
+      expect(engine.commands, ['play']);
+    });
+
+    test('Play with a queue never waits for a restore', () async {
+      handler.attach(coordinator, restored: Completer<void>().future);
+      await emit(queuedState(status: PlaybackStatus.paused));
+
+      await handler.play().timeout(const Duration(seconds: 1));
+
+      expect(engine.commands, ['play']);
+    });
+
+    test('a restore that never finishes is logged after the timeout', () async {
+      final impatient = SonusAudioHandler(
+        now: () => clock,
+        log: (message, {level = 800}) => logs.add((message, level)),
+        readinessTimeout: const Duration(milliseconds: 20),
+      )..attach(coordinator, restored: Completer<void>().future);
+
+      await impatient.play();
+
+      expect(engine.commands, ['play']);
+      expect(logs.single.$1, contains('not restored in time'));
     });
   });
 
@@ -322,9 +466,17 @@ void main() {
       expect(releases, 0);
     });
 
-    test('a completed queue releases it once', () async {
+    test('a finished queue keeps it until the queue is cleared '
+        '(SN-50 D-Q16)', () async {
       await emit(queuedState());
       await emit(queuedState(status: PlaybackStatus.completed));
+
+      expect(releases, 0);
+      expect(
+        releasing.playbackState.value.processingState,
+        media.AudioProcessingState.ready,
+      );
+
       await emit(const PlaybackState());
 
       expect(releases, 1);

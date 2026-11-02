@@ -10,9 +10,12 @@ import '../../domain/models/playback_state.dart';
 import '../../domain/models/playback_track.dart';
 import '../../domain/models/playback_transition_cause.dart';
 import '../../domain/services/playback_engine.dart';
+import '../../domain/services/shuffle_order_playback.dart';
+import 'support/sonus_shuffle_order.dart';
 import 'support/playback_audio_player.dart';
 
-class JustAudioPlaybackEngine implements PlaybackEngine {
+class JustAudioPlaybackEngine
+    implements PlaybackEngine, PlaybackDisplayRefresh, ShuffleOrderPlayback {
   JustAudioPlaybackEngine({
     PlaybackAudioPlayer? audioPlayer,
     Future<void> Function()? configureAudioSession,
@@ -62,6 +65,37 @@ class JustAudioPlaybackEngine implements PlaybackEngine {
     List<PlaybackTrack> tracks, {
     int startIndex = 0,
     bool autoPlay = false,
+  }) => _loadQueue(tracks, startIndex: startIndex, autoPlay: autoPlay);
+
+  @override
+  List<int>? get shuffleOrder {
+    if (!_state.shuffleEnabled) return null;
+    final order = _audioPlayer.shuffleIndices;
+    return isShuffleOrderFor(order, _state.queue.length)
+        ? List.unmodifiable(order)
+        : null;
+  }
+
+  @override
+  Future<void> loadQueueInShuffleOrder(
+    List<PlaybackTrack> tracks, {
+    required List<int> shuffleOrder,
+    int startIndex = 0,
+    bool autoPlay = false,
+  }) => _loadQueue(
+    tracks,
+    startIndex: startIndex,
+    autoPlay: autoPlay,
+    shuffleOrder: isShuffleOrderFor(shuffleOrder, tracks.length)
+        ? shuffleOrder
+        : null,
+  );
+
+  Future<void> _loadQueue(
+    List<PlaybackTrack> tracks, {
+    required int startIndex,
+    required bool autoPlay,
+    List<int>? shuffleOrder,
   }) async {
     _ensureNotDisposed();
 
@@ -119,6 +153,12 @@ class JustAudioPlaybackEngine implements PlaybackEngine {
         sources,
         initialIndex: startIndex,
         initialPosition: Duration.zero,
+        // Always Sonus's order: a shuffle cycle never repeats an entry on
+        // its own (SN-50 device QA), and a saved order is restored exactly.
+        shuffleOrder: _shuffleOrder = SonusShuffleOrder(
+          saved: shuffleOrder,
+          currentIndex: () => _state.queue.currentIndex,
+        ),
       );
 
       // When the player was already playing, the new queue is audible now
@@ -152,11 +192,52 @@ class JustAudioPlaybackEngine implements PlaybackEngine {
     }
 
     try {
+      final atEnd = _isAtEndOfQueue;
+      _pausedAtSeekedPosition = false;
+
+      if (atEnd) {
+        await _replayFinalSong();
+        return;
+      }
+
       await _audioPlayer.play();
     } catch (error) {
       _emitFailure(error);
       rethrow;
     }
+  }
+
+  /// Whether the paused position was set by a seek, as a restored session
+  /// is, rather than by pausing playback. Cleared when playback starts.
+  bool _pausedAtSeekedPosition = false;
+
+  /// A finished queue, or a restored one paused at its very end. Play then
+  /// replays the final song (SN50-R4) instead of doing nothing.
+  bool get _isAtEndOfQueue {
+    if (_state.status == PlaybackStatus.completed) return true;
+
+    final duration = _state.duration;
+    if (_state.isPlaying || _audioPlayer.hasNext || duration <= Duration.zero) {
+      return false;
+    }
+
+    // A restored end can fall a little short of the duration. A pause in
+    // the last second of playback is not the end: Play resumes there.
+    final end = _pausedAtSeekedPosition && duration > const Duration(seconds: 2)
+        ? duration - const Duration(seconds: 1)
+        : duration;
+    return _state.position >= end;
+  }
+
+  /// just_audio keeps `playing` set after completion, so its play() would
+  /// return at once. Clearing it first makes play() start the song again.
+  Future<void> _replayFinalSong() async {
+    if (_audioPlayer.playing) {
+      await _audioPlayer.pause();
+    }
+
+    await _audioPlayer.seek(Duration.zero);
+    await _audioPlayer.play();
   }
 
   @override
@@ -188,6 +269,7 @@ class JustAudioPlaybackEngine implements PlaybackEngine {
         : position;
 
     try {
+      _pausedAtSeekedPosition = !_state.isPlaying;
       await _audioPlayer.seek(clamped);
     } catch (error) {
       _emitFailure(error);
@@ -199,14 +281,25 @@ class JustAudioPlaybackEngine implements PlaybackEngine {
   Future<void> skipNext() async {
     _ensureNotDisposed();
 
-    final canAdvance = _audioPlayer.hasNext;
+    // Repeat One repeats a song that finishes on its own; an explicit Next
+    // moves on to the next entry and Repeat One stays on for it.
+    final repeatOneTarget = _state.repeatMode == PlaybackRepeatMode.one
+        ? _audioPlayer.adjacentIndex(1)
+        : null;
+    final canAdvance = _state.repeatMode == PlaybackRepeatMode.one
+        ? repeatOneTarget != null
+        : _audioPlayer.hasNext;
 
     if (canAdvance) {
       _pendingTransitionCause = PlaybackTransitionCause.skipNext;
     }
 
     try {
-      await _audioPlayer.seekToNext();
+      if (repeatOneTarget != null) {
+        await _audioPlayer.seek(Duration.zero, index: repeatOneTarget);
+      } else if (_state.repeatMode != PlaybackRepeatMode.one) {
+        await _audioPlayer.seekToNext();
+      }
     } catch (error) {
       if (canAdvance &&
           _pendingTransitionCause == PlaybackTransitionCause.skipNext) {
@@ -227,7 +320,16 @@ class JustAudioPlaybackEngine implements PlaybackEngine {
       return;
     }
 
-    if (!_audioPlayer.hasPrevious) {
+    // Under Repeat One, Previous goes to the previous entry, as it does
+    // without it; the player alone would only restart the current song.
+    final repeatOneTarget = _state.repeatMode == PlaybackRepeatMode.one
+        ? _audioPlayer.adjacentIndex(-1)
+        : null;
+    final canGoBack = _state.repeatMode == PlaybackRepeatMode.one
+        ? repeatOneTarget != null
+        : _audioPlayer.hasPrevious;
+
+    if (!canGoBack) {
       await seek(Duration.zero);
       return;
     }
@@ -235,7 +337,11 @@ class JustAudioPlaybackEngine implements PlaybackEngine {
     _pendingTransitionCause = PlaybackTransitionCause.skipPrevious;
 
     try {
-      await _audioPlayer.seekToPrevious();
+      if (repeatOneTarget != null) {
+        await _audioPlayer.seek(Duration.zero, index: repeatOneTarget);
+      } else {
+        await _audioPlayer.seekToPrevious();
+      }
     } catch (error) {
       if (_pendingTransitionCause == PlaybackTransitionCause.skipPrevious) {
         _pendingTransitionCause = null;
@@ -261,6 +367,19 @@ class JustAudioPlaybackEngine implements PlaybackEngine {
     }
 
     try {
+      // Shuffled, the chosen entry plays next in the cycle: whatever has
+      // played stays played, and nothing upcoming is skipped.
+      final order = shuffleOrder;
+      if (changesTrack && order != null && _state.queue.hasCurrentTrack) {
+        _shuffleOrder?.arrange(
+          orderPlayingNext(
+            order,
+            current: _state.queue.currentIndex,
+            target: index,
+          ),
+        );
+        await _audioPlayer.shuffle();
+      }
       await _audioPlayer.seek(Duration.zero, index: index);
     } catch (error) {
       if (changesTrack &&
@@ -294,11 +413,38 @@ class JustAudioPlaybackEngine implements PlaybackEngine {
     try {
       await _audioPlayer.insertAudioSource(index, _audioSourceFor(track));
 
-      _emit(_state.copyWith(queue: updatedQueue, clearError: true));
+      _emit(
+        _state.copyWith(
+          queue: _withCurrentDisplay(updatedQueue),
+          clearError: true,
+        ),
+      );
     } catch (error) {
       _emitFailure(error);
       rethrow;
     }
+  }
+
+  /// [queue], built before an await on the player, with the display
+  /// fields the queue has now: a credit or title refresh that arrived
+  /// meanwhile is kept, never overwritten by the older copy.
+  PlaybackQueue _withCurrentDisplay(PlaybackQueue queue) =>
+      queue.withTrackDisplay(_state.queue.tracks);
+
+  @override
+  bool refreshTrackDisplay(Iterable<PlaybackTrack> tracks) {
+    if (_disposed) {
+      return false;
+    }
+
+    final updatedQueue = _state.queue.withTrackDisplay(tracks);
+
+    if (identical(updatedQueue, _state.queue)) {
+      return false;
+    }
+
+    _emit(_state.copyWith(queue: updatedQueue));
+    return true;
   }
 
   @override
@@ -323,7 +469,7 @@ class JustAudioPlaybackEngine implements PlaybackEngine {
 
       _emit(
         _state.copyWith(
-          queue: updatedQueue,
+          queue: _withCurrentDisplay(updatedQueue),
           position: updatedQueue.isEmpty ? Duration.zero : _state.position,
           duration: updatedQueue.currentTrack?.duration ?? Duration.zero,
           clearError: true,
@@ -359,14 +505,24 @@ class JustAudioPlaybackEngine implements PlaybackEngine {
     );
 
     try {
+      // A moved entry keeps its place in the shuffled play order.
+      _shuffleOrder?.beginMove();
       await _audioPlayer.moveAudioSource(oldIndex, newIndex);
 
-      _emit(_state.copyWith(queue: updatedQueue, clearError: true));
+      _emit(
+        _state.copyWith(
+          queue: _withCurrentDisplay(updatedQueue),
+          clearError: true,
+        ),
+      );
     } catch (error) {
       _emitFailure(error);
       rethrow;
     }
   }
+
+  /// The play order of the loaded queue (SN-50 device QA).
+  SonusShuffleOrder? _shuffleOrder;
 
   @override
   Future<void> setShuffleEnabled(bool enabled) async {
@@ -374,6 +530,14 @@ class JustAudioPlaybackEngine implements PlaybackEngine {
 
     try {
       if (enabled) {
+        // Turning shuffle on keeps the entries already played (before the
+        // current one in queue order) first; only the rest are shuffled.
+        final queue = _state.queue;
+        if (!_state.shuffleEnabled && queue.hasCurrentTrack) {
+          _shuffleOrder?.arrange(
+            orderKeepingPlayed(queue.length, current: queue.currentIndex),
+          );
+        }
         await _audioPlayer.shuffle();
       }
 

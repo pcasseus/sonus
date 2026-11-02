@@ -188,7 +188,7 @@ void main() {
       },
     );
 
-    test('a Deluxe-only placement edit records no song mutation', () async {
+    test('a Deluxe-only placement edit queues the song for sync', () async {
       await save(
         library.shared,
         trackNumber: 9,
@@ -198,8 +198,14 @@ void main() {
       final outbox = await LocalSyncDao(
         await appDatabase.database,
       ).findPending('user_1');
-      // Listings are local; the song itself did not change.
-      expect(outbox, isEmpty);
+      // Listings travel with the song's cloud record; without this the next
+      // inbound copy of the song would revert the Deluxe placement.
+      expect(outbox.map((entry) => entry.entityType).toSet(), {
+        CloudDataEntity.song,
+      });
+      expect(outbox.map((entry) => entry.entityId).toSet(), {
+        library.shared.id,
+      });
     });
 
     test(
@@ -215,6 +221,35 @@ void main() {
         expect((await stored(song.id)).trackNumber, 7);
       },
     );
+
+    test('SN-44 Edition-1: editing a Deluxe-homed song from the primary '
+        'keeps its Deluxe home', () async {
+      final song = library.deluxeOnly;
+      await AlbumEditionTrackDao(await appDatabase.database).insert(
+        AlbumEditionTrack(
+          albumEditionId: library.standard,
+          songId: song.id,
+          discNumber: 1,
+          trackNumber: 4,
+          sortPosition: 9,
+          createdAt: t0,
+          updatedAt: t0,
+        ),
+      );
+
+      final result = await save(
+        song,
+        title: 'Bonus (renamed)',
+        trackNumber: 6,
+        placementEditionId: library.standard,
+      );
+
+      final after = await memberships(song.id);
+      expect(result.song.albumEditionId, library.deluxe);
+      expect((await stored(song.id)).albumEditionId, library.deluxe);
+      expect(listing(after, library.standard).trackNumber, 6);
+      expect(listing(after, library.deluxe).trackNumber, song.trackNumber);
+    });
 
     test('a listing the song is not in is rejected without changes', () async {
       final song = library.deluxeOnly;

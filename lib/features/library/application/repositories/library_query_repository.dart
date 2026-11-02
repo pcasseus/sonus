@@ -1,9 +1,11 @@
 import '../models/library_album.dart';
 import '../models/library_album_edition.dart';
 import '../models/library_artist.dart';
+import '../models/library_release_edition.dart';
 import '../models/library_track.dart';
 import '../models/library_track_order.dart';
 import '../models/project_collaborator.dart';
+import '../models/project_song_credit.dart';
 
 abstract interface class LibraryQueryRepository {
   Future<List<LibraryTrack>> getTracks({
@@ -40,12 +42,26 @@ abstract interface class AlbumEditionQueryRepository {
   Future<List<LibraryTrack>> getTracksByAlbumEditionId(String editionId);
 }
 
+/// Every edition across the library with its song count, in one query, for
+/// album-level presentation: the edition with the most songs represents
+/// its release (SN-50).
+abstract interface class ReleaseEditionQueryRepository {
+  Future<List<LibraryReleaseEdition>> getReleaseEditions();
+}
+
 /// Credited performers by project, in one query for the whole library.
 abstract interface class ProjectCollaboratorQueryRepository {
   /// Every credited performer of every album, or of [albumId] only. Shared
   /// edition memberships are counted once. Ordered by album, then lead role,
   /// song count, name and id.
   Future<List<ProjectCollaborator>> getProjectCollaborators({String? albumId});
+}
+
+/// Each structured credit on a project's songs, linked or not.
+abstract interface class ProjectSongCreditQueryRepository {
+  /// Every credit on the songs of [albumId] and its editions, in song and
+  /// credit order. Songs without structured credits have no rows.
+  Future<List<ProjectSongCredit>> getProjectSongCredits(String albumId);
 }
 
 abstract interface class StructuredArtistQueryRepository {

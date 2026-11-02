@@ -7,10 +7,12 @@ enum AllTimeAchievementType {
   /// First ever entry into the Top 200.
   debut,
 
-  /// First ever entry into the Top 100 (after debuting below it).
+  /// First ever entry into the Top 100 (after debuting below it). Under
+  /// the SN-50 rules also when the same play reaches #1.
   top100Entry,
 
-  /// Back in the Top 200 at least a week after dropping out.
+  /// Back in the Top 200 at least a week after dropping out. Under the
+  /// SN-50 rules also when the same play reaches #1.
   reentry,
 
   /// A best-ever rank that also reaches a higher zone (Top 50, 25, 10, 5,
@@ -24,7 +26,8 @@ enum AllTimeAchievementType {
   returnsToNumberOne,
 
   /// A climb of at least [AllTimeHistoryReplay.bigClimbPlaces] places into
-  /// the Top 100 with one play.
+  /// the Top 100 with one play; from [AllTimeHistoryReplay.run]'s
+  /// `everyClimbFromUtc` on, any climb at all (SN-50 complete coverage).
   bigClimb,
 
   /// The entity's qualified plays reached [AllTimeAchievement.milestone]
@@ -40,6 +43,10 @@ enum AllTimeAchievementType {
 
   /// The group's [AllTimeAchievement.milestone]th entity in the Top 100.
   careerTop100,
+
+  /// First ever entry into the Top [AllTimeAchievement.zone] (one of
+  /// [AllTimeHistoryReplay.thresholdZones]) after the debut.
+  thresholdEntry,
 }
 
 /// One achievement, at the play that caused it.
@@ -92,7 +99,8 @@ class AllTimeAchievement {
       AllTimeAchievementType.debut ||
       AllTimeAchievementType.top100Entry ||
       AllTimeAchievementType.numberOne => '',
-      AllTimeAchievementType.newPeak => '$zone',
+      AllTimeAchievementType.newPeak ||
+      AllTimeAchievementType.thresholdEntry => '$zone',
       AllTimeAchievementType.reentry ||
       AllTimeAchievementType.returnsToNumberOne ||
       AllTimeAchievementType.bigClimb => playId,
@@ -175,6 +183,22 @@ class AllTimeHistoryReplay {
   /// Zones a new peak must reach to be worth a story.
   static const List<int> peakZones = [50, 25, 10, 5, 3, 2];
 
+  /// Zones whose first entry is told on its own (SN-50 F-Q14). The Top
+  /// 100 is [AllTimeAchievementType.top100Entry]; #1 is its own story.
+  static const List<int> thresholdZones = [
+    75,
+    50,
+    40,
+    30,
+    25,
+    20,
+    15,
+    10,
+    5,
+    3,
+    2,
+  ];
+
   static const int bigClimbPlaces = 15;
 
   /// A Top 200 return sooner than this after dropping out is ordinary churn
@@ -188,10 +212,18 @@ class AllTimeHistoryReplay {
   /// first Top 100 also count for its group, with the group's ordinal: its
   /// first, second, … #1. Groups are counted over the whole history, also
   /// before [achievementsFromUtc]; entities without a group never count.
+  /// From [thresholdEntriesFromUtc] on, every first entry into one of the
+  /// [thresholdZones] after the debut is an achievement as well, and a #1
+  /// never hides the Top 100 entry or re-entry it makes (SN-50 R3).
+  /// From [everyClimbFromUtc] on, every play that moves its entity up is
+  /// also a climb ([AllTimeAchievementType.bigClimb]), however small, beside
+  /// whatever else that play achieved; ranks are never changed by it.
   AllTimeReplayResult run({
     required Iterable<ChartRankingEvent> events,
     required DateTime referenceLocal,
     DateTime? achievementsFromUtc,
+    DateTime? thresholdEntriesFromUtc,
+    DateTime? everyClimbFromUtc,
     bool collectAchievements = true,
     List<int> streamMilestones = const [],
     String? Function(String entityId)? groupOf,
@@ -291,6 +323,22 @@ class AllTimeHistoryReplay {
 
       if (rank != null) {
         if (collecting) {
+          final thresholdsFrom = thresholdEntriesFromUtc?.toUtc();
+          final refined =
+              thresholdsFrom != null && !at.isBefore(thresholdsFrom);
+          if (refined && rank == 1 && previousRank != 1) {
+            // A debut at #1 is told by the #1 itself.
+            final entry = _entryFor(
+              state,
+              rank: rank,
+              previousRank: previousRank,
+              playId: playId,
+              at: at,
+            );
+            if (entry != null && entry.type != AllTimeAchievementType.debut) {
+              achievements.add(entry);
+            }
+          }
           final achievement = _achievementFor(
             state,
             rank: rank,
@@ -300,6 +348,46 @@ class AllTimeHistoryReplay {
             previousLeader: previousLeader,
           );
           if (achievement != null) achievements.add(achievement);
+
+          // SN-50 complete coverage: every real move up is told, once per
+          // play (the same key as a big climb, so never twice).
+          final climbsFrom = everyClimbFromUtc?.toUtc();
+          if (climbsFrom != null &&
+              !at.isBefore(climbsFrom) &&
+              previousRank != null &&
+              rank < previousRank &&
+              achievement?.type != AllTimeAchievementType.bigClimb) {
+            achievements.add(
+              _make(
+                state,
+                AllTimeAchievementType.bigClimb,
+                rank: rank,
+                previousRank: previousRank,
+                playId: playId,
+                at: at,
+              ),
+            );
+          }
+
+          if (state.everInTop && refined) {
+            for (final zone in thresholdZones) {
+              final best = state.bestRank;
+              if (rank > zone || (best != null && best <= zone)) continue;
+              achievements.add(
+                AllTimeAchievement(
+                  type: AllTimeAchievementType.thresholdEntry,
+                  entityId: state.entityId,
+                  playId: playId,
+                  occurredAt: at,
+                  rank: rank,
+                  streams: state.count,
+                  previousRank: previousRank,
+                  previousPeakRank: best,
+                  zone: zone,
+                ),
+              );
+            }
+          }
         }
 
         // Career ordinals count the whole history, stories or not.
@@ -376,17 +464,15 @@ class AllTimeHistoryReplay {
       AllTimeAchievementType type, {
       int? zone,
       String? displaced,
-    }) => AllTimeAchievement(
-      type: type,
-      entityId: state.entityId,
-      playId: playId,
-      occurredAt: at,
+    }) => _make(
+      state,
+      type,
       rank: rank,
-      streams: state.count,
       previousRank: previousRank,
-      previousPeakRank: state.bestRank,
+      playId: playId,
+      at: at,
       zone: zone,
-      displacedEntityId: displaced,
+      displaced: displaced,
     );
 
     if (rank == 1 && previousRank != 1) {
@@ -398,18 +484,14 @@ class AllTimeHistoryReplay {
       );
     }
 
-    if (previousRank == null) {
-      if (!state.everInTop) return make(AllTimeAchievementType.debut);
-      final left = state.leftTopAt;
-      final away = left == null ? Duration.zero : at.difference(left);
-      return away >= reentryAbsence
-          ? make(AllTimeAchievementType.reentry)
-          : null;
-    }
-
-    if (!state.everTop100 && rank <= hot100) {
-      return make(AllTimeAchievementType.top100Entry);
-    }
+    final entry = _entryFor(
+      state,
+      rank: rank,
+      previousRank: previousRank,
+      playId: playId,
+      at: at,
+    );
+    if (entry != null || previousRank == null) return entry;
 
     final best = state.bestRank;
     if (best != null && rank < best) {
@@ -425,6 +507,59 @@ class AllTimeHistoryReplay {
 
     return null;
   }
+
+  /// The entry this play makes: a debut, a re-entry or a first Top 100.
+  AllTimeAchievement? _entryFor(
+    _State state, {
+    required int rank,
+    required int? previousRank,
+    required String playId,
+    required DateTime at,
+  }) {
+    AllTimeAchievement make(AllTimeAchievementType type) => _make(
+      state,
+      type,
+      rank: rank,
+      previousRank: previousRank,
+      playId: playId,
+      at: at,
+    );
+
+    if (previousRank == null) {
+      if (!state.everInTop) return make(AllTimeAchievementType.debut);
+      final left = state.leftTopAt;
+      final away = left == null ? Duration.zero : at.difference(left);
+      return away >= reentryAbsence
+          ? make(AllTimeAchievementType.reentry)
+          : null;
+    }
+
+    return !state.everTop100 && rank <= hot100
+        ? make(AllTimeAchievementType.top100Entry)
+        : null;
+  }
+
+  static AllTimeAchievement _make(
+    _State state,
+    AllTimeAchievementType type, {
+    required int rank,
+    required int? previousRank,
+    required String playId,
+    required DateTime at,
+    int? zone,
+    String? displaced,
+  }) => AllTimeAchievement(
+    type: type,
+    entityId: state.entityId,
+    playId: playId,
+    occurredAt: at,
+    rank: rank,
+    streams: state.count,
+    previousRank: previousRank,
+    previousPeakRank: state.bestRank,
+    zone: zone,
+    displacedEntityId: displaced,
+  );
 
   static int? _zoneOf(int rank) {
     int? zone;

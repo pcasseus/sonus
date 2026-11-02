@@ -98,6 +98,44 @@ class PlaybackQueue {
     );
   }
 
+  /// This queue with each track whose song is in [tracks] showing that
+  /// track's display title and credit line. Itself when nothing differs.
+  PlaybackQueue withTrackDisplay(Iterable<PlaybackTrack> tracks) {
+    final displays = {for (final track in tracks) track.songId: track};
+    final updatedTracks = <PlaybackTrack>[];
+    var changed = false;
+
+    for (final track in this.tracks) {
+      final display = displays[track.songId];
+
+      if (display == null ||
+          (display.displayTitle == track.displayTitle &&
+              display.displayArtist == track.displayArtist &&
+              display.displayAlbum == track.displayAlbum)) {
+        updatedTracks.add(track);
+        continue;
+      }
+
+      changed = true;
+      updatedTracks.add(
+        track.copyWith(
+          displayTitle: display.displayTitle,
+          displayArtist: display.displayArtist,
+          displayAlbum: display.displayAlbum,
+        ),
+      );
+    }
+
+    if (!changed) {
+      return this;
+    }
+
+    return PlaybackQueue(
+      tracks: List<PlaybackTrack>.unmodifiable(updatedTracks),
+      currentIndex: currentIndex,
+    );
+  }
+
   PlaybackQueue appendTrack(PlaybackTrack track) {
     return insertTrack(track, index: tracks.length);
   }

@@ -16,7 +16,9 @@ import '../../../library/application/services/malformed_artist_identity_repair_s
 import '../../../library/data/daos/artist_dao.dart';
 import '../../../library/data/repositories/sqlite_artist_repository.dart';
 import '../../../library/application/services/track_profile_editing_service.dart';
+import '../../../library/data/daos/song_artist_credit_dao.dart';
 import '../../../library/data/daos/song_dao.dart';
+import '../../../library/data/repositories/sqlite_song_artist_credit_repository.dart';
 import '../../../player/application/controllers/playback_coordinator.dart';
 import '../../../library/data/repositories/sqlite_song_repository.dart';
 import '../../../player/data/daos/track_lyrics_dao.dart';
@@ -32,6 +34,7 @@ import '../../application/services/import_source_picker.dart';
 import '../../application/services/import_source_reconciliation_service.dart';
 import '../../application/services/import_workflow_service.dart';
 import '../../application/services/library_import_service.dart';
+import '../../application/services/possible_recording_review_service.dart';
 import '../../application/services/lyrics_ingestion_service.dart';
 import '../../application/services/metadata_resolver.dart';
 import '../../data/daos/import_batch_dao.dart';
@@ -45,8 +48,10 @@ import '../../data/repositories/sqlite_media_file_binding_repository.dart';
 import '../../data/repositories/sqlite_song_import_review_repository.dart';
 import '../../data/services/file_system_import_candidate_discovery.dart';
 import '../../data/services/local_lyrics_source_reader.dart';
+import '../../data/services/local_import_file_probe.dart';
 import '../../data/services/media_metadata_reader.dart';
 import '../../data/services/path_fallback_metadata_reader.dart';
+import '../../data/services/possible_recording_store.dart';
 import '../../data/services/saf_import_candidate_discovery.dart';
 import '../services/file_picker_import_source_picker.dart';
 
@@ -251,18 +256,6 @@ class _ImportScopeState extends State<ImportScope> {
       appDatabase: database,
     );
 
-    final reviewService =
-        libraryQueryRepository != null &&
-            trackProfileEditingService != null &&
-            artistCreationService != null
-        ? ImportReviewService(
-            reviewRepository: reviewRepository,
-            libraryQueryRepository: libraryQueryRepository,
-            trackProfileEditingService: trackProfileEditingService,
-            artistCreationService: artistCreationService,
-          )
-        : null;
-
     final mediaMetadataReader = MediaMetadataReader(
       saf: Platform.isAndroid ? _saf : null,
     );
@@ -300,12 +293,39 @@ class _ImportScopeState extends State<ImportScope> {
       trackLyricsRepository: trackLyricsRepository,
     );
 
+    final possibleRecordingStore = PossibleRecordingStore();
+
     final libraryImportService = LibraryImportService(
       metadataResolver: metadataResolver,
       atomicImporter: atomicImporter,
       mediaFileBindingRepository: mediaFileBindingRepository,
       lyricsIngestionService: lyricsIngestionService,
+      possibleRecordingStore: possibleRecordingStore,
     );
+
+    final reviewService =
+        libraryQueryRepository != null &&
+            trackProfileEditingService != null &&
+            artistCreationService != null
+        ? ImportReviewService(
+            reviewRepository: reviewRepository,
+            libraryQueryRepository: libraryQueryRepository,
+            trackProfileEditingService: trackProfileEditingService,
+            artistCreationService: artistCreationService,
+            songArtistCreditRepository: SqliteSongArtistCreditRepository(
+              SongArtistCreditDao(sqliteDatabase),
+            ),
+            possibleRecordings: PossibleRecordingReviewService(
+              store: possibleRecordingStore,
+              libraryImportService: libraryImportService,
+              mediaFileBindingRepository: mediaFileBindingRepository,
+              songRepository: SqliteSongRepository(SongDao(sqliteDatabase)),
+              fileProbe: LocalImportFileProbe(
+                saf: Platform.isAndroid ? _saf : null,
+              ),
+            ),
+          )
+        : null;
 
     final batchExecutor = ImportBatchExecutor(
       libraryImportService: libraryImportService,

@@ -10,6 +10,7 @@ import 'package:sonus_next/features/charts/data/repositories/sqlite_chart_moment
 import 'package:sonus_next/features/charts/domain/models/chart_type.dart';
 import 'package:sonus_next/features/charts/domain/moments/chart_moment_event.dart';
 import 'package:sonus_next/features/charts/domain/moments/chart_moment_event_type.dart';
+import 'package:sonus_next/features/charts/domain/moments/chart_moment_rules.dart';
 import 'package:sonus_next/features/charts/domain/moments/chart_moment_scope.dart';
 import 'package:sonus_next/features/library/application/models/library_album.dart';
 import 'package:sonus_next/features/library/application/models/library_artist.dart';
@@ -17,6 +18,8 @@ import 'package:sonus_next/features/library/application/models/library_track.dar
 import 'package:sonus_next/features/library/application/models/library_track_order.dart';
 import 'package:sonus_next/features/library/application/repositories/library_query_repository.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
+
+import '../../support/all_time_chart_fakes.dart';
 
 /// Tuesday 2026-10-27, mid-morning in the test's local zone.
 final _today = DateTime(2026, 10, 27, 10);
@@ -110,6 +113,68 @@ void main() {
     expect(again.map((e) => e.id), first.map((e) => e.id));
     expect(first, isNotEmpty);
   });
+
+  // SN-50 complete coverage: from the device-polish start every climb is
+  // recorded, on both charts, once, whatever is replayed.
+  test('every climb from the device-polish start, once', () async {
+    library.add('a');
+    library.add('b');
+    library.add('c');
+    final early = _today.subtract(const Duration(hours: 5));
+    plays.add('a', early);
+    plays.add('a', early.add(const Duration(minutes: 1)));
+    plays.add('b', early.add(const Duration(minutes: 2)));
+    plays.add('b', early.add(const Duration(minutes: 3)));
+    plays.add('c', early.add(const Duration(minutes: 4)));
+    // c: #3 -> #3 (tied on 2, reached later), then 3 streams: #3 -> #1.
+    plays.add('c', _today.subtract(const Duration(hours: 2)));
+    plays.add('c', _today.subtract(const Duration(hours: 1)));
+
+    final rules = ChartMomentRules(
+      devicePolishFromUtc: _today.subtract(const Duration(hours: 3)).toUtc(),
+    );
+    await service().record(referenceLocal: _today, rules: rules);
+    final first = await saved();
+    final climbs = [
+      for (final e in first)
+        if (e.eventType == ChartMomentEventType.rankRise) e,
+    ];
+    expect(
+      climbs.map((e) => (e.chartType, e.previousRank, e.currentRank)).toSet(),
+      {(ChartType.songs, 3, 1), (ChartType.albums, 3, 1)},
+    );
+
+    // Refreshing or restarting records nothing again.
+    await service().record(referenceLocal: _today, rules: rules);
+    await service().record(
+      referenceLocal: _today.add(const Duration(minutes: 5)),
+      rules: rules,
+    );
+    expect((await saved()).map((e) => e.id), first.map((e) => e.id));
+  });
+
+  test(
+    'without the device-polish start, small climbs are not recorded',
+    () async {
+      library.add('a');
+      library.add('b');
+      plays.add('a', _today.subtract(const Duration(hours: 5)));
+      plays.add('a', _today.subtract(const Duration(hours: 4)));
+      plays.add('b', _today.subtract(const Duration(hours: 3)));
+      plays.add('b', _today.subtract(const Duration(hours: 2)));
+      plays.add('b', _today.subtract(const Duration(hours: 1)));
+
+      await service().record(referenceLocal: _today);
+      expect(
+        (await saved()).where(
+          (e) =>
+              e.eventType == ChartMomentEventType.rankRise &&
+              (e.previousRank! - e.currentRank!) < 15,
+        ),
+        isEmpty,
+      );
+    },
+  );
 
   test('a new play adds only what it achieved', () async {
     library.add('a');
@@ -230,7 +295,7 @@ void main() {
     plays.add('a', _today.subtract(const Duration(hours: 1)));
     await service().record(referenceLocal: _today);
 
-    await moments.replaceFinalizedForWeek(
+    await moments.publishFinalizedForWeek(
       chartType: ChartType.songs,
       weekStartUtc: DateTime.utc(2026, 10, 18, 4),
       events: const [],
@@ -241,6 +306,71 @@ void main() {
       (await saved()).every((e) => e.scope == ChartMomentScope.allTime),
       isTrue,
     );
+  });
+
+  group('SN-50 R1: music missing from the library', () {
+    AllTimeMomentService withSessions() => AllTimeMomentService(
+      qualifiedPlays: plays,
+      library: library,
+      moments: moments,
+      playbackSessions: FakePlaybackSessions(plays.all),
+      activationUtc: DateTime.utc(2026, 1, 1),
+      now: () => _today,
+    );
+
+    Iterable<ChartMomentEvent> about(
+      List<ChartMomentEvent> events,
+      String entityId,
+    ) => events.where((event) => event.entity.entityId == entityId);
+
+    test('under the new rules it gets its stories as it was heard; blocked '
+        'songs still do not', () async {
+      library.add('kept');
+      library.add('hidden', blocked: true);
+      plays.add('gone', _today.subtract(const Duration(hours: 2)));
+      plays.add('hidden', _today.subtract(const Duration(hours: 1)));
+      plays.add('kept', _today.subtract(const Duration(minutes: 30)));
+
+      await withSessions().record(
+        referenceLocal: _today,
+        rules: ChartMomentRules(
+          activatedAtUtc: _today.subtract(const Duration(days: 1)).toUtc(),
+        ),
+      );
+
+      final events = await saved();
+      final gone = about(events, 'song-gone');
+      expect(gone, isNotEmpty);
+      expect(gone.map((event) => event.entity.title).toSet(), {
+        'Heard song-gone',
+      });
+      expect(gone.first.entity.artistName, 'Heard artist-gone');
+      expect(
+        about(events, 'album-gone').first.entity.title,
+        'Heard album-gone',
+      );
+      expect(about(events, 'song-hidden'), isEmpty);
+      expect(about(events, 'song-kept'), isNotEmpty);
+    });
+
+    test('before activation, or without one, it stays left out', () async {
+      library.add('kept');
+      plays.add('gone', _today.subtract(const Duration(hours: 2)));
+      plays.add('kept', _today.subtract(const Duration(minutes: 30)));
+
+      await withSessions().record(referenceLocal: _today);
+      await withSessions().record(
+        referenceLocal: _today,
+        rules: ChartMomentRules(
+          activatedAtUtc: _today.subtract(const Duration(hours: 1)).toUtc(),
+        ),
+      );
+
+      final events = await saved();
+      expect(about(events, 'song-gone'), isEmpty);
+      expect(about(events, 'album-gone'), isEmpty);
+      expect(about(events, 'song-kept'), isNotEmpty);
+    });
   });
 
   test('a pass that spans a restore writes nothing', () async {

@@ -301,7 +301,7 @@ class MediaBrowseCatalog {
   media.MediaItem _albumItem(LibraryAlbum album, {String? groupTitle}) {
     return media.MediaItem(
       id: MediaBrowseContainer.album(album.albumId).mediaId,
-      title: album.title,
+      title: album.displayTitle,
       artist: album.artistName,
       displaySubtitle: album.artistName,
       artUri: _artworkUri(album.artworkPath),
@@ -317,10 +317,11 @@ class MediaBrowseCatalog {
   }) {
     return media.MediaItem(
       id: MediaBrowsePlayableId(container, track.songId).mediaId,
-      title: track.title,
-      artist: track.artistName,
-      album: track.albumTitle,
-      displaySubtitle: '${track.artistName} · ${track.albumTitle}',
+      title: track.displayTitle,
+      artist: track.creditLine,
+      // The edition the song is listed on, as Now Playing shows it.
+      album: track.editionDisplayTitle,
+      displaySubtitle: '${track.creditLine} · ${track.editionDisplayTitle}',
       duration: track.durationSeconds > 0
           ? Duration(seconds: track.durationSeconds)
           : null,

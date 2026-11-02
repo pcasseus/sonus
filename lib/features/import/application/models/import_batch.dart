@@ -1,3 +1,4 @@
+import '../../domain/models/import_result.dart';
 import 'import_batch_item.dart';
 
 enum ImportBatchStatus { pending, running, completed }
@@ -35,6 +36,17 @@ class ImportBatch {
 
   int get skippedCount => items
       .where((item) => item.status == ImportBatchItemStatus.skipped)
+      .length;
+
+  /// Skipped files that may be a different recording of an existing song.
+  /// They are also counted in [skippedCount].
+  int get possibleAlternateRecordingCount => items
+      .where(
+        (item) =>
+            item.status == ImportBatchItemStatus.skipped &&
+            item.result?.skipReason ==
+                ImportSkipReason.possibleAlternateRecording,
+      )
       .length;
 
   int get failedCount =>

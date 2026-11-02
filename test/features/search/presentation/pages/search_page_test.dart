@@ -14,9 +14,12 @@ import 'package:sonus_next/features/library/application/models/library_artist.da
 import 'package:sonus_next/features/library/application/models/library_track.dart';
 import 'package:sonus_next/features/library/application/models/library_track_order.dart';
 import 'package:sonus_next/features/library/application/repositories/library_query_repository.dart';
+import 'package:sonus_next/features/library/application/services/song_artist_credit_service.dart';
 import 'package:sonus_next/features/library/application/services/song_block_service.dart';
+import 'package:sonus_next/features/library/application/services/track_profile_editing_service.dart';
 import 'package:sonus_next/features/library/presentation/pages/album_profile_page.dart';
 import 'package:sonus_next/features/library/presentation/pages/artist_profile_page.dart';
+import 'package:sonus_next/features/library/presentation/pages/track_studio_page.dart';
 import 'package:sonus_next/features/player/application/controllers/playback_coordinator.dart';
 import 'package:sonus_next/features/player/domain/models/playback_repeat_mode.dart';
 import 'package:sonus_next/features/player/domain/models/playback_state.dart';
@@ -28,6 +31,7 @@ import 'package:sonus_next/features/search/application/models/library_search_res
 import 'package:sonus_next/features/search/application/repositories/library_search_repository.dart';
 import 'package:sonus_next/features/search/presentation/pages/search_page.dart';
 import 'package:sonus_next/features/sync/application/services/sync_mutation_runner.dart';
+import 'package:sonus_next/features/song_stats/presentation/song_stats_page.dart';
 
 void main() {
   group('SearchPage', () {
@@ -658,6 +662,38 @@ void main() {
       expect(find.byType(ArtistProfilePage), findsOneWidget);
     });
 
+    // Charts 2.0 C4: every song menu opens the one Song Stats page.
+    testWidgets('track menu opens Song Stats', (tester) async {
+      await tester.pumpWidget(
+        _SearchTestApp(
+          repository: _FakeSearchRepository(result: _results()),
+          libraryQueryRepository: _FakeLibraryQueryRepository(
+            artist: _results().artists.single,
+          ),
+        ),
+      );
+
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('search-field')),
+        'query',
+      );
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump();
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('search-track-menu-song-1')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('View Stats'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(SongStatsPage), findsOneWidget);
+      expect(
+        tester.widget<SongStatsPage>(find.byType(SongStatsPage)).songId,
+        'song-1',
+      );
+    });
+
     testWidgets('track menu can open album profile', (tester) async {
       final queryRepository = _FakeLibraryQueryRepository(
         album: _results().albums.single,
@@ -689,6 +725,83 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(AlbumProfilePage), findsOneWidget);
+    });
+
+    testWidgets('track menu opens Track Studio and saves the song (C-Q12)', (
+      tester,
+    ) async {
+      final searchRepository = _FakeSearchRepository(result: _results());
+      final editingService = _RecordingTrackEditingService();
+
+      await tester.pumpWidget(
+        _SearchTestApp(
+          repository: searchRepository,
+          libraryQueryRepository: _FakeLibraryQueryRepository(),
+          trackProfileEditingService: editingService,
+        ),
+      );
+
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('search-field')),
+        'query',
+      );
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump();
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('search-track-menu-song-1')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Track Studio'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(TrackStudioPage), findsOneWidget);
+
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('track-title-field')),
+        'Renamed Query Track',
+      );
+      await tester.tap(
+        find.byKey(const ValueKey<String>('track-studio-save-button')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byType(TrackStudioPage), findsNothing);
+      expect(editingService.savedSongIds, ['song-1']);
+      expect(editingService.savedTitles, ['Renamed Query Track']);
+      expect(searchRepository.queries, hasLength(2));
+      expect(find.text('Song details updated.'), findsOneWidget);
+    });
+
+    testWidgets('Track Studio is unavailable without an editing service', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _SearchTestApp(
+          repository: _FakeSearchRepository(result: _results()),
+          libraryQueryRepository: _FakeLibraryQueryRepository(),
+        ),
+      );
+
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('search-field')),
+        'query',
+      );
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump();
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('search-track-menu-song-1')),
+      );
+      await tester.pumpAndSettle();
+
+      final item = tester.widget<PopupMenuItem<Object>>(
+        find.ancestor(
+          of: find.text('Track Studio'),
+          matching: find.byWidgetPredicate((widget) => widget is PopupMenuItem),
+        ),
+      );
+      expect(item.enabled, isFalse);
     });
 
     testWidgets('signed-in search user can block a song', (tester) async {
@@ -886,6 +999,35 @@ void main() {
         expect(tester.takeException(), isNull);
         expect(find.text('Query Track'), findsOneWidget);
       });
+
+      testWidgets('${id.label} selection bar fits 320dp at 2x text', (
+        tester,
+      ) async {
+        await searchFor(
+          tester,
+          spec: SonusAppearanceSpec(themeId: id),
+          size: const Size(320, 2400),
+          textScale: 2,
+        );
+
+        await tester.longPress(
+          find.byKey(const ValueKey<String>('search-track-song-1')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(tester.takeException(), isNull);
+        expect(find.text('1 selected'), findsOneWidget);
+        expect(
+          find.byKey(const ValueKey<String>('search-track-menu-song-1')),
+          findsNothing,
+        );
+
+        await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+        await tester.pumpAndSettle();
+
+        expect(find.text('1 selected'), findsNothing);
+        expect(find.text('Query Track'), findsOneWidget);
+      });
     }
 
     for (final level in SonusDecorationIntensity.values) {
@@ -905,6 +1047,7 @@ class _SearchTestApp extends StatelessWidget {
     this.libraryQueryRepository,
     this.accountController,
     this.songBlockService,
+    this.trackProfileEditingService,
     this.theme,
     this.textScale = 1,
   });
@@ -916,6 +1059,7 @@ class _SearchTestApp extends StatelessWidget {
   final LibraryQueryRepository? libraryQueryRepository;
   final AccountController? accountController;
   final SongBlockService? songBlockService;
+  final TrackProfileEditingService? trackProfileEditingService;
 
   @override
   Widget build(BuildContext context) {
@@ -928,6 +1072,9 @@ class _SearchTestApp extends StatelessWidget {
           value: accountController,
         ),
         Provider<SongBlockService?>.value(value: songBlockService),
+        Provider<TrackProfileEditingService?>.value(
+          value: trackProfileEditingService,
+        ),
       ],
       child: MaterialApp(
         theme: theme,
@@ -1071,6 +1218,59 @@ class _FakeSongBlockService extends SongBlockService {
       isBlocked: isBlocked,
       createdAt: timestamp,
       updatedAt: timestamp,
+    );
+  }
+}
+
+class _RecordingTrackEditingService extends TrackProfileEditingService {
+  _RecordingTrackEditingService()
+    : super(mutationRunner: _UnusedSyncMutationRunner());
+
+  final List<String> savedSongIds = [];
+  final List<String> savedTitles = [];
+
+  @override
+  Future<TrackProfileEditResult> updateTrackWithCredits({
+    required String? userId,
+    required String songId,
+    required String title,
+    required int trackNumber,
+    required int discNumber,
+    required Iterable<SongArtistCreditInput> additionalCredits,
+    required bool isSingle,
+    String? versionLabel,
+    List<SongVersionCharacteristic> versionCharacteristics = const [],
+    SongReleaseStatus releaseStatus = SongReleaseStatus.released,
+    bool isLeak = false,
+    bool updateVersionMetadata = false,
+    String? artistId,
+    String? albumId,
+    String? albumEditionId,
+    String? placementEditionId,
+    DateTime? now,
+  }) async {
+    savedSongIds.add(songId);
+    savedTitles.add(title);
+    final timestamp = DateTime.utc(2026, 1, 1);
+
+    return TrackProfileEditResult(
+      changed: true,
+      song: Song(
+        id: songId,
+        artistId: 'artist-1',
+        albumId: 'album-1',
+        albumEditionId: 'edition-1',
+        title: title,
+        canonicalTitle: title.toLowerCase(),
+        trackNumber: trackNumber,
+        discNumber: discNumber,
+        durationSeconds: 180,
+        isSingle: isSingle,
+        featuredArtists: const [],
+        artworkId: null,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      ),
     );
   }
 }

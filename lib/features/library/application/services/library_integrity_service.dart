@@ -2,6 +2,7 @@ import '../../../../core/identity/text_normalizer.dart';
 import '../../../import/application/folders/source_folder_key.dart';
 import '../../data/daos/library_integrity_dao.dart';
 import '../models/library_health_report.dart';
+import '../models/release_display_title.dart';
 import 'album_edition_management_service.dart';
 import 'library_organization_service.dart';
 
@@ -257,7 +258,10 @@ class LibraryIntegrityService {
       final key = SourceFolderKey.of(file.filePath);
       if (key == null) continue;
       byFolder.putIfAbsent(key, () => {})[file.albumId] = (
-        title: file.title,
+        title: releaseDisplayTitle(
+          baseTitle: file.title,
+          editionTitle: file.primaryEditionTitle,
+        ),
         owner: file.owner,
       );
       final albumCounts = counts.putIfAbsent(key, () => {});
@@ -415,12 +419,23 @@ class LibraryIntegrityService {
         editionId: editionId,
         userId: userId,
       ),
+      // A repair only lists the song; renumbering is never a side effect
+      // of one (SN-50 A-Q7D).
       ListOnHomeEdition(:final songId, :final editionId) =>
         editions
-            .assignTracks(editionId: editionId, songIds: [songId])
+            .assignTracks(
+              editionId: editionId,
+              songIds: [songId],
+              renumber: false,
+            )
             .then((_) {}),
     };
   }
+
+  /// Queues songs with placements on other editions for the next sync
+  /// (SN-50 BLOCKED #4). Returns how many were queued.
+  Future<int> resendPlacements({required String userId}) =>
+      editions.resendPlacements(userId: userId);
 
   static String _songs(int n) => _count(n, 'song');
 

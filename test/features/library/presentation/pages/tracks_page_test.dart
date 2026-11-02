@@ -34,6 +34,7 @@ import 'package:sonus_next/features/player/application/controllers/playback_coor
 import 'package:sonus_next/features/player/domain/models/playback_state.dart';
 import 'package:sonus_next/features/player/domain/services/playback_engine.dart';
 import 'package:sonus_next/features/sync/application/services/sync_mutation_runner.dart';
+import 'package:sonus_next/features/song_stats/presentation/song_stats_page.dart';
 
 void main() {
   group('TracksPage', () {
@@ -362,6 +363,29 @@ void main() {
 
       expect(find.text('Recovered Song'), findsOneWidget);
       expect(find.text('1 song in your library'), findsOneWidget);
+    });
+
+    // Charts 2.0 C4: every song menu opens the one Song Stats page.
+    testWidgets('track menu opens Song Stats', (tester) async {
+      final repository = FakeLibraryQueryRepository(
+        tracks: [createTrack(songId: 'song-stats', title: 'Stats Song')],
+      );
+
+      await tester.pumpWidget(buildSubject(repository: repository));
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('track-menu-song-stats')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('View Stats'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(SongStatsPage), findsOneWidget);
+      expect(
+        tester.widget<SongStatsPage>(find.byType(SongStatsPage)).songId,
+        'song-stats',
+      );
     });
 
     testWidgets('signed-out user can blacklist a song from the track menu', (
@@ -1121,6 +1145,120 @@ void main() {
       expect(submitted[2].role, SongArtistCreditRole.featured);
       expect(submitted[2].artistId, isNull);
     });
+
+    testWidgets('Track Studio shows and keeps older featured names '
+        '(SN-50 C-Q4)', (tester) async {
+      final repository = FakeLibraryQueryRepository(
+        tracks: [
+          createTrack(
+            songId: 'song-legacy',
+            title: 'Legacy Song',
+            featuredArtists: const ['Legacy Feat', 'Crane, The Lantern'],
+          ),
+        ],
+      );
+      final editingService = FakeTrackStudioEditingService();
+
+      await tester.pumpWidget(
+        buildSubject(
+          repository: repository,
+          trackProfileEditingService: editingService,
+          songArtistCreditRepository: FakeSongArtistCreditRepository(),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('track-menu-song-legacy')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Track Studio'));
+      await tester.pumpAndSettle();
+
+      final firstCredit = find.byKey(
+        const ValueKey<String>('track-credit-row-0'),
+      );
+      await tester.scrollUntilVisible(
+        firstCredit,
+        200,
+        scrollable: find
+            .descendant(
+              of: find.byKey(const ValueKey<String>('track-studio-page')),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+
+      expect(
+        find.descendant(of: firstCredit, matching: find.text('Legacy Feat')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey<String>('track-credit-row-1')),
+          matching: find.text('Crane, The Lantern'),
+        ),
+        findsOneWidget,
+      );
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('track-studio-save-button')),
+      );
+      await tester.pumpAndSettle();
+
+      final submitted = editingService.lastAdditionalCredits!;
+      expect(submitted.map((credit) => credit.creditedName), [
+        'Legacy Feat',
+        'Crane, The Lantern',
+      ]);
+      expect(
+        submitted.every(
+          (credit) =>
+              credit.role == SongArtistCreditRole.featured &&
+              !credit.linkByName,
+        ),
+        isTrue,
+      );
+    });
+
+    testWidgets('rows show every credit role and the version suffix '
+        '(SN-50 C-Q1/C-Q6)', (tester) async {
+      final repository = FakeLibraryQueryRepository(
+        tracks: [
+          LibraryTrack(
+            songId: 'song-roles',
+            title: 'Paper Boats',
+            artistId: 'artist-1',
+            artistName: 'Artist',
+            albumId: 'album-1',
+            albumTitle: 'Album',
+            albumEditionId: 'edition-1',
+            albumEditionTitle: 'Standard',
+            albumEditionType: AlbumEditionType.standard,
+            trackNumber: 1,
+            durationSeconds: 180,
+            isSingle: false,
+            featuredArtists: const ['Cy Lark'],
+            coPrimaryArtists: const ['Ben Moor'],
+            guestArtists: const ['Eve Shore'],
+            versionCharacteristics: const [SongVersionCharacteristic.live],
+            dateAdded: DateTime(2026),
+            filePath: '/music/song.mp3',
+            isAvailable: true,
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(buildSubject(repository: repository));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Paper Boats (Live)'), findsOneWidget);
+      expect(
+        find.text('Artist & Ben Moor Ft. Cy Lark with Eve Shore'),
+        findsOneWidget,
+      );
+    });
+
     testWidgets(
       'Track Studio closes and warns when refresh callback throws after apply',
       (tester) async {
@@ -1386,6 +1524,81 @@ void main() {
 
       expect(tester.takeException(), isNull);
       expect(rail, findsOneWidget);
+    });
+  });
+
+  group('SN-50 multi-select', () {
+    final repositoryTracks = [
+      createTrack(songId: 'song-amber', title: 'Amber Coast'),
+      createTrack(songId: 'song-birch', title: 'Birch Road'),
+    ];
+
+    testWidgets('long-press selects a row, which then toggles on tap', (
+      tester,
+    ) async {
+      final engine = RecordingPlaybackEngine();
+      final semantics = tester.ensureSemantics();
+
+      await tester.pumpWidget(
+        buildSubject(
+          repository: FakeLibraryQueryRepository(tracks: repositoryTracks),
+          engine: engine,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.longPress(
+        find.byKey(const ValueKey<String>('track-song-amber')),
+      );
+      await tester.pump();
+
+      expect(find.text('1 selected'), findsOneWidget);
+      expect(
+        tester.getSemantics(
+          find.byKey(const ValueKey<String>('track-song-amber')),
+        ),
+        isSemantics(
+          isChecked: true,
+          isSelected: true,
+          hasTapAction: true,
+          hasLongPressAction: true,
+        ),
+      );
+      expect(
+        find.byKey(const ValueKey<String>('track-menu-song-amber')),
+        findsNothing,
+      );
+
+      await tester.tap(find.byKey(const ValueKey<String>('track-song-birch')));
+      await tester.pump();
+
+      expect(find.text('2 selected'), findsOneWidget);
+      expect(engine.loadQueueCalls, 0);
+      semantics.dispose();
+    });
+
+    testWidgets('the song menu offers Select, Go to album and Go to artist', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        buildSubject(
+          repository: FakeLibraryQueryRepository(tracks: repositoryTracks),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('track-menu-song-birch')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Go to album'), findsOneWidget);
+      expect(find.text('Go to artist'), findsOneWidget);
+
+      await tester.tap(find.text('Select'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('1 selected'), findsOneWidget);
     });
   });
 }

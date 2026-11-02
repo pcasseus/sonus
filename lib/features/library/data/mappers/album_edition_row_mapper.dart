@@ -1,4 +1,13 @@
 import '../../domain/entities/album_edition.dart';
+import '../../domain/entities/release_date.dart';
+
+/// The stored precision name, or null when it is missing or unknown.
+ReleaseDatePrecision? releaseDatePrecisionOf(Object? value) {
+  for (final precision in ReleaseDatePrecision.values) {
+    if (precision.name == value) return precision;
+  }
+  return null;
+}
 
 abstract final class AlbumEditionRowMapper {
   static Map<String, Object?> toRow(AlbumEdition edition) {
@@ -9,6 +18,9 @@ abstract final class AlbumEditionRowMapper {
       'type': edition.type.name,
       'is_primary': edition.isPrimary ? 1 : 0,
       'release_date': edition.releaseDate?.toUtc().toIso8601String(),
+      'release_date_precision': edition.releaseDate == null
+          ? null
+          : edition.releaseDatePrecision?.name,
       'genre': edition.genre,
       'artwork_id': edition.artworkId,
       'created_at': edition.createdAt.toUtc().toIso8601String(),
@@ -29,6 +41,9 @@ abstract final class AlbumEditionRowMapper {
       releaseDate: row['release_date'] == null
           ? null
           : DateTime.parse(row['release_date'] as String),
+      releaseDatePrecision: releaseDatePrecisionOf(
+        row['release_date_precision'],
+      ),
       genre: row['genre'] as String?,
       artworkId: row['artwork_id'] as String?,
       createdAt: DateTime.parse(row['created_at'] as String),

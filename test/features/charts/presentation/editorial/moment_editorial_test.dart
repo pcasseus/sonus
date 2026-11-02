@@ -7,10 +7,12 @@ import 'package:sonus_next/features/charts/domain/models/chart_entity_snapshot.d
 import 'package:sonus_next/features/charts/domain/models/chart_type.dart';
 import 'package:sonus_next/features/charts/domain/moments/chart_moment_event.dart';
 import 'package:sonus_next/features/charts/domain/moments/chart_moment_event_type.dart';
+import 'package:sonus_next/features/charts/domain/moments/chart_moment_rules.dart';
 import 'package:sonus_next/features/charts/domain/moments/chart_moment_scope.dart';
 import 'package:sonus_next/features/charts/presentation/editorial/moment_editorial_desk.dart';
 import 'package:sonus_next/features/charts/presentation/editorial/moment_facts.dart';
 import 'package:sonus_next/features/charts/presentation/editorial/moment_family.dart';
+import 'package:sonus_next/features/charts/presentation/editorial/moment_story_planner.dart';
 import 'package:sonus_next/features/charts/presentation/editorial/moment_headlines.dart';
 import 'package:sonus_next/features/charts/presentation/editorial/moment_publisher.dart';
 import 'package:sonus_next/features/charts/presentation/editorial/moment_visuals.dart';
@@ -23,8 +25,10 @@ class FakeLookups implements MomentLookups {
     this.formats = const {},
     this.songFormats = const {},
     this.featured = const {},
+    this.guests = const {},
     this.covers = const {},
     this.portraits = const {},
+    this.currentCovers = const {},
   });
 
   final Map<String, String> artists;
@@ -33,8 +37,14 @@ class FakeLookups implements MomentLookups {
   /// The format of each song's release; Album when missing.
   final Map<String, ReleaseFormat?> songFormats;
   final Map<String, List<String>> featured;
+
+  /// Guest credits (role guest), never featured.
+  final Map<String, List<String>> guests;
   final Map<String, String> covers;
   final Map<String, String> portraits;
+
+  /// Covers that SN-50 stories show instead, where they differ.
+  final Map<String, String> currentCovers;
 
   @override
   String? artistName(String artistId) => artists[artistId];
@@ -48,6 +58,9 @@ class FakeLookups implements MomentLookups {
       songFormats.containsKey(songId)
       ? songFormats[songId]
       : ReleaseFormat.album;
+
+  @override
+  List<String> guestsOf(String songId) => guests[songId] ?? const [];
 
   @override
   List<String> featuredOf(String songId) => featured[songId] ?? const [];
@@ -65,6 +78,14 @@ class FakeLookups implements MomentLookups {
 
   @override
   String? releaseCover(String albumId) => covers[albumId];
+
+  @override
+  String? currentSongCover(String songId) =>
+      currentCovers[songId] ?? songCover(songId);
+
+  @override
+  String? currentReleaseCover(String albumId) =>
+      currentCovers[albumId] ?? releaseCover(albumId);
 
   @override
   String? artistPortrait(String artistId) => portraits[artistId];
@@ -137,6 +158,42 @@ ChartMomentEvent event(
 List<ChartMomentFeedItem> items(List<ChartMomentEvent> events) =>
     const ChartMomentFeedAggregator().aggregate(events);
 
+/// Families added by SN-50 for new event pathways.
+const sn50Families = {
+  MomentFamily.songSelfReplacement,
+  MomentFamily.songFirstThreshold,
+  MomentFamily.songThresholds,
+  MomentFamily.artistRepeatNumberOne,
+  MomentFamily.releaseSelfReplacement,
+  MomentFamily.releaseFirstThreshold,
+  MomentFamily.releaseThresholds,
+  MomentFamily.artistRepeatNumberOneRelease,
+  MomentFamily.artistSimultaneousReleases,
+};
+
+/// The SN-50 draft families still held by the approved-family guard; each
+/// editorial batch that approves a family removes it here.
+const stillDraftFamilies = <MomentFamily>{};
+
+/// SN-50 chart-jump families, approved line by line (CJ-001 to CJ-031).
+const chartJumpFamilies = {
+  MomentFamily.songHot100MajorJump,
+  MomentFamily.songHot100ClimbRun,
+};
+
+/// Families added for the refined rules only (BUG-04 falls and exits):
+/// no catalog lines; their lines are refined additions, validated in
+/// refined_catalog_validation_test.dart.
+/// Families added by the SN-50 device polish: their lines are in
+/// ClimbHeadlines (moment_climb.dart), validated in
+/// moment_developing_stories_test.dart, never in a published catalog.
+const devicePolishFamilies = {MomentFamily.releaseClimb};
+
+const refinedOnlyFamilies = {
+  MomentFamily.songBubblingUnderFall,
+  MomentFamily.songHot100Exit,
+};
+
 /// Every fact a family can use, so every headline renders.
 MomentFacts fullFacts(MomentFamily family) {
   final release = family.isRelease;
@@ -176,6 +233,14 @@ MomentFacts fullFacts(MomentFamily family) {
     featured: 'Kehlani',
     consecutive: true,
     count: 3,
+    thresholds: const [75, 50, 40],
+    jump: ChartJumpFacts(
+      fromRank: rank + 40,
+      toRank: rank,
+      weeks: 3,
+      weekStreams: 245,
+      previousWeekStreams: 235,
+    ),
   );
 }
 
@@ -184,12 +249,23 @@ void main() {
     test('every family has twelve distinct headlines, six per publisher', () {
       final ids = <String>{};
       for (final family in MomentFamily.values) {
+        if (refinedOnlyFamilies.contains(family) ||
+            devicePolishFamilies.contains(family)) {
+          expect(MomentHeadlines.of(family), isEmpty);
+          continue;
+        }
         final variants = MomentHeadlines.of(family);
-        expect(variants.length, greaterThanOrEqualTo(12), reason: '$family');
+        // SN-50 families carry only the approved-direction drafts so far.
+        final drafted = sn50Families.contains(family);
+        expect(
+          variants.length,
+          greaterThanOrEqualTo(drafted ? 2 : 12),
+          reason: '$family',
+        );
         for (final publisher in MomentPublisher.values) {
           expect(
             variants.where((v) => v.publisher == publisher).length,
-            greaterThanOrEqualTo(6),
+            greaterThanOrEqualTo(drafted ? 1 : 6),
             reason: '$family ${publisher.label}',
           );
         }
@@ -203,6 +279,46 @@ void main() {
         final facts = fullFacts(family);
         final texts = {for (final v in variants) v.build(facts)};
         expect(texts.length, variants.length, reason: '$family repeats itself');
+      }
+    });
+
+    test('the SN-45 catalog keeps its 384 headlines, 192 per publisher', () {
+      final legacy = [
+        for (final family in MomentFamily.values)
+          if (!sn50Families.contains(family) &&
+              !chartJumpFamilies.contains(family))
+            ...MomentHeadlines.of(family),
+      ];
+      expect(legacy, hasLength(384));
+      expect(
+        legacy.where((v) => v.publisher == MomentPublisher.sonusDaily),
+        hasLength(192),
+      );
+    });
+
+    test('SN-50 headlines never call a finished week "this week"', () {
+      for (final family in sn50Families) {
+        for (final variant in MomentHeadlines.of(family)) {
+          final facts = MomentFacts(
+            chartType: family.isRelease ? ChartType.albums : ChartType.songs,
+            weekly: true,
+            refined: true,
+            title: 'Paper Lanterns',
+            artist: 'Mira Vale',
+            rank: family.isNumberOne ? 1 : 7,
+            ordinal: 2,
+            threshold: 10,
+            count: 2,
+            rivalTitle: 'Low Tide',
+            rivalArtist: 'Mira Vale',
+            thresholds: const [50, 40],
+          );
+          final text = variant.build(facts);
+          expect(text, isNot(contains("this week's")), reason: text);
+          expect(text, isNot(contains('this stream')), reason: text);
+          expect(text, isNot(contains(' its ')), reason: text);
+          expect(text.toLowerCase(), isNot(contains('all time')));
+        }
       }
     });
 
@@ -234,6 +350,107 @@ void main() {
           }
         }
       }
+    });
+
+    test('SN-50 chart jumps: six distinct approved lines per publisher, '
+        'weekly wording, approved publisher', () {
+      final facts = MomentFacts(
+        chartType: ChartType.songs,
+        weekly: true,
+        refined: true,
+        title: 'Paper Moon',
+        artist: 'Mira Vale',
+        rank: 48,
+        previousRank: 80,
+        jump: const ChartJumpFacts(fromRank: 90, toRank: 48, weeks: 3),
+      );
+      for (final family in chartJumpFamilies) {
+        expect(MomentHeadlines.approvedFamilies, contains(family));
+        final variants = MomentHeadlines.of(family);
+        for (final publisher in MomentPublisher.values) {
+          final lines = {
+            for (final v in variants)
+              if (v.publisher == publisher) v.build(facts),
+          };
+          expect(lines, hasLength(6), reason: '$family ${publisher.label}');
+        }
+        for (final variant in variants) {
+          final text = variant.build(facts);
+          expect(text, isNot(contains("this week's")), reason: text);
+          expect(text, isNot(contains('this stream')), reason: text);
+          expect(text, isNot(contains('stream')), reason: text);
+          expect(text, isNot(contains('null')), reason: text);
+          // CJ-026 tells the run's places without the rank.
+          expect(text, anyOf(contains('#48'), contains('42 places')));
+          expect(text, matches(RegExp(r'[.!]$')), reason: text);
+        }
+      }
+      expect(
+        MomentEditorialDesk.publisherFor(MomentFamily.songHot100MajorJump),
+        MomentPublisher.pulsePop,
+      );
+      expect(
+        MomentEditorialDesk.publisherFor(MomentFamily.songHot100ClimbRun),
+        MomentPublisher.sonusDaily,
+      );
+    });
+
+    test('SN-50 chart jumps: the approved revisions render exactly', () {
+      final facts = MomentFacts(
+        chartType: ChartType.songs,
+        weekly: true,
+        refined: true,
+        title: 'Paper Moon',
+        artist: 'Mira Vale',
+        rank: 48,
+        previousRank: 80,
+        jump: const ChartJumpFacts(fromRank: 90, toRank: 48, weeks: 3),
+      );
+      String line(MomentFamily family, String id) => MomentHeadlines.of(
+        family,
+      ).singleWhere((v) => v.id == id).build(facts);
+
+      // CJ-010 and CJ-011.
+      expect(
+        line(MomentFamily.songHot100MajorJump, 'song-jump-p4'),
+        '"Paper Moon" by Mira Vale soars 32 places to #48 on the Sonus '
+        'Hot 100.',
+      );
+      expect(
+        line(MomentFamily.songHot100MajorJump, 'song-jump-p5'),
+        'From #80 to #48: "Paper Moon" makes a major jump on the Sonus '
+        'Hot 100.',
+      );
+      // CJ-001 and CJ-006, as approved.
+      expect(
+        line(MomentFamily.songHot100MajorJump, 'song-jump-d1'),
+        '"Paper Moon" by Mira Vale jumps 32 places on the weekly Sonus Hot '
+        '100, from #80 to #48.',
+      );
+      expect(
+        line(MomentFamily.songHot100MajorJump, 'song-jump-d6'),
+        'Mira Vale\'s "Paper Moon" gains 32 places on the weekly Sonus Hot '
+        '100 and reaches #48.',
+      );
+      // CJ-028, and the run facts of CJ-020.
+      expect(
+        line(MomentFamily.songHot100ClimbRun, 'song-run-p3'),
+        'Up, up, up! "Paper Moon" by Mira Vale climbs for 3 straight weeks, '
+        'reaching #48 on the Sonus Hot 100.',
+      );
+      expect(
+        line(MomentFamily.songHot100ClimbRun, 'song-run-d1'),
+        '"Paper Moon" by Mira Vale has climbed the weekly Sonus Hot 100 for 3 '
+        'weeks in a row, from #90 to #48.',
+      );
+    });
+
+    test('SN-50 release safety: only approved families can publish', () {
+      expect(
+        MomentHeadlines.approvedFamilies,
+        MomentFamily.values.toSet().difference(stillDraftFamilies),
+      );
+      expect(MomentHeadlines.approvedFamilies, containsAll(chartJumpFamilies));
     });
 
     test('Bubbling Under keeps its real position: #106, never #6', () {
@@ -630,6 +847,51 @@ void main() {
       }
     });
 
+    test('SN-49: a small count is never quoted, in any headline or line', () {
+      final events = [
+        for (var i = 0; i < 24; i++)
+          event(
+            i.isEven
+                ? ChartMomentEventType.firstNumberOne
+                : ChartMomentEventType.debut,
+            entity: song('s$i'),
+            source: 'play-$i',
+            rank: i.isEven ? 1 : 4,
+            threshold: i.isEven ? 1 : null,
+            streams: 1 + i % (MomentFacts.notableStreams - 1),
+            at: DateTime.utc(2026, 10, 26, 9, i),
+          ),
+      ];
+      final stories = desk().compose(items(events));
+      expect(stories, hasLength(events.length));
+      for (final story in stories) {
+        final text = '${story.headline} ${story.body ?? ''}';
+        expect(text, isNot(matches(RegExp(r'\b\d+ streams?\b'))), reason: text);
+      }
+    });
+
+    test('SN-49: a notable count can still be quoted', () {
+      final quoted = <String>[];
+      final stories = desk().compose(
+        items([
+          for (var i = 0; i < 24; i++)
+            event(
+              ChartMomentEventType.debut,
+              entity: song('s$i'),
+              source: 'play-$i',
+              rank: 4,
+              streams: MomentFacts.notableStreams + i,
+              at: DateTime.utc(2026, 10, 26, 9, i),
+            ),
+        ]),
+      );
+      for (final story in stories) {
+        final text = '${story.headline} ${story.body ?? ''}';
+        if (RegExp(r'\b\d+ streams\b').hasMatch(text)) quoted.add(text);
+      }
+      expect(quoted, isNotEmpty);
+    });
+
     test('ordinals take the right article', () {
       expect(MomentFacts.withArticle('second'), 'a second');
       expect(MomentFacts.withArticle('eighth'), 'an eighth');
@@ -644,7 +906,7 @@ void main() {
           final text = variant.build(fullFacts(family));
           expect(
             text,
-            isNot(matches(RegExp(r'a (eighth|eleventh|8|11th|18th)'))),
+            isNot(matches(RegExp(r'ba (eighth|eleventh|8|11th|18th)'))),
           );
         }
       }
@@ -923,6 +1185,337 @@ void main() {
       expect(story.visual.left.hasImage, isFalse);
       expect(story.visual.right!.entityId, 'nobody');
       expect(story.visual.right!.hasImage, isFalse);
+    });
+  });
+
+  group('SN-50 stories', () {
+    final activated = ChartMomentRules(
+      activatedAtUtc: DateTime.utc(2026, 11, 1),
+    );
+    final lookups = FakeLookups(
+      artists: {'artist-a': 'Name artist-a', 'artist-b': 'Name artist-b'},
+    );
+    final desk = MomentEditorialDesk(lookups: lookups, rules: activated);
+    final before = DateTime.utc(2026, 10, 26, 12);
+    final after = DateTime.utc(2026, 11, 3, 12);
+
+    List<MomentStory> debutAndTopArtist(DateTime at) => desk.compose(
+      items([
+        event(ChartMomentEventType.debut, entity: song('s1'), rank: 30, at: at),
+        event(
+          ChartMomentEventType.artistBecomesTopArtist,
+          entity: artistEntity('artist-a'),
+          related: artistEntity('artist-b'),
+          rank: 1,
+          threshold: 1,
+          at: at,
+        ),
+      ]),
+    );
+
+    List<MomentStory> climbWithMilestone(
+      int milestone, {
+      ChartMomentEventType type = ChartMomentEventType.lifetimeStreamMilestone,
+    }) => desk.compose(
+      items([
+        event(
+          ChartMomentEventType.rankRise,
+          entity: song('s1'),
+          rank: 40,
+          previousRank: 80,
+          streams: milestone,
+          at: after,
+        ),
+        event(
+          type,
+          entity: type == ChartMomentEventType.artistStreamMilestone
+              ? artistEntity('artist-a')
+              : song('s1'),
+          milestone: milestone,
+          streams: milestone,
+          at: after,
+        ),
+      ]),
+    );
+
+    test('F-Q7: a major stream milestone gets its own story beside the '
+        "play's other story", () {
+      expect(
+        climbWithMilestone(1000).map((story) => story.family),
+        unorderedEquals([
+          MomentFamily.songBigClimb,
+          MomentFamily.songStreamMilestone,
+        ]),
+      );
+      expect(
+        climbWithMilestone(
+          5000,
+          type: ChartMomentEventType.artistStreamMilestone,
+        ).map((story) => story.family),
+        unorderedEquals([
+          MomentFamily.songBigClimb,
+          MomentFamily.artistStreamMilestone,
+        ]),
+      );
+    });
+
+    test('F-Q7: a smaller stream milestone in the same play is supporting '
+        'text, not a story', () {
+      final stories = climbWithMilestone(250);
+
+      expect(stories.map((story) => story.family), [MomentFamily.songBigClimb]);
+      expect(stories.single.body, contains('250 streams'));
+      expect(
+        climbWithMilestone(
+          500,
+          type: ChartMomentEventType.artistStreamMilestone,
+        ).map((story) => story.family),
+        [MomentFamily.songBigClimb],
+      );
+    });
+
+    test('F-Q7: 1,000 qualified streams is the first major milestone; '
+        'below it is supporting text', () {
+      expect(MomentStoryPlanner.majorStreamMilestone, 1000);
+      expect(climbWithMilestone(999).map((story) => story.family), [
+        MomentFamily.songBigClimb,
+      ]);
+      expect(
+        climbWithMilestone(1000).map((story) => story.family),
+        unorderedEquals([
+          MomentFamily.songBigClimb,
+          MomentFamily.songStreamMilestone,
+        ]),
+      );
+    });
+
+    test('F-Q7: a stream milestone alone is still its own story', () {
+      final stories = desk.compose(
+        items([
+          event(
+            ChartMomentEventType.lifetimeStreamMilestone,
+            entity: song('s1'),
+            milestone: 250,
+            streams: 250,
+            at: after,
+          ),
+        ]),
+      );
+
+      expect(stories.map((story) => story.family), [
+        MomentFamily.songStreamMilestone,
+      ]);
+    });
+
+    test('one play tells its debut and its new top artist', () {
+      expect(
+        debutAndTopArtist(after).map((story) => story.family),
+        unorderedEquals([MomentFamily.songDebut, MomentFamily.artistTopArtist]),
+      );
+      // Moments from before the rules keep their single story.
+      expect(debutAndTopArtist(before).map((story) => story.family), [
+        MomentFamily.artistTopArtist,
+      ]);
+    });
+
+    test('SN-50 R2: without an activation every story keeps the earlier '
+        'rules', () {
+      final stories = MomentEditorialDesk(lookups: lookups).compose(
+        items([
+          event(
+            ChartMomentEventType.debut,
+            entity: song('s1'),
+            rank: 30,
+            at: after,
+          ),
+          event(
+            ChartMomentEventType.artistBecomesTopArtist,
+            entity: artistEntity('artist-a'),
+            related: artistEntity('artist-b'),
+            rank: 1,
+            threshold: 1,
+            at: after,
+          ),
+        ]),
+      );
+
+      expect(stories.map((story) => story.family), [
+        MomentFamily.artistTopArtist,
+      ]);
+      expect(stories.single.facts.refined, isFalse);
+    });
+
+    test('a #1 never names the artist passed in the artist ranking as the '
+        'displaced song', () {
+      final stories = desk.compose(
+        items([
+          event(
+            ChartMomentEventType.firstNumberOne,
+            entity: song('s1'),
+            rank: 1,
+            previousRank: 4,
+            previousPeak: 4,
+            threshold: 1,
+            at: after,
+          ),
+          event(
+            ChartMomentEventType.artistBecomesTopArtist,
+            entity: artistEntity('artist-a'),
+            related: artistEntity('artist-b'),
+            rank: 1,
+            threshold: 1,
+            at: after,
+          ),
+        ]),
+      );
+      final numberOne = stories.singleWhere(
+        (story) => story.family == MomentFamily.songFirstNumberOne,
+      );
+      expect(numberOne.facts.rivalTitle, isNull);
+      expect(numberOne.headline, isNot(contains('Name artist-b')));
+    });
+
+    test('a displaced #1 with the same artist name but no verified artist '
+        'is not named', () {
+      final stories = desk.compose(
+        items([
+          event(
+            ChartMomentEventType.firstNumberOne,
+            entity: song('s1'),
+            rank: 1,
+            previousRank: 2,
+            previousPeak: 2,
+            threshold: 1,
+            related: const ChartEntitySnapshot(
+              entityId: 's0',
+              title: 'Song s0',
+              artistName: 'Name artist-a',
+            ),
+            at: after,
+          ),
+        ]),
+      );
+      expect(stories.single.family, MomentFamily.songFirstNumberOne);
+      expect(stories.single.facts.rivalTitle, isNull);
+    });
+
+    test('F-Q28: an SN-50 story\'s publisher follows its character', () {
+      final stories = desk.compose(
+        items([
+          for (var i = 0; i < 6; i++) ...[
+            event(
+              ChartMomentEventType.debut,
+              entity: song('deep$i'),
+              source: 'deep-$i',
+              rank: 150,
+              at: after.add(Duration(minutes: i)),
+            ),
+            event(
+              ChartMomentEventType.debut,
+              entity: song('top$i'),
+              source: 'top-$i',
+              rank: 4,
+              at: after.add(Duration(minutes: 10 + i)),
+            ),
+          ],
+        ]),
+      );
+
+      expect(stories, isNotEmpty);
+      for (final story in stories) {
+        expect(
+          story.publisher,
+          MomentEditorialDesk.publisherFor(story.family),
+          reason: story.family.name,
+        );
+      }
+      expect(
+        MomentEditorialDesk.publisherFor(MomentFamily.songBubblingUnderDebut),
+        MomentPublisher.sonusDaily,
+      );
+      expect(
+        MomentEditorialDesk.publisherFor(MomentFamily.songDebutTop10),
+        MomentPublisher.pulsePop,
+      );
+    });
+
+    test('F-Q28: earlier stories keep both publishers within one family', () {
+      final stories = desk.compose(
+        items([
+          for (var i = 0; i < 12; i++)
+            event(
+              ChartMomentEventType.debut,
+              entity: song('old$i'),
+              source: 'old-$i',
+              rank: 4,
+              at: before.add(Duration(minutes: i)),
+            ),
+        ]),
+      );
+
+      expect(stories.map((story) => story.publisher).toSet(), {
+        MomentPublisher.sonusDaily,
+        MomentPublisher.pulsePop,
+      });
+    });
+
+    test('F-Q23: an artist roundup shows no song rank', () {
+      final stories = desk.compose(
+        items([
+          for (final id in ['r1', 'r2'])
+            event(
+              ChartMomentEventType.artistSimultaneousThresholdSongs,
+              entity: song(id),
+              scope: ChartMomentScope.finalized,
+              source: 'week',
+              rank: id == 'r1' ? 2 : 6,
+              threshold: 10,
+              milestone: 2,
+              at: after,
+            ),
+        ]),
+      );
+      final roundup = stories.firstWhere(
+        (story) => story.family == MomentFamily.artistSimultaneous,
+      );
+
+      expect(roundup.rank, isNull);
+    });
+
+    test('F-Q17/C-23: every story uses the current covers, earlier '
+        'ones too (approved device QA correction)', () {
+      final covered = MomentEditorialDesk(
+        lookups: FakeLookups(
+          artists: {'artist-a': 'Name artist-a'},
+          covers: {'s-new': '/primary.jpg', 's-old': '/primary.jpg'},
+          currentCovers: {'s-new': '/deluxe.jpg', 's-old': '/deluxe.jpg'},
+        ),
+        rules: activated,
+      );
+      final stories = covered.compose(
+        items([
+          event(
+            ChartMomentEventType.debut,
+            entity: song('s-new'),
+            source: 'new',
+            rank: 30,
+            at: after,
+          ),
+          event(
+            ChartMomentEventType.debut,
+            entity: song('s-old'),
+            source: 'old',
+            rank: 30,
+            at: before,
+          ),
+        ]),
+      );
+      final byEntity = {
+        for (final story in stories) story.item.entity.entityId: story,
+      };
+
+      expect(byEntity['s-new']!.visual.left.path, '/deluxe.jpg');
+      expect(byEntity['s-old']!.visual.left.path, '/deluxe.jpg');
     });
   });
 }

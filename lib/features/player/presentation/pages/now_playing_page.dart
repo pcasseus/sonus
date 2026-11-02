@@ -47,6 +47,7 @@ class NowPlayingPage extends StatelessWidget {
         ),
         title: const Text('Now Playing'),
         centerTitle: true,
+        actions: [if (track != null) _NowPlayingMenu(coordinator: coordinator)],
       ),
       body: track == null
           ? const SonusStateView(
@@ -87,9 +88,9 @@ class _NowPlayingContent extends StatelessWidget {
 
     return SonusNowPlayingView(
       keyPrefix: 'now-playing',
-      title: track.title,
-      artist: track.artistName,
-      album: track.albumTitle,
+      title: track.displayTitle,
+      artist: track.displayArtist,
+      album: track.displayAlbum,
       artworkPath: track.artworkPath,
       position: state.position,
       duration: knownDuration,
@@ -118,7 +119,7 @@ class _NowPlayingContent extends StatelessWidget {
         unawaited(coordinator.setShuffleEnabled(!state.shuffleEnabled));
       },
       onCycleRepeat: () {
-        unawaited(coordinator.setRepeatMode(_nextRepeatMode(state.repeatMode)));
+        unawaited(coordinator.setRepeatMode(state.repeatMode.next));
       },
       onOpenQueue: () {
         Navigator.of(context).push(
@@ -139,13 +140,43 @@ class _NowPlayingContent extends StatelessWidget {
         PlaybackRepeatMode.all => SonusRepeatDisplay.all,
         PlaybackRepeatMode.one => SonusRepeatDisplay.one,
       };
+}
 
-  static PlaybackRepeatMode _nextRepeatMode(PlaybackRepeatMode current) =>
-      switch (current) {
-        PlaybackRepeatMode.off => PlaybackRepeatMode.all,
-        PlaybackRepeatMode.all => PlaybackRepeatMode.one,
-        PlaybackRepeatMode.one => PlaybackRepeatMode.off,
-      };
+enum _NowPlayingAction { endSession }
+
+/// Now Playing's overflow menu. End session stops playback and closes the
+/// system player (notification, lock screen, car) but keeps the queue and
+/// position, so Play resumes where the listener left off (SN-50 D-Q15).
+class _NowPlayingMenu extends StatelessWidget {
+  const _NowPlayingMenu({required this.coordinator});
+
+  final PlaybackCoordinator coordinator;
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<_NowPlayingAction>(
+      key: const ValueKey<String>('now-playing-more'),
+      tooltip: 'More options',
+      icon: const Icon(Icons.more_vert_rounded),
+      onSelected: (action) {
+        switch (action) {
+          case _NowPlayingAction.endSession:
+            unawaited(coordinator.stop());
+        }
+      },
+      itemBuilder: (context) => const [
+        PopupMenuItem<_NowPlayingAction>(
+          key: ValueKey<String>('now-playing-end-session'),
+          value: _NowPlayingAction.endSession,
+          child: ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: Icon(Icons.stop_circle_outlined),
+            title: Text('End session'),
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 class _PlaybackError extends StatelessWidget {

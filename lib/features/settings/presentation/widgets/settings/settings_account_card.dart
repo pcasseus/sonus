@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../../core/design/widgets/sonus_surface_card.dart';
 import '../../../../account/application/controllers/account_controller.dart';
+import '../../../../account/domain/entities/account_failure.dart';
 
 /// The Google account card: sign-in, identity and sign-out.
 class SettingsAccountCard extends StatelessWidget {
@@ -20,7 +21,10 @@ class SettingsAccountCard extends StatelessWidget {
           key: ValueKey<String>('settings-account-unavailable'),
           leading: Icon(Icons.account_circle_outlined),
           title: Text('Google account'),
-          subtitle: Text('Account sign-in is not configured for this build.'),
+          subtitle: Text(
+            'Sign-in is off in this copy of Sonus: it was built without the '
+            'account settings. Everything else works fully on this device.',
+          ),
         ),
       );
     }
@@ -68,7 +72,7 @@ class _SignedOutAccountCard extends StatelessWidget {
           if (controller.hasError) ...[
             const SizedBox(height: 12),
             Text(
-              'Sign-in failed. Please try again.',
+              signInFailureMessage(controller.failureKind),
               key: const ValueKey<String>('settings-account-error'),
               style: TextStyle(color: Theme.of(context).colorScheme.error),
             ),
@@ -95,6 +99,24 @@ class _SignedOutAccountCard extends StatelessWidget {
     );
   }
 }
+
+/// What to tell the person after a failed sign-in. The library on this
+/// device is never affected by one.
+@visibleForTesting
+String signInFailureMessage(AccountFailureKind? kind) => switch (kind) {
+  AccountFailureKind.offline =>
+    "Couldn't reach Google or Sonus. Check your connection and try again.",
+  AccountFailureKind.googleSetup =>
+    "Google didn't accept this copy of Sonus for sign-in. Its Android "
+        'sign-in has to be registered for the key this build was signed '
+        'with. Your library is unaffected.',
+  AccountFailureKind.interrupted =>
+    'Sign-in was interrupted before it finished. Please try again.',
+  AccountFailureKind.serverRejected =>
+    "Google signed you in, but the Sonus account service didn't accept "
+        'it. Please try again later.',
+  AccountFailureKind.unknown || null => 'Sign-in failed. Please try again.',
+};
 
 class _SignedInAccountCard extends StatelessWidget {
   const _SignedInAccountCard({required this.controller});

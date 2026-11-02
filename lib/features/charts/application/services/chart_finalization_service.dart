@@ -13,7 +13,9 @@ import '../../domain/moments/chart_moment_lifetime_stream_service.dart';
 import '../../domain/moments/chart_moment_longevity_calculator.dart';
 import '../../domain/moments/chart_moment_milestone_detector.dart';
 import '../../domain/repositories/chart_moment_repository.dart';
+import '../../domain/moments/chart_moment_event.dart';
 import '../../domain/repositories/chart_repository.dart';
+import '../../domain/repositories/chart_week_finalizer.dart';
 import '../../domain/services/chart_week_resolver.dart';
 import '../../domain/services/release_chart_eligibility.dart';
 import 'chart_snapshot_builder_service.dart';
@@ -47,6 +49,7 @@ class ChartFinalizationService {
     ChartRestoreGeneration? restoreGeneration,
     ReleaseChartEligibility? releaseEligibility,
     ChartArtistAttribution? artistAttribution,
+    ChartWeekFinalizer? weekFinalizer,
   }) : _builder = builder,
        _charts = charts,
        _qualifiedPlays = qualifiedPlays,
@@ -63,7 +66,13 @@ class ChartFinalizationService {
        _now = now ?? DateTime.now,
        _restoreGeneration = restoreGeneration,
        _releaseEligibility = releaseEligibility,
-       _artistAttribution = artistAttribution;
+       _artistAttribution = artistAttribution,
+       _weekFinalizer = weekFinalizer;
+
+  /// Writes a week's snapshot and Moments in one transaction (SN-50 F6).
+  /// The app always provides it; without one (test doubles that cannot
+  /// share a transaction) the earlier two-step write is used.
+  final ChartWeekFinalizer? _weekFinalizer;
 
   final ChartSnapshotBuilderService _builder;
 
@@ -216,6 +225,15 @@ class ChartFinalizationService {
     }
   }
 
+  /// A finalized week is frozen: once stored, it is returned as stored and
+  /// never re-derived, whatever later plays, edits, blocks, restores or
+  /// engine changes would now produce. Only a missing week is built.
+  ///
+  /// With [_weekFinalizer] the snapshot and its Moments are written in one
+  /// transaction, which re-checks the week first: both are stored or
+  /// neither is. Without it, the Moments are published before the
+  /// snapshot, so a pass interrupted between the two writes finishes on
+  /// the next pass without duplicating or replacing any published Moment.
   Future<ChartSnapshot> _reconcileType({
     required ChartType chartType,
     required ChartWeek week,
@@ -226,6 +244,10 @@ class ChartFinalizationService {
       weekStartUtc: week.startUtc,
     );
 
+    if (existing != null && existing.isFinalized) {
+      return existing;
+    }
+
     final candidate = await _builder.build(
       chartType: chartType,
       weekStartUtc: week.startUtc,
@@ -233,43 +255,52 @@ class ChartFinalizationService {
       finalizedAt: week.endUtc,
       revision: existing == null ? 1 : existing.revision + 1,
       excludedAlbumIds: chartType == ChartType.albums
-          ? {
-              for (final id in await excludedReleaseIds(_releaseEligibility))
-                if (existing == null ||
-                    !existing.entries.any((e) => e.entity.entityId == id))
-                  id,
-            }
+          ? await excludedReleaseIds(_releaseEligibility)
           : const {},
     );
 
-    late final ChartSnapshot canonical;
+    final events = await _detectFinalizedMoments(candidate);
 
-    if (existing != null && _sameChartContent(existing, candidate)) {
-      canonical = existing;
-    } else {
+    final finalizer = _weekFinalizer;
+    if (finalizer != null) {
+      // No await between this check and the transaction's admission.
       _ensureNoRestoreSince(generation);
-      await _charts.replaceSnapshot(candidate);
-      canonical = candidate;
+      final stored = await finalizer.finalizeWeek(
+        snapshot: candidate,
+        moments: events,
+      );
+      return stored.snapshot;
     }
 
-    await _reconcileFinalizedMoments(canonical, generation);
+    if (events != null) {
+      _ensureNoRestoreSince(generation);
+      await _moments!.publishFinalizedForWeek(
+        chartType: candidate.chartType,
+        weekStartUtc: candidate.weekStartUtc,
+        events: events,
+      );
+    }
 
-    return canonical;
+    _ensureNoRestoreSince(generation);
+    await _charts.replaceSnapshot(candidate);
+
+    return candidate;
   }
 
-  Future<void> _reconcileFinalizedMoments(
+  /// The week's finalized Moments, or null when Moments are off or the
+  /// week starts before they do. Reads only; nothing is written here.
+  Future<List<ChartMomentEvent>?> _detectFinalizedMoments(
     ChartSnapshot snapshot,
-    int? generation,
   ) async {
     final moments = _moments;
     final activationWeekStartUtc = _momentsActivationWeekStartUtc;
 
     if (moments == null || activationWeekStartUtc == null) {
-      return;
+      return null;
     }
 
     if (snapshot.weekStartUtc.toUtc().isBefore(activationWeekStartUtc)) {
-      return;
+      return null;
     }
 
     final history = await _charts.getHistory(snapshot.chartType);
@@ -329,12 +360,7 @@ class ChartFinalizationService {
       );
     }
 
-    _ensureNoRestoreSince(generation);
-    await moments.replaceFinalizedForWeek(
-      chartType: snapshot.chartType,
-      weekStartUtc: snapshot.weekStartUtc,
-      events: events,
-    );
+    return events;
   }
 
   static ChartSnapshot? _immediatePreviousSnapshot({
@@ -375,42 +401,5 @@ class ChartFinalizationService {
       finalizedAt: weekEndUtc,
       entries: const [],
     );
-  }
-
-  static bool _sameChartContent(
-    ChartSnapshot existing,
-    ChartSnapshot candidate,
-  ) {
-    if (existing.id != candidate.id ||
-        existing.chartType != candidate.chartType ||
-        existing.weekStartUtc.toUtc() != candidate.weekStartUtc.toUtc() ||
-        existing.weekEndUtc.toUtc() != candidate.weekEndUtc.toUtc() ||
-        existing.entries.length != candidate.entries.length) {
-      return false;
-    }
-
-    for (var index = 0; index < existing.entries.length; index++) {
-      if (!_sameEntry(existing.entries[index], candidate.entries[index])) {
-        return false;
-      }
-    }
-
-    return true;
-  }
-
-  static bool _sameEntry(ChartEntry existing, ChartEntry candidate) {
-    return existing.entity.entityId == candidate.entity.entityId &&
-        existing.entity.title == candidate.entity.title &&
-        existing.entity.artistId == candidate.entity.artistId &&
-        existing.entity.artistName == candidate.entity.artistName &&
-        existing.entity.albumTitle == candidate.entity.albumTitle &&
-        existing.rank == candidate.rank &&
-        existing.qualifiedStreamCount == candidate.qualifiedStreamCount &&
-        existing.lastQualifiedAt.toUtc() == candidate.lastQualifiedAt.toUtc() &&
-        existing.previousFinalRank == candidate.previousFinalRank &&
-        existing.peakRank == candidate.peakRank &&
-        existing.peakAchievedAt.toUtc() == candidate.peakAchievedAt.toUtc() &&
-        existing.weeksOnChart == candidate.weeksOnChart &&
-        existing.movement == candidate.movement;
   }
 }

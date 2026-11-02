@@ -24,12 +24,18 @@ import 'package:sonus_next/features/library/application/services/track_profile_e
 import 'package:sonus_next/features/library/domain/metadata/metadata_field_state.dart';
 import 'package:sonus_next/features/library/domain/entities/album.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
+import 'package:sonus_next/features/library/domain/entities/release_date.dart';
 import 'package:sonus_next/features/library/domain/entities/song.dart';
 import 'package:sonus_next/features/library/domain/entities/artist.dart';
 import 'package:sonus_next/features/library/domain/repositories/album_edition_repository.dart';
 import 'package:sonus_next/features/library/domain/repositories/artist_repository.dart';
 import 'package:sonus_next/features/library/domain/repositories/song_repository.dart';
 import 'package:sonus_next/features/sync/application/services/sync_mutation_runner.dart';
+import 'package:sonus_next/features/library/application/services/song_artist_credit_service.dart';
+import 'package:sonus_next/features/library/domain/entities/song_artist_credit.dart';
+import 'package:sonus_next/features/library/domain/repositories/song_artist_credit_repository.dart';
+
+import '../../support/in_memory_song_artist_credit_repository.dart';
 
 void main() {
   final createdAt = DateTime.utc(2026, 9, 17, 12);
@@ -94,6 +100,7 @@ void main() {
     List<LibraryAlbum> albums = const [],
     List<LibraryArtist> artists = const [],
     AlbumProfileEditingService? albumProfileEditingService,
+    SongArtistCreditRepository? creditRepository,
     ThemeData? theme,
     double textScale = 1,
   }) async {
@@ -109,6 +116,8 @@ void main() {
     );
 
     final service = ImportReviewService(
+      songArtistCreditRepository:
+          creditRepository ?? InMemorySongArtistCreditRepository(),
       reviewRepository: reviewRepository,
       libraryQueryRepository: libraryRepository,
       trackProfileEditingService: editingService,
@@ -184,7 +193,8 @@ void main() {
       findsOneWidget,
     );
     expect(find.text('Imported Song'), findsOneWidget);
-    expect(find.text('Unknown Artist'), findsOneWidget);
+    // The role-aware credit line (SN-50 BUG-02).
+    expect(find.text('Unknown Artist Ft. Guest'), findsOneWidget);
     expect(find.text('Unknown Album'), findsOneWidget);
     expect(find.text('Metadata guessed from file or folder'), findsOneWidget);
     expect(find.text('Unknown artist'), findsOneWidget);
@@ -293,6 +303,205 @@ void main() {
     expect(tester.widget<OutlinedButton>(previousButton).onPressed, isNotNull);
     expect(tester.widget<OutlinedButton>(nextButton).onPressed, isNull);
   });
+  Future<void> addCredit(
+    WidgetTester tester,
+    String name, {
+    String? pickArtistId,
+  }) async {
+    final addButton = find.byKey(
+      const ValueKey<String>('track-add-credit-button'),
+    );
+    await tester.ensureVisible(addButton);
+    await tester.pumpAndSettle();
+    await tester.tap(addButton);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('track-credit-name-field')),
+      name,
+    );
+    await tester.pumpAndSettle();
+    if (pickArtistId != null) {
+      await tester.tap(
+        find.byKey(
+          ValueKey<String>('track-credit-artist-option-$pickArtistId'),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+    await tester.tap(
+      find.byKey(const ValueKey<String>('track-credit-save-button')),
+    );
+    await tester.pumpAndSettle();
+  }
+
+  Future<void> openEditorAndSave(
+    WidgetTester tester, {
+    Future<void> Function()? edit,
+  }) async {
+    final editButton = find.byKey(
+      const ValueKey<String>('import-review-edit-button'),
+    );
+    await tester.ensureVisible(editButton);
+    await tester.pumpAndSettle();
+    await tester.tap(editButton);
+    await tester.pumpAndSettle();
+    await edit?.call();
+    final saveButton = find.byKey(
+      const ValueKey<String>('track-edit-save-button'),
+    );
+    await tester.ensureVisible(saveButton);
+    await tester.pumpAndSettle();
+    await tester.tap(saveButton);
+    await tester.pumpAndSettle();
+  }
+
+  group('structured credits (SN-50 C-Q5)', () {
+    testWidgets('stored credits open in the editor and save with their roles', (
+      tester,
+    ) async {
+      final harness = await pumpReviewPage(
+        tester,
+        reviews: [review('song-1')],
+        tracks: {'song-1': track('song-1', 'Lantern Song')},
+        creditRepository: InMemorySongArtistCreditRepository([
+          SongArtistCredit(
+            id: 'credit-ada',
+            songId: 'song-1',
+            artistId: 'artist-ada',
+            creditedName: 'Ada Vale',
+            canonicalCreditedName: 'ada vale',
+            role: SongArtistCreditRole.coPrimary,
+            position: 1,
+            createdAt: createdAt,
+            updatedAt: createdAt,
+          ),
+          SongArtistCredit(
+            id: 'credit-crane',
+            songId: 'song-1',
+            creditedName: 'Crane, The Lantern',
+            canonicalCreditedName: 'crane the lantern',
+            role: SongArtistCreditRole.featured,
+            position: 2,
+            createdAt: createdAt,
+            updatedAt: createdAt,
+          ),
+        ]),
+      );
+
+      await openEditorAndSave(
+        tester,
+        edit: () async {
+          expect(find.text('Ada Vale'), findsOneWidget);
+          expect(find.text('Co-primary'), findsOneWidget);
+          expect(find.text('Crane, The Lantern'), findsOneWidget);
+          // The song's older featured name no credit names is shown, so
+          // saving never drops it unseen (SN-50 BUG-01).
+          expect(find.text('Guest'), findsOneWidget);
+        },
+      );
+
+      expect(harness.editingService.updateCallCount, 1);
+      expect(
+        [
+          for (final credit in harness.editingService.lastAdditionalCredits)
+            (credit.creditedName, credit.role, credit.artistId),
+        ],
+        [
+          ('Ada Vale', SongArtistCreditRole.coPrimary, 'artist-ada'),
+          ('Crane, The Lantern', SongArtistCreditRole.featured, null),
+          ('Guest', SongArtistCreditRole.featured, null),
+        ],
+      );
+      expect(
+        harness.editingService.lastAdditionalCredits.every(
+          (credit) => !credit.linkByName,
+        ),
+        isTrue,
+      );
+    });
+
+    testWidgets('a typed name matching a library artist is never linked', (
+      tester,
+    ) async {
+      final harness = await pumpReviewPage(
+        tester,
+        reviews: [review('song-1')],
+        tracks: {'song-1': track('song-1', 'Lantern Song')},
+        artists: [
+          LibraryArtist(
+            artistId: 'artist-crane',
+            name: 'Crane, The Lantern',
+            albumCount: 0,
+            songCount: 0,
+            dateAdded: createdAt,
+          ),
+        ],
+      );
+
+      await openEditorAndSave(
+        tester,
+        edit: () => addCredit(tester, 'Crane, The Lantern'),
+      );
+
+      final added = harness.editingService.lastAdditionalCredits.last;
+      expect(harness.editingService.lastAdditionalCredits, hasLength(2));
+      expect(added.creditedName, 'Crane, The Lantern');
+      expect(added.artistId, isNull);
+      expect(added.linkByName, isFalse);
+    });
+
+    testWidgets('picking the artist from the search list links the credit', (
+      tester,
+    ) async {
+      final harness = await pumpReviewPage(
+        tester,
+        reviews: [review('song-1')],
+        tracks: {'song-1': track('song-1', 'Lantern Song')},
+        artists: [
+          LibraryArtist(
+            artistId: 'artist-crane',
+            name: 'Crane, The Lantern',
+            albumCount: 0,
+            songCount: 0,
+            dateAdded: createdAt,
+          ),
+        ],
+      );
+
+      await openEditorAndSave(
+        tester,
+        edit: () => addCredit(tester, 'Crane', pickArtistId: 'artist-crane'),
+      );
+
+      final added = harness.editingService.lastAdditionalCredits.last;
+      expect(added.creditedName, 'Crane, The Lantern');
+      expect(added.artistId, 'artist-crane');
+    });
+
+    testWidgets('credits that cannot be read keep the editor closed', (
+      tester,
+    ) async {
+      final harness = await pumpReviewPage(
+        tester,
+        reviews: [review('song-1')],
+        tracks: {'song-1': track('song-1', 'Lantern Song')},
+        creditRepository: _FailingCreditRepository(),
+      );
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('import-review-edit-button')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Edit song details'), findsNothing);
+      expect(
+        find.text('Could not open song details. Try again.'),
+        findsOneWidget,
+      );
+      expect(harness.editingService.updateCallCount, 0);
+    });
+  });
+
   testWidgets('edit dialog is prefilled and cancel does not resolve review', (
     tester,
   ) async {
@@ -315,13 +524,21 @@ void main() {
     final numberField = tester.widget<TextFormField>(
       find.byKey(const ValueKey<String>('track-number-field')),
     );
-    final featuredField = tester.widget<TextFormField>(
-      find.byKey(const ValueKey<String>('track-featured-artists-field')),
-    );
 
     expect(titleField.controller!.text, 'Imported Song');
     expect(numberField.controller!.text, '0');
-    expect(featuredField.controller!.text, 'Guest');
+    expect(
+      find.byKey(const ValueKey<String>('track-featured-artists-field')),
+      findsNothing,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey<String>('track-credit-row-0')),
+        matching: find.text('Guest'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Featured'), findsOneWidget);
 
     await tester.tap(find.text('Cancel'));
     await tester.pumpAndSettle();
@@ -767,10 +984,7 @@ void main() {
       find.byKey(const ValueKey<String>('track-disc-number-field')),
       '3',
     );
-    await tester.enterText(
-      find.byKey(const ValueKey<String>('track-featured-artists-field')),
-      'Ariana Grande',
-    );
+    await addCredit(tester, 'Mira Sol');
 
     final addArtistButton = find.byKey(
       const ValueKey<String>('track-add-primary-artist-button'),
@@ -810,6 +1024,13 @@ void main() {
     expect(harness.editingService.lastSongId, 'song-1');
     expect(harness.editingService.lastArtistId, 'artist-created');
     expect(harness.editingService.lastTitle, 'Faster than Boyz');
+    expect(
+      [
+        for (final credit in harness.editingService.lastAdditionalCredits)
+          credit.creditedName,
+      ],
+      ['Guest', 'Mira Sol'],
+    );
 
     expect(
       find.byKey(const ValueKey<String>('import-review-complete')),
@@ -950,26 +1171,37 @@ class _FakeEditingService extends TrackProfileEditingService {
   String? lastSongId;
   String? lastTitle;
   String? lastArtistId;
+  List<SongArtistCreditInput> lastAdditionalCredits = const [];
 
   @override
-  Future<TrackProfileEditResult> updateTrack({
+  Future<TrackProfileEditResult> updateTrackWithCredits({
     required String? userId,
     required String songId,
     required String title,
     required int trackNumber,
-    int discNumber = 1,
-    required List<String> featuredArtists,
+    required int discNumber,
+    required Iterable<SongArtistCreditInput> additionalCredits,
     required bool isSingle,
+    String? versionLabel,
+    List<SongVersionCharacteristic> versionCharacteristics = const [],
+    SongReleaseStatus releaseStatus = SongReleaseStatus.released,
+    bool isLeak = false,
+    bool updateVersionMetadata = false,
     String? artistId,
     String? albumId,
     String? albumEditionId,
     String? placementEditionId,
     DateTime? now,
   }) async {
+    final featuredArtists = [
+      for (final credit in additionalCredits)
+        if (credit.role == SongArtistCreditRole.featured) credit.creditedName,
+    ];
     updateCallCount++;
     lastSongId = songId;
     lastTitle = title;
     lastArtistId = artistId;
+    lastAdditionalCredits = List<SongArtistCreditInput>.of(additionalCredits);
 
     final failure = error;
 
@@ -1185,6 +1417,7 @@ class _FakeAlbumProfileEditingService extends AlbumProfileEditingService {
     : super(mutationRunner: _UnusedMutationRunner());
 
   int updateCallCount = 0;
+  ReleaseDatePrecision? lastReleaseDatePrecision;
   String? lastAlbumId;
   String? lastPrimaryEditionId;
   String? lastTitle;
@@ -1199,10 +1432,12 @@ class _FakeAlbumProfileEditingService extends AlbumProfileEditingService {
     required AlbumEditionType editionType,
     required DateTime? releaseDate,
     required String? genre,
+    ReleaseDatePrecision? releaseDatePrecision,
     String? artistId,
     DateTime? now,
   }) async {
     updateCallCount++;
+    lastReleaseDatePrecision = releaseDatePrecision;
     lastAlbumId = albumId;
     lastPrimaryEditionId = primaryEditionId;
     lastTitle = title;
@@ -1296,5 +1531,12 @@ class _UnusedMutationRunner implements SyncMutationRunner {
   @override
   Future<T> run<T>(SyncMutationAction<T> action) {
     throw StateError('Unused fake mutation runner.');
+  }
+}
+
+class _FailingCreditRepository extends InMemorySongArtistCreditRepository {
+  @override
+  Future<List<SongArtistCredit>> getBySongId(String songId) {
+    throw StateError('credits unavailable');
   }
 }

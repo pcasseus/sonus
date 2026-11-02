@@ -4,10 +4,12 @@ import 'package:flutter/widgets.dart';
 import 'package:provider/provider.dart';
 
 import '../../../../core/database/app_database.dart';
+import '../../../../core/events/library_change_signal.dart';
 import '../../../library/application/repositories/library_query_repository.dart';
 import '../../../library/application/services/library_organization_service.dart';
 import '../../../playlists/application/services/playlist_service.dart';
 import '../../application/controllers/playback_coordinator.dart';
+import '../../application/controllers/playback_display_refresher.dart';
 import '../../application/controllers/playback_preferences_controller.dart';
 import '../../application/controllers/playback_restoration_controller.dart';
 import '../../application/services/media_session/media_browse_catalog.dart';
@@ -34,6 +36,7 @@ class PlaybackScope extends StatefulWidget {
     this.preferencesStore,
     this.mediaSession,
     this.sessionStore,
+    this.changes,
   });
 
   final Widget child;
@@ -50,6 +53,10 @@ class PlaybackScope extends StatefulWidget {
   /// Overrides the device store for the restorable session (tests).
   final PlaybackSessionStore? sessionStore;
 
+  /// Library edits the queue's shown details follow;
+  /// [LibraryChangeSignal.shared] if null.
+  final LibraryChangeSignal? changes;
+
   @override
   State<PlaybackScope> createState() => _PlaybackScopeState();
 }
@@ -62,11 +69,14 @@ class _PlaybackScopeState extends State<PlaybackScope>
   late final PlaybackPreferencesController _preferencesController;
   late final PlaybackRestorationController _restoration;
   late final Future<void> _preferencesLoaded;
+  final Completer<void> _restored = Completer<void>();
   bool _restoreRequested = false;
 
   AppDatabase? _database;
   MediaBrowseCatalog? _catalog;
   LibraryQueryRepository? _catalogLibrary;
+  LibraryQueryRepository? _displayLibrary;
+  PlaybackDisplayRefresher? _displayRefresher;
   PlaylistService? _catalogPlaylists;
   TrackLyricsRepository? _lyricsRepository;
   LyricsController? _lyricsController;
@@ -89,7 +99,7 @@ class _PlaybackScopeState extends State<PlaybackScope>
       coordinator: _coordinator,
     );
     WidgetsBinding.instance.addObserver(this);
-    widget.mediaSession?.attach(_coordinator);
+    widget.mediaSession?.attach(_coordinator, restored: _restored.future);
   }
 
   @override
@@ -106,9 +116,14 @@ class _PlaybackScopeState extends State<PlaybackScope>
   /// Restores the last queue, paused, once the library can be read and
   /// the saved shuffle and repeat modes have been applied.
   Future<void> _restoreSession(LibraryQueryRepository library) async {
-    await _preferencesLoaded;
-    if (!mounted) return;
-    await _restoration.restore(library.getTracks);
+    try {
+      await _preferencesLoaded;
+      if (!mounted) return;
+      await _restoration.restore(library.getTracks);
+    } finally {
+      // Lets a system Play that started Sonus resume the restored queue.
+      _restored.complete();
+    }
   }
 
   @override
@@ -120,6 +135,8 @@ class _PlaybackScopeState extends State<PlaybackScope>
       _restoreRequested = true;
       unawaited(_restoreSession(library));
     }
+
+    _updateDisplayRefresher(library);
 
     final database = context.watch<AppDatabase>();
 
@@ -138,6 +155,23 @@ class _PlaybackScopeState extends State<PlaybackScope>
     final version = ++_initializationVersion;
 
     unawaited(_initializeLyrics(appDatabase: database, version: version));
+  }
+
+  /// Queued songs follow edits made to them while they are queued.
+  void _updateDisplayRefresher(LibraryQueryRepository? library) {
+    if (identical(library, _displayLibrary)) {
+      return;
+    }
+
+    _displayLibrary = library;
+    _displayRefresher?.dispose();
+    _displayRefresher = library == null
+        ? null
+        : PlaybackDisplayRefresher(
+            coordinator: _coordinator,
+            loadTracks: library.getTracks,
+            changes: widget.changes,
+          );
   }
 
   static LibraryOrganizationService? _organizationOf(BuildContext context) {
@@ -240,6 +274,7 @@ class _PlaybackScopeState extends State<PlaybackScope>
   @override
   void dispose() {
     _initializationVersion++;
+    _displayRefresher?.dispose();
     _lyricsController?.dispose();
     // Only unbinds if no newer scope has attached (restore reloads mount
     // the new scope first).

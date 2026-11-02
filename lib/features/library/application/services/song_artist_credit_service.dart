@@ -14,11 +14,56 @@ class SongArtistCreditInput {
     required this.creditedName,
     required this.role,
     this.artistId,
+    this.linkByName = true,
   });
 
   final String creditedName;
   final SongArtistCreditRole role;
   final String? artistId;
+
+  /// Whether a credit without [artistId] may link to the one artist whose
+  /// name matches. False when the person chose not to link it (SN-50
+  /// C-Q2): the credit then stays unlinked, and a co-primary credit whose
+  /// name matches an existing artist is refused rather than linked.
+  final bool linkByName;
+}
+
+/// Who a song already credits, so the same person is never credited twice
+/// (SN-50 C-Q4).
+///
+/// A credit linked to an artist is the same person only as that artist,
+/// so two different artists who share a name can both be credited, even
+/// alongside a primary artist of that name. A credit without a chosen
+/// artist is the same person as any credit already using its name.
+class SongCreditIdentitySet {
+  SongCreditIdentitySet({
+    required String primaryArtistId,
+    required String primaryCanonicalName,
+  }) {
+    _artistIds.add(primaryArtistId);
+    _canonicalNames.add(primaryCanonicalName);
+  }
+
+  final _artistIds = <String>{};
+  final _canonicalNames = <String>{};
+
+  /// Records a credit. False when it repeats someone already credited.
+  bool add({required String canonicalName, String? artistId}) {
+    if (artistId != null && artistId.isNotEmpty) {
+      if (!_artistIds.add(artistId)) {
+        return false;
+      }
+
+      _canonicalNames.add(canonicalName);
+      return true;
+    }
+
+    return _canonicalNames.add(canonicalName);
+  }
+
+  /// Records an artist a name-only credit was linked to. False when that
+  /// artist is already credited.
+  bool addLinkedArtist(String artistId) => _artistIds.add(artistId);
 }
 
 class SongArtistCreditService {
@@ -184,7 +229,10 @@ class SongArtistCreditService {
       ),
     ];
 
-    final seenCanonicalNames = <String>{primaryArtist.canonicalName};
+    final identities = SongCreditIdentitySet(
+      primaryArtistId: primaryArtist.id,
+      primaryCanonicalName: primaryArtist.canonicalName,
+    );
 
     for (final input in additionalCredits) {
       if (input.role == SongArtistCreditRole.primary) {
@@ -198,12 +246,16 @@ class SongArtistCreditService {
       }
 
       final canonicalName = TextNormalizer.canonicalize(creditedName);
+      final explicitArtistId = input.artistId?.trim();
 
-      if (canonicalName.isEmpty || !seenCanonicalNames.add(canonicalName)) {
+      if (canonicalName.isEmpty ||
+          !identities.add(
+            canonicalName: canonicalName,
+            artistId: explicitArtistId,
+          )) {
         continue;
       }
 
-      final explicitArtistId = input.artistId?.trim();
       String? linkedArtistId;
 
       if (explicitArtistId != null && explicitArtistId.isNotEmpty) {
@@ -218,10 +270,14 @@ class SongArtistCreditService {
         final matches =
             artistsByCanonicalName[canonicalName] ?? const <String>[];
 
-        if (matches.length == 1) {
+        if (input.linkByName && matches.length == 1) {
+          if (!identities.addLinkedArtist(matches.single)) {
+            continue;
+          }
+
           linkedArtistId = matches.single;
         } else if (input.role == SongArtistCreditRole.coPrimary) {
-          if (matches.length > 1) {
+          if (matches.isNotEmpty) {
             throw StateError(
               'Co-primary artist identity is ambiguous: $creditedName',
             );

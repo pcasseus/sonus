@@ -41,10 +41,21 @@ class AutomaticSyncCoordinator extends ChangeNotifier {
     unawaited(_syncController.activateUser(normalized));
   }
 
-  Future<void> trigger() async {
+  /// Syncs when the network allows. Automatic triggers (app resume,
+  /// connectivity) do nothing while sync is paused for a permanent
+  /// failure; the person's own [retry] still runs one attempt.
+  Future<void> trigger({bool retry = false}) async {
     final userId = _userId;
 
-    if (userId == null || _syncController.hasAccountConflict) {
+    if (userId == null) return;
+
+    // After a restart the stored pause is read during activation; checking
+    // isPaused before it finishes would let an automatic run through.
+    await _syncController.activateUser(userId);
+
+    if (_userId != userId ||
+        _syncController.hasAccountConflict ||
+        (_syncController.isPaused && !retry)) {
       return;
     }
 
@@ -78,7 +89,7 @@ class AutomaticSyncCoordinator extends ChangeNotifier {
     _mobileConsentRequired = false;
     notifyListeners();
 
-    await _syncController.synchronize(userId);
+    await _syncController.synchronize(userId, automatic: !retry);
   }
 
   Future<void> allowMobileDataAndSync() async {

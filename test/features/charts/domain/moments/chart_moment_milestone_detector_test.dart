@@ -198,6 +198,40 @@ void main() {
       ]);
     });
 
+    test('SN-50 F-Q7: 999 to 1,000 streams crosses the 1,000 milestone '
+        'once; later plays cross nothing until 2,500', () {
+      List<int?> crossed(int before, int after) => [
+        for (final event in detector.detect(
+          snapshot: snapshot(),
+          entry: entry(),
+          previousLongevity: longevity(),
+          currentLongevity: longevity(),
+          previousLifetimeStreams: before,
+          currentLifetimeStreams: after,
+          createdAt: DateTime.utc(2026, 10, 4, 1),
+        ))
+          if (event.eventType == ChartMomentEventType.lifetimeStreamMilestone)
+            event.milestoneValue,
+      ];
+
+      expect(crossed(998, 999), isEmpty);
+      expect(crossed(999, 1000), [1000]);
+      expect(crossed(1000, 1001), isEmpty);
+      expect(crossed(1001, 2499), isEmpty);
+      expect(ChartMomentMilestoneDetector.streamMilestones, [
+        10,
+        25,
+        50,
+        100,
+        250,
+        500,
+        1000,
+        2500,
+        5000,
+        10000,
+      ]);
+    });
+
     test('does not emit a stream milestone before it is reached', () {
       final events = detector.detect(
         snapshot: snapshot(),

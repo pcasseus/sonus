@@ -15,16 +15,37 @@ class PlaybackTrack {
     this.artworkId,
     this.artworkPath,
     this.isSongBlocked = false,
-  });
+    String? displayTitle,
+    String? displayArtist,
+    String? displayAlbum,
+  }) : displayTitle = displayTitle ?? title,
+       displayArtist = displayArtist ?? artistName,
+       displayAlbum = displayAlbum ?? albumTitle;
 
   final String songId;
+
+  /// The stored song title. Listening history records this one.
   final String title;
 
   final String artistId;
+
+  /// The primary artist's name. Listening history records this one.
   final String artistName;
 
+  /// The title with its version qualifier, shown while playing (SN-50 C-Q8).
+  final String displayTitle;
+
+  /// The role-aware performer line, shown while playing (SN-50 C-Q1).
+  final String displayArtist;
+
   final String albumId;
+
+  /// The release's stored base title. Listening history records this one.
   final String albumTitle;
+
+  /// The name of the edition being played, such as "Skyline (Remixes)",
+  /// shown while playing (SN-50 BUG-03).
+  final String displayAlbum;
 
   final String? albumEditionId;
   final String? albumEditionTitle;
@@ -58,6 +79,9 @@ class PlaybackTrack {
     String? filePath,
     Duration? duration,
     bool? isSongBlocked,
+    String? displayTitle,
+    String? displayArtist,
+    String? displayAlbum,
   }) {
     return PlaybackTrack(
       songId: songId ?? this.songId,
@@ -81,6 +105,11 @@ class PlaybackTrack {
       filePath: filePath ?? this.filePath,
       duration: duration ?? this.duration,
       isSongBlocked: isSongBlocked ?? this.isSongBlocked,
+      displayTitle: displayTitle ?? (title == null ? this.displayTitle : null),
+      displayArtist:
+          displayArtist ?? (artistName == null ? this.displayArtist : null),
+      displayAlbum:
+          displayAlbum ?? (albumTitle == null ? this.displayAlbum : null),
     );
   }
 

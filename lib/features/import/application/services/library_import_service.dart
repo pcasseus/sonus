@@ -5,11 +5,14 @@ import 'package:sonus_next/features/import/application/services/lyrics_ingestion
 import 'package:sonus_next/features/import/application/services/metadata_resolver.dart';
 import 'package:sonus_next/features/import/application/folders/folder_album_planner.dart';
 import 'package:sonus_next/features/import/application/folders/source_folder_key.dart';
+import 'package:sonus_next/features/import/data/services/possible_recording_store.dart';
+import 'package:sonus_next/features/import/domain/models/audio_metadata.dart';
 import 'package:sonus_next/features/import/domain/models/import_candidate.dart';
 import 'package:sonus_next/features/import/domain/models/import_folder_placement.dart';
 import 'package:sonus_next/features/import/domain/models/resolved_metadata.dart';
 import 'package:sonus_next/features/import/domain/models/import_failure.dart';
 import 'package:sonus_next/features/import/domain/models/import_result.dart';
+import 'package:sonus_next/features/import/domain/models/pending_possible_recording.dart';
 import 'package:sonus_next/features/import/domain/repositories/media_file_binding_repository.dart';
 
 /// What a batch pre-pass learned about one new file: its tags, and the
@@ -27,12 +30,16 @@ class LibraryImportService {
     required this.atomicImporter,
     this.mediaFileBindingRepository,
     this.lyricsIngestionService,
+    this.possibleRecordingStore,
   });
 
   final MetadataResolver metadataResolver;
   final AtomicLibraryImporter atomicImporter;
   final MediaFileBindingRepository? mediaFileBindingRepository;
   final LyricsIngestionService? lyricsIngestionService;
+
+  /// Where possible different recordings wait for the user's decision.
+  final PossibleRecordingStore? possibleRecordingStore;
 
   /// SN-45 pre-pass: reads the tags of the batch's new files once and
   /// decides one album per folder (see FolderAlbumPlanner). Files already
@@ -82,10 +89,13 @@ class LibraryImportService {
     };
   }
 
+  /// Imports one file. [separateFrom] keeps a possible different recording
+  /// of that song as its own song (see AtomicLibraryImporter.import).
   Future<ImportResult> importCandidate(
     ImportCandidate candidate, {
     DateTime? now,
     PreparedImport? prepared,
+    String? separateFrom,
   }) async {
     final timestamp = now ?? DateTime.now();
     final normalizedPath = TextNormalizer.normalizePath(candidate.filePath);
@@ -145,17 +155,22 @@ class LibraryImportService {
     }
 
     final ImportResult imported;
+    final AudioMetadata metadata;
+    final MetadataSource metadataSource;
 
     try {
       final resolvedMetadata =
           prepared?.metadata ?? await metadataResolver.resolve(candidate);
+      metadata = resolvedMetadata.metadata;
+      metadataSource = resolvedMetadata.source;
 
       imported = await atomicImporter.import(
         candidate: candidate,
-        metadata: resolvedMetadata.metadata,
+        metadata: metadata,
         metadataSource: resolvedMetadata.source,
         metadataOrigins: resolvedMetadata.origins,
         folderPlacement: prepared?.placement,
+        separateFrom: separateFrom,
         now: timestamp,
       );
     } on LibraryMutationUnavailable {
@@ -171,7 +186,83 @@ class LibraryImportService {
       );
     }
 
-    return _ingestLyrics(candidate, imported);
+    return _ingestLyrics(
+      candidate,
+      await _notePossibleRecording(
+        candidate,
+        normalizedPath: normalizedPath,
+        metadata: metadata,
+        metadataSource: metadataSource,
+        result: imported,
+        timestamp: timestamp,
+      ),
+    );
+  }
+
+  /// Keeps a possible different recording on the device's pending list, once
+  /// per path, unless the user said this file is the same recording as the
+  /// song: it is then reported as a copy. A file that imported leaves the
+  /// list. The import result itself never depends on the list.
+  Future<ImportResult> _notePossibleRecording(
+    ImportCandidate candidate, {
+    required String normalizedPath,
+    required AudioMetadata metadata,
+    required MetadataSource metadataSource,
+    required ImportResult result,
+    required DateTime timestamp,
+  }) async {
+    final store = possibleRecordingStore;
+    final songId = result.songId;
+
+    if (store == null) return result;
+
+    try {
+      if (result.succeeded) {
+        await store.remove(normalizedPath);
+        return result;
+      }
+
+      if (result.skipReason != ImportSkipReason.possibleAlternateRecording ||
+          songId == null) {
+        return result;
+      }
+
+      if (await store.isSameRecording(
+        normalizedPath: normalizedPath,
+        candidateSongId: songId,
+        durationSeconds: metadata.durationSeconds,
+      )) {
+        return ImportResult(
+          status: ImportResultStatus.skipped,
+          filePath: result.filePath,
+          songId: songId,
+          skipReason: ImportSkipReason.duplicateRecording,
+        );
+      }
+
+      await store.upsert(
+        PendingPossibleRecording(
+          normalizedPath: normalizedPath,
+          filePath: candidate.filePath.trim(),
+          candidateSongId: songId,
+          title: metadata.title,
+          artistName: metadata.artistName,
+          albumTitle: metadata.albumTitle,
+          discNumber: metadata.discNumber,
+          trackNumber: metadata.trackNumber,
+          durationSeconds: metadata.durationSeconds,
+          firstSeenAt: timestamp.toUtc(),
+          metadataFallbackPath: candidate.metadataFallbackPath,
+          sourceId: candidate.sourceId,
+          metadataSource: metadataSource,
+        ),
+      );
+    } catch (_) {
+      // The pending list is a convenience on this device; the file stays
+      // out of the library either way and is reported again on a rescan.
+    }
+
+    return result;
   }
 
   Future<ImportResult> _ingestLyrics(
@@ -188,8 +279,12 @@ class LibraryImportService {
         songId == null ||
         songId.isEmpty ||
         result.failed ||
-        // A copy's sidecar belongs to the copy, not to the song it duplicates.
-        result.skipReason == ImportSkipReason.duplicateRecording) {
+        // A copy's sidecar belongs to the copy, not to the song it duplicates,
+        // including another edition's copy of it and a possible different
+        // recording that was kept out of the library.
+        result.skipReason == ImportSkipReason.duplicateRecording ||
+        result.skipReason == ImportSkipReason.sharedWithEdition ||
+        result.skipReason == ImportSkipReason.possibleAlternateRecording) {
       return result;
     }
 

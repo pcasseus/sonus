@@ -21,3 +21,9 @@ int compareByDiscAndTrack(AlbumEditionTrack a, AlbumEditionTrack b) {
 
   return 0;
 }
+
+/// Whether an edition's listings really span more than one disc (SN-50
+/// A-Q8A). Public disc headings and disc-track numbers appear only then; an
+/// unknown disc counts as disc 1.
+bool spansMultipleDiscs(Iterable<int> discNumbers) =>
+    {for (final disc in discNumbers) disc <= 0 ? 1 : disc}.length > 1;

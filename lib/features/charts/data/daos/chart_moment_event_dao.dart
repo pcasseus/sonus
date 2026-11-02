@@ -30,19 +30,23 @@ class ChartMomentEventDao {
     );
   }
 
-  Future<void> deleteFinalizedForWeek({
+  Future<bool> hasFinalizedForWeek({
     required String chartType,
     required DateTime weekStartUtc,
-  }) {
-    return db.delete(
+  }) async {
+    final rows = await db.query(
       DatabaseTables.chartMomentEvents,
+      columns: const ['id'],
       where: 'chart_type = ? AND scope = ? AND week_start_utc = ?',
       whereArgs: [
         chartType,
         'finalized',
         weekStartUtc.toUtc().toIso8601String(),
       ],
+      limit: 1,
     );
+
+    return rows.isNotEmpty;
   }
 
   Future<Map<String, Object?>?> findById(String id) async {
@@ -63,6 +67,29 @@ class ChartMomentEventDao {
   Future<List<Map<String, Object?>>> findRecent({int? limit}) {
     return db.query(
       DatabaseTables.chartMomentEvents,
+      orderBy: 'occurred_at DESC, id DESC',
+      limit: limit,
+    );
+  }
+
+  /// Up to [limit] rows after (older than) [beforeOccurredAt] and
+  /// [beforeId] in the feed order. The occurred index serves the range and
+  /// the order.
+  Future<List<Map<String, Object?>>> findPage({
+    String? beforeOccurredAt,
+    String? beforeId,
+    required int limit,
+  }) {
+    final hasCursor = beforeOccurredAt != null && beforeId != null;
+
+    return db.query(
+      DatabaseTables.chartMomentEvents,
+      where: hasCursor
+          ? 'occurred_at <= ? AND (occurred_at < ? OR id < ?)'
+          : null,
+      whereArgs: hasCursor
+          ? [beforeOccurredAt, beforeOccurredAt, beforeId]
+          : null,
       orderBy: 'occurred_at DESC, id DESC',
       limit: limit,
     );

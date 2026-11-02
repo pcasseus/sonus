@@ -374,10 +374,10 @@ class _NeedsReviewCard extends StatelessWidget {
     return SonusNoticeCard(
       key: const ValueKey<String>('import-needs-review-card'),
       tone: SonusNoticeTone.info,
-      title: '$count ${count == 1 ? 'song needs' : 'songs need'} review',
+      title: '$count ${count == 1 ? 'item needs' : 'items need'} review',
       message: canReview
-          ? 'Review metadata Sonus could not confidently determine during '
-                'import.'
+          ? "Check songs Sonus couldn't identify confidently, and files that "
+                'might be different recordings.'
           : 'Review is currently unavailable.',
       actions: [
         if (canReview)

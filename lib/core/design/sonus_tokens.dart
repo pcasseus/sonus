@@ -20,11 +20,13 @@ class SonusColors extends ThemeExtension<SonusColors> {
     required this.onAccentPrimary,
     required this.accentSecondary,
     required this.onAccentSecondary,
+    required this.accentTertiary,
     required this.selection,
     required this.focus,
     required this.chartUp,
     required this.chartDown,
     required this.chartNew,
+    required this.chartReentry,
     required this.chartSteady,
     required this.storyFeatured,
     required this.onStoryFeatured,
@@ -57,11 +59,13 @@ class SonusColors extends ThemeExtension<SonusColors> {
       onAccentPrimary: scheme.onPrimary,
       accentSecondary: scheme.secondary,
       onAccentSecondary: scheme.onSecondary,
+      accentTertiary: scheme.tertiary,
       selection: scheme.primary.withValues(alpha: 0.16),
       focus: scheme.primary,
       chartUp: scheme.tertiary,
       chartDown: scheme.error,
       chartNew: scheme.secondary,
+      chartReentry: scheme.primary,
       chartSteady: scheme.onSurfaceVariant,
       storyFeatured: scheme.secondaryContainer,
       onStoryFeatured: scheme.onSecondaryContainer,
@@ -94,11 +98,19 @@ class SonusColors extends ThemeExtension<SonusColors> {
   final Color onAccentPrimary;
   final Color accentSecondary;
   final Color onAccentSecondary;
+
+  /// The theme's third accent (its palette's tertiary). Used where a family
+  /// of colours is derived from the theme, such as Sonus Pulse ramps.
+  final Color accentTertiary;
   final Color selection;
   final Color focus;
   final Color chartUp;
   final Color chartDown;
   final Color chartNew;
+
+  /// RE-ENTRY badges; distinct from [chartNew] so the two never share a
+  /// colour, though the words carry the meaning.
+  final Color chartReentry;
   final Color chartSteady;
   final Color storyFeatured;
   final Color onStoryFeatured;
@@ -129,11 +141,13 @@ class SonusColors extends ThemeExtension<SonusColors> {
     Color? onAccentPrimary,
     Color? accentSecondary,
     Color? onAccentSecondary,
+    Color? accentTertiary,
     Color? selection,
     Color? focus,
     Color? chartUp,
     Color? chartDown,
     Color? chartNew,
+    Color? chartReentry,
     Color? chartSteady,
     Color? storyFeatured,
     Color? onStoryFeatured,
@@ -161,11 +175,13 @@ class SonusColors extends ThemeExtension<SonusColors> {
       onAccentPrimary: onAccentPrimary ?? this.onAccentPrimary,
       accentSecondary: accentSecondary ?? this.accentSecondary,
       onAccentSecondary: onAccentSecondary ?? this.onAccentSecondary,
+      accentTertiary: accentTertiary ?? this.accentTertiary,
       selection: selection ?? this.selection,
       focus: focus ?? this.focus,
       chartUp: chartUp ?? this.chartUp,
       chartDown: chartDown ?? this.chartDown,
       chartNew: chartNew ?? this.chartNew,
+      chartReentry: chartReentry ?? this.chartReentry,
       chartSteady: chartSteady ?? this.chartSteady,
       storyFeatured: storyFeatured ?? this.storyFeatured,
       onStoryFeatured: onStoryFeatured ?? this.onStoryFeatured,
@@ -203,11 +219,13 @@ class SonusColors extends ThemeExtension<SonusColors> {
       onAccentPrimary: mix(onAccentPrimary, other.onAccentPrimary),
       accentSecondary: mix(accentSecondary, other.accentSecondary),
       onAccentSecondary: mix(onAccentSecondary, other.onAccentSecondary),
+      accentTertiary: mix(accentTertiary, other.accentTertiary),
       selection: mix(selection, other.selection),
       focus: mix(focus, other.focus),
       chartUp: mix(chartUp, other.chartUp),
       chartDown: mix(chartDown, other.chartDown),
       chartNew: mix(chartNew, other.chartNew),
+      chartReentry: mix(chartReentry, other.chartReentry),
       chartSteady: mix(chartSteady, other.chartSteady),
       storyFeatured: mix(storyFeatured, other.storyFeatured),
       onStoryFeatured: mix(onStoryFeatured, other.onStoryFeatured),

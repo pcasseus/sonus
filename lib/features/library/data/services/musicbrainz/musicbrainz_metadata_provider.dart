@@ -1,6 +1,7 @@
 import '../../../application/models/external_metadata_candidate.dart';
 import '../../../application/models/external_metadata_search_query.dart';
 import '../../../application/services/metadata_provider.dart';
+import '../../../domain/entities/release_date.dart';
 import 'musicbrainz_api_client.dart';
 
 class MusicBrainzMetadataProvider implements MetadataProvider {
@@ -488,37 +489,8 @@ class MusicBrainzMetadataProvider implements MetadataProvider {
     return (length / 1000).round();
   }
 
-  static DateTime? _parsePartialDate(Object? value) {
-    final raw = _string(value);
-
-    if (raw == null || raw.length != 10 || raw[4] != '-' || raw[7] != '-') {
-      return null;
-    }
-
-    final year = int.tryParse(raw.substring(0, 4));
-    final month = int.tryParse(raw.substring(5, 7));
-    final day = int.tryParse(raw.substring(8, 10));
-
-    if (year == null ||
-        month == null ||
-        day == null ||
-        month < 1 ||
-        month > 12 ||
-        day < 1 ||
-        day > 31) {
-      return null;
-    }
-
-    try {
-      final parsed = DateTime.utc(year, month, day);
-
-      if (parsed.year != year || parsed.month != month || parsed.day != day) {
-        return null;
-      }
-
-      return parsed;
-    } on ArgumentError {
-      return null;
-    }
-  }
+  /// MusicBrainz dates are `YYYY`, `YYYY-MM` or `YYYY-MM-DD`; each keeps
+  /// exactly what it says.
+  static ReleaseDate? _parsePartialDate(Object? value) =>
+      ReleaseDate.tryParse(_string(value));
 }

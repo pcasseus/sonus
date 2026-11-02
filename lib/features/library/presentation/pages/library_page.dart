@@ -112,7 +112,6 @@ class _LibraryPageState extends State<LibraryPage> {
           final visibleArtists = listedArtists
               .where((artist) => controller.isShownInLibrary(artist.artistId))
               .toList(growable: false);
-          final groupedCount = listedArtists.length - visibleArtists.length;
 
           final gutter = SonusTheme.of(context).metrics.pageGutter;
 
@@ -123,10 +122,7 @@ class _LibraryPageState extends State<LibraryPage> {
               physics: const AlwaysScrollableScrollPhysics(),
               slivers: [
                 SliverToBoxAdapter(
-                  child: _LibraryHeader(
-                    artistCount: visibleArtists.length,
-                    groupedCount: groupedCount,
-                  ),
+                  child: _LibraryHeader(artistCount: visibleArtists.length),
                 ),
                 if (visibleArtists.isEmpty)
                   const SliverFillRemaining(
@@ -204,26 +200,18 @@ bool _hasAvailableMedia(LibraryTrack track) {
 }
 
 class _LibraryHeader extends StatelessWidget {
-  const _LibraryHeader({required this.artistCount, required this.groupedCount});
+  const _LibraryHeader({required this.artistCount});
 
+  /// The artists listed below. Performers grouped under a project keep
+  /// their associations and profiles; they are not listed or counted twice.
   final int artistCount;
-
-  /// Performers listed under a project's collaborators instead.
-  final int groupedCount;
 
   @override
   Widget build(BuildContext context) {
-    final artists = artistCount == 1
-        ? '1 artist in your library'
-        : '$artistCount artists in your library';
-
     return SonusPageHeader(
       title: 'Library',
       subtitleKey: const ValueKey<String>('library-artist-count'),
-      subtitle: groupedCount == 0
-          ? artists
-          : '$artists \u00b7 ${groupedCount == 1 ? '1 more is' : '$groupedCount more are'} '
-                'listed under a project',
+      subtitle: artistCount == 1 ? '1 artist' : '$artistCount artists',
     );
   }
 }

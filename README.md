@@ -1,17 +1,44 @@
 # sonus_next
 
-A new Flutter project.
+Sonus is a personal music library and player for Android, with listening
+charts, Moments and optional Google sign-in with cloud sync.
 
-## Getting Started
+## Account settings
 
-This project is a starting point for a Flutter application.
+Sign-in and cloud sync need three client values, compiled into the app with
+`--dart-define-from-file`:
 
-A few resources to get you started if this is your first Flutter project:
+| Key | Value |
+|---|---|
+| `SUPABASE_URL` | The Supabase project URL |
+| `SUPABASE_PUBLISHABLE_KEY` | The project's **publishable** key (never a secret or service-role key) |
+| `GOOGLE_WEB_CLIENT_ID` | The Google **Web** OAuth client ID, which Supabase's Google provider also uses |
 
-- [Learn Flutter](https://docs.flutter.dev/get-started/learn-flutter)
-- [Write your first Flutter app](https://docs.flutter.dev/get-started/codelab)
-- [Flutter learning resources](https://docs.flutter.dev/reference/learning-resources)
+Copy `config/sonus.dev.example.json` to `config/sonus.dev.json` (git-ignored)
+and fill them in. Without them, Sonus works fully but sign-in is off.
 
-For help getting started with Flutter development, view the
-[online documentation](https://docs.flutter.dev/), which offers tutorials,
-samples, guidance on mobile development, and a full API reference.
+## Running and building
+
+- Develop: `tool/run-dev.ps1` (or the VS Code launch configuration).
+- Release APK: `tool/build-release.ps1`. It refuses to build without the
+  account settings, prints the APK's SHA-256, and never prints the values.
+  Do not use a bare `flutter build apk --release`: that build has no sign-in.
+- Do not run `flutter test` while a release build is running; it rewrites
+  the generated plugin registrant and breaks the build.
+
+The SN-50 Moments rules are off unless the build is compiled with
+`--dart-define=SONUS_MOMENTS_REFINED_APPROVED=true` (or the same key set to
+`true` in the `--dart-define-from-file` config). Only add it once the rules
+are approved for release. On its first run, such a build stores the
+activation time in device preferences, and only Moments from then on use the
+new rules. Development and test builds never activate them. If the stored
+time is lost (reinstall or cleared app data without a platform restore), the
+next approved run starts the new rules again from that run.
+
+## Google sign-in on Android
+
+Android sign-in works only for an app whose package name
+(`com.sonus.sonus_next`) and signing-key SHA-1 fingerprint are registered as
+an **Android** OAuth client in the same Google Cloud project as the Web
+client ID. Each signing key (debug, and later production) needs its own
+registration.

@@ -6,8 +6,11 @@ import 'package:sonus_next/core/database/app_database.dart';
 import 'package:sonus_next/core/database/database_tables.dart';
 import 'package:sonus_next/core/database/schema/sync_schema.dart';
 import 'package:sonus_next/core/events/library_change_signal.dart';
+import 'package:sonus_next/features/sync/application/services/cloud_archive_gateway.dart';
 import 'package:sonus_next/features/sync/application/services/cloud_archive_sync_service.dart';
+import 'package:sonus_next/features/sync/application/services/sync_cancellation.dart';
 import 'package:sonus_next/features/sync/data/services/sqlite_cloud_archive_store.dart';
+import 'package:sonus_next/features/sync/domain/models/cloud_archive_record.dart';
 
 import '../../../../support/in_memory_cloud_archive.dart';
 import '../../../../support/recovery_fixtures.dart';
@@ -231,6 +234,73 @@ void main() {
       ['item-a', 'item-a2'],
       reason: 'playlist order is kept',
     );
+  });
+
+  group('SN-50 release-level Leaked in the local archive row', () {
+    test('a release marked as leaked travels with its row', () async {
+      final a = await device('a');
+      await (await a.db).insert(DatabaseTables.albumReleaseClassifications, {
+        'album_id': 'album-a',
+        'leaked': 1,
+        'created_at': fixtureTimestamp,
+        'updated_at': fixtureTimestamp,
+      });
+      final b = await emptyDevice('b');
+
+      final collected = await a.store.collect();
+      expect(
+        collected
+            .singleWhere(
+              (r) => r.kind == CloudArchiveKind.releaseClassification,
+            )
+            .payload['leaked'],
+        1,
+      );
+
+      await a.sync();
+      await b.sync();
+      expect(
+        (await b.rows(
+          DatabaseTables.albumReleaseClassifications,
+          'album_id',
+        )).single['leaked'],
+        1,
+      );
+    });
+
+    test('a row written before Leaked existed arrives as not leaked', () async {
+      final b = await emptyDevice('b');
+
+      final outcome = await b.store.apply(
+        CloudArchiveRecord(
+          kind: CloudArchiveKind.releaseClassification,
+          key: 'album-a',
+          payload: const {
+            'album_id': 'album-a',
+            'kind': 'soundtrack',
+            'authority': 'manual',
+            'source_reference': null,
+            'format': null,
+            'format_authority': null,
+            'format_source_reference': null,
+            'live': null,
+            'live_authority': null,
+            'live_source_reference': null,
+            'created_at': fixtureTimestamp,
+            'updated_at': fixtureTimestamp,
+          },
+          clientUpdatedAt: DateTime.parse(fixtureTimestamp),
+        ),
+      );
+
+      expect(outcome, CloudArchiveApplyOutcome.applied);
+      final row = (await b.rows(
+        DatabaseTables.albumReleaseClassifications,
+        'album_id',
+      )).single;
+      expect(row['kind'], 'soundtrack');
+      expect(row['leaked'], isNull);
+    });
   });
 
   test('syncing again writes nothing and duplicates nothing', () async {
@@ -491,4 +561,79 @@ void main() {
     expect(cloud.rowsFor(_user), isEmpty);
     expect(await (await a.db).query(DatabaseTables.cloudArchiveState), isEmpty);
   });
+
+  group('SN-50 #23: cancellation between archive records', () {
+    test('a run cancelled after a record is sent stops before the next; a '
+        'later run sends the rest exactly once', () async {
+      final a = await device('a');
+      final cancellation = SyncCancellation(_user);
+      final service = CloudArchiveSyncService(
+        gateway: _CancelAfterFirstWrite(cloud, cancellation),
+        store: a.store,
+        queueArtworkUpload: ({required userId, required artworkId}) async {},
+        pageSize: 3,
+      );
+
+      await expectLater(
+        cancellation.run(() => service.synchronize(_user)),
+        throwsA(isA<SyncCancelled>()),
+      );
+      expect(cloud.rowsFor(_user), hasLength(1), reason: 'one record sent');
+      final writes = cloud.writes;
+
+      await a.sync();
+
+      expect(cloud.rowsFor(_user), hasLength(3));
+      expect(cloud.writes - writes, 2, reason: 'nothing sent twice');
+      for (final row in cloud.rowsFor(_user).values) {
+        expect(row.serverRevision, 1);
+      }
+    });
+  });
+}
+
+/// Cancels the run as soon as the first record reaches the cloud.
+class _CancelAfterFirstWrite implements CloudArchiveGateway {
+  _CancelAfterFirstWrite(this._inner, this._cancellation);
+
+  final CloudArchiveGateway _inner;
+  final SyncCancellation _cancellation;
+
+  @override
+  Future<bool> isAvailable() => _inner.isAvailable();
+
+  @override
+  Future<List<CloudArchiveRecord>> readPage({
+    required String userId,
+    CloudArchiveCursor? after,
+    required int limit,
+  }) => _inner.readPage(userId: userId, after: after, limit: limit);
+
+  @override
+  Future<List<CloudArchiveRecord>> fetch({
+    required String userId,
+    required CloudArchiveKind kind,
+    required List<String> keys,
+  }) => _inner.fetch(userId: userId, kind: kind, keys: keys);
+
+  @override
+  Future<CloudArchiveWriteResult> insertIfAbsent({
+    required String userId,
+    required CloudArchiveRecord record,
+  }) async {
+    final result = await _inner.insertIfAbsent(userId: userId, record: record);
+    _cancellation.cancel('timed out');
+    return result;
+  }
+
+  @override
+  Future<CloudArchiveWriteResult> updateIfRevision({
+    required String userId,
+    required CloudArchiveRecord record,
+    required int expectedServerRevision,
+  }) => _inner.updateIfRevision(
+    userId: userId,
+    record: record,
+    expectedServerRevision: expectedServerRevision,
+  );
 }

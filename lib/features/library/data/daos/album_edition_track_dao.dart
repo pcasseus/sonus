@@ -59,6 +59,21 @@ class AlbumEditionTrackDao {
     return rows.map(AlbumEditionTrackRowMapper.fromRow).toList(growable: false);
   }
 
+  /// Songs listed on an edition other than their home edition (read only).
+  Future<List<String>> songIdsListedAwayFromHome() async {
+    final rows = await db.rawQuery('''
+      SELECT DISTINCT aet.song_id AS song_id
+      FROM ${DatabaseTables.albumEditionTracks} aet
+      INNER JOIN ${DatabaseTables.songs} s
+        ON s.id = aet.song_id
+      WHERE s.album_edition_id IS NULL
+        OR aet.album_edition_id <> s.album_edition_id
+      ORDER BY aet.song_id ASC
+    ''');
+
+    return [for (final row in rows) row['song_id'] as String];
+  }
+
   Future<void> delete({
     required String editionId,
     required String songId,

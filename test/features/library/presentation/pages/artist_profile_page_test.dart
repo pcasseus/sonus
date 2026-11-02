@@ -8,6 +8,8 @@ import 'package:sonus_next/features/account/domain/repositories/account_reposito
 import 'package:sonus_next/features/account/presentation/scopes/account_scope.dart';
 import 'package:sonus_next/features/analytics/domain/entities/qualified_play.dart';
 import 'package:sonus_next/features/analytics/domain/repositories/qualified_play_repository.dart';
+import 'package:sonus_next/features/analytics/domain/repositories/playback_listening_segment_repository.dart';
+import 'package:sonus_next/features/analytics/domain/repositories/playback_session_repository.dart';
 import 'package:sonus_next/features/library/application/services/external_metadata_application_service.dart';
 import 'package:sonus_next/features/library/application/services/external_metadata_proposal_service.dart';
 import 'package:sonus_next/features/library/application/services/metadata_provider.dart';
@@ -32,6 +34,7 @@ import 'package:sonus_next/features/player/domain/models/playback_repeat_mode.da
 import 'package:sonus_next/features/player/domain/models/playback_state.dart';
 import 'package:sonus_next/features/player/domain/models/playback_track.dart';
 import 'package:sonus_next/features/player/domain/services/playback_engine.dart';
+import 'package:sonus_next/features/song_stats/presentation/song_stats_page.dart';
 
 void main() {
   group('ArtistProfilePage', () {
@@ -80,7 +83,11 @@ void main() {
 
       expect(find.text('Test Artist'), findsWidgets);
 
-      expect(find.text('1 album \u2022 1 song'), findsOneWidget);
+      // SN-50 B-Q1: no catalog-count line, and nothing in its place.
+      expect(
+        find.byKey(const ValueKey<String>('artist-profile-summary')),
+        findsNothing,
+      );
 
       expect(
         find.byKey(const ValueKey<String>('artist-profile-albums-grid')),
@@ -363,6 +370,76 @@ void main() {
       await engine.dispose();
     });
 
+    // Charts 2.0 C4: every song menu opens the one Song Stats page.
+    testWidgets('artist song menu opens Song Stats', (tester) async {
+      final repository = FakeLibraryQueryRepository(
+        artist: createArtist(),
+        albums: [createAlbum()],
+        tracks: [createTrack(songId: 'song-quay', title: 'Quay Lights')],
+      );
+
+      await tester.pumpWidget(
+        buildSubject(
+          repository: repository,
+          qualifiedPlays: FakeQualifiedPlayRepository([
+            qualifiedPlay('song-quay'),
+          ]),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final menu = find.byKey(
+        const ValueKey<String>('artist-top-track-menu-song-quay'),
+      );
+      await tester.ensureVisible(menu);
+      await tester.pumpAndSettle();
+      await tester.tap(menu);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('View Stats'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(SongStatsPage), findsOneWidget);
+      expect(
+        tester.widget<SongStatsPage>(find.byType(SongStatsPage)).songId,
+        'song-quay',
+      );
+    });
+
+    testWidgets('SN-50 C-Q12: song menu offers Go to album and Select', (
+      tester,
+    ) async {
+      final repository = FakeLibraryQueryRepository(
+        artist: createArtist(),
+        albums: [createAlbum()],
+        tracks: [createTrack(songId: 'song-quay', title: 'Quay Lights')],
+      );
+
+      await tester.pumpWidget(
+        buildSubject(
+          repository: repository,
+          qualifiedPlays: FakeQualifiedPlayRepository([
+            qualifiedPlay('song-quay'),
+          ]),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final menu = find.byKey(
+        const ValueKey<String>('artist-top-track-menu-song-quay'),
+      );
+      await tester.ensureVisible(menu);
+      await tester.pumpAndSettle();
+      await tester.tap(menu);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Go to album'), findsOneWidget);
+
+      await tester.tap(find.text('Select'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('1 selected'), findsOneWidget);
+    });
+
     testWidgets('a streamed but unavailable song stays in Top Tracks, '
         'labelled and not playable', (tester) async {
       final repository = FakeLibraryQueryRepository(
@@ -407,7 +484,8 @@ void main() {
       await engine.dispose();
     });
 
-    testWidgets('an unavailable collaboration is not listed', (tester) async {
+    testWidgets('SN-50 B-Q28: an unavailable collaboration stays listed, '
+        'marked and not playable', (tester) async {
       final repository = FakeLibraryQueryRepository(
         artist: createArtist(),
         tracks: [
@@ -423,13 +501,14 @@ void main() {
       await tester.pumpWidget(buildSubject(repository: repository));
       await tester.pumpAndSettle();
 
-      expect(
-        find.byKey(const ValueKey<String>('artist-track-missing-song')),
-        findsNothing,
+      final row = find.byKey(
+        const ValueKey<String>('artist-track-missing-song'),
       );
+      expect(row, findsOneWidget);
+      expect(tester.widget<ListTile>(row).enabled, isFalse);
       expect(
-        find.byKey(const ValueKey<String>('artist-track-menu-missing-song')),
-        findsNothing,
+        find.descendant(of: row, matching: find.textContaining('Unavailable')),
+        findsOneWidget,
       );
     });
 
@@ -1063,6 +1142,8 @@ Widget buildSubject({
   ThemeData? theme,
   TransitionBuilder? appBuilder,
   QualifiedPlayRepository? qualifiedPlays,
+  PlaybackSessionRepository? playbackSessions,
+  PlaybackListeningSegmentRepository? listeningSegments,
   Widget? home,
 }) {
   final app = wrapArtistInRoute
@@ -1123,7 +1204,14 @@ Widget buildSubject({
                     value: externalMetadataProposalService,
                     child: Provider<QualifiedPlayRepository?>.value(
                       value: qualifiedPlays,
-                      child: app,
+                      child: Provider<PlaybackSessionRepository?>.value(
+                        value: playbackSessions,
+                        child:
+                            Provider<PlaybackListeningSegmentRepository?>.value(
+                              value: listeningSegments,
+                              child: app,
+                            ),
+                      ),
                     ),
                   ),
                 ),
@@ -1184,6 +1272,9 @@ LibraryTrack createTrack({
   bool isAvailable = true,
   bool isSongBlocked = false,
   List<String> featuredArtists = const [],
+  List<String> coPrimaryArtists = const [],
+  List<String> guestArtists = const [],
+  bool isLeak = false,
 }) {
   return LibraryTrack(
     songId: songId,
@@ -1199,6 +1290,9 @@ LibraryTrack createTrack({
     durationSeconds: 180,
     isSingle: false,
     featuredArtists: featuredArtists,
+    coPrimaryArtists: coPrimaryArtists,
+    guestArtists: guestArtists,
+    isLeak: isLeak,
     dateAdded: DateTime(2026, 1, 1),
     filePath: filePath ?? '/music/$songId.mp3',
     isAvailable: isAvailable,

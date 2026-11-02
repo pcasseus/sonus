@@ -227,41 +227,47 @@ void main() {
     }
   }
 
-  test('new device: restores identities and installs device-local artwork', () async {
-    final cover = await sourceArtwork('cover.jpg', [1, 2, 3, 4]);
-    final backup = await backupOf('new-device', (db) async {
-      await seedConnectedLibrary(db, key: 'a', artworkPath: cover.path);
-      await seedConnectedLibrary(db, key: 'b', week: 1);
-    });
+  test(
+    'new device: restores identities and installs device-local artwork',
+    () async {
+      final cover = await sourceArtwork('cover.jpg', [1, 2, 3, 4]);
+      final backup = await backupOf('new-device', (db) async {
+        await seedConnectedLibrary(db, key: 'a', artworkPath: cover.path);
+        await seedConnectedLibrary(db, key: 'b', week: 1);
+      });
 
-    final stages = <RestoreStage>[];
-    final result = await orchestrator().restore(backup, onProgress: stages.add);
-    final db = await target.database;
+      final stages = <RestoreStage>[];
+      final result = await orchestrator().restore(
+        backup,
+        onProgress: stages.add,
+      );
+      final db = await target.database;
 
-    expect(result.backupId, 'new-device');
-    expect(result.safetyBackup, isNull);
-    expect(result.artworkInstalled, 1);
-    expect(result.syncHeld, isFalse);
-    expect(stages.last, RestoreStage.completed);
-    expect(stages, isNot(contains(RestoreStage.creatingSafetyBackup)));
+      expect(result.backupId, 'new-device');
+      expect(result.safetyBackup, isNull);
+      expect(result.artworkInstalled, 1);
+      expect(result.syncHeld, isFalse);
+      expect(stages.last, RestoreStage.completed);
+      expect(stages, isNot(contains(RestoreStage.creatingSafetyBackup)));
 
-    final songs = await db.query(DatabaseTables.songs, orderBy: 'id');
-    expect(songs.map((row) => row['id']), ['song-a', 'song-b']);
+      final songs = await db.query(DatabaseTables.songs, orderBy: 'id');
+      expect(songs.map((row) => row['id']), ['song-a', 'song-b']);
 
-    final artwork = (await db.query(DatabaseTables.artworkAssets)).single;
-    final installedPath = artwork['file_path'] as String;
-    expect(path.isWithin(artworkDir.path, installedPath), isTrue);
-    expect(await File(installedPath).readAsBytes(), [1, 2, 3, 4]);
+      final artwork = (await db.query(DatabaseTables.artworkAssets)).single;
+      final installedPath = artwork['file_path'] as String;
+      expect(path.isWithin(artworkDir.path, installedPath), isTrue);
+      expect(await File(installedPath).readAsBytes(), [1, 2, 3, 4]);
 
-    // Old-device paths never reach the database.
-    final everything = await snapshotDatabase(db);
-    expect(everything.toString(), isNot(contains(sourceDir.path)));
+      // Old-device paths never reach the database.
+      final everything = await snapshotDatabase(db);
+      expect(everything.toString(), isNot(contains(sourceDir.path)));
 
-    expect(await holdState(), isA<NoRecoverySyncHold>());
-    expect(await syncAllowed(), isTrue);
-    expect(gate.isRestoreActive, isFalse);
-    await expectNoSessionLeftovers();
-  });
+      expect(await holdState(), isA<NoRecoverySyncHold>());
+      expect(await syncAllowed(), isTrue);
+      expect(gate.isRestoreActive, isFalse);
+      await expectNoSessionLeftovers();
+    },
+  );
 
   test('existing data: a verified safety backup preserves it first', () async {
     final db = await target.database;
@@ -327,7 +333,12 @@ void main() {
     setUp(() async {
       final db = await target.database;
       final local = await localArtwork('artwork_local.jpg', [7, 7, 7]);
-      await seedConnectedLibrary(db, key: 'a', songTitle: 'Local', artworkPath: local.path);
+      await seedConnectedLibrary(
+        db,
+        key: 'a',
+        songTitle: 'Local',
+        artworkPath: local.path,
+      );
       await seedConnectedLibrary(db, key: 'c', week: 3);
       await seedMediaBinding(db, key: 'a');
       await seedMediaBinding(db, key: 'c');
@@ -337,7 +348,12 @@ void main() {
       final coverB = await sourceArtwork('b.png', [2, 2]);
       backup = await backupOf('failing', (db) async {
         await seedConnectedLibrary(db, key: 'a', artworkPath: coverA.path);
-        await seedConnectedLibrary(db, key: 'b', week: 1, artworkPath: coverB.path);
+        await seedConnectedLibrary(
+          db,
+          key: 'b',
+          week: 1,
+          artworkPath: coverB.path,
+        );
       });
 
       before = await snapshotDatabase(db);
@@ -509,10 +525,9 @@ void main() {
     final result = await restore;
 
     expect(result.backupId, 'during-sync');
-    expect(
-      (await db.query(DatabaseTables.songs)).map((row) => row['id']),
-      ['song-a'],
-    );
+    expect((await db.query(DatabaseTables.songs)).map((row) => row['id']), [
+      'song-a',
+    ]);
   });
 
   test('a cloud-linked restore with library changes stays paused', () async {
@@ -537,7 +552,10 @@ void main() {
       result.syncAssessment.findings,
       contains(RecoverySyncFinding.cloudLibraryDiverged),
     );
-    expect(result.syncAssessment.divergedTables, contains(DatabaseTables.songs));
+    expect(
+      result.syncAssessment.divergedTables,
+      contains(DatabaseTables.songs),
+    );
 
     final state = await holdState() as ActiveRecoverySyncHold;
     expect(state.hold.phase, RecoverySyncHoldPhase.assessmentRequired);
@@ -642,6 +660,26 @@ void main() {
       }
     }
 
+    /// Restored portable rows without the columns added after version 31,
+    /// which a version 31 backup leaves empty.
+    Future<Map<String, List<Map<String, Object?>>>> restoredAsV31(
+      Database db,
+    ) async {
+      final rows = await portableRows(db);
+      final editions = rows[DatabaseTables.albumEditions]!;
+      expect(
+        editions.map((row) => row['release_date_precision']),
+        everyElement(isNull),
+      );
+      return {
+        ...rows,
+        DatabaseTables.albumEditions: [
+          for (final row in editions)
+            {...row}..remove('release_date_precision'),
+        ],
+      };
+    }
+
     test('restores its library, relationships, and artwork', () async {
       final result = await orchestrator().restore(await v31Backup());
       final db = await target.database;
@@ -655,7 +693,7 @@ void main() {
 
       // Every portable row matches what the version 31 build stored.
       final expected = await v31PortableRows();
-      final restored = await portableRows(db);
+      final restored = await restoredAsV31(db);
       expect({
         for (final table in expected.keys) table: restored[table],
       }, expected);
@@ -697,7 +735,7 @@ void main() {
 
       expect(await syncTables(), syncBefore);
       final expected = await v31PortableRows();
-      final restored = await portableRows(db);
+      final restored = await restoredAsV31(db);
       expect({
         for (final table in expected.keys) table: restored[table],
       }, expected);
@@ -710,7 +748,12 @@ void main() {
     await bindAccount('user-1');
     final db = await target.database;
     final local = await localArtwork('artwork_local.jpg', [9, 9]);
-    await seedConnectedLibrary(db, key: 'a', userId: 'user-1', artworkPath: local.path);
+    await seedConnectedLibrary(
+      db,
+      key: 'a',
+      userId: 'user-1',
+      artworkPath: local.path,
+    );
     final before = await snapshotDatabase(db);
 
     // State left behind by a process killed mid-restore.
@@ -727,7 +770,9 @@ void main() {
     );
 
     final orphan = await localArtwork('artwork_restorecrashedn0.jpg', [1]);
-    final reservedOnly = await localArtwork('artwork_restorecrashedn1.png', [2]);
+    final reservedOnly = await localArtwork('artwork_restorecrashedn1.png', [
+      2,
+    ]);
     final extraction = Directory(
       path.join(recoveryDir.path, '.sonus_restore_crashed'),
     );
@@ -757,43 +802,57 @@ void main() {
     expect(await syncAllowed(), isTrue);
   });
 
-  test('an interrupted restore after commit keeps its files and the hold', () async {
-    await bindAccount('user-1');
-    await seedConnectedLibrary(await target.database, key: 'old', userId: 'user-1');
+  test(
+    'an interrupted restore after commit keeps its files and the hold',
+    () async {
+      await bindAccount('user-1');
+      await seedConnectedLibrary(
+        await target.database,
+        key: 'old',
+        userId: 'user-1',
+      );
 
-    final cover = await sourceArtwork('cover.jpg', [3, 3, 3]);
-    final backup = await backupOf('committed', (db) async {
-      await seedConnectedLibrary(db, key: 'a', userId: 'user-1', artworkPath: cover.path);
-    });
+      final cover = await sourceArtwork('cover.jpg', [3, 3, 3]);
+      final backup = await backupOf('committed', (db) async {
+        await seedConnectedLibrary(
+          db,
+          key: 'a',
+          userId: 'user-1',
+          artworkPath: cover.path,
+        );
+      });
 
-    await orchestrator().restore(backup);
+      await orchestrator().restore(backup);
 
-    final db = await target.database;
-    final installed =
-        (await db.query(DatabaseTables.artworkAssets)).single['file_path']
-            as String;
+      final db = await target.database;
+      final installed =
+          (await db.query(DatabaseTables.artworkAssets)).single['file_path']
+              as String;
 
-    // Simulate a crash after commit but before cleanup and assessment.
-    final store = RecoverySyncHoldStore(directory: () async => recoveryDir);
-    final held = await store.read() as ActiveRecoverySyncHold;
-    await store.write(held.hold.copyWith(phase: RecoverySyncHoldPhase.restoring));
-    await RestoreJournalStore(directory: () async => recoveryDir).write(
-      RestoreJournal(
-        sessionId: 'session0',
-        extractionDirectory: path.join(recoveryDir.path, '.sonus_restore_x'),
-        reservedTokens: const ['restoresession0n0'],
-        createdFiles: [installed],
-      ),
-    );
+      // Simulate a crash after commit but before cleanup and assessment.
+      final store = RecoverySyncHoldStore(directory: () async => recoveryDir);
+      final held = await store.read() as ActiveRecoverySyncHold;
+      await store.write(
+        held.hold.copyWith(phase: RecoverySyncHoldPhase.restoring),
+      );
+      await RestoreJournalStore(directory: () async => recoveryDir).write(
+        RestoreJournal(
+          sessionId: 'session0',
+          extractionDirectory: path.join(recoveryDir.path, '.sonus_restore_x'),
+          reservedTokens: const ['restoresession0n0'],
+          createdFiles: [installed],
+        ),
+      );
 
-    final assessment = await orchestrator().reassessSyncHold();
+      final assessment = await orchestrator().reassessSyncHold();
 
-    expect(await File(installed).readAsBytes(), [3, 3, 3]);
-    expect(assessment.isConclusivelyConsistent, isFalse);
-    final state = await holdState() as ActiveRecoverySyncHold;
-    expect(state.hold.phase, RecoverySyncHoldPhase.assessmentRequired);
-    expect(await syncAllowed(), isFalse);
-  });
+      expect(await File(installed).readAsBytes(), [3, 3, 3]);
+      expect(assessment.isConclusivelyConsistent, isFalse);
+      final state = await holdState() as ActiveRecoverySyncHold;
+      expect(state.hold.phase, RecoverySyncHoldPhase.assessmentRequired);
+      expect(await syncAllowed(), isFalse);
+    },
+  );
 
   test('no restore before the startup recovery check has passed', () async {
     final checkedGate = RecoverySyncGate(
@@ -879,76 +938,80 @@ void main() {
       await expectOutcome(restore);
     }
 
-    test('pending work left by a draining sync run blocks the restore', () async {
-      final db = await target.database;
-      await seedConnectedLibrary(db, key: 'local');
-      final backup = await backupOf('stale-pending', (db) async {
-        await seedConnectedLibrary(db, key: 'a');
-      });
+    test(
+      'pending work left by a draining sync run blocks the restore',
+      () async {
+        final db = await target.database;
+        await seedConnectedLibrary(db, key: 'local');
+        final backup = await backupOf('stale-pending', (db) async {
+          await seedConnectedLibrary(db, key: 'a');
+        });
 
-      await drainingSyncThen(
-        () => db.insert(DatabaseTables.syncOutbox, {
-          'id': 'requeued-1',
-          'entity_type': 'artist',
-          'entity_id': 'artist-local',
-          'operation': 'upsert',
-          'created_at': fixtureTimestamp,
-          'updated_at': fixtureTimestamp,
-        }),
-        (restore) => expectLater(
-          restore,
-          throwsA(
-            isA<RestoreBlockedException>().having(
-              (e) => e.preflight.blockers,
-              'blockers',
-              [RestoreBlocker.pendingSyncWork],
+        await drainingSyncThen(
+          () => db.insert(DatabaseTables.syncOutbox, {
+            'id': 'requeued-1',
+            'entity_type': 'artist',
+            'entity_id': 'artist-local',
+            'operation': 'upsert',
+            'created_at': fixtureTimestamp,
+            'updated_at': fixtureTimestamp,
+          }),
+          (restore) => expectLater(
+            restore,
+            throwsA(
+              isA<RestoreBlockedException>().having(
+                (e) => e.preflight.blockers,
+                'blockers',
+                [RestoreBlocker.pendingSyncWork],
+              ),
             ),
           ),
-        ),
-        backup,
-      );
+          backup,
+        );
 
-      expect(
-        (await db.query(DatabaseTables.songs)).map((row) => row['id']),
-        ['song-local'],
-      );
-      expect(await db.query(DatabaseTables.syncOutbox), hasLength(1));
-      expect(await holdState(), isA<NoRecoverySyncHold>());
-      expect(await syncAllowed(), isTrue);
-      expect(gate.isRestoreActive, isFalse);
-      await expectNoSessionLeftovers();
-    });
+        expect((await db.query(DatabaseTables.songs)).map((row) => row['id']), [
+          'song-local',
+        ]);
+        expect(await db.query(DatabaseTables.syncOutbox), hasLength(1));
+        expect(await holdState(), isA<NoRecoverySyncHold>());
+        expect(await syncAllowed(), isTrue);
+        expect(gate.isRestoreActive, isFalse);
+        await expectNoSessionLeftovers();
+      },
+    );
 
-    test('a sign-in to another account during the drain blocks the restore', () async {
-      final db = await target.database;
-      await seedConnectedLibrary(db, key: 'local');
-      final backup = await backupOf('stale-account', (db) async {
-        await seedConnectedLibrary(db, key: 'a', userId: 'user-1');
-      });
+    test(
+      'a sign-in to another account during the drain blocks the restore',
+      () async {
+        final db = await target.database;
+        await seedConnectedLibrary(db, key: 'local');
+        final backup = await backupOf('stale-account', (db) async {
+          await seedConnectedLibrary(db, key: 'a', userId: 'user-1');
+        });
 
-      await drainingSyncThen(
-        () => bindAccount('user-2', withBaseline: false),
-        (restore) => expectLater(
-          restore,
-          throwsA(
-            isA<RestoreBlockedException>().having(
-              (e) => e.preflight.blockers,
-              'blockers',
-              [RestoreBlocker.accountConflict],
+        await drainingSyncThen(
+          () => bindAccount('user-2', withBaseline: false),
+          (restore) => expectLater(
+            restore,
+            throwsA(
+              isA<RestoreBlockedException>().having(
+                (e) => e.preflight.blockers,
+                'blockers',
+                [RestoreBlocker.accountConflict],
+              ),
             ),
           ),
-        ),
-        backup,
-      );
+          backup,
+        );
 
-      expect(
-        (await db.query(DatabaseTables.songs)).map((row) => row['id']),
-        ['song-local'],
-      );
-      expect(await holdState(), isA<NoRecoverySyncHold>());
-      expect(gate.isRestoreActive, isFalse);
-      await expectNoSessionLeftovers();
-    });
+        expect((await db.query(DatabaseTables.songs)).map((row) => row['id']), [
+          'song-local',
+        ]);
+        expect(await holdState(), isA<NoRecoverySyncHold>());
+        expect(gate.isRestoreActive, isFalse);
+        await expectNoSessionLeftovers();
+      },
+    );
 
     group('a local change after quiescence abandons the transaction', () {
       late File backup;
@@ -990,10 +1053,9 @@ void main() {
         );
 
         // Nothing from the backup replaced the local library.
-        expect(
-          (await db.query(DatabaseTables.songs)).map((row) => row['id']),
-          ['song-local'],
-        );
+        expect((await db.query(DatabaseTables.songs)).map((row) => row['id']), [
+          'song-local',
+        ]);
         expect(await snapshotFiles(artworkDir), artworkBefore);
         expect(await holdState(), isA<NoRecoverySyncHold>());
         expect(await syncAllowed(), isTrue);
@@ -1052,7 +1114,10 @@ void main() {
           });
         });
 
-        expect(change.changedTables, contains(DatabaseTables.localAccountBinding));
+        expect(
+          change.changedTables,
+          contains(DatabaseTables.localAccountBinding),
+        );
       });
 
       test('a deferred replay obligation recorded meanwhile is kept', () async {
@@ -1228,10 +1293,9 @@ void main() {
           result.cleanupWarnings,
           contains(allOf(contains(failing.name), contains('observer failed'))),
         );
-        expect(
-          (await db.query(DatabaseTables.songs)).map((row) => row['id']),
-          ['song-a'],
-        );
+        expect((await db.query(DatabaseTables.songs)).map((row) => row['id']), [
+          'song-a',
+        ]);
         expect(await holdState(), isA<NoRecoverySyncHold>());
         expect(await syncAllowed(), isTrue);
         expect(gate.isRestoreActive, isFalse);
@@ -1239,37 +1303,45 @@ void main() {
       });
     }
 
-    test('a committed cloud-linked restore stays held despite a throwing observer', () async {
-      await bindAccount('user-1');
-      await seedConnectedLibrary(
-        await target.database,
-        key: 'a',
-        userId: 'user-1',
-        songTitle: 'Before',
-      );
-      final backup = await backupOf('cloud-observer', (db) async {
-        await seedConnectedLibrary(db, key: 'a', userId: 'user-1', songTitle: 'After');
-      });
+    test(
+      'a committed cloud-linked restore stays held despite a throwing observer',
+      () async {
+        await bindAccount('user-1');
+        await seedConnectedLibrary(
+          await target.database,
+          key: 'a',
+          userId: 'user-1',
+          songTitle: 'Before',
+        );
+        final backup = await backupOf('cloud-observer', (db) async {
+          await seedConnectedLibrary(
+            db,
+            key: 'a',
+            userId: 'user-1',
+            songTitle: 'After',
+          );
+        });
 
-      final result = await orchestrator().restore(
-        backup,
-        onProgress: (stage) {
-          if (stage == RestoreStage.assessingSync ||
-              stage == RestoreStage.completed) {
-            throw StateError('observer failed');
-          }
-        },
-      );
+        final result = await orchestrator().restore(
+          backup,
+          onProgress: (stage) {
+            if (stage == RestoreStage.assessingSync ||
+                stage == RestoreStage.completed) {
+              throw StateError('observer failed');
+            }
+          },
+        );
 
-      expect(result.syncHeld, isTrue);
-      final song = (await (await target.database).query(
-        DatabaseTables.songs,
-      )).single;
-      expect(song['title'], 'After');
-      final state = await holdState() as ActiveRecoverySyncHold;
-      expect(state.hold.phase, RecoverySyncHoldPhase.assessmentRequired);
-      expect(await syncAllowed(), isFalse);
-    });
+        expect(result.syncHeld, isTrue);
+        final song = (await (await target.database).query(
+          DatabaseTables.songs,
+        )).single;
+        expect(song['title'], 'After');
+        final state = await holdState() as ActiveRecoverySyncHold;
+        expect(state.hold.phase, RecoverySyncHoldPhase.assessmentRequired);
+        expect(await syncAllowed(), isFalse);
+      },
+    );
   });
 }
 
@@ -1290,16 +1362,17 @@ Future<Map<String, List<Map<String, Object?>>>> portableRows(
     for (final coverage in BackupCoverageContract.portableTables)
       if (present.contains(coverage.table))
         coverage.table: [
-        // Table names come from the backup coverage contract.
-        for (final row in await db.rawQuery(
-          'SELECT * FROM "${coverage.table}" ORDER BY rowid',
-        ))
-          {
-            for (final entry in row.entries)
-              if (coverage.table != DatabaseTables.artworkAssets ||
-                  (entry.key != 'file_path' && entry.key != 'normalized_path'))
-                entry.key: entry.value,
-          },
-      ],
+          // Table names come from the backup coverage contract.
+          for (final row in await db.rawQuery(
+            'SELECT * FROM "${coverage.table}" ORDER BY rowid',
+          ))
+            {
+              for (final entry in row.entries)
+                if (coverage.table != DatabaseTables.artworkAssets ||
+                    (entry.key != 'file_path' &&
+                        entry.key != 'normalized_path'))
+                  entry.key: entry.value,
+            },
+        ],
   };
 }

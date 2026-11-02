@@ -21,6 +21,8 @@ import 'package:sonus_next/features/library/data/repositories/sqlite_library_que
 import 'package:sonus_next/features/library/data/repositories/sqlite_song_repository.dart';
 import 'package:sonus_next/features/sync/application/services/sync_mutation_runner.dart';
 import 'package:sonus_next/features/sync/data/repositories/sync_mutation_transaction_runner.dart';
+import 'package:sonus_next/features/library/data/daos/song_artist_credit_dao.dart';
+import 'package:sonus_next/features/library/data/repositories/sqlite_song_artist_credit_repository.dart';
 
 import '../../../../support/library_seed.dart';
 
@@ -78,6 +80,9 @@ void main() {
         SyncMutationTransactionRunner(appDatabase: appDatabase),
       );
       service = ImportReviewService(
+        songArtistCreditRepository: SqliteSongArtistCreditRepository(
+          SongArtistCreditDao(db),
+        ),
         reviewRepository: SqliteSongImportReviewRepository(
           SongImportReviewDao(db),
           appDatabase: appDatabase,
@@ -99,7 +104,7 @@ void main() {
         title: 'Edited title',
         trackNumber: 1,
         discNumber: 1,
-        featuredArtists: const [],
+        additionalCredits: const [],
         isSingle: false,
         artistId: 'artist-a',
         albumId: 'album-a',

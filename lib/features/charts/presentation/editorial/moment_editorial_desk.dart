@@ -1,11 +1,21 @@
 import '../../application/models/chart_moment_feed_item.dart';
+import '../../application/services/chart_moment_feed_aggregator.dart';
+import '../../application/services/chart_moment_feed_pager.dart';
 import '../../domain/models/chart_type.dart';
+import '../../domain/moments/chart_moment_event.dart';
 import '../../domain/moments/chart_moment_event_type.dart';
+import '../../domain/moments/chart_moment_rules.dart';
 import '../../domain/moments/chart_moment_scope.dart';
+import '../../domain/services/all_time_history_replay.dart';
+import '../../domain/services/chart_ranking_engine.dart';
+import 'moment_climb.dart';
+import 'moment_developing.dart';
 import 'moment_publisher.dart';
 import 'moment_facts.dart';
 import 'moment_family.dart';
 import 'moment_headlines.dart';
+import 'moment_story_planner.dart';
+import 'refined_headline_catalog.dart';
 import 'moment_visuals.dart';
 
 /// One published story: who wrote it, what it says, and what it shows.
@@ -21,8 +31,9 @@ class MomentStory {
     required this.status,
     required this.visual,
     this.body,
-    this.tag,
     this.rank,
+    this.climb,
+    this.updates = const [],
   });
 
   final ChartMomentFeedItem item;
@@ -37,16 +48,29 @@ class MomentStory {
   /// A second paragraph, only when it adds a verified fact.
   final String? body;
 
-  /// For example "SONUS HOT 100" or "SONUS BUBBLING UNDER".
+  /// For example "SONUS HOT 100" or "SONUS BUBBLING UNDER": the card's
+  /// only mention of the chart (SN-50 F-Q22).
   final String kicker;
 
   /// The achievement badge, for example "NUMBER ONE".
   final String status;
 
-  /// The chart position badge, for example "BUBBLING UNDER #106".
-  final String? tag;
+  /// The chart position badge. Stories about an artist show none, except
+  /// the artist's own #1 among your artists (F-Q23).
   final int? rank;
+
+  /// Places a rising song climbed, shown beside the headline; null without
+  /// a comparable rise (MomentClimb). Never changes the headline itself.
+  final int? climb;
   final MomentVisual visual;
+
+  /// A developing story's thread, oldest first (DevelopingStories): every
+  /// climb it tells. Empty for every other story.
+  final List<MomentStoryUpdate> updates;
+
+  /// Updated since it was first published: a developing story with more
+  /// than one climb.
+  bool get isDeveloping => updates.length > 1;
 
   String get id => item.id;
   DateTime get occurredAt => item.occurredAt;
@@ -66,15 +90,32 @@ class MomentStory {
 ///   it states; otherwise another one, or the family's plain one, is used.
 /// - **Not spam:** minor stories (deep debuts, Bubbling Under arrivals) are
 ///   limited to [minorStoriesPerDay] a day; the first ones of the day are
-///   kept, so later plays never remove a story already shown.
+///   kept, so later plays never remove a story already shown. Under the
+///   SN-50 rules ([MomentStoryPlanner]) chart entries are guaranteed and
+///   never count toward that cap.
 class MomentEditorialDesk {
   const MomentEditorialDesk({
     required this.lookups,
+    this.rules = ChartMomentRules.legacy,
     this.minorStoriesPerDay = 3,
+    this.refinedCatalog,
+    this.refinedCatalogs,
   });
 
   final MomentLookups lookups;
+
+  /// Which stories follow the SN-50 rules; none without an activation.
+  final ChartMomentRules rules;
   final int minorStoriesPerDay;
+
+  /// Headlines for stories under the refined rules;
+  /// [RefinedHeadlineCatalog.standard] when null. Stories under the earlier
+  /// rules always use [MomentHeadlines.legacyOf].
+  final RefinedHeadlineCatalog? refinedCatalog;
+
+  /// Refined catalogs by version, in place of
+  /// [RefinedHeadlineCatalog.versions] (tests).
+  final Map<int, RefinedHeadlineCatalog>? refinedCatalogs;
 
   /// The weekly chart's largest climb worth a story.
   static const int biggestGainerMinimumPlaces = 10;
@@ -86,44 +127,294 @@ class MomentEditorialDesk {
         final byTime = a.occurredAt.compareTo(b.occurredAt);
         return byTime != 0 ? byTime : a.id.compareTo(b.id);
       });
-    final gainers = _biggestGainers(chronological);
+    final gainers = _biggestGainers(chronological, rules);
+    final planner = MomentStoryPlanner(chronological, biggestGainers: gainers);
 
     final minorPerDay = <String, int>{};
     final stories = <MomentStory>[];
     String? previousVariant;
 
-    for (final item in chronological) {
-      final family = MomentFamily.of(
-        item,
-        biggestGainer: gainers.contains(item.id),
-      );
-      if (family == null) continue;
+    final told = <String>{};
 
-      final facts = MomentFacts.of(item, lookups);
-      if (family.tierFor(facts.rank) == MomentTier.minor) {
-        final local = item.occurredAt.toLocal();
-        final day = '${local.year}-${local.month}-${local.day}';
-        final count = minorPerDay[day] ?? 0;
-        if (count >= minorStoriesPerDay) continue;
-        minorPerDay[day] = count + 1;
+    // SN-50 developing stories: repeated climbs of one entity on one chart
+    // in one day are one living story, told at its latest climb.
+    final chains = DevelopingStories.chains([
+      for (final item in chronological) ...item.events,
+    ], rules);
+    final chainOf = <String, String>{
+      for (final MapEntry(key: key, value: chain) in chains.entries)
+        for (final event in chain) event.deduplicationKey: key,
+    };
+    // Chains with at least one climb told only as a climb: those become a
+    // developing story. A chain made only of climbs inside other news (a
+    // #1, a new zone) leaves that news to tell it.
+    final developing = <String>{};
+    for (final item in chronological) {
+      if (item.dominantEventType != ChartMomentEventType.rankRise) continue;
+      for (final event in item.events) {
+        final key = chainOf[event.deduplicationKey];
+        if (key != null && chains[key]!.length > 1) developing.add(key);
+      }
+    }
+
+    for (final item in chronological) {
+      // SN-50 R-V: the refined catalog version the story was first told
+      // with on this install; null under the earlier rules.
+      final catalogVersion = rules.catalogVersionFor(
+        scope: item.scope,
+        occurredAt: item.occurredAt,
+        weekStartUtc: item.weekStartUtc,
+      );
+      final refined = catalogVersion != null;
+      // A refined story whose catalog this build lacks is held rather than
+      // re-told with other words.
+      if (refined && _catalogFor(catalogVersion) == null) continue;
+      // SN-50 device polish: from its start, every recorded chart
+      // achievement is told, without the daily cap.
+      final complete = !refined && rules.tellsEveryChartEvent(item.occurredAt);
+      final planned = refined
+          ? planner.plan(item)
+          : _legacyPlan(item, gainers, complete: complete);
+
+      // The developing story whose latest climb this item holds, if any.
+      String? developingHere;
+      for (final event in item.events) {
+        final key = chainOf[event.deduplicationKey];
+        if (key != null &&
+            developing.contains(key) &&
+            chains[key]!.last.deduplicationKey == event.deduplicationKey &&
+            told.add(key)) {
+          developingHere = key;
+        }
       }
 
-      final story = _write(item, family, facts, previousVariant);
-      previousVariant = story.variantId;
-      stories.add(story);
+      for (final moment in planned) {
+        // Release safety: drafts never publish, not even with a plain
+        // fallback headline (MomentHeadlines.approvedFamilies).
+        if (!MomentHeadlines.approvedFamilies.contains(moment.family)) {
+          continue;
+        }
+        // A climb that is part of a developing story is told in it.
+        if (_isClimbFamily(moment.family) &&
+            moment.item.dominantEventType == ChartMomentEventType.rankRise &&
+            moment.item.events.any(
+              (event) => developing.contains(chainOf[event.deduplicationKey]),
+            )) {
+          continue;
+        }
+        final facts = MomentFacts.of(
+          moment.item,
+          lookups,
+          refined: refined,
+          catalogVersion: catalogVersion,
+          polished: complete,
+          jump: moment.jump,
+        );
+        if (!moment.mandatory &&
+            !complete &&
+            moment.family.tierFor(facts.rank) == MomentTier.minor) {
+          // The feed is paged in these same days.
+          final day = ChartMomentFeedPager.localDay(item.occurredAt);
+          final count = minorPerDay[day] ?? 0;
+          if (count >= minorStoriesPerDay) continue;
+          minorPerDay[day] = count + 1;
+        }
+
+        final story = _write(
+          moment.item,
+          moment.family,
+          facts,
+          previousVariant,
+          excluded: moment.excludedVariants,
+        );
+        previousVariant = story.variantId;
+        stories.add(story);
+      }
+
+      if (developingHere != null) {
+        final story = _writeDeveloping(developingHere, chains[developingHere]!);
+        previousVariant = story.variantId;
+        stories.add(story);
+      }
     }
 
     return List.unmodifiable(stories.reversed);
+  }
+
+  static bool _isClimbFamily(MomentFamily family) =>
+      family == MomentFamily.songBigClimb ||
+      family == MomentFamily.releaseClimb;
+
+  /// A developing story: one entity's climbs on one chart in one day, told
+  /// at the latest, with every climb kept in [MomentStory.updates].
+  MomentStory _writeDeveloping(String key, List<ChartMomentEvent> chain) {
+    final latest = chain.last;
+    final item = ChartMomentFeedAggregator.storyItem(
+      id: 'moment-developing:$key',
+      events: [latest],
+    );
+    final family = item.chartType == ChartType.albums
+        ? MomentFamily.releaseClimb
+        : MomentFamily.songBigClimb;
+    final facts = MomentFacts.of(item, lookups, polished: true);
+    final summary = DevelopingSummary(chain);
+    final updates = DevelopingStories.thread(
+      chain,
+      title: facts.title,
+      chart: facts.chart,
+      subject: facts.subject,
+    );
+    final daily = _hash('${item.id}|publisher').isEven;
+    final publisher = daily
+        ? MomentPublisher.sonusDaily
+        : MomentPublisher.pulsePop;
+    final s = facts.subject;
+    final chart = facts.chart;
+    final net = MomentClimb.placesText(summary.net.abs());
+    final latestPlaces = MomentClimb.placesText(summary.latest);
+
+    final String headline;
+    if (summary.reboundedAfterSlip && summary.net <= 0) {
+      // Not higher than where it began: tell the rebound, nothing more.
+      headline =
+          'After slipping to #${summary.latestFrom}, $s rebounds '
+          '$latestPlaces to #${summary.current} on $chart.';
+    } else if (summary.newHigh) {
+      headline = daily
+          ? '$s rises to a new career high of #${summary.current} on $chart, '
+                'up $net from #${summary.start} earlier.'
+          : 'New career high! $s is up $net since #${summary.start}, now '
+                '#${summary.current} on $chart.';
+    } else if (summary.reboundedAfterSlip) {
+      headline =
+          'After slipping to #${summary.latestFrom}, $s rebounds '
+          '$latestPlaces to #${summary.current} on $chart, up $net from '
+          '#${summary.start} earlier.';
+    } else {
+      headline = daily
+          ? '$s rises to #${summary.current} on $chart, up $net from '
+                '#${summary.start} earlier.'
+          : 'Still climbing: $s is up $net since #${summary.start}, now '
+                '#${summary.current} on $chart.';
+    }
+    final count = updates.length - 1;
+    final body = [
+      count == 1
+          ? 'Updated once since it was first told.'
+          : 'Updated $count times since it was first told.',
+      if (summary.best < summary.current)
+        'Its best in this story was #${summary.best}.',
+    ].join(' ');
+
+    final variant = HeadlineVariant(
+      daily ? 'developing-d' : 'developing-p',
+      publisher,
+      (_) => headline,
+      requires: const {MomentFact.rank, MomentFact.places},
+    );
+    return MomentStory(
+      item: item,
+      family: family,
+      facts: facts,
+      publisher: publisher,
+      variantId: variant.id,
+      headline: headline,
+      body: body,
+      kicker: _kicker(family, facts),
+      status: 'CLIMBING',
+      rank: summary.current,
+      climb: summary.net > 0 ? summary.net : null,
+      updates: List.unmodifiable(updates),
+      visual: MomentVisuals.select(
+        item: item,
+        family: family,
+        facts: facts,
+        variant: variant,
+        lookups: lookups,
+        headline: headline,
+      ),
+    );
+  }
+
+  /// Approved news held back until its headlines are approved (SN-50
+  /// BUG-04, BLOCKED_EDITORIAL), under the same rules as [compose]. Never
+  /// shown; for checks and reports only.
+  List<GatedMoment> copyGated(Iterable<ChartMomentFeedItem> items) {
+    final all = items.toList();
+    final planner = MomentStoryPlanner(
+      all,
+      biggestGainers: _biggestGainers(all, rules),
+    );
+    return [
+      for (final item in all)
+        if (rules.appliesTo(
+          scope: item.scope,
+          occurredAt: item.occurredAt,
+          weekStartUtc: item.weekStartUtc,
+        )) ...[
+          ...planner.copyGated(item),
+          // Planned stories held by the approved-family guard.
+          for (final moment in planner.plan(item))
+            if (!MomentHeadlines.approvedFamilies.contains(moment.family))
+              GatedMoment(
+                moment.item.id,
+                GatedMomentKind.unapprovedCopy,
+                moment.item.events.first,
+                family: moment.family,
+                story: moment.item,
+              ),
+        ],
+    ];
+  }
+
+  /// The refined catalog for [version]; null when this build lacks it.
+  RefinedHeadlineCatalog? _catalogFor(int version) =>
+      refinedCatalogs?[version] ??
+      refinedCatalog ??
+      RefinedHeadlineCatalog.forVersion(version);
+
+  /// Before the SN-50 rules: one story per group, as first published.
+  static List<PlannedMoment> _legacyPlan(
+    ChartMomentFeedItem item,
+    Set<String> gainers, {
+    bool complete = false,
+  }) {
+    final family = MomentFamily.of(
+      item,
+      biggestGainer: gainers.contains(item.id),
+      complete: complete,
+    );
+    return family == null ? const [] : [PlannedMoment(item, family)];
   }
 
   MomentStory _write(
     ChartMomentFeedItem item,
     MomentFamily family,
     MomentFacts facts,
-    String? previousVariant,
-  ) {
-    final variants = MomentHeadlines.of(family);
-    final publisher = _hash('${item.id}|publisher').isEven
+    String? previousVariant, {
+    Set<String> excluded = const {},
+  }) {
+    final climb = MomentClimb.of(item, family, facts);
+    // From the climb wording's start on, a rising song's story under the
+    // earlier rules names the places it climbed; earlier stories keep the
+    // published catalog's words.
+    final statesClimb =
+        !facts.refined &&
+        climb != null &&
+        MomentClimb.headlineFamilies.contains(family) &&
+        rules.statesClimb(item.occurredAt);
+    final variants = [
+      for (final variant
+          in facts.refined
+              ? _catalogFor(facts.catalogVersion!)!.of(family, facts)
+              : statesClimb
+              ? ClimbHeadlines.of(family)
+              : MomentHeadlines.legacyOf(family))
+        if (!excluded.contains(variant.id)) variant,
+    ];
+    final publisher = facts.refined
+        ? publisherFor(family)
+        : _hash('${item.id}|publisher').isEven
         ? MomentPublisher.sonusDaily
         : MomentPublisher.pulsePop;
 
@@ -170,11 +461,22 @@ class MomentEditorialDesk {
       publisher: variant.publisher,
       variantId: variant.id,
       headline: headline,
-      body: _supportingText(family, facts, variant),
+      body: _supportingText(family, facts, variant, storyId: item.id),
       kicker: _kicker(family, facts),
-      status: _status(family),
-      tag: _tag(family, facts),
-      rank: family == MomentFamily.artistTopArtist ? 1 : facts.rank,
+      status:
+          facts.polished &&
+              family == MomentFamily.songBigClimb &&
+              (climb ?? 0) < AllTimeHistoryReplay.bigClimbPlaces
+          ? 'CLIMBING'
+          : _status(family),
+      rank: switch (family) {
+        MomentFamily.artistTopArtist => 1,
+        MomentFamily.artistSimultaneous ||
+        MomentFamily.artistSimultaneousReleases ||
+        MomentFamily.artistStreamMilestone => null,
+        _ => facts.rank,
+      },
+      climb: climb,
       visual: MomentVisuals.select(
         item: item,
         family: family,
@@ -197,13 +499,24 @@ class MomentEditorialDesk {
   static String? _supportingText(
     MomentFamily family,
     MomentFacts facts,
-    HeadlineVariant variant,
-  ) {
+    HeadlineVariant variant, {
+    String storyId = '',
+  }) {
     final used = variant.requires;
     final it = facts.chartType == ChartType.songs
         ? 'The song'
         : 'The ${facts.releaseWord}';
     final sentences = <String>[];
+
+    // Device polish: a headline that names the song without its featured
+    // artists is followed by them, first, so every new story credits them.
+    final featuredArtists = facts.featuredArtists;
+    final credited =
+        featuredArtists.isNotEmpty &&
+        !variant.build(facts).contains(featuredArtists.first);
+    if (credited) {
+      sentences.add('Featuring ${MomentFacts.nameList(featuredArtists)}.');
+    }
 
     final newTop = facts.newTopArtist;
     final passed = facts.passedTopArtist;
@@ -244,17 +557,25 @@ class MomentEditorialDesk {
             family == MomentFamily.releaseNewPeak) &&
         peak != null &&
         !used.contains(MomentFact.previousPeak);
+    // SN-50 P-005/P-006: no single stream moved a finished week
+    // (F-Q8/F-Q24), so refined weekly stories name the week before.
+    final finishedWeek = facts.weekly && facts.refined;
     if (climbs &&
         previous != null &&
         previous != facts.rank &&
         !peakNamed &&
         !used.contains(MomentFact.previousRank)) {
-      // One sentence when the rank before this stream was also the best.
-      sentences.add(
-        tellsPeak && previous == peak
-            ? '$it was at #$previous, its best so far, before this stream.'
-            : '$it was at #$previous before this stream.',
-      );
+      // One sentence when the rank before was also the best.
+      final bestToo = tellsPeak && previous == peak;
+      sentences.add(switch ((finishedWeek, bestToo)) {
+        (true, true) =>
+          '$it was at #$previous the week before, its best '
+              'until then.',
+        (true, false) => '$it was at #$previous the week before.',
+        (false, true) =>
+          '$it was at #$previous, its best so far, before this stream.',
+        (false, false) => '$it was at #$previous before this stream.',
+      });
     }
 
     if (tellsPeak && !(climbs && previous == peak && previous != null)) {
@@ -275,9 +596,14 @@ class MomentEditorialDesk {
       MomentFamily.artistStreamMilestone => true,
       _ => false,
     };
-    // A first stream is what every debut has; it is not worth a sentence.
-    if (streams != null &&
-        streams > 1 &&
+    // A handful of streams is what every early story has; it is not worth
+    // a sentence.
+    if (family == MomentFamily.songHot100MajorJump ||
+        family == MomentFamily.songHot100ClimbRun) {
+      final sentence = _jumpStreamSentence(facts.jump, storyId);
+      if (sentence != null) sentences.add(sentence);
+    } else if (streams != null &&
+        facts.hasNotableStreams &&
         !milestoneStory &&
         !used.contains(MomentFact.streams)) {
       sentences.add(
@@ -289,8 +615,39 @@ class MomentEditorialDesk {
       );
     }
 
+    // Device polish: guests are credited apart from featured artists.
+    final guests = facts.guests;
+    if (guests.isNotEmpty) {
+      sentences.add(
+        guests.length == 1
+            ? 'With a guest appearance by ${guests.single}.'
+            : 'With guest appearances by ${MomentFacts.nameList(guests)}.',
+      );
+    }
+
     if (sentences.isEmpty) return null;
-    return sentences.take(2).join(' ');
+    return sentences
+        .take(2 + (guests.isEmpty ? 0 : 1) + (credited ? 1 : 0))
+        .join(' ');
+  }
+
+  /// The approved streaming sentence of a chart-jump story (CJ-040 or
+  /// CJ-041), body text only: verified comparable weeks, at least
+  /// [MomentFacts.notableStreams] qualified streams this week and a gain.
+  static String? _jumpStreamSentence(ChartJumpFacts? jump, String storyId) {
+    final week = jump?.weekStreams;
+    final gain = jump?.streamGain;
+    if (week == null ||
+        gain == null ||
+        week < MomentFacts.notableStreams ||
+        gain <= 0) {
+      return null;
+    }
+    return _hash('$storyId|streams').isEven
+        ? 'The song earned $week qualified streams in the finalized chart '
+              'week, $gain more than the preceding week.'
+        // CJ-041, completed-week wording (Batch 3).
+        : 'Qualified streams: $week (up $gain on the week before).';
   }
 
   static String _kicker(MomentFamily family, MomentFacts facts) {
@@ -310,21 +667,33 @@ class MomentEditorialDesk {
     MomentFamily.songDebutNumberOne ||
     MomentFamily.releaseDebutNumberOne => '#1 DEBUT',
     MomentFamily.songFirstNumberOne ||
-    MomentFamily.releaseReachesNumberOne => 'NUMBER ONE',
+    MomentFamily.releaseReachesNumberOne ||
+    MomentFamily.songSelfReplacement ||
+    MomentFamily.releaseSelfReplacement => 'NUMBER ONE',
     MomentFamily.songReturnsToNumberOne ||
     MomentFamily.releaseReturnsToNumberOne => 'BACK AT #1',
     MomentFamily.artistFirstNumberOne ||
     MomentFamily.artistFirstNumberOneRelease => 'FIRST #1',
     MomentFamily.artistNthNumberOne ||
-    MomentFamily.artistNthNumberOneRelease => '#1 HIT',
+    MomentFamily.artistNthNumberOneRelease ||
+    MomentFamily.artistRepeatNumberOne ||
+    MomentFamily.artistRepeatNumberOneRelease => '#1 HIT',
     MomentFamily.songDebutTop10 ||
     MomentFamily.songDebut ||
     MomentFamily.songBubblingUnderDebut ||
     MomentFamily.releaseDebut => 'DEBUT',
     MomentFamily.songHot100Breakthrough => 'HOT 100 BREAKTHROUGH',
-    MomentFamily.songNewPeak || MomentFamily.releaseNewPeak => 'NEW PEAK',
+    MomentFamily.songNewPeak ||
+    MomentFamily.releaseNewPeak ||
+    MomentFamily.songFirstThreshold ||
+    MomentFamily.releaseFirstThreshold ||
+    MomentFamily.songThresholds ||
+    MomentFamily.releaseThresholds => 'NEW PEAK',
     MomentFamily.songPeakMatch => 'PEAK MATCH',
-    MomentFamily.songBigClimb => 'BIG CLIMB',
+    MomentFamily.songBigClimb ||
+    MomentFamily.songHot100MajorJump ||
+    MomentFamily.songHot100ClimbRun => 'BIG CLIMB',
+    MomentFamily.releaseClimb => 'CLIMBING',
     MomentFamily.songBiggestGainer => 'BIGGEST GAINER',
     MomentFamily.songReentry || MomentFamily.releaseReentry => 'RE-ENTRY',
     MomentFamily.songStreamMilestone ||
@@ -336,33 +705,107 @@ class MomentEditorialDesk {
     MomentFamily.artistFirstTop10 => 'FIRST TOP 10',
     MomentFamily.artistNthTop10 => 'TOP 10 HIT',
     MomentFamily.artistTopArtist => 'TOP ARTIST',
-    MomentFamily.artistSimultaneous => 'RECORD',
+    MomentFamily.artistSimultaneous ||
+    MomentFamily.artistSimultaneousReleases => 'RECORD',
+    MomentFamily.songBubblingUnderFall => 'FALL',
+    MomentFamily.songHot100Exit => 'HOT 100 EXIT',
   };
 
-  static String? _tag(MomentFamily family, MomentFacts facts) {
-    if (family == MomentFamily.artistTopArtist) return 'ARTISTS #1';
-    final rank = facts.rank;
-    if (rank == null) return null;
-    final chart = switch (facts.chartType) {
-      ChartType.songs when facts.bubblingUnder => 'BUBBLING UNDER',
-      ChartType.songs => 'HOT 100',
-      ChartType.albums => 'ALBUMS & EPS',
-    };
-    return facts.weekly ? 'WEEKLY $chart #$rank' : '$chart #$rank';
-  }
+  /// Who writes a story under the SN-50 rules (F-Q28), by its character
+  /// rather than an even split; earlier stories keep the publisher they
+  /// were first published with. When the family has no headline in that
+  /// voice that fits, the other publisher's headline is used.
+  ///
+  /// - **Sonus Daily**, measured and factual: debuts below the Top 10 and
+  ///   Bubbling Under arrivals, re-entries, chart zones, peak matches,
+  ///   streaming and longevity milestones, an artist's first Hot 100 entry,
+  ///   counted career records (nth Top 10, nth or repeat #1) and roundups.
+  /// - **PulsePop**, expressive and energetic: #1 arrivals, returns and
+  ///   self-replacements, Top 10 debuts, new peaks, big climbs, the biggest
+  ///   gainer, Hot 100 breakthroughs, an artist's first Top 10 or #1, and a
+  ///   new top artist.
+  static MomentPublisher publisherFor(MomentFamily family) => switch (family) {
+    MomentFamily.songDebut ||
+    MomentFamily.songBubblingUnderDebut ||
+    MomentFamily.songReentry ||
+    MomentFamily.songPeakMatch ||
+    MomentFamily.songStreamMilestone ||
+    MomentFamily.songWeeksMilestone ||
+    MomentFamily.songFirstThreshold ||
+    MomentFamily.songThresholds ||
+    MomentFamily.releaseDebut ||
+    MomentFamily.releaseReentry ||
+    MomentFamily.releaseStreamMilestone ||
+    MomentFamily.releaseWeeksMilestone ||
+    MomentFamily.releaseFirstThreshold ||
+    MomentFamily.releaseThresholds ||
+    MomentFamily.artistFirstHot100 ||
+    MomentFamily.artistNthTop10 ||
+    MomentFamily.artistNthNumberOne ||
+    MomentFamily.artistNthNumberOneRelease ||
+    MomentFamily.artistRepeatNumberOne ||
+    MomentFamily.artistRepeatNumberOneRelease ||
+    MomentFamily.artistStreamMilestone ||
+    MomentFamily.artistSimultaneous ||
+    MomentFamily.artistSimultaneousReleases ||
+    MomentFamily.songHot100ClimbRun ||
+    MomentFamily.songBubblingUnderFall ||
+    MomentFamily.songHot100Exit ||
+    MomentFamily.releaseClimb => MomentPublisher.sonusDaily,
+    MomentFamily.songDebutNumberOne ||
+    MomentFamily.songDebutTop10 ||
+    MomentFamily.songHot100Breakthrough ||
+    MomentFamily.songFirstNumberOne ||
+    MomentFamily.songReturnsToNumberOne ||
+    MomentFamily.songNewPeak ||
+    MomentFamily.songBigClimb ||
+    MomentFamily.songBiggestGainer ||
+    MomentFamily.songSelfReplacement ||
+    MomentFamily.releaseDebutNumberOne ||
+    MomentFamily.releaseReachesNumberOne ||
+    MomentFamily.releaseReturnsToNumberOne ||
+    MomentFamily.releaseNewPeak ||
+    MomentFamily.releaseSelfReplacement ||
+    MomentFamily.artistFirstTop10 ||
+    MomentFamily.artistFirstNumberOne ||
+    MomentFamily.artistFirstNumberOneRelease ||
+    MomentFamily.artistTopArtist ||
+    MomentFamily.songHot100MajorJump => MomentPublisher.pulsePop,
+  };
 
   /// Per finalized week and chart, the story with the largest verified
   /// climb, when it climbed at least [biggestGainerMinimumPlaces].
-  static Set<String> _biggestGainers(List<ChartMomentFeedItem> items) {
+  static Set<String> _biggestGainers(
+    List<ChartMomentFeedItem> items,
+    ChartMomentRules rules,
+  ) {
     final best = <String, (ChartMomentFeedItem, int)>{};
     for (final item in items) {
-      if (item.scope != ChartMomentScope.finalized ||
-          item.dominantEventType != ChartMomentEventType.rankRise) {
-        continue;
-      }
+      // SN-50: a climb counts even when a new peak or zone leads its story.
+      final climbed =
+          rules.appliesTo(
+            scope: item.scope,
+            occurredAt: item.occurredAt,
+            weekStartUtc: item.weekStartUtc,
+          )
+          ? item.contains(ChartMomentEventType.rankRise)
+          : item.dominantEventType == ChartMomentEventType.rankRise;
+      if (item.scope != ChartMomentScope.finalized || !climbed) continue;
       final rise = item.events.firstWhere(
         (event) => event.eventType == ChartMomentEventType.rankRise,
       );
+      // SN-50 BUG-04: a move from Bubbling Under into the Hot 100 is a
+      // Hot 100 arrival, not a climb on it (E-Q1).
+      // The device polish follows it too, from its start.
+      if (_crossesIntoHot100(rise) &&
+          (rules.appliesTo(
+                scope: item.scope,
+                occurredAt: item.occurredAt,
+                weekStartUtc: item.weekStartUtc,
+              ) ||
+              rules.tellsEveryChartEvent(item.occurredAt))) {
+        continue;
+      }
       final places = rise.movementDistance ?? 0;
       if (places < biggestGainerMinimumPlaces) continue;
       final key =
@@ -375,6 +818,17 @@ class MomentEditorialDesk {
       }
     }
     return {for (final entry in best.values) entry.$1.id};
+  }
+
+  static bool _crossesIntoHot100(ChartMomentEvent rise) {
+    const limit = ChartRankingEngine.officialChartLimit;
+    final before = rise.previousRank;
+    final now = rise.currentRank;
+    return rise.chartType == ChartType.songs &&
+        before != null &&
+        now != null &&
+        before > limit &&
+        now <= limit;
   }
 
   /// FNV-1a: the same text always gives the same number, on every device

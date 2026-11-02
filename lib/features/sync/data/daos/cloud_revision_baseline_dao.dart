@@ -30,6 +30,26 @@ class CloudRevisionBaselineDao {
     return rows.single['server_revision'] as int;
   }
 
+  /// Whether any account has a baseline for the entity (read only).
+  Future<bool> hasAnyRevision({
+    required CloudDataEntity entityType,
+    required String entityId,
+  }) async {
+    if (entityId.trim().isEmpty) {
+      throw ArgumentError.value(entityId, 'entityId', 'Must not be blank.');
+    }
+
+    final rows = await db.query(
+      SyncSchema.cloudRevisionBaselinesTable,
+      columns: ['entity_id'],
+      where: 'entity_type = ? AND entity_id = ?',
+      whereArgs: [entityType.name, entityId],
+      limit: 1,
+    );
+
+    return rows.isNotEmpty;
+  }
+
   Future<void> saveObservedRevision({
     required String userId,
     required CloudDataEntity entityType,

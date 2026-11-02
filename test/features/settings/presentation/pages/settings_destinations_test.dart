@@ -28,6 +28,7 @@ import 'package:sonus_next/features/settings/presentation/pages/playback_setting
 import 'package:sonus_next/features/settings/presentation/pages/settings_page.dart';
 import 'package:sonus_next/features/settings/presentation/widgets/settings/settings_section.dart';
 import 'package:sonus_next/features/sync/application/controllers/sync_controller.dart';
+import 'package:sonus_next/features/sync/application/models/sync_failure.dart';
 import 'package:sonus_next/features/sync/application/services/sync_run_guard.dart';
 import 'package:sonus_next/features/sync/application/services/sync_service.dart';
 
@@ -362,6 +363,24 @@ void main() {
       await failing.synchronize('user-1');
       expect(accountCloudSummary(account(), failing), (
         'Sync could not finish. Sonus will try again.',
+        true,
+      ));
+    });
+
+    test('DQA-01: a cloud-not-ready pause says a cloud update is required, '
+        'not "Not synced yet"', () async {
+      final paused = SyncController.forTesting(
+        synchronize: (_) async =>
+            throw CloudContractMismatch('no server revision'),
+      );
+      addTearDown(paused.dispose);
+
+      await paused.synchronize('user-1');
+
+      expect(paused.isPaused, isTrue);
+      expect(paused.lastSuccessfulSync, isNull);
+      expect(accountCloudSummary(account(), paused), (
+        'Sync paused — cloud update required',
         true,
       ));
     });

@@ -56,7 +56,7 @@ class _LyricsPageState extends State<LyricsPage> {
             const Text('Lyrics'),
             if (track != null)
               Text(
-                track.title,
+                track.displayTitle,
                 key: const ValueKey<String>('lyrics-track-title'),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,

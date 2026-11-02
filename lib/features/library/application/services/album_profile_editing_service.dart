@@ -3,6 +3,7 @@ import '../../../sync/application/services/sync_mutation_runner.dart';
 import '../../../sync/domain/models/sync_data_contract.dart';
 import '../../domain/entities/album.dart';
 import '../../domain/entities/album_edition.dart';
+import '../../domain/entities/release_date.dart';
 import '../../domain/metadata/metadata_field_state.dart';
 import '../../domain/metadata/metadata_fields.dart';
 import '../../domain/services/metadata_field_state_service.dart';
@@ -52,6 +53,84 @@ class AlbumProfileEditingService {
     });
   }
 
+  /// Sets one edition's release date, primary or not (SN-50 A-Q6C). Each
+  /// edition keeps its own date; nothing else about the release changes.
+  /// A null [releaseDate] clears it, so the edition shows "Not set".
+  ///
+  /// Precision follows [updateProfile]: unstated, an unchanged date keeps
+  /// its precision and a newly entered date is an exact day. A change is
+  /// recorded as the user's, so later lookups keep it.
+  Future<AlbumEdition> updateEditionReleaseDate({
+    required String? userId,
+    required String editionId,
+    required DateTime? releaseDate,
+    ReleaseDatePrecision? releaseDatePrecision,
+    DateTime? now,
+  }) {
+    final normalizedEditionId = editionId.trim();
+
+    if (normalizedEditionId.isEmpty) {
+      throw ArgumentError.value(
+        editionId,
+        'editionId',
+        'Album edition id must not be blank.',
+      );
+    }
+
+    final timestamp = now ?? DateTime.now();
+
+    return mutationRunner.run((context) async {
+      final edition = await context.albumEditionRepository.getById(
+        normalizedEditionId,
+      );
+
+      if (edition == null) {
+        throw StateError('Album edition not found: $normalizedEditionId');
+      }
+
+      final precision = releaseDate == null
+          ? null
+          : releaseDatePrecision ??
+                (releaseDate == edition.releaseDate
+                    ? edition.releaseDatePrecision
+                    : ReleaseDatePrecision.day);
+
+      if (edition.releaseDate == releaseDate &&
+          edition.releaseDatePrecision == precision) {
+        return edition;
+      }
+
+      final updated = edition.copyWith(
+        releaseDate: releaseDate,
+        releaseDatePrecision: precision,
+        updatedAt: timestamp,
+      );
+      await context.albumEditionRepository.save(updated);
+
+      final metadataRepository = context.metadataFieldStateRepository;
+      if (metadataRepository != null) {
+        await MetadataFieldStateService(
+          repository: metadataRepository,
+        ).recordAll(
+          entityType: MetadataEntityType.albumEdition,
+          entityId: updated.id,
+          fieldNames: const [MetadataFields.editionReleaseDate],
+          authority: MetadataAuthority.manual,
+          source: MetadataProvenanceSource.user,
+          updatedAt: timestamp,
+        );
+      }
+
+      await context.localSyncRepository.recordUpsert(
+        userId: userId?.trim(),
+        entityType: CloudDataEntity.albumEdition,
+        entityId: updated.id,
+      );
+
+      return updated;
+    });
+  }
+
   Future<AlbumProfileEditResult> updateProfile({
     required String? userId,
     required String albumId,
@@ -61,6 +140,7 @@ class AlbumProfileEditingService {
     required AlbumEditionType editionType,
     required DateTime? releaseDate,
     required String? genre,
+    ReleaseDatePrecision? releaseDatePrecision,
     String? artistId,
     DateTime? now,
   }) {
@@ -157,6 +237,18 @@ class AlbumProfileEditingService {
 
       final canonicalTitle = TextNormalizer.canonicalize(trimmedTitle);
 
+      // A caller that does not state the precision keeps an unchanged
+      // date's precision; a newly entered full date is an exact day.
+      final precision = releaseDate == null
+          ? null
+          : releaseDatePrecision ??
+                (releaseDate == edition.releaseDate
+                    ? edition.releaseDatePrecision
+                    : ReleaseDatePrecision.day);
+      final releaseDateChanged =
+          edition.releaseDate != releaseDate ||
+          edition.releaseDatePrecision != precision;
+
       final changedAlbumMetadataFields = <String>{
         if (album.artistId != targetArtistId) MetadataFields.albumArtist,
         if (album.title != trimmedTitle) MetadataFields.albumTitle,
@@ -165,8 +257,7 @@ class AlbumProfileEditingService {
       final changedEditionMetadataFields = <String>{
         if (edition.title != trimmedEditionTitle) MetadataFields.editionTitle,
         if (edition.type != editionType) MetadataFields.editionType,
-        if (edition.releaseDate != releaseDate)
-          MetadataFields.editionReleaseDate,
+        if (releaseDateChanged) MetadataFields.editionReleaseDate,
         if (edition.genre != normalizedGenre) MetadataFields.editionGenre,
       };
 
@@ -178,7 +269,7 @@ class AlbumProfileEditingService {
       final editionChanged =
           edition.title != trimmedEditionTitle ||
           edition.type != editionType ||
-          edition.releaseDate != releaseDate ||
+          releaseDateChanged ||
           edition.genre != normalizedGenre;
 
       final updatedAlbum = albumChanged
@@ -195,6 +286,7 @@ class AlbumProfileEditingService {
               title: trimmedEditionTitle,
               type: editionType,
               releaseDate: releaseDate,
+              releaseDatePrecision: precision,
               genre: normalizedGenre,
               updatedAt: timestamp,
             )

@@ -7,6 +7,7 @@ import '../core/database/app_database.dart';
 import '../features/account/domain/repositories/account_repository.dart';
 import '../features/account/presentation/scopes/account_scope.dart';
 import '../features/analytics/presentation/scopes/monthly_listening_insights_scope.dart';
+import '../features/analytics/presentation/scopes/pulse_insights_scope.dart';
 import '../features/analytics/presentation/scopes/year_in_sonus_scope.dart';
 import '../features/charts/presentation/scopes/charts_scope.dart';
 import '../features/home/presentation/scopes/home_scope.dart';
@@ -21,6 +22,7 @@ import '../features/recovery/presentation/scopes/recovery_scope.dart';
 import '../features/settings/application/controllers/appearance_controller.dart';
 import '../features/settings/presentation/scopes/appearance_scope.dart';
 import '../features/shell/presentation/pages/app_shell_page.dart';
+import '../features/shell/presentation/widgets/keyboard_inset_guard.dart';
 import '../features/shell/presentation/widgets/playback_host.dart';
 import '../features/shell/presentation/widgets/sonus_system_bars.dart';
 import '../features/sync/application/services/sync_run_guard.dart';
@@ -110,33 +112,40 @@ class _SonusAppState extends State<SonusApp> {
                       database: widget.libraryDatabase,
                       child: AccountAnalyticsBridge(
                         child: MonthlyListeningInsightsScope(
-                          child: YearInSonusScope(
-                            child: HomeScope(
-                              child: ChartsScope(
-                                child: ImportScope(
-                                  child: RecoveryScope(
-                                    service: widget.recoveryService,
-                                    child: SonusThemedAppBuilder(
-                                      builder: (context, theme, duration) {
-                                        return MaterialApp(
-                                          debugShowCheckedModeBanner: false,
-                                          title: 'Sonus',
-                                          theme: theme,
-                                          themeAnimationDuration: duration,
-                                          navigatorKey: _navigatorKey,
-                                          navigatorObservers: [_playbackRoutes],
-                                          // One mini-player for every route.
-                                          builder: (context, navigator) =>
-                                              SonusSystemBars(
-                                                child: PlaybackHost(
-                                                  navigatorKey: _navigatorKey,
-                                                  routes: _playbackRoutes,
-                                                  child: navigator!,
+                          child: PulseInsightsScope(
+                            child: YearInSonusScope(
+                              child: HomeScope(
+                                child: ChartsScope(
+                                  child: ImportScope(
+                                    child: RecoveryScope(
+                                      service: widget.recoveryService,
+                                      child: SonusThemedAppBuilder(
+                                        builder: (context, theme, duration) {
+                                          return MaterialApp(
+                                            debugShowCheckedModeBanner: false,
+                                            title: 'Sonus',
+                                            theme: theme,
+                                            themeAnimationDuration: duration,
+                                            navigatorKey: _navigatorKey,
+                                            navigatorObservers: [
+                                              _playbackRoutes,
+                                            ],
+                                            // One mini-player for every route.
+                                            builder: (context, navigator) =>
+                                                SonusSystemBars(
+                                                  child: KeyboardInsetGuard(
+                                                    child: PlaybackHost(
+                                                      navigatorKey:
+                                                          _navigatorKey,
+                                                      routes: _playbackRoutes,
+                                                      child: navigator!,
+                                                    ),
+                                                  ),
                                                 ),
-                                              ),
-                                          home: const AppShellPage(),
-                                        );
-                                      },
+                                            home: const AppShellPage(),
+                                          );
+                                        },
+                                      ),
                                     ),
                                   ),
                                 ),

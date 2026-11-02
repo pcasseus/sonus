@@ -16,7 +16,8 @@ import '../sonus_artwork_image.dart';
 /// it appears.
 ///
 /// - Tapping the body opens Now Playing; swiping the bar up does too
-///   ([onSwipeUp]), as an optional shortcut.
+///   ([onSwipeUp]), as an optional shortcut. A long press on the body calls
+///   [onLongPress], for the host's menu.
 /// - Previous, Play or pause and Next are always shown. A control is
 ///   disabled, not hidden, at a real queue boundary. Queue joins them when
 ///   the bar is at least [fullControlsWidth] wide.
@@ -43,6 +44,7 @@ class SonusMiniPlayer extends StatelessWidget {
     this.onPrevious,
     this.onOpenQueue,
     this.onOpen,
+    this.onLongPress,
     this.onSwipeUp,
     this.onDismiss,
     this.accentColor,
@@ -75,6 +77,9 @@ class SonusMiniPlayer extends StatelessWidget {
   /// Shown on wide bars only, when given.
   final VoidCallback? onOpenQueue;
   final VoidCallback? onOpen;
+
+  /// Called by a long press on the body (artwork, title and artist).
+  final VoidCallback? onLongPress;
 
   /// Called by an upward swipe on the bar.
   final VoidCallback? onSwipeUp;
@@ -198,6 +203,7 @@ class SonusMiniPlayer extends StatelessWidget {
                       child: InkWell(
                         key: _key('open'),
                         onTap: onOpen,
+                        onLongPress: onLongPress,
                         child: Row(
                           children: [
                             Padding(

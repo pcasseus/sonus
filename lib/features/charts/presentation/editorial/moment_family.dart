@@ -45,12 +45,53 @@ enum MomentFamily {
   releaseStreamMilestone,
   releaseWeeksMilestone,
   artistFirstNumberOneRelease,
-  artistNthNumberOneRelease;
+  artistNthNumberOneRelease,
+
+  // SN-50: new event pathways, told only by the story planner.
+
+  /// An artist's song replaces the same artist's song at #1.
+  songSelfReplacement,
+
+  /// A first entry into one chart zone (Top 75 … Top 2).
+  songFirstThreshold,
+
+  /// First entries into several zones in one move, named together.
+  songThresholds,
+
+  /// An artist's repeat #1 on a weekly chart, counted on that chart.
+  artistRepeatNumberOne,
+  releaseSelfReplacement,
+  releaseFirstThreshold,
+  releaseThresholds,
+  artistRepeatNumberOneRelease,
+
+  /// Several releases by one artist in a zone at once.
+  artistSimultaneousReleases,
+
+  /// SN-50 chart jumps (approved): a weekly climb of 25+ places within the
+  /// Hot 100.
+  songHot100MajorJump,
+
+  /// SN-50 chart jumps (approved): 3+ consecutive weekly Hot 100 climbs
+  /// worth 30+ places together.
+  songHot100ClimbRun,
+
+  /// SN-50 BUG-04 (approved rule 2): a weekly fall of 30+ places within
+  /// Sonus Bubbling Under. Refined rules only.
+  songBubblingUnderFall,
+
+  /// SN-50 BUG-04 (approved rule 3): a notable weekly exit from the Hot
+  /// 100 into Sonus Bubbling Under. Refined rules only.
+  songHot100Exit,
+
+  // SN-50 complete coverage: a release climbing the Albums & EPs chart
+  // (device-polish stories only; ClimbHeadlines has its lines).
+  releaseClimb;
 
   /// How much a story matters (SN-45 spam control). Minor stories are
   /// capped per day; the others always appear.
   MomentTier tierFor(int? rank) => switch (this) {
-    songDebut =>
+    songDebut || songHot100MajorJump =>
       rank != null && rank <= 40 ? MomentTier.notable : MomentTier.minor,
     songBubblingUnderDebut || releaseDebut => MomentTier.minor,
     songStreamMilestone ||
@@ -65,14 +106,23 @@ enum MomentFamily {
     songNewPeak ||
     songPeakMatch ||
     releaseNewPeak ||
+    releaseClimb ||
     artistFirstHot100 ||
     artistNthTop10 ||
     artistStreamMilestone ||
-    artistSimultaneous => MomentTier.notable,
+    artistSimultaneous ||
+    songThresholds ||
+    releaseThresholds ||
+    artistSimultaneousReleases ||
+    songHot100ClimbRun => MomentTier.notable,
+    // Capped like other minor stories; an exit after a verified Top 40
+    // peak is planned as mandatory (uncapped) instead.
+    songBubblingUnderFall || songHot100Exit => MomentTier.minor,
     _ => MomentTier.major,
   };
 
   bool get isRelease => switch (this) {
+    releaseClimb ||
     releaseDebutNumberOne ||
     releaseDebut ||
     releaseReachesNumberOne ||
@@ -82,7 +132,12 @@ enum MomentFamily {
     releaseStreamMilestone ||
     releaseWeeksMilestone ||
     artistFirstNumberOneRelease ||
-    artistNthNumberOneRelease => true,
+    artistNthNumberOneRelease ||
+    releaseSelfReplacement ||
+    releaseFirstThreshold ||
+    releaseThresholds ||
+    artistRepeatNumberOneRelease ||
+    artistSimultaneousReleases => true,
     _ => false,
   };
 
@@ -96,17 +151,30 @@ enum MomentFamily {
     releaseReachesNumberOne ||
     releaseReturnsToNumberOne ||
     artistFirstNumberOneRelease ||
-    artistNthNumberOneRelease => true,
+    artistNthNumberOneRelease ||
+    songSelfReplacement ||
+    releaseSelfReplacement ||
+    artistRepeatNumberOne ||
+    artistRepeatNumberOneRelease => true,
     _ => false,
   };
 
   /// The story [item] tells, or null when its facts are not news (most
   /// weekly movement, or what the permanent chart already told).
   /// [biggestGainer] marks the week's largest verified climb.
+  ///
+  /// With [complete] (the SN-50 device polish), every recorded debut,
+  /// re-entry, new peak and climb is news, on the weekly charts too and at
+  /// any position: [ofEveryAchievement].
   static MomentFamily? of(
     ChartMomentFeedItem item, {
     bool biggestGainer = false,
+    bool complete = false,
   }) {
+    if (complete) {
+      final every = ofEveryAchievement(item, biggestGainer: biggestGainer);
+      if (every != null) return every;
+    }
     final weekly = item.scope == ChartMomentScope.finalized;
     if (item.scope == ChartMomentScope.live) return null;
 
@@ -158,7 +226,7 @@ enum MomentFamily {
         ChartMomentEventType.totalWeeksMilestone ||
         ChartMomentEventType.consecutiveThresholdWeeksMilestone ||
         ChartMomentEventType.totalThresholdWeeksMilestone
-            when _worthWeeks(dominant) =>
+            when worthWeeks(dominant) =>
           releaseWeeksMilestone,
         _ => null,
       };
@@ -237,11 +305,72 @@ enum MomentFamily {
       ChartMomentEventType.totalWeeksMilestone ||
       ChartMomentEventType.consecutiveThresholdWeeksMilestone ||
       ChartMomentEventType.totalThresholdWeeksMilestone
-          when _worthWeeks(dominant) =>
+          when worthWeeks(dominant) =>
         songWeeksMilestone,
       ChartMomentEventType.artistSimultaneousThresholdSongs
           when (dominant.threshold ?? 99) <= 10 =>
         artistSimultaneous,
+      _ => null,
+    };
+  }
+
+  /// Chart achievements the earlier rules left untold (weekly debuts below
+  /// the Top 10, Bubbling Under and #101–200 release debuts, weekly
+  /// re-entries and new peaks at any position, and every weekly climb); null
+  /// for everything [of] already tells, which keeps its own family.
+  ///
+  /// A weekly climb between Bubbling Under and the Hot 100 is a change of
+  /// chart: it is told as reaching the Hot 100, never as a number of places.
+  static MomentFamily? ofEveryAchievement(
+    ChartMomentFeedItem item, {
+    bool biggestGainer = false,
+  }) {
+    if (item.scope == ChartMomentScope.live) return null;
+    final weekly = item.scope == ChartMomentScope.finalized;
+    final dominant = item.events.firstWhere(
+      (event) => event.eventType == item.dominantEventType,
+    );
+    final rank = dominant.currentRank;
+    final previous = dominant.previousRank;
+    if (rank == null) return null;
+    const limit = ChartRankingEngine.officialChartLimit;
+
+    if (item.chartType == ChartType.albums) {
+      return switch (item.dominantEventType) {
+        ChartMomentEventType.debut when rank > 1 => releaseDebut,
+        ChartMomentEventType.newPeak when rank > 1 => releaseNewPeak,
+        ChartMomentEventType.reentry when rank > 1 => releaseReentry,
+        ChartMomentEventType.rankRise
+            when rank > 1 && previous != null && previous > rank =>
+          releaseClimb,
+        _ => null,
+      };
+    }
+
+    final hasCareerNews = item.events.any(
+      (event) =>
+          event.eventType == ChartMomentEventType.artistFirstNumberOneSong ||
+          event.eventType == ChartMomentEventType.artistNthNumberOneSong ||
+          event.eventType == ChartMomentEventType.artistFirstThresholdSong ||
+          event.eventType == ChartMomentEventType.artistNthThresholdSong,
+    );
+    if (hasCareerNews && !weekly) return null;
+
+    return switch (item.dominantEventType) {
+      ChartMomentEventType.debut when weekly && rank > 10 =>
+        rank <= limit ? songDebut : songBubblingUnderDebut,
+      ChartMomentEventType.newPeak when weekly && rank > 1 => songNewPeak,
+      ChartMomentEventType.reentry when rank > 1 => songReentry,
+      // From Bubbling Under into the Hot 100: an arrival, on either chart.
+      ChartMomentEventType.rankRise
+          when previous != null && previous > limit && rank <= limit =>
+        songHot100Breakthrough,
+      ChartMomentEventType.rankRise
+          when weekly &&
+              !biggestGainer &&
+              previous != null &&
+              previous > rank =>
+        songBigClimb,
       _ => null,
     };
   }
@@ -260,7 +389,7 @@ enum MomentFamily {
   }
 
   /// Longevity worth a story: five weeks or more, or a second week at #1.
-  static bool _worthWeeks(ChartMomentEvent event) {
+  static bool worthWeeks(ChartMomentEvent event) {
     final weeks = event.milestoneValue ?? 0;
     return weeks >= 5 || (event.threshold == 1 && weeks >= 2);
   }

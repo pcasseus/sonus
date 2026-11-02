@@ -35,6 +35,7 @@ void main() {
       VoidCallback? onPlay,
       VoidCallback? onNext,
       VoidCallback? onOpen,
+      VoidCallback? onLongPress,
     }) => Align(
       alignment: Alignment.bottomCenter,
       child: SonusMiniPlayer(
@@ -46,6 +47,7 @@ void main() {
         onPlayPause: onPlay,
         onNext: onNext,
         onOpen: onOpen,
+        onLongPress: onLongPress,
       ),
     );
 
@@ -64,6 +66,24 @@ void main() {
       await tester.tap(find.byTooltip('Next'));
       await tester.tap(find.text('An Exceptionally Long Fixture Song Title'));
       expect(calls, ['play', 'next', 'open']);
+    });
+
+    testWidgets('a long press on the body asks the host for its menu', (
+      tester,
+    ) async {
+      final calls = <String>[];
+      await pump(
+        tester,
+        mini(
+          onOpen: () => calls.add('open'),
+          onLongPress: () => calls.add('menu'),
+        ),
+      );
+
+      await tester.longPress(
+        find.text('An Exceptionally Long Fixture Song Title'),
+      );
+      expect(calls, ['menu']);
     });
 
     for (final id in SonusThemeId.values) {

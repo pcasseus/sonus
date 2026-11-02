@@ -1,13 +1,19 @@
-/// The account already has a cloud library and this device has never
-/// synced with it. Nothing is uploaded or downloaded until the person
-/// chooses to bring that library onto this device.
+/// This device has never synced with the account, so nothing is uploaded
+/// or downloaded until the person chooses to start. With
+/// [cloudHasLibrary], the account already has a cloud library that would
+/// be brought onto this device; otherwise this device's library would be
+/// the first one sent to the account.
 class SyncNeedsCloudLibraryChoice implements Exception {
-  const SyncNeedsCloudLibraryChoice();
+  const SyncNeedsCloudLibraryChoice({this.cloudHasLibrary = true});
+
+  final bool cloudHasLibrary;
 
   @override
-  String toString() =>
-      'This account already has a cloud library. Choose whether to bring it '
-      'onto this device.';
+  String toString() => cloudHasLibrary
+      ? 'This account already has a cloud library. Choose whether to bring '
+            'it onto this device.'
+      : 'Cloud sync has not been turned on for this device. Choose whether '
+            'to send this library to the account.';
 }
 
 abstract interface class CloudLibraryProbe {
@@ -21,26 +27,30 @@ abstract interface class CloudLibraryConsentStore {
   Future<void> grant(String userId);
 }
 
-/// Stops the first sync of a device that has never been linked to the
-/// account, when the account already has a cloud library, so that old cloud
-/// records never repopulate a library unexpectedly. A device already linked
-/// to the account, or an account with nothing in the cloud, syncs as before.
+/// Stops the first sync between this device and an account until the
+/// person chooses to start it, in both directions: an existing cloud
+/// library never repopulates this library unexpectedly, and this library
+/// is never uploaded just because someone signed in.
+///
+/// "Linked" means this device has completed a sync with the account
+/// ([syncedBefore]); signing in alone binds the device to the account but
+/// does not count, because sign-in must never start a transfer by itself.
 class CloudLibraryFirstLinkGuard {
   CloudLibraryFirstLinkGuard({
-    required this._boundUserId,
+    required this._syncedBefore,
     required this._probe,
     required this._consent,
   });
 
-  final Future<String?> Function() _boundUserId;
+  final Future<bool> Function(String userId) _syncedBefore;
   final CloudLibraryProbe _probe;
   final CloudLibraryConsentStore _consent;
 
   Future<void> check(String userId) async {
-    // Linked before: an account mismatch is reported by the binding itself.
-    if (await _boundUserId() != null) return;
+    if (await _syncedBefore(userId)) return;
     if (await _consent.hasConsent(userId)) return;
-    if (!await _probe.hasLibrary(userId)) return;
-    throw const SyncNeedsCloudLibraryChoice();
+    throw SyncNeedsCloudLibraryChoice(
+      cloudHasLibrary: await _probe.hasLibrary(userId),
+    );
   }
 }

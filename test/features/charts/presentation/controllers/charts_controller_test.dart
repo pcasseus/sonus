@@ -11,6 +11,8 @@ import 'package:sonus_next/features/library/application/repositories/library_que
 import 'package:sonus_next/features/charts/application/services/chart_finalization_service.dart';
 import 'package:sonus_next/features/charts/application/services/all_time_chart_service.dart';
 import 'package:sonus_next/features/charts/application/services/all_time_moment_service.dart';
+import 'package:sonus_next/features/charts/application/services/chart_moment_feed_pager.dart';
+import 'package:sonus_next/features/charts/application/services/this_week_chart_service.dart';
 import 'package:sonus_next/features/charts/domain/entities/all_time_chart.dart';
 import 'package:sonus_next/features/charts/domain/entities/chart_entry.dart';
 import 'package:sonus_next/features/charts/domain/entities/chart_snapshot.dart';
@@ -24,10 +26,12 @@ import 'package:sonus_next/features/charts/presentation/controllers/charts_contr
 import 'package:sonus_next/features/charts/domain/models/chart_week.dart';
 import 'package:sonus_next/features/charts/domain/moments/chart_moment_event.dart';
 import 'package:sonus_next/features/charts/domain/moments/chart_moment_event_type.dart';
+import 'package:sonus_next/features/charts/domain/moments/chart_moment_rules.dart';
 import 'package:sonus_next/features/charts/domain/moments/chart_moment_scope.dart';
 import 'package:sonus_next/features/charts/domain/repositories/chart_moment_repository.dart';
 
 import '../../support/all_time_chart_fakes.dart' as support;
+import '../../support/moment_page_fakes.dart';
 
 void main() {
   final referenceLocal = DateTime(2026, 9, 28, 12);
@@ -294,6 +298,143 @@ void main() {
     expect(controller.snapshot?.entries.length, 25);
   });
 
+  group('SN-50 This Week', () {
+    final provisional = _snapshot(
+      id: 'this-week',
+      chartType: ChartType.songs,
+      weekStartUtc: DateTime.utc(2026, 9, 27),
+      entries: List.generate(40, (index) => _entry(index + 1)),
+    );
+    final history = _snapshot(
+      id: 'last-week',
+      chartType: ChartType.songs,
+      weekStartUtc: DateTime.utc(2026, 9, 20),
+      finalized: true,
+    );
+
+    ({
+      ChartsController controller,
+      _FakeThisWeekChartService thisWeek,
+      _FakeChartFinalizationService finalization,
+    })
+    build() {
+      final finalization = _FakeChartFinalizationService();
+      final thisWeek = _FakeThisWeekChartService(
+        provisional,
+        finalization: finalization,
+      );
+      final controller = ChartsController(
+        allTimeCharts: _FakeAllTimeChartService(
+          snapshot: _snapshot(
+            id: 'career',
+            chartType: ChartType.songs,
+            weekStartUtc: DateTime.utc(2026, 9, 27),
+          ),
+        ),
+        finalization: finalization,
+        charts: _FakeChartRepository(
+          historyByType: {
+            ChartType.songs: [history],
+          },
+        ),
+        library: _FakeLibraryQueryRepository(),
+        now: () => referenceLocal,
+        thisWeekCharts: thisWeek,
+      );
+      return (
+        controller: controller,
+        thisWeek: thisWeek,
+        finalization: finalization,
+      );
+    }
+
+    test('is built once per load, after completed weeks are finalized, and '
+        'never replaces the default career view', () async {
+      final (:controller, :thisWeek, :finalization) = build();
+
+      await controller.load();
+
+      expect(thisWeek.callCount, 1);
+      expect(thisWeek.finalizedBeforeLoad, isTrue);
+      expect(thisWeek.lastChartType, ChartType.songs);
+      expect(thisWeek.lastReferenceLocal, referenceLocal);
+      expect(controller.isViewingAllTime, isTrue);
+      expect(controller.isViewingThisWeek, isFalse);
+      expect(controller.thisWeekSnapshot, isNull);
+      expect(controller.bestSoFarRankFor(provisional.entries.first), isNull);
+
+      controller.showOlderWeek();
+      await controller.selectViewSize(ChartViewSize.top25);
+
+      expect(thisWeek.callCount, 1);
+      expect(finalization.callCount, 1);
+    });
+
+    test('a failed provisional week leaves the other views loaded', () async {
+      final (:controller, :thisWeek, finalization: _) = build();
+      await controller.load();
+      controller.showOlderWeek();
+      expect(controller.isViewingThisWeek, isTrue);
+
+      thisWeek.error = StateError('provisional build failed');
+      await controller.refresh();
+
+      expect(controller.error, isNull);
+      expect(controller.isViewingThisWeek, isFalse);
+      expect(controller.isViewingAllTime, isTrue);
+      expect(controller.thisWeekSnapshot, isNull);
+    });
+
+    test('sits between the career standings and the finalized weeks', () async {
+      final (:controller, thisWeek: _, finalization: _) = build();
+      await controller.load();
+
+      expect(controller.canGoToNewerWeek, isFalse);
+      expect(controller.canGoToOlderWeek, isTrue);
+
+      controller.showOlderWeek();
+
+      expect(controller.isViewingThisWeek, isTrue);
+      expect(controller.isViewingAllTime, isFalse);
+      expect(controller.isViewingHistory, isFalse);
+      expect(controller.snapshot, isNull);
+      expect(controller.thisWeekSnapshot?.isFinalized, isFalse);
+      expect(controller.entries, hasLength(40));
+      expect(controller.bestSoFarRankFor(provisional.entries.first), 1);
+      expect(controller.canGoToNewerWeek, isTrue);
+
+      await controller.selectViewSize(ChartViewSize.top25);
+      expect(controller.entries, hasLength(25));
+
+      controller.showOlderWeek();
+      expect(controller.isViewingThisWeek, isFalse);
+      expect(controller.snapshot?.id, 'last-week');
+      expect(controller.bestSoFarRankFor(controller.entries.first), isNull);
+
+      controller.showNewerWeek();
+      expect(controller.isViewingThisWeek, isTrue);
+
+      controller.showNewerWeek();
+      expect(controller.isViewingAllTime, isTrue);
+
+      controller.showOlderWeek();
+      controller.showAllTime();
+      expect(controller.isViewingAllTime, isTrue);
+    });
+
+    test('switching chart type returns to the career standings', () async {
+      final (:controller, :thisWeek, finalization: _) = build();
+      await controller.load();
+      controller.showOlderWeek();
+
+      await controller.selectChartType(ChartType.albums);
+
+      expect(controller.isViewingAllTime, isTrue);
+      expect(thisWeek.callCount, 2);
+      expect(thisWeek.lastChartType, ChartType.albums);
+    });
+  });
+
   test('loads raw Moments and exposes aggregated feed items', () async {
     final entity = ChartEntitySnapshot(
       entityId: 'song-a',
@@ -339,8 +480,8 @@ void main() {
 
     await controller.load();
 
-    expect(moments.getRecentCallCount, 1);
-    expect(moments.lastLimit, isNull);
+    expect(moments.pageReadCount, 1);
+    expect(moments.lastLimit, ChartMomentFeedPager.defaultPageSize);
 
     expect(controller.hasMomentFeedError, isFalse);
     expect(controller.hasMomentFeedItems, isTrue);
@@ -373,7 +514,7 @@ void main() {
     await controller.load();
     await controller.refresh();
 
-    expect(moments.getRecentCallCount, 2);
+    expect(moments.pageReadCount, 2);
   });
 
   test('Moments read failure does not fail chart loading', () async {
@@ -435,6 +576,61 @@ void main() {
 
     expect(log, ['record', 'read', 'record', 'read']);
     expect(allTimeMoments.lastReferenceLocal, referenceLocal);
+  });
+
+  group('SN-50 R2 Moments rules', () {
+    ChartsController controllerWith(
+      _FakeAllTimeMomentService allTimeMoments,
+      MomentRulesLoader? rules,
+    ) => ChartsController(
+      allTimeCharts: _FakeAllTimeChartService(
+        snapshot: _snapshot(
+          id: 'live',
+          chartType: ChartType.songs,
+          weekStartUtc: DateTime.utc(2026, 9, 27),
+        ),
+      ),
+      finalization: _FakeChartFinalizationService(),
+      charts: _FakeChartRepository(),
+      library: _FakeLibraryQueryRepository(),
+      moments: _FakeChartMomentRepository(),
+      allTimeMoments: allTimeMoments,
+      now: () => referenceLocal,
+      momentRules: rules,
+    );
+
+    test('are read before all-time Moments are recorded, and passed to '
+        'them', () async {
+      final log = <String>[];
+      final activated = ChartMomentRules(
+        activatedAtUtc: DateTime.utc(2026, 10, 2),
+      );
+      final allTimeMoments = _FakeAllTimeMomentService(
+        onRecord: () => log.add('record'),
+      );
+
+      await controllerWith(allTimeMoments, () async {
+        log.add('rules');
+        return activated;
+      }).load();
+
+      expect(log, ['rules', 'record']);
+      expect(allTimeMoments.lastRules, same(activated));
+    });
+
+    test('without a loader, or when it fails, Moments keep the earlier '
+        'rules', () async {
+      final unset = _FakeAllTimeMomentService();
+      await controllerWith(unset, null).load();
+      expect(unset.lastRules?.activatedAtUtc, isNull);
+
+      final failing = _FakeAllTimeMomentService();
+      await controllerWith(
+        failing,
+        () async => throw StateError('preferences unavailable'),
+      ).load();
+      expect(failing.lastRules?.activatedAtUtc, isNull);
+    });
   });
 
   test('an all-time Moments failure does not fail the chart', () async {
@@ -1072,6 +1268,39 @@ class _FakeAllTimeChartService implements AllTimeChartService {
   }
 }
 
+class _FakeThisWeekChartService implements ThisWeekChartService {
+  _FakeThisWeekChartService(this.snapshot, {required this.finalization});
+
+  final ChartSnapshot snapshot;
+  final _FakeChartFinalizationService finalization;
+
+  int callCount = 0;
+  ChartType? lastChartType;
+  DateTime? lastReferenceLocal;
+  bool finalizedBeforeLoad = false;
+  Object? error;
+
+  @override
+  Future<ProvisionalWeekChart> load({
+    required ChartType chartType,
+    required DateTime referenceLocal,
+  }) async {
+    callCount++;
+    final failure = error;
+    if (failure != null) throw failure;
+    lastChartType = chartType;
+    lastReferenceLocal = referenceLocal;
+    finalizedBeforeLoad = finalization.callCount > 0;
+
+    return ProvisionalWeekChart(
+      snapshot: snapshot,
+      bestSoFarRanks: {
+        for (final entry in snapshot.entries) entry.entity.entityId: entry.rank,
+      },
+    );
+  }
+}
+
 class _FakeChartFinalizationService implements ChartFinalizationService {
   int callCount = 0;
   DateTime? lastReferenceLocal;
@@ -1120,12 +1349,19 @@ class _FakeChartMomentRepository implements ChartMomentRepository {
   final Object? error;
   final void Function()? onRead;
 
-  int getRecentCallCount = 0;
+  int pageReadCount = 0;
   int? lastLimit;
 
   @override
-  Future<List<ChartMomentEvent>> getRecent({int? limit}) async {
-    getRecentCallCount++;
+  Future<List<ChartMomentEvent>> getRecent({int? limit}) async =>
+      momentPageOf(events, limit: limit ?? events.length);
+
+  @override
+  Future<List<ChartMomentEvent>> getPage({
+    ChartMomentPageCursor? before,
+    required int limit,
+  }) async {
+    pageReadCount++;
     lastLimit = limit;
     onRead?.call();
 
@@ -1135,11 +1371,7 @@ class _FakeChartMomentRepository implements ChartMomentRepository {
       throw error;
     }
 
-    if (limit == null || events.length <= limit) {
-      return List<ChartMomentEvent>.unmodifiable(events);
-    }
-
-    return List<ChartMomentEvent>.unmodifiable(events.take(limit));
+    return momentPageOf(events, before: before, limit: limit);
   }
 
   @override
@@ -1157,11 +1389,11 @@ class _FakeChartMomentRepository implements ChartMomentRepository {
   Future<void> saveAll(Iterable<ChartMomentEvent> events) async {}
 
   @override
-  Future<void> replaceFinalizedForWeek({
+  Future<bool> publishFinalizedForWeek({
     required ChartType chartType,
     required DateTime weekStartUtc,
     required Iterable<ChartMomentEvent> events,
-  }) async {}
+  }) async => false;
 }
 
 class _FakeAllTimeMomentService implements AllTimeMomentService {
@@ -1170,12 +1402,15 @@ class _FakeAllTimeMomentService implements AllTimeMomentService {
   final void Function()? onRecord;
   final Object? error;
   DateTime? lastReferenceLocal;
+  ChartMomentRules? lastRules;
 
   @override
   Future<List<ChartMomentEvent>> record({
     required DateTime referenceLocal,
+    ChartMomentRules rules = ChartMomentRules.legacy,
   }) async {
     lastReferenceLocal = referenceLocal;
+    lastRules = rules;
     onRecord?.call();
     final error = this.error;
     if (error != null) throw error;

@@ -378,6 +378,48 @@ void main() {
       }
     });
 
+    testWidgets('an Other edition is offered by its own name, never "Other" '
+        '(SN-50 BUG-03)', (tester) async {
+      await pump(
+        tester,
+        repository: base.FakeEditionAwareLibraryQueryRepository(
+          album: base.createAlbum(
+            title: 'Skyline',
+            primaryEditionId: 'edition-standard',
+          ),
+          editions: [
+            edition(
+              'edition-standard',
+              'Skyline',
+              AlbumEditionType.standard,
+              primary: true,
+            ),
+            edition(
+              'edition-other',
+              'Skyline (Remixes)',
+              AlbumEditionType.other,
+            ),
+          ],
+          editionTracks: {
+            'edition-standard': [track('s1', edition: 'edition-standard')],
+            'edition-other': [track('s1', edition: 'edition-other')],
+          },
+        ),
+      );
+
+      final selector = find.byKey(
+        const ValueKey<String>('album-profile-edition-selector'),
+      );
+      expect(
+        find.descendant(of: selector, matching: find.text('Remixes')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: selector, matching: find.text('Other')),
+        findsNothing,
+      );
+    });
+
     testWidgets('long edition titles wrap on small screens and still switch', (
       tester,
     ) async {

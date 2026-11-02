@@ -57,12 +57,12 @@ class UnavailableSongsPage extends StatelessWidget {
             key: ValueKey<String>('unavailable-song-${song.songId}'),
             leading: const Icon(Icons.music_off_rounded),
             title: Text(
-              song.title,
+              song.displayTitle,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
             ),
             subtitle: Text(
-              '${song.artistName} · ${song.albumTitle}',
+              '${song.creditLine} · ${song.albumDisplayTitle}',
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
             ),

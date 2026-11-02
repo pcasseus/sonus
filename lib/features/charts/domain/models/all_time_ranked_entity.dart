@@ -11,6 +11,9 @@ class AllTimeRankedEntity {
     required this.peakAchievedAt,
     required this.movement,
     this.previousRank,
+    this.priorPeakRank,
+    this.firstChartedAt,
+    this.firstHot100At,
   });
 
   final String entityId;
@@ -31,6 +34,12 @@ class AllTimeRankedEntity {
 
   /// All-time rank at the comparison start, if it was within the standings.
   final int? previousRank;
+
+  /// Display-only (Charts 2.0 C2): the peak as of the comparison point, and
+  /// when the entry first reached the Top 200 / Top 100 after it.
+  final int? priorPeakRank;
+  final DateTime? firstChartedAt;
+  final DateTime? firstHot100At;
 
   /// Compared with [previousRank]: up, down or same. Without a previous
   /// rank: re-entry if the entity had been in the standings before and was

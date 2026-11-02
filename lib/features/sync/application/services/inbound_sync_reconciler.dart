@@ -12,6 +12,7 @@ import '../../domain/models/sync_data_contract.dart';
 import 'cloud_artwork_recovery_service.dart';
 import 'cloud_sync_reader.dart';
 import 'inbound_cloud_record_applier.dart';
+import 'sync_cancellation.dart';
 import 'sync_mutation_context.dart';
 import 'sync_mutation_runner.dart';
 
@@ -252,7 +253,11 @@ class InboundSyncReconciler implements InboundSyncPageReconciler {
         id: item.record.id,
       );
 
+      SyncCancellation.checkpoint();
       await mutationRunner.run((context) async {
+        // First and last statements of the record's transaction: a run
+        // cancelled meanwhile rolls the record and its cursor back whole.
+        SyncCancellation.checkpoint();
         final outcome = await _reconcileItem(
           context: context,
           userId: normalizedUserId,
@@ -275,6 +280,8 @@ class InboundSyncReconciler implements InboundSyncPageReconciler {
             ),
           );
         }
+
+        SyncCancellation.checkpoint();
       });
 
       if (_isAfter(itemPosition, highWaterPosition)) {
@@ -393,6 +400,7 @@ class InboundSyncReconciler implements InboundSyncPageReconciler {
 
     for (var index = 0; index < batch.length; index++) {
       final record = batch[index];
+      SyncCancellation.checkpoint();
 
       try {
         final current = await reader.fetchCurrent(
@@ -413,6 +421,7 @@ class InboundSyncReconciler implements InboundSyncPageReconciler {
 
         try {
           outcome = await mutationRunner.run((context) async {
+            SyncCancellation.checkpoint();
             final result = await _replayRecord(
               context: context,
               record: record,
@@ -427,6 +436,7 @@ class InboundSyncReconciler implements InboundSyncPageReconciler {
                     ))?.filePath ==
                     install.filePath;
 
+            SyncCancellation.checkpoint();
             return result;
           });
         } catch (_) {
@@ -462,6 +472,10 @@ class InboundSyncReconciler implements InboundSyncPageReconciler {
           'entityId=${record.entityId} '
           'attempt=${index + 1}/${batch.length}',
         );
+        rethrow;
+      } on SyncCancelled {
+        // The run was stopped; the record's transaction rolled back, so its
+        // obligation is intact for the next run.
         rethrow;
       } catch (error, stackTrace) {
         // The record's transaction rolled back, so the obligation is intact.

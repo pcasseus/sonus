@@ -133,6 +133,10 @@ void main() {
             'format': null,
             'format_authority': null,
             'format_source_reference': null,
+            'live': null,
+            'live_authority': null,
+            'live_source_reference': null,
+            'leaked': null,
           },
         ]);
         expect(await db.rawQuery('PRAGMA foreign_key_check'), isEmpty);
@@ -141,6 +145,258 @@ void main() {
       }
     },
   );
+
+  test('SN-49: version 40 keeps every kind and format and adds Live', () async {
+    final file = path.join(root.path, 'v39.db');
+    await _v31Fixture.copy(file);
+
+    final at39 = await databaseFactoryFfi.openDatabase(
+      file,
+      options: OpenDatabaseOptions(
+        version: 39,
+        onConfigure: (db) => db.execute('PRAGMA foreign_keys = ON'),
+        onUpgrade: (db, oldVersion, newVersion) => DatabaseMigrations.migrate(
+          db,
+          oldVersion: oldVersion,
+          newVersion: newVersion,
+        ),
+      ),
+    );
+    final albumIds = [
+      for (final row in await at39.query(DatabaseTables.albums))
+        row['id']! as String,
+    ];
+    final rows = [
+      {
+        'album_id': albumIds[0],
+        'kind': 'soundtrack',
+        'authority': 'manual',
+        'source_reference': null,
+        'format': 'ep',
+        'format_authority': 'external',
+        'format_source_reference': 'musicbrainz:release-group:abc',
+        'created_at': at,
+        'updated_at': at,
+      },
+      {
+        'album_id': albumIds[1],
+        'kind': null,
+        'authority': null,
+        'source_reference': null,
+        'format': 'single',
+        'format_authority': 'manual',
+        'format_source_reference': null,
+        'created_at': at,
+        'updated_at': at,
+      },
+    ];
+    for (final row in rows) {
+      await at39.insert(DatabaseTables.albumReleaseClassifications, row);
+    }
+    await at39.close();
+
+    final upgraded = AppDatabase(
+      databaseFactory: databaseFactoryFfi,
+      databasePath: file,
+    );
+    try {
+      final db = await upgraded.database;
+      expect(
+        await db.query(
+          DatabaseTables.albumReleaseClassifications,
+          orderBy: 'album_id',
+        ),
+        [
+          for (final row in [
+            ...rows,
+          ]..sort((a, b) => a['album_id']!.compareTo(b['album_id']!)))
+            {
+              ...row,
+              'live': null,
+              'live_authority': null,
+              'live_source_reference': null,
+              'leaked': null,
+            },
+        ],
+      );
+      expect(await db.rawQuery('PRAGMA foreign_key_check'), isEmpty);
+    } finally {
+      await upgraded.close();
+    }
+  });
+
+  group('SN-50: version 41 adds Leaked', () {
+    /// The table exactly as version 40 created it, so the upgrade is proven
+    /// against the real old shape rather than today's.
+    const v40Table = '''
+      CREATE TABLE album_release_classifications (
+        album_id TEXT PRIMARY KEY NOT NULL
+          REFERENCES albums(id)
+          ON UPDATE CASCADE ON DELETE CASCADE,
+        kind TEXT
+          CHECK (
+            kind IS NULL OR
+            kind IN ('soundtrack', 'castRecording', 'compilation')
+          ),
+        authority TEXT
+          CHECK (authority IS NULL OR authority IN ('external', 'manual')),
+        source_reference TEXT,
+        format TEXT
+          CHECK (format IS NULL OR format IN ('single', 'ep', 'album')),
+        format_authority TEXT
+          CHECK (
+            format_authority IS NULL OR
+            format_authority IN ('external', 'manual')
+          ),
+        format_source_reference TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        live INTEGER CHECK (live IS NULL OR live IN (0, 1)),
+        live_authority TEXT
+          CHECK (
+            live_authority IS NULL OR
+            live_authority IN ('external', 'manual')
+          ),
+        live_source_reference TEXT,
+        CHECK ((kind IS NULL) = (authority IS NULL)),
+        CHECK ((format IS NULL) = (format_authority IS NULL)),
+        CHECK ((live IS NULL) = (live_authority IS NULL)),
+        CHECK (kind IS NOT NULL OR format IS NOT NULL OR live IS NOT NULL)
+      )
+    ''';
+
+    /// A version 40 database holding [rows], built from its album ids.
+    Future<String> v40With(
+      List<Map<String, Object?>> Function(List<String> albumIds) rows,
+    ) async {
+      final file = path.join(root.path, 'v40.db');
+      await _v31Fixture.copy(file);
+      final at40 = await databaseFactoryFfi.openDatabase(
+        file,
+        options: OpenDatabaseOptions(
+          version: 40,
+          onConfigure: (db) => db.execute('PRAGMA foreign_keys = ON'),
+          onUpgrade: (db, oldVersion, newVersion) => DatabaseMigrations.migrate(
+            db,
+            oldVersion: oldVersion,
+            newVersion: newVersion,
+          ),
+        ),
+      );
+      try {
+        await at40.execute(
+          'DROP TABLE ${DatabaseTables.albumReleaseClassifications}',
+        );
+        await at40.execute(v40Table);
+        final albumIds = [
+          for (final row in await at40.query(DatabaseTables.albums))
+            row['id']! as String,
+        ];
+        for (final row in rows(albumIds)) {
+          await at40.insert(DatabaseTables.albumReleaseClassifications, row);
+        }
+      } finally {
+        await at40.close();
+      }
+      return file;
+    }
+
+    List<Map<String, Object?>> v40Rows(List<String> ids) => [
+      {
+        'album_id': ids[0],
+        'kind': 'soundtrack',
+        'authority': 'manual',
+        'source_reference': null,
+        'format': 'ep',
+        'format_authority': 'external',
+        'format_source_reference': 'musicbrainz:release-group:abc',
+        'created_at': at,
+        'updated_at': at,
+        'live': 1,
+        'live_authority': 'external',
+        'live_source_reference': 'musicbrainz:release-group:abc',
+      },
+      {
+        'album_id': ids[1],
+        'kind': null,
+        'authority': null,
+        'source_reference': null,
+        'format': null,
+        'format_authority': null,
+        'format_source_reference': null,
+        'created_at': at,
+        'updated_at': at,
+        'live': 0,
+        'live_authority': 'manual',
+        'live_source_reference': null,
+      },
+    ];
+
+    test('every version 40 row and column is kept; none is leaked', () async {
+      final upgraded = AppDatabase(
+        databaseFactory: databaseFactoryFfi,
+        databasePath: await v40With(v40Rows),
+      );
+      final fresh = AppDatabase(
+        databaseFactory: databaseFactoryFfi,
+        databasePath: path.join(root.path, 'fresh.db'),
+      );
+      try {
+        final db = await upgraded.database;
+        final albumIds = [
+          for (final row in await db.query(DatabaseTables.albums))
+            row['id']! as String,
+        ];
+        expect(
+          (await db.rawQuery('PRAGMA user_version')).single['user_version'],
+          41,
+        );
+        expect(
+          await db.query(
+            DatabaseTables.albumReleaseClassifications,
+            orderBy: 'album_id',
+          ),
+          [
+            for (final row in v40Rows(
+              albumIds,
+            )..sort((a, b) => '${a['album_id']}'.compareTo('${b['album_id']}')))
+              {...row, 'leaked': null},
+          ],
+        );
+        const columns =
+            'PRAGMA table_info(${DatabaseTables.albumReleaseClassifications})';
+        expect(
+          await db.rawQuery(columns),
+          await (await fresh.database).rawQuery(columns),
+          reason: 'an upgraded table has the same columns as a fresh one',
+        );
+        expect(await db.rawQuery('PRAGMA foreign_key_check'), isEmpty);
+      } finally {
+        await upgraded.close();
+        await fresh.close();
+      }
+    });
+
+    test('an empty version 40 table is replaced by the new one', () async {
+      final upgraded = AppDatabase(
+        databaseFactory: databaseFactoryFfi,
+        databasePath: await v40With((_) => const []),
+      );
+      try {
+        final db = await upgraded.database;
+        final columns = await db.rawQuery(
+          'PRAGMA table_info(${DatabaseTables.albumReleaseClassifications})',
+        );
+        expect(columns.map((c) => c['name']), contains('leaked'));
+        expect(
+          await db.query(DatabaseTables.albumReleaseClassifications),
+          isEmpty,
+        );
+      } finally {
+        await upgraded.close();
+      }
+    });
+  });
 
   group('constraints', () {
     late AppDatabase app;
@@ -191,6 +447,43 @@ void main() {
         'format': 'single',
         'format_authority': 'manual',
       });
+    });
+
+    test(
+      'SN-49: Live is yes or no, with an authority, beside a kind',
+      () async {
+        await expectLater(
+          classify({
+            'album_id': 'album-a',
+            'live': 2,
+            'live_authority': 'manual',
+          }),
+          throwsA(isA<DatabaseException>()),
+        );
+        await expectLater(
+          classify({'album_id': 'album-a', 'live': 1}),
+          throwsA(isA<DatabaseException>()),
+          reason: 'Live needs an authority',
+        );
+        // A live soundtrack: neither fact replaces the other.
+        await classify({
+          'album_id': 'album-a',
+          'kind': 'soundtrack',
+          'authority': 'manual',
+          'live': 1,
+          'live_authority': 'manual',
+        });
+      },
+    );
+
+    test('SN-50: Leaked is only ever 1, and may stand alone', () async {
+      for (final value in [0, 2]) {
+        await expectLater(
+          classify({'album_id': 'album-a', 'leaked': value}),
+          throwsA(isA<DatabaseException>()),
+        );
+      }
+      await classify({'album_id': 'album-a', 'leaked': 1});
     });
 
     test('a grouped artist needs a project', () async {

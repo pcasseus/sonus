@@ -20,6 +20,7 @@ import '../../application/models/home_popular_track.dart';
 import '../../application/models/home_ranking_week.dart';
 import '../../application/models/home_top_artist.dart';
 import '../controllers/home_controller.dart';
+import '../../../song_stats/presentation/song_stats_navigation.dart';
 
 class HomePage extends StatelessWidget {
   const HomePage({super.key});
@@ -300,8 +301,8 @@ class _PopularTracksRail extends StatelessWidget {
         return _RailCard(
           cardKey: ValueKey<String>('home-popular-track-${track.songId}'),
           width: cardWidth,
-          title: track.title,
-          subtitle: track.artistName,
+          title: track.displayTitle,
+          subtitle: track.creditLine,
           detail:
               '${entry.qualifiedStreamCount} weekly ${sonusCountNoun(entry.qualifiedStreamCount, 'stream')}',
           artwork: Stack(
@@ -663,8 +664,8 @@ class _RecentlyAddedTracksRail extends StatelessWidget {
         return _RailCard(
           cardKey: ValueKey<String>('home-recent-track-${track.songId}'),
           width: cardWidth,
-          title: track.title,
-          subtitle: track.artistName,
+          title: track.displayTitle,
+          subtitle: track.creditLine,
           dimmed: isBlocked,
           artwork: Stack(
             children: [
@@ -731,7 +732,7 @@ class _AlbumsRail extends StatelessWidget {
         return _RailCard(
           cardKey: ValueKey<String>('home-new-album-${album.albumId}'),
           width: cardWidth,
-          title: album.title,
+          title: album.displayTitle,
           subtitle: album.artistName,
           artwork: _AlbumArtwork(album: album, size: cardWidth),
           onTap: () {
@@ -739,7 +740,7 @@ class _AlbumsRail extends StatelessWidget {
               MaterialPageRoute<void>(
                 builder: (_) => AlbumProfilePage(
                   albumId: album.albumId,
-                  initialAlbumTitle: album.title,
+                  initialAlbumTitle: album.displayTitle,
                 ),
               ),
             );
@@ -1069,12 +1070,12 @@ Future<void> _showTrackContext(
             children: [
               ListTile(
                 title: Text(
-                  track.title,
+                  track.displayTitle,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
                 subtitle: Text(
-                  '${track.artistName} · ${track.albumTitle}',
+                  '${track.creditLine} · ${track.albumDisplayTitle}',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -1122,6 +1123,21 @@ Future<void> _showTrackContext(
                 },
               ),
               ListTile(
+                key: ValueKey<String>('home-track-stats-${track.songId}'),
+                leading: const Icon(Icons.insights_rounded),
+                title: const Text('View Stats'),
+                onTap: () {
+                  Navigator.of(sheetContext).pop();
+                  unawaited(
+                    openSongStats(
+                      context,
+                      songId: track.songId,
+                      initialTitle: track.displayTitle,
+                    ),
+                  );
+                },
+              ),
+              ListTile(
                 leading: const Icon(Icons.album_outlined),
                 title: const Text('Go to album'),
                 onTap: () {
@@ -1131,7 +1147,7 @@ Future<void> _showTrackContext(
                     MaterialPageRoute<void>(
                       builder: (_) => AlbumProfilePage(
                         albumId: track.albumId,
-                        initialAlbumTitle: track.albumTitle,
+                        initialAlbumTitle: track.albumDisplayTitle,
                         initialEditionId: track.albumEditionId,
                       ),
                     ),

@@ -7,6 +7,7 @@ import 'package:sonus_next/core/database/library_mutation_coordinator.dart';
 import 'package:sonus_next/core/identity/entity_id.dart';
 import 'package:sonus_next/core/identity/text_normalizer.dart';
 import 'package:sonus_next/features/import/application/identity/import_identity_metadata_normalizer.dart';
+import 'package:sonus_next/features/import/application/identity/library_identity_match.dart';
 import 'package:sonus_next/features/import/application/identity/library_identity_resolver.dart';
 import 'package:sonus_next/features/import/application/metadata/track_title_version_interpreter.dart';
 import 'package:sonus_next/features/import/data/daos/media_file_binding_dao.dart';
@@ -24,6 +25,8 @@ import 'package:sonus_next/features/library/data/daos/album_dao.dart';
 import 'package:sonus_next/features/library/data/daos/album_edition_dao.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition_track.dart';
+import 'package:sonus_next/features/library/domain/entities/release_date.dart';
+import 'package:sonus_next/features/library/domain/entities/song.dart';
 import 'package:sonus_next/features/library/domain/services/edition_title_parser.dart';
 import 'package:sonus_next/features/library/data/repositories/sqlite_album_edition_track_repository.dart';
 import 'package:sonus_next/features/library/data/daos/album_edition_track_dao.dart';
@@ -72,12 +75,19 @@ class AtomicLibraryImporter {
   /// the album that folder's songs already belong to, or one album for the
   /// whole folder, titled and owned as the placement says. The song keeps
   /// its own performer. Without one, the album comes from the file's tags.
+  ///
+  /// With [separateFrom], the user chose to keep a possible different
+  /// recording of that song as its own song: a file still reported against
+  /// it becomes a new song flagged for review, exactly as when evidence
+  /// shows a different recording. The song itself is not changed. Any other
+  /// outcome is the usual one.
   Future<ImportResult> import({
     required ImportCandidate candidate,
     required AudioMetadata metadata,
     MetadataSource metadataSource = MetadataSource.embedded,
     ImportMetadataOrigins? metadataOrigins,
     ImportFolderPlacement? folderPlacement,
+    String? separateFrom,
     DateTime? now,
   }) {
     // Relinking after a restore only attaches files to the songs they
@@ -95,6 +105,7 @@ class AtomicLibraryImporter {
       metadataSource: metadataSource,
       metadataOrigins: metadataOrigins,
       folderKey: placement?.folderKey,
+      separateFrom: relinkOnly ? null : separateFrom,
       now: now,
     );
   }
@@ -105,6 +116,7 @@ class AtomicLibraryImporter {
     required MetadataSource metadataSource,
     required ImportMetadataOrigins? metadataOrigins,
     required String? folderKey,
+    required String? separateFrom,
     required DateTime? now,
   }) async {
     final timestamp = now ?? DateTime.now();
@@ -244,7 +256,7 @@ class AtomicLibraryImporter {
                 interpretedTitle: interpretedTitle,
               );
 
-        final match = await resolver.resolve(
+        var match = await resolver.resolve(
           effectiveMetadata,
           versionLabel: interpretedTitle.versionLabel,
           versionCharacteristics: interpretedTitle.versionCharacteristics,
@@ -267,6 +279,33 @@ class AtomicLibraryImporter {
             status: ImportResultStatus.skipped,
             filePath: candidate.filePath,
             skipReason: ImportSkipReason.notInLibrary,
+          );
+        }
+
+        final separateSong = match.song;
+        final separateEdition = match.edition;
+
+        if (separateFrom != null &&
+            separateSong != null &&
+            separateEdition != null &&
+            separateSong.id == separateFrom &&
+            await _isPossibleAlternate(
+              song: separateSong,
+              edition: separateEdition,
+              metadata: metadata,
+              albumEditionTrackRepository: albumEditionTrackRepository,
+              bindingRepository: bindingRepository,
+            )) {
+          match = LibraryIdentityMatch(
+            artist: match.artist,
+            albumArtist: match.albumArtist,
+            album: match.album,
+            edition: separateEdition,
+            artistAmbiguous: false,
+            albumAmbiguous: false,
+            editionAmbiguous: false,
+            songAmbiguous: false,
+            alternateRecordingOf: separateSong,
           );
         }
 
@@ -404,6 +443,8 @@ class AtomicLibraryImporter {
                 AlbumEditionType.standard,
             isPrimary: !albumHasEditions,
             releaseDate: metadata.releaseDate,
+            // File tags hold a year alone; it is never shown as a day.
+            releaseDatePrecision: ReleaseDatePrecision.year,
             genre: metadata.genre,
             now: timestamp,
           );
@@ -757,6 +798,39 @@ class AtomicLibraryImporter {
           }
         }
 
+        // A different disc/track position on the same edition is not evidence
+        // of a different recording, but it is not proof of the same one
+        // either. Such a file is reported as a possible different recording.
+        final atOtherPosition =
+            !sharedWithEdition &&
+            metadata.trackNumber > 0 &&
+            !songMemberships.any(
+              (membership) =>
+                  membership.albumEditionId == edition!.id &&
+                  membership.discNumber == metadata.discNumber &&
+                  membership.trackNumber == metadata.trackNumber,
+            );
+
+        // When the song's own position on this edition is known, nothing is
+        // written for that file, whatever the song's files are: a missing or
+        // never-bound file is no reason to give the song this one. An
+        // unknown position (restored or older listings) is no evidence
+        // either way, so the file can still relink.
+        final atKnownOtherPosition =
+            atOtherPosition &&
+            songMemberships
+                .where((membership) => membership.albumEditionId == edition!.id)
+                .every((membership) => membership.trackNumber > 0);
+
+        if (atKnownOtherPosition) {
+          return ImportResult(
+            status: ImportResultStatus.skipped,
+            filePath: candidate.filePath,
+            songId: song.id,
+            skipReason: ImportSkipReason.possibleAlternateRecording,
+          );
+        }
+
         final existingSongBindings = await bindingRepository.getBySongId(
           song.id,
         );
@@ -774,6 +848,8 @@ class AtomicLibraryImporter {
             songId: song.id,
             skipReason: sharedWithEdition
                 ? ImportSkipReason.sharedWithEdition
+                : atOtherPosition
+                ? ImportSkipReason.possibleAlternateRecording
                 : ImportSkipReason.duplicateRecording,
           );
         }
@@ -847,6 +923,41 @@ class AtomicLibraryImporter {
         ),
       );
     }
+  }
+
+  /// Whether the file would be reported as a possible different recording
+  /// of [song]: listed on [edition] at another known disc/track position,
+  /// or at another position while another file already plays the song.
+  /// The same rule as the import itself.
+  Future<bool> _isPossibleAlternate({
+    required Song song,
+    required AlbumEdition edition,
+    required AudioMetadata metadata,
+    required SqliteAlbumEditionTrackRepository albumEditionTrackRepository,
+    required SqliteMediaFileBindingRepository bindingRepository,
+  }) async {
+    if (metadata.trackNumber <= 0) return false;
+
+    final onEdition = (await albumEditionTrackRepository.getBySongId(
+      song.id,
+    )).where((membership) => membership.albumEditionId == edition.id).toList();
+
+    if (onEdition.isEmpty ||
+        onEdition.any(
+          (membership) =>
+              membership.discNumber == metadata.discNumber &&
+              membership.trackNumber == metadata.trackNumber,
+        )) {
+      return false;
+    }
+
+    if (onEdition.every((membership) => membership.trackNumber > 0)) {
+      return true;
+    }
+
+    return (await bindingRepository.getBySongId(
+      song.id,
+    )).any((binding) => binding.isAvailable);
   }
 
   /// SN-45: which album a file in [folderKey] joins.

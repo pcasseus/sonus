@@ -7,17 +7,21 @@ import '../../../../core/design/sonus_theme.dart';
 import '../../../../core/design/widgets/sonus_artwork_image.dart';
 import '../../../../core/design/widgets/sonus_form_section.dart';
 import '../../../../core/design/widgets/sonus_track_tile.dart';
+import '../../../../core/identity/text_normalizer.dart';
 import '../../application/models/external_metadata_search_query.dart';
 import '../../application/models/library_album.dart';
 import '../../application/models/library_artist.dart';
 import '../../application/models/library_track.dart';
+import '../../application/models/song_display_title.dart';
 import '../../application/services/external_metadata_application_service.dart';
 import '../../application/services/external_metadata_proposal_service.dart';
 import '../../application/services/metadata_provider.dart';
+import '../../application/services/track_profile_editing_service.dart';
 import '../../domain/entities/song.dart';
 import '../../domain/entities/song_artist_credit.dart';
 import '../models/track_profile_edit_draft.dart';
 import '../widgets/musicbrainz_search_dialog.dart';
+import '../widgets/track_credit_editor_dialog.dart';
 
 class TrackStudioPage extends StatefulWidget {
   const TrackStudioPage({
@@ -76,7 +80,7 @@ class _TrackStudioSummary extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  track.title,
+                  track.displayTitle,
                   key: const ValueKey<String>('track-studio-heading'),
                   maxLines: 3,
                   overflow: TextOverflow.ellipsis,
@@ -87,8 +91,9 @@ class _TrackStudioSummary extends StatelessWidget {
                 ),
                 Text(
                   [
-                    track.artistName,
-                    if (track.albumTitle.trim().isNotEmpty) track.albumTitle,
+                    track.creditLine,
+                    if (track.albumDisplayTitle.trim().isNotEmpty)
+                      track.albumDisplayTitle,
                   ].join(' • '),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
@@ -380,7 +385,7 @@ class _TrackStudioPageState extends State<TrackStudioPage> {
                           DropdownMenuItem(
                             value: album.albumId,
                             child: Text(
-                              '${album.title} — ${album.artistName}',
+                              '${album.displayTitle} — ${album.artistName}',
                               overflow: TextOverflow.ellipsis,
                             ),
                           ),
@@ -440,7 +445,7 @@ class _TrackStudioPageState extends State<TrackStudioPage> {
                             'track-version-${characteristic.name}',
                           ),
                           label: Text(
-                            _versionCharacteristicLabel(characteristic),
+                            songVersionCharacteristicLabel(characteristic),
                           ),
                           selected: _versionCharacteristics.contains(
                             characteristic,
@@ -507,70 +512,14 @@ class _TrackStudioPageState extends State<TrackStudioPage> {
                 title: 'Credits',
                 icon: Icons.people_alt_outlined,
                 children: [
-                  if (_additionalCredits.isEmpty)
-                    Text(
-                      'No additional artist credits.',
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: colors.textSecondary,
-                      ),
-                    )
-                  else
-                    for (
-                      var index = 0;
-                      index < _additionalCredits.length;
-                      index++
-                    )
-                      Padding(
-                        key: ValueKey<String>('track-credit-row-$index'),
-                        padding: const EdgeInsets.only(bottom: 6),
-                        child: Material(
-                          color: colors.raisedSurface,
-                          borderRadius: BorderRadius.circular(
-                            tokens.metrics.controlRadius,
-                          ),
-                          child: ListTile(
-                            title: Text(_additionalCredits[index].creditedName),
-                            subtitle: Text(
-                              _creditRoleLabel(_additionalCredits[index].role),
-                            ),
-                            contentPadding: const EdgeInsets.only(
-                              left: 14,
-                              right: 4,
-                            ),
-                            trailing: Wrap(
-                              spacing: 4,
-                              children: [
-                                IconButton(
-                                  key: ValueKey<String>(
-                                    'track-edit-credit-$index',
-                                  ),
-                                  tooltip: 'Edit credit',
-                                  onPressed: () => _editCredit(index),
-                                  icon: const Icon(Icons.edit_rounded),
-                                ),
-                                IconButton(
-                                  key: ValueKey<String>(
-                                    'track-remove-credit-$index',
-                                  ),
-                                  tooltip: 'Remove credit',
-                                  onPressed: () => _removeCredit(index),
-                                  icon: const Icon(
-                                    Icons.delete_outline_rounded,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
-                  Align(
-                    alignment: AlignmentDirectional.centerStart,
-                    child: TextButton.icon(
-                      key: const ValueKey<String>('track-add-credit-button'),
-                      onPressed: _addCredit,
-                      icon: const Icon(Icons.add_rounded),
-                      label: const Text('Add credit'),
-                    ),
+                  TrackCreditList(
+                    credits: _additionalCredits,
+                    artists: _artists,
+                    primaryArtistId: _artistId,
+                    primaryArtistName: _primaryArtistName,
+                    onChanged: (credits) {
+                      setState(() => _additionalCredits = credits);
+                    },
                   ),
                   SwitchListTile(
                     key: const ValueKey<String>('track-single-toggle'),
@@ -803,174 +752,38 @@ class _TrackStudioPageState extends State<TrackStudioPage> {
     }
   }
 
-  String _versionCharacteristicLabel(SongVersionCharacteristic characteristic) {
-    switch (characteristic) {
-      case SongVersionCharacteristic.remix:
-        return 'Remix';
-      case SongVersionCharacteristic.live:
-        return 'Live';
-      case SongVersionCharacteristic.acoustic:
-        return 'Acoustic';
-      case SongVersionCharacteristic.demo:
-        return 'Demo';
-      case SongVersionCharacteristic.instrumental:
-        return 'Instrumental';
-      case SongVersionCharacteristic.edit:
-        return 'Edit';
-      case SongVersionCharacteristic.radioEdit:
-        return 'Radio Edit';
-      case SongVersionCharacteristic.extended:
-        return 'Extended';
-      case SongVersionCharacteristic.remaster:
-        return 'Remaster';
-      case SongVersionCharacteristic.alternate:
-        return 'Alternate';
-    }
-  }
-
-  String _creditRoleLabel(SongArtistCreditRole role) {
-    switch (role) {
-      case SongArtistCreditRole.coPrimary:
-        return 'Co-primary';
-      case SongArtistCreditRole.featured:
-        return 'Featured';
-      case SongArtistCreditRole.guest:
-        return 'Guest';
-      case SongArtistCreditRole.primary:
-        return 'Primary';
-    }
-  }
-
-  Future<void> _addCredit() async {
-    final credit = await _showCreditEditor();
-
-    if (!mounted || credit == null) {
-      return;
+  String get _primaryArtistName {
+    for (final artist in _artists) {
+      if (artist.artistId == _artistId) {
+        return artist.name;
+      }
     }
 
-    setState(() {
-      _additionalCredits.add(credit);
-    });
-  }
-
-  Future<void> _editCredit(int index) async {
-    final original = _additionalCredits[index];
-    final updated = await _showCreditEditor(initialCredit: original);
-
-    if (!mounted || updated == null) {
-      return;
-    }
-
-    setState(() {
-      _additionalCredits[index] = updated;
-    });
-  }
-
-  void _removeCredit(int index) {
-    setState(() {
-      _additionalCredits.removeAt(index);
-    });
-  }
-
-  Future<TrackProfileCreditDraft?> _showCreditEditor({
-    TrackProfileCreditDraft? initialCredit,
-  }) async {
-    var creditedName = initialCredit?.creditedName ?? '';
-    var role = initialCredit?.role ?? SongArtistCreditRole.featured;
-
-    return showDialog<TrackProfileCreditDraft>(
-      context: context,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return AlertDialog(
-              title: Text(initialCredit == null ? 'Add credit' : 'Edit credit'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextFormField(
-                    key: const ValueKey<String>('track-credit-name-field'),
-                    initialValue: creditedName,
-                    autofocus: true,
-                    decoration: const InputDecoration(labelText: 'Artist name'),
-                    onChanged: (value) {
-                      creditedName = value;
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  DropdownButtonFormField<SongArtistCreditRole>(
-                    key: const ValueKey<String>('track-credit-role-field'),
-                    initialValue: role,
-                    decoration: const InputDecoration(labelText: 'Role'),
-                    items: const [
-                      DropdownMenuItem(
-                        value: SongArtistCreditRole.coPrimary,
-                        child: Text('Co-primary'),
-                      ),
-                      DropdownMenuItem(
-                        value: SongArtistCreditRole.featured,
-                        child: Text('Featured'),
-                      ),
-                      DropdownMenuItem(
-                        value: SongArtistCreditRole.guest,
-                        child: Text('Guest'),
-                      ),
-                    ],
-                    onChanged: (value) {
-                      if (value == null) {
-                        return;
-                      }
-
-                      setDialogState(() {
-                        role = value;
-                      });
-                    },
-                  ),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(dialogContext).pop(),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton(
-                  key: const ValueKey<String>('track-credit-save-button'),
-                  onPressed: () {
-                    final name = creditedName.trim();
-
-                    if (name.isEmpty) {
-                      return;
-                    }
-
-                    final originalName = initialCredit?.creditedName
-                        .trim()
-                        .toLowerCase();
-                    final preservesIdentity =
-                        originalName != null &&
-                        originalName == name.toLowerCase();
-
-                    Navigator.of(dialogContext).pop(
-                      TrackProfileCreditDraft(
-                        creditedName: name,
-                        role: role,
-                        artistId: preservesIdentity
-                            ? initialCredit!.artistId
-                            : null,
-                      ),
-                    );
-                  },
-                  child: const Text('Save'),
-                ),
-              ],
-            );
-          },
-        );
-      },
-    );
+    return widget.track.artistName;
   }
 
   void _submit() {
     if (!_formKey.currentState!.validate()) {
+      return;
+    }
+
+    // Changing the primary artist can make a credit repeat them; saving
+    // would drop it, so say so instead of reporting a full save.
+    final redundantNames = TrackProfileEditingService.redundantCreditNames(
+      _additionalCredits.map((credit) => credit.toInput()),
+      primaryArtistId: _artistId,
+      primaryCanonicalName: TextNormalizer.canonicalize(_primaryArtistName),
+    );
+
+    if (redundantNames.isNotEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '${redundantNames.first} is already credited as the primary '
+            'artist or in another credit. Edit or remove that credit to save.',
+          ),
+        ),
+      );
       return;
     }
 

@@ -409,4 +409,106 @@ void main() {
 
     expect(await playlistRepository.getItems(playlist.id), isEmpty);
   });
+
+  group('addSongs', () {
+    test('appends new songs in order and counts what it skipped', () async {
+      await seedSongs(['song_1', 'song_2', 'song_3', 'song_4']);
+      final playlist = await service.createPlaylist(name: 'Ferry Rides');
+      await service.addSong(playlistId: playlist.id, songId: 'song_2');
+
+      final result = await service.addSongs(
+        playlistId: playlist.id,
+        songIds: ['song_3', 'song_2', 'song_missing', 'song_1', 'song_3'],
+      );
+
+      expect(result.playlistName, 'Ferry Rides');
+      expect(result.added, 2);
+      expect(result.alreadyPresent, 1);
+      expect(result.failed, 1);
+
+      final items = await playlistRepository.getItems(playlist.id);
+      expect(items.map((item) => item.songId), ['song_2', 'song_3', 'song_1']);
+      expect(items.map((item) => item.position), [0, 1, 2]);
+    });
+
+    test('adding the same songs again adds nothing', () async {
+      await seedSongs(['song_1', 'song_2']);
+      final playlist = await service.createPlaylist(name: 'Quiet Hours');
+      await service.addSongs(
+        playlistId: playlist.id,
+        songIds: ['song_1', 'song_2'],
+      );
+
+      final again = await service.addSongs(
+        playlistId: playlist.id,
+        songIds: ['song_1', 'song_2'],
+      );
+
+      expect(again.added, 0);
+      expect(again.alreadyPresent, 2);
+      expect(await playlistRepository.getItems(playlist.id), hasLength(2));
+    });
+
+    test('a failure part-way leaves the playlist unchanged', () async {
+      await seedSongs(['song_1', 'song_2', 'song_3']);
+      final playlist = await service.createPlaylist(name: 'Rollback Mix');
+      final colliding = PlaylistService(
+        repository: playlistRepository,
+        library: SqliteLibraryQueryRepository(
+          LibraryQueryDao(await appDatabase.database),
+        ),
+        mutationRunner: SyncMutationTransactionRunner(appDatabase: appDatabase),
+        generatePlaylistItemId: () => 'playlist_item_colliding',
+        now: () => now,
+      );
+
+      await expectLater(
+        colliding.addSongs(
+          playlistId: playlist.id,
+          songIds: ['song_1', 'song_2', 'song_3'],
+        ),
+        throwsA(anything),
+      );
+
+      expect(await playlistRepository.getItems(playlist.id), isEmpty);
+    });
+
+    test('overlapping concurrent adds keep one membership per song', () async {
+      await seedSongs(['song_1', 'song_2', 'song_3']);
+      final playlist = await service.createPlaylist(name: 'Two Taps');
+
+      final results = await Future.wait([
+        service.addSongs(
+          playlistId: playlist.id,
+          songIds: ['song_1', 'song_2'],
+        ),
+        service.addSongs(
+          playlistId: playlist.id,
+          songIds: ['song_2', 'song_3'],
+        ),
+      ]);
+
+      final items = await playlistRepository.getItems(playlist.id);
+      expect(items.map((item) => item.songId).toSet(), {
+        'song_1',
+        'song_2',
+        'song_3',
+      });
+      expect(items, hasLength(3));
+      expect(results.map((result) => result.added).reduce((a, b) => a + b), 3);
+      expect(
+        results.map((result) => result.alreadyPresent).reduce((a, b) => a + b),
+        1,
+      );
+    });
+
+    test('rejects a missing playlist without writing', () async {
+      await seedSongs(['song_1']);
+
+      await expectLater(
+        service.addSongs(playlistId: 'playlist_gone', songIds: ['song_1']),
+        throwsStateError,
+      );
+    });
+  });
 }

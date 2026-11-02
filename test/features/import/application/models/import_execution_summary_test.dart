@@ -74,5 +74,48 @@ void main() {
     expect(summary.processedCount, 4);
     expect(summary.hasFailures, isTrue);
     expect(summary.isComplete, isTrue);
+    expect(summary.possibleAlternateRecordingCount, 0);
+  });
+
+  test('counts possible different recordings within the skipped total', () {
+    ImportResult skipped(String path, ImportSkipReason reason) {
+      return ImportResult(
+        status: ImportResultStatus.skipped,
+        filePath: path,
+        songId: 'song_1',
+        skipReason: reason,
+      );
+    }
+
+    final batch = ImportBatch(
+      id: 'batch_possible_alternate',
+      createdAt: DateTime.utc(2026, 9, 10),
+      status: ImportBatchStatus.completed,
+      items: [
+        item(
+          'one.mp3',
+          const ImportResult(
+            status: ImportResultStatus.imported,
+            filePath: 'one.mp3',
+            songId: 'song_1',
+          ),
+        ),
+        item(
+          'two.mp3',
+          skipped('two.mp3', ImportSkipReason.possibleAlternateRecording),
+        ),
+        item(
+          'three.mp3',
+          skipped('three.mp3', ImportSkipReason.duplicateRecording),
+        ),
+      ],
+    );
+
+    final summary = ImportExecutionSummary.fromBatch(batch);
+
+    expect(summary.skippedCount, 2);
+    expect(summary.possibleAlternateRecordingCount, 1);
+    expect(summary.processedCount, 3);
+    expect(summary.isComplete, isTrue);
   });
 }

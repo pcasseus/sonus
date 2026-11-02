@@ -1,8 +1,11 @@
+import 'package:sonus_next/core/identity/text_normalizer.dart';
+
 import '../../../analytics/application/models/analytics_ranked_entity.dart';
 import '../../application/models/library_album.dart';
 import '../../application/models/library_artist.dart';
 import '../../application/models/library_track.dart';
-import '../../application/models/project_collaborator.dart';
+import '../../application/models/project_song_credit.dart';
+import '../../domain/entities/library_organization.dart';
 import '../../domain/entities/song_artist_credit.dart';
 
 /// A song in an artist's Top Tracks with its all-time qualified streams.
@@ -13,8 +16,77 @@ class ArtistTopTrack {
   final int streamCount;
 }
 
+/// The Artist Profile's release sections, in page order (SN-50 B-Q8).
+enum ArtistReleaseShelf {
+  albums('albums', 'Albums'),
+  eps('eps', 'EPs'),
+  singles('singles', 'Singles'),
+  live('live', 'Live'),
+  leaked('leaked', 'Leaked'),
+  needsReview('needs-review', 'Needs Review');
+
+  const ArtistReleaseShelf(this.key, this.title);
+
+  final String key;
+  final String title;
+
+  static ArtistReleaseShelf ofFormat(ReleaseFormat format) => switch (format) {
+    ReleaseFormat.album => albums,
+    ReleaseFormat.ep => eps,
+    ReleaseFormat.single => singles,
+  };
+}
+
+/// One release card on the Artist Profile and what it needs to say.
+class ArtistReleaseCard {
+  const ArtistReleaseCard({
+    required this.album,
+    required this.format,
+    this.formatNeedsReview = false,
+    this.alsoLive = false,
+    this.isUnavailable = false,
+    this.kind,
+  });
+
+  final LibraryAlbum album;
+
+  /// The format shown on the card; null while it is not chosen.
+  final ReleaseFormat? format;
+
+  /// The format is inferred, not stated, though the release is listed
+  /// outside Needs Review (B-Q14, B-Q37).
+  final bool formatNeedsReview;
+
+  /// A leaked release that is also live: Leaked wins the section, Live is
+  /// named on the card (B-Q7).
+  final bool alsoLive;
+
+  /// None of the release's songs has playable audio (B-Q24).
+  final bool isUnavailable;
+
+  /// Soundtrack, cast recording or compilation (B-Q23).
+  final ReleaseKind? kind;
+
+  /// "EP · 3 tracks": the format and the shown edition's track count.
+  String get summary {
+    final count = album.trackCount == 1
+        ? '1 track'
+        : '${album.trackCount} tracks';
+    return format == null ? count : '${format!.label} · $count';
+  }
+
+  /// Short text indicators, most important first. Never colour alone.
+  /// An unconfirmed format is not named on the card: [formatNeedsReview]
+  /// stays available to the format editor and review flows.
+  List<String> get notes => [
+    if (isUnavailable) 'Unavailable',
+    if (alsoLive) 'Live',
+    if (kind case final kind?) kind.label,
+  ];
+}
+
 /// Someone credited on a project (an album owned by the profile's artist),
-/// with the tracks they lead there.
+/// with the songs they are credited on there.
 class ArtistProfileCollaborator {
   const ArtistProfileCollaborator({
     required this.artistId,
@@ -25,12 +97,16 @@ class ArtistProfileCollaborator {
     this.songCount,
   });
 
-  final String artistId;
+  /// The linked library artist; null for a credit that is only a name,
+  /// which is shown but never opened (B-Q33/B-Q36).
+  final String? artistId;
   final String name;
   final String? artworkPath;
 
-  /// The songs they lead on the project, for playing them here.
+  /// Their songs on the project, for playing them here (B-Q26).
   final List<LibraryTrack> tracks;
+
+  bool get isVerified => artistId != null;
 
   /// Every credited role, from the structured credits; empty when only the
   /// songs' lead artists are known.
@@ -69,14 +145,11 @@ class ContributorAppearance {
 
 /// Presentation-only derivations for the Artist Profile sections. They read
 /// structured identities (song and album artist IDs, the existing qualified
-/// play ranking) and never compare names.
+/// play ranking) and never compare names, except to list a credit that is
+/// only a name once.
 abstract final class ArtistProfileSections {
   static const int topTrackLimit = 5;
 
-  /// The catalogue's most streamed songs, in the ranking's order (streams,
-  /// then most recent stream, then ID). Blacklisted songs are left out;
-  /// unavailable ones stay, so history is not rewritten. Songs never
-  /// streamed are not ranked, so no count is ever invented.
   /// The artist's place in [rankedArtists] (all-time, most streamed
   /// first), or null when they have no qualified streams.
   static ArtistStanding? standing({
@@ -94,10 +167,15 @@ abstract final class ArtistProfileSections {
         : ArtistStanding(rank: index + 1, streamCount: streams);
   }
 
+  /// The catalogue's most streamed songs, in the ranking's order (streams,
+  /// then most recent stream, then ID), at most [limit] of them; every
+  /// streamed song when null. Blacklisted songs are left out; unavailable
+  /// ones stay, so history is not rewritten. Songs never streamed are not
+  /// ranked, so no count is ever invented.
   static List<ArtistTopTrack> topTracks({
     required Iterable<LibraryTrack> catalogue,
     required Iterable<AnalyticsRankedEntity> rankedSongs,
-    int limit = topTrackLimit,
+    int? limit = topTrackLimit,
   }) {
     final bySongId = {
       for (final track in catalogue)
@@ -149,11 +227,65 @@ abstract final class ArtistProfileSections {
     return List.unmodifiable(result);
   }
 
-  /// Releases newest first by release date; undated releases last. Ties
-  /// fall back to title, then ID, so the order never shifts.
+  /// The owner's releases in their sections, each once and in the order
+  /// given (newest primary edition first, B-Q25). Leaked wins over Live
+  /// (B-Q7); both keep a release whose format is not stated, flagged for
+  /// review (B-Q14). Other releases without a format go to Needs Review;
+  /// an inferred Album stays an Album, flagged (B-Q37). Empty sections are
+  /// left out.
+  static Map<ArtistReleaseShelf, List<ArtistReleaseCard>> releaseShelves({
+    required Iterable<LibraryAlbum> albums,
+    required ReleaseFormat? Function(String albumId) formatOf,
+    required bool Function(String albumId) hasStatedFormat,
+    required bool Function(String albumId) isLive,
+    required bool Function(String albumId) isLeaked,
+    required ReleaseKind? Function(String albumId) kindOf,
+    required bool Function(LibraryAlbum album) isUnavailable,
+  }) {
+    final shelves = {
+      for (final shelf in ArtistReleaseShelf.values)
+        shelf: <ArtistReleaseCard>[],
+    };
+
+    for (final album in albums) {
+      final id = album.albumId;
+      final format = formatOf(id);
+      final leaked = isLeaked(id);
+      final live = isLive(id);
+      final shelf = leaked
+          ? ArtistReleaseShelf.leaked
+          : live
+          ? ArtistReleaseShelf.live
+          : format == null
+          ? ArtistReleaseShelf.needsReview
+          : ArtistReleaseShelf.ofFormat(format);
+
+      shelves[shelf]!.add(
+        ArtistReleaseCard(
+          album: album,
+          format: format,
+          formatNeedsReview:
+              shelf != ArtistReleaseShelf.needsReview && !hasStatedFormat(id),
+          alsoLive: leaked && live,
+          isUnavailable: isUnavailable(album),
+          kind: kindOf(id),
+        ),
+      );
+    }
+
+    return {
+      for (final MapEntry(key: shelf, value: cards) in shelves.entries)
+        if (cards.isNotEmpty) shelf: List.unmodifiable(cards),
+    };
+  }
+
+  /// Releases newest first by release date; undated releases last. A
+  /// partial date sorts by its start (`2026` with `2026-01-01`), the less
+  /// exact one after. Ties fall back to title, then ID, so the order never
+  /// shifts.
   static int compareReleases(LibraryAlbum a, LibraryAlbum b) {
-    final aDate = a.releaseDate;
-    final bDate = b.releaseDate;
+    final aDate = a.releaseDateValue;
+    final bDate = b.releaseDateValue;
     if (aDate != null && bDate != null) {
       final byDate = bDate.compareTo(aDate);
       if (byDate != 0) return byDate;
@@ -268,55 +400,84 @@ abstract final class ArtistProfileSections {
         ),
     ];
 
-    result.sort((a, b) {
-      final byCount = b.tracks.length.compareTo(a.tracks.length);
-      if (byCount != 0) return byCount;
-      final byName = a.name.toLowerCase().compareTo(b.name.toLowerCase());
-      return byName != 0 ? byName : a.artistId.compareTo(b.artistId);
-    });
+    result.sort(_compareCollaborators);
 
     return List.unmodifiable(result);
   }
 
-  /// Every performer credited on the artist's projects, from the structured
-  /// credit query (any role: primary, co-primary, featured or guest), each
-  /// once across the projects. Ordered by most prominent role, then songs,
-  /// then name, then ID. Play uses the songs they lead on the projects.
-  static List<ArtistProfileCollaborator> structuredCollaborators({
-    required String projectArtistId,
-    required Iterable<ProjectCollaborator> credits,
+  /// Everyone credited on the owner's releases other than the owner, in any
+  /// role (primary, co-primary, featured or guest; B-Q15, B-Q32), each once
+  /// with every song there they are credited on (B-Q26). A credit linked to
+  /// no artist is listed by its name (B-Q33). A song without structured
+  /// credits counts for its lead artist and its tagged featured names.
+  /// Ordered by most prominent role, then songs, then name.
+  static List<ArtistProfileCollaborator> creditedCollaborators({
+    required String ownerArtistId,
+    required Iterable<ProjectSongCredit> credits,
     required Iterable<LibraryTrack> projectTracks,
+    required Map<String, LibraryTrack> tracksById,
     required Map<String, LibraryArtist> artistsById,
+    Map<String, LibraryAlbum>? albumsById,
   }) {
-    final roles = <String, Set<SongArtistCreditRole>>{};
-    final counts = <String, int>{};
-    final names = <String, String>{};
-
-    for (final credit in credits) {
-      if (credit.artistId == projectArtistId) continue;
-      roles.putIfAbsent(credit.artistId, () => {}).addAll(credit.roles);
-      counts[credit.artistId] =
-          (counts[credit.artistId] ?? 0) + credit.songCount;
-      names.putIfAbsent(credit.artistId, () => credit.artistName);
+    final people = <String, _Credited>{};
+    void add({
+      required String? artistId,
+      required String name,
+      required SongArtistCreditRole role,
+      required String songId,
+    }) {
+      if (artistId == ownerArtistId || name.trim().isEmpty) return;
+      final key = artistId ?? 'name:${TextNormalizer.canonicalize(name)}';
+      people.putIfAbsent(key, () => _Credited(artistId, name.trim()))
+        ..roles.add(role)
+        ..songIds.add(songId);
     }
 
-    final led = <String, List<LibraryTrack>>{};
-    final seen = <String>{};
+    final credited = <String>{};
+    for (final credit in credits) {
+      credited.add(credit.songId);
+      add(
+        artistId: credit.artistId,
+        name: credit.creditedName,
+        role: credit.role,
+        songId: credit.songId,
+      );
+    }
     for (final track in projectTracks) {
-      if (roles.containsKey(track.artistId) && seen.add(track.songId)) {
-        led.putIfAbsent(track.artistId, () => []).add(track);
+      if (credited.contains(track.songId)) continue;
+      add(
+        artistId: track.artistId,
+        name: track.artistName,
+        role: SongArtistCreditRole.primary,
+        songId: track.songId,
+      );
+      for (final name in track.featuredArtists) {
+        add(
+          artistId: null,
+          name: name,
+          role: SongArtistCreditRole.featured,
+          songId: track.songId,
+        );
       }
     }
 
+    List<LibraryTrack> tracksOf(_Credited person) {
+      final tracks = [for (final songId in person.songIds) ?tracksById[songId]];
+      if (albumsById != null) {
+        tracks.sort((a, b) => compareByRelease(a, b, albumsById));
+      }
+      return List.unmodifiable(tracks);
+    }
+
     final result = [
-      for (final MapEntry(key: artistId, value: artistRoles) in roles.entries)
+      for (final person in people.values)
         ArtistProfileCollaborator(
-          artistId: artistId,
-          name: artistsById[artistId]?.name ?? names[artistId] ?? artistId,
-          artworkPath: _artworkPath(artistsById[artistId]),
-          tracks: List.unmodifiable(led[artistId] ?? const <LibraryTrack>[]),
-          roles: Set.unmodifiable(artistRoles),
-          songCount: counts[artistId],
+          artistId: person.artistId,
+          name: artistsById[person.artistId]?.name ?? person.name,
+          artworkPath: _artworkPath(artistsById[person.artistId]),
+          tracks: tracksOf(person),
+          roles: Set.unmodifiable(person.roles),
+          songCount: person.songIds.length,
         ),
     ];
 
@@ -325,14 +486,23 @@ abstract final class ArtistProfileSections {
 
     result.sort((a, b) {
       final byRole = roleRank(a).compareTo(roleRank(b));
-      if (byRole != 0) return byRole;
-      final byCount = b.displaySongCount.compareTo(a.displaySongCount);
-      if (byCount != 0) return byCount;
-      final byName = a.name.toLowerCase().compareTo(b.name.toLowerCase());
-      return byName != 0 ? byName : a.artistId.compareTo(b.artistId);
+      return byRole != 0 ? byRole : _compareCollaborators(a, b);
     });
 
     return List.unmodifiable(result);
+  }
+
+  /// More songs first, then name, then id.
+  static int _compareCollaborators(
+    ArtistProfileCollaborator a,
+    ArtistProfileCollaborator b,
+  ) {
+    final byCount = b.displaySongCount.compareTo(a.displaySongCount);
+    if (byCount != 0) return byCount;
+    final byName = a.name.toLowerCase().compareTo(b.name.toLowerCase());
+    return byName != 0
+        ? byName
+        : (a.artistId ?? '').compareTo(b.artistId ?? '');
   }
 
   static String? _artworkPath(LibraryArtist? artist) {
@@ -347,19 +517,44 @@ abstract final class ArtistProfileSections {
   }
 }
 
+/// One collaborator while their credits are gathered.
+class _Credited {
+  _Credited(this.artistId, this.name);
+
+  final String? artistId;
+  final String name;
+  final Set<SongArtistCreditRole> roles = {};
+  final Set<String> songIds = {};
+}
+
 /// Where an artist stands in the listener's all-time artist ranking.
 class ArtistStanding {
-  const ArtistStanding({required this.rank, required this.streamCount});
+  const ArtistStanding({
+    required this.rank,
+    required this.streamCount,
+    this.listened,
+  });
 
   final int rank;
   final int streamCount;
+
+  /// All-time listening time credited to the artist, when it is known.
+  final Duration? listened;
+
+  /// "Your #1 artist" or "Ranked #6 among your artists".
+  String get rankLabel =>
+      rank == 1 ? 'Your #1 artist' : 'Ranked #$rank among your artists';
+
+  ArtistStanding withListened(Duration? listened) =>
+      ArtistStanding(rank: rank, streamCount: streamCount, listened: listened);
 
   @override
   bool operator ==(Object other) =>
       other is ArtistStanding &&
       other.rank == rank &&
-      other.streamCount == streamCount;
+      other.streamCount == streamCount &&
+      other.listened == listened;
 
   @override
-  int get hashCode => Object.hash(rank, streamCount);
+  int get hashCode => Object.hash(rank, streamCount, listened);
 }

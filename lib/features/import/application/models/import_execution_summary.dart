@@ -8,6 +8,7 @@ class ImportExecutionSummary {
     required this.relinkedCount,
     required this.skippedCount,
     required this.failedCount,
+    this.possibleAlternateRecordingCount = 0,
   });
 
   final String batchId;
@@ -16,6 +17,10 @@ class ImportExecutionSummary {
   final int relinkedCount;
   final int skippedCount;
   final int failedCount;
+
+  /// Skipped files kept out of the library because they may be a different
+  /// recording of an existing song. Already included in [skippedCount].
+  final int possibleAlternateRecordingCount;
 
   int get successfulCount => importedCount + relinkedCount;
 
@@ -34,6 +39,7 @@ class ImportExecutionSummary {
       relinkedCount: batch.relinkedCount,
       skippedCount: batch.skippedCount,
       failedCount: batch.failedCount,
+      possibleAlternateRecordingCount: batch.possibleAlternateRecordingCount,
     );
   }
 }

@@ -39,6 +39,7 @@ import 'package:sonus_next/features/library/application/models/library_track.dar
 import 'package:sonus_next/features/library/application/models/library_track_order.dart';
 import 'package:sonus_next/features/library/application/repositories/library_query_repository.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
+import 'package:sonus_next/features/library/domain/entities/release_date.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition_track.dart';
 import 'package:sonus_next/features/library/domain/entities/song.dart';
 import 'package:sonus_next/features/library/presentation/controllers/album_profile_controller.dart';
@@ -49,6 +50,7 @@ import 'package:sonus_next/features/player/domain/models/playback_repeat_mode.da
 import 'package:sonus_next/features/player/domain/models/playback_state.dart';
 import 'package:sonus_next/features/player/domain/models/playback_track.dart';
 import 'package:sonus_next/features/player/domain/services/playback_engine.dart';
+import 'package:sonus_next/features/song_stats/presentation/song_stats_page.dart';
 
 void main() {
   group('AlbumProfilePage', () {
@@ -141,6 +143,35 @@ void main() {
       expect(find.text('Second Song'), findsOneWidget);
       expect(find.text('3:00'), findsOneWidget);
       expect(find.text('4:05'), findsOneWidget);
+    });
+
+    testWidgets('track rows show co-primary, featured and guest credits and '
+        'the version suffix (SN-50 C-Q1/C-Q6)', (tester) async {
+      final repository = FakeLibraryQueryRepository(
+        album: createAlbum(primaryEditionTitle: 'Standard'),
+        tracks: [
+          createTrack(
+            songId: 'song-1',
+            title: 'First Song',
+            coPrimaryArtists: const ['Ben Moor'],
+            versionLabel: 'Acoustic',
+          ),
+          createTrack(
+            songId: 'song-2',
+            title: 'Second Song',
+            trackNumber: 2,
+            featuredArtists: const ['Cy Lark'],
+            guestArtists: const ['Eve Shore'],
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(buildSubject(repository: repository));
+      await tester.pumpAndSettle();
+
+      expect(find.text('First Song (Acoustic)'), findsOneWidget);
+      expect(find.textContaining('Test Artist & Ben Moor'), findsOneWidget);
+      expect(find.textContaining('Ft. Cy Lark with Eve Shore'), findsOneWidget);
     });
 
     testWidgets('shows edition count for multi-edition album', (tester) async {
@@ -277,7 +308,8 @@ void main() {
       expect(find.text('Deluxe Song'), findsOneWidget);
       expect(find.text('Bonus Song'), findsOneWidget);
 
-      expect(find.text('June 20, 2025 • Alternative'), findsOneWidget);
+      // The Deluxe date is its own; genre is the release's (SN-50 A1).
+      expect(find.text('June 20, 2025 • Pop'), findsOneWidget);
 
       expect(find.text('2 tracks • 6 min'), findsOneWidget);
     });
@@ -486,6 +518,45 @@ void main() {
       expect(find.textContaining('2 tracks'), findsNothing);
     });
 
+    testWidgets('SN-50 C-Q10A: long-press selects tracks; Back leaves', (
+      tester,
+    ) async {
+      final repository = FakeLibraryQueryRepository(
+        album: createAlbum(),
+        tracks: [
+          createTrack(songId: 'song-ember'),
+          createTrack(songId: 'song-fjord'),
+        ],
+      );
+
+      await tester.pumpWidget(buildSubject(repository: repository));
+      await tester.pumpAndSettle();
+
+      await tester.longPress(
+        find.byKey(const ValueKey<String>('album-track-song-ember')),
+      );
+      await tester.pump();
+
+      expect(find.text('1 selected'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey<String>('album-track-menu-song-ember')),
+        findsNothing,
+      );
+
+      await tester.tap(find.byKey(const ValueKey('track-selection-all')));
+      await tester.pump();
+      expect(find.text('2 selected'), findsOneWidget);
+
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+
+      expect(find.text('2 selected'), findsNothing);
+      expect(
+        find.byKey(const ValueKey<String>('album-track-menu-song-ember')),
+        findsOneWidget,
+      );
+    });
+
     testWidgets(
       'all unavailable album tracks present as an empty current album',
       (tester) async {
@@ -641,11 +712,14 @@ void main() {
 
       // Each field shows its value and has one way to change it.
       expect(find.text('Test Album'), findsWidgets);
-      expect(find.text('2024-05-17'), findsOneWidget);
+      expect(find.text('May 17, 2024'), findsOneWidget);
       expect(find.text('Pop'), findsOneWidget);
 
       Future<void> edit(String row, String field, String value) async {
-        await tester.tap(find.byKey(ValueKey<String>('release-studio-$row')));
+        final target = find.byKey(ValueKey<String>('release-studio-$row'));
+        await tester.ensureVisible(target);
+        await tester.pumpAndSettle();
+        await tester.tap(target);
         await tester.pumpAndSettle();
         await tester.enterText(
           find.byKey(ValueKey<String>('release-studio-$field-field')),
@@ -657,26 +731,38 @@ void main() {
         await tester.pumpAndSettle();
       }
 
-      await edit('name', 'name', 'Renamed Album');
+      await edit('date', 'date', '2025-06-20');
       expect(editingService.updateCallCount, 1);
       expect(editingService.lastUserId, 'user-1');
       expect(editingService.lastAlbumId, 'album-1');
       expect(editingService.lastPrimaryEditionId, 'edition-1');
-      expect(editingService.lastTitle, 'Renamed Album');
-      // The edition is named in Editions, never here.
+      // The stored base title and the edition's name are never changed by
+      // release details (SN-50 A-Q4).
+      expect(editingService.lastTitle, 'Test Album');
       expect(editingService.lastEditionTitle, 'Standard');
       expect(editingService.lastEditionType, AlbumEditionType.standard);
-      expect(editingService.lastReleaseDate, DateTime(2024, 5, 17));
-      expect(editingService.lastGenre, 'Pop');
-      expect(find.text('Release renamed.'), findsOneWidget);
-
-      await edit('date', 'date', '2025-06-20');
       expect(editingService.lastReleaseDate, DateTime.utc(2025, 6, 20));
-      expect(editingService.lastTitle, 'Renamed Album');
+      expect(editingService.lastReleaseDatePrecision, ReleaseDatePrecision.day);
+      expect(editingService.lastGenre, 'Pop');
 
       await edit('genre', 'genre', 'Alternative');
       expect(editingService.lastGenre, 'Alternative');
+      expect(editingService.updateCallCount, 2);
+
+      // A year alone is saved as a year, after confirming the day is lost.
+      await edit('date', 'date', '2025');
+      expect(find.text('Use a less exact date?'), findsOneWidget);
+      expect(editingService.updateCallCount, 2);
+      await tester.tap(
+        find.byKey(const ValueKey<String>('release-date-confirm-less-precise')),
+      );
+      await tester.pumpAndSettle();
       expect(editingService.updateCallCount, 3);
+      expect(editingService.lastReleaseDate, DateTime.utc(2025));
+      expect(
+        editingService.lastReleaseDatePrecision,
+        ReleaseDatePrecision.year,
+      );
 
       await tester.pageBack();
       await tester.pumpAndSettle();
@@ -685,7 +771,7 @@ void main() {
         find.byKey(const ValueKey<String>('release-studio-page')),
         findsNothing,
       );
-      expect(find.text('Renamed Album'), findsWidgets);
+      expect(find.text('Test Album'), findsWidgets);
     });
 
     testWidgets('the release can move to another artist or project', (
@@ -868,9 +954,7 @@ void main() {
       );
     });
 
-    testWidgets('a blank name and an impossible date are refused', (
-      tester,
-    ) async {
+    testWidgets('an impossible date is refused', (tester) async {
       final editingService = FakeAlbumProfileEditingService();
 
       await tester.pumpWidget(
@@ -894,22 +978,10 @@ void main() {
       await tester.tap(find.text('Edit Release'));
       await tester.pumpAndSettle();
 
-      await tester.tap(
-        find.byKey(const ValueKey<String>('release-studio-name')),
+      await tester.ensureVisible(
+        find.byKey(const ValueKey<String>('release-studio-date')),
       );
       await tester.pumpAndSettle();
-      await tester.enterText(
-        find.byKey(const ValueKey<String>('release-studio-name-field')),
-        '   ',
-      );
-      await tester.tap(
-        find.byKey(const ValueKey<String>('release-studio-save-name')),
-      );
-      await tester.pump();
-      expect(find.text('Enter a name.'), findsOneWidget);
-      await tester.tap(find.text('Cancel'));
-      await tester.pumpAndSettle();
-
       await tester.tap(
         find.byKey(const ValueKey<String>('release-studio-date')),
       );
@@ -922,7 +994,12 @@ void main() {
         find.byKey(const ValueKey<String>('release-studio-save-date')),
       );
       await tester.pump();
-      expect(find.text('Use a real date, such as 2024-06-21.'), findsOneWidget);
+      expect(
+        find.text(
+          'Use 2026, 2026-04 or 2026-04-17, with a real month and day.',
+        ),
+        findsOneWidget,
+      );
 
       expect(editingService.updateCallCount, 0);
     });
@@ -956,7 +1033,10 @@ void main() {
       await tester.pumpAndSettle();
 
       for (final field in ['date', 'genre']) {
-        await tester.tap(find.byKey(ValueKey<String>('release-studio-$field')));
+        final target = find.byKey(ValueKey<String>('release-studio-$field'));
+        await tester.ensureVisible(target);
+        await tester.pumpAndSettle();
+        await tester.tap(target);
         await tester.pumpAndSettle();
         await tester.enterText(
           find.byKey(ValueKey<String>('release-studio-$field-field')),
@@ -1012,15 +1092,15 @@ void main() {
       await tester.pumpAndSettle();
 
       await tester.tap(
-        find.byKey(const ValueKey<String>('release-studio-name')),
+        find.byKey(const ValueKey<String>('release-studio-genre')),
       );
       await tester.pumpAndSettle();
       await tester.enterText(
-        find.byKey(const ValueKey<String>('release-studio-name-field')),
-        'Anonymous Album Edit',
+        find.byKey(const ValueKey<String>('release-studio-genre-field')),
+        'Ambient',
       );
       await tester.tap(
-        find.byKey(const ValueKey<String>('release-studio-save-name')),
+        find.byKey(const ValueKey<String>('release-studio-save-genre')),
       );
       await tester.pumpAndSettle();
 
@@ -1028,7 +1108,7 @@ void main() {
       expect(editingService.lastUserId, isNull);
       expect(editingService.lastAlbumId, 'album-1');
       expect(editingService.lastPrimaryEditionId, 'edition-primary');
-      expect(editingService.lastTitle, 'Anonymous Album Edit');
+      expect(editingService.lastGenre, 'Ambient');
     });
 
     testWidgets('album editing remains unavailable without editing service', (
@@ -3012,16 +3092,18 @@ void main() {
       expect(find.text('Standard Studio Song'), findsOneWidget);
       expect(find.text('Deluxe Studio Song'), findsNothing);
 
-      final selector = find.byKey(
-        const ValueKey<String>('album-studio-edition-selector'),
+      final tabs = find.byKey(
+        const ValueKey<String>('release-studio-edition-tabs'),
       );
 
-      expect(selector, findsOneWidget);
+      expect(tabs, findsOneWidget);
 
-      await tester.tap(
-        find.descendant(of: selector, matching: find.text('Deluxe')),
-      );
+      final deluxe = find.descendant(of: tabs, matching: find.text('Deluxe'));
+      await tester.ensureVisible(deluxe);
       await tester.pumpAndSettle();
+      await tester.tap(deluxe);
+      await tester.pumpAndSettle();
+      await revealStudioSection(tester, 'tracklist');
 
       expect(find.text('Standard Studio Song'), findsNothing);
       expect(find.text('Deluxe Studio Song'), findsOneWidget);
@@ -3098,7 +3180,7 @@ void main() {
           const ValueKey<String>('album-studio-track-list'),
         );
 
-        final list = tester.widget<ReorderableListView>(listFinder);
+        final list = tester.widget<SliverReorderableList>(listFinder);
 
         list.onReorderItem!(0, 2);
         await tester.pumpAndSettle();
@@ -3109,6 +3191,33 @@ void main() {
         expect(service.lastOrderedSongIds, ['song-b', 'song-c', 'song-a']);
       },
     );
+
+    // Charts 2.0 C4: every song menu opens the one Song Stats page.
+    testWidgets('album track menu opens Song Stats', (tester) async {
+      final repository = FakeLibraryQueryRepository(
+        album: createAlbum(),
+        tracks: [createTrack(songId: 'stats-song', title: 'Stats Song')],
+      );
+
+      await tester.pumpWidget(buildSubject(repository: repository));
+      await tester.pumpAndSettle();
+
+      final menu = find.byKey(
+        const ValueKey<String>('album-track-menu-stats-song'),
+      );
+      await tester.ensureVisible(menu);
+      await tester.pumpAndSettle();
+      await tester.tap(menu);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('View Stats'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(SongStatsPage), findsOneWidget);
+      expect(
+        tester.widget<SongStatsPage>(find.byType(SongStatsPage)).songId,
+        'stats-song',
+      );
+    });
 
     testWidgets('Album Track Studio opens from the track menu', (tester) async {
       final repository = FakeLibraryQueryRepository(
@@ -3188,9 +3297,26 @@ void main() {
   });
 }
 
-/// Release Studio opens on Details; switch to [section]'s tab.
+/// Release Studio opens on Shared details; open the selected edition's
+/// [section] and scroll its heading to the top, as arriving there would.
 Future<void> openStudioSection(WidgetTester tester, String section) async {
-  await tester.tap(find.byKey(ValueKey<String>('release-studio-tab-$section')));
+  final header = find.byKey(
+    ValueKey<String>('release-studio-section-$section'),
+  );
+  await tester.ensureVisible(header);
+  await tester.pumpAndSettle();
+  await tester.tap(header);
+  await tester.pumpAndSettle();
+  await revealStudioSection(tester, section);
+}
+
+/// Scrolls an open [section]'s heading to the top of Release Studio.
+Future<void> revealStudioSection(WidgetTester tester, String section) async {
+  final header = find.byKey(
+    ValueKey<String>('release-studio-section-$section'),
+  );
+  await tester.ensureVisible(header);
+  await Scrollable.ensureVisible(tester.element(header));
   await tester.pumpAndSettle();
 }
 
@@ -3313,6 +3439,9 @@ LibraryTrack createTrack({
   int discNumber = 1,
   int durationSeconds = 180,
   List<String> featuredArtists = const [],
+  List<String> coPrimaryArtists = const [],
+  List<String> guestArtists = const [],
+  String? versionLabel,
   String? filePath,
   bool isAvailable = true,
   bool isSongBlocked = false,
@@ -3332,6 +3461,9 @@ LibraryTrack createTrack({
     durationSeconds: durationSeconds,
     isSingle: false,
     featuredArtists: featuredArtists,
+    coPrimaryArtists: coPrimaryArtists,
+    guestArtists: guestArtists,
+    versionLabel: versionLabel,
     dateAdded: DateTime(2026, 1, 1),
     filePath: filePath ?? '/music/$songId.mp3',
     isAvailable: isAvailable,
@@ -3622,6 +3754,7 @@ class FakeAlbumProfileEditingService extends AlbumProfileEditingService {
   final FakeAlbumProfileUpdateCallback? onUpdate;
 
   int updateCallCount = 0;
+  ReleaseDatePrecision? lastReleaseDatePrecision;
 
   int confirmOwnerCount = 0;
 
@@ -3650,10 +3783,12 @@ class FakeAlbumProfileEditingService extends AlbumProfileEditingService {
     required AlbumEditionType editionType,
     required DateTime? releaseDate,
     required String? genre,
+    ReleaseDatePrecision? releaseDatePrecision,
     String? artistId,
     DateTime? now,
   }) async {
     updateCallCount++;
+    lastReleaseDatePrecision = releaseDatePrecision;
 
     lastUserId = userId;
     lastAlbumId = albumId;

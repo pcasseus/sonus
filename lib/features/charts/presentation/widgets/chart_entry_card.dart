@@ -7,9 +7,14 @@ import '../../../../core/design/sonus_theme.dart';
 import '../../../../core/design/widgets/sonus_artwork_frame.dart';
 import '../../../../core/design/widgets/sonus_decorations.dart';
 import '../../domain/entities/chart_entry.dart';
+import '../../domain/models/chart_movement.dart';
 import '../../domain/models/chart_type.dart';
+import '../models/chart_longevity.dart';
 import 'chart_extended_divider.dart';
+import 'chart_longevity_facts.dart';
+import '../models/chart_entry_movement.dart';
 import 'chart_movement_indicator.dart';
+import 'chart_rank_tier.dart';
 
 /// Why a chart entry cannot be opened, shown as a text badge.
 enum ChartEntryStatus {
@@ -26,9 +31,9 @@ enum ChartEntryStatus {
 /// One position on a Sonus chart, laid out in the Revision 9 order: rank
 /// and movement, artwork, title and artist, then statistics.
 ///
-/// Positions 1–100 are the official chart and sit on a card surface;
-/// positions 101–200 sit flat on the page with a Bubbling Under
-/// badge, so they never read as official entries.
+/// Positions 1–100 are the official chart and sit on a card surface, with
+/// emphasis by [ChartRankTier]; positions 101–200 sit flat on the page with
+/// a Bubbling Under badge, so they never read as official entries.
 class ChartEntryCard extends StatefulWidget {
   const ChartEntryCard({
     super.key,
@@ -36,9 +41,14 @@ class ChartEntryCard extends StatefulWidget {
     required this.chartType,
     required this.artworkPath,
     this.onTap,
+    this.onLongPress,
     this.status,
     this.isAllTime = false,
     this.weeklyPeakRank,
+    this.longevity,
+    this.previousExtendedRank,
+    this.bestSoFarRank,
+    this.movement,
   });
 
   /// Displayed artwork size. Images are decoded at this size so a 200-row
@@ -60,25 +70,69 @@ class ChartEntryCard extends StatefulWidget {
 
   /// Null leaves the entry visible but not interactive.
   final VoidCallback? onTap;
+
+  /// Charts 2.0 C4: the song's playback actions.
+  final VoidCallback? onLongPress;
   final ChartEntryStatus? status;
 
-  /// Whether the entry is on the permanent all-time chart. There, streams
-  /// are lifetime totals, the comparison is the all-time rank at the start
-  /// of this week, and there are no chart weeks to count.
+  /// Whether the entry is on the permanent career standings. There,
+  /// streams are lifetime totals, the comparison is the standings rank at
+  /// the start of this week, and there are no chart weeks to count.
   final bool isAllTime;
 
-  /// On the all-time chart, the best position reached on a finalized weekly
-  /// chart, shown apart from the all-time peak.
+  /// On the career standings and This Week, the best position reached on a
+  /// finalized weekly chart, shown apart from the career or in-week peak.
   final int? weeklyPeakRank;
 
+  /// Official longevity from finalized weeks, derived at load.
+  final ChartLongevity? longevity;
+
+  /// On a weekly chart, last week's #101–200 position when the entry had no
+  /// official one: context only, it never changes movement (E-Q1).
+  final int? previousExtendedRank;
+
+  /// On the provisional This Week chart, the best position so far this
+  /// week. It replaces the peak, which there reads as the official weekly
+  /// peak from finalized weeks in [weeklyPeakRank] (SN-50 E-Q18).
+  final int? bestSoFarRank;
+
   /// Visible text for the position being compared with: last week's official
-  /// rank on a weekly chart, or the all-time rank at the start of this week.
-  /// Without one the line shows a neutral dash.
-  static String lastWeekText(ChartEntry entry, {bool isAllTime = false}) {
+  /// rank on a weekly chart, or the standings rank at the start of this
+  /// week. Without one the line shows last week's Bubbling Under position
+  /// when known, otherwise a neutral dash.
+  static String lastWeekText(
+    ChartEntry entry, {
+    bool isAllTime = false,
+    int? previousExtendedRank,
+    ChartType chartType = ChartType.songs,
+  }) {
     final previous = entry.previousFinalRank;
     final label = isAllTime ? 'Start of week' : 'Last week';
 
-    return previous == null ? '$label —' : '$label #$previous';
+    if (previous != null) return '$label #$previous';
+    if (!isAllTime && previousExtendedRank != null) {
+      return '$label #$previousExtendedRank (${_lowerZoneName(chartType)})';
+    }
+    return '$label —';
+  }
+
+  static String _lowerZoneName(ChartType chartType) => switch (chartType) {
+    ChartType.songs => 'Bubbling Under',
+    ChartType.albums => '#101–200',
+  };
+
+  /// The movement and what it is measured against.
+  static String movementSpoken(ChartEntry entry, {bool isAllTime = false}) {
+    final movement = ChartMovementIndicator.semanticLabelFor(entry);
+
+    return switch (entry.movement) {
+      ChartMovement.up || ChartMovement.down || ChartMovement.same =>
+        isAllTime
+            ? '$movement since the start of this chart week'
+            : '$movement since last week',
+      ChartMovement.newEntry || ChartMovement.reentry =>
+        isAllTime ? '$movement this chart week' : movement,
+    };
   }
 
   /// The single label a screen reader announces for the whole card.
@@ -88,6 +142,10 @@ class ChartEntryCard extends StatefulWidget {
     ChartEntryStatus? status,
     bool isAllTime = false,
     int? weeklyPeakRank,
+    ChartLongevity? longevity,
+    int? previousExtendedRank,
+    int? bestSoFarRank,
+    String? title,
   }) {
     final previous = entry.previousFinalRank;
     final weeks = entry.weeksOnChart;
@@ -95,26 +153,38 @@ class ChartEntryCard extends StatefulWidget {
     return [
       'Number ${entry.rank}',
       if (entry.isOffChartStanding) 'Bubbling Under',
-      ChartMovementIndicator.semanticLabelFor(entry),
-      entry.entity.title,
+      movementSpoken(entry, isAllTime: isAllTime),
+      title ?? entry.entity.title,
       subtitle,
       isAllTime
           ? '${entry.qualifiedStreamCount} lifetime ${sonusCountNoun(entry.qualifiedStreamCount, 'stream')}'
           : '${entry.qualifiedStreamCount} ${sonusCountNoun(entry.qualifiedStreamCount, 'stream')}',
-      isAllTime
-          ? 'all-time peak number ${entry.peakRank}'
-          : 'peak number ${entry.peakRank}',
+      if (bestSoFarRank != null) ...[
+        'best so far this week number $bestSoFarRank',
+        if (weeklyPeakRank != null) 'official peak number $weeklyPeakRank',
+      ] else
+        isAllTime
+            ? 'career peak number ${entry.peakRank}'
+            : 'peak number ${entry.peakRank}',
       if (isAllTime && weeklyPeakRank != null)
         'weekly chart peak number $weeklyPeakRank',
       if (isAllTime)
         previous == null
             ? 'not ranked at the start of this week'
             : 'number $previous at the start of this week'
+      else if (previous != null)
+        'last week number $previous'
+      else if (previousExtendedRank != null)
+        'no official position last week, number $previousExtendedRank '
+            'below the Top 100'
       else
-        previous == null
-            ? 'no official position last week'
-            : 'last week number $previous',
+        'no official position last week',
       if (!isAllTime) '$weeks ${weeks == 1 ? 'week' : 'weeks'} on chart',
+      for (final fact in chartLongevityFacts(
+        longevity,
+        includeOfficialWeeks: isAllTime,
+      ))
+        fact.spoken,
       if (status != null) status.spokenLabel,
     ].join(', ');
   }
@@ -129,6 +199,9 @@ class ChartEntryCard extends StatefulWidget {
         album,
     ].join(' • ');
   }
+
+  /// Charts 2.0 C2 movement and achievement for this view.
+  final ChartEntryMovement? movement;
 
   @override
   State<ChartEntryCard> createState() => _ChartEntryCardState();
@@ -148,16 +221,9 @@ class _ChartEntryCardState extends State<ChartEntryCard> {
     final tokens = SonusTheme.of(context);
     final colors = tokens.colors;
     final entry = widget.entry;
-    final isExtended = entry.isOffChartStanding;
-    final isTopThree = !isExtended && entry.rank <= 3;
+    final tier = ChartTierStyle.of(tokens, ChartRankTier.of(entry));
     final radius = BorderRadius.circular(tokens.metrics.cardRadius);
     final subtitle = ChartEntryCard.subtitleFor(entry, widget.chartType);
-
-    final Color background = isExtended
-        ? Colors.transparent
-        : isTopThree
-        ? colors.raisedSurface
-        : colors.surface;
 
     final details = _EntryDetails(
       chartType: widget.chartType,
@@ -166,8 +232,15 @@ class _ChartEntryCardState extends State<ChartEntryCard> {
       status: widget.status,
       isAllTime: widget.isAllTime,
       weeklyPeakRank: widget.weeklyPeakRank,
+      longevity: widget.longevity,
+      previousExtendedRank: widget.previousExtendedRank,
+      bestSoFarRank: widget.bestSoFarRank,
     );
-    final rank = _RankColumn(entry: entry, isTopThree: isTopThree);
+    final rank = _RankColumn(
+      entry: entry,
+      color: tier.rankColor,
+      movement: widget.movement,
+    );
     final artwork = _ChartArtwork(
       key: ValueKey<String>('charts-artwork-${entry.entity.entityId}'),
       path: widget.artworkPath,
@@ -199,16 +272,15 @@ class _ChartEntryCardState extends State<ChartEntryCard> {
           border: _focused ? Border.all(color: colors.focus, width: 3) : null,
         ),
         child: Material(
-          color: background,
+          color: tier.background,
           shape: RoundedRectangleBorder(
             borderRadius: radius,
-            side: isExtended
-                ? BorderSide(color: colors.divider)
-                : BorderSide.none,
+            side: tier.border,
           ),
           clipBehavior: Clip.antiAlias,
           child: InkWell(
             onTap: widget.onTap,
+            onLongPress: widget.onLongPress,
             onFocusChange: _handleFocusChange,
             child: Semantics(
               label: ChartEntryCard.semanticLabelFor(
@@ -217,11 +289,14 @@ class _ChartEntryCardState extends State<ChartEntryCard> {
                 status: widget.status,
                 isAllTime: widget.isAllTime,
                 weeklyPeakRank: widget.weeklyPeakRank,
+                longevity: widget.longevity,
+                previousExtendedRank: widget.previousExtendedRank,
+                bestSoFarRank: widget.bestSoFarRank,
               ),
               excludeSemantics: true,
               child: Stack(
                 children: [
-                  if (isTopThree && tokens.decoration.showMarks)
+                  if (tier.stripeWidth > 0)
                     Positioned(
                       left: 0,
                       top: 0,
@@ -231,7 +306,7 @@ class _ChartEntryCardState extends State<ChartEntryCard> {
                           'charts-top-accent-${entry.entity.entityId}',
                         ),
                         color: colors.accentPrimary,
-                        child: const SizedBox(width: 4),
+                        child: SizedBox(width: tier.stripeWidth),
                       ),
                     ),
                   Padding(
@@ -297,10 +372,12 @@ class _ChartEntryCardState extends State<ChartEntryCard> {
 }
 
 class _RankColumn extends StatelessWidget {
-  const _RankColumn({required this.entry, required this.isTopThree});
+  const _RankColumn({required this.entry, required this.color, this.movement});
+
+  final ChartEntryMovement? movement;
 
   final ChartEntry entry;
-  final bool isTopThree;
+  final Color color;
 
   @override
   Widget build(BuildContext context) {
@@ -318,18 +395,14 @@ class _RankColumn extends StatelessWidget {
             '${entry.rank}',
             key: ValueKey<String>('charts-rank-${entry.entity.entityId}'),
             textAlign: TextAlign.center,
-            style: tokens.text.chartRank.copyWith(
-              color: entry.isOffChartStanding
-                  ? tokens.colors.textSecondary
-                  : tokens.colors.textPrimary,
-            ),
+            style: tokens.text.chartRank.copyWith(color: color),
           ),
           const SizedBox(height: 4),
           // "RE-ENTRY" is the widest badge; it shrinks slightly rather
           // than widening the column and misaligning the artwork.
           FittedBox(
             fit: BoxFit.scaleDown,
-            child: ChartMovementIndicator(entry: entry),
+            child: ChartMovementIndicator(entry: entry, movement: movement),
           ),
         ],
       ),
@@ -377,6 +450,9 @@ class _EntryDetails extends StatelessWidget {
     required this.status,
     required this.isAllTime,
     required this.weeklyPeakRank,
+    required this.longevity,
+    required this.previousExtendedRank,
+    required this.bestSoFarRank,
   });
 
   final ChartEntry entry;
@@ -385,6 +461,9 @@ class _EntryDetails extends StatelessWidget {
   final ChartEntryStatus? status;
   final bool isAllTime;
   final int? weeklyPeakRank;
+  final ChartLongevity? longevity;
+  final int? previousExtendedRank;
+  final int? bestSoFarRank;
 
   @override
   Widget build(BuildContext context) {
@@ -432,16 +511,32 @@ class _EntryDetails extends StatelessWidget {
                 fontWeight: FontWeight.w700,
               ),
             ),
-            Text(
-              isAllTime
-                  ? 'All-time peak #${entry.peakRank}'
-                  : 'Peak #${entry.peakRank}',
-              style: statStyle,
-            ),
+            if (bestSoFarRank case final best?) ...[
+              Text(
+                'Best so far #$best',
+                key: ValueKey<String>(
+                  'charts-best-so-far-${entry.entity.entityId}',
+                ),
+                style: statStyle,
+              ),
+              if (weeklyPeakRank != null)
+                Text('Peak #$weeklyPeakRank', style: statStyle),
+            ] else
+              Text(
+                isAllTime
+                    ? 'Career peak #${entry.peakRank}'
+                    : 'Peak #${entry.peakRank}',
+                style: statStyle,
+              ),
             if (isAllTime && weeklyPeakRank != null)
               Text('Weekly peak #$weeklyPeakRank', style: statStyle),
             Text(
-              ChartEntryCard.lastWeekText(entry, isAllTime: isAllTime),
+              ChartEntryCard.lastWeekText(
+                entry,
+                isAllTime: isAllTime,
+                previousExtendedRank: previousExtendedRank,
+                chartType: chartType,
+              ),
               key: ValueKey<String>(
                 'charts-last-week-${entry.entity.entityId}',
               ),
@@ -449,6 +544,11 @@ class _EntryDetails extends StatelessWidget {
             ),
             if (!isAllTime)
               Text('$weeks ${weeks == 1 ? 'week' : 'weeks'}', style: statStyle),
+            for (final fact in chartLongevityFacts(
+              longevity,
+              includeOfficialWeeks: isAllTime,
+            ))
+              Text(fact.text, style: statStyle),
             if (entry.isOffChartStanding)
               _Badge(
                 key: ValueKey<String>(

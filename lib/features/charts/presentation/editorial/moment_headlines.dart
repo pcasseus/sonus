@@ -56,6 +56,8 @@ const _ordinalRival = {MomentFact.ordinal, MomentFact.rival};
 const _weeks = {MomentFact.weeks};
 const _run = {MomentFact.weeks, MomentFact.consecutive};
 const _count = {MomentFact.count, MomentFact.threshold};
+const _zones = {MomentFact.rank, MomentFact.thresholdList};
+const _climbRun = {MomentFact.rank, MomentFact.run};
 
 String _p1(MomentFacts f) => MomentFacts.possessive(f.artist);
 String _pc(MomentFacts f) => MomentFacts.possessive(f.careerArtist);
@@ -64,7 +66,79 @@ String _pc(MomentFacts f) => MomentFacts.possessive(f.careerArtist);
 /// six in the Sonus Daily voice (polished, factual) and six in the PulsePop
 /// voice (energetic, conversational). Both voices state the same facts.
 abstract final class MomentHeadlines {
-  static List<HeadlineVariant> of(MomentFamily family) => _library[family]!;
+  static List<HeadlineVariant> of(MomentFamily family) => legacyOf(family);
+
+  /// The catalog exactly as published: the only headlines stories under the
+  /// earlier rules (legacy and before activation) ever use. Never edit,
+  /// reorder or extend a family here; refined changes go through
+  /// RefinedHeadlineCatalog (SN-50 contract §5).
+  ///
+  /// Families added for the refined rules only (BUG-04 falls and exits)
+  /// have no catalog lines; their lines are refined additions.
+  static List<HeadlineVariant> legacyOf(MomentFamily family) =>
+      _library[family] ?? const [];
+
+  /// The families whose headlines are approved for publication (SN-50
+  /// release safety). Fail-closed: a family is publishable only when it is
+  /// listed here, so a new family stays held until its lines are approved.
+  /// Not listed (drafts awaiting approval): songSelfReplacement,
+  /// releaseSelfReplacement, songFirstThreshold, releaseFirstThreshold,
+  /// songThresholds, releaseThresholds, artistRepeatNumberOne,
+  /// artistRepeatNumberOneRelease and artistSimultaneousReleases.
+  static const Set<MomentFamily> approvedFamilies = {
+    MomentFamily.songDebutNumberOne,
+    MomentFamily.songDebutTop10,
+    MomentFamily.songDebut,
+    MomentFamily.songBubblingUnderDebut,
+    MomentFamily.songHot100Breakthrough,
+    MomentFamily.songFirstNumberOne,
+    MomentFamily.songReturnsToNumberOne,
+    MomentFamily.songNewPeak,
+    MomentFamily.songPeakMatch,
+    MomentFamily.songBigClimb,
+    MomentFamily.songBiggestGainer,
+    MomentFamily.songReentry,
+    MomentFamily.songStreamMilestone,
+    MomentFamily.songWeeksMilestone,
+    MomentFamily.artistFirstHot100,
+    MomentFamily.artistFirstTop10,
+    MomentFamily.artistNthTop10,
+    MomentFamily.artistFirstNumberOne,
+    MomentFamily.artistNthNumberOne,
+    MomentFamily.artistTopArtist,
+    MomentFamily.artistStreamMilestone,
+    MomentFamily.artistSimultaneous,
+    MomentFamily.releaseDebutNumberOne,
+    MomentFamily.releaseDebut,
+    MomentFamily.releaseReachesNumberOne,
+    MomentFamily.releaseReturnsToNumberOne,
+    MomentFamily.releaseNewPeak,
+    MomentFamily.releaseReentry,
+    MomentFamily.releaseStreamMilestone,
+    MomentFamily.releaseWeeksMilestone,
+    MomentFamily.artistFirstNumberOneRelease,
+    MomentFamily.artistNthNumberOneRelease,
+    MomentFamily.songHot100MajorJump,
+    MomentFamily.songHot100ClimbRun,
+    // SN-50 BUG-04 (Batch 5): BU-020 to BU-031 and BU-040 to BU-051.
+    MomentFamily.songBubblingUnderFall,
+    MomentFamily.songHot100Exit,
+    // SN-50 complete coverage (device polish): release climbs.
+    MomentFamily.releaseClimb,
+    // Batch 9 (contract §6.2): songThresholds, releaseThresholds.
+    MomentFamily.songThresholds,
+    MomentFamily.releaseThresholds,
+    // Batch 8 (contract §6.2): artistRepeatNumberOne, artistRepeatNumberOneRelease, artistSimultaneousReleases.
+    MomentFamily.artistRepeatNumberOne,
+    MomentFamily.artistRepeatNumberOneRelease,
+    MomentFamily.artistSimultaneousReleases,
+    // Batch 7 (contract §6.2): songSelfReplacement, releaseSelfReplacement.
+    MomentFamily.songSelfReplacement,
+    MomentFamily.releaseSelfReplacement,
+    // Batch 6 (contract §6.2): songFirstThreshold, releaseFirstThreshold.
+    MomentFamily.songFirstThreshold,
+    MomentFamily.releaseFirstThreshold,
+  };
 
   static Iterable<MomentFamily> get families => _library.keys;
 
@@ -2667,6 +2741,396 @@ abstract final class MomentHeadlines {
             '${f.title} reaches #1 with ${f.streamsText}, giving '
             '${f.careerArtist} ${f.ordinal} #1 releases.',
         requires: _ordinalStreams,
+      ),
+    ],
+
+    // SN-50 new pathways: the drafts of SN50_Editorial_Change_Proposal.md
+    // section 3 (N-2 to N-6), awaiting six lines per publisher.
+
+    // N-4.
+    MomentFamily.songSelfReplacement: [
+      HeadlineVariant(
+        'song-self-1-d1',
+        _d,
+        (f) =>
+            '${f.careerArtist} replaces ${f.rivalWork} with ${f.work} at #1 '
+            'on ${f.scopedChart}.',
+        requires: _rival,
+      ),
+      HeadlineVariant(
+        'song-self-1-d2',
+        _d,
+        (f) =>
+            '${f.work} takes over #1 on ${f.scopedChart} from ${f.rivalWork}, '
+            'keeping the top spot with ${f.careerArtist}.',
+        requires: _rival,
+      ),
+      HeadlineVariant(
+        'song-self-1-p1',
+        _p,
+        (f) =>
+            'Out with ${f.rivalWork}, in with ${f.work}: ${f.careerArtist} '
+            'stays at #1.',
+        requires: _rival,
+      ),
+      HeadlineVariant(
+        'song-self-1-p2',
+        _p,
+        (f) =>
+            '${f.careerArtist} follows one #1 with another: ${f.work} '
+            'replaces ${f.rivalWork}.',
+        requires: _rival,
+      ),
+    ],
+    MomentFamily.releaseSelfReplacement: [
+      HeadlineVariant(
+        'release-self-1-d1',
+        _d,
+        (f) =>
+            '${f.careerArtist} replaces ${f.rivalWork} with ${f.title} at #1 '
+            'on ${f.scopedChart}.',
+        requires: _rival,
+      ),
+      HeadlineVariant(
+        'release-self-1-p1',
+        _p,
+        (f) =>
+            '${f.careerArtist} follows one #1 with another: ${f.title} '
+            'replaces ${f.rivalWork}.',
+        requires: _rival,
+      ),
+    ],
+
+    // N-2.
+    MomentFamily.songFirstThreshold: [
+      HeadlineVariant(
+        'song-zone-d1',
+        _d,
+        (f) =>
+            '${f.subject} enters the Top ${f.threshold} of ${f.scopedChart} '
+            'for the first time, at #${f.rank}.',
+        requires: _zone,
+      ),
+      HeadlineVariant(
+        'song-zone-d2',
+        _d,
+        (f) =>
+            '${f.work} by ${f.artist} reaches the Top ${f.threshold} for the '
+            'first time, at #${f.rank}.',
+        requires: _zone,
+      ),
+      HeadlineVariant(
+        'song-zone-p1',
+        _p,
+        (f) =>
+            'Into the Top ${f.threshold}! ${f.subject} reaches #${f.rank} for '
+            'the first time.',
+        requires: _zone,
+      ),
+      HeadlineVariant(
+        'song-zone-p2',
+        _p,
+        (f) =>
+            '${f.artist} cracks the Top ${f.threshold}: ${f.work} reaches '
+            '#${f.rank}.',
+        requires: _zone,
+      ),
+    ],
+    MomentFamily.releaseFirstThreshold: [
+      HeadlineVariant(
+        'release-zone-d1',
+        _d,
+        (f) =>
+            'The ${f.releaseWord} ${f.subject} reaches the Top ${f.threshold} '
+            'of ${f.scopedChart} for the first time, at #${f.rank}.',
+        requires: _zone,
+      ),
+      HeadlineVariant(
+        'release-zone-p1',
+        _p,
+        (f) =>
+            '${f.artist} takes the ${f.releaseWord} ${f.title} into the Top '
+            '${f.threshold}, at #${f.rank}.',
+        requires: _zone,
+      ),
+    ],
+
+    // N-3.
+    MomentFamily.songThresholds: [
+      HeadlineVariant(
+        'song-zones-d1',
+        _d,
+        (f) =>
+            '${f.subject} moves into ${f.thresholdList} for the first time, '
+            'now at #${f.rank}.',
+        requires: _zones,
+      ),
+      HeadlineVariant(
+        'song-zones-p1',
+        _p,
+        (f) =>
+            'Up and through: ${f.work} by ${f.artist} enters '
+            '${f.thresholdList} at #${f.rank}.',
+        requires: _zones,
+      ),
+    ],
+    MomentFamily.releaseThresholds: [
+      HeadlineVariant(
+        'release-zones-d1',
+        _d,
+        (f) =>
+            'The ${f.releaseWord} ${f.subject} moves into ${f.thresholdList} '
+            'for the first time, now at #${f.rank}.',
+        requires: _zones,
+      ),
+      HeadlineVariant(
+        'release-zones-p1',
+        _p,
+        (f) =>
+            '${f.title} by ${f.artist} breaks into ${f.thresholdList} in one '
+            'move, landing at #${f.rank}.',
+        requires: _zones,
+      ),
+    ],
+
+    // N-6.
+    MomentFamily.artistRepeatNumberOne: [
+      HeadlineVariant(
+        'artist-repeat-1-d1',
+        _d,
+        (f) =>
+            '${f.careerArtist} earns ${f.aOrdinalText} #1 on ${f.scopedChart} '
+            'as ${f.work} takes the top spot.',
+        requires: _ordinal,
+      ),
+      HeadlineVariant(
+        'artist-repeat-1-p1',
+        _p,
+        (f) =>
+            '#1 number ${f.ordinal} on ${f.scopedChart} for '
+            '${f.careerArtist}! ${f.work} takes the top spot.',
+        requires: _ordinal,
+      ),
+    ],
+    MomentFamily.artistRepeatNumberOneRelease: [
+      HeadlineVariant(
+        'artist-release-repeat-1-d1',
+        _d,
+        (f) =>
+            '${f.title} gives ${f.careerArtist} ${f.aOrdinalText} #1 on '
+            '${f.scopedChart}.',
+        requires: _ordinal,
+      ),
+      HeadlineVariant(
+        'artist-release-repeat-1-p1',
+        _p,
+        (f) =>
+            '${f.careerArtist} collects #1 number ${f.ordinal} on '
+            '${f.scopedChart} with the ${f.releaseWord} ${f.title}.',
+        requires: _ordinal,
+      ),
+    ],
+
+    // N-5.
+    MomentFamily.artistSimultaneousReleases: [
+      HeadlineVariant(
+        'artist-sim-release-d1',
+        _d,
+        (f) =>
+            '${f.artist} has ${f.count} releases in the Top ${f.threshold} of '
+            '${f.scopedChart} at once.',
+        requires: _count,
+      ),
+      HeadlineVariant(
+        'artist-sim-release-d2',
+        _d,
+        (f) =>
+            '${f.count} releases by ${f.artist} sit in the Top ${f.threshold} '
+            'of ${f.scopedChart}.',
+        requires: _count,
+      ),
+      HeadlineVariant(
+        'artist-sim-release-p1',
+        _p,
+        (f) =>
+            'Catalog power: ${f.artist} has ${f.count} releases in the Top '
+            '${f.threshold}.',
+        requires: _count,
+      ),
+    ],
+    // SN-50 chart jumps, approved line by line (SN50_Chart_Jump_Editorial_
+    // Approval_Sheet.md CJ-001 to CJ-031, with the approved CJ-010,
+    // CJ-011 and CJ-028 wording).
+    MomentFamily.songHot100MajorJump: [
+      HeadlineVariant(
+        'song-jump-d1',
+        _d,
+        (f) =>
+            '${f.subject} jumps ${f.places} places on the weekly Sonus Hot 100, from #${f.previousRank} to #${f.rank}.',
+        requires: _placesFrom,
+      ),
+      HeadlineVariant(
+        'song-jump-d2',
+        _d,
+        (f) =>
+            '${f.subject} climbs from #${f.previousRank} to #${f.rank} on the weekly Sonus Hot 100.',
+        requires: _previous,
+      ),
+      HeadlineVariant(
+        'song-jump-d3',
+        _d,
+        (f) =>
+            'A ${f.places}-place climb takes ${f.subject} to #${f.rank} on the weekly Sonus Hot 100.',
+        requires: _places,
+      ),
+      HeadlineVariant(
+        'song-jump-d4',
+        _d,
+        (f) =>
+            '${f.work} by ${f.artist} rises ${f.places} places to #${f.rank} on the weekly Sonus Hot 100.',
+        requires: _places,
+      ),
+      HeadlineVariant(
+        'song-jump-d5',
+        _d,
+        (f) =>
+            '${f.subject} moves up the weekly Sonus Hot 100, from #${f.previousRank} to #${f.rank}.',
+        requires: _previous,
+      ),
+      HeadlineVariant(
+        'song-jump-d6',
+        _d,
+        (f) =>
+            '${MomentFacts.possessive(f.artist)} ${f.work} gains ${f.places} places on the weekly Sonus Hot 100 and reaches #${f.rank}.',
+        requires: _places,
+      ),
+      HeadlineVariant(
+        'song-jump-p1',
+        _p,
+        (f) =>
+            'Up ${f.places}! ${f.work} leaps to #${f.rank} on the Sonus Hot 100.',
+        requires: _places,
+      ),
+      HeadlineVariant(
+        'song-jump-p2',
+        _p,
+        (f) =>
+            '${f.work} is flying: #${f.previousRank} to #${f.rank} on the Sonus Hot 100.',
+        requires: _previous,
+      ),
+      HeadlineVariant(
+        'song-jump-p3',
+        _p,
+        (f) =>
+            'Big move for ${f.subject}: up ${f.places} spots to #${f.rank} on the Sonus Hot 100.',
+        requires: _places,
+      ),
+      HeadlineVariant(
+        'song-jump-p4',
+        _p,
+        (f) =>
+            '${f.work} by ${f.artist} soars ${f.places} places to #${f.rank} on the Sonus Hot 100.',
+        requires: _places,
+      ),
+      HeadlineVariant(
+        'song-jump-p5',
+        _p,
+        (f) =>
+            'From #${f.previousRank} to #${f.rank}: ${f.work} makes a major jump on the Sonus Hot 100.',
+        requires: _previous,
+      ),
+      HeadlineVariant(
+        'song-jump-p6',
+        _p,
+        (f) =>
+            '${f.subject} surges ${f.places} spots, landing at #${f.rank} on the Sonus Hot 100.',
+        requires: _places,
+      ),
+    ],
+    MomentFamily.songHot100ClimbRun: [
+      HeadlineVariant(
+        'song-run-d1',
+        _d,
+        (f) =>
+            '${f.subject} has climbed the weekly Sonus Hot 100 for ${f.runWeeks} weeks in a row, from #${f.runFromRank} to #${f.rank}.',
+        requires: _climbRun,
+      ),
+      HeadlineVariant(
+        'song-run-d2',
+        _d,
+        (f) =>
+            '${f.runWeeks} straight weekly climbs take ${f.subject} from #${f.runFromRank} to #${f.rank} on the Sonus Hot 100.',
+        requires: _climbRun,
+      ),
+      HeadlineVariant(
+        'song-run-d3',
+        _d,
+        (f) =>
+            '${f.work} by ${f.artist} is up ${f.runPlaces} places over ${f.runWeeks} weeks on the weekly Sonus Hot 100, now #${f.rank}.',
+        requires: _climbRun,
+      ),
+      HeadlineVariant(
+        'song-run-d4',
+        _d,
+        (f) =>
+            '${f.subject} rises again on the weekly Sonus Hot 100, to #${f.rank}: ${f.runPlaces} places in ${f.runWeeks} weeks.',
+        requires: _climbRun,
+      ),
+      HeadlineVariant(
+        'song-run-d5',
+        _d,
+        (f) =>
+            'Week after week, ${f.subject} moves up the Sonus Hot 100: #${f.runFromRank} to #${f.rank} in ${f.runWeeks} weeks.',
+        requires: _climbRun,
+      ),
+      HeadlineVariant(
+        'song-run-d6',
+        _d,
+        (f) =>
+            '${MomentFacts.possessive(f.artist)} ${f.work} keeps climbing the weekly Sonus Hot 100 and reaches #${f.rank}.',
+        requires: _climbRun,
+      ),
+      HeadlineVariant(
+        'song-run-p1',
+        _p,
+        (f) =>
+            '${f.runWeeks} weeks, ${f.runPlaces} places: ${f.work} keeps climbing the Sonus Hot 100.',
+        requires: _climbRun,
+      ),
+      HeadlineVariant(
+        'song-run-p2',
+        _p,
+        (f) =>
+            '${f.work} won\'t stop rising: #${f.runFromRank} to #${f.rank} on the Sonus Hot 100.',
+        requires: _climbRun,
+      ),
+      HeadlineVariant(
+        'song-run-p3',
+        _p,
+        (f) =>
+            'Up, up, up! ${f.subject} climbs for ${f.runWeeks} straight weeks, reaching #${f.rank} on the Sonus Hot 100.',
+        requires: _climbRun,
+      ),
+      HeadlineVariant(
+        'song-run-p4',
+        _p,
+        (f) =>
+            '${MomentFacts.possessive(f.artist)} ${f.work} is on a run, up ${f.runPlaces} spots in ${f.runWeeks} weeks to #${f.rank}.',
+        requires: _climbRun,
+      ),
+      HeadlineVariant(
+        'song-run-p5',
+        _p,
+        (f) =>
+            'The climb continues for ${f.work}: #${f.rank} on the Sonus Hot 100, ${f.runPlaces} places higher than ${f.runWeeks} weeks ago.',
+        requires: _climbRun,
+      ),
+      HeadlineVariant(
+        'song-run-p6',
+        _p,
+        (f) =>
+            '${f.subject} keeps moving up: ${f.runWeeks} weeks, ${f.runPlaces} places, now #${f.rank}.',
+        requires: _climbRun,
       ),
     ],
   };

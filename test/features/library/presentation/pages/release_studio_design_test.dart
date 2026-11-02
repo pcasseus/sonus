@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sonus_next/core/design/sonus_theme_factory.dart';
 import 'package:sonus_next/core/design/sonus_theme_id.dart';
@@ -109,6 +110,16 @@ void main() {
   }
 
   Finder tool(String key) => find.byKey(ValueKey<String>('album-studio-$key'));
+  final scroll = find.byKey(const ValueKey<String>('release-studio-scroll'));
+
+  /// Opens a collapsed section (or closes an open one) by its heading.
+  Future<void> toggleSection(WidgetTester tester, String name) async {
+    final header = find.byKey(ValueKey<String>('release-studio-section-$name'));
+    await tester.ensureVisible(header);
+    await tester.pumpAndSettle();
+    await tester.tap(header);
+    await tester.pumpAndSettle();
+  }
 
   group('layout', () {
     // Regression (J4): a fixed tools card above the list left about three
@@ -155,16 +166,10 @@ void main() {
         last,
         400,
         scrollable: find
-            .descendant(
-              of: find.byKey(const ValueKey<String>('album-studio-track-list')),
-              matching: find.byType(Scrollable),
-            )
+            .descendant(of: scroll, matching: find.byType(Scrollable))
             .first,
       );
-      await tester.drag(
-        find.byKey(const ValueKey<String>('album-studio-track-list')),
-        const Offset(0, -2000),
-      );
+      await tester.drag(scroll, const Offset(0, -2000));
       await tester.pumpAndSettle();
 
       // Fully on screen and clear of a 96px bottom inset.
@@ -174,29 +179,192 @@ void main() {
     });
   });
 
-  group('four sections, each action once', () {
+  group('shared details above edition sections, each action once', () {
     Finder key(String value) => find.byKey(ValueKey<String>(value));
 
-    testWidgets('Details, Artwork, Editions and Tracklist', (tester) async {
+    testWidgets('Shared details, then the edition\'s sections (A-Q6A)', (
+      tester,
+    ) async {
       await pump(tester, section: ReleaseStudioSection.details);
 
       expect(find.text('Edit Release'), findsOneWidget);
-      for (final tab in ['details', 'artwork', 'editions', 'tracklist']) {
-        expect(key('release-studio-tab-$tab'), findsOneWidget, reason: tab);
+      for (final name in [
+        'shared',
+        'name',
+        'artwork',
+        'editions',
+        'tracklist',
+      ]) {
+        expect(
+          key('release-studio-section-$name'),
+          findsOneWidget,
+          reason: name,
+        );
       }
+      // Shared details come first.
+      expect(
+        tester.getTopLeft(key('release-studio-section-shared')).dy,
+        lessThan(tester.getTopLeft(key('release-studio-section-name')).dy),
+      );
       for (final row in ['name', 'owner', 'date', 'genre']) {
         expect(key('release-studio-$row'), findsOneWidget, reason: row);
       }
-      // Artwork actions live only under Artwork.
+      // Shared values live only in Shared details; the edition's name and
+      // date are edited only in its own section (A-Q4).
+      for (final row in ['owner', 'genre']) {
+        expect(
+          find.descendant(
+            of: key('release-studio-details'),
+            matching: key('release-studio-$row'),
+          ),
+          findsOneWidget,
+          reason: row,
+        );
+      }
+      for (final row in ['name', 'date']) {
+        expect(
+          find.descendant(
+            of: key('release-studio-details'),
+            matching: key('release-studio-$row'),
+          ),
+          findsNothing,
+          reason: row,
+        );
+      }
+      // Artwork actions live only under Artwork, which starts closed.
       expect(tool('change-artwork'), findsNothing);
 
-      await tester.tap(key('release-studio-tab-artwork'));
+      await toggleSection(tester, 'artwork');
+      for (final action in [
+        'change-artwork',
+        'search-cover-art',
+        'clear-artwork',
+      ]) {
+        expect(
+          find.descendant(
+            of: key('release-studio-artwork'),
+            matching: tool(action),
+          ),
+          findsOneWidget,
+          reason: action,
+        );
+      }
+      expect(
+        find.descendant(
+          of: key('release-studio-artwork'),
+          matching: key('release-studio-name'),
+        ),
+        findsNothing,
+      );
+
+      // Shared details collapse; their values are gone from the screen.
+      await toggleSection(tester, 'shared');
+      expect(key('release-studio-owner'), findsNothing);
+      expect(key('release-studio-name'), findsOneWidget);
+    });
+
+    testWidgets('one edition opens straight into its editor, without tabs', (
+      tester,
+    ) async {
+      await pump(tester, section: ReleaseStudioSection.details);
+
+      expect(key('release-studio-edition-tabs'), findsNothing);
+      expect(find.text('Name'), findsOneWidget);
+      expect(find.text('Release date'), findsOneWidget);
+    });
+
+    testWidgets('editions are tabs, primary first and marked Primary (A-Q6B)', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      final (controller, _) = await pump(
+        tester,
+        section: ReleaseStudioSection.details,
+        repo: repository(count: 3, deluxe: true),
+      );
+
+      final tabs = key('release-studio-edition-tabs');
+      expect(tabs, findsOneWidget);
+      final standard = key('release-studio-edition-tab-edition-standard');
+      final deluxe = key('release-studio-edition-tab-edition-deluxe');
+      expect(
+        tester.getTopLeft(standard).dx,
+        lessThan(tester.getTopLeft(deluxe).dx),
+      );
+      expect(
+        find.descendant(
+          of: standard,
+          matching: key('release-studio-edition-tab-primary'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: deluxe,
+          matching: key('release-studio-edition-tab-primary'),
+        ),
+        findsNothing,
+      );
+      expect(
+        find.bySemanticsLabel(RegExp('^Standard, primary edition')),
+        findsOneWidget,
+      );
+      // Tabs sit between Shared details and the edition's sections.
+      expect(
+        tester.getTopLeft(tabs).dy,
+        lessThan(tester.getTopLeft(key('release-studio-section-name')).dy),
+      );
+
+      await tester.tap(deluxe);
       await tester.pumpAndSettle();
-      expect(tool('change-artwork'), findsOneWidget);
-      expect(tool('search-cover-art'), findsOneWidget);
-      expect(tool('clear-artwork'), findsOneWidget);
-      // Naming lives only under Details.
-      expect(key('release-studio-name'), findsNothing);
+
+      expect(controller.selectedEdition?.editionId, 'edition-deluxe');
+      expect(find.text('Name of Deluxe'), findsOneWidget);
+      // Shared values stay in Shared details, whichever edition is shown.
+      expect(
+        find.descendant(
+          of: key('release-studio-details'),
+          matching: key('release-studio-owner'),
+        ),
+        findsOneWidget,
+      );
+      semantics.dispose();
+    });
+
+    testWidgets('sections open by keyboard and say whether they are open', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      await pump(tester, section: ReleaseStudioSection.details);
+      final shared = key('release-studio-section-shared');
+      final tile = find.descendant(of: shared, matching: find.byType(ListTile));
+
+      expect(
+        tester.getSemantics(tile),
+        isSemantics(hasExpandedState: true, isExpanded: true),
+      );
+
+      for (var presses = 0; presses < 10; presses++) {
+        final focused = FocusManager.instance.primaryFocus?.context;
+        if (focused != null &&
+            find
+                .descendant(of: tile, matching: find.byWidget(focused.widget))
+                .evaluate()
+                .isNotEmpty) {
+          break;
+        }
+        await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+        await tester.pumpAndSettle();
+      }
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+
+      expect(key('release-studio-owner'), findsNothing);
+      expect(
+        tester.getSemantics(tile),
+        isSemantics(hasExpandedState: true, isExpanded: false),
+      );
+      semantics.dispose();
     });
 
     testWidgets('artwork actions run for the selected edition', (tester) async {
@@ -338,13 +506,20 @@ void main() {
       await pump(tester, repo: repository(count: 3, deluxe: true));
 
       expect(find.text('Song bonus'), findsNothing);
-      await tester.tap(
-        find.descendant(
-          of: tool('edition-selector'),
-          matching: find.text('Deluxe'),
-        ),
+      final deluxe = find.byKey(
+        const ValueKey<String>('release-studio-edition-tab-edition-deluxe'),
       );
+      await tester.ensureVisible(deluxe);
       await tester.pumpAndSettle();
+      await tester.tap(deluxe);
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('Song bonus'),
+        200,
+        scrollable: find
+            .descendant(of: scroll, matching: find.byType(Scrollable))
+            .first,
+      );
 
       expect(find.text('Song bonus'), findsOneWidget);
     });
@@ -377,10 +552,7 @@ void main() {
         repo: repository(tracks: [track('a', 1), track('b', 10, disc: 2)]),
       );
       final list = find
-          .descendant(
-            of: find.byKey(const ValueKey<String>('album-studio-track-list')),
-            matching: find.byType(Scrollable),
-          )
+          .descendant(of: scroll, matching: find.byType(Scrollable))
           .first;
       final title = find.text('Song b');
       await tester.scrollUntilVisible(title, 300, scrollable: list);
@@ -419,14 +591,31 @@ void main() {
           size: const Size(320, 6000),
           textScale: 2,
           repo: repository(count: 6, deluxe: true),
+          section: ReleaseStudioSection.details,
         );
-        for (final tab in ['details', 'artwork', 'editions', 'tracklist']) {
-          await tester.tap(
-            find.byKey(ValueKey<String>('release-studio-tab-$tab')),
-          );
-          await tester.pumpAndSettle();
-          expect(tester.takeException(), isNull, reason: tab);
+        // Every section open at once, on each edition's tab.
+        for (final name in ['artwork', 'editions', 'tracklist']) {
+          await toggleSection(tester, name);
+          expect(tester.takeException(), isNull, reason: name);
         }
+        for (final edition in ['edition-deluxe', 'edition-standard']) {
+          final tab = find.byKey(
+            ValueKey<String>('release-studio-edition-tab-$edition'),
+          );
+          await tester.ensureVisible(tab);
+          await tester.pumpAndSettle();
+          await tester.tap(tab);
+          await tester.pumpAndSettle();
+          expect(tester.takeException(), isNull, reason: edition);
+        }
+        await tester.scrollUntilVisible(
+          find.text('Song s6'),
+          400,
+          scrollable: find
+              .descendant(of: scroll, matching: find.byType(Scrollable))
+              .first,
+        );
+        expect(tester.takeException(), isNull);
       });
     }
   });

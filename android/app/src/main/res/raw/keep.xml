@@ -5,7 +5,8 @@
   so release resource shrinking cannot see the references. Without the
   control icons every playback state update throws "You must specify an
   icon resource id to build a CustomAction" and release builds show no
-  notification at all. Keep them explicitly (SN-44).
+  notification at all. Keep them explicitly (SN-44), with the Shuffle and
+  Repeat custom-action icons ("drawable/sonus_*", SN-50).
 -->
 <resources xmlns:tools="http://schemas.android.com/tools"
-    tools:keep="@drawable/ic_stat_sonus,@drawable/audio_service_*" />
+    tools:keep="@drawable/ic_stat_sonus,@drawable/audio_service_*,@drawable/sonus_*" />

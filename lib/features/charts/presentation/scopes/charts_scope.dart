@@ -12,16 +12,33 @@ import '../../application/services/all_time_chart_service.dart';
 import '../../application/services/all_time_moment_service.dart';
 import '../../application/services/chart_finalization_service.dart';
 import '../../application/services/chart_snapshot_builder_service.dart';
+import '../../application/services/moment_rules_activation.dart';
+import '../../application/services/this_week_chart_service.dart';
+import '../../application/services/moments_last_seen_store.dart';
 import '../../data/repositories/sqlite_chart_moment_repository.dart';
 import '../../data/repositories/sqlite_chart_repository.dart';
+import '../../data/services/shared_preferences_moment_rules_activation_store.dart';
+import '../../data/services/shared_preferences_moments_last_seen_store.dart';
 import '../controllers/charts_controller.dart';
 import '../../../library/application/services/library_organization_service.dart';
 import '../../application/services/library_release_chart_eligibility.dart';
 import '../../../analytics/presentation/scopes/listening_artist_attribution_lookup.dart';
 import '../../../analytics/application/services/listening_artist_attribution.dart';
+import '../../../song_stats/application/song_listening_records.dart';
+import '../../../song_stats/application/song_stats_service.dart';
+import '../../../song_stats/data/sqlite_song_listening_records.dart';
+import '../../domain/models/chart_type.dart';
+import '../../domain/models/chart_view_size.dart';
 
 class ChartsScope extends StatefulWidget {
-  const ChartsScope({super.key, required this.child, this.now, this.changes});
+  const ChartsScope({
+    super.key,
+    required this.child,
+    this.now,
+    this.changes,
+    this.momentsLastSeen,
+    this.momentRulesActivation,
+  });
 
   final Widget child;
 
@@ -29,6 +46,13 @@ class ChartsScope extends StatefulWidget {
   /// shared signal if null.
   final LibraryChangeSignal? changes;
   final ChartsControllerNow? now;
+
+  /// Remembers when Moments was last open; device preferences if null.
+  final MomentsLastSeenStore? momentsLastSeen;
+
+  /// Which Moments rules apply; device preferences and the build's
+  /// approval if null.
+  final MomentRulesActivation? momentRulesActivation;
 
   @override
   State<ChartsScope> createState() => _ChartsScopeState();
@@ -41,7 +65,15 @@ class _ChartsScopeState extends State<ChartsScope> {
   PlaybackSessionRepository? _playbackSessions;
 
   ChartsController? _controller;
+  SongStatsLoader? _songStats;
   LibraryChangeRefresher? _refresher;
+
+  /// One per process, so its instant is recorded once however often
+  /// scopes and controllers are recreated.
+  static final MomentRulesActivation _deviceRulesActivation = () {
+    final store = SharedPreferencesMomentRulesActivationStore();
+    return MomentRulesActivation(store: store, devicePolish: store);
+  }();
 
   @override
   void didChangeDependencies() {
@@ -104,6 +136,7 @@ class _ChartsScopeState extends State<ChartsScope> {
   void _recreateController() {
     final previousController = _controller;
     _controller = null;
+    _songStats = null;
 
     _refresher?.dispose();
     _refresher = null;
@@ -139,6 +172,7 @@ class _ChartsScopeState extends State<ChartsScope> {
     final allTimeCharts = AllTimeChartService(
       qualifiedPlays: qualifiedPlays,
       library: library,
+      playbackSessions: playbackSessions,
       releaseEligibility: releaseEligibility,
     );
     final finalization = ChartFinalizationService(
@@ -151,12 +185,15 @@ class _ChartsScopeState extends State<ChartsScope> {
       restoreGeneration: () => database.mutationCoordinator.restoreGeneration,
       releaseEligibility: releaseEligibility,
       artistAttribution: () => _entityArtists(library, attribution),
+      // Snapshot and Moments in one transaction (SN-50 F6).
+      weekFinalizer: charts,
     );
 
     final allTimeMoments = AllTimeMomentService(
       qualifiedPlays: qualifiedPlays,
       library: library,
       moments: moments,
+      playbackSessions: playbackSessions,
       // SN-45 release week: earlier achievements are never told as news.
       activationUtc: DateTime(2026, 10, 25).toUtc(),
       restoreGeneration: () => database.mutationCoordinator.restoreGeneration,
@@ -173,9 +210,57 @@ class _ChartsScopeState extends State<ChartsScope> {
       allTimeMoments: allTimeMoments,
       now: widget.now,
       releaseFormats: organization?.releaseFormatsForDisplay,
+      releaseEditions: switch (library) {
+        final ReleaseEditionQueryRepository editions =>
+          editions.getReleaseEditions,
+        _ => null,
+      },
+      thisWeekCharts: ThisWeekChartService(
+        builder: builder,
+        releaseEligibility: releaseEligibility,
+      ),
+      momentsLastSeen:
+          widget.momentsLastSeen ?? SharedPreferencesMomentsLastSeenStore(),
+      playEdition: (playId) async =>
+          (await qualifiedPlays.getById(playId))?.albumEditionId,
+      momentRules:
+          (widget.momentRulesActivation ?? _deviceRulesActivation).rules,
     );
 
     _controller = controller;
+
+    // Song Stats (Charts 2.0 C4): read-only, from the same chart history,
+    // the same provisional week rules and Pulse's listening definitions.
+    final thisWeekSongs = ThisWeekChartService(
+      builder: builder,
+      releaseEligibility: releaseEligibility,
+    );
+    final now = widget.now ?? DateTime.now;
+    Future<SongListeningRecords>? songRecords;
+    _songStats = SongStatsService(
+      charts: charts,
+      library: library,
+      records: () => songRecords ??= database.database.then(
+        (db) => SqliteSongListeningRecords(db),
+      ),
+      // The week the chart already built when it is current; otherwise
+      // the same provisional week, built the same way.
+      liveSongs: () async =>
+          controller.loadedLiveSongWeek(now()) ??
+          await thisWeekSongs.load(
+            chartType: ChartType.songs,
+            referenceLocal: now(),
+          ),
+      // The career standings the Charts page opens on, ranked the same way
+      // (#1–200), so a row's rank there matches Song Stats.
+      careerSongs: () => allTimeCharts.load(
+        chartType: ChartType.songs,
+        referenceLocal: now(),
+        viewSize: ChartViewSize.top200,
+      ),
+      nowLocal: now,
+    );
+
     // New qualified plays move the all-time chart; imports and edits change
     // titles, artwork and membership. Never sent for playback progress.
     _refresher = LibraryChangeRefresher(
@@ -189,9 +274,12 @@ class _ChartsScopeState extends State<ChartsScope> {
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider<ChartsController?>.value(
-      value: _controller,
-      child: widget.child,
+    return Provider<SongStatsLoader?>.value(
+      value: _songStats,
+      child: ChangeNotifierProvider<ChartsController?>.value(
+        value: _controller,
+        child: widget.child,
+      ),
     );
   }
 

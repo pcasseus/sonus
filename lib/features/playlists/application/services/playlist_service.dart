@@ -6,6 +6,7 @@ import '../../../sync/application/services/sync_mutation_runner.dart';
 import '../../domain/entities/playlist.dart';
 import '../../domain/entities/playlist_item.dart';
 import '../../domain/repositories/playlist_repository.dart';
+import '../models/playlist_add_result.dart';
 import '../models/playlist_detail.dart';
 import '../models/playlist_summary.dart';
 import '../models/playlist_track.dart';
@@ -232,6 +233,90 @@ class PlaylistService {
       await playlistRepository.save(playlist.copyWith(updatedAt: timestamp));
 
       return item;
+    });
+  }
+
+  /// Appends [songIds] in order, in one transaction. A song already in the
+  /// playlist, or listed twice, is counted once and never duplicated; a
+  /// song missing from the library is counted as failed.
+  Future<PlaylistAddResult> addSongs({
+    required String playlistId,
+    required List<String> songIds,
+    DateTime? now,
+  }) {
+    final normalizedPlaylistId = _requiredId(
+      playlistId,
+      'playlistId',
+      'Playlist id',
+    );
+
+    final normalizedSongIds = <String>{
+      for (final songId in songIds) _requiredId(songId, 'songIds', 'Song id'),
+    };
+
+    final timestamp = now ?? _now();
+
+    return mutationRunner.run((context) async {
+      final playlistRepository = _requirePlaylistRepository(context);
+
+      final playlist = await playlistRepository.getById(normalizedPlaylistId);
+
+      if (playlist == null) {
+        throw StateError('Playlist not found: $normalizedPlaylistId');
+      }
+
+      final items = await playlistRepository.getItems(normalizedPlaylistId);
+      final presentSongIds = {for (final item in items) item.songId};
+
+      var nextPosition = 0;
+
+      for (final item in items) {
+        if (item.position >= nextPosition) {
+          nextPosition = item.position + 1;
+        }
+      }
+
+      var added = 0;
+      var alreadyPresent = 0;
+      var failed = 0;
+
+      for (final songId in normalizedSongIds) {
+        if (presentSongIds.contains(songId)) {
+          alreadyPresent++;
+          continue;
+        }
+
+        if (await context.songRepository.getById(songId) == null) {
+          failed++;
+          continue;
+        }
+
+        await playlistRepository.addItem(
+          PlaylistItem(
+            id: _generatePlaylistItemId(),
+            playlistId: normalizedPlaylistId,
+            songId: songId,
+            position: nextPosition,
+            createdAt: timestamp,
+            updatedAt: timestamp,
+          ),
+        );
+
+        presentSongIds.add(songId);
+        nextPosition++;
+        added++;
+      }
+
+      if (added > 0) {
+        await playlistRepository.save(playlist.copyWith(updatedAt: timestamp));
+      }
+
+      return PlaylistAddResult(
+        playlistName: playlist.name,
+        added: added,
+        alreadyPresent: alreadyPresent,
+        failed: failed,
+      );
     });
   }
 

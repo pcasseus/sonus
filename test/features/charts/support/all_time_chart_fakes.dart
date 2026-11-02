@@ -1,4 +1,7 @@
+import 'package:sonus_next/features/analytics/domain/entities/playback_session.dart';
 import 'package:sonus_next/features/analytics/domain/entities/qualified_play.dart';
+import 'package:sonus_next/features/analytics/domain/models/listening_history_cursor.dart';
+import 'package:sonus_next/features/analytics/domain/repositories/playback_session_repository.dart';
 import 'package:sonus_next/features/analytics/domain/repositories/qualified_play_repository.dart';
 import 'package:sonus_next/features/library/application/models/library_album.dart';
 import 'package:sonus_next/features/library/application/models/library_artist.dart';
@@ -50,6 +53,7 @@ LibraryTrack libraryTrack(
   String songId,
   String albumId, {
   bool blocked = false,
+  bool available = true,
   String? albumEditionId,
 }) {
   return LibraryTrack(
@@ -67,7 +71,7 @@ LibraryTrack libraryTrack(
     isSingle: false,
     featuredArtists: const [],
     dateAdded: DateTime.utc(2026, 9, 1),
-    isAvailable: true,
+    isAvailable: available,
     isSongBlocked: blocked,
   );
 }
@@ -174,5 +178,64 @@ class FakeChartLibrary implements LibraryQueryRepository {
   Future<List<LibraryTrack>> getTracksByArtistId(
     String artistId, {
     LibraryTrackOrder order = LibraryTrackOrder.title,
+  }) => throw UnimplementedError();
+}
+
+/// The session behind each of [plays], titled as heard: "Heard" and its id.
+class FakePlaybackSessions implements PlaybackSessionRepository {
+  FakePlaybackSessions(List<QualifiedPlay> plays)
+    : _sessions = {
+        for (final play in plays)
+          play.playbackSessionId: PlaybackSession(
+            id: play.playbackSessionId,
+            songId: play.songId,
+            artistId: play.artistId,
+            albumId: play.albumId,
+            albumEditionId: play.albumEditionId,
+            songTitle: 'Heard ${play.songId}',
+            artistName: 'Heard ${play.artistId}',
+            albumTitle: 'Heard ${play.albumId}',
+            albumEditionTitle: 'Heard ${play.albumId}',
+            startedAt: play.qualifiedAt,
+            endedAt: play.qualifiedAt,
+            listenedDuration: play.listenedDuration,
+            trackDuration: play.trackDuration,
+            finalPosition: play.trackDuration,
+            createdAt: play.qualifiedAt,
+            updatedAt: play.qualifiedAt,
+          ),
+      };
+
+  final Map<String, PlaybackSession> _sessions;
+
+  @override
+  Future<List<PlaybackSession>> getByIds(Iterable<String> ids) async => [
+    for (final id in ids.toSet()) ?_sessions[id],
+  ];
+
+  @override
+  Future<void> create(PlaybackSession session) => throw UnimplementedError();
+
+  @override
+  Future<void> save(PlaybackSession session) => throw UnimplementedError();
+
+  @override
+  Future<PlaybackSession?> getById(String id) => throw UnimplementedError();
+
+  @override
+  Future<List<PlaybackSession>> getOpen() => throw UnimplementedError();
+
+  @override
+  Future<List<PlaybackSession>> getAll({
+    DateTime? startedAtOrAfter,
+    DateTime? startedBefore,
+  }) => throw UnimplementedError();
+
+  @override
+  Future<List<PlaybackSession>> getHistoryPage({
+    DateTime? startedAtOrAfter,
+    DateTime? startedBefore,
+    ListeningHistoryCursor? before,
+    required int limit,
   }) => throw UnimplementedError();
 }

@@ -1,4 +1,6 @@
+import '../../../../core/identity/text_normalizer.dart';
 import '../../application/models/library_artist.dart';
+import '../../application/services/song_artist_credit_service.dart';
 import '../../domain/entities/song.dart';
 import '../../domain/entities/song_artist_credit.dart';
 
@@ -18,6 +20,74 @@ class TrackProfileCreditDraft {
   final String creditedName;
   final SongArtistCreditRole role;
   final String? artistId;
+
+  /// The credit to save. Track Studio links credits only to an artist the
+  /// person chose, never by a matching name alone (SN-50 C-Q2).
+  SongArtistCreditInput toInput() {
+    return SongArtistCreditInput(
+      creditedName: creditedName,
+      role: role,
+      artistId: artistId,
+      linkByName: false,
+    );
+  }
+}
+
+/// The credits Track Studio starts from (SN-50 C-Q4): the song's structured
+/// [credits] in order, then each of its older [legacyFeaturedArtists] names
+/// no credit already names, as featured.
+///
+/// Saving writes the song's featured names from the saved featured credits
+/// alone (BUG-01), so every name the song shows is in the editor first:
+/// nothing is dropped unseen, and a replaced name does not linger. Only the
+/// song being edited is affected, and only when it is saved.
+List<TrackProfileCreditDraft> trackStudioInitialCredits({
+  required Iterable<SongArtistCredit> credits,
+  required List<String> legacyFeaturedArtists,
+  required String primaryArtistId,
+  required String primaryArtistName,
+}) {
+  final ordered = [
+    for (final credit in credits)
+      if (credit.role != SongArtistCreditRole.primary) credit,
+  ]..sort((left, right) => left.position.compareTo(right.position));
+  final drafts = [
+    for (final credit in ordered)
+      TrackProfileCreditDraft(
+        creditedName: credit.creditedName,
+        role: credit.role,
+        artistId: credit.artistId,
+      ),
+  ];
+
+  final identities = SongCreditIdentitySet(
+    primaryArtistId: primaryArtistId,
+    primaryCanonicalName: TextNormalizer.canonicalize(primaryArtistName),
+  );
+
+  for (final draft in drafts) {
+    identities.add(
+      canonicalName: TextNormalizer.canonicalize(draft.creditedName),
+      artistId: draft.artistId,
+    );
+  }
+
+  for (final name in legacyFeaturedArtists) {
+    final trimmed = name.trim();
+    final canonicalName = TextNormalizer.canonicalize(trimmed);
+
+    if (canonicalName.isNotEmpty &&
+        identities.add(canonicalName: canonicalName)) {
+      drafts.add(
+        TrackProfileCreditDraft(
+          creditedName: trimmed,
+          role: SongArtistCreditRole.featured,
+        ),
+      );
+    }
+  }
+
+  return drafts;
 }
 
 class TrackProfileEditDraft {

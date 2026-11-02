@@ -3,11 +3,14 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:sonus_next/app/account_sync_ownership_attachment_service.dart';
 import 'package:sonus_next/core/database/app_database.dart';
+import 'package:sonus_next/core/database/database_tables.dart';
 import 'package:sonus_next/features/account/application/repositories/local_account_binding_repository.dart';
 import 'package:sonus_next/features/account/data/repositories/sqlite_local_account_binding_repository.dart';
 import 'package:sonus_next/features/sync/data/daos/local_sync_dao.dart';
 import 'package:sonus_next/features/sync/data/repositories/sqlite_local_sync_repository.dart';
 import 'package:sonus_next/features/sync/domain/models/sync_data_contract.dart';
+
+import '../support/library_seed.dart';
 
 void main() {
   sqfliteFfiInit();
@@ -23,6 +26,32 @@ void main() {
 
   tearDown(() async {
     await appDatabase.close();
+  });
+
+  test('SN-49: signing in changes no library data, only who owns the '
+      'pending changes', () async {
+    final db = await appDatabase.database;
+    await seedConnectedLibrary(db, key: 'a');
+    await seedConnectedLibrary(db, key: 'b', week: 1);
+    const accountTables = {
+      DatabaseTables.localAccountBinding,
+      DatabaseTables.syncOutbox,
+    };
+    Map<String, Object> library(Map<String, Object> snapshot) => {
+      for (final MapEntry(:key, :value) in snapshot.entries)
+        if (!accountTables.contains(key)) key: value,
+    };
+    final before = library(await snapshotDatabase(db));
+
+    await AccountSyncOwnershipAttachmentService(
+      appDatabase: appDatabase,
+    ).attachUnownedToUser('user-1');
+
+    expect(
+      library(await snapshotDatabase(db)),
+      before,
+      reason: 'songs, plays, playlists and charts are untouched',
+    );
   });
 
   test('attaches unowned mutations to normalized account id', () async {

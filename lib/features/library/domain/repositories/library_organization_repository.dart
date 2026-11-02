@@ -15,6 +15,18 @@ abstract interface class LibraryOrganizationRepository {
 
   Future<void> deleteFormat(String albumId);
 
+  Future<List<AlbumLiveClassification>> getLiveClassifications();
+
+  Future<void> saveLiveClassification(AlbumLiveClassification live);
+
+  Future<void> deleteLiveClassification(String albumId);
+
+  Future<List<AlbumLeakedClassification>> getLeakedClassifications();
+
+  Future<void> saveLeakedClassification(AlbumLeakedClassification leaked);
+
+  Future<void> deleteLeakedClassification(String albumId);
+
   Future<List<ArtistProjectAssignment>> getAssignments();
 
   Future<void> saveAssignment(ArtistProjectAssignment assignment);

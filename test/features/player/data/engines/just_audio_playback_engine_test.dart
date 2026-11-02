@@ -54,6 +54,15 @@ class FakePlaybackAudioPlayer implements PlaybackAudioPlayer {
   bool get hasNext => hasNextValue;
 
   @override
+  List<int> get shuffleIndices => const [];
+
+  /// What [adjacentIndex] answers (Repeat One navigation), per offset.
+  final Map<int, int?> adjacentIndexes = {};
+
+  @override
+  int? adjacentIndex(int offset) => adjacentIndexes[offset];
+
+  @override
   bool get playing => false;
 
   @override
@@ -61,6 +70,7 @@ class FakePlaybackAudioPlayer implements PlaybackAudioPlayer {
     List<AudioSource> sources, {
     required int initialIndex,
     required Duration initialPosition,
+    ShuffleOrder? shuffleOrder,
   }) async {
     currentIndex = initialIndex;
     _indexes.add(initialIndex);

@@ -231,6 +231,9 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
     final externalMetadataProposalService = ExternalMetadataProposalService(
       artistRepository: SqliteArtistRepository(ArtistDao(database)),
       albumRepository: SqliteAlbumRepository(AlbumDao(database)),
+      albumEditionRepository: SqliteAlbumEditionRepository(
+        AlbumEditionDao(database),
+      ),
       songRepository: SqliteSongRepository(SongDao(database)),
       metadataFieldStateRepository: SqliteMetadataFieldStateRepository(
         MetadataFieldStateDao(database),

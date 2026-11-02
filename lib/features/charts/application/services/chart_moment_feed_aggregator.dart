@@ -17,7 +17,7 @@ class ChartMomentFeedAggregator {
 
     final items = <ChartMomentFeedItem>[
       for (final group in groups.entries)
-        _buildItem(groupKey: group.key, events: group.value),
+        _buildItem(id: 'moment-feed:${group.key}', events: group.value),
     ];
 
     items.sort(_compareFeedItems);
@@ -25,8 +25,15 @@ class ChartMomentFeedAggregator {
     return List<ChartMomentFeedItem>.unmodifiable(items);
   }
 
+  /// One story of several told from the same group (SN-50): [events] are
+  /// the facts it tells, ordered and summarized like a whole group.
+  static ChartMomentFeedItem storyItem({
+    required String id,
+    required List<ChartMomentEvent> events,
+  }) => _buildItem(id: id, events: events);
+
   static ChartMomentFeedItem _buildItem({
-    required String groupKey,
+    required String id,
     required List<ChartMomentEvent> events,
   }) {
     if (events.isEmpty) {
@@ -55,7 +62,7 @@ class ChartMomentFeedAggregator {
     final artistLevel = events.any(_isArtistLevelCatalogEvent);
 
     return ChartMomentFeedItem(
-      id: 'moment-feed:$groupKey',
+      id: id,
       subjectType: artistLevel
           ? ChartMomentFeedSubjectType.artist
           : ChartMomentFeedSubjectType.entity,

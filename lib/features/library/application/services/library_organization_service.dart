@@ -66,6 +66,8 @@ class ArtistLibraryOrganization {
     this.catalogOwners,
     this.formats = const {},
     this.formatReviews = const {},
+    this.lives = const {},
+    this.leaked = const {},
   });
 
   /// A release with no stated format and at most this many songs might be
@@ -116,6 +118,24 @@ class ArtistLibraryOrganization {
 
   /// Whether the release might be a Single and has no stated format.
   bool needsFormatReview(String albumId) => formatReviews.contains(albumId);
+
+  /// Whether the release's format was stated (by the user or MusicBrainz)
+  /// rather than inferred.
+  bool hasStatedFormat(String albumId) => formats.containsKey(albumId);
+
+  /// Stated Live classifications by album id, including the user's "not
+  /// live".
+  final Map<String, AlbumLiveClassification> lives;
+
+  /// Whether the release is a live recording. Unstated means not live.
+  bool isLive(String albumId) => lives[albumId]?.isLive ?? false;
+
+  /// Releases the user marked as leaked, by album id (SN-50 A-Q2C).
+  final Map<String, AlbumLeakedClassification> leaked;
+
+  /// Whether the user marked the whole release as leaked. Songs flagged as
+  /// leaks never mark their release (A-Q2D).
+  bool isLeaked(String albumId) => leaked.containsKey(albumId);
 
   ArtistLibraryPlacement placementOf(String artistId) {
     final placement = placements[artistId];
@@ -224,10 +244,17 @@ class LibraryOrganizationService {
     final formats = {
       for (final f in await organization.getFormats()) f.albumId: f,
     };
+    final lives = {
+      for (final l in await organization.getLiveClassifications()) l.albumId: l,
+    };
+    final leaked = {
+      for (final l in await organization.getLeakedClassifications())
+        l.albumId: l,
+    };
 
     final ownerOf = {
       for (final album in albums)
-        if (album.trackCount > 0) album.albumId: album.artistId,
+        if (album.hasSongs) album.albumId: album.artistId,
     };
     final owners = ownerOf.values.toSet();
 
@@ -292,6 +319,8 @@ class LibraryOrganizationService {
       formatReviews: Set.unmodifiable(
         ArtistLibraryOrganization.formatReviewsOf(albums, formats.keys.toSet()),
       ),
+      lives: Map.unmodifiable(lives),
+      leaked: Map.unmodifiable(leaked),
     );
   }
 
@@ -480,6 +509,73 @@ class LibraryOrganizationService {
   /// otherwise later.
   Future<void> clearReleaseFormat(String albumId) =>
       organization.deleteFormat(albumId);
+
+  /// The user's answer to "is this a live recording?". Both answers are
+  /// kept, so a MusicBrainz refresh never overrules either.
+  Future<void> setReleaseLive({required String albumId, required bool live}) {
+    final timestamp = _now();
+
+    return organization.saveLiveClassification(
+      AlbumLiveClassification(
+        albumId: albumId,
+        isLive: live,
+        authority: ReleaseClassificationAuthority.manual,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      ),
+    );
+  }
+
+  /// MusicBrainz says the release is live. Ignored when the user has
+  /// answered. Returns whether it was saved.
+  Future<bool> suggestReleaseLive({
+    required String albumId,
+    String? sourceReference,
+  }) async {
+    final existing = [
+      for (final l in await organization.getLiveClassifications())
+        if (l.albumId == albumId) l,
+    ];
+    if (existing.any(
+      (l) => l.authority == ReleaseClassificationAuthority.manual,
+    )) {
+      return false;
+    }
+    final timestamp = _now();
+    await organization.saveLiveClassification(
+      AlbumLiveClassification(
+        albumId: albumId,
+        isLive: true,
+        authority: ReleaseClassificationAuthority.external,
+        sourceReference: sourceReference,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      ),
+    );
+    return true;
+  }
+
+  /// Forgets the user's answer; a MusicBrainz suggestion may apply later.
+  Future<void> clearReleaseLive(String albumId) =>
+      organization.deleteLiveClassification(albumId);
+
+  /// Marks the whole release as leaked. Only the user does this; the
+  /// songs' own leak flags are left as they are.
+  Future<void> setReleaseLeaked(String albumId) {
+    final timestamp = _now();
+
+    return organization.saveLeakedClassification(
+      AlbumLeakedClassification(
+        albumId: albumId,
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      ),
+    );
+  }
+
+  /// The release is no longer marked as leaked.
+  Future<void> clearReleaseLeaked(String albumId) =>
+      organization.deleteLeakedClassification(albumId);
 
   Future<void> _save(
     String artistId,

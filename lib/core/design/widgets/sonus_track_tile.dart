@@ -34,6 +34,8 @@ class SonusTrackTile extends StatelessWidget {
     this.durationKey,
     this.status,
     this.showArtwork = true,
+    this.selected,
+    this.onLongPress,
   });
 
   final String title;
@@ -71,6 +73,13 @@ class SonusTrackTile extends StatelessWidget {
   final Widget? status;
   final bool showArtwork;
 
+  /// Non-null while the list is in selection mode: the row shows a
+  /// checkbox, hides [trailing] and [onTap] toggles it, even when disabled.
+  final bool? selected;
+
+  /// Usually starts selection mode.
+  final VoidCallback? onLongPress;
+
   static const double artworkSize = 44;
 
   @override
@@ -88,9 +97,17 @@ class SonusTrackTile extends StatelessWidget {
       if (largeText && duration != null) duration,
     ];
     final textColor = enabled ? colors.textPrimary : colors.textSecondary;
+    final selected = this.selected;
+    final selecting = selected != null;
 
     final leading = [
-      if (isCurrent)
+      if (selecting)
+        ExcludeFocus(
+          child: ExcludeSemantics(
+            child: Checkbox(value: selected, onChanged: (_) => onTap?.call()),
+          ),
+        )
+      else if (isCurrent)
         SizedBox(
           width: 28,
           child: Align(
@@ -119,17 +136,20 @@ class SonusTrackTile extends StatelessWidget {
         ),
     ];
 
-    return Padding(
+    final row = Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: Material(
-        color: tileColor ?? Colors.transparent,
+        color: selected == true
+            ? colors.accentPrimary.withValues(alpha: 0.16)
+            : tileColor ?? Colors.transparent,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(tokens.metrics.cardRadius),
         ),
         clipBehavior: Clip.antiAlias,
         child: InkWell(
           key: inkKey,
-          onTap: enabled ? onTap : null,
+          onTap: enabled || selecting ? onTap : null,
+          onLongPress: onLongPress,
           child: ConstrainedBox(
             constraints: const BoxConstraints(minHeight: 56),
             child: Padding(
@@ -189,7 +209,10 @@ class SonusTrackTile extends StatelessWidget {
                       ),
                     ),
                   ],
-                  if (trailing != null) trailing! else const SizedBox(width: 8),
+                  if (trailing != null && !selecting)
+                    trailing!
+                  else
+                    const SizedBox(width: 8),
                 ],
               ),
             ),
@@ -197,6 +220,12 @@ class SonusTrackTile extends StatelessWidget {
         ),
       ),
     );
+
+    if (!selecting) {
+      return row;
+    }
+
+    return Semantics(checked: selected, selected: selected, child: row);
   }
 }
 

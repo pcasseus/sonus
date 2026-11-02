@@ -2,9 +2,11 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../application/services/google_auth_gateway.dart';
 import '../../application/services/supabase_auth_gateway.dart';
+import '../../domain/entities/account_failure.dart';
 import '../../domain/entities/account_user.dart';
 import '../../domain/repositories/account_repository.dart';
 import '../mappers/supabase_account_user_mapper.dart';
+import '../services/account_failure_classifier.dart';
 
 class SupabaseAccountRepository implements AccountRepository {
   SupabaseAccountRepository({
@@ -39,29 +41,37 @@ class SupabaseAccountRepository implements AccountRepository {
     });
   }
 
+  /// Null when the person cancels. Any failure is an [AccountFailure]
+  /// saying what went wrong, with the original error as its cause.
   @override
   Future<AccountUser?> signInWithGoogle() async {
-    final credential = await _googleAuthGateway.signIn();
+    try {
+      final credential = await _googleAuthGateway.signIn();
 
-    if (credential == null) {
-      return null;
-    }
+      if (credential == null) {
+        return null;
+      }
 
-    final response = await _supabaseAuthGateway.signInWithIdToken(
-      provider: OAuthProvider.google,
-      idToken: credential.idToken,
-      accessToken: credential.accessToken,
-    );
-
-    final user = response.user;
-
-    if (user == null) {
-      throw StateError(
-        'Supabase authentication completed without returning a user.',
+      final response = await _supabaseAuthGateway.signInWithIdToken(
+        provider: OAuthProvider.google,
+        idToken: credential.idToken,
+        accessToken: credential.accessToken,
       );
-    }
 
-    return SupabaseAccountUserMapper.fromUser(user);
+      final user = response.user;
+
+      if (user == null) {
+        throw StateError(
+          'Supabase authentication completed without returning a user.',
+        );
+      }
+
+      return SupabaseAccountUserMapper.fromUser(user);
+    } on AccountFailure {
+      rethrow;
+    } catch (error) {
+      throw AccountFailure(classifyAccountFailure(error), cause: error);
+    }
   }
 
   @override

@@ -62,6 +62,46 @@ void main() {
     expect(opened, 1);
   });
 
+  const possibleAlternate = ValueKey<String>('import-possible-alternate-row');
+
+  testWidgets('shows possible different recordings only when there are any', (
+    tester,
+  ) async {
+    await pump(tester, ImportResultCard(summary: summary, onReset: () {}));
+
+    expect(find.byKey(possibleAlternate), findsNothing);
+
+    await pump(
+      tester,
+      ImportResultCard(
+        summary: const ImportExecutionSummary(
+          batchId: 'batch',
+          totalCount: 3,
+          importedCount: 1,
+          relinkedCount: 0,
+          skippedCount: 2,
+          failedCount: 0,
+          possibleAlternateRecordingCount: 1,
+        ),
+        onReset: () {},
+      ),
+    );
+
+    final row = find.byKey(possibleAlternate);
+    expect(row, findsOneWidget);
+    expect(
+      find.descendant(
+        of: row,
+        matching: find.text('Possible different recordings (not imported)'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.descendant(of: row, matching: find.text('1')), findsOneWidget);
+    // The skipped total still includes them.
+    expect(find.text('Skipped'), findsOneWidget);
+    expect(find.text('2'), findsOneWidget);
+  });
+
   testWidgets('no health action unless the page provides one', (tester) async {
     await pump(tester, ImportResultCard(summary: summary, onReset: () {}));
 

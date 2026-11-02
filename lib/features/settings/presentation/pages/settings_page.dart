@@ -167,7 +167,15 @@ class _AccountCloudTile extends StatelessWidget {
     return ('Cloud sync is paused for recovery review.', true);
   }
   if (sync.isAwaitingCloudChoice) {
-    return ('Your cloud library is waiting for your choice.', true);
+    return sync.cloudChoiceHasCloudLibrary
+        ? ('Your cloud library is waiting for your choice.', true)
+        : ('$name · Cloud sync is off', false);
+  }
+  // Paused only for a cloud that lacks this version's tables, columns or
+  // functions (cloudNotReady); nothing syncs until the cloud is updated and
+  // the person taps Try again (DQA-01).
+  if (sync.isPaused) {
+    return ('Sync paused — cloud update required', true);
   }
   if (sync.status == SyncStatus.error) {
     return ('Sync could not finish. Sonus will try again.', true);

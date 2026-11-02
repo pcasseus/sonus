@@ -6,6 +6,7 @@ import 'package:sonus_next/features/player/application/controllers/playback_coor
 import 'package:sonus_next/features/player/application/services/media_session/media_session_bootstrap.dart';
 import 'package:sonus_next/features/player/application/services/media_session/media_session_state_mapper.dart';
 import 'package:sonus_next/features/player/application/services/media_session/sonus_audio_handler.dart';
+import 'package:sonus_next/features/player/domain/models/playback_repeat_mode.dart';
 import 'package:sonus_next/features/player/domain/models/playback_state.dart';
 
 import 'media_session_test_support.dart';
@@ -32,14 +33,26 @@ void main() {
     final icons = {
       MediaSessionBootstrap.config.androidNotificationIcon,
       for (final playing in [true, false])
-        for (final control in MediaSessionStateMapper.controlsFor(
-          playing: playing,
-        ))
-          control.androidIcon,
+        for (final shuffle in [true, false])
+          for (final repeat in PlaybackRepeatMode.values)
+            for (final control in MediaSessionStateMapper.controlsFor(
+              playing: playing,
+              shuffleEnabled: shuffle,
+              repeatMode: repeat,
+            ))
+              control.androidIcon,
     }.map((icon) => icon.replaceFirst('drawable/', ''));
 
     for (final icon in icons) {
       expect(isKept(icon), isTrue, reason: '$icon is not in keep.xml');
+      // App icons (not audio_service's own) must exist in this app.
+      if (!icon.startsWith('audio_service_')) {
+        expect(
+          File('android/app/src/main/res/drawable/$icon.xml').existsSync(),
+          isTrue,
+          reason: '$icon has no drawable',
+        );
+      }
     }
   });
 

@@ -5,6 +5,7 @@ import '../../domain/moments/chart_moment_event.dart';
 import '../../domain/moments/chart_moment_event_type.dart';
 import '../../domain/moments/chart_moment_scope.dart';
 import '../../domain/services/chart_ranking_engine.dart';
+import 'chart_jump_facts.dart';
 
 /// What the editorial desk may look up about the library. Everything else
 /// comes from the Moment's own recorded facts.
@@ -21,13 +22,28 @@ abstract interface class MomentLookups {
   /// The song's featured credits, exactly as stored.
   List<String> featuredOf(String songId);
 
+  /// The song's guest credits (role guest), in credit order. Guests are
+  /// never featured artists.
+  List<String> guestsOf(String songId);
+
   /// A library artist with exactly this name, if there is one.
   String? artistIdNamed(String name);
 
-  /// The cover of the song's release (or its own artwork).
+  /// The cover of the song's release (or its own artwork), as stories
+  /// before the SN-50 rules show it.
   String? songCover(String songId);
 
   String? releaseCover(String albumId);
+
+  /// The song's picture for SN-50 stories (A-Q12, C-23), as song rows
+  /// show it: its own artwork, else the cover of the edition it lives on
+  /// (a Deluxe-only song shows the Deluxe cover), else the primary's.
+  String? currentSongCover(String songId);
+
+  /// The release's cover for SN-50 stories: the current album chart's,
+  /// from its edition with the most songs (A-Q28: an edition without a
+  /// cover keeps the placeholder).
+  String? currentReleaseCover(String albumId);
 
   /// The artist's portrait, or their banner without one.
   String? artistPortrait(String artistId);
@@ -78,6 +94,15 @@ enum MomentFact {
 
   /// How many songs an artist has in a zone at once.
   count,
+
+  /// Two or more zones entered for the first time in one move.
+  thresholdList,
+
+  /// A verified run of weekly climbs (SN-50 chart jumps).
+  run,
+
+  /// Places lost since the preceding finalized week (SN-50 BUG-04).
+  placesDown,
 }
 
 /// Every verified fact of one story, ready for headlines.
@@ -106,6 +131,13 @@ class MomentFacts {
     this.passedTopArtist,
     this.consecutive = false,
     this.count,
+    this.refined = false,
+    this.catalogVersion,
+    this.polished = false,
+    this.featuredArtists = const [],
+    this.guests = const [],
+    this.thresholds = const [],
+    this.jump,
   });
 
   final ChartType chartType;
@@ -161,6 +193,52 @@ class MomentFacts {
   /// For simultaneous entries: how many songs at once.
   final int? count;
 
+  /// Told under the SN-50 rules (see ChartMomentRules).
+  final bool refined;
+
+  /// The refined catalog version the story is told with (SN-50 R-V); null
+  /// under the earlier rules. Wording that changes in a later version
+  /// branches on it, so earlier stories keep their words.
+  final int? catalogVersion;
+
+  /// Told under the SN-50 device polish (ChartMomentRules
+  /// .tellsEveryChartEvent): weekly stories name the weekly chart, as
+  /// refined ones do. Earlier stories keep their wording.
+  final bool polished;
+
+  /// Every featured artist on the song, in credit order: device-polish
+  /// stories name them all ([subject]); earlier stories named one only.
+  final List<String> featuredArtists;
+
+  /// Guest credits, told apart from featured artists (device polish).
+  final List<String> guests;
+
+  /// "A", "A and B", "A, B and C", or for longer credits "A, B and 3
+  /// others", so a headline stays readable.
+  static String nameList(List<String> names) {
+    if (names.length <= 1) return names.join();
+    if (names.length <= 3) {
+      return '${names.sublist(0, names.length - 1).join(', ')} and '
+          '${names.last}';
+    }
+    return '${names[0]}, ${names[1]} and ${names.length - 2} others';
+  }
+
+  /// A chart jump's verified movement and stream facts (SN-50).
+  final ChartJumpFacts? jump;
+
+  /// The rank before a run of weekly climbs began.
+  int? get runFromRank => jump?.fromRank;
+
+  /// How many weeks in a row the song has climbed.
+  int? get runWeeks => jump?.weeks;
+
+  /// Places gained over the whole run.
+  int? get runPlaces => jump?.placesGained;
+
+  /// Zones first entered in one move, largest first.
+  final List<int> thresholds;
+
   /// The artist named for career facts: the owner when it differs.
   String get careerArtist => ownerName ?? artist;
 
@@ -170,15 +248,33 @@ class MomentFacts {
     return before == null || now == null || before <= now ? null : before - now;
   }
 
+  /// Places lost since the preceding finalized week; weekly stories
+  /// only, where the previous rank is that week's finalized rank.
+  int? get placesDown {
+    final before = previousRank;
+    final now = rank;
+    return !weekly || before == null || now == null || now <= before
+        ? null
+        : now - before;
+  }
+
   bool get bubblingUnder =>
       chartType == ChartType.songs &&
       rank != null &&
       rank! > ChartRankingEngine.officialChartLimit;
 
+  /// SN-49: the fewest streams a story quotes. A personal chart can be
+  /// led by a song played twice; "debuts at #1 with 2 streams" reads as a
+  /// joke, so smaller counts are left to the chart itself.
+  static const int notableStreams = 10;
+
+  /// Whether [streams] is worth stating; see [notableStreams].
+  bool get hasNotableStreams => (streams ?? 0) >= notableStreams;
+
   Set<MomentFact> get available => {
     if (previousRank != null) MomentFact.previousRank,
     if (previousPeak != null) MomentFact.previousPeak,
-    if (streams != null && streams! > 0) MomentFact.streams,
+    if (hasNotableStreams) MomentFact.streams,
     if (rivalTitle != null) MomentFact.rival,
     if (ordinal != null) MomentFact.ordinal,
     if (album != null &&
@@ -194,17 +290,48 @@ class MomentFacts {
     if (threshold != null) MomentFact.threshold,
     if (consecutive) MomentFact.consecutive,
     if (count != null) MomentFact.count,
+    if (thresholds.length >= 2) MomentFact.thresholdList,
+    if (jump case final run? when run.weeks > 1) MomentFact.run,
+    if (placesDown != null) MomentFact.placesDown,
   };
 
   /// The chart, by name, for the rank in this story: the Sonus Hot 100 or
   /// Sonus Bubbling Under for songs, Sonus Albums & EPs for releases.
   String get chart => switch (chartType) {
+    // SN-50 P-003/P-004 (refined stories only): a finished week is the
+    // weekly chart, never "this week's", and a weekly #101–200 position is
+    // never named as the Hot 100. Earlier stories keep their wording.
+    ChartType.songs when weekly && (refined || polished) && bubblingUnder =>
+      'the weekly Sonus Bubbling Under',
+    ChartType.songs when weekly && (refined || polished) =>
+      'the weekly Sonus Hot 100',
     ChartType.songs when weekly => "this week's Sonus Hot 100",
     ChartType.songs when bubblingUnder => 'Sonus Bubbling Under',
     ChartType.songs => 'the Sonus Hot 100',
+    ChartType.albums when weekly && (refined || polished) =>
+      'the weekly Sonus Albums & EPs chart',
     ChartType.albums when weekly => "this week's Sonus Albums & EPs chart",
     ChartType.albums => 'the Sonus Albums & EPs chart',
   };
+
+  /// [chart] for SN-50 headlines: a finished week is the weekly chart,
+  /// never "this week's" (F-Q24).
+  String get scopedChart => switch (chartType) {
+    ChartType.songs when weekly && bubblingUnder =>
+      'the weekly Sonus Bubbling Under',
+    ChartType.songs when weekly => 'the weekly Sonus Hot 100',
+    ChartType.albums when weekly => 'the weekly Sonus Albums & EPs chart',
+    _ => chart,
+  };
+
+  /// [thresholds] as a headline names them: "the Top 75, Top 50 and Top
+  /// 40".
+  String get thresholdList {
+    final names = [for (final zone in thresholds) 'Top $zone'];
+    if (names.length < 2) return 'the ${names.join()}';
+    final head = names.sublist(0, names.length - 1).join(', ');
+    return 'the $head and ${names.last}';
+  }
 
   /// The chart's name to start a sentence or a label with.
   String get chartName => switch (chartType) {
@@ -225,6 +352,8 @@ class MomentFacts {
   /// The story's subject as a headline names it: "Song" by Artist (feat.
   /// Guest), or Title by Artist for a release, or the artist's name.
   String get subject => switch (chartType) {
+    ChartType.songs when polished && featuredArtists.isNotEmpty =>
+      '"$title" by $artist featuring ${nameList(featuredArtists)}',
     ChartType.songs when featured != null =>
       '"$title" by $artist featuring $featured',
     ChartType.songs => '"$title" by $artist',
@@ -322,7 +451,14 @@ class MomentFacts {
 
   /// Builds the facts of [item]: every value from its recorded events,
   /// names and formats from [lookups].
-  factory MomentFacts.of(ChartMomentFeedItem item, MomentLookups lookups) {
+  factory MomentFacts.of(
+    ChartMomentFeedItem item,
+    MomentLookups lookups, {
+    bool refined = false,
+    int? catalogVersion,
+    bool polished = false,
+    ChartJumpFacts? jump,
+  }) {
     final dominant = item.events.firstWhere(
       (event) => event.eventType == item.dominantEventType,
     );
@@ -399,9 +535,36 @@ class MomentFacts {
       // An artist rival is named on its own, never "Name by Name".
       rivalArtist: isArtistStory ? null : rivalEvent?.relatedEntity?.artistName,
       featured: featured.length == 1 ? featured.single : null,
+      featuredArtists: songs && polished
+          ? List.unmodifiable([
+              for (final name in featured)
+                if (name.trim().isNotEmpty) name.trim(),
+            ])
+          : const [],
+      guests: songs && polished
+          ? List.unmodifiable([
+              for (final name in lookups.guestsOf(entity.entityId))
+                if (name.trim().isNotEmpty) name.trim(),
+            ])
+          : const [],
       newTopArtist: topArtist?.entity.title,
       passedTopArtist: topArtist?.relatedEntity?.title,
+      refined: refined,
+      catalogVersion: catalogVersion,
+      polished: polished,
+      jump: jump,
+      thresholds: refined ? _firstThresholds(item) : const [],
     );
+  }
+
+  static List<int> _firstThresholds(ChartMomentFeedItem item) {
+    final zones = {
+      for (final event in item.events)
+        if (event.eventType == ChartMomentEventType.firstThresholdEntry &&
+            event.threshold != null)
+          event.threshold!,
+    }.toList()..sort((a, b) => b.compareTo(a));
+    return List.unmodifiable(zones);
   }
 
   static const Set<ChartMomentEventType> _careerTypes = {

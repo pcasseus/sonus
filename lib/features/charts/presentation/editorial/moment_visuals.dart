@@ -70,10 +70,20 @@ abstract final class MomentVisuals {
     final related = item.relatedEntity;
     final namesRival = variant.requires.contains(MomentFact.rival);
 
+    // Every story, whenever it was published, shows the picture the rest
+    // of Sonus shows (SN-50 device QA, approved for earlier stories too):
+    // a song's own artwork, then the primary edition's cover when the song
+    // is on it, then its home edition's cover (A-Q12/A-Q13, as Now
+    // Playing); a release's current cover, from its edition with the most
+    // songs, as the album chart shows it (A-Q28). Read-only: the
+    // picture is resolved when shown, nothing stored changes, and the
+    // story's words are untouched.
     MomentImage cover(String id, {required bool song}) => MomentImage(
       kind: MomentImageKind.cover,
       entityId: id,
-      path: song ? lookups.songCover(id) : lookups.releaseCover(id),
+      path: song
+          ? lookups.currentSongCover(id)
+          : lookups.currentReleaseCover(id),
     );
     MomentImage portrait(String id) => MomentImage(
       kind: MomentImageKind.portrait,
@@ -93,12 +103,16 @@ abstract final class MomentVisuals {
           layout: MomentVisualLayout.singlePortrait,
           left: portrait(entity.entityId),
         );
-      case MomentFamily.artistSimultaneous:
+      case MomentFamily.artistSimultaneous ||
+          MomentFamily.artistSimultaneousReleases:
         final artistId = entity.artistId;
         return artistId == null
             ? MomentVisual(
                 layout: MomentVisualLayout.singleCover,
-                left: cover(entity.entityId, song: true),
+                left: cover(
+                  entity.entityId,
+                  song: family == MomentFamily.artistSimultaneous,
+                ),
               )
             : MomentVisual(
                 layout: MomentVisualLayout.singlePortrait,
@@ -136,10 +150,15 @@ abstract final class MomentVisuals {
     // Songs.
     final song = cover(entity.entityId, song: true);
     if (namesRival && related != null) {
+      final rival = cover(related.entityId, song: true);
+      // SN-50 (F-Q18): two songs sharing one cover show it once.
+      if (facts.refined && song.hasImage && rival.path == song.path) {
+        return MomentVisual(layout: MomentVisualLayout.singleCover, left: song);
+      }
       return MomentVisual(
         layout: MomentVisualLayout.songAndSong,
         left: song,
-        right: cover(related.entityId, song: true),
+        right: rival,
       );
     }
 

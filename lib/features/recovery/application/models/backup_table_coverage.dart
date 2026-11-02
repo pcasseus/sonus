@@ -40,6 +40,8 @@ abstract final class BackupCoverageContract {
     BackupTableCoverage(
       table: DatabaseTables.albumEditions,
       policy: BackupTablePolicy.portableData,
+      // How much of the release date is known (database version 39).
+      columnsAddedLater: {'release_date_precision'},
     ),
     BackupTableCoverage(
       table: DatabaseTables.albumEditionTracks,
@@ -127,11 +129,16 @@ abstract final class BackupCoverageContract {
       table: DatabaseTables.albumReleaseClassifications,
       policy: BackupTablePolicy.portableData,
       requiredInEveryBackup: false,
-      // Release formats (database version 38).
+      // Release formats (database version 38), Live (version 40) and
+      // Leaked (version 41).
       columnsAddedLater: {
         'format',
         'format_authority',
         'format_source_reference',
+        'live',
+        'live_authority',
+        'live_source_reference',
+        'leaked',
       },
     ),
     BackupTableCoverage(

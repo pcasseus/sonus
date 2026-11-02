@@ -5,9 +5,17 @@ import 'package:sonus_next/features/library/application/models/library_album_edi
 import 'package:sonus_next/features/library/application/models/library_track.dart';
 import 'package:sonus_next/features/library/application/services/album_edition_management_service.dart';
 import 'package:sonus_next/features/library/application/services/album_edition_track_ordering_service.dart';
+import 'package:sonus_next/features/library/application/services/album_profile_editing_service.dart';
+import 'package:sonus_next/features/library/application/services/edition_track_numbering.dart';
+import 'package:sonus_next/features/library/application/services/library_organization_service.dart';
+import 'package:sonus_next/features/library/application/models/project_collaborator.dart';
+import 'package:sonus_next/features/library/application/repositories/library_query_repository.dart';
+import 'package:sonus_next/features/library/domain/entities/library_organization.dart';
+import 'package:sonus_next/features/library/domain/repositories/library_organization_repository.dart';
 import 'package:sonus_next/features/library/data/services/edition_follow_up_dismissals.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/domain/entities/entity_factory.dart';
+import 'package:sonus_next/features/library/domain/entities/release_date.dart';
 import 'package:sonus_next/features/library/presentation/controllers/album_profile_controller.dart';
 import 'package:sonus_next/features/library/presentation/pages/release_studio_page.dart';
 import 'package:sonus_next/features/sync/application/services/sync_mutation_runner.dart';
@@ -67,17 +75,21 @@ void main() {
     base.FakeEditionAwareLibraryQueryRepository? library,
     _MemoryDismissals? dismissals,
     ReleaseStudioSection section = ReleaseStudioSection.editions,
+    AlbumProfileEditingService? editing,
+    _SortingService? ordering,
+    LibraryOrganizationService? organization,
   }) async {
     await tester.binding.setSurfaceSize(size);
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
     final repo = library ?? repository();
-    final ordering = _SortingService();
+    final orderingService = ordering ?? _SortingService();
     final service = editions ?? _FakeEditions();
     final controller = AlbumProfileController(
       repository: repo,
       albumId: 'album-1',
-      albumEditionTrackOrderingService: ordering,
+      albumEditionTrackOrderingService: orderingService,
+      albumProfileEditingService: editing,
     );
     addTearDown(controller.dispose);
     await controller.load();
@@ -98,11 +110,12 @@ void main() {
           library: repo,
           editionFollowUpDismissals: dismissals ?? _MemoryDismissals(),
           initialSection: section,
+          organization: organization,
         ),
       ),
     );
     await tester.pumpAndSettle();
-    return (controller, service, ordering);
+    return (controller, service, orderingService);
   }
 
   Finder key(String value) => find.byKey(ValueKey<String>(value));
@@ -115,17 +128,179 @@ void main() {
 
     expect(key('album-studio-editions'), findsOneWidget);
     expect(key('album-studio-edition-primary'), findsOneWidget);
-    // The primary edition can't be made primary again or deleted.
+    // The primary edition can't be made primary again.
     expect(key('album-studio-make-primary'), findsNothing);
-    expect(key('album-studio-delete-edition'), findsNothing);
 
     await controller.selectEdition('edition-deluxe');
     await tester.pumpAndSettle();
 
     expect(key('album-studio-edition-primary'), findsNothing);
     expect(key('album-studio-make-primary'), findsOneWidget);
-    // Not empty, so it can't be deleted.
-    expect(key('album-studio-delete-edition'), findsNothing);
+  });
+
+  testWidgets('SN-50 A-Q2C: Shared Details shows Leaked next to Live', (
+    tester,
+  ) async {
+    final library = repository();
+    await pump(
+      tester,
+      library: library,
+      section: ReleaseStudioSection.details,
+      organization: LibraryOrganizationService(
+        library: library,
+        collaborators: _NoCollaborators(),
+        organization: _NoOrganization(),
+      ),
+    );
+    await tester.scrollUntilVisible(
+      key('release-studio-leaked'),
+      200,
+      scrollable: find
+          .descendant(
+            of: key('release-studio-scroll'),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+
+    expect(
+      tester.getTopLeft(key('release-studio-leaked')).dy,
+      greaterThan(tester.getTopLeft(key('release-studio-live')).dy),
+    );
+    expect(
+      find.text(
+        'Mark the whole release as leaked. Song leak labels are set per song.',
+      ),
+      findsOneWidget,
+    );
+  });
+
+  group('SN-50 A5: deleting an edition', () {
+    /// Standard lists [standard]; Deluxe lists [deluxe].
+    base.FakeEditionAwareLibraryQueryRepository listing({
+      required List<String> standard,
+      List<String>? deluxe,
+    }) => base.FakeEditionAwareLibraryQueryRepository(
+      album: base.createAlbum(
+        title: 'Harbor Lights',
+        primaryEditionId: 'edition-standard',
+        primaryEditionTitle: 'Standard',
+      ),
+      tracks: [
+        for (final (i, id) in {...standard, ...?deluxe}.indexed)
+          track(id, i + 1),
+      ],
+      editions: [
+        base.createLibraryEdition(
+          editionId: 'edition-standard',
+          title: 'Standard',
+          type: AlbumEditionType.standard,
+          isPrimary: true,
+        ),
+        if (deluxe != null)
+          base.createLibraryEdition(
+            editionId: 'edition-deluxe',
+            title: 'Deluxe',
+            type: AlbumEditionType.deluxe,
+          ),
+      ],
+      editionTracks: {
+        'edition-standard': [
+          for (final (i, id) in standard.indexed) track(id, i + 1),
+        ],
+        if (deluxe != null)
+          'edition-deluxe': [
+            for (final (i, id) in deluxe.indexed)
+              track(id, i + 1, edition: 'edition-deluxe'),
+          ],
+      },
+    );
+
+    testWidgets('the only edition is never deleted (A-Q24)', (tester) async {
+      final (_, service, _) = await pump(
+        tester,
+        library: listing(standard: ['s1']),
+      );
+
+      await tester.tap(key('album-studio-delete-edition'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('keeps at least one edition'), findsOne);
+      expect(key('album-studio-confirm-delete-edition'), findsNothing);
+      expect(service.calls, isEmpty);
+    });
+
+    testWidgets('songs only on the edition block it, with their count '
+        '(A-Q15, A-Q25)', (tester) async {
+      final (controller, service, _) = await pump(
+        tester,
+        library: listing(standard: ['s1'], deluxe: ['s1', 'b1', 'b2']),
+      );
+      await controller.selectEdition('edition-deluxe');
+      await tester.pumpAndSettle();
+
+      await tester.tap(key('album-studio-delete-edition'));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text(
+          '2 songs are only on this edition. Add them to another edition '
+          'first, then delete this one.',
+        ),
+        findsOne,
+      );
+      expect(key('album-studio-confirm-delete-edition'), findsNothing);
+      expect(service.calls, isEmpty);
+    });
+
+    testWidgets('an edition whose songs are all elsewhere goes after a '
+        'confirm that counts them', (tester) async {
+      final (controller, service, _) = await pump(
+        tester,
+        library: listing(standard: ['s1', 's2'], deluxe: ['s1', 's2']),
+      );
+      await controller.selectEdition('edition-deluxe');
+      await tester.pumpAndSettle();
+
+      await tester.tap(key('album-studio-delete-edition'));
+      await tester.pumpAndSettle();
+      expect(
+        find.textContaining(
+          'Its 2 songs are also on other editions and stay there.',
+        ),
+        findsOne,
+      );
+      await tester.tap(key('album-studio-confirm-delete-edition'));
+      await tester.pumpAndSettle();
+
+      expect(service.calls, ['delete edition-deluxe primary=null user-1']);
+    });
+
+    testWidgets('the primary edition goes only with a chosen replacement '
+        '(A-Q23)', (tester) async {
+      final (_, service, _) = await pump(
+        tester,
+        library: listing(standard: ['s1'], deluxe: ['s1', 'b1']),
+      );
+
+      await tester.tap(key('album-studio-delete-edition'));
+      await tester.pumpAndSettle();
+      expect(key('album-studio-replacement-primary'), findsOne);
+      expect(find.textContaining('This is the primary edition.'), findsOne);
+
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(service.calls, isEmpty);
+
+      await tester.tap(key('album-studio-delete-edition'));
+      await tester.pumpAndSettle();
+      await tester.tap(key('album-studio-confirm-delete-edition'));
+      await tester.pumpAndSettle();
+
+      expect(service.calls, [
+        'delete edition-standard primary=edition-deluxe user-1',
+      ]);
+    });
   });
 
   testWidgets('edition actions and song membership never share a section', (
@@ -135,11 +310,162 @@ void main() {
     expect(key('album-studio-new-edition'), findsOneWidget);
     expect(key('album-studio-choose-songs'), findsNothing);
 
-    await tester.tap(key('release-studio-tab-tracklist'));
+    final tracklist = key('release-studio-section-tracklist');
+    await tester.ensureVisible(tracklist);
+    await tester.pumpAndSettle();
+    await tester.tap(tracklist);
     await tester.pumpAndSettle();
     expect(key('album-studio-choose-songs'), findsOneWidget);
-    expect(key('album-studio-new-edition'), findsNothing);
-    expect(key('album-studio-edit-edition'), findsNothing);
+    for (final action in ['new-edition', 'edit-edition']) {
+      expect(
+        find.descendant(
+          of: key('album-studio-edition-songs'),
+          matching: key('album-studio-$action'),
+        ),
+        findsNothing,
+        reason: action,
+      );
+    }
+    expect(
+      find.descendant(
+        of: key('album-studio-editions'),
+        matching: key('album-studio-choose-songs'),
+      ),
+      findsNothing,
+    );
+  });
+
+  testWidgets('the tracklist credits featured artists with "Ft." '
+      '(SN-50 BUG-05)', (tester) async {
+    final featured = base.createTrack(
+      songId: 's1',
+      title: 'Song s1',
+      albumEditionId: 'edition-standard',
+      albumEditionTitle: 'Standard',
+      albumEditionType: AlbumEditionType.standard,
+      trackNumber: 1,
+      featuredArtists: const ['Cy Lark', 'Dee Rune'],
+    );
+    final library = base.FakeEditionAwareLibraryQueryRepository(
+      album: base.createAlbum(
+        title: 'Studio Album',
+        primaryEditionId: 'edition-standard',
+        primaryEditionTitle: 'Standard',
+      ),
+      tracks: [featured],
+      editions: [
+        base.createLibraryEdition(
+          editionId: 'edition-standard',
+          title: 'Standard',
+          type: AlbumEditionType.standard,
+          isPrimary: true,
+        ),
+      ],
+      editionTracks: {
+        'edition-standard': [featured],
+      },
+    );
+
+    await pump(tester, library: library, section: tracklist);
+
+    expect(find.textContaining('Ft. Cy Lark, Dee Rune'), findsOneWidget);
+    expect(find.textContaining('feat.'), findsNothing);
+  });
+
+  group('SN-50 BUG-02: versions sharing a base title', () {
+    LibraryTrack version(
+      String id,
+      int number, {
+      String title = 'Original Song',
+      String? label,
+      List<String> featured = const [],
+    }) => base.createTrack(
+      songId: id,
+      title: title,
+      albumEditionId: 'edition-standard',
+      albumEditionTitle: 'Standard',
+      albumEditionType: AlbumEditionType.standard,
+      trackNumber: number,
+      versionLabel: label,
+      featuredArtists: featured,
+    );
+
+    final original = version('orig', 1);
+    final remix = version(
+      'remix',
+      2,
+      title: 'Original Song (Remix)',
+      label: 'Remix',
+      featured: const ['Artist A'],
+    );
+    final alternate = version(
+      'alt',
+      3,
+      label: 'Alternate Remix',
+      featured: const ['Artist B'],
+    );
+
+    base.FakeEditionAwareLibraryQueryRepository versions() =>
+        base.FakeEditionAwareLibraryQueryRepository(
+          album: base.createAlbum(
+            title: 'Studio Album',
+            primaryEditionId: 'edition-standard',
+            primaryEditionTitle: 'Standard',
+          ),
+          // The same song id twice, as a song on two editions might come
+          // back: Choose songs still lists it once.
+          tracks: [original, remix, alternate, alternate],
+          editions: [
+            base.createLibraryEdition(
+              editionId: 'edition-standard',
+              title: 'Standard',
+              type: AlbumEditionType.standard,
+              isPrimary: true,
+            ),
+          ],
+          editionTracks: {
+            'edition-standard': [original, remix, alternate],
+          },
+        );
+
+    testWidgets('the tracklist shows each version title and its credits', (
+      tester,
+    ) async {
+      await pump(tester, library: versions(), section: tracklist);
+
+      expect(find.text('Original Song'), findsOneWidget);
+      // The stored "(Remix)" is never doubled.
+      expect(find.text('Original Song (Remix)'), findsOneWidget);
+      expect(find.textContaining('(Remix) (Remix)'), findsNothing);
+      expect(find.text('Original Song (Alternate Remix)'), findsOneWidget);
+      expect(find.textContaining('Ft. Artist A'), findsOneWidget);
+      expect(find.textContaining('Ft. Artist B'), findsOneWidget);
+    });
+
+    testWidgets('Choose songs lists each song once with qualifier and Ft.', (
+      tester,
+    ) async {
+      await pump(tester, library: versions(), section: tracklist);
+
+      await tester.tap(key('album-studio-choose-songs'));
+      await tester.pumpAndSettle();
+
+      final dialog = key('album-studio-choose-songs-dialog');
+      Finder inDialog(Finder finder) =>
+          find.descendant(of: dialog, matching: finder);
+
+      expect(inDialog(key('album-studio-choose-song-alt')), findsOneWidget);
+      expect(inDialog(find.text('Original Song')), findsOneWidget);
+      expect(inDialog(find.text('Original Song (Remix)')), findsOneWidget);
+      expect(
+        inDialog(find.text('Original Song (Alternate Remix)')),
+        findsOneWidget,
+      );
+      expect(inDialog(find.text('Test Artist Ft. Artist A')), findsOneWidget);
+      expect(inDialog(find.text('Test Artist Ft. Artist B')), findsOneWidget);
+      // The edition label stays its own; it is not added to song titles.
+      expect(inDialog(find.textContaining('Standard)')), findsNothing);
+    });
   });
 
   testWidgets('creates an edition from the dialog', (tester) async {
@@ -461,19 +787,809 @@ void main() {
     expect(find.text('Sorted by disc and track number.'), findsOneWidget);
   });
 
+  group('SN-50 Session A', () {
+    /// Deluxe is primary and dated; Standard has no date or cover of its
+    /// own (made-up release).
+    base.FakeEditionAwareLibraryQueryRepository deluxePrimary() =>
+        base.FakeEditionAwareLibraryQueryRepository(
+          album: base.createAlbum(
+            title: 'Harbor Glass',
+            primaryEditionId: 'edition-deluxe',
+            primaryEditionTitle: 'Harbor Glass (Deluxe)',
+            primaryEditionType: AlbumEditionType.deluxe,
+            releaseDate: DateTime.utc(2025, 3, 14),
+          ),
+          tracks: [track('s1', 1), track('bonus', 2)],
+          editions: [
+            base.createLibraryEdition(
+              editionId: 'edition-standard',
+              title: 'Harbor Glass',
+              type: AlbumEditionType.standard,
+            ),
+            base.createLibraryEdition(
+              editionId: 'edition-deluxe',
+              title: 'Harbor Glass (Deluxe)',
+              type: AlbumEditionType.deluxe,
+              isPrimary: true,
+              releaseDate: DateTime.utc(2025, 3, 14),
+              artworkPath: '/covers/harbor-glass-deluxe.jpg',
+            ),
+          ],
+          editionTracks: {
+            'edition-standard': [track('s1', 1)],
+            'edition-deluxe': [
+              track('s1', 1, edition: 'edition-deluxe'),
+              track('bonus', 2, edition: 'edition-deluxe'),
+            ],
+          },
+        );
+
+    testWidgets('a new edition starts from the primary edition (A-Q5A)', (
+      tester,
+    ) async {
+      final (_, service, _) = await pump(tester, library: deluxePrimary());
+
+      await tester.tap(key('album-studio-new-edition'));
+      await tester.pumpAndSettle();
+      await tester.tap(key('album-studio-save-edition'));
+      await tester.pumpAndSettle();
+
+      // Before SN-50 the Standard-typed edition was preferred.
+      expect(service.calls, [
+        'create album-1 Harbor Glass (Deluxe) deluxe user-1 '
+            'from edition-deluxe',
+      ]);
+    });
+
+    testWidgets('the suggested name follows the type until edited (A-Q5C)', (
+      tester,
+    ) async {
+      await pump(tester, library: deluxePrimary());
+
+      await tester.tap(key('album-studio-new-edition'));
+      await tester.pumpAndSettle();
+
+      String name() => tester
+          .widget<TextField>(key('album-studio-edition-name-field'))
+          .controller!
+          .text;
+      expect(name(), 'Harbor Glass (Deluxe)');
+
+      await tester.tap(key('album-studio-edition-type-field'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Anniversary').last);
+      await tester.pumpAndSettle();
+      expect(name(), 'Harbor Glass (Anniversary)');
+
+      await tester.enterText(key('album-studio-edition-name-field'), 'Tour');
+      await tester.tap(key('album-studio-edition-type-field'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Remaster').last);
+      await tester.pumpAndSettle();
+      expect(name(), 'Tour');
+    });
+
+    testWidgets('hand-set numbers are renumbered only after asking (A-Q7A)', (
+      tester,
+    ) async {
+      final service = _FakeEditions(manualNumbersKept: 2);
+      await pump(tester, editions: service, section: tracklist);
+
+      Future<void> removeS2() async {
+        await tester.tap(key('album-studio-choose-songs'));
+        await tester.pumpAndSettle();
+        await tester.tap(key('album-studio-choose-song-s2'));
+        await tester.tap(key('album-studio-save-songs'));
+        await tester.pumpAndSettle();
+      }
+
+      await removeS2();
+      expect(
+        find.text('Renumber tracks you numbered yourself?'),
+        findsOneWidget,
+      );
+      expect(service.calls, ['remove edition-standard s2 user-1']);
+
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(service.calls, ['remove edition-standard s2 user-1']);
+
+      service.calls.clear();
+      await removeS2();
+      await tester.tap(key('album-studio-confirm-renumber'));
+      await tester.pumpAndSettle();
+      expect(service.calls, [
+        'remove edition-standard s2 user-1',
+        'renumber edition-standard overwrite=true',
+      ]);
+    });
+
+    testWidgets('no question when no hand-set number is affected', (
+      tester,
+    ) async {
+      final service = _FakeEditions();
+      await pump(tester, editions: service, section: tracklist);
+
+      await tester.tap(key('album-studio-choose-songs'));
+      await tester.pumpAndSettle();
+      await tester.tap(key('album-studio-choose-song-s2'));
+      await tester.tap(key('album-studio-save-songs'));
+      await tester.pumpAndSettle();
+
+      expect(key('album-studio-confirm-renumber'), findsNothing);
+      expect(service.calls, ['remove edition-standard s2 user-1']);
+    });
+
+    testWidgets('a non-primary edition has its own date, "Not set" (A-Q6C)', (
+      tester,
+    ) async {
+      final editing = _DateRecorder();
+      final (controller, _, _) = await pump(
+        tester,
+        library: deluxePrimary(),
+        editing: editing,
+        section: ReleaseStudioSection.details,
+      );
+
+      expect(
+        find.text('Release date of Harbor Glass (Deluxe)'),
+        findsOneWidget,
+      );
+      expect(find.text('March 14, 2025'), findsOneWidget);
+
+      await controller.selectEdition('edition-standard');
+      await tester.pumpAndSettle();
+
+      // Standard never borrows the primary edition's date.
+      expect(find.text('Release date of Harbor Glass'), findsOneWidget);
+      expect(find.text('March 14, 2025'), findsNothing);
+
+      await tester.ensureVisible(key('release-studio-date'));
+      await tester.tap(key('release-studio-date'));
+      await tester.pumpAndSettle();
+      await tester.enterText(key('release-studio-date-field'), '2024-11');
+      await tester.tap(key('release-studio-save-date'));
+      await tester.pumpAndSettle();
+
+      expect(editing.dates, [
+        (
+          'edition-standard',
+          DateTime.utc(2024, 11),
+          ReleaseDatePrecision.month,
+        ),
+      ]);
+      expect(editing.updateCallCount, 0, reason: 'release details untouched');
+    });
+
+    testWidgets('an edition without a cover says it uses the primary one', (
+      tester,
+    ) async {
+      final (controller, _, _) = await pump(
+        tester,
+        library: deluxePrimary(),
+        section: ReleaseStudioSection.artwork,
+      );
+      await controller.selectEdition('edition-standard');
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text(
+          "Harbor Glass has no cover yet. Using the primary edition's cover.",
+        ),
+        findsOneWidget,
+      );
+    });
+  });
+
+  group('SN-50 shared release details', () {
+    /// Deluxe is primary; Standard is listed second (made-up release).
+    base.FakeEditionAwareLibraryQueryRepository twoEditions({
+      String? standardGenre,
+      String? deluxeGenre,
+    }) => base.FakeEditionAwareLibraryQueryRepository(
+      album: base.createAlbum(
+        title: 'Paper Lanterns',
+        primaryEditionId: 'edition-deluxe',
+        primaryEditionTitle: 'Paper Lanterns (Deluxe)',
+        primaryEditionType: AlbumEditionType.deluxe,
+        genre: deluxeGenre,
+      ),
+      tracks: [track('s1', 1), track('bonus', 2)],
+      editions: [
+        base.createLibraryEdition(
+          editionId: 'edition-deluxe',
+          title: 'Paper Lanterns (Deluxe)',
+          type: AlbumEditionType.deluxe,
+          isPrimary: true,
+          genre: deluxeGenre,
+        ),
+        base.createLibraryEdition(
+          editionId: 'edition-standard',
+          title: 'Paper Lanterns',
+          type: AlbumEditionType.standard,
+          genre: standardGenre,
+        ),
+      ],
+      editionTracks: {
+        'edition-standard': [track('s1', 1)],
+        'edition-deluxe': [
+          track('s1', 1, edition: 'edition-deluxe'),
+          track('bonus', 2, edition: 'edition-deluxe'),
+        ],
+      },
+    );
+
+    Future<void> rename(WidgetTester tester, String name) async {
+      await tester.ensureVisible(key('release-studio-name'));
+      await tester.tap(key('release-studio-name'));
+      await tester.pumpAndSettle();
+      await tester.enterText(key('release-studio-name-field'), name);
+      await tester.tap(key('release-studio-save-name'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('the name renames the selected edition, never the base '
+        'title (A-Q4)', (tester) async {
+      final editing = _DateRecorder();
+      final (controller, service, _) = await pump(
+        tester,
+        library: twoEditions(),
+        editing: editing,
+        section: ReleaseStudioSection.details,
+      );
+
+      expect(find.text('Name of Paper Lanterns (Deluxe)'), findsOneWidget);
+      await rename(tester, 'Paper Lanterns (Night Deluxe)');
+      expect(service.calls, [
+        'update edition-deluxe Paper Lanterns (Night Deluxe) null',
+      ]);
+
+      await controller.selectEdition('edition-standard');
+      await tester.pumpAndSettle();
+      await rename(tester, 'Paper Lanterns (Day)');
+      expect(
+        service.calls.last,
+        'update edition-standard Paper Lanterns (Day) null',
+      );
+      expect(editing.updateCallCount, 0, reason: 'base title untouched');
+    });
+
+    testWidgets('a blank name is refused', (tester) async {
+      final (_, service, _) = await pump(
+        tester,
+        library: twoEditions(),
+        editing: _DateRecorder(),
+        section: ReleaseStudioSection.details,
+      );
+
+      await tester.ensureVisible(key('release-studio-name'));
+      await tester.tap(key('release-studio-name'));
+      await tester.pumpAndSettle();
+      await tester.enterText(key('release-studio-name-field'), '   ');
+      await tester.tap(key('release-studio-save-name'));
+      await tester.pump();
+
+      expect(find.text('Enter a name.'), findsOneWidget);
+      expect(service.calls, isEmpty);
+    });
+
+    testWidgets('editions with different genres are pointed out (A-Q6F)', (
+      tester,
+    ) async {
+      await pump(
+        tester,
+        library: twoEditions(deluxeGenre: 'Dream Pop', standardGenre: 'Folk'),
+        section: ReleaseStudioSection.details,
+      );
+
+      expect(key('release-studio-genre-review'), findsOneWidget);
+      expect(
+        find.text(
+          'Editions have different genres: Dream Pop, Folk. Pick one to use '
+          'for the release.',
+        ),
+        findsOneWidget,
+      );
+      // Shown by text and an icon, not by color alone.
+      expect(find.byIcon(Icons.rule_rounded), findsOneWidget);
+    });
+
+    testWidgets('the genre review and edition name fit 320dp at 2x text', (
+      tester,
+    ) async {
+      await pump(
+        tester,
+        library: twoEditions(deluxeGenre: 'Dream Pop', standardGenre: 'Folk'),
+        editing: _DateRecorder(),
+        section: ReleaseStudioSection.details,
+        textScale: 2,
+        size: const Size(320, 2400),
+      );
+
+      expect(tester.takeException(), isNull);
+      expect(key('release-studio-genre-review'), findsOneWidget);
+      expect(key('release-studio-name'), findsOneWidget);
+    });
+
+    testWidgets('matching or missing genres need no review', (tester) async {
+      await pump(
+        tester,
+        library: twoEditions(deluxeGenre: 'Folk', standardGenre: ' folk '),
+        section: ReleaseStudioSection.details,
+      );
+
+      expect(key('release-studio-genre-review'), findsNothing);
+    });
+  });
+
+  group('SN-50 a Standard added to a Deluxe-led release (A-Q5F)', () {
+    base.FakeEditionAwareLibraryQueryRepository deluxeOnly() =>
+        base.FakeEditionAwareLibraryQueryRepository(
+          album: base.createAlbum(
+            title: 'Salt Roads',
+            primaryEditionId: 'edition-deluxe',
+            primaryEditionTitle: 'Salt Roads (Deluxe)',
+            primaryEditionType: AlbumEditionType.deluxe,
+          ),
+          tracks: [track('s1', 1)],
+          editions: [
+            base.createLibraryEdition(
+              editionId: 'edition-deluxe',
+              title: 'Salt Roads (Deluxe)',
+              type: AlbumEditionType.deluxe,
+              isPrimary: true,
+            ),
+          ],
+          editionTracks: {
+            'edition-deluxe': [track('s1', 1, edition: 'edition-deluxe')],
+          },
+        );
+
+    Future<void> createStandard(WidgetTester tester) async {
+      await tester.tap(key('album-studio-new-edition'));
+      await tester.pumpAndSettle();
+      await tester.tap(key('album-studio-edition-type-field'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Standard').last);
+      await tester.pumpAndSettle();
+      await tester.enterText(key('album-studio-edition-name-field'), 'Salt');
+      await tester.tap(key('album-studio-save-edition'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('asks, and keeps Deluxe primary unless told otherwise', (
+      tester,
+    ) async {
+      final (_, service, _) = await pump(tester, library: deluxeOnly());
+
+      await createStandard(tester);
+      expect(find.text('Make the Standard edition primary?'), findsOneWidget);
+
+      await tester.tap(find.text('Not now'));
+      await tester.pumpAndSettle();
+      expect(service.calls, [
+        'create album-1 Salt standard user-1 from edition-deluxe',
+      ]);
+    });
+
+    testWidgets('makes the Standard primary when the user agrees', (
+      tester,
+    ) async {
+      final (_, service, _) = await pump(tester, library: deluxeOnly());
+
+      await createStandard(tester);
+      await tester.tap(key('album-studio-confirm-standard-primary'));
+      await tester.pumpAndSettle();
+
+      expect(service.calls, hasLength(2));
+      expect(service.calls.last, startsWith('primary '));
+      expect(service.calls.last, endsWith(' user-1'));
+    });
+
+    testWidgets('no question when the primary is not a Deluxe', (tester) async {
+      await pump(tester);
+
+      await tester.tap(key('album-studio-new-edition'));
+      await tester.pumpAndSettle();
+      await tester.tap(key('album-studio-edition-type-field'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Standard').last);
+      await tester.pumpAndSettle();
+      await tester.enterText(key('album-studio-edition-name-field'), 'Again');
+      await tester.tap(key('album-studio-save-edition'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Make the Standard edition primary?'), findsNothing);
+    });
+  });
+
+  group('SN-50 placement keeps hand-set numbers unless asked (A-Q7A)', () {
+    Future<void> moveToDisc2(WidgetTester tester) async {
+      await tester.tap(key('album-studio-edit-placement-s1'));
+      await tester.pumpAndSettle();
+      await tester.tap(key('album-studio-show-disc-number'));
+      await tester.pumpAndSettle();
+      await tester.enterText(key('album-studio-disc-number-field'), '2');
+      await tester.tap(key('album-studio-save-placement'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('asks before renumbering, and only then renumbers', (
+      tester,
+    ) async {
+      final ordering = _SortingService()..manualNumbersKept = 1;
+      final (_, service, _) = await pump(
+        tester,
+        section: tracklist,
+        ordering: ordering,
+      );
+
+      await moveToDisc2(tester);
+      expect(
+        find.text('Renumber tracks you numbered yourself?'),
+        findsOneWidget,
+      );
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(service.calls, isEmpty);
+
+      await moveToDisc2(tester);
+      await tester.tap(key('album-studio-confirm-renumber'));
+      await tester.pumpAndSettle();
+      expect(service.calls, ['renumber edition-standard overwrite=true']);
+    });
+
+    testWidgets('no question when no hand-set number was kept', (tester) async {
+      final (_, service, _) = await pump(tester, section: tracklist);
+
+      await moveToDisc2(tester);
+
+      expect(key('album-studio-confirm-renumber'), findsNothing);
+      expect(service.calls, isEmpty);
+    });
+  });
+
+  testWidgets('one disc shows plain numbers, even when it is disc 2 (A-Q8A)', (
+    tester,
+  ) async {
+    LibraryTrack onDisc2(String id, int number) => base.createTrack(
+      songId: id,
+      title: 'Song $id',
+      albumEditionId: 'edition-standard',
+      albumEditionTitle: 'Standard',
+      albumEditionType: AlbumEditionType.standard,
+      trackNumber: number,
+      discNumber: 2,
+    );
+    final library = base.FakeEditionAwareLibraryQueryRepository(
+      album: base.createAlbum(
+        title: 'Glass Harbor',
+        primaryEditionId: 'edition-standard',
+        primaryEditionTitle: 'Standard',
+      ),
+      tracks: [onDisc2('a', 1), onDisc2('b', 2)],
+      editions: [
+        base.createLibraryEdition(
+          editionId: 'edition-standard',
+          title: 'Standard',
+          type: AlbumEditionType.standard,
+          isPrimary: true,
+        ),
+      ],
+      editionTracks: {
+        'edition-standard': [onDisc2('a', 1), onDisc2('b', 2)],
+      },
+    );
+
+    await pump(tester, library: library, section: tracklist);
+
+    expect(tester.widget<Text>(key('album-studio-placement-a')).data, '1');
+    // Disc controls stay one tap away in the placement dialog.
+    await tester.tap(key('album-studio-edit-placement-a'));
+    await tester.pumpAndSettle();
+    expect(key('album-studio-disc-number-field'), findsOneWidget);
+  });
+
+  group('SN-50 A-Q7D: a previewed numbering repair', () {
+    LibraryTrack placed(String id, int number, {int disc = 1}) =>
+        base.createTrack(
+          songId: id,
+          title: 'Song $id',
+          albumEditionId: 'edition-standard',
+          albumEditionTitle: 'Standard',
+          albumEditionType: AlbumEditionType.standard,
+          trackNumber: number,
+          discNumber: disc,
+        );
+
+    base.FakeEditionAwareLibraryQueryRepository gapped() =>
+        base.FakeEditionAwareLibraryQueryRepository(
+          album: base.createAlbum(
+            title: 'Glass Harbor',
+            primaryEditionId: 'edition-standard',
+            primaryEditionTitle: 'Standard',
+          ),
+          tracks: [placed('a', 1), placed('b', 3), placed('c', 2, disc: 2)],
+          editions: [
+            base.createLibraryEdition(
+              editionId: 'edition-standard',
+              title: 'Standard',
+              type: AlbumEditionType.standard,
+              isPrimary: true,
+            ),
+          ],
+          editionTracks: {
+            'edition-standard': [
+              placed('a', 1),
+              placed('b', 3),
+              placed('c', 2, disc: 2),
+            ],
+          },
+        );
+
+    testWidgets('no action when each disc counts from 1 without gaps', (
+      tester,
+    ) async {
+      await pump(tester, section: tracklist);
+
+      expect(key('album-studio-fix-numbering'), findsNothing);
+    });
+
+    testWidgets('previews old and new numbers and changes nothing until '
+        'confirmed', (tester) async {
+      final service = _FakeEditions();
+      await pump(
+        tester,
+        editions: service,
+        library: gapped(),
+        section: tracklist,
+      );
+
+      await tester.tap(key('album-studio-fix-numbering'));
+      await tester.pumpAndSettle();
+
+      expect(key('album-studio-fix-numbering-dialog'), findsOneWidget);
+      expect(key('album-studio-fix-numbering-a'), findsNothing);
+      expect(
+        find.descendant(
+          of: key('album-studio-fix-numbering-b'),
+          matching: find.text('3 → 2'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: key('album-studio-fix-numbering-c'),
+          matching: find.text('2 → 1'),
+        ),
+        findsOneWidget,
+      );
+
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(service.calls, isEmpty);
+
+      await tester.tap(key('album-studio-fix-numbering'));
+      await tester.pumpAndSettle();
+      await tester.tap(key('album-studio-confirm-fix-numbering'));
+      await tester.pumpAndSettle();
+
+      expect(service.calls, ['renumber edition-standard overwrite=false']);
+      expect(key('album-studio-confirm-renumber'), findsNothing);
+      expect(find.text('Track numbers fixed.'), findsOneWidget);
+    });
+
+    testWidgets('hand-set numbers change only after the separate question', (
+      tester,
+    ) async {
+      final service = _FakeEditions(manualNumbersOnRenumber: 1);
+      await pump(
+        tester,
+        editions: service,
+        library: gapped(),
+        section: tracklist,
+      );
+
+      Future<void> fix() async {
+        await tester.tap(key('album-studio-fix-numbering'));
+        await tester.pumpAndSettle();
+        await tester.tap(key('album-studio-confirm-fix-numbering'));
+        await tester.pumpAndSettle();
+      }
+
+      await fix();
+      expect(key('album-studio-confirm-renumber'), findsOneWidget);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(service.calls, ['renumber edition-standard overwrite=false']);
+
+      service.calls.clear();
+      await fix();
+      await tester.tap(key('album-studio-confirm-renumber'));
+      await tester.pumpAndSettle();
+      expect(service.calls, [
+        'renumber edition-standard overwrite=false',
+        'renumber edition-standard overwrite=true',
+      ]);
+    });
+
+    testWidgets('the preview fits 320dp at 2x text', (tester) async {
+      await pump(
+        tester,
+        library: gapped(),
+        section: tracklist,
+        textScale: 2,
+        size: const Size(320, 1400),
+      );
+
+      await tester.ensureVisible(key('album-studio-fix-numbering'));
+      await tester.tap(key('album-studio-fix-numbering'));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(key('album-studio-confirm-fix-numbering'), findsOneWidget);
+    });
+  });
+
   testWidgets('editions fit 320dp at 2x text', (tester) async {
     await pump(tester, textScale: 2, size: const Size(320, 1400));
 
     expect(tester.takeException(), isNull);
     expect(key('album-studio-new-edition'), findsOneWidget);
   });
+
+  group('SN-50 BUG-03 Other edition with its own name', () {
+    base.FakeEditionAwareLibraryQueryRepository withRemixes() =>
+        base.FakeEditionAwareLibraryQueryRepository(
+          album: base.createAlbum(
+            title: 'Skyline',
+            primaryEditionId: 'edition-standard',
+            primaryEditionTitle: 'Skyline',
+          ),
+          tracks: [track('s1', 1), track('s2', 2)],
+          editions: [
+            base.createLibraryEdition(
+              editionId: 'edition-standard',
+              title: 'Skyline',
+              type: AlbumEditionType.standard,
+              isPrimary: true,
+            ),
+            base.createLibraryEdition(
+              editionId: 'edition-deluxe',
+              title: 'Skyline (Deluxe)',
+              type: AlbumEditionType.deluxe,
+            ),
+            base.createLibraryEdition(
+              editionId: 'edition-other',
+              title: 'Skyline (Remixes)',
+              type: AlbumEditionType.other,
+            ),
+          ],
+          editionTracks: {
+            'edition-standard': [track('s1', 1), track('s2', 2)],
+            'edition-deluxe': [track('s1', 1, edition: 'edition-deluxe')],
+            'edition-other': [track('s2', 1, edition: 'edition-other')],
+          },
+        );
+
+    String name(WidgetTester tester) => tester
+        .widget<TextField>(key('album-studio-edition-name-field'))
+        .controller!
+        .text;
+
+    Future<void> chooseOther(WidgetTester tester) async {
+      await tester.tap(key('album-studio-edition-type-field'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Other').last);
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('choosing Other asks for a name instead of "(Other)", '
+        'and creates it with that name', (tester) async {
+      final (_, service, _) = await pump(tester, library: withRemixes());
+
+      await tester.tap(key('album-studio-new-edition'));
+      await tester.pumpAndSettle();
+      await chooseOther(tester);
+
+      expect(name(tester), isEmpty);
+      expect(find.text('For example Skyline (Remixes)'), findsOneWidget);
+
+      await tester.enterText(
+        key('album-studio-edition-name-field'),
+        'Skyline (Club Mixes)',
+      );
+      await tester.tap(key('album-studio-save-edition'));
+      await tester.pumpAndSettle();
+
+      // Never made primary: only the create call, no primary question.
+      expect(service.calls, [
+        'create album-1 Skyline (Club Mixes) other user-1 '
+            'from edition-standard',
+      ]);
+    });
+
+    testWidgets('a bare "Other" or blank name is refused for Other', (
+      tester,
+    ) async {
+      final (_, service, _) = await pump(tester, library: withRemixes());
+
+      await tester.tap(key('album-studio-new-edition'));
+      await tester.pumpAndSettle();
+      await chooseOther(tester);
+
+      await tester.tap(key('album-studio-save-edition'));
+      await tester.pumpAndSettle();
+      expect(find.text('Enter an edition name.'), findsOneWidget);
+
+      await tester.enterText(key('album-studio-edition-name-field'), 'other');
+      await tester.tap(key('album-studio-save-edition'));
+      await tester.pumpAndSettle();
+      expect(
+        find.text('Give this edition its own name, such as Skyline (Remixes).'),
+        findsOneWidget,
+      );
+      expect(service.calls, isEmpty);
+    });
+
+    testWidgets('the custom name shows in the tabs, and renaming it changes '
+        'only that edition', (tester) async {
+      final (controller, service, _) = await pump(
+        tester,
+        library: withRemixes(),
+      );
+
+      final tab = key('release-studio-edition-tab-edition-other');
+      expect(
+        find.descendant(of: tab, matching: find.text('Skyline (Remixes)')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: key('release-studio-edition-tabs'),
+          matching: find.text('Other'),
+        ),
+        findsNothing,
+      );
+
+      await controller.selectEdition('edition-other');
+      await tester.pumpAndSettle();
+      await tester.tap(key('album-studio-edit-edition'));
+      await tester.pumpAndSettle();
+
+      // Reopening shows the saved name, not the type.
+      expect(name(tester), 'Skyline (Remixes)');
+
+      await tester.enterText(
+        key('album-studio-edition-name-field'),
+        'Skyline (Remixes Vol. 2)',
+      );
+      await tester.tap(key('album-studio-save-edition'));
+      await tester.pumpAndSettle();
+
+      expect(service.calls, [
+        'update edition-other Skyline (Remixes Vol. 2) other',
+      ]);
+    });
+  });
 }
 
 class _FakeEditions implements AlbumEditionManagementService {
-  _FakeEditions({this.refuseRemoval, this.refuseUpdate});
+  _FakeEditions({
+    this.refuseRemoval,
+    this.refuseUpdate,
+    this.manualNumbersKept = 0,
+    this.manualNumbersOnRenumber = 0,
+  });
 
   final AlbumEditionRefusal? refuseRemoval;
   final AlbumEditionRefusal? refuseUpdate;
+
+  /// Hand-set numbers a track-list change reports leaving alone.
+  final int manualNumbersKept;
+
+  /// Hand-set numbers a plain renumber reports leaving alone.
+  final int manualNumbersOnRenumber;
   final List<String> calls = [];
 
   @override
@@ -530,6 +1646,7 @@ class _FakeEditions implements AlbumEditionManagementService {
   Future<int> assignTracks({
     required String editionId,
     required List<String> songIds,
+    bool renumber = true,
     String? userId,
     DateTime? now,
   }) async {
@@ -538,7 +1655,7 @@ class _FakeEditions implements AlbumEditionManagementService {
   }
 
   @override
-  Future<void> removeTrack({
+  Future<EditionRenumberResult> removeTrack({
     required String editionId,
     required String songId,
     String? userId,
@@ -547,19 +1664,146 @@ class _FakeEditions implements AlbumEditionManagementService {
     final refusal = refuseRemoval;
     if (refusal != null) throw AlbumEditionManagementException(refusal);
     calls.add('remove $editionId $songId $userId');
+    return EditionRenumberResult.none;
   }
+
+  /// Records the same calls as one assignment plus one removal per song,
+  /// as the real batch applies them.
+  @override
+  Future<AlbumEditionTrackListResult> updateTrackList({
+    required String editionId,
+    List<String> add = const [],
+    List<String> remove = const [],
+    String? userId,
+    DateTime? now,
+  }) async {
+    if (add.isNotEmpty) calls.add('assign $editionId ${add.join(',')}');
+    var kept = 0;
+    for (final songId in remove) {
+      if (refuseRemoval == AlbumEditionRefusal.lastEditionOfSong) {
+        kept++;
+      } else {
+        calls.add('remove $editionId $songId $userId');
+      }
+    }
+    return AlbumEditionTrackListResult(
+      added: add.length,
+      removed: remove.length - kept,
+      keptAsLastListing: kept,
+      renumbering: EditionRenumberResult(
+        renumbered: 0,
+        manualNumbersKept: manualNumbersKept,
+      ),
+    );
+  }
+
+  @override
+  Future<EditionRenumberResult> renumberEdition({
+    required String editionId,
+    bool overwriteManual = false,
+    String? userId,
+    DateTime? now,
+  }) async {
+    calls.add('renumber $editionId overwrite=$overwriteManual');
+    return EditionRenumberResult(
+      renumbered: 1,
+      manualNumbersKept: overwriteManual ? 0 : manualNumbersOnRenumber,
+    );
+  }
+
+  @override
+  Future<int> resendPlacements({required String userId}) async => 0;
 
   @override
   Future<void> deleteEdition({
     required String editionId,
+    String? replacementPrimaryId,
     String? userId,
+    DateTime? now,
   }) async {
-    calls.add('delete $editionId');
+    calls.add('delete $editionId primary=$replacementPrimaryId $userId');
+  }
+}
+
+class _NoCollaborators implements ProjectCollaboratorQueryRepository {
+  @override
+  Future<List<ProjectCollaborator>> getProjectCollaborators({
+    String? albumId,
+  }) async => const [];
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _NoOrganization implements LibraryOrganizationRepository {
+  @override
+  Future<List<AlbumReleaseClassification>> getClassifications() async =>
+      const [];
+
+  @override
+  Future<List<AlbumReleaseFormat>> getFormats() async => const [];
+
+  @override
+  Future<List<ArtistProjectAssignment>> getAssignments() async => const [];
+
+  @override
+  Future<List<AlbumLiveClassification>> getLiveClassifications() async =>
+      const [];
+
+  @override
+  Future<List<AlbumLeakedClassification>> getLeakedClassifications() async =>
+      const [];
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _DateRecorder extends base.FakeAlbumProfileEditingService {
+  final List<(String, DateTime?, ReleaseDatePrecision?)> dates = [];
+
+  @override
+  Future<AlbumEdition> updateEditionReleaseDate({
+    required String? userId,
+    required String editionId,
+    required DateTime? releaseDate,
+    ReleaseDatePrecision? releaseDatePrecision,
+    DateTime? now,
+  }) async {
+    dates.add((editionId, releaseDate, releaseDatePrecision));
+    return EntityFactory.createAlbumEdition(albumId: 'album-1', title: 'x');
   }
 }
 
 class _SortingService extends base.FakeAlbumEditionTrackOrderingService {
   final List<String> sortedEditionIds = [];
+
+  /// Hand-set numbers a placement change reports leaving alone.
+  int manualNumbersKept = 0;
+
+  @override
+  Future<AlbumEditionTrackPlacementResult> updateTrackPlacement({
+    required String? userId,
+    required String albumEditionId,
+    required String songId,
+    required int discNumber,
+    required int trackNumber,
+    DateTime? now,
+  }) async {
+    final result = await super.updateTrackPlacement(
+      userId: userId,
+      albumEditionId: albumEditionId,
+      songId: songId,
+      discNumber: discNumber,
+      trackNumber: trackNumber,
+      now: now,
+    );
+    return AlbumEditionTrackPlacementResult(
+      membership: result.membership,
+      changed: result.changed,
+      compatibilitySongChanged: result.compatibilitySongChanged,
+      manualNumbersKept: manualNumbersKept,
+    );
+  }
 
   @override
   Future<AlbumEditionReorderResult> sortByDiscAndTrack({

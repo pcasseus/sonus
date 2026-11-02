@@ -17,11 +17,22 @@ import 'package:sonus_next/features/charts/application/services/chart_finalizati
 import 'package:sonus_next/features/charts/application/services/chart_snapshot_builder_service.dart';
 import 'package:sonus_next/features/charts/data/repositories/sqlite_chart_moment_repository.dart';
 import 'package:sonus_next/features/charts/data/repositories/sqlite_chart_repository.dart';
+import 'package:sonus_next/features/charts/domain/entities/chart_entry.dart';
 import 'package:sonus_next/features/charts/domain/entities/chart_snapshot.dart';
+import 'package:sonus_next/features/charts/domain/models/chart_entity_snapshot.dart';
+import 'package:sonus_next/features/charts/domain/models/chart_movement.dart';
 import 'package:sonus_next/features/charts/domain/models/chart_type.dart';
+import 'package:sonus_next/features/charts/domain/moments/chart_moment_event.dart';
+import 'package:sonus_next/features/charts/domain/repositories/chart_moment_repository.dart';
 import 'package:sonus_next/features/charts/domain/repositories/chart_repository.dart';
+import 'package:sonus_next/features/charts/domain/repositories/chart_week_finalizer.dart';
 import 'package:sonus_next/features/charts/domain/services/chart_week_resolver.dart';
+import 'package:sonus_next/features/library/application/models/library_album.dart';
+import 'package:sonus_next/features/library/application/models/library_track.dart';
+import 'package:sonus_next/features/library/application/models/library_track_order.dart';
+import 'package:sonus_next/features/library/application/repositories/library_query_repository.dart';
 import 'package:sonus_next/features/library/data/daos/library_query_dao.dart';
+import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/data/repositories/sqlite_library_query_repository.dart';
 
 import '../../../../support/library_seed.dart';
@@ -34,6 +45,7 @@ void main() {
   late Database db;
   late _GatedPlays plays;
   late _ObservedCharts charts;
+  late _HeldMoments moments;
 
   const resolver = ChartWeekResolver();
   final referenceLocal = DateTime(2026, 10, 23, 12);
@@ -55,6 +67,7 @@ void main() {
     db = await appDatabase.database;
     plays = _GatedPlays(SqliteQualifiedPlayRepository(QualifiedPlayDao(db)));
     charts = _ObservedCharts(SqliteChartRepository(appDatabase));
+    moments = _HeldMoments(SqliteChartMomentRepository(appDatabase));
   });
 
   tearDown(() async {
@@ -63,11 +76,15 @@ void main() {
   });
 
   /// Composed as ChartsScope composes it.
-  ChartFinalizationService service({bool guarded = true}) {
+  ChartFinalizationService service({
+    bool guarded = true,
+    bool atomic = false,
+    LibraryQueryRepository? library,
+  }) {
     return ChartFinalizationService(
       builder: ChartSnapshotBuilderService(
         qualifiedPlays: plays,
-        library: SqliteLibraryQueryRepository(LibraryQueryDao(db)),
+        library: library ?? SqliteLibraryQueryRepository(LibraryQueryDao(db)),
         charts: charts.inner,
         playbackSessions: SqlitePlaybackSessionRepository(
           PlaybackSessionDao(db),
@@ -75,12 +92,14 @@ void main() {
       ),
       charts: charts,
       qualifiedPlays: plays,
-      moments: SqliteChartMomentRepository(appDatabase),
+      moments: moments,
       momentsActivationWeekStartUtc: DateTime.utc(2026, 9, 20),
       now: () => DateTime.utc(2026, 10, 23),
       restoreGeneration: guarded
           ? () => appDatabase.mutationCoordinator.restoreGeneration
           : null,
+      // As the app composes it (SN-50 F6): one transaction per week.
+      weekFinalizer: atomic ? charts.inner as ChartWeekFinalizer : null,
     );
   }
 
@@ -207,37 +226,38 @@ void main() {
       final finalized = await db.query(DatabaseTables.chartSnapshots);
       expect(finalized, hasLength(4));
 
-      // Hold the second pass inside W1, which is unchanged and so writes
-      // nothing, while a restore removes W2.
-      final gate = plays.holdBuildOf(weekStart(w1));
+      // Hold the second pass once it has listed its weeks, while a restore
+      // removes W2. W1 is stored, so the pass only reads it.
+      final gate = plays.holdWeekList();
       final pass = service().finalizeCompletedWeeks(
         referenceLocal: referenceLocal,
       );
       await gate.arrived;
+      gate.release();
+      await gate.resultRead;
 
-      // W1 stays as it was, so the held pass has nothing to write there.
       await restore((tx) => restoreWithout(tx, w2, onlyThatWeek: true));
       expect(await snapshotsFor(w2), isEmpty);
       expect(await snapshotsFor(w1), hasLength(2));
       final restored = await snapshotDatabase(db);
 
-      gate.release();
+      gate.releaseResult();
 
       await expectLater(pass, throwsA(isA<LibraryMutationUnavailable>()));
       expect(await snapshotsFor(w2), isEmpty);
       expect(await snapshotDatabase(db), restored);
     });
 
-    test('2: the Moments write is refused on its own', () async {
+    test('2a: the Moments write is refused on its own', () async {
       await listen('3', 'song-c', w3);
 
-      // The snapshot write completes; the restore lands before Moments.
-      final gate = plays.holdNextReadAfter(charts.replaced(weekStart(w3)));
+      // The chart is built; the restore lands while its Moments are being
+      // worked out, before they are written.
+      final gate = plays.holdHistoryBefore(weekStart(w3));
       final pass = service().finalizeCompletedWeeks(
         referenceLocal: referenceLocal,
       );
       await gate.arrived;
-      expect(await snapshotsFor(w3), isNotEmpty);
 
       await restore((tx) => restoreWithout(tx, w3));
       final restored = await snapshotDatabase(db);
@@ -246,6 +266,27 @@ void main() {
 
       await expectLater(pass, throwsA(isA<LibraryMutationUnavailable>()));
       expect(await db.query(DatabaseTables.chartMomentEvents), isEmpty);
+      expect(await snapshotsFor(w3), isEmpty);
+      expect(await snapshotDatabase(db), restored);
+    });
+
+    test('2b: the snapshot write is refused after Moments published', () async {
+      await listen('3', 'song-c', w3);
+
+      final gate = moments.holdAfterPublish();
+      final pass = service().finalizeCompletedWeeks(
+        referenceLocal: referenceLocal,
+      );
+      await gate.arrived;
+      expect(await db.query(DatabaseTables.chartMomentEvents), isNotEmpty);
+
+      await restore((tx) => restoreWithout(tx, w3));
+      final restored = await snapshotDatabase(db);
+
+      gate.release();
+
+      await expectLater(pass, throwsA(isA<LibraryMutationUnavailable>()));
+      expect(await snapshotsFor(w3), isEmpty);
       expect(await snapshotDatabase(db), restored);
     });
 
@@ -342,6 +383,448 @@ void main() {
       expect(await snapshotDatabase(db), before);
     },
   );
+  group('SN-50 F6: one transaction per finalized week', () {
+    Future<Map<String, List<Map<String, Object?>>>> chartRows() async => {
+      for (final table in [
+        DatabaseTables.chartSnapshots,
+        DatabaseTables.chartEntries,
+        DatabaseTables.chartMomentEvents,
+      ])
+        table: await db.query(table, orderBy: 'id'),
+    };
+
+    test('an undisturbed pass stores each week with its Moments; a second '
+        'pass writes nothing at all', () async {
+      await listen('1', 'song-a', w1);
+      await listen('3', 'song-c', w3);
+
+      await service(
+        atomic: true,
+      ).finalizeCompletedWeeks(referenceLocal: referenceLocal);
+
+      expect(await snapshotsFor(w1), hasLength(2));
+      expect(await snapshotsFor(w3), hasLength(2));
+      expect(await db.query(DatabaseTables.chartMomentEvents), isNotEmpty);
+      expect(appDatabase.mutationCoordinator.activeMutations, 0);
+      final stored = await chartRows();
+
+      for (var pass = 0; pass < 3; pass++) {
+        await service(
+          atomic: true,
+        ).finalizeCompletedWeeks(referenceLocal: referenceLocal);
+      }
+
+      expect(await chartRows(), stored);
+    });
+
+    test('a restore while the Moments are worked out leaves neither the '
+        'snapshot nor any Moment', () async {
+      await listen('3', 'song-c', w3);
+
+      final gate = plays.holdHistoryBefore(weekStart(w3));
+      final pass = service(
+        atomic: true,
+      ).finalizeCompletedWeeks(referenceLocal: referenceLocal);
+      await gate.arrived;
+
+      await restore((tx) => restoreWithout(tx, w3));
+      final restored = await snapshotDatabase(db);
+
+      gate.release();
+
+      await expectLater(pass, throwsA(isA<LibraryMutationUnavailable>()));
+      expect(await db.query(DatabaseTables.chartMomentEvents), isEmpty);
+      expect(await snapshotsFor(w3), isEmpty);
+      expect(await snapshotDatabase(db), restored);
+    });
+
+    test('a restore while the week is built writes nothing', () async {
+      await listen('1', 'song-a', w1);
+      await listen('2', 'song-b', w2);
+
+      final gate = plays.holdBuildOf(weekStart(w1));
+      final pass = service(
+        atomic: true,
+      ).finalizeCompletedWeeks(referenceLocal: referenceLocal);
+      await gate.arrived;
+
+      await restore((tx) => restoreWithout(tx, w1));
+      final restored = await snapshotDatabase(db);
+
+      gate.release();
+
+      await expectLater(pass, throwsA(isA<LibraryMutationUnavailable>()));
+      expect(await snapshotsFor(w1), isEmpty);
+      expect(await snapshotDatabase(db), restored);
+    });
+
+    test('a restore holding the library refuses the transaction at '
+        'admission', () async {
+      await listen('3', 'song-c', w3);
+
+      final gate = plays.holdBuildOf(weekStart(w3));
+      final pass = service(
+        guarded: false,
+        atomic: true,
+      ).finalizeCompletedWeeks(referenceLocal: referenceLocal);
+      await gate.arrived;
+
+      final before = await snapshotDatabase(db);
+      final release = Completer<void>();
+      final restoring = appDatabase.mutationCoordinator.runExclusiveRestore(
+        () => release.future,
+      );
+
+      gate.release();
+
+      try {
+        await expectLater(pass, throwsA(isA<LibraryMutationUnavailable>()));
+      } finally {
+        release.complete();
+        await restoring;
+      }
+
+      expect(await snapshotDatabase(db), before);
+      expect(await db.query(DatabaseTables.chartMomentEvents), isEmpty);
+    });
+
+    test('a week the earlier two-step write left with Moments but no '
+        'snapshot gets its snapshot; its Moments stay exactly as '
+        'published', () async {
+      await listen('1', 'song-c', w3);
+      charts.failNextReplace = true;
+
+      // The earlier write order, interrupted between its two writes.
+      await expectLater(
+        service().finalizeCompletedWeeks(referenceLocal: referenceLocal),
+        throwsStateError,
+      );
+      expect(await snapshotsFor(w3), isEmpty);
+      Future<List<Map<String, Object?>>> songMoments() => db.query(
+        DatabaseTables.chartMomentEvents,
+        where: 'chart_type = ?',
+        whereArgs: ['songs'],
+        orderBy: 'id',
+      );
+      final published = await songMoments();
+      expect(published, isNotEmpty);
+
+      await service(
+        atomic: true,
+      ).finalizeCompletedWeeks(referenceLocal: referenceLocal);
+
+      expect(await snapshotsFor(w3), hasLength(2));
+      expect(await songMoments(), published);
+    });
+  });
+
+  group('SN-50: finalized weeks are frozen', () {
+    Future<Map<String, List<Map<String, Object?>>>> history() async => {
+      for (final table in [
+        DatabaseTables.chartSnapshots,
+        DatabaseTables.chartEntries,
+        DatabaseTables.chartMomentEvents,
+      ])
+        table: await db.query(table, orderBy: 'id'),
+    };
+
+    test('later plays, renamed identities and repeated passes rewrite '
+        'nothing', () async {
+      await listen('1', 'song-a', w3);
+      await listen('2', 'song-b', w3);
+      await service().finalizeCompletedWeeks(referenceLocal: referenceLocal);
+      final frozen = await history();
+      expect(frozen[DatabaseTables.chartSnapshots], hasLength(2));
+      expect(frozen[DatabaseTables.chartMomentEvents], isNotEmpty);
+
+      // A late synced play inside the finalized week that would reorder it,
+      // recorded under a renamed song and artist.
+      await listen('3', 'song-b', w3.add(const Duration(hours: 1)));
+      await listen('4', 'song-b', w3.add(const Duration(hours: 2)));
+      await db.update(DatabaseTables.playbackSessions, {
+        'song_title': 'Renamed',
+        'artist_name': 'Renamed Artist',
+      });
+
+      for (var pass = 0; pass < 25; pass++) {
+        final result = await service().finalizeCompletedWeeks(
+          referenceLocal: referenceLocal,
+        );
+        expect(result.map((snapshot) => snapshot.revision), everyElement(1));
+      }
+
+      expect(await history(), frozen);
+    });
+
+    test('an interrupted first finalization finishes without duplicating '
+        'or replacing Moments', () async {
+      await listen('1', 'song-c', w3);
+      charts.failNextReplace = true;
+
+      await expectLater(
+        service().finalizeCompletedWeeks(referenceLocal: referenceLocal),
+        throwsStateError,
+      );
+      expect(await snapshotsFor(w3), isEmpty);
+      Future<List<Map<String, Object?>>> songMoments() => db.query(
+        DatabaseTables.chartMomentEvents,
+        where: 'chart_type = ?',
+        whereArgs: ['songs'],
+        orderBy: 'id',
+      );
+      final published = await songMoments();
+      expect(published, isNotEmpty);
+
+      await service().finalizeCompletedWeeks(referenceLocal: referenceLocal);
+
+      expect(await snapshotsFor(w3), hasLength(2));
+      expect(await songMoments(), published);
+    });
+
+    test('engine and builder corrections apply to new weeks only; a stored '
+        'week stays byte-identical', () async {
+      final w4 = DateTime.utc(2026, 10, 14, 12);
+
+      // W3 as an earlier engine finalized it: RE-ENTRY beside "last week
+      // #5" (C-4), a song blocked since, and a release credited to the
+      // artist of its last song played (C-24).
+      await listen('1', 'song-a', w3);
+      await listen('2', 'song-b', w3);
+      await listen('3', 'song-b', w3.add(const Duration(hours: 1)));
+      ChartEntry stored(
+        String id,
+        int rank,
+        ChartMovement movement, {
+        int? previousFinalRank,
+        String artist = 'Artist song-a',
+      }) => ChartEntry(
+        entity: ChartEntitySnapshot(
+          entityId: id,
+          title: 'Stored $id',
+          artistId: 'artist-song-a',
+          artistName: artist,
+        ),
+        rank: rank,
+        qualifiedStreamCount: 1,
+        lastQualifiedAt: w3,
+        previousFinalRank: previousFinalRank,
+        peakRank: rank,
+        peakAchievedAt: w3,
+        weeksOnChart: 1,
+        movement: movement,
+      );
+      for (final (type, entries) in [
+        (
+          ChartType.songs,
+          [
+            stored('song-b', 1, ChartMovement.reentry, previousFinalRank: 5),
+            stored('song-a', 2, ChartMovement.newEntry),
+          ],
+        ),
+        (ChartType.albums, [stored('album-song-a', 1, ChartMovement.newEntry)]),
+      ]) {
+        await charts.inner.replaceSnapshot(
+          ChartSnapshot(
+            id: 'chart_${type.name}_${weekStart(w3).millisecondsSinceEpoch}',
+            chartType: type,
+            weekStartUtc: weekStart(w3),
+            weekEndUtc: weekEnd(w3),
+            finalizedAt: weekEnd(w3),
+            entries: entries,
+          ),
+        );
+      }
+
+      Future<Map<String, List<Map<String, Object?>>>> storedW3() async {
+        final start = weekStart(w3).toIso8601String();
+        return {
+          'snapshots': await db.query(
+            DatabaseTables.chartSnapshots,
+            where: 'week_start_utc = ?',
+            whereArgs: [start],
+            orderBy: 'id',
+          ),
+          'entries': await db.rawQuery(
+            'SELECT * FROM ${DatabaseTables.chartEntries} WHERE '
+            'chart_snapshot_id IN (SELECT id FROM '
+            '${DatabaseTables.chartSnapshots} WHERE week_start_utc = ?) '
+            'ORDER BY id',
+            [start],
+          ),
+          'moments': await db.query(
+            DatabaseTables.chartMomentEvents,
+            where: 'week_start_utc = ?',
+            whereArgs: [start],
+            orderBy: 'id',
+          ),
+        };
+      }
+
+      final frozen = await storedW3();
+      expect(frozen['entries'], hasLength(3));
+
+      // Now song-b is blocked and the release has its own owner.
+      await listen('4', 'song-a', w4);
+      await listen('5', 'song-b', w4.add(const Duration(hours: 1)));
+      await listen('6', 'song-b', w4.add(const Duration(hours: 2)));
+      final library = _Library(
+        tracks: [_track('song-a'), _track('song-b', blocked: true)],
+        albums: [
+          LibraryAlbum(
+            albumId: 'album-song-a',
+            title: 'Album song-a',
+            artistId: 'artist-owner',
+            artistName: 'Album Owner',
+            trackCount: 1,
+            dateAdded: DateTime.utc(2026, 9, 1),
+          ),
+        ],
+      );
+
+      for (var pass = 0; pass < 3; pass++) {
+        await service(
+          library: library,
+        ).finalizeCompletedWeeks(referenceLocal: referenceLocal);
+      }
+
+      expect(await storedW3(), frozen);
+
+      final songs = (await charts.getForWeek(
+        chartType: ChartType.songs,
+        weekStartUtc: weekStart(w4),
+      ))!;
+      expect(songs.entries.map((entry) => entry.entity.entityId), ['song-a']);
+      expect(songs.entries.single.previousFinalRank, 2);
+      expect(songs.entries.single.movement, ChartMovement.up);
+
+      final albums = (await charts.getForWeek(
+        chartType: ChartType.albums,
+        weekStartUtc: weekStart(w4),
+      ))!;
+      final owner = albums.entries
+          .firstWhere((entry) => entry.entity.entityId == 'album-song-a')
+          .entity;
+      expect(owner.artistId, 'artist-owner');
+      expect(owner.artistName, 'Album Owner');
+    });
+
+    test('missing local music keeps charting in new weeks; only a blocked '
+        'song leaves, and the stored week stays byte-identical (R1)', () async {
+      final w4 = DateTime.utc(2026, 10, 14, 12);
+      final songs = ['song-a', 'song-b', 'song-c'];
+      for (final (i, song) in songs.indexed) {
+        await listen('w3-$song', song, w3.add(Duration(hours: i)));
+      }
+      await service(
+        library: _Library(
+          tracks: [for (final song in songs) _track(song)],
+          albums: const [],
+        ),
+      ).finalizeCompletedWeeks(referenceLocal: referenceLocal);
+      final frozen = await history();
+      final storedW3 = (await charts.getForWeek(
+        chartType: ChartType.songs,
+        weekStartUtc: weekStart(w3),
+      ))!;
+      expect(storedW3.entries.map((entry) => entry.entity.entityId).toSet(), {
+        ...songs,
+      });
+
+      // song-a's file is gone, song-b is no longer in this library and
+      // song-c is blocked.
+      for (final (i, song) in songs.indexed) {
+        await listen('w4-$song', song, w4.add(Duration(hours: i)));
+      }
+      final later = _Library(
+        tracks: [
+          _track('song-a', available: false),
+          _track('song-c', blocked: true),
+        ],
+        albums: const [],
+      );
+      for (var pass = 0; pass < 3; pass++) {
+        await service(
+          library: later,
+        ).finalizeCompletedWeeks(referenceLocal: referenceLocal);
+      }
+
+      final after = await history();
+      final w3Id = 'chart_songs_${weekStart(w3).millisecondsSinceEpoch}';
+      List<Map<String, Object?>> ofW3(
+        Map<String, List<Map<String, Object?>>> tables,
+      ) => [
+        for (final row in tables[DatabaseTables.chartEntries]!)
+          if (row['chart_snapshot_id'] == w3Id) row,
+      ];
+      expect(ofW3(after), ofW3(frozen));
+      expect(
+        after[DatabaseTables.chartSnapshots]!.firstWhere(
+          (row) => row['id'] == w3Id,
+        ),
+        frozen[DatabaseTables.chartSnapshots]!.firstWhere(
+          (row) => row['id'] == w3Id,
+        ),
+      );
+
+      final w4Songs = (await charts.getForWeek(
+        chartType: ChartType.songs,
+        weekStartUtc: weekStart(w4),
+      ))!;
+      expect(w4Songs.entries.map((entry) => entry.entity.entityId).toSet(), {
+        'song-a',
+        'song-b',
+      });
+      expect(
+        w4Songs.entries
+            .firstWhere((entry) => entry.entity.entityId == 'song-b')
+            .entity
+            .title,
+        'Title song-b',
+      );
+    });
+  });
+}
+
+LibraryTrack _track(
+  String song, {
+  bool blocked = false,
+  bool available = true,
+}) => LibraryTrack(
+  songId: song,
+  title: 'Title $song',
+  artistId: 'artist-$song',
+  artistName: 'Artist $song',
+  albumId: 'album-$song',
+  albumTitle: 'Album $song',
+  albumEditionId: 'edition-$song',
+  albumEditionTitle: 'Album $song',
+  albumEditionType: AlbumEditionType.standard,
+  trackNumber: 1,
+  durationSeconds: 180,
+  isSingle: false,
+  featuredArtists: const [],
+  dateAdded: DateTime.utc(2026, 9, 1),
+  isAvailable: available,
+  isSongBlocked: blocked,
+);
+
+/// The library as it is when a later week is finalized.
+class _Library implements LibraryQueryRepository {
+  _Library({required this.tracks, required this.albums});
+
+  final List<LibraryTrack> tracks;
+  final List<LibraryAlbum> albums;
+
+  @override
+  Future<List<LibraryTrack>> getTracks({
+    LibraryTrackOrder order = LibraryTrackOrder.title,
+  }) async => tracks;
+
+  @override
+  Future<List<LibraryAlbum>> getAlbums() async => albums;
+
+  @override
+  Object? noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 /// A pause point inside a finalization pass.
@@ -375,13 +858,20 @@ class _GatedPlays implements QualifiedPlayRepository {
     return _gate = _Gate();
   }
 
-  /// Holds the first read made after [armed] completes.
-  _Gate holdNextReadAfter(Future<void> armed) {
-    final gate = _gate = _Gate();
-    var isArmed = false;
-    unawaited(armed.then((_) => isArmed = true));
-    _matches = (_, _) => isArmed;
-    return gate;
+  /// Holds the read of all listening before [weekStartUtc], which works out
+  /// that week's Moments.
+  _Gate holdHistoryBefore(DateTime weekStartUtc) {
+    _holdResult = false;
+    _matches = (from, before) => from == null && before == weekStartUtc;
+    return _gate = _Gate();
+  }
+
+  /// Holds the read that lists the weeks to finalize, before it reaches
+  /// the database and again after its result is read.
+  _Gate holdWeekList() {
+    _holdResult = true;
+    _matches = (from, before) => from == null && before != null;
+    return _gate = _Gate();
   }
 
   @override
@@ -440,26 +930,22 @@ class _GatedPlays implements QualifiedPlayRepository {
   }
 }
 
-/// Reports completed snapshot writes.
+/// Can fail a snapshot write.
 class _ObservedCharts implements ChartRepository {
   _ObservedCharts(this.inner);
 
   final ChartRepository inner;
-  final Map<DateTime, Completer<void>> _replaced = {};
 
-  /// Completes once the first snapshot of [weekStartUtc] has been written.
-  Future<void> replaced(DateTime weekStartUtc) {
-    return (_replaced[weekStartUtc] ??= Completer<void>()).future;
-  }
+  /// Fails the next snapshot write, as a pass killed before it would.
+  bool failNextReplace = false;
 
   @override
   Future<void> replaceSnapshot(ChartSnapshot snapshot) async {
-    await inner.replaceSnapshot(snapshot);
-
-    final done = _replaced[snapshot.weekStartUtc.toUtc()];
-    if (done != null && !done.isCompleted) {
-      done.complete();
+    if (failNextReplace) {
+      failNextReplace = false;
+      throw StateError('interrupted before the snapshot write');
     }
+    await inner.replaceSnapshot(snapshot);
   }
 
   @override
@@ -477,4 +963,53 @@ class _ObservedCharts implements ChartRepository {
   Future<List<ChartSnapshot>> getHistory(ChartType chartType, {int? limit}) {
     return inner.getHistory(chartType, limit: limit);
   }
+}
+
+/// Lets a test hold the pass right after a week's Moments are published.
+class _HeldMoments implements ChartMomentRepository {
+  _HeldMoments(this._inner);
+
+  final ChartMomentRepository _inner;
+  _Gate? _gate;
+
+  _Gate holdAfterPublish() => _gate = _Gate();
+
+  @override
+  Future<bool> publishFinalizedForWeek({
+    required ChartType chartType,
+    required DateTime weekStartUtc,
+    required Iterable<ChartMomentEvent> events,
+  }) async {
+    final published = await _inner.publishFinalizedForWeek(
+      chartType: chartType,
+      weekStartUtc: weekStartUtc,
+      events: events,
+    );
+
+    final gate = _gate;
+    if (gate != null) {
+      _gate = null;
+      gate._arrived.complete();
+      await gate._release.future;
+    }
+
+    return published;
+  }
+
+  @override
+  Future<void> saveAll(Iterable<ChartMomentEvent> events) =>
+      _inner.saveAll(events);
+
+  @override
+  Future<ChartMomentEvent?> getById(String id) => _inner.getById(id);
+
+  @override
+  Future<List<ChartMomentEvent>> getRecent({int? limit}) =>
+      _inner.getRecent(limit: limit);
+
+  @override
+  Future<List<ChartMomentEvent>> getPage({
+    ChartMomentPageCursor? before,
+    required int limit,
+  }) => _inner.getPage(before: before, limit: limit);
 }

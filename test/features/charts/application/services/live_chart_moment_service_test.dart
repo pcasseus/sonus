@@ -21,6 +21,8 @@ import 'package:sonus_next/features/library/application/models/library_track_ord
 import 'package:sonus_next/features/library/application/repositories/library_query_repository.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
 
+import '../../support/moment_page_fakes.dart';
+
 void main() {
   test(
     'builds live song movement Moments from qualified-play ranking changes',
@@ -706,23 +708,30 @@ class _ChartMomentRepository implements ChartMomentRepository {
   }
 
   @override
-  Future<void> replaceFinalizedForWeek({
+  Future<bool> publishFinalizedForWeek({
     required ChartType chartType,
     required DateTime weekStartUtc,
     required Iterable<ChartMomentEvent> events,
   }) async {
     final normalizedWeekStart = weekStartUtc.toUtc();
 
-    _eventsByDeduplicationKey.removeWhere(
-      (_, event) =>
+    if (_eventsByDeduplicationKey.values.any(
+      (event) =>
           event.scope == ChartMomentScope.finalized &&
           event.chartType == chartType &&
           event.weekStartUtc.toUtc() == normalizedWeekStart,
-    );
+    )) {
+      return false;
+    }
 
     for (final event in events) {
-      _eventsByDeduplicationKey[event.deduplicationKey] = event;
+      _eventsByDeduplicationKey.putIfAbsent(
+        event.deduplicationKey,
+        () => event,
+      );
     }
+
+    return true;
   }
 
   @override
@@ -755,4 +764,14 @@ class _ChartMomentRepository implements ChartMomentRepository {
 
     return List.unmodifiable(events.take(limit));
   }
+
+  @override
+  Future<List<ChartMomentEvent>> getPage({
+    ChartMomentPageCursor? before,
+    required int limit,
+  }) async => momentPageOf(
+    _eventsByDeduplicationKey.values,
+    before: before,
+    limit: limit,
+  );
 }

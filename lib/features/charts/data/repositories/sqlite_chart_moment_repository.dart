@@ -23,51 +23,34 @@ class SqliteChartMomentRepository implements ChartMomentRepository {
   }
 
   @override
-  Future<void> replaceFinalizedForWeek({
+  Future<bool> publishFinalizedForWeek({
     required ChartType chartType,
     required DateTime weekStartUtc,
     required Iterable<ChartMomentEvent> events,
   }) async {
     final normalizedWeekStartUtc = weekStartUtc.toUtc();
-    final replacement = List<ChartMomentEvent>.unmodifiable(events);
+    final publication = List<ChartMomentEvent>.unmodifiable(events);
+    validateFinalizedPublication(
+      chartType: chartType,
+      weekStartUtc: normalizedWeekStartUtc,
+      events: publication,
+    );
 
-    for (final event in replacement) {
-      if (event.scope != ChartMomentScope.finalized) {
-        throw ArgumentError.value(
-          event.scope,
-          'events',
-          'FINAL Moment replacement cannot contain live events.',
-        );
-      }
-
-      if (event.chartType != chartType) {
-        throw ArgumentError.value(
-          event.chartType,
-          'events',
-          'FINAL Moment replacement cannot contain another chart type.',
-        );
-      }
-
-      if (event.weekStartUtc.toUtc() != normalizedWeekStartUtc) {
-        throw ArgumentError.value(
-          event.weekStartUtc,
-          'events',
-          'FINAL Moment replacement cannot contain another chart week.',
-        );
-      }
-    }
-
-    await database.transaction((transaction) async {
+    return database.transaction((transaction) async {
       final dao = ChartMomentEventDao(transaction);
 
-      await dao.deleteFinalizedForWeek(
+      if (await dao.hasFinalizedForWeek(
         chartType: chartType.name,
         weekStartUtc: normalizedWeekStartUtc,
-      );
+      )) {
+        return false;
+      }
 
-      for (final event in replacement) {
+      for (final event in publication) {
         await dao.insertIgnoreDuplicate(ChartMomentEventRowMapper.toRow(event));
       }
+
+      return true;
     });
   }
 
@@ -90,5 +73,62 @@ class SqliteChartMomentRepository implements ChartMomentRepository {
     final rows = await ChartMomentEventDao(db).findRecent(limit: limit);
 
     return List.unmodifiable(rows.map(ChartMomentEventRowMapper.fromRow));
+  }
+
+  @override
+  Future<List<ChartMomentEvent>> getPage({
+    ChartMomentPageCursor? before,
+    required int limit,
+  }) async {
+    if (limit <= 0) {
+      throw ArgumentError.value(limit, 'limit', 'Must be positive.');
+    }
+
+    final db = await database.database;
+
+    final rows = await ChartMomentEventDao(db).findPage(
+      // Stored the way the mapper writes it, so the text order matches.
+      beforeOccurredAt: before?.occurredAt.toUtc().toIso8601String(),
+      beforeId: before?.id,
+      limit: limit,
+    );
+
+    return List.unmodifiable(rows.map(ChartMomentEventRowMapper.fromRow));
+  }
+}
+
+/// Throws unless every event is a finalized Moment of [chartType] for the
+/// week starting at [weekStartUtc].
+void validateFinalizedPublication({
+  required ChartType chartType,
+  required DateTime weekStartUtc,
+  required Iterable<ChartMomentEvent> events,
+}) {
+  final normalizedWeekStartUtc = weekStartUtc.toUtc();
+
+  for (final event in events) {
+    if (event.scope != ChartMomentScope.finalized) {
+      throw ArgumentError.value(
+        event.scope,
+        'events',
+        'FINAL Moment publication cannot contain live events.',
+      );
+    }
+
+    if (event.chartType != chartType) {
+      throw ArgumentError.value(
+        event.chartType,
+        'events',
+        'FINAL Moment publication cannot contain another chart type.',
+      );
+    }
+
+    if (event.weekStartUtc.toUtc() != normalizedWeekStartUtc) {
+      throw ArgumentError.value(
+        event.weekStartUtc,
+        'events',
+        'FINAL Moment publication cannot contain another chart week.',
+      );
+    }
   }
 }

@@ -138,4 +138,30 @@ void main() {
       expect(await revision(entityType: entityType, entityId: 'shared-id'), 3);
     }
   });
+
+  test('SN-50 A-Q16: hasAnyRevision sees any account, matches type and id, '
+      'and writes nothing', () async {
+    Future<bool> any({
+      CloudDataEntity entityType = CloudDataEntity.albumEdition,
+      String entityId = 'edition-1',
+    }) => repository.hasAnyRevision(entityType: entityType, entityId: entityId);
+
+    expect(await any(), isFalse);
+
+    await save(
+      2,
+      userId: 'user-2',
+      entityType: CloudDataEntity.albumEdition,
+      entityId: 'edition-1',
+    );
+
+    expect(await any(), isTrue);
+    expect(await any(entityId: 'edition-2'), isFalse);
+    expect(await any(entityType: CloudDataEntity.song), isFalse);
+    expect(
+      await database.query(SyncSchema.cloudRevisionBaselinesTable),
+      hasLength(1),
+    );
+    await expectLater(any(entityId: '  '), throwsArgumentError);
+  });
 }

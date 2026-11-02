@@ -38,6 +38,9 @@ class AllTimeChartRankingEngine {
 
       if (comparison == null && !at.isBefore(cutoff)) {
         comparison = _Comparison.of(states.values, isEligible);
+        for (final s in states.values) {
+          s.priorPeakRank = s.peakRank;
+        }
       }
 
       final state = states.putIfAbsent(
@@ -56,6 +59,17 @@ class AllTimeChartRankingEngine {
       // Everyone else on this total reached it no later than now, so they
       // stay ahead; only this play can improve this entity's rank.
       final rankNow = totals.atLeast(state.count);
+      // Ranks only improve on an entity's own plays, so its first play at
+      // or after the cutoff with a Top 200 / Top 100 rank is when it
+      // appeared there.
+      if (!at.isBefore(cutoff)) {
+        if (rankNow <= ChartRankingEngine.extendedStandingsLimit) {
+          state.firstChartedAt ??= at;
+        }
+        if (rankNow <= ChartRankingEngine.officialChartLimit) {
+          state.firstHot100At ??= at;
+        }
+      }
       if (state.peakRank == null || rankNow < state.peakRank!) {
         state
           ..peakRank = rankNow
@@ -94,6 +108,9 @@ class AllTimeChartRankingEngine {
           ? state.peakAchievedAt!
           : state.reachedAt!,
       previousRank: previousRank,
+      priorPeakRank: state.priorPeakRank,
+      firstChartedAt: state.firstChartedAt,
+      firstHot100At: state.firstHot100At,
       movement: _movementFor(
         rank: rank,
         previousRank: previousRank,
@@ -192,6 +209,10 @@ class _LifetimeState {
 
   int? peakRank;
   DateTime? peakAchievedAt;
+
+  int? priorPeakRank;
+  DateTime? firstChartedAt;
+  DateTime? firstHot100At;
 }
 
 /// Fenwick tree of how many entities hold each total.

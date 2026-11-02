@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:just_audio/just_audio.dart';
 import 'package:sonus_next/features/player/data/engines/support/playback_audio_player.dart';
@@ -12,7 +13,18 @@ import 'package:sonus_next/features/player/data/engines/support/playback_audio_p
 /// * Loading sources reports loading, then ready, before the returned
 ///   future completes.
 /// * Audio is only heard while [playing] and ready.
+/// * Seeking a completed source makes it ready again.
 class SimulatedJustAudioPlayer implements PlaybackAudioPlayer {
+  /// With [modelShuffle], shuffle mode plays in a real shuffle order, as
+  /// just_audio does: a seeded [DefaultShuffleOrder], or the order given
+  /// to [setAudioSources]. Off by default, so shuffle does not change the
+  /// play order for tests written before it was modelled.
+  SimulatedJustAudioPlayer({this.modelShuffle = false});
+
+  final bool modelShuffle;
+  ShuffleOrder _shuffleOrder = DefaultShuffleOrder(random: Random(7));
+  bool _shuffleEnabled = false;
+
   final StreamController<Duration> _positions =
       StreamController<Duration>.broadcast(sync: true);
   final StreamController<Duration?> _durations =
@@ -55,22 +67,50 @@ class SimulatedJustAudioPlayer implements PlaybackAudioPlayer {
   @override
   Stream<PlayerException> get errorStream => _errors.stream;
 
-  // Like just_audio, repeat all wraps around the queue.
+  // Like just_audio: repeat all wraps around the queue, and under repeat
+  // one the next and previous items are the current one.
   @override
-  bool get hasPrevious =>
-      _length > 0 && (_loopMode == LoopMode.all || (_index ?? 0) > 0);
+  bool get hasPrevious => _relative(-1, repeatOne: true) != null;
 
   @override
-  bool get hasNext =>
-      _length > 0 && (_loopMode == LoopMode.all || (_index ?? 0) < _length - 1);
+  bool get hasNext => _relative(1, repeatOne: true) != null;
+
+  @override
+  int? adjacentIndex(int offset) => _relative(offset, repeatOne: false);
+
+  int? _relative(int offset, {required bool repeatOne}) {
+    final index = _index;
+    if (_length == 0 || index == null) return null;
+    if (repeatOne && _loopMode == LoopMode.one) return index;
+    final order = _playOrder;
+    final position = order.indexOf(index);
+    if (position < 0) return null;
+    final target = position + offset;
+    if (_loopMode == LoopMode.all) return order[target % order.length];
+    if (target < 0 || target >= order.length) return null;
+    return order[target];
+  }
+
+  List<int> get _playOrder => modelShuffle && _shuffleEnabled
+      ? _shuffleOrder.indices
+      : [for (var i = 0; i < _length; i++) i];
+
+  @override
+  List<int> get shuffleIndices => List.of(_shuffleOrder.indices);
 
   @override
   Future<Duration?> setAudioSources(
     List<AudioSource> sources, {
     required int initialIndex,
     required Duration initialPosition,
+    ShuffleOrder? shuffleOrder,
   }) async {
     _length = sources.length;
+    _shuffleOrder = shuffleOrder ?? DefaultShuffleOrder(random: Random(7));
+    _shuffleOrder.clear();
+    _shuffleOrder.insert(0, sources.length);
+    // just_audio shuffles every source it loads, the start first.
+    _shuffleOrder.shuffle(initialIndex: initialIndex);
     _setProcessing(ProcessingState.loading);
     _index = initialIndex;
     _indexes.add(initialIndex);
@@ -149,40 +189,71 @@ class SimulatedJustAudioPlayer implements PlaybackAudioPlayer {
     }
     _position = position;
     _positions.add(position);
+
+    // Seeking a completed source prepares it again, like just_audio.
+    if (_processing == ProcessingState.completed) {
+      _setProcessing(ProcessingState.ready);
+    }
   }
 
   @override
   Future<void> seekToNext() async {
-    if (hasNext) {
-      await seek(Duration.zero, index: (_index ?? 0) + 1);
-    }
+    final next = _relative(1, repeatOne: true);
+    if (next != null) await seek(Duration.zero, index: next);
   }
 
   @override
   Future<void> seekToPrevious() async {
-    if (hasPrevious) {
-      await seek(Duration.zero, index: (_index ?? 0) - 1);
-    }
+    final previous = _relative(-1, repeatOne: true);
+    if (previous != null) await seek(Duration.zero, index: previous);
   }
 
   @override
   Future<void> insertAudioSource(int index, AudioSource source) async {
     _length++;
+    _shuffleOrder.insert(index, 1);
   }
 
   @override
   Future<void> removeAudioSourceAt(int index) async {
     _length--;
+    _shuffleOrder.removeRange(index, index + 1);
+    // Like just_audio, removing an earlier item keeps the current one
+    // playing at its new index.
+    final current = _index;
+    if (current != null && index < current) {
+      _index = current - 1;
+      _indexes.add(_index);
+    }
   }
 
   @override
-  Future<void> moveAudioSource(int oldIndex, int newIndex) async {}
+  Future<void> moveAudioSource(int oldIndex, int newIndex) async {
+    _shuffleOrder
+      ..removeRange(oldIndex, oldIndex + 1)
+      ..insert(newIndex, 1);
+    final current = _index;
+    if (current == null) return;
+    final moved = current == oldIndex
+        ? newIndex
+        : oldIndex < current && current <= newIndex
+        ? current - 1
+        : newIndex <= current && current < oldIndex
+        ? current + 1
+        : current;
+    if (moved != current) {
+      _index = moved;
+      _indexes.add(moved);
+    }
+  }
 
   @override
-  Future<void> shuffle() async {}
+  Future<void> shuffle() async => _shuffleOrder.shuffle(initialIndex: _index);
 
   @override
-  Future<void> setShuffleModeEnabled(bool enabled) async {}
+  Future<void> setShuffleModeEnabled(bool enabled) async {
+    _shuffleEnabled = enabled;
+  }
 
   @override
   Future<void> setLoopMode(LoopMode mode) async {

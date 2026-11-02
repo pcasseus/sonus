@@ -13,6 +13,7 @@ import 'package:sonus_next/features/library/domain/entities/library_organization
 import 'package:sonus_next/features/library/domain/entities/song_artist_credit.dart';
 import 'package:sonus_next/features/library/domain/repositories/library_organization_repository.dart';
 import 'package:sonus_next/features/library/presentation/pages/artist_profile_page.dart';
+import 'package:sonus_next/features/player/application/controllers/playback_coordinator.dart';
 
 import 'artist_profile_page_test.dart' as base;
 
@@ -69,6 +70,24 @@ class _Organization implements LibraryOrganizationRepository {
   @override
   Future<List<ArtistProjectAssignment>> getAssignments() async => const [];
 
+  final Map<String, AlbumLiveClassification> lives = {};
+
+  @override
+  Future<List<AlbumLiveClassification>> getLiveClassifications() async =>
+      lives.values.toList();
+
+  @override
+  Future<List<AlbumLeakedClassification>> getLeakedClassifications() async =>
+      const [];
+
+  @override
+  Future<void> saveLiveClassification(AlbumLiveClassification live) async =>
+      lives[live.albumId] = live;
+
+  @override
+  Future<void> deleteLiveClassification(String albumId) async =>
+      lives.remove(albumId);
+
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
@@ -113,17 +132,29 @@ void main() {
     required List<LibraryAlbum> libraryAlbums,
     List<ProjectCollaborator> credits = const [],
     Map<String, ReleaseFormat> formats = const {},
+    Set<String> live = const {},
     String artistId = 'artist-1',
     String? projectArtistId,
     Size size = const Size(411, 2400),
     QualifiedPlayRepository? qualifiedPlays,
+    PlaybackCoordinator? playbackCoordinator,
   }) async {
     await tester.binding.setSurfaceSize(size);
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final organization = LibraryOrganizationService(
       library: _AlbumsOnly(libraryAlbums),
       collaborators: _Credits(libraryAlbums, credits),
-      organization: _Organization(formats),
+      organization: _Organization(formats)
+        ..lives.addAll({
+          for (final albumId in live)
+            albumId: AlbumLiveClassification(
+              albumId: albumId,
+              isLive: true,
+              authority: ReleaseClassificationAuthority.manual,
+              createdAt: DateTime(2026),
+              updatedAt: DateTime(2026),
+            ),
+        }),
     );
     await tester.pumpWidget(
       Provider<LibraryOrganizationService?>.value(
@@ -131,6 +162,7 @@ void main() {
         child: base.buildSubject(
           repository: repository,
           qualifiedPlays: qualifiedPlays,
+          playbackCoordinator: playbackCoordinator,
           home: ArtistProfilePage(
             artistId: artistId,
             projectArtistId: projectArtistId,
@@ -144,7 +176,7 @@ void main() {
   Finder key(String value) => find.byKey(ValueKey<String>(value));
 
   testWidgets('releases are newest first, split into Albums, EPs and '
-      'Singles, with accurate counts', (tester) async {
+      'Singles, with no catalog-count line', (tester) async {
     final releases = [
       _release('a-2020', 'Old Album', released: DateTime(2020, 3, 1)),
       _release('a-none', 'Undated Album'),
@@ -177,18 +209,16 @@ void main() {
     expect(key('artist-profile-eps'), findsOneWidget);
     expect(key('artist-profile-singles'), findsOneWidget);
     // A short release with no stated format is not guessed to be anything.
-    expect(key('artist-profile-other-releases'), findsOneWidget);
+    expect(key('artist-profile-needs-review'), findsOneWidget);
     expect(
       find.descendant(
-        of: key('artist-profile-other-releases'),
+        of: key('artist-profile-needs-review'),
         matching: find.text('Demo'),
       ),
       findsOneWidget,
     );
-    expect(
-      find.text('3 albums • 1 EP • 1 single • 1 other release • 6 songs'),
-      findsOneWidget,
-    );
+    // SN-50 B-Q1: the hero no longer counts the catalog.
+    expect(key('artist-profile-summary'), findsNothing);
 
     double left(String title) => tester.getTopLeft(find.text(title).first).dx;
     double top(String title) => tester.getTopLeft(find.text(title).first).dy;
@@ -210,6 +240,77 @@ void main() {
         matching: find.text('15 Minutes'),
       ),
       findsNothing,
+    );
+  });
+
+  testWidgets('SN-49: live releases have one Live section, each labelled '
+      'with its format, and are counted once', (tester) async {
+    final releases = [
+      _release('studio', 'Studio Album', released: DateTime(2024)),
+      _release('concert', 'Live at the Arena', released: DateTime(2025)),
+      _release(
+        'session',
+        'Acoustic Session',
+        released: DateTime(2023),
+        trackCount: 3,
+      ),
+      _release('tv', 'One Song Live', released: DateTime(2022), trackCount: 1),
+    ];
+    await pump(
+      tester,
+      repository: _Repo(
+        library: releases,
+        artist: base.createArtist(albumCount: 4, songCount: 15),
+        albums: releases,
+        tracks: [
+          for (final r in releases)
+            base.createTrack(songId: 'song-${r.albumId}', albumId: r.albumId),
+        ],
+      ),
+      libraryAlbums: releases,
+      formats: {'session': ReleaseFormat.ep, 'tv': ReleaseFormat.single},
+      live: {'concert', 'session', 'tv'},
+    );
+
+    expect(key('artist-profile-live'), findsOneWidget);
+    expect(key('artist-profile-eps'), findsNothing);
+    expect(key('artist-profile-singles'), findsNothing);
+    for (final title in ['Live at the Arena', 'Acoustic Session']) {
+      expect(find.text(title), findsOneWidget, reason: 'listed once');
+      expect(
+        find.descendant(
+          of: key('artist-profile-live'),
+          matching: find.text(title),
+        ),
+        findsOneWidget,
+      );
+    }
+    expect(
+      find.descendant(
+        of: key('artist-profile-albums'),
+        matching: find.text('Studio Album'),
+      ),
+      findsOneWidget,
+    );
+    for (final label in [
+      'Album · 10 tracks',
+      'EP · 3 tracks',
+      'Single · 1 track',
+    ]) {
+      expect(
+        find.descendant(
+          of: key('artist-profile-live'),
+          matching: find.text(label),
+        ),
+        findsOneWidget,
+      );
+    }
+    expect(key('artist-profile-summary'), findsNothing);
+    // Live comes after the formats.
+    expect(
+      tester.getTopLeft(key('artist-profile-albums')).dy <
+          tester.getTopLeft(key('artist-profile-live')).dy,
+      isTrue,
     );
   });
 
@@ -295,13 +396,104 @@ void main() {
     );
 
     expect(key('artist-profile-appearance-descendants'), findsOneWidget);
-    expect(find.text('On Descendants'), findsOneWidget);
-    expect(find.text('On Descendants · 1 song'), findsOneWidget);
+    // SN-50 B-Q2: the hero keeps the project, without a count.
+    expect(
+      tester.widget<Text>(key('artist-profile-summary')).data,
+      'On Descendants',
+    );
+    expect(find.text('On Descendants'), findsNWidgets(2));
     expect(find.text('Isle Song'), findsOneWidget);
     expect(key('artist-profile-open-project-descendants'), findsOneWidget);
     for (final section in ['albums', 'eps', 'singles', 'collaborators']) {
       expect(key('artist-profile-$section'), findsNothing, reason: section);
     }
+  });
+
+  testWidgets('SN-50 B-Q30: Play on a contributor plays its songs on the '
+      'project, not a catalog of its own', (tester) async {
+    final descendants = _release(
+      'descendants',
+      'Descendants',
+      artistId: 'descendants',
+      artistName: 'Descendants',
+      released: DateTime(2015, 7, 31),
+    );
+    final zombies = _release(
+      'zombies',
+      'Zombies',
+      artistId: 'zombies',
+      artistName: 'Zombies',
+      released: DateTime(2018, 2, 16),
+    );
+    final engine = base.FakePlaybackEngine();
+    addTearDown(engine.dispose);
+    await pump(
+      tester,
+      artistId: 'mitchell',
+      projectArtistId: 'descendants',
+      playbackCoordinator: PlaybackCoordinator(engine: engine),
+      repository: _Repo(
+        library: [descendants, zombies],
+        artist: base.createArtist(
+          artistId: 'mitchell',
+          name: 'Mitchell Hope',
+          albumCount: 0,
+          songCount: 3,
+        ),
+        tracks: [
+          base.createTrack(
+            songId: 'isle',
+            title: 'Isle Song',
+            artistId: 'mitchell',
+            artistName: 'Mitchell Hope',
+            albumId: 'descendants',
+            albumTitle: 'Descendants',
+          ),
+          base.createTrack(
+            songId: 'did-i-mention',
+            title: 'Did I Mention',
+            artistId: 'mitchell',
+            artistName: 'Mitchell Hope',
+            albumId: 'descendants',
+            albumTitle: 'Descendants',
+          ),
+          base.createTrack(
+            songId: 'elsewhere',
+            title: 'Elsewhere',
+            artistId: 'mitchell',
+            artistName: 'Mitchell Hope',
+            albumId: 'zombies',
+            albumTitle: 'Zombies',
+          ),
+        ],
+        allTracks: const [],
+      ),
+      libraryAlbums: [descendants, zombies],
+      credits: const [
+        ProjectCollaborator(
+          albumId: 'descendants',
+          artistId: 'mitchell',
+          artistName: 'Mitchell Hope',
+          roles: {SongArtistCreditRole.primary},
+          songCount: 2,
+        ),
+        ProjectCollaborator(
+          albumId: 'zombies',
+          artistId: 'mitchell',
+          artistName: 'Mitchell Hope',
+          roles: {SongArtistCreditRole.primary},
+          songCount: 1,
+        ),
+      ],
+    );
+
+    await tester.tap(key('artist-profile-play-all-button'));
+    await tester.pumpAndSettle();
+
+    expect(
+      {for (final track in engine.lastLoadedTracks!) track.songId},
+      {'isle', 'did-i-mention'},
+    );
   });
 
   testWidgets('a soundtrack says why its artist total leaves out an '
@@ -383,7 +575,7 @@ void main() {
     expect(find.textContaining('3 streams'), findsWidgets);
     expect(
       find.text(
-        'Your most streamed, all time. Streams of songs by Dove Cameron '
+        'Your most streamed songs. Streams of songs by Dove Cameron '
         "count toward Dove Cameron's own artist total, not the one above.",
       ),
       findsOneWidget,

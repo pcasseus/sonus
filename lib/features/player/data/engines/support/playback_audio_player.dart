@@ -10,6 +10,12 @@ abstract interface class PlaybackAudioPlayer {
   bool get hasPrevious;
   bool get hasNext;
 
+  /// The entry [offset] steps from the current one in play order (shuffle
+  /// included), as if Repeat One were off: Repeat All still wraps. Null at
+  /// the queue's edge. Lets an explicit Next or Previous move on under
+  /// Repeat One, which only repeats a song that finishes on its own.
+  int? adjacentIndex(int offset);
+
   /// Whether the player intends to play. Like just_audio, this survives
   /// source changes and completion until [pause] or [stop].
   bool get playing;
@@ -18,7 +24,12 @@ abstract interface class PlaybackAudioPlayer {
     List<AudioSource> sources, {
     required int initialIndex,
     required Duration initialPosition,
+    ShuffleOrder? shuffleOrder,
   });
+
+  /// The shuffled play order (queue indices). Only meaningful while
+  /// shuffle mode is on.
+  List<int> get shuffleIndices;
 
   Future<void> play();
   Future<void> pause();
@@ -59,6 +70,26 @@ class JustAudioPlayerAdapter implements PlaybackAudioPlayer {
   Stream<PlayerState> get playerStateStream => _audioPlayer.playerStateStream;
 
   @override
+  List<int> get shuffleIndices => List.of(_audioPlayer.shuffleIndices);
+
+  @override
+  int? adjacentIndex(int offset) {
+    final current = _audioPlayer.currentIndex;
+    final order = _audioPlayer.effectiveIndices;
+    if (current == null || order.isEmpty) return null;
+
+    final position = order.indexOf(current);
+    if (position < 0) return null;
+
+    final target = position + offset;
+    if (_audioPlayer.loopMode == LoopMode.all) {
+      return order[target % order.length];
+    }
+    if (target < 0 || target >= order.length) return null;
+    return order[target];
+  }
+
+  @override
   Stream<PlayerException> get errorStream => _audioPlayer.errorStream;
 
   @override
@@ -75,11 +106,13 @@ class JustAudioPlayerAdapter implements PlaybackAudioPlayer {
     List<AudioSource> sources, {
     required int initialIndex,
     required Duration initialPosition,
+    ShuffleOrder? shuffleOrder,
   }) {
     return _audioPlayer.setAudioSources(
       sources,
       initialIndex: initialIndex,
       initialPosition: initialPosition,
+      shuffleOrder: shuffleOrder,
     );
   }
 

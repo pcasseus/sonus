@@ -19,6 +19,7 @@ import 'package:sonus_next/features/library/application/models/library_artist.da
 import 'package:sonus_next/features/library/application/models/library_track.dart';
 import 'package:sonus_next/features/library/presentation/pages/artist_profile_page.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
+import 'package:sonus_next/features/song_stats/presentation/song_stats_page.dart';
 
 void main() {
   group('ranking weeks', () {
@@ -158,6 +159,26 @@ void main() {
     },
   );
 
+  // Charts 2.0 C4: the Home song sheet opens the one Song Stats page.
+  testWidgets('popular track sheet opens Song Stats', (tester) async {
+    final controller = await _loadedController(_snapshot());
+
+    await _pumpHome(tester, controller);
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('home-popular-track-song_popular')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('View Stats'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(SongStatsPage), findsOneWidget);
+    expect(
+      tester.widget<SongStatsPage>(find.byType(SongStatsPage)).songId,
+      'song_popular',
+    );
+  });
+
   testWidgets('blocked recently added track remains visible and disabled', (
     tester,
   ) async {
@@ -185,6 +206,83 @@ void main() {
 
     expect(find.text('Play next'), findsNothing);
     expect(find.text('Add to queue'), findsNothing);
+  });
+
+  group('SN-50 BUG-02: Recently Added versions', () {
+    HomeSnapshot versions() => HomeSnapshot(
+      recentlyAddedTracks: [
+        _track(id: 'orig', title: 'Original Song'),
+        _track(
+          id: 'remix',
+          title: 'Original Song (Remix)',
+          versionLabel: 'Remix',
+          featured: const ['Artist A'],
+        ),
+        _track(
+          id: 'alt',
+          title: 'Original Song',
+          versionLabel: 'Alternate Remix',
+          featured: const ['Artist B', 'Artist C', 'Artist D'],
+        ),
+      ],
+      recentlyAddedAlbums: const [],
+      weeklyPopularTracks: const [],
+      weeklyTopArtists: const [],
+    );
+
+    Finder card(String id) =>
+        find.byKey(ValueKey<String>('home-recent-track-$id'));
+
+    testWidgets('three same-base-title recordings read differently', (
+      tester,
+    ) async {
+      final controller = await _loadedController(versions());
+      await _pumpHome(tester, controller);
+
+      String textsOf(String id) => tester
+          .widgetList<Text>(
+            find.descendant(of: card(id), matching: find.byType(Text)),
+          )
+          .map((text) => text.data)
+          .join(' | ');
+
+      expect(textsOf('orig'), 'Original Song | Artist 1');
+      // The stored "(Remix)" is never doubled.
+      expect(textsOf('remix'), 'Original Song (Remix) | Artist 1 Ft. Artist A');
+      expect(
+        textsOf('alt'),
+        'Original Song (Alternate Remix) | '
+        'Artist 1 Ft. Artist B, Artist C, Artist D',
+      );
+    });
+
+    testWidgets('a long credit line fits 320dp at 2x text and is read in '
+        'full', (tester) async {
+      final semantics = tester.ensureSemantics();
+      final controller = await _loadedController(versions());
+      tester.view.devicePixelRatio = 1;
+      tester.view.physicalSize = const Size(320, 2400);
+      addTearDown(tester.view.reset);
+
+      await _pumpHome(
+        tester,
+        controller,
+        size: const Size(320, 2400),
+        textScale: 2,
+      );
+
+      expect(tester.takeException(), isNull);
+      expect(
+        find.bySemanticsLabel(
+          RegExp(
+            r'Original Song \(Alternate Remix\)\s+'
+            r'Artist 1 Ft\. Artist B, Artist C, Artist D',
+          ),
+        ),
+        findsOneWidget,
+      );
+      semantics.dispose();
+    });
   });
 
   testWidgets('renders empty state', (tester) async {
@@ -970,6 +1068,8 @@ LibraryTrack _track({
   required String id,
   required String title,
   bool blocked = false,
+  String? versionLabel,
+  List<String> featured = const [],
 }) {
   return LibraryTrack(
     songId: id,
@@ -984,7 +1084,8 @@ LibraryTrack _track({
     trackNumber: 1,
     durationSeconds: 180,
     isSingle: false,
-    featuredArtists: const [],
+    featuredArtists: featured,
+    versionLabel: versionLabel,
     dateAdded: DateTime.utc(2026, 9, 28),
     isAvailable: true,
     isSongBlocked: blocked,

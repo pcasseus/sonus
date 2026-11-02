@@ -3,7 +3,7 @@ import '../../domain/models/sync_data_contract.dart';
 import '../daos/cloud_revision_baseline_dao.dart';
 
 class SqliteCloudRevisionBaselineRepository
-    implements CloudRevisionBaselineRepository {
+    implements CloudRevisionBaselineRepository, CloudBaselinePresence {
   const SqliteCloudRevisionBaselineRepository({required this.dao});
 
   final CloudRevisionBaselineDao dao;
@@ -19,6 +19,14 @@ class SqliteCloudRevisionBaselineRepository
       entityType: entityType,
       entityId: entityId,
     );
+  }
+
+  @override
+  Future<bool> hasAnyRevision({
+    required CloudDataEntity entityType,
+    required String entityId,
+  }) {
+    return dao.hasAnyRevision(entityType: entityType, entityId: entityId);
   }
 
   @override

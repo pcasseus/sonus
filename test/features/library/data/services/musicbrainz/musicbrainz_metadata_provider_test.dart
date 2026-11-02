@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sonus_next/features/library/domain/entities/release_date.dart';
 import 'package:sonus_next/features/library/application/models/external_metadata_search_query.dart';
 import 'package:sonus_next/features/library/data/services/musicbrainz/musicbrainz_api_client.dart';
 import 'package:sonus_next/features/library/data/services/musicbrainz/musicbrainz_http_transport.dart';
@@ -135,7 +136,7 @@ void main() {
         expect(result.releaseGroupId, 'release-group-mbid');
         expect(result.releaseId, 'release-mbid');
         expect(result.primaryType, 'Album');
-        expect(result.releaseDate, DateTime.utc(2022, 7, 29));
+        expect(result.releaseDate, ReleaseDate.of(2022, 7, 29));
 
         expect(result.artistCredits, hasLength(1));
         expect(result.artistCredits.single.name, 'Beyoncé');
@@ -218,7 +219,7 @@ void main() {
         expect(result.releaseTitle, 'Renaissance');
         expect(result.releaseId, 'release-mbid');
         expect(result.releaseGroupId, 'release-group-mbid');
-        expect(result.releaseDate, DateTime.utc(2022, 7, 29));
+        expect(result.releaseDate, ReleaseDate.of(2022, 7, 29));
 
         expect(result.artistCredits, hasLength(2));
         expect(result.artistCredits[0].name, 'Beyoncé');
@@ -421,7 +422,7 @@ void main() {
     });
 
     test(
-      'partial MusicBrainz dates are not fabricated into exact dates',
+      'partial MusicBrainz dates keep exactly what they say, no more',
       () async {
         transport.responseBody = '''
 {
@@ -435,6 +436,12 @@ void main() {
       "id": "rg-month",
       "title": "Month Album",
       "first-release-date": "2021-05"
+    },
+    {
+      "id": "rg-impossible",
+      "title": "Impossible Album",
+      "first-release-date": "2021-02-30",
+      "releases": [{"id": "r-1", "title": "Impossible Album", "date": "2019-11"}]
     }
   ]
 }
@@ -447,9 +454,17 @@ void main() {
           ),
         );
 
-        expect(results, hasLength(2));
-        expect(results[0].releaseDate, isNull);
-        expect(results[1].releaseDate, isNull);
+        expect(results, hasLength(3));
+        expect(results[0].releaseDate, ReleaseDate.of(2020));
+        expect(results[0].releaseDate!.label, '2020');
+        expect(results[1].releaseDate, ReleaseDate.of(2021, 5));
+        expect(results[1].releaseDate!.label, 'May 2021');
+        // An impossible date is refused; the only release's month is used.
+        expect(results[2].releaseDate, ReleaseDate.of(2019, 11));
+        expect(
+          results[2].releaseOptions.single.releaseDate,
+          ReleaseDate.of(2019, 11),
+        );
       },
     );
 

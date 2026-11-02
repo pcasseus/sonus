@@ -6,7 +6,10 @@ import 'package:flutter/foundation.dart';
 import 'package:sonus_next/core/identity/text_normalizer.dart';
 
 import '../../../analytics/application/models/analytics_period.dart';
+import '../../../analytics/application/services/analytics_artist_listening_duration_service.dart';
 import '../../../analytics/application/services/analytics_entity_ranking_service.dart';
+import '../../../analytics/domain/repositories/playback_listening_segment_repository.dart';
+import '../../../analytics/domain/repositories/playback_session_repository.dart';
 import '../../../analytics/domain/repositories/qualified_play_repository.dart';
 import '../../../artwork/application/services/artwork_assignment_service.dart';
 import '../../../artwork/application/services/artwork_crop_service.dart';
@@ -16,7 +19,7 @@ import '../../../player/application/controllers/playback_coordinator.dart';
 import '../../application/models/library_album.dart';
 import '../../application/models/library_artist.dart';
 import '../../application/models/library_track.dart';
-import '../../application/models/project_collaborator.dart';
+import '../../application/models/project_song_credit.dart';
 import '../../application/repositories/library_query_repository.dart';
 import '../../application/services/artist_profile_editing_service.dart';
 import '../../application/services/library_organization_service.dart';
@@ -41,6 +44,8 @@ class ArtistProfileController extends ChangeNotifier {
     SongArtistCreditRepository? songArtistCreditRepository,
     TrackProfileEditingService? trackProfileEditingService,
     QualifiedPlayRepository? qualifiedPlays,
+    PlaybackSessionRepository? playbackSessions,
+    PlaybackListeningSegmentRepository? listeningSegments,
     ArtworkCropService? artworkCropService,
     LibraryOrganizationService? organization,
     String? projectArtistId,
@@ -57,6 +62,8 @@ class ArtistProfileController extends ChangeNotifier {
          songArtistCreditRepository,
          trackProfileEditingService,
          qualifiedPlays,
+         playbackSessions,
+         listeningSegments,
          artworkCropService,
          organization,
          projectArtistId,
@@ -75,6 +82,8 @@ class ArtistProfileController extends ChangeNotifier {
     this._songArtistCreditRepository,
     this._trackProfileEditingService,
     this._qualifiedPlays,
+    this._playbackSessions,
+    this._listeningSegments,
     this._artworkCropService,
     this._organizationService,
     this._projectArtistId,
@@ -92,6 +101,8 @@ class ArtistProfileController extends ChangeNotifier {
   final SongArtistCreditRepository? _songArtistCreditRepository;
   final TrackProfileEditingService? _trackProfileEditingService;
   final QualifiedPlayRepository? _qualifiedPlays;
+  final PlaybackSessionRepository? _playbackSessions;
+  final PlaybackListeningSegmentRepository? _listeningSegments;
   final ArtworkCropService? _artworkCropService;
 
   /// The Library's artist identity. Without it every artist is shown as a
@@ -112,7 +123,7 @@ class ArtistProfileController extends ChangeNotifier {
   List<LibraryTrack> _projectTracks = const [];
   List<LibraryTrack> _collaborationTracks = const [];
   List<ArtistProfileCollaborator> _collaborators = const [];
-  List<ArtistTopTrack> _topTracks = const [];
+  List<ArtistTopTrack> _rankedTracks = const [];
   ArtistStanding? _standing;
   ArtistLibraryOrganization? _organization;
   List<ContributorAppearance> _appearances = const [];
@@ -148,7 +159,16 @@ class ArtistProfileController extends ChangeNotifier {
   List<ArtistProfileCollaborator> get collaborators => _collaborators;
 
   /// Up to five of the catalogue's most streamed songs, all-time.
-  List<ArtistTopTrack> get topTracks => _topTracks;
+  List<ArtistTopTrack> get topTracks =>
+      _rankedTracks.length <= ArtistProfileSections.topTrackLimit
+      ? _rankedTracks
+      : List.unmodifiable(
+          _rankedTracks.take(ArtistProfileSections.topTrackLimit),
+        );
+
+  /// Every catalogue song with qualified streams, most streamed first, for
+  /// See All (SN-50 B-Q29/B-Q35).
+  List<ArtistTopTrack> get rankedTracks => _rankedTracks;
 
   /// The artist's place in the listener's all-time artist ranking.
   ArtistStanding? get standing => _standing;
@@ -172,7 +192,7 @@ class ArtistProfileController extends ChangeNotifier {
     final organization = _organization;
     if (organization == null) return const [];
     final names = <String>[];
-    for (final entry in _topTracks) {
+    for (final entry in topTracks) {
       final track = entry.track;
       final countsFor = organization.attributedArtistId(
         artistId: track.artistId,
@@ -197,6 +217,22 @@ class ArtistProfileController extends ChangeNotifier {
         : organization.formatOf(albumId);
   }
 
+  /// Whether the release's format was stated rather than inferred. Without
+  /// the Library organization nothing is open for review.
+  bool hasStatedFormat(String albumId) =>
+      _organization?.hasStatedFormat(albumId) ?? true;
+
+  /// Whether the release is a live recording (SN-49).
+  bool isLive(String albumId) => _organization?.isLive(albumId) ?? false;
+
+  /// Whether the user marked the whole release as leaked (SN-50 A-Q2C).
+  bool isLeaked(String albumId) => _organization?.isLeaked(albumId) ?? false;
+
+  /// The release's kind (soundtrack, cast recording or compilation), if
+  /// one is stated.
+  ReleaseKind? kindOf(String albumId) =>
+      _organization?.classifications[albumId]?.kind;
+
   /// The wide banner photo, exactly as saved.
   String? get bannerPath => _nonEmpty(_artist?.headerArtworkPath);
 
@@ -210,8 +246,9 @@ class ArtistProfileController extends ChangeNotifier {
   }
 
   /// What Play and Shuffle queue: the artist's own songs, then the other
-  /// performers' songs on the artist's own albums.
-  /// For a contributor, its songs on the projects shown.
+  /// performers' songs on the artist's own albums; never songs the artist
+  /// is only featured on (B-Q18). For a contributor, its songs on the
+  /// projects shown (B-Q30).
   List<LibraryTrack> get playbackTracks => isContributor
       ? [for (final appearance in _appearances) ...appearance.tracks]
       : [..._tracks, ..._projectTracks];
@@ -343,7 +380,7 @@ class ArtistProfileController extends ChangeNotifier {
       return false;
     }
 
-    await service.updateTrackWithCredits(
+    final result = await service.updateTrackWithCredits(
       userId: userId,
       songId: track.songId,
       title: title,
@@ -364,7 +401,7 @@ class ArtistProfileController extends ChangeNotifier {
 
     await refresh();
 
-    return true;
+    return result.changed;
   }
 
   bool canEditArtist(String? userId) {
@@ -461,7 +498,7 @@ class ArtistProfileController extends ChangeNotifier {
         _projectTracks = const [];
         _collaborationTracks = const [];
         _collaborators = const [];
-        _topTracks = const [];
+        _rankedTracks = const [];
         _standing = null;
         _appearances = const [];
         return;
@@ -520,7 +557,7 @@ class ArtistProfileController extends ChangeNotifier {
 
       // Structured credits (any role) when the repository has them; the
       // songs' lead artists otherwise.
-      final credits = await _projectCredits(ownedAlbumIds);
+      final credits = await _projectSongCredits(ownedAlbumIds);
 
       final artistsById = projectTracks.isEmpty && (credits?.isEmpty ?? true)
           ? const <String, LibraryArtist>{}
@@ -561,11 +598,18 @@ class ArtistProfileController extends ChangeNotifier {
               projectTracks: projectTracks,
               artistsById: artistsById,
             )
-          : ArtistProfileSections.structuredCollaborators(
-              projectArtistId: _artistId,
+          : ArtistProfileSections.creditedCollaborators(
+              ownerArtistId: _artistId,
               credits: credits,
-              projectTracks: projectTracks,
+              projectTracks: catalogTracks.where(
+                (track) => ownedAlbumIds.contains(track.albumId),
+              ),
+              tracksById: {
+                for (final track in [...catalogTracks, ..._allTracks])
+                  track.songId: track,
+              },
               artistsById: artistsById,
+              albumsById: collaborationAlbums,
             );
       await _loadRankings();
     } catch (error) {
@@ -595,20 +639,20 @@ class ArtistProfileController extends ChangeNotifier {
     }
   }
 
-  /// Credited performers of the artist's own albums, or null when the
+  /// Credits on the songs of the artist's own albums, or null when the
   /// repository has no structured credit query (or it fails, in which
   /// case the lead-artist list is shown instead).
-  Future<List<ProjectCollaborator>?> _projectCredits(
+  Future<List<ProjectSongCredit>?> _projectSongCredits(
     Set<String> ownedAlbumIds,
   ) async {
     final Object repository = _repository;
-    if (repository is! ProjectCollaboratorQueryRepository) return null;
+    if (repository is! ProjectSongCreditQueryRepository) return null;
     if (ownedAlbumIds.isEmpty) return const [];
 
     try {
       return [
         for (final albumId in ownedAlbumIds)
-          ...await repository.getProjectCollaborators(albumId: albumId),
+          ...await repository.getProjectSongCredits(albumId),
       ];
     } catch (error, stackTrace) {
       developer.log(
@@ -627,10 +671,10 @@ class ArtistProfileController extends ChangeNotifier {
   Future<void> refreshTopTracks() async {
     if (_artist == null) return;
 
-    final previousTopTracks = _topTracks;
+    final previousTopTracks = _rankedTracks;
     final previousStanding = _standing;
     await _loadRankings();
-    if (_sameTopTracks(previousTopTracks, _topTracks) &&
+    if (_sameTopTracks(previousTopTracks, _rankedTracks) &&
         previousStanding == _standing) {
       return;
     }
@@ -643,28 +687,31 @@ class ArtistProfileController extends ChangeNotifier {
     final catalogue = playbackTracks;
 
     if (qualifiedPlays == null) {
-      _topTracks = const [];
+      _rankedTracks = const [];
       _standing = null;
       return;
     }
 
     try {
       final organizationService = _organizationService;
+      final attribution = organizationService == null
+          ? null
+          : OrganizationArtistAttribution(organizationService);
       final rankings = await AnalyticsEntityRankingService(
         qualifiedPlays: qualifiedPlays,
-        artistAttribution: organizationService == null
-            ? null
-            : OrganizationArtistAttribution(organizationService),
+        artistAttribution: attribution,
       ).load(period: AnalyticsPeriod.lifetime, referenceLocal: _clock());
 
-      _topTracks = ArtistProfileSections.topTracks(
+      _rankedTracks = ArtistProfileSections.topTracks(
         catalogue: catalogue,
         rankedSongs: rankings.songs,
+        limit: null,
       );
-      _standing = ArtistProfileSections.standing(
+      final standing = ArtistProfileSections.standing(
         artistId: _artistId,
         rankedArtists: rankings.artists,
       );
+      _standing = standing?.withListened(await _listenedTime(attribution));
     } catch (error, stackTrace) {
       // Top Tracks is optional; the rest of the profile still shows.
       developer.log(
@@ -674,8 +721,36 @@ class ArtistProfileController extends ChangeNotifier {
         error: error,
         stackTrace: stackTrace,
       );
-      _topTracks = const [];
+      _rankedTracks = const [];
       _standing = null;
+    }
+  }
+
+  /// The artist's all-time listening time, attributed the same way as the
+  /// ranking. Null when it can't be read; the standing still shows.
+  Future<Duration?> _listenedTime(
+    OrganizationArtistAttribution? attribution,
+  ) async {
+    final sessions = _playbackSessions;
+    final segments = _listeningSegments;
+    if (sessions == null || segments == null) return null;
+
+    try {
+      final totals = await AnalyticsArtistListeningDurationService(
+        playbackSessions: sessions,
+        listeningSegments: segments,
+        artistAttribution: attribution,
+      ).load(period: AnalyticsPeriod.lifetime, referenceLocal: _clock());
+      return totals[_artistId];
+    } catch (error, stackTrace) {
+      developer.log(
+        'Could not read listening time (${error.runtimeType})',
+        name: 'sonus.library.artist_profile',
+        level: 900,
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return null;
     }
   }
 
@@ -713,8 +788,33 @@ class ArtistProfileController extends ChangeNotifier {
     }
 
     await playbackCoordinator.playInContext(track, [
-      for (final entry in _topTracks) entry.track,
+      for (final entry in topTracks) entry.track,
     ]);
+  }
+
+  /// Plays a See All song with the whole ranking as its queue.
+  Future<void> playRankedTrack(LibraryTrack track) async {
+    final playbackCoordinator = _playbackCoordinator;
+
+    if (playbackCoordinator == null || !_isPlayable(track)) {
+      return;
+    }
+
+    await playbackCoordinator.playInContext(track, [
+      for (final entry in _rankedTracks) entry.track,
+    ]);
+  }
+
+  /// Plays a Collaborations song with the Collaborations list as its queue
+  /// (B-Q27).
+  Future<void> playCollaboration(LibraryTrack track) async {
+    final playbackCoordinator = _playbackCoordinator;
+
+    if (playbackCoordinator == null || !_isPlayable(track)) {
+      return;
+    }
+
+    await playbackCoordinator.playInContext(track, _collaborationTracks);
   }
 
   bool get canCropArtwork => _artworkCropService != null && canEditArtwork;
@@ -956,7 +1056,8 @@ class ArtistProfileController extends ChangeNotifier {
     await playbackCoordinator.playTracks(queue, startIndex: startIndex);
   }
 
-  /// Plays one collaborator's songs on this artist's projects.
+  /// Plays every song the collaborator is credited on in this artist's
+  /// releases (B-Q26).
   Future<void> playCollaborator(ArtistProfileCollaborator collaborator) async {
     final playbackCoordinator = _playbackCoordinator;
     final first = collaborator.tracks.indexWhere(_isPlayable);

@@ -77,6 +77,7 @@ void main() {
                         context: context,
                         builder: (_) => TrackProfileEditDialog(
                           track: deluxeListing(),
+                          initialAdditionalCredits: const [],
                           albums: albums,
                         ),
                       );

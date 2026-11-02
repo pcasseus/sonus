@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 
 import 'package:flutter/foundation.dart';
 
+import '../../domain/entities/account_failure.dart';
 import '../../domain/entities/account_user.dart';
 import '../../domain/repositories/account_repository.dart';
 
@@ -26,6 +28,13 @@ class AccountController extends ChangeNotifier {
   Object? get error => _error;
 
   bool get hasError => _error != null;
+
+  /// What the last failed sign-in needs from the person; null without one.
+  AccountFailureKind? get failureKind => switch (_error) {
+    null => null,
+    AccountFailure(:final kind) => kind,
+    _ => AccountFailureKind.unknown,
+  };
 
   void initialize() {
     if (_authStateSubscription != null) {
@@ -70,6 +79,7 @@ class AccountController extends ChangeNotifier {
       return true;
     } catch (error) {
       _error = error;
+      _log('Sign-in failed', error);
       return false;
     } finally {
       _isLoading = false;
@@ -93,11 +103,23 @@ class AccountController extends ChangeNotifier {
       return true;
     } catch (error) {
       _error = error;
+      _log('Sign-out failed', error);
       return false;
     } finally {
       _isLoading = false;
       notifyListeners();
     }
+  }
+
+  /// The kind and type of failure only: never tokens, names or emails.
+  static void _log(String message, Object error) {
+    final kind = error is AccountFailure ? error.kind.name : 'unknown';
+    final cause = error is AccountFailure ? error.cause : error;
+    developer.log(
+      '$message ($kind, ${cause.runtimeType})',
+      name: 'sonus.account',
+      level: 900,
+    );
   }
 
   @override

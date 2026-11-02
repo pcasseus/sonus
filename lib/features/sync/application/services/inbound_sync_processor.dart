@@ -1,6 +1,7 @@
 import '../../domain/models/sync_data_contract.dart';
 import 'cloud_sync_reader.dart';
 import 'inbound_sync_reconciler.dart';
+import 'sync_cancellation.dart';
 
 class InboundSyncProcessor {
   const InboundSyncProcessor({
@@ -49,6 +50,7 @@ class InboundSyncProcessor {
     var totalProcessed = 0;
 
     for (final entityType in _dependencyOrder) {
+      SyncCancellation.checkpoint();
       final replayStart = await reconciler.replayStart(
         userId: normalizedUserId,
         entityType: entityType,
@@ -59,6 +61,7 @@ class InboundSyncProcessor {
       var isFirstPage = true;
 
       while (true) {
+        SyncCancellation.checkpoint();
         final result = await reconciler.reconcilePage(
           userId: normalizedUserId,
           entityType: entityType,
@@ -88,6 +91,7 @@ class InboundSyncProcessor {
     // Cursors have passed every deferred revision, so replay comes from
     // the durable ledger. Failed replays keep their obligations; the first
     // failure is reported only after the whole bounded pass.
+    SyncCancellation.checkpoint();
     final replay = await reconciler.replayDeferred(
       userId: normalizedUserId,
       maxFetches: deferredReplayFetchLimit,

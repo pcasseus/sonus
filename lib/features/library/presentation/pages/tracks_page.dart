@@ -26,12 +26,16 @@ import '../widgets/alphabet_rail.dart';
 import '../../application/repositories/library_query_repository.dart';
 import '../../application/services/artist_creation_service.dart';
 import '../../application/services/song_block_service.dart';
-import '../../application/services/song_artist_credit_service.dart';
 import '../../application/services/track_profile_editing_service.dart';
 import '../../domain/repositories/song_artist_credit_repository.dart';
 import '../controllers/library_tracks_controller.dart';
+import '../controllers/track_selection_controller.dart';
 import '../models/track_profile_edit_draft.dart';
+import '../widgets/track_selection_bar.dart';
+import 'album_profile_page.dart';
+import 'artist_profile_page.dart';
 import 'track_studio_page.dart';
+import '../../../song_stats/presentation/song_stats_navigation.dart';
 
 class TracksPage extends StatefulWidget {
   const TracksPage({super.key, this.changes});
@@ -50,6 +54,7 @@ class _TracksPageState extends State<TracksPage> {
   LibraryQueryRepository? _repository;
 
   final ScrollController _scroll = ScrollController();
+  final TrackSelectionController _selection = TrackSelectionController();
   final GlobalKey _listStartKey = GlobalKey();
   final GlobalKey _jumpTargetKey = GlobalKey();
   String? _jumpSongId;
@@ -169,8 +174,9 @@ class _TracksPageState extends State<TracksPage> {
     return SizedBox(
       key: const ValueKey<String>('app-destination-tracks'),
       child: AnimatedBuilder(
-        animation: controller,
+        animation: Listenable.merge([controller, _selection]),
         builder: (context, _) {
+          final selecting = _selection.isActive;
           final visibleTracks = controller.tracks
               .where(_hasAvailableMedia)
               .toList(growable: false);
@@ -247,6 +253,14 @@ class _TracksPageState extends State<TracksPage> {
                           canEditArtwork: controller.canEditArtwork,
                           canEditTrack: controller.canEditTrack(userId),
                           canSetBlocked: controller.canSetTrackBlocked(userId),
+                          selected: selecting
+                              ? _selection.isSelected(track.songId)
+                              : null,
+                          onSelect: () => _selection.start(track.songId),
+                          onToggleSelected: () =>
+                              _selection.toggle(track.songId),
+                          onGoToAlbum: () => _openAlbum(track),
+                          onGoToArtist: () => _openArtist(track),
                           onPlay: () => controller.playTrack(track),
                           onPlayNext: () => controller.playNext(track),
                           onAddToQueue: () => controller.addToQueue(track),
@@ -277,29 +291,56 @@ class _TracksPageState extends State<TracksPage> {
             ),
           );
 
-          if (alphabet == null) return list;
-
           final scrubLetter = _scrubLetter;
-          return Stack(
-            children: [
-              list,
-              Positioned(
-                right: 2,
-                top: 8,
-                bottom: 16,
-                child: AlphabetRail(
-                  available: alphabet.available,
-                  onLetter: (letter) =>
-                      _jumpToLetter(letter, alphabet, visibleTracks),
-                  onScrubbing: (letter) =>
-                      setState(() => _scrubLetter = letter),
-                ),
-              ),
-              if (scrubLetter != null)
-                Center(child: AlphabetScrubBubble(letter: scrubLetter)),
-            ],
+          return TrackSelectionScope(
+            controller: _selection,
+            visibleTracks: visibleTracks,
+            child: alphabet == null
+                ? list
+                : Stack(
+                    children: [
+                      list,
+                      Positioned(
+                        right: 2,
+                        top: 8,
+                        bottom: 16,
+                        child: AlphabetRail(
+                          available: alphabet.available,
+                          onLetter: (letter) =>
+                              _jumpToLetter(letter, alphabet, visibleTracks),
+                          onScrubbing: (letter) =>
+                              setState(() => _scrubLetter = letter),
+                        ),
+                      ),
+                      if (scrubLetter != null)
+                        Center(child: AlphabetScrubBubble(letter: scrubLetter)),
+                    ],
+                  ),
           );
         },
+      ),
+    );
+  }
+
+  void _openAlbum(LibraryTrack track) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => AlbumProfilePage(
+          albumId: track.albumId,
+          initialAlbumTitle: track.albumTitle,
+          initialEditionId: track.albumEditionId,
+        ),
+      ),
+    );
+  }
+
+  void _openArtist(LibraryTrack track) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => ArtistProfilePage(
+          artistId: track.artistId,
+          initialArtistName: track.artistName,
+        ),
       ),
     );
   }
@@ -332,15 +373,12 @@ class _TracksPageState extends State<TracksPage> {
         return;
       }
 
-      final initialAdditionalCredits = structuredCredits
-          .map(
-            (credit) => TrackProfileCreditDraft(
-              creditedName: credit.creditedName,
-              role: credit.role,
-              artistId: credit.artistId,
-            ),
-          )
-          .toList(growable: false);
+      final initialAdditionalCredits = trackStudioInitialCredits(
+        credits: structuredCredits,
+        legacyFeaturedArtists: track.featuredArtists,
+        primaryArtistId: track.artistId,
+        primaryArtistName: track.artistName,
+      );
       final artistCreationService = context.read<ArtistCreationService?>();
       final metadataProvider = context.read<MetadataProvider?>();
       final externalMetadataApplicationService = context
@@ -400,11 +438,7 @@ class _TracksPageState extends State<TracksPage> {
         trackNumber: draft.trackNumber,
         discNumber: draft.discNumber,
         additionalCredits: draft.additionalCredits.map(
-          (credit) => SongArtistCreditInput(
-            creditedName: credit.creditedName,
-            role: credit.role,
-            artistId: credit.artistId,
-          ),
+          (credit) => credit.toInput(),
         ),
         isSingle: draft.isSingle,
         versionLabel: draft.versionLabel,
@@ -527,6 +561,7 @@ class _TracksPageState extends State<TracksPage> {
   @override
   void dispose() {
     _scroll.dispose();
+    _selection.dispose();
     _refresher?.dispose();
     _controller?.dispose();
     super.dispose();
@@ -693,6 +728,11 @@ class _TrackTile extends StatelessWidget {
     required this.canEditArtwork,
     required this.canEditTrack,
     required this.canSetBlocked,
+    required this.selected,
+    required this.onSelect,
+    required this.onToggleSelected,
+    required this.onGoToAlbum,
+    required this.onGoToArtist,
     required this.onPlay,
     required this.onPlayNext,
     required this.onAddToQueue,
@@ -711,6 +751,13 @@ class _TrackTile extends StatelessWidget {
   final bool canEditTrack;
   final bool canSetBlocked;
 
+  /// Null outside selection mode.
+  final bool? selected;
+  final VoidCallback onSelect;
+  final VoidCallback onToggleSelected;
+  final VoidCallback onGoToAlbum;
+  final VoidCallback onGoToArtist;
+
   final Future<void> Function() onPlay;
   final Future<void> Function() onPlayNext;
   final Future<void> Function() onAddToQueue;
@@ -724,17 +771,12 @@ class _TrackTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final tokens = SonusTheme.of(context);
     final theme = Theme.of(context);
-    final credit = [
-      track.artistName,
-      if (track.featuredArtists.isNotEmpty)
-        'feat. ${track.featuredArtists.join(', ')}',
-    ].join(' ');
-    final albumTitle = track.albumTitle.trim();
+    final albumTitle = track.albumDisplayTitle.trim();
 
     return SonusTrackTile(
       inkKey: ValueKey<String>('track-${track.songId}'),
-      title: track.title,
-      subtitle: credit,
+      title: track.displayTitle,
+      subtitle: track.creditLine,
       detail: albumTitle,
       artworkPath: track.artworkPath,
       duration: sonusFormatDuration(track.durationSeconds),
@@ -743,9 +785,9 @@ class _TrackTile extends StatelessWidget {
       isCurrent: isCurrent,
       isPlaying: isNowPlaying,
       tileColor: tokens.colors.surface,
-      onTap: () {
-        unawaited(onPlay());
-      },
+      selected: selected,
+      onLongPress: selected == null ? onSelect : onToggleSelected,
+      onTap: selected == null ? () => unawaited(onPlay()) : onToggleSelected,
       status: isPlayable
           ? null
           : Text(
@@ -762,7 +804,6 @@ class _TrackTile extends StatelessWidget {
             ),
       trailing: PopupMenuButton<_TrackMenuAction>(
         key: ValueKey<String>('track-menu-${track.songId}'),
-        enabled: isPlayable || canEditArtwork || canEditTrack || canSetBlocked,
         tooltip: 'Song options',
         onSelected: (action) {
           switch (action) {
@@ -772,6 +813,20 @@ class _TrackTile extends StatelessWidget {
               unawaited(onAddToQueue());
             case _TrackMenuAction.addToPlaylist:
               unawaited(onAddToPlaylist());
+            case _TrackMenuAction.viewStats:
+              unawaited(
+                openSongStats(
+                  context,
+                  songId: track.songId,
+                  initialTitle: track.displayTitle,
+                ),
+              );
+            case _TrackMenuAction.goToAlbum:
+              onGoToAlbum();
+            case _TrackMenuAction.goToArtist:
+              onGoToArtist();
+            case _TrackMenuAction.select:
+              onSelect();
             case _TrackMenuAction.trackStudio:
               unawaited(onEditTrack());
             case _TrackMenuAction.toggleBlocked:
@@ -806,6 +861,35 @@ class _TrackTile extends StatelessWidget {
               contentPadding: EdgeInsets.zero,
             ),
           ),
+          songStatsMenuItem(
+            _TrackMenuAction.viewStats,
+            key: ValueKey<String>('track-stats-${track.songId}'),
+          ),
+          const PopupMenuItem(
+            value: _TrackMenuAction.goToAlbum,
+            child: ListTile(
+              leading: Icon(Icons.album_outlined),
+              title: Text('Go to album'),
+              contentPadding: EdgeInsets.zero,
+            ),
+          ),
+          const PopupMenuItem(
+            value: _TrackMenuAction.goToArtist,
+            child: ListTile(
+              leading: Icon(Icons.person_outline_rounded),
+              title: Text('Go to artist'),
+              contentPadding: EdgeInsets.zero,
+            ),
+          ),
+          const PopupMenuItem(
+            value: _TrackMenuAction.select,
+            child: ListTile(
+              leading: Icon(Icons.check_box_outlined),
+              title: Text('Select'),
+              contentPadding: EdgeInsets.zero,
+            ),
+          ),
+          const PopupMenuDivider(),
           PopupMenuItem(
             value: _TrackMenuAction.trackStudio,
             enabled: canEditTrack || canEditArtwork,
@@ -832,7 +916,6 @@ class _TrackTile extends StatelessWidget {
               contentPadding: EdgeInsets.zero,
             ),
           ),
-          const PopupMenuDivider(),
         ],
       ),
     );
@@ -843,6 +926,10 @@ enum _TrackMenuAction {
   playNext,
   addToQueue,
   addToPlaylist,
+  viewStats,
+  goToAlbum,
+  goToArtist,
+  select,
   trackStudio,
   toggleBlocked,
 }

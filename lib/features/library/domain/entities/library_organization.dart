@@ -4,6 +4,13 @@ enum ReleaseKind {
   castRecording,
   compilation;
 
+  /// "Soundtrack", "Cast recording" or "Compilation".
+  String get label => switch (this) {
+    ReleaseKind.soundtrack => 'Soundtrack',
+    ReleaseKind.castRecording => 'Cast recording',
+    ReleaseKind.compilation => 'Compilation',
+  };
+
   /// The kind a MusicBrainz release group's secondary types state, if any.
   /// MusicBrainz has no cast-recording type; those come from the user.
   static ReleaseKind? fromMusicBrainz(Iterable<String> secondaryTypes) {
@@ -19,6 +26,17 @@ enum ReleaseKind {
     }
     return null;
   }
+}
+
+/// SN-49: whether a release is a live recording. Live sits beside the
+/// format and the kind, so a release can be a Live EP, or a Live
+/// Soundtrack album, without either fact replacing the other.
+abstract final class LiveRelease {
+  /// Whether a MusicBrainz release group's secondary types say "Live".
+  /// Without that, nothing is inferred (not from titles, not from track
+  /// counts).
+  static bool fromMusicBrainz(Iterable<String> secondaryTypes) =>
+      secondaryTypes.any((type) => type.trim().toLowerCase() == 'live');
 }
 
 /// Where a classification came from: an external source such as a
@@ -99,6 +117,43 @@ class AlbumReleaseClassification {
   /// they never group anyone automatically.
   bool get groupsPerformers =>
       kind == ReleaseKind.soundtrack || kind == ReleaseKind.castRecording;
+}
+
+/// Whether a release is live, and who said so. The user's "not live" is
+/// kept too, so a later MusicBrainz refresh cannot overrule it.
+class AlbumLiveClassification {
+  const AlbumLiveClassification({
+    required this.albumId,
+    required this.isLive,
+    required this.authority,
+    required this.createdAt,
+    required this.updatedAt,
+    this.sourceReference,
+  });
+
+  final String albumId;
+  final bool isLive;
+  final ReleaseClassificationAuthority authority;
+
+  /// For external classifications, e.g. `musicbrainz:release-group:<id>`.
+  final String? sourceReference;
+
+  final DateTime createdAt;
+  final DateTime updatedAt;
+}
+
+/// SN-50: the user marked the whole release as leaked. Only the user sets
+/// it; it never follows, and never sets, the songs' own leak flags.
+class AlbumLeakedClassification {
+  const AlbumLeakedClassification({
+    required this.albumId,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  final String albumId;
+  final DateTime createdAt;
+  final DateTime updatedAt;
 }
 
 /// A user's choice of where an artist appears in the Library.

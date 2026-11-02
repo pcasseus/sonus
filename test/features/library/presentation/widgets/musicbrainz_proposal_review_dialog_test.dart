@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sonus_next/features/library/application/models/external_metadata_candidate.dart';
 import 'package:sonus_next/features/library/application/models/external_metadata_proposal.dart';
 import 'package:sonus_next/features/library/application/models/external_metadata_search_query.dart';
+import 'package:sonus_next/features/library/domain/entities/release_date.dart';
 import 'package:sonus_next/features/library/domain/metadata/metadata_field_state.dart';
 import 'package:sonus_next/features/library/domain/metadata/metadata_fields.dart';
 import 'package:sonus_next/features/library/presentation/widgets/musicbrainz_proposal_review_dialog.dart';
@@ -100,6 +101,35 @@ void main() {
     expect(find.text('Current: 3:44'), findsOneWidget);
     expect(find.text('Proposed: 3:46'), findsOneWidget);
     expect(find.text('Eligible value change'), findsNWidgets(2));
+  });
+
+  testWidgets('SN-49: a release date shows as far as it is known, with '
+      'where it comes from', (tester) async {
+    await showReview(
+      tester,
+      proposal(
+        [
+          ExternalMetadataProposalField(
+            fieldName: MetadataFields.editionReleaseDate,
+            currentValue: ReleaseDate.of(2021),
+            proposedValue: ReleaseDate.of(2021, 5),
+            status: ExternalMetadataProposalFieldStatus.valueChange,
+            note: 'The first release of this album on MusicBrainz.',
+          ),
+        ],
+        entityType: MetadataEntityType.album,
+        entityKind: ExternalMetadataEntityKind.album,
+      ),
+      (_) {},
+    );
+
+    expect(find.text('Release date'), findsOneWidget);
+    expect(find.text('Current: 2021'), findsOneWidget);
+    expect(find.text('Proposed: May 2021'), findsOneWidget);
+    expect(
+      find.text('The first release of this album on MusicBrainz.'),
+      findsOneWidget,
+    );
   });
 
   testWidgets('shows protected and review-required explanations', (

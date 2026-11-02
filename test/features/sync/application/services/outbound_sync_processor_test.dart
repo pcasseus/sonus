@@ -20,6 +20,7 @@ import 'package:sonus_next/features/sync/application/services/cloud_conditional_
 import 'package:sonus_next/features/sync/application/services/cloud_sync_gateway.dart';
 import 'package:sonus_next/features/sync/application/services/cloud_sync_reader.dart';
 import 'package:sonus_next/features/sync/application/services/outbound_sync_processor.dart';
+import 'package:sonus_next/features/sync/application/services/sync_cancellation.dart';
 import 'package:sonus_next/features/sync/domain/models/cloud_records.dart';
 import 'package:sonus_next/features/sync/domain/models/local_sync_models.dart';
 import 'package:sonus_next/features/sync/domain/models/sync_data_contract.dart';
@@ -1279,10 +1280,10 @@ void main() {
         throwsA(isA<StateError>()),
       );
 
-      // The song re-attempts its album dependency and never uploads.
+      // DQA-01: the album failed earlier in this run, so the song fails
+      // with the same error without writing the album again.
       expect(cloudSyncGateway.calls, [
         'upsert:artist:artist_1',
-        'upsert:album:album_1',
         'upsert:album:album_1',
       ]);
 
@@ -1363,6 +1364,267 @@ void main() {
 
       expect(cloudSyncGateway.calls, isEmpty);
       expect(localSyncRepository.processedIds, isEmpty);
+    });
+
+    group('DQA-01: failed writes are not repeated', () {
+      OutboundSyncProcessor build({bool Function(Object)? isPermanent}) =>
+          OutboundSyncProcessor(
+            localSyncRepository: localSyncRepository,
+            artistRepository: artistRepository,
+            albumRepository: albumRepository,
+            albumEditionRepository: albumEditionRepository,
+            songRepository: songRepository,
+            metadataFieldStateRepository: metadataFieldStateRepository,
+            artworkAssetRepository: artworkAssetRepository,
+            cloudArtworkStorage: cloudArtworkStorage,
+            cloudSyncGateway: cloudSyncGateway,
+            isPermanentFailure: isPermanent,
+          );
+
+      void seedTwoEditionsSharingArtwork() {
+        artistRepository.values['artist_1'] = artist(timestamp);
+        albumRepository.values['album_1'] = album(timestamp);
+        artworkAssetRepository.values['artwork_1'] = artwork(timestamp);
+        albumEditionRepository.values['edition_1'] = edition(timestamp);
+        albumEditionRepository.values['edition_2'] = AlbumEdition(
+          id: 'edition_2',
+          albumId: 'album_1',
+          title: 'Deluxe',
+          type: AlbumEditionType.deluxe,
+          isPrimary: false,
+          artworkId: 'artwork_1',
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        );
+        localSyncRepository.pending.addAll([
+          for (final id in ['edition_1', 'edition_2'])
+            outbox(
+              id: 'outbox_$id',
+              type: CloudDataEntity.albumEdition,
+              entityId: id,
+              timestamp: timestamp,
+            ),
+        ]);
+      }
+
+      test('a failed artwork row is uploaded once per run, not per '
+          'dependent', () async {
+        seedTwoEditionsSharingArtwork();
+        cloudSyncGateway.failOn = 'upsert:artworkAsset:artwork_1';
+
+        await expectLater(
+          build().pushPending('user_1'),
+          throwsA(isA<StateError>()),
+        );
+
+        expect(cloudArtworkStorage.calls, ['upload:user_1:artwork_1']);
+        expect(
+          cloudSyncGateway.calls.where((c) => c.contains('artworkAsset')),
+          ['upsert:artworkAsset:artwork_1'],
+        );
+        expect(localSyncRepository.processedIds, isEmpty);
+        expect(localSyncRepository.pending, hasLength(2));
+      });
+
+      test('a failed artwork upload is not retried by later entries', () async {
+        seedTwoEditionsSharingArtwork();
+        cloudArtworkStorage.shouldFail = true;
+
+        final report = await build().pushPendingIsolated('user_1');
+
+        expect(cloudArtworkStorage.calls, ['upload:user_1:artwork_1']);
+        expect(report.failures.map((f) => f.entry.id), [
+          'outbox_edition_1',
+          'outbox_edition_2',
+        ]);
+        expect(localSyncRepository.pending, hasLength(2));
+      });
+
+      test('the next run tries the failed dependency again', () async {
+        seedTwoEditionsSharingArtwork();
+        cloudArtworkStorage.shouldFail = true;
+        final processor = build();
+
+        await processor.pushPendingIsolated('user_1');
+        cloudArtworkStorage.shouldFail = false;
+        await processor.pushPending('user_1');
+
+        expect(cloudArtworkStorage.calls, [
+          'upload:user_1:artwork_1',
+          'upload:user_1:artwork_1',
+        ]);
+        expect(localSyncRepository.pending, isEmpty);
+      });
+
+      test('a permanent cloud failure stops the push at once', () async {
+        artistRepository.values['artist_1'] = artist(timestamp);
+        albumRepository.values['album_1'] = album(timestamp);
+        songRepository.values['song_1'] = song(timestamp);
+        localSyncRepository.pending.addAll([
+          outbox(
+            id: 'outbox_artist',
+            type: CloudDataEntity.artist,
+            entityId: 'artist_1',
+            timestamp: timestamp,
+          ),
+          outbox(
+            id: 'outbox_album',
+            type: CloudDataEntity.album,
+            entityId: 'album_1',
+            timestamp: timestamp,
+          ),
+          outbox(
+            id: 'outbox_song',
+            type: CloudDataEntity.song,
+            entityId: 'song_1',
+            timestamp: timestamp,
+          ),
+        ]);
+        cloudSyncGateway.failOn = 'upsert:album:album_1';
+
+        // pushPendingIsolated is the route sync runs take: a permanent
+        // failure is thrown instead of being collected in the report.
+        await expectLater(
+          build(
+            isPermanent: (e) => e is StateError,
+          ).pushPendingIsolated('user_1'),
+          throwsA(isA<StateError>()),
+        );
+
+        expect(cloudSyncGateway.calls, [
+          'upsert:artist:artist_1',
+          'upsert:album:album_1',
+        ]);
+        expect(localSyncRepository.processedIds, ['outbox_artist']);
+        expect(
+          localSyncRepository.pending.map((entry) => entry.id),
+          containsAll(['outbox_album', 'outbox_song']),
+        );
+      });
+
+      test('a temporary failure still lets later entries run', () async {
+        artistRepository.values['artist_1'] = artist(timestamp);
+        albumRepository.values['album_1'] = album(timestamp);
+        localSyncRepository.pending.addAll([
+          outbox(
+            id: 'outbox_album',
+            type: CloudDataEntity.album,
+            entityId: 'album_1',
+            timestamp: timestamp,
+          ),
+          outbox(
+            id: 'outbox_artist',
+            type: CloudDataEntity.artist,
+            entityId: 'artist_1',
+            timestamp: timestamp,
+          ),
+        ]);
+        cloudSyncGateway.failOn = 'upsert:album:album_1';
+
+        final report = await build(
+          isPermanent: (_) => false,
+        ).pushPendingIsolated('user_1');
+
+        expect(report.failures.map((f) => f.entry.id), ['outbox_album']);
+        expect(localSyncRepository.processedIds, ['outbox_artist']);
+      });
+    });
+
+    group('SN-50 #23: cancellation between entries', () {
+      Artist namedArtist(String id) => Artist(
+        id: id,
+        name: 'Artist $id',
+        canonicalName: 'artist $id',
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      );
+
+      test('a run cancelled during an entry\'s cloud write finishes that '
+          'entry with its acknowledgement, then stops; the next entry stays '
+          'pending', () async {
+        artistRepository.values['artist_1'] = namedArtist('artist_1');
+        artistRepository.values['artist_2'] = namedArtist('artist_2');
+        localSyncRepository.pending.addAll([
+          outbox(
+            id: 'outbox_1',
+            type: CloudDataEntity.artist,
+            entityId: 'artist_1',
+            timestamp: timestamp,
+          ),
+          outbox(
+            id: 'outbox_2',
+            type: CloudDataEntity.artist,
+            entityId: 'artist_2',
+            timestamp: timestamp,
+          ),
+        ]);
+
+        final cancellation = SyncCancellation('user_1');
+        final uploading = Completer<void>();
+        final network = Completer<void>();
+        cloudSyncGateway.beforeUpsertCompletes = (record) async {
+          if (record.id == 'artist_1') {
+            uploading.complete();
+            await network.future;
+          }
+        };
+
+        final push = cancellation.run(
+          () => processor.pushPendingIsolated('user_1'),
+        );
+        await uploading.future;
+        cancellation.cancel('signed out');
+        network.complete(); // The response arrives after cancellation.
+
+        await expectLater(push, throwsA(isA<SyncCancelled>()));
+        expect(cloudSyncGateway.calls, ['upsert:artist:artist_1']);
+        expect(localSyncRepository.processedIds, ['outbox_1']);
+        expect(localSyncRepository.pending.map((e) => e.id), ['outbox_2']);
+      });
+
+      test('the next run pushes what the cancelled one left pending', () async {
+        artistRepository.values['artist_1'] = namedArtist('artist_1');
+        localSyncRepository.pending.add(
+          outbox(
+            id: 'outbox_1',
+            type: CloudDataEntity.artist,
+            entityId: 'artist_1',
+            timestamp: timestamp,
+          ),
+        );
+
+        final cancelled = SyncCancellation('user_1')..cancel('timed out');
+        await expectLater(
+          cancelled.run(() => processor.pushPendingIsolated('user_1')),
+          throwsA(isA<SyncCancelled>()),
+        );
+        expect(cloudSyncGateway.calls, isEmpty);
+        expect(localSyncRepository.pending, hasLength(1));
+
+        final report = await SyncCancellation(
+          'user_1',
+        ).run(() => processor.pushPendingIsolated('user_1'));
+
+        expect(report.isComplete, isTrue);
+        expect(localSyncRepository.pending, isEmpty);
+        expect(localSyncRepository.processedIds, ['outbox_1']);
+      });
+
+      test('outside a sync run nothing is ever cancelled', () async {
+        artistRepository.values['artist_1'] = namedArtist('artist_1');
+        localSyncRepository.pending.add(
+          outbox(
+            id: 'outbox_1',
+            type: CloudDataEntity.artist,
+            entityId: 'artist_1',
+            timestamp: timestamp,
+          ),
+        );
+
+        await processor.pushPending('user_1');
+
+        expect(localSyncRepository.processedIds, ['outbox_1']);
+      });
     });
   });
 }

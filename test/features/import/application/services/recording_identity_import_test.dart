@@ -5,6 +5,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:sonus_next/core/database/app_database.dart';
+import 'package:sonus_next/core/database/database_tables.dart';
+import 'package:sonus_next/core/identity/text_normalizer.dart';
 import 'package:sonus_next/features/import/application/services/atomic_library_importer.dart';
 import 'package:sonus_next/features/import/application/services/library_import_service.dart';
 import 'package:sonus_next/features/import/application/services/lyrics_ingestion_service.dart';
@@ -18,7 +20,9 @@ import 'package:sonus_next/features/import/domain/models/import_candidate.dart';
 import 'package:sonus_next/features/import/domain/models/import_result.dart';
 import 'package:sonus_next/features/import/domain/services/audio_metadata_reader.dart';
 import 'package:sonus_next/features/import/domain/services/lyrics_source_reader.dart';
+import 'package:sonus_next/features/library/data/daos/album_edition_track_dao.dart';
 import 'package:sonus_next/features/library/data/daos/song_dao.dart';
+import 'package:sonus_next/features/library/domain/services/album_edition_track_order.dart';
 import 'package:sonus_next/features/player/domain/models/track_lyrics.dart';
 import 'package:sonus_next/features/player/domain/repositories/track_lyrics_repository.dart';
 
@@ -136,6 +140,66 @@ void main() {
     for (final c in candidates) await service.importCandidate(c, now: now),
   ];
 
+  // A file with no disc tag is read as disc 1 by the device reader
+  // (media_metadata_reader.dart: `metadata.discNumber ?? 1`); some taggers
+  // write disc 0 instead. Either way the song is on disc 1 of a single-disc
+  // edition and keeps its track number.
+  for (final disc in [1, 0]) {
+    test(
+      'SN-50 reconciliation: a file with no disc number (read as disc '
+      '$disc) lands on disc 1 of the edition with its track number',
+      () async {
+        AudioMetadata quiet(String title, int track) => AudioMetadata(
+          title: title,
+          artistName: 'Fictional Harbour',
+          albumTitle: 'Quiet Rooms',
+          durationSeconds: 180 + track,
+          trackNumber: track,
+          discNumber: disc,
+          isSingle: false,
+          featuredArtists: const [],
+        );
+        final files = {
+          'quiet/01.mp3': quiet('Lantern', 1),
+          'quiet/02.mp3': quiet('Tideline', 2),
+        };
+        final (importer, _) = await service(files);
+
+        final results = await importAll(importer, [
+          for (final path in files.keys) candidate(path),
+        ]);
+        expect(
+          results.map((r) => r.status),
+          everyElement(ImportResultStatus.imported),
+        );
+
+        final db = await appDatabase.database;
+        final songs = await SongDao(db).findAll();
+        expect(songs, hasLength(2));
+        final editionId = songs.first.albumEditionId;
+        expect(songs.map((s) => s.albumEditionId).toSet(), {editionId});
+
+        final listings = [
+          ...await AlbumEditionTrackDao(db).findByEditionId(editionId),
+        ]..sort(compareByDiscAndTrack);
+        final titleOf = {for (final s in songs) s.id: s.title};
+
+        expect(
+          [
+            for (final m in listings)
+              (
+                titleOf[m.songId],
+                m.discNumber <= 0 ? 1 : m.discNumber,
+                m.trackNumber,
+              ),
+          ],
+          [('Lantern', 1, 1), ('Tideline', 1, 2)],
+        );
+        expect(spansMultipleDiscs(listings.map((m) => m.discNumber)), isFalse);
+      },
+    );
+  }
+
   test(
     'two recordings of ErrTime stay two songs; copies are flagged',
     () async {
@@ -235,6 +299,144 @@ void main() {
     },
   );
 
+  test('SN-44 Import-1, current source: same title and length at another '
+      'track position is kept as one song, and the copy is flagged', () async {
+    final files = {
+      'track03.mp3': errTime(seconds: 146, trackNumber: 3),
+      'track09.mp3': errTime(seconds: 147, trackNumber: 9),
+    };
+    final (importer, _) = await service(files);
+
+    final results = await importAll(importer, [
+      for (final path in files.keys) candidate(path),
+    ]);
+
+    final db = await appDatabase.database;
+    expect(await SongDao(db).findAll(), hasLength(1));
+    expect(results[1].status, ImportResultStatus.skipped);
+    // A different track position is not evidence of a different recording,
+    // but it is not proof of a copy either: it is reported, not merged.
+    expect(results[1].skipReason, ImportSkipReason.possibleAlternateRecording);
+    expect(results[1].songId, results[0].songId);
+    expect(
+      (await MediaFileBindingDao(
+        db,
+      ).findBySongId(results[0].songId!)).map((b) => b.filePath),
+      ['track03.mp3'],
+    );
+  });
+
+  test('SN-50 Import-1: an ambiguous same-title, similar-length file is '
+      'never merged into the kept song or rewritten, also on a second '
+      'import', () async {
+    final files = {
+      'track03.mp3': errTime(seconds: 146, trackNumber: 3),
+      'track09.mp3': errTime(seconds: 147, trackNumber: 9),
+    };
+    final (importer, _) = await service(files);
+
+    final first = await importAll(importer, [
+      for (final path in files.keys) candidate(path),
+    ]);
+
+    final db = await appDatabase.database;
+    final bindings = MediaFileBindingDao(db);
+    final kept = (await SongDao(db).findAll()).single;
+    final keptBindings = await bindings.findBySongId(kept.id);
+
+    // The kept song keeps only its own file; the ambiguous file is reported
+    // against it, not bound to it, and nothing about the song changes.
+    expect(first[0].songId, kept.id);
+    expect(first[1].status, ImportResultStatus.skipped);
+    expect(first[1].skipReason, ImportSkipReason.possibleAlternateRecording);
+    expect(first[1].songId, kept.id);
+    expect(keptBindings.map((b) => b.filePath), ['track03.mp3']);
+    expect(kept.durationSeconds, 146);
+
+    final again = await importAll(importer, [
+      for (final path in files.keys) candidate(path),
+    ]);
+
+    final songsAfter = await SongDao(db).findAll();
+    expect(songsAfter.map((s) => s.id), [kept.id]);
+    expect(songsAfter.single.title, kept.title);
+    expect(songsAfter.single.durationSeconds, kept.durationSeconds);
+    expect((await bindings.findBySongId(kept.id)).map((b) => b.filePath), [
+      'track03.mp3',
+    ]);
+    expect(again[1].status, ImportResultStatus.skipped);
+    expect(again[1].skipReason, ImportSkipReason.possibleAlternateRecording);
+    expect(again[1].songId, kept.id);
+    expect(await SongImportReviewDao(db).findBySongId(kept.id), isNull);
+  });
+
+  test('the same disc and track position from another path is still a '
+      'duplicate recording', () async {
+    final files = {
+      'a/track03.mp3': errTime(seconds: 146, trackNumber: 3),
+      'b/track03.mp3': errTime(seconds: 147, trackNumber: 3),
+    };
+    final (importer, _) = await service(files);
+
+    final results = await importAll(importer, [
+      for (final path in files.keys) candidate(path),
+    ]);
+
+    final db = await appDatabase.database;
+    expect(await SongDao(db).findAll(), hasLength(1));
+    expect(results[1].status, ImportResultStatus.skipped);
+    expect(results[1].skipReason, ImportSkipReason.duplicateRecording);
+    expect(results[1].songId, results[0].songId);
+  });
+
+  test('a different version label of the same title and length is its own '
+      'song', () async {
+    final files = {
+      'original.mp3': errTime(seconds: 146, trackNumber: 3),
+      'club.mp3': AudioMetadata(
+        title: 'ErrTime (Club Remix)',
+        artistName: 'Cardi B',
+        albumTitle: 'Am I The Drama?',
+        durationSeconds: 146,
+        trackNumber: 9,
+        discNumber: 1,
+        isSingle: false,
+        featuredArtists: const [],
+      ),
+    };
+    final (importer, _) = await service(files);
+
+    final results = await importAll(importer, [
+      for (final path in files.keys) candidate(path),
+    ]);
+
+    final db = await appDatabase.database;
+    expect(await SongDao(db).findAll(), hasLength(2));
+    expect(
+      results.map((r) => r.status),
+      everyElement(ImportResultStatus.imported),
+    );
+    expect(results[0].songId, isNot(results[1].songId));
+  });
+
+  test('a possible different recording never attaches its lyrics to the '
+      'kept song', () async {
+    final files = {
+      'track03.mp3': errTime(seconds: 146, trackNumber: 3),
+      'track09.mp3': errTime(seconds: 147, trackNumber: 9),
+    };
+    final (importer, lyrics) = await service(files);
+
+    final results = await importAll(importer, [
+      candidate('track03.mp3', withLyrics: true),
+      candidate('track09.mp3', withLyrics: true),
+    ]);
+
+    expect(results[1].skipReason, ImportSkipReason.possibleAlternateRecording);
+    expect(lyrics.saves[results[0].songId], contains('track03.mp3'));
+    expect(lyrics.saves.values, isNot(contains(contains('track09.mp3'))));
+  });
+
   test('a duplicate file never attaches its lyrics to the kept song', () async {
     final files = {
       'kept.mp3': errTime(seconds: 146),
@@ -249,6 +451,47 @@ void main() {
 
     expect(lyrics.saves[results[0].songId], contains('kept.mp3'));
     expect(lyrics.saves.values, isNot(contains(contains('copy.mp3'))));
+  });
+
+  test('SN-44 Import-2: a Deluxe copy of a kept song never replaces its '
+      'lyrics with its own sidecar', () async {
+    final files = {
+      'standard.mp3': errTime(seconds: 146),
+      'deluxe.mp3': AudioMetadata(
+        title: 'ErrTime',
+        artistName: 'Cardi B',
+        albumTitle: 'Am I The Drama? (Deluxe)',
+        durationSeconds: 146,
+        trackNumber: 1,
+        discNumber: 1,
+        isSingle: false,
+        featuredArtists: const [],
+      ),
+    };
+    final (importer, lyrics) = await service(files);
+
+    final results = await importAll(importer, [
+      candidate('standard.mp3', withLyrics: true),
+      candidate('deluxe.mp3', withLyrics: true),
+    ]);
+
+    expect(results[1].skipReason, ImportSkipReason.sharedWithEdition);
+    expect(results[1].songId, results[0].songId);
+    expect(lyrics.saves[results[0].songId], contains('standard.mp3'));
+    expect(lyrics.saves.values, isNot(contains(contains('deluxe.mp3'))));
+  });
+
+  test('a rescan of the kept file still refreshes its own lyrics', () async {
+    final files = {'kept.mp3': errTime(seconds: 146)};
+    final (importer, lyrics) = await service(files);
+
+    final first = await importAll(importer, [candidate('kept.mp3')]);
+    final rescan = await importAll(importer, [
+      candidate('kept.mp3', withLyrics: true),
+    ]);
+
+    expect(rescan.single.skipReason, ImportSkipReason.knownFile);
+    expect(lyrics.saves[first.single.songId], contains('kept.mp3'));
   });
 
   test('rescanning both recordings changes nothing', () async {
@@ -325,5 +568,167 @@ void main() {
     expect(other.songId, isNot(first.songId));
     // The original song keeps its identity and its (missing) file record.
     expect(await bindingDao.findBySongId(first.songId!), hasLength(1));
+  });
+
+  group('SN-50 F1: a missing or absent file never takes a possible '
+      'different recording', () {
+    final files = {
+      'old/track03.mp3': errTime(seconds: 146, trackNumber: 3),
+      'new/track03.mp3': errTime(seconds: 146, trackNumber: 3),
+      'new/track09.mp3': errTime(seconds: 147, trackNumber: 9),
+    };
+
+    Future<(LibraryImportService, ImportResult)> importKept() async {
+      final (importer, _) = await service(files);
+      final kept = await importer.importCandidate(
+        candidate('old/track03.mp3'),
+        now: now,
+      );
+      expect(kept.status, ImportResultStatus.imported);
+      return (importer, kept);
+    }
+
+    Future<void> markMissing(String songId) async {
+      final bindingDao = MediaFileBindingDao(await appDatabase.database);
+      final binding = (await bindingDao.findBySongId(songId)).single;
+      await bindingDao.update(binding.copyWith(isAvailable: false));
+    }
+
+    Future<void> removeFiles(String songId) async {
+      final db = await appDatabase.database;
+      await db.delete(
+        DatabaseTables.mediaFileBindings,
+        where: 'song_id = ?',
+        whereArgs: [songId],
+      );
+    }
+
+    test('a missing file is not relinked to another track position, and the '
+        'song is left exactly as it was', () async {
+      final (importer, kept) = await importKept();
+      final db = await appDatabase.database;
+      final bindingDao = MediaFileBindingDao(db);
+      await markMissing(kept.songId!);
+      final songBefore = (await SongDao(db).findAll()).single;
+      final bindingBefore = (await bindingDao.findBySongId(
+        kept.songId!,
+      )).single;
+
+      final result = await importer.importCandidate(
+        candidate('new/track09.mp3'),
+        now: now,
+      );
+
+      expect(result.status, ImportResultStatus.skipped);
+      expect(result.skipReason, ImportSkipReason.possibleAlternateRecording);
+      expect(result.songId, kept.songId);
+
+      final songAfter = (await SongDao(db).findAll()).single;
+      expect(songAfter.id, songBefore.id);
+      expect(songAfter.title, songBefore.title);
+      expect(songAfter.durationSeconds, songBefore.durationSeconds);
+      expect(songAfter.updatedAt, songBefore.updatedAt);
+
+      final bindingsAfter = await bindingDao.findBySongId(kept.songId!);
+      expect(bindingsAfter, hasLength(1));
+      expect(bindingsAfter.single.id, bindingBefore.id);
+      expect(bindingsAfter.single.filePath, 'old/track03.mp3');
+      expect(bindingsAfter.single.isAvailable, isFalse);
+      expect(
+        await bindingDao.findByNormalizedPath(
+          TextNormalizer.normalizePath('new/track09.mp3'),
+        ),
+        isNull,
+      );
+      expect(await SongImportReviewDao(db).findBySongId(kept.songId!), isNull);
+    });
+
+    test('a song with no file is not given one from another track '
+        'position', () async {
+      final (importer, kept) = await importKept();
+      await removeFiles(kept.songId!);
+
+      final result = await importer.importCandidate(
+        candidate('new/track09.mp3'),
+        now: now,
+      );
+
+      final db = await appDatabase.database;
+      expect(result.status, ImportResultStatus.skipped);
+      expect(result.skipReason, ImportSkipReason.possibleAlternateRecording);
+      expect(result.songId, kept.songId);
+      expect(await SongDao(db).findAll(), hasLength(1));
+      expect(await MediaFileBindingDao(db).findBySongId(kept.songId!), isEmpty);
+    });
+
+    test('the ambiguous file stays reported on every later import', () async {
+      final (importer, kept) = await importKept();
+      await markMissing(kept.songId!);
+
+      for (var pass = 0; pass < 2; pass++) {
+        final result = await importer.importCandidate(
+          candidate('new/track09.mp3'),
+          now: now,
+        );
+        expect(result.skipReason, ImportSkipReason.possibleAlternateRecording);
+        expect(result.songId, kept.songId);
+      }
+    });
+
+    test('a missing file still relinks to the same track position', () async {
+      final (importer, kept) = await importKept();
+      await markMissing(kept.songId!);
+
+      final moved = await importer.importCandidate(
+        candidate('new/track03.mp3'),
+        now: now,
+      );
+
+      final bindings = await MediaFileBindingDao(
+        await appDatabase.database,
+      ).findBySongId(kept.songId!);
+      expect(moved.status, ImportResultStatus.relinked);
+      expect(moved.songId, kept.songId);
+      expect(bindings.single.filePath, 'new/track03.mp3');
+      expect(bindings.single.isAvailable, isTrue);
+    });
+
+    test('a missing file listed with no known position still relinks, as a '
+        'restored library needs', () async {
+      final (importer, _) = await service({
+        'old/untagged.mp3': errTime(seconds: 146, trackNumber: 0),
+        'new/track09.mp3': errTime(seconds: 146, trackNumber: 9),
+      });
+      final kept = await importer.importCandidate(
+        candidate('old/untagged.mp3'),
+        now: now,
+      );
+      await markMissing(kept.songId!);
+
+      final moved = await importer.importCandidate(
+        candidate('new/track09.mp3'),
+        now: now,
+      );
+
+      expect(moved.status, ImportResultStatus.relinked);
+      expect(moved.songId, kept.songId);
+    });
+
+    test('a song with no file is bound at the same track position', () async {
+      final (importer, kept) = await importKept();
+      await removeFiles(kept.songId!);
+
+      final bound = await importer.importCandidate(
+        candidate('new/track03.mp3'),
+        now: now,
+      );
+
+      final bindings = await MediaFileBindingDao(
+        await appDatabase.database,
+      ).findBySongId(kept.songId!);
+      expect(bound.status, ImportResultStatus.relinked);
+      expect(bound.songId, kept.songId);
+      expect(bindings.single.filePath, 'new/track03.mp3');
+    });
   });
 }
