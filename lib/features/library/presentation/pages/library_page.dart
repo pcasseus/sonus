@@ -16,6 +16,7 @@ import '../controllers/artist_reel_statistics_controller.dart';
 import '../controllers/library_artists_controller.dart';
 import '../services/artist_library_statistics_service.dart';
 import '../models/artist_library_statistics.dart';
+import '../controllers/library_view_controller.dart';
 import '../widgets/film_reel/artist_film_reel.dart';
 import '../widgets/library_view_switch.dart';
 import '../widgets/roster/artist_roster.dart';
@@ -58,23 +59,59 @@ class _LibraryPageState extends State<LibraryPage> {
   /// The Roster's sort, kept between visits.
   ArtistStatisticsSort _rosterSort = ArtistStatisticsSort.qualifiedStreams;
 
-  /// The view on screen.
-  late LibraryView _view = widget.initialView;
+  /// The saved view, shared with Settings; without it (tests, previews)
+  /// the view is [LibraryPage.initialView] and is not remembered.
+  LibraryViewController? _viewController;
+
+  /// The view on screen when there is no [_viewController].
+  late LibraryView _localView = widget.initialView;
+
+  LibraryView get _view => _viewController?.view ?? _localView;
 
   /// Bumped to focus the Roster's search (the Film Reel's search icon).
   int _searchRequest = 0;
 
+  /// Shows [view]; with a [_viewController] it is also saved.
   void _switchView(LibraryView view) {
-    if (view == _view) return;
-    setState(() => _view = view);
+    final viewController = _viewController;
+    if (viewController != null) {
+      viewController.choose(view);
+      return;
+    }
+    if (view == _localView) return;
+    setState(() => _localView = view);
   }
 
-  /// The Film Reel's search icon: the Roster, ready to type (D11).
+  /// The Film Reel's search icon: the Roster, ready to type (D11). This
+  /// is a quick look, not a change of the saved view.
   void _searchArtists() {
     setState(() {
-      _view = LibraryView.roster;
+      _searchingFromReel = true;
       _searchRequest++;
     });
+  }
+
+  /// Set while the Roster was opened by the Film Reel's search icon; the
+  /// saved view stays the Film Reel until the person picks a view.
+  bool _searchingFromReel = false;
+
+  /// The saved view last seen, to notice changes made elsewhere.
+  LibraryView? _watchedView;
+
+  LibraryView get _shownView => _searchingFromReel ? LibraryView.roster : _view;
+
+  void _pickView(LibraryView view) {
+    if (_searchingFromReel) setState(() => _searchingFromReel = false);
+    _switchView(view);
+  }
+
+  /// A provided notifier, rebuilt on its changes, or null without one.
+  static T? _optionalNotifier<T extends ChangeNotifier>(BuildContext context) {
+    try {
+      return context.watch<T>();
+    } on ProviderNotFoundException {
+      return null;
+    }
   }
 
   static T? _optional<T extends Object>(BuildContext context) {
@@ -94,6 +131,13 @@ class _LibraryPageState extends State<LibraryPage> {
               context,
             )?.readState(context, identifier: _selectionKey)
             as String?;
+
+    // A view chosen elsewhere (Settings) ends a search detour.
+    final viewController = _optionalNotifier<LibraryViewController>(context);
+    final view = viewController?.view;
+    if (view != _watchedView) _searchingFromReel = false;
+    _viewController = viewController;
+    _watchedView = view;
 
     final repository = context.watch<LibraryQueryRepository?>();
 
@@ -207,7 +251,7 @@ class _LibraryPageState extends State<LibraryPage> {
           }
 
           final countLabel = sonusCount(artists.length, 'artist');
-          return switch (_view) {
+          return switch (_shownView) {
             LibraryView.roster => ArtistRoster(
               artists: artists,
               statistics: statistics.snapshot,
@@ -219,7 +263,7 @@ class _LibraryPageState extends State<LibraryPage> {
               sort: _rosterSort,
               onSortChanged: (sort) => _rosterSort = sort,
               searchRequest: _searchRequest,
-              onSwitchView: _switchView,
+              onSwitchView: _pickView,
             ),
             LibraryView.filmReel => ArtistFilmReel(
               artists: artists,
@@ -229,7 +273,7 @@ class _LibraryPageState extends State<LibraryPage> {
               selectedArtistId: _selectedArtistId,
               onSelected: _select,
               onOpenArtist: _openArtist,
-              onSwitchView: _switchView,
+              onSwitchView: _pickView,
               onOpenSearch: _searchArtists,
               onRefresh: _refresh,
             ),
