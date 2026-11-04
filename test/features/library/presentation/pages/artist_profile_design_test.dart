@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sonus_next/core/design/sonus_artwork_palette.dart';
+import 'package:sonus_next/core/design/sonus_profile_colors.dart';
 import 'package:sonus_next/core/design/sonus_theme_factory.dart';
 import 'package:sonus_next/core/design/sonus_theme_id.dart';
 import 'package:sonus_next/core/design/sonus_tokens.dart';
@@ -622,6 +623,32 @@ void main() {
       );
     });
 
+    // UI redesign P1.
+    testWidgets('the performers sit on glass, and still open and play', (
+      tester,
+    ) async {
+      await pump(
+        tester,
+        size: const Size(411, 2000),
+        repository: castProject(),
+      );
+
+      final glass = section('artist-profile-collaborators-glass');
+      expect(glass, findsOneWidget);
+      expect(
+        find.descendant(
+          of: glass,
+          matching: find.byKey(const ValueKey('artist-collaborator-lead')),
+        ),
+        findsOneWidget,
+      );
+      final tile = tester.widget<ListTile>(
+        find.byKey(const ValueKey('artist-collaborator-lead')),
+      );
+      expect(tile.tileColor, Colors.transparent, reason: 'on the glass');
+      expect(tile.onTap, isNotNull);
+    });
+
     testWidgets('an artist with neither credits nor albums is not found', (
       tester,
     ) async {
@@ -729,7 +756,9 @@ void main() {
       await tester.pumpAndSettle();
       expect(
         pageBackground(tester),
-        SonusArtworkAtmosphere.resolve(
+        // UI redesign P1: the profile colours, stronger than the quieter
+        // theme atmosphere.
+        SonusProfileColors.resolve(
           colors: colors,
           decoration: decoration,
           artwork: red,
@@ -801,7 +830,9 @@ void main() {
 
       expect(
         pageBackground(tester),
-        SonusArtworkAtmosphere.resolve(
+        // UI redesign P1: the profile colours, stronger than the quieter
+        // theme atmosphere.
+        SonusProfileColors.resolve(
           colors: colors,
           decoration: decoration,
           artwork: red,
@@ -817,6 +848,227 @@ void main() {
       await pump(tester, repository: repository, plays: plays, colours: {});
 
       expect(pageBackground(tester), colors.background);
+    });
+  });
+
+  // UI redesign P1: the artwork's own colours, glass sections and a
+  // stronger hero.
+  group('P1 artwork-adaptive profile', () {
+    const blue = SonusArtworkColors(
+      accent: Color(0xFFAFC6FF),
+      container: Color(0xFF14306B),
+    );
+
+    /// The catalogue plus a collaboration (this artist on another's
+    /// album), so the glass sections all show.
+    (base.FakeLibraryQueryRepository, base.FakeQualifiedPlayRepository)
+    withCollaboration() => catalogue(
+      {'a': 3, 'b': 1},
+      extraTracks: [
+        base.createTrack(
+          songId: 'their-song',
+          title: 'Their Song',
+          artistId: 'other-artist',
+          artistName: 'Other Fixture',
+          albumId: 'their-album',
+          albumTitle: 'Their Album',
+        ),
+        base.createTrack(
+          songId: 'soundtrack',
+          title: 'Soundtrack Song',
+          albumId: 'their-album',
+          albumTitle: 'Their Album',
+        ),
+        base.createTrack(
+          songId: 'feat',
+          title: 'Featuring Song',
+          featuredArtists: const ['Guest Fixture'],
+        ),
+      ],
+    );
+
+    BoxDecoration background(WidgetTester tester) =>
+        tester
+                .widget<DecoratedBox>(
+                  find.byKey(
+                    const ValueKey<String>('artist-profile-background'),
+                  ),
+                )
+                .decoration
+            as BoxDecoration;
+
+    testWidgets("the page runs from the artwork's colour to the theme", (
+      tester,
+    ) async {
+      final (colors, decoration) = tokensFor(const SonusAppearanceSpec());
+      final (repository, plays) = catalogue({'a': 1});
+      await pump(
+        tester,
+        repository: repository,
+        plays: plays,
+        colours: {'/art/artist.png': blue},
+      );
+
+      final profile = SonusProfileColors.resolve(
+        colors: colors,
+        decoration: decoration,
+        artwork: blue,
+      );
+      final gradient = background(tester).gradient! as LinearGradient;
+      expect(gradient.colors, [profile.background, profile.backgroundDeep]);
+      expect(pageBackground(tester), profile.background);
+      final hue = HSLColor.fromColor(profile.background).hue;
+      expect(hue, inInclusiveRange(200, 240), reason: 'a blue page');
+    });
+
+    testWidgets("Evergreen: pink artwork makes a pink page, not a green one", (
+      tester,
+    ) async {
+      const spec = SonusAppearanceSpec(themeId: SonusThemeId.evergreen);
+      final (colors, _) = tokensFor(spec);
+      final (repository, plays) = catalogue({'a': 1});
+      await pump(
+        tester,
+        repository: repository,
+        plays: plays,
+        spec: spec,
+        colours: {
+          '/art/artist.png': const SonusArtworkColors(
+            accent: Color(0xFFFFB0CF),
+            container: Color(0xFF8A1F58),
+          ),
+        },
+      );
+
+      final page = pageBackground(tester);
+      expect(page, isNot(colors.background), reason: 'tinted');
+      final hue = HSLColor.fromColor(page).hue;
+      expect(hue, anyOf(greaterThan(300), lessThan(20)), reason: 'pink');
+    });
+
+    testWidgets('Top Tracks, Collaborations and Collaborators sit on glass; '
+        'headings carry the accent', (tester) async {
+      final (repository, plays) = withCollaboration();
+      await pump(
+        tester,
+        size: const Size(411, 3000),
+        repository: repository,
+        plays: plays,
+      );
+
+      expect(section('artist-profile-top-tracks-glass'), findsOneWidget);
+      expect(section('artist-profile-collaborations-glass'), findsOneWidget);
+      final accent = tester
+          .widget<FilledButton>(section('artist-profile-play-all-button'))
+          .style!
+          .backgroundColor!
+          .resolve(const {});
+      final marks = tester.widgetList<Container>(
+        section('section-heading-accent'),
+      );
+      expect(marks.length, greaterThanOrEqualTo(3));
+      for (final mark in marks) {
+        expect((mark.decoration! as BoxDecoration).color, accent);
+      }
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('rows on glass still play, with Top Tracks as the queue', (
+      tester,
+    ) async {
+      final (repository, plays) = withCollaboration();
+      final engine = base.FakePlaybackEngine();
+      await pump(
+        tester,
+        repository: repository,
+        plays: plays,
+        playbackCoordinator: PlaybackCoordinator(engine: engine),
+      );
+
+      await tester.tap(
+        find.byKey(const ValueKey<String>('artist-top-track-b')),
+      );
+      await tester.pump();
+
+      expect(engine.lastLoadedTracks!.map((t) => t.songId).take(2), ['a', 'b']);
+      await engine.dispose();
+    });
+
+    testWidgets('the standing sits on a glass pill and the name glows', (
+      tester,
+    ) async {
+      final (repository, plays) = catalogue({'a': 2});
+      await pump(tester, repository: repository, plays: plays);
+
+      expect(section('artist-profile-standing-glass'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: section('artist-profile-standing-glass'),
+          matching: section('artist-profile-standing'),
+        ),
+        findsOneWidget,
+      );
+      final name = tester.widget<Text>(section('artist-profile-name-artist-1'));
+      expect(name.style!.shadows!.length, 2, reason: 'accent glow added');
+    });
+
+    for (final (label, spec) in [
+      (
+        'Low effects',
+        const SonusAppearanceSpec(
+          decoration: SonusDecorationIntensity.expressive,
+          lowEffects: true,
+        ),
+      ),
+      (
+        'High contrast',
+        const SonusAppearanceSpec(
+          decoration: SonusDecorationIntensity.expressive,
+          highContrast: true,
+        ),
+      ),
+      (
+        'Decoration Off',
+        const SonusAppearanceSpec(decoration: SonusDecorationIntensity.off),
+      ),
+    ]) {
+      testWidgets('$label: flat page, opaque panels, no glow', (tester) async {
+        final (colors, _) = tokensFor(spec);
+        final (repository, plays) = withCollaboration();
+        await pump(tester, repository: repository, plays: plays, spec: spec);
+
+        expect(background(tester).gradient, isNull);
+        expect(background(tester).color, colors.background);
+        final glass = tester.widget<DecoratedBox>(
+          find
+              .descendant(
+                of: section('artist-profile-top-tracks-glass'),
+                matching: find.byKey(
+                  const ValueKey<String>('sonus-glass-panel-surface'),
+                ),
+              )
+              .first,
+        );
+        final box = glass.decoration as BoxDecoration;
+        expect(box.gradient, isNull);
+        expect(box.color!.a, 1, reason: 'opaque');
+        final name = tester.widget<Text>(
+          section('artist-profile-name-artist-1'),
+        );
+        expect(name.style!.shadows!.length, 1, reason: 'no glow');
+      });
+    }
+
+    testWidgets('no artwork: theme colours, sections still on panels', (
+      tester,
+    ) async {
+      final (colors, _) = tokensFor(const SonusAppearanceSpec());
+      final (repository, plays) = catalogue({'a': 1}, headerArtworkPath: null);
+      await pump(tester, repository: repository, plays: plays, colours: {});
+
+      expect(pageBackground(tester), colors.background);
+      expect(background(tester).color, colors.background);
+      expect(section('artist-profile-top-tracks-glass'), findsOneWidget);
     });
   });
 

@@ -4,6 +4,8 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 
 import '../../../../../core/design/sonus_atmosphere_colors.dart';
+import '../../../../../core/design/sonus_profile_colors.dart';
+import '../../../../../core/design/widgets/sonus_glass_panel.dart';
 import '../../../../../core/design/sonus_count_label.dart';
 import '../../../../../core/design/sonus_theme.dart';
 import '../../../../../core/design/widgets/sonus_artwork_frame.dart';
@@ -24,6 +26,7 @@ class ArtistProfileHeader extends StatelessWidget {
     required this.bannerPath,
     required this.portraitPath,
     required this.atmosphere,
+    this.profile,
     this.standing,
     this.summary,
   });
@@ -32,6 +35,11 @@ class ArtistProfileHeader extends StatelessWidget {
   final String? bannerPath;
   final String? portraitPath;
   final SonusAtmosphereColors atmosphere;
+
+  /// The page's full profile colours (UI redesign P1): when given, the
+  /// standing sits on glass and the name and portrait glow where allowed.
+  final SonusProfileColors? profile;
+
   final ArtistStanding? standing;
 
   /// A short line under the name, such as a contributor's projects. The
@@ -125,6 +133,7 @@ class ArtistProfileHeader extends StatelessWidget {
                 standing: standing,
                 summary: summary,
                 atmosphere: atmosphere,
+                profile: profile,
                 portraitSize: _portraitSize,
               ),
             ),
@@ -254,6 +263,7 @@ class _Identity extends StatelessWidget {
     required this.standing,
     required this.summary,
     required this.atmosphere,
+    required this.profile,
     required this.portraitSize,
   });
 
@@ -262,6 +272,7 @@ class _Identity extends StatelessWidget {
   final ArtistStanding? standing;
   final String? summary;
   final SonusAtmosphereColors atmosphere;
+  final SonusProfileColors? profile;
   final double portraitSize;
 
   @override
@@ -270,7 +281,12 @@ class _Identity extends StatelessWidget {
     final colors = tokens.colors;
     final theme = Theme.of(context);
     final standing = this.standing;
+    final profile = this.profile;
     const shadow = [ui.Shadow(blurRadius: 12, color: Color(0x66000000))];
+    // The name glows in the artwork's accent where glow is allowed.
+    final nameShadows = profile != null && profile.hasGlow
+        ? [...shadow, ui.Shadow(blurRadius: 24, color: profile.glow)]
+        : shadow;
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.end,
@@ -279,7 +295,9 @@ class _Identity extends StatelessWidget {
           artist: artist,
           path: portraitPath,
           size: portraitSize,
-          ring: atmosphere.background,
+          ring: profile != null && profile.isTinted
+              ? profile.edge
+              : atmosphere.background,
           glow: atmosphere.isTinted && tokens.decoration.allowGlow
               ? atmosphere.accent
               : null,
@@ -299,35 +317,43 @@ class _Identity extends StatelessWidget {
                   color: colors.textPrimary,
                   fontWeight: FontWeight.w800,
                   height: 1.05,
-                  shadows: shadow,
+                  shadows: nameShadows,
                 ),
               ),
               const SizedBox(height: 6),
-              if (standing != null) ...[
-                Text(
-                  standing.rankLabel,
-                  key: const ValueKey<String>('artist-profile-standing'),
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: colors.textPrimary,
-                    fontWeight: FontWeight.w700,
-                    shadows: shadow,
+              if (standing != null)
+                _StandingPill(
+                  profile: profile,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        standing.rankLabel,
+                        key: const ValueKey<String>('artist-profile-standing'),
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: colors.textPrimary,
+                          fontWeight: FontWeight.w700,
+                          shadows: shadow,
+                        ),
+                      ),
+                      Text(
+                        [
+                          sonusCount(standing.streamCount, 'stream'),
+                          if (standing.listened case final listened?
+                              when listened > Duration.zero)
+                            '${sonusListeningTime(listened)} listened',
+                        ].join(' · '),
+                        key: const ValueKey<String>('artist-profile-listening'),
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: colors.textPrimary,
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                          shadows: shadow,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                Text(
-                  [
-                    sonusCount(standing.streamCount, 'stream'),
-                    if (standing.listened case final listened?
-                        when listened > Duration.zero)
-                      '${sonusListeningTime(listened)} listened',
-                  ].join(' · '),
-                  key: const ValueKey<String>('artist-profile-listening'),
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: colors.textPrimary,
-                    fontFeatures: const [FontFeature.tabularFigures()],
-                    shadows: shadow,
-                  ),
-                ),
-              ],
               if (summary case final summary?)
                 Text(
                   summary,
@@ -445,4 +471,30 @@ String artistInitials(String name) {
   return '${parts.first.substring(0, 1)}'
           '${parts.last.substring(0, 1)}'
       .toUpperCase();
+}
+
+/// The artist's standing on a small glass pill over the hero's fade (UI
+/// redesign P1), or as plain text without profile colours.
+class _StandingPill extends StatelessWidget {
+  const _StandingPill({required this.profile, required this.child});
+
+  final SonusProfileColors? profile;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final profile = this.profile;
+    if (profile == null) return child;
+    return Padding(
+      padding: const EdgeInsets.only(top: 2),
+      child: SonusGlassPanel(
+        key: const ValueKey<String>('artist-profile-standing-glass'),
+        base: profile.surface,
+        edge: profile.edge,
+        borderRadius: const BorderRadius.all(Radius.circular(14)),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        child: child,
+      ),
+    );
+  }
 }
