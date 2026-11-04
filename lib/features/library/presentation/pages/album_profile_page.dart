@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../../core/design/sonus_artwork_palette.dart';
+import '../../../../core/design/widgets/sonus_artwork_atmosphere_builder.dart';
 import '../../../../core/design/sonus_atmosphere_colors.dart';
 import '../../../../core/design/sonus_theme.dart';
 import '../../../../core/design/sonus_tokens.dart';
@@ -84,46 +85,17 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
   LibraryQueryRepository? _repository;
   final TrackSelectionController _selection = TrackSelectionController();
 
-  // Artwork atmosphere: theme colours show at once; the artwork's colours
-  // arrive asynchronously and replace them once extracted.
-  SonusArtworkPalette get _palette =>
-      widget.artworkPalette ?? SonusArtworkPalette.shared;
-  String? _atmospherePath;
-  Brightness? _atmosphereBrightness;
-  SonusArtworkColors? _artworkColors;
-
-  /// Asks for the colours of the artwork now on screen. Never sets state
-  /// synchronously, so it is safe to call while building.
-  void _requestAtmosphere(String? artworkPath, Brightness brightness) {
-    if (artworkPath == _atmospherePath && brightness == _atmosphereBrightness) {
-      return;
-    }
-    _atmospherePath = artworkPath;
-    _atmosphereBrightness = brightness;
-
-    unawaited(
-      _palette.colorsFor(artworkPath, brightness: brightness).then((colors) {
-        // A newer artwork (another edition) may have been requested since.
-        if (!mounted ||
-            artworkPath != _atmospherePath ||
-            brightness != _atmosphereBrightness ||
-            colors == _artworkColors) {
-          return;
-        }
-        setState(() {
-          _artworkColors = colors;
-        });
-      }),
-    );
-  }
+  /// The artwork the page's atmosphere comes from. Updated as soon as the
+  /// controller changes (it notifies without rebuilding this State), so
+  /// [SonusArtworkAtmosphereBuilder] requests its colours at once.
+  final ValueNotifier<String?> _atmosphereArtwork = ValueNotifier<String?>(
+    null,
+  );
 
   void _onControllerChanged() {
     final controller = _controller;
     if (controller == null || !mounted) return;
-    _requestAtmosphere(
-      _presentationArtworkPath(controller),
-      Theme.of(context).brightness,
-    );
+    _atmosphereArtwork.value = _presentationArtworkPath(controller);
   }
 
   @override
@@ -174,30 +146,10 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
     final controller = _controller;
     final accountController = context.watch<AccountController?>();
     final userId = accountController?.user?.id;
-    final tokens = SonusTheme.of(context);
-
-    if (controller != null) {
-      _requestAtmosphere(
-        _presentationArtworkPath(controller),
-        Theme.of(context).brightness,
-      );
-    }
-
-    final target = SonusArtworkAtmosphere.resolve(
-      colors: tokens.colors,
-      decoration: tokens.decoration,
-      artwork: _artworkColors,
-    );
-    final reduceMotion =
-        tokens.motion.reduced || MediaQuery.disableAnimationsOf(context);
-
-    // Eases between theme and artwork colours instead of flashing; jumps
-    // straight there with reduced motion.
-    return TweenAnimationBuilder<SonusAtmosphereColors>(
-      tween: SonusAtmosphereColorsTween(end: SonusAtmosphereColors.of(target)),
-      duration: reduceMotion ? Duration.zero : tokens.motion.baseMedium,
-      curve: tokens.motion.curve,
-      builder: (context, atmosphere, _) =>
+    return SonusArtworkAtmosphereBuilder.listenable(
+      artworkPath: _atmosphereArtwork,
+      palette: widget.artworkPalette,
+      builder: (context, atmosphere) =>
           _buildPage(context, controller, userId, atmosphere),
     );
   }
@@ -774,6 +726,7 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
     _selection.dispose();
     _refresher?.dispose();
     _controller?.dispose();
+    _atmosphereArtwork.dispose();
     super.dispose();
   }
 }
