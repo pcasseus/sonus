@@ -14,6 +14,7 @@ import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/presentation/models/artist_library_statistics.dart';
 import 'package:sonus_next/features/library/presentation/models/artist_profile_sections.dart';
 import 'package:sonus_next/features/library/presentation/pages/library_page.dart';
+import 'package:sonus_next/features/library/presentation/widgets/library_view_switch.dart';
 import 'package:sonus_next/features/library/presentation/services/artist_library_statistics_service.dart';
 
 import '../../pages/library_page_test.dart' as base;
@@ -120,7 +121,12 @@ void main() {
         ],
         child: MaterialApp(
           theme: SonusThemeFactory.build(const SonusAppearanceSpec()),
-          home: Scaffold(body: LibraryPage(changes: signal)),
+          home: Scaffold(
+            body: LibraryPage(
+              changes: signal,
+              initialView: LibraryView.filmReel,
+            ),
+          ),
         ),
       ),
     );
@@ -286,15 +292,14 @@ void main() {
     expect(find.text('AL'), findsOneWidget);
   });
 
-  testWidgets('the Roster and search buttons are in the header', (
+  testWidgets('the view switch and search button are in the header', (
     tester,
   ) async {
     final artists = [ada];
     await pump(tester, artists: artists, stats: statsFor(artists));
 
-    final roster = tester.widget<IconButton>(byKey('library-roster-button'));
-    expect(roster.onPressed, isNotNull);
-    expect(roster.tooltip, 'Artist Roster');
+    expect(byKey('library-view-roster'), findsOneWidget);
+    expect(byKey('library-view-reel'), findsOneWidget);
     final search = tester.widget<IconButton>(byKey('library-search-button'));
     expect(search.tooltip, 'Search artists');
   });

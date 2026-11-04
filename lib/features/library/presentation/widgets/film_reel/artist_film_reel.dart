@@ -14,6 +14,7 @@ import '../../../../../core/design/widgets/sonus_glass_panel.dart';
 import '../../../../../core/design/widgets/sonus_perspective_panel.dart';
 import '../../../application/models/library_artist.dart';
 import '../../models/artist_library_statistics.dart';
+import '../library_view_switch.dart';
 
 /// The Library's artist Film Reel (UI redesign L1): one large portrait at a
 /// time, the previous and next artists peeking above and below, and two
@@ -37,7 +38,7 @@ class ArtistFilmReel extends StatefulWidget {
     required this.onSelected,
     required this.onOpenArtist,
     this.selectedArtistId,
-    this.onOpenRoster,
+    this.onSwitchView,
     this.onOpenSearch,
     this.onRefresh,
     this.artworkPalette,
@@ -63,8 +64,8 @@ class ArtistFilmReel extends StatefulWidget {
 
   final ValueChanged<LibraryArtist> onOpenArtist;
 
-  /// Opens the Artist Roster (L2); the button is disabled without it.
-  final VoidCallback? onOpenRoster;
+  /// Switches the Library to another view; no switch without it.
+  final ValueChanged<LibraryView>? onSwitchView;
 
   /// Opens the Roster's artist search (D11); no search button without it.
   final VoidCallback? onOpenSearch;
@@ -214,7 +215,7 @@ class _ArtistFilmReelState extends State<ArtistFilmReel> {
                 _ReelHeader(
                   countLabel: widget.countLabel,
                   colors: colors,
-                  onOpenRoster: widget.onOpenRoster,
+                  onSwitchView: widget.onSwitchView,
                   onOpenSearch: widget.onOpenSearch,
                 ),
                 Expanded(child: _body(context, colors)),
@@ -519,20 +520,19 @@ class _ReelHeader extends StatelessWidget {
   const _ReelHeader({
     required this.countLabel,
     required this.colors,
-    required this.onOpenRoster,
+    required this.onSwitchView,
     required this.onOpenSearch,
   });
 
   final String countLabel;
   final SonusCinematicColors colors;
-  final VoidCallback? onOpenRoster;
+  final ValueChanged<LibraryView>? onSwitchView;
   final VoidCallback? onOpenSearch;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final decoration = SonusTheme.of(context).decoration;
-    final enabled = onOpenRoster != null;
+    final onSwitchView = this.onSwitchView;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 12, 12, 4),
@@ -571,28 +571,12 @@ class _ReelHeader extends StatelessWidget {
               icon: const Icon(Icons.search_rounded),
             ),
           const SizedBox(width: 4),
-          Opacity(
-            opacity: enabled ? 1 : 0.5,
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: colors.accent, width: 1.5),
-                boxShadow: SonusGlow.shadows(
-                  colors.glow,
-                  decoration,
-                  blurRadius: 14,
-                ),
-              ),
-              child: IconButton(
-                key: const ValueKey<String>('library-roster-button'),
-                tooltip: 'Artist Roster',
-                onPressed: onOpenRoster,
-                color: colors.textPrimary,
-                disabledColor: colors.textPrimary,
-                icon: const Icon(Icons.sports_esports_rounded),
-              ),
+          if (onSwitchView != null)
+            LibraryViewSwitch(
+              current: LibraryView.filmReel,
+              onChanged: onSwitchView,
+              colors: colors,
             ),
-          ),
         ],
       ),
     );

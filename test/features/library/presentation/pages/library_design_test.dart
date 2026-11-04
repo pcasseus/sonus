@@ -7,6 +7,7 @@ import 'package:sonus_next/core/design/sonus_tokens.dart';
 import 'package:sonus_next/features/library/application/models/library_artist.dart';
 import 'package:sonus_next/features/library/application/repositories/library_query_repository.dart';
 import 'package:sonus_next/features/library/presentation/pages/library_page.dart';
+import 'package:sonus_next/features/library/presentation/widgets/library_view_switch.dart';
 
 import 'library_page_test.dart' as base;
 
@@ -49,7 +50,9 @@ void main() {
             ).copyWith(textScaler: TextScaler.linear(textScale)),
             child: child!,
           ),
-          home: const Scaffold(body: LibraryPage()),
+          home: const Scaffold(
+            body: LibraryPage(initialView: LibraryView.filmReel),
+          ),
         ),
       ),
     );

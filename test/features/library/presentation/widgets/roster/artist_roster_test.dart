@@ -1,4 +1,5 @@
-// UI redesign L2: the Artist Roster, opened from the real Film Reel.
+// UI redesign L2 and the Roster-first Library: the Artist Roster is the
+// Library's default screen, through the real LibraryPage.
 import 'dart:ui' show Tristate;
 
 import 'package:flutter/material.dart';
@@ -10,11 +11,11 @@ import 'package:sonus_next/core/design/sonus_tokens.dart';
 import 'package:sonus_next/features/library/application/models/library_artist.dart';
 import 'package:sonus_next/features/library/application/repositories/library_query_repository.dart';
 import 'package:sonus_next/features/library/presentation/models/artist_library_statistics.dart';
-import 'package:sonus_next/features/library/presentation/pages/artist_roster_page.dart';
+import 'package:sonus_next/features/library/presentation/widgets/roster/artist_roster.dart';
 import 'package:sonus_next/features/library/presentation/pages/library_page.dart';
 import 'package:sonus_next/features/library/presentation/services/artist_library_statistics_service.dart';
 
-import 'library_page_test.dart' as base;
+import '../../pages/library_page_test.dart' as base;
 
 Finder byKey(String key) => find.byKey(ValueKey<String>(key));
 
@@ -100,24 +101,27 @@ void main() {
   }
 
   Future<void> openRoster(WidgetTester tester) async {
-    await tester.tap(byKey('library-roster-button'));
+    expect(byKey('artist-roster'), findsOneWidget, reason: 'the default');
+  }
+
+  Future<void> switchTo(WidgetTester tester, String view) async {
+    await tester.tap(byKey('library-view-$view'));
     await tester.pumpAndSettle();
-    expect(byKey('artist-roster-page'), findsOneWidget);
   }
 
   String featuredName(WidgetTester tester) =>
       tester.widget<Text>(byKey('roster-featured-name')).data!;
 
-  group('preview and choice', () {
-    testWidgets('opens on the Film Reel\'s centred artist', (tester) async {
+  group('Roster-first Library', () {
+    testWidgets('the Library opens on the Roster, on the first artist', (
+      tester,
+    ) async {
       await pump(tester);
-      await tester.tap(byKey('film-reel-next'));
-      await tester.pumpAndSettle();
 
-      await openRoster(tester);
-
-      expect(featuredName(tester), 'BEN VALE');
-      expect(find.text('UNRANKED'), findsOneWidget);
+      expect(byKey('artist-roster'), findsOneWidget);
+      expect(byKey('film-reel-pages'), findsNothing);
+      expect(find.text('3 artists'), findsOneWidget);
+      expect(featuredName(tester), 'ADA LUNE');
     });
 
     testWidgets('tapping a portrait previews it and stays in the Roster', (
@@ -131,52 +135,90 @@ void main() {
       await tester.tap(byKey('roster-tile-zed'));
       await tester.pumpAndSettle();
 
-      expect(byKey('artist-roster-page'), findsOneWidget);
+      expect(byKey('artist-roster'), findsOneWidget);
+      expect(byKey('artist-profile-page'), findsNothing);
       expect(featuredName(tester), 'ZED NIGHT');
       expect(find.text('#2 ARTIST RANK'), findsOneWidget);
       final tile = tester.getSemantics(byKey('roster-tile-zed'));
       expect(tile.flagsCollection.isSelected, Tristate.isTrue);
     });
 
-    testWidgets('SELECT ARTIST closes it and centres the artist in the reel', (
-      tester,
-    ) async {
+    testWidgets('SELECT ARTIST opens the previewed artist\'s profile, and '
+        'Back returns to the Roster with it', (tester) async {
       final stats = await pump(tester);
-      await openRoster(tester);
       await tester.tap(byKey('roster-tile-zed'));
       await tester.pumpAndSettle();
 
       await tester.tap(byKey('roster-select'));
       await tester.pumpAndSettle();
+      expect(byKey('artist-profile-page'), findsOneWidget);
 
-      expect(byKey('artist-roster-page'), findsNothing);
-      expect(find.text('#2'), findsOneWidget, reason: 'Zed is centred');
-      expect(stats.loads, 1, reason: 'the Roster reads the same statistics');
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+
+      expect(byKey('artist-roster'), findsOneWidget);
+      expect(featuredName(tester), 'ZED NIGHT');
+      expect(stats.loads, 1, reason: 'no reload for a profile visit');
     });
 
-    testWidgets('Back closes it without choosing anyone', (tester) async {
+    testWidgets('the featured portrait opens the profile too', (tester) async {
       await pump(tester);
-      await openRoster(tester);
-      await tester.tap(byKey('roster-tile-zed'));
+
+      await tester.tap(byKey('roster-featured-open'));
       await tester.pumpAndSettle();
 
-      await tester.tap(byKey('roster-back'));
-      await tester.pumpAndSettle();
-
-      expect(byKey('artist-roster-page'), findsNothing);
-      expect(find.text('#1'), findsOneWidget, reason: 'Ada is still centred');
+      expect(byKey('artist-profile-page'), findsOneWidget);
     });
 
-    testWidgets('the search icon opens the Roster ready to type', (
+    testWidgets('the selection is shared with the Film Reel, both ways', (
       tester,
     ) async {
       await pump(tester);
+      await tester.tap(byKey('roster-tile-zed'));
+      await tester.pumpAndSettle();
+
+      await switchTo(tester, 'reel');
+      expect(byKey('film-reel-pages'), findsOneWidget);
+      expect(find.text('#2'), findsOneWidget, reason: 'Zed is centred');
+
+      await tester.tap(byKey('film-reel-previous'));
+      await tester.pumpAndSettle();
+      await switchTo(tester, 'roster');
+
+      expect(featuredName(tester), 'BEN VALE');
+    });
+
+    testWidgets('the Film Reel still opens profiles', (tester) async {
+      await pump(tester);
+      await switchTo(tester, 'reel');
+
+      await tester.tap(byKey('artist-open-ada'));
+      await tester.pumpAndSettle();
+
+      expect(byKey('artist-profile-page'), findsOneWidget);
+    });
+
+    testWidgets('the Film Reel\'s search icon opens the Roster ready to '
+        'type', (tester) async {
+      await pump(tester);
+      await switchTo(tester, 'reel');
 
       await tester.tap(byKey('library-search-button'));
       await tester.pumpAndSettle();
 
+      expect(byKey('artist-roster'), findsOneWidget);
       final field = tester.widget<TextField>(byKey('roster-search'));
       expect(field.focusNode!.hasFocus, isTrue);
+    });
+
+    testWidgets('the view switch says which view is shown', (tester) async {
+      final handle = tester.ensureSemantics();
+      await pump(tester);
+
+      final roster = tester.getSemantics(byKey('library-view-roster'));
+      expect(roster.flagsCollection.isSelected, Tristate.isTrue);
+      expect(find.bySemanticsLabel('Film Reel view'), findsOneWidget);
+      handle.dispose();
     });
   });
 
@@ -215,9 +257,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(left('ben'), lessThan(left('zed')));
 
-      await tester.tap(byKey('roster-back'));
-      await tester.pumpAndSettle();
-      await openRoster(tester);
+      await switchTo(tester, 'reel');
+      await switchTo(tester, 'roster');
       expect(find.text('Sort: Name'), findsOneWidget);
     });
 
@@ -330,7 +371,7 @@ void main() {
       tester,
     ) async {
       await pumpPhone(tester);
-      await tester.tap(byKey('library-search-button'));
+      await tester.tap(byKey('roster-search'));
       await tester.pumpAndSettle();
       await openKeyboard(tester);
 
@@ -345,7 +386,7 @@ void main() {
 
     testWidgets('every match can be reached by scrolling', (tester) async {
       await pumpPhone(tester);
-      await tester.tap(byKey('library-search-button'));
+      await tester.tap(byKey('roster-search'));
       await tester.pumpAndSettle();
       await openKeyboard(tester);
       await tester.enterText(byKey('roster-search'), 'artist');
@@ -371,7 +412,7 @@ void main() {
 
     testWidgets('one match, no match, and clearing the search', (tester) async {
       await pumpPhone(tester);
-      await tester.tap(byKey('library-search-button'));
+      await tester.tap(byKey('roster-search'));
       await tester.pumpAndSettle();
       await openKeyboard(tester);
 
@@ -387,7 +428,10 @@ void main() {
 
       await tester.tap(byKey('roster-search-clear'));
       await tester.pumpAndSettle();
-      expect(find.text('60 artists'), findsOneWidget);
+      expect(
+        tester.widget<Text>(byKey('roster-match-count')).data,
+        '60 artists',
+      );
       expect(
         tester.widget<TextField>(byKey('roster-search')).focusNode!.hasFocus,
         isTrue,
@@ -399,7 +443,7 @@ void main() {
       tester,
     ) async {
       await pumpPhone(tester);
-      await tester.tap(byKey('library-search-button'));
+      await tester.tap(byKey('roster-search'));
       await tester.pumpAndSettle();
       await openKeyboard(tester);
       await tester.enterText(byKey('roster-search'), 'artist q');
@@ -427,7 +471,7 @@ void main() {
     testWidgets('closing the keyboard restores the full Roster, still '
         'filtered', (tester) async {
       await pumpPhone(tester);
-      await tester.tap(byKey('library-search-button'));
+      await tester.tap(byKey('roster-search'));
       await tester.pumpAndSettle();
       await openKeyboard(tester);
       await tester.enterText(byKey('roster-search'), 'artist b');
@@ -443,7 +487,7 @@ void main() {
 
     testWidgets('320dp with 2x text and the keyboard open', (tester) async {
       await pumpPhone(tester, size: const Size(320, 700), textScale: 2);
-      await tester.tap(byKey('library-search-button'));
+      await tester.tap(byKey('roster-search'));
       await tester.pumpAndSettle();
       await openKeyboard(tester);
       await tester.enterText(byKey('roster-search'), 'artist');
@@ -592,7 +636,7 @@ void main() {
   });
 
   test('sort labels', () {
-    expect(ArtistStatisticsSort.values.map(ArtistRosterPage.sortLabel), [
+    expect(ArtistStatisticsSort.values.map(ArtistRoster.sortLabel), [
       'Name',
       'Most Played',
       'Listening Time',

@@ -13,6 +13,7 @@ import 'package:sonus_next/features/library/application/models/library_track_ord
 import 'package:sonus_next/features/library/application/repositories/library_query_repository.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/presentation/pages/library_page.dart';
+import 'package:sonus_next/features/library/presentation/widgets/library_view_switch.dart';
 
 void main() {
   group('LibraryPage', () {
@@ -301,7 +302,9 @@ void main() {
               ).copyWith(textScaler: const TextScaler.linear(2)),
               child: child!,
             ),
-            home: const Scaffold(body: LibraryPage()),
+            home: const Scaffold(
+              body: LibraryPage(initialView: LibraryView.filmReel),
+            ),
           ),
         ),
       );
@@ -391,7 +394,12 @@ void main() {
         Provider<LibraryQueryRepository?>.value(
           value: repository,
           child: MaterialApp(
-            home: Scaffold(body: LibraryPage(changes: signal)),
+            home: Scaffold(
+              body: LibraryPage(
+                changes: signal,
+                initialView: LibraryView.filmReel,
+              ),
+            ),
           ),
         ),
       );
@@ -416,7 +424,9 @@ void main() {
 Widget buildSubject({required LibraryQueryRepository? repository}) {
   return Provider<LibraryQueryRepository?>.value(
     value: repository,
-    child: const MaterialApp(home: Scaffold(body: LibraryPage())),
+    child: const MaterialApp(
+      home: Scaffold(body: LibraryPage(initialView: LibraryView.filmReel)),
+    ),
   );
 }
 

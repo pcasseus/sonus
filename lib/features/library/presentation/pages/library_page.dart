@@ -17,23 +17,32 @@ import '../controllers/library_artists_controller.dart';
 import '../services/artist_library_statistics_service.dart';
 import '../models/artist_library_statistics.dart';
 import '../widgets/film_reel/artist_film_reel.dart';
+import '../widgets/library_view_switch.dart';
+import '../widgets/roster/artist_roster.dart';
 import 'artist_profile_page.dart';
-import 'artist_roster_page.dart';
 
 class LibraryPage extends StatefulWidget {
-  const LibraryPage({super.key, this.changes});
+  const LibraryPage({
+    super.key,
+    this.changes,
+    this.initialView = LibraryView.roster,
+  });
 
   /// Reloads after library edits, imports and recorded listening; the
   /// shared signal if null.
   final LibraryChangeSignal? changes;
 
+  /// The view shown first: the Artist Roster unless chosen otherwise.
+  final LibraryView initialView;
+
   @override
   State<LibraryPage> createState() => _LibraryPageState();
 }
 
-/// The Library: every listed artist in the Film Reel (UI redesign L1, D12),
-/// with their statistics (D1), loaded once and refreshed only when the
-/// library or listening history changes.
+/// The Library: every listed artist in the Artist Roster (default) or the
+/// Film Reel (UI redesign L1/L2), with their statistics (D1), loaded once
+/// and refreshed only when the library or listening history changes. Both
+/// views share one selection and open the same Artist Profile.
 class _LibraryPageState extends State<LibraryPage> {
   LibraryChangeRefresher? _refresher;
   LibraryArtistsController? _controller;
@@ -48,6 +57,25 @@ class _LibraryPageState extends State<LibraryPage> {
 
   /// The Roster's sort, kept between visits.
   ArtistStatisticsSort _rosterSort = ArtistStatisticsSort.qualifiedStreams;
+
+  /// The view on screen.
+  late LibraryView _view = widget.initialView;
+
+  /// Bumped to focus the Roster's search (the Film Reel's search icon).
+  int _searchRequest = 0;
+
+  void _switchView(LibraryView view) {
+    if (view == _view) return;
+    setState(() => _view = view);
+  }
+
+  /// The Film Reel's search icon: the Roster, ready to type (D11).
+  void _searchArtists() {
+    setState(() {
+      _view = LibraryView.roster;
+      _searchRequest++;
+    });
+  }
 
   static T? _optional<T extends Object>(BuildContext context) {
     try {
@@ -118,29 +146,6 @@ class _LibraryPageState extends State<LibraryPage> {
     )?.writeState(context, artistId, identifier: _selectionKey);
   }
 
-  /// Opens the Artist Roster (L2); the chosen artist is then centred in
-  /// the Film Reel. Closing it without choosing changes nothing.
-  Future<void> _openRoster({bool search = false}) async {
-    final controller = _controller;
-    final statistics = _statistics;
-    if (controller == null || statistics == null) return;
-    final artists = controller.visibleArtists;
-    if (artists.isEmpty) return;
-
-    final chosen = await ArtistRosterPage.open(
-      context,
-      artists: artists,
-      statistics: statistics.snapshot,
-      statisticsLoaded: statistics.hasLoaded,
-      initialArtistId: _selectedArtistId ?? artists.first.artistId,
-      sort: _rosterSort,
-      focusSearch: search,
-      onSortChanged: (sort) => _rosterSort = sort,
-    );
-    if (chosen == null || !mounted) return;
-    setState(() => _select(chosen));
-  }
-
   void _openArtist(LibraryArtist artist) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -201,18 +206,34 @@ class _LibraryPageState extends State<LibraryPage> {
             );
           }
 
-          return ArtistFilmReel(
-            artists: artists,
-            statistics: statistics.snapshot,
-            statisticsLoaded: statistics.hasLoaded,
-            countLabel: sonusCount(artists.length, 'artist'),
-            selectedArtistId: _selectedArtistId,
-            onSelected: _select,
-            onOpenArtist: _openArtist,
-            onOpenRoster: () => unawaited(_openRoster()),
-            onOpenSearch: () => unawaited(_openRoster(search: true)),
-            onRefresh: _refresh,
-          );
+          final countLabel = sonusCount(artists.length, 'artist');
+          return switch (_view) {
+            LibraryView.roster => ArtistRoster(
+              artists: artists,
+              statistics: statistics.snapshot,
+              statisticsLoaded: statistics.hasLoaded,
+              countLabel: countLabel,
+              selectedArtistId: _selectedArtistId,
+              onSelected: _select,
+              onOpenArtist: _openArtist,
+              sort: _rosterSort,
+              onSortChanged: (sort) => _rosterSort = sort,
+              searchRequest: _searchRequest,
+              onSwitchView: _switchView,
+            ),
+            LibraryView.filmReel => ArtistFilmReel(
+              artists: artists,
+              statistics: statistics.snapshot,
+              statisticsLoaded: statistics.hasLoaded,
+              countLabel: countLabel,
+              selectedArtistId: _selectedArtistId,
+              onSelected: _select,
+              onOpenArtist: _openArtist,
+              onSwitchView: _switchView,
+              onOpenSearch: _searchArtists,
+              onRefresh: _refresh,
+            ),
+          };
         },
       ),
     );

@@ -3,90 +3,81 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
-import '../../../../core/design/sonus_artwork_palette.dart';
-import '../../../../core/design/sonus_cinematic_colors.dart';
-import '../../../../core/design/sonus_count_label.dart';
-import '../../../../core/design/sonus_theme.dart';
-import '../../../../core/design/widgets/sonus_artwork_backdrop.dart';
-import '../../../../core/design/widgets/sonus_artwork_image.dart';
-import '../../../../core/design/widgets/sonus_cinematic_atmosphere_builder.dart';
-import '../../../../core/design/widgets/sonus_glass_panel.dart';
-import '../../../../core/design/widgets/sonus_perspective_panel.dart';
-import '../../application/models/library_artist.dart';
-import '../models/alphabet_index.dart';
-import '../models/artist_library_statistics.dart';
-import '../models/artist_roster_view.dart';
-import '../widgets/film_reel/artist_film_reel.dart';
+import '../../../../../core/design/sonus_artwork_palette.dart';
+import '../../../../../core/design/sonus_cinematic_colors.dart';
+import '../../../../../core/design/sonus_count_label.dart';
+import '../../../../../core/design/sonus_theme.dart';
+import '../../../../../core/design/widgets/sonus_artwork_backdrop.dart';
+import '../../../../../core/design/widgets/sonus_artwork_image.dart';
+import '../../../../../core/design/widgets/sonus_cinematic_atmosphere_builder.dart';
+import '../../../../../core/design/widgets/sonus_glass_panel.dart';
+import '../../../../../core/design/widgets/sonus_perspective_panel.dart';
+import '../../../application/models/library_artist.dart';
+import '../../models/alphabet_index.dart';
+import '../../models/artist_library_statistics.dart';
+import '../../models/artist_roster_view.dart';
+import '../film_reel/artist_film_reel.dart';
+import '../library_view_switch.dart';
 
-/// The Artist Roster (UI redesign L2): a full-screen, fighting-game style
-/// character select over the Library's artists. Tapping a portrait
-/// previews the artist above the grid; SELECT ARTIST closes the Roster and
-/// returns that artist's id, which the Film Reel then centres. Back closes
-/// it without choosing anyone.
+/// The Artist Roster (UI redesign L2), the Library's default screen: a
+/// fighting-game style character select over the Library's artists.
+/// Tapping a portrait previews the artist above the grid; tapping the
+/// featured portrait or SELECT ARTIST opens their Artist Profile
+/// ([onOpenArtist]). The previewed artist is the Library's selection, shared
+/// with the Film Reel ([selectedArtistId], [onSelected]).
 ///
 /// The grid is sideways pages of portraits (D2); search, sort and A-Z move
 /// to the page that holds what was asked for. Every artist can also be
 /// reached with the page buttons, so no gesture is ever required.
-class ArtistRosterPage extends StatefulWidget {
-  const ArtistRosterPage({
+class ArtistRoster extends StatefulWidget {
+  const ArtistRoster({
     super.key,
     required this.artists,
     required this.statistics,
     required this.statisticsLoaded,
-    required this.initialArtistId,
+    required this.selectedArtistId,
+    required this.onSelected,
+    required this.onOpenArtist,
+    required this.countLabel,
     this.sort = ArtistStatisticsSort.qualifiedStreams,
-    this.focusSearch = false,
     this.onSortChanged,
+    this.searchRequest = 0,
+    this.onSwitchView,
     this.artworkPalette,
   });
 
-  /// The Library's artists (its visibility rules already applied).
+  /// The Library's artists (its visibility rules already applied). Never
+  /// empty.
   final List<LibraryArtist> artists;
   final ArtistLibraryStatisticsSnapshot statistics;
   final bool statisticsLoaded;
 
-  /// The artist previewed at first: the Film Reel's centred one.
-  final String? initialArtistId;
+  /// The artist to preview: the Library's selection; the first when null
+  /// or no longer listed.
+  final String? selectedArtistId;
+
+  /// Called when another artist is previewed.
+  final ValueChanged<String> onSelected;
+
+  /// Opens the Artist Profile of the featured artist.
+  final ValueChanged<LibraryArtist> onOpenArtist;
+
+  /// The header's artist count, such as "12 artists".
+  final String countLabel;
 
   final ArtistStatisticsSort sort;
 
-  /// Opens with the search field focused (the Film Reel's search icon,
-  /// D11).
-  final bool focusSearch;
-
-  /// Remembers the sort for the next time the Roster opens.
+  /// Remembers the sort for the next time the Roster is shown.
   final ValueChanged<ArtistStatisticsSort>? onSortChanged;
 
-  final SonusArtworkPalette? artworkPalette;
+  /// Focuses the search field each time it changes (the Film Reel's search
+  /// icon, D11).
+  final int searchRequest;
 
-  /// Shows the Roster; completes with the chosen artist's id, or null when
-  /// it was closed without choosing.
-  static Future<String?> open(
-    BuildContext context, {
-    required List<LibraryArtist> artists,
-    required ArtistLibraryStatisticsSnapshot statistics,
-    required bool statisticsLoaded,
-    required String? initialArtistId,
-    ArtistStatisticsSort sort = ArtistStatisticsSort.qualifiedStreams,
-    bool focusSearch = false,
-    ValueChanged<ArtistStatisticsSort>? onSortChanged,
-    SonusArtworkPalette? artworkPalette,
-  }) {
-    return Navigator.of(context).push<String>(
-      MaterialPageRoute<String>(
-        builder: (_) => ArtistRosterPage(
-          artists: artists,
-          statistics: statistics,
-          statisticsLoaded: statisticsLoaded,
-          initialArtistId: initialArtistId,
-          sort: sort,
-          focusSearch: focusSearch,
-          onSortChanged: onSortChanged,
-          artworkPalette: artworkPalette,
-        ),
-      ),
-    );
-  }
+  /// Switches the Library to another view; no switch without it.
+  final ValueChanged<LibraryView>? onSwitchView;
+
+  final SonusArtworkPalette? artworkPalette;
 
   /// Sort labels, as on the sort menu.
   static String sortLabel(ArtistStatisticsSort sort) => switch (sort) {
@@ -97,16 +88,17 @@ class ArtistRosterPage extends StatefulWidget {
   };
 
   @override
-  State<ArtistRosterPage> createState() => _ArtistRosterPageState();
+  State<ArtistRoster> createState() => _ArtistRosterState();
 }
 
-class _ArtistRosterPageState extends State<ArtistRosterPage> {
+class _ArtistRosterState extends State<ArtistRoster> {
   late ArtistStatisticsSort _sort = widget.sort;
   String _query = '';
-  late String? _previewId =
-      widget.initialArtistId != null &&
-          widget.artists.any((a) => a.artistId == widget.initialArtistId)
-      ? widget.initialArtistId
+  late String? _previewId = _listedOrFirst(widget.selectedArtistId);
+
+  String? _listedOrFirst(String? artistId) =>
+      artistId != null && widget.artists.any((a) => a.artistId == artistId)
+      ? artistId
       : (widget.artists.isEmpty ? null : widget.artists.first.artistId);
   late final ValueNotifier<String?> _previewArtwork = ValueNotifier(
     _preview == null ? null : ArtistFilmReel.portraitPath(_preview!),
@@ -120,7 +112,7 @@ class _ArtistRosterPageState extends State<ArtistRosterPage> {
   bool _pageChosen = false;
 
   ArtistRosterView? _view;
-  (ArtistStatisticsSort, String)? _viewKey;
+  (ArtistStatisticsSort, String, Object, Object)? _viewKey;
 
   LibraryArtist? get _preview {
     final id = _previewId;
@@ -132,7 +124,7 @@ class _ArtistRosterPageState extends State<ArtistRosterPage> {
   }
 
   ArtistRosterView get _rosterView {
-    final key = (_sort, _query);
+    final key = (_sort, _query, widget.artists, widget.statistics);
     if (_view == null || _viewKey != key) {
       _view = ArtistRosterView(
         artists: widget.artists,
@@ -167,7 +159,34 @@ class _ArtistRosterPageState extends State<ArtistRosterPage> {
   void initState() {
     super.initState();
     _searchFocus.addListener(_onSearchFocus);
-    if (widget.focusSearch) {
+    if (widget.searchRequest > 0) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _searchFocus.requestFocus();
+      });
+    }
+  }
+
+  @override
+  void didUpdateWidget(ArtistRoster oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final wanted = _listedOrFirst(widget.selectedArtistId ?? _previewId);
+    if (wanted != _previewId || !identical(widget.artists, oldWidget.artists)) {
+      final changed = wanted != _previewId;
+      _previewId = wanted;
+      _previewArtwork.value = _preview == null
+          ? null
+          : ArtistFilmReel.portraitPath(_preview!);
+      if (changed && wanted != null) {
+        _jumpAfterBuild(_rosterView.pageOf(wanted, _perPage) ?? 0);
+      }
+      if (wanted != null && wanted != widget.selectedArtistId) {
+        // Report the artist now previewed after a reload.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) widget.onSelected(wanted);
+        });
+      }
+    }
+    if (widget.searchRequest != oldWidget.searchRequest) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _searchFocus.requestFocus();
       });
@@ -193,6 +212,7 @@ class _ArtistRosterPageState extends State<ArtistRosterPage> {
     if (artist.artistId == _previewId) return;
     setState(() => _previewId = artist.artistId);
     _previewArtwork.value = ArtistFilmReel.portraitPath(artist);
+    widget.onSelected(artist.artistId);
   }
 
   /// Picking a match while searching previews it and closes the keyboard,
@@ -288,9 +308,10 @@ class _ArtistRosterPageState extends State<ArtistRosterPage> {
           query: _query,
         );
 
-  void _confirm() {
-    final id = _previewId;
-    if (id != null) Navigator.of(context).pop(id);
+  /// SELECT ARTIST and the featured portrait open the Artist Profile.
+  void _openPreview() {
+    final artist = _preview;
+    if (artist != null) widget.onOpenArtist(artist);
   }
 
   /// The page controller for [perPage] portraits a page, recreated (on the
@@ -317,10 +338,10 @@ class _ArtistRosterPageState extends State<ArtistRosterPage> {
     return SonusCinematicAtmosphereBuilder.listenable(
       artworkPath: _previewArtwork,
       palette: widget.artworkPalette,
-      builder: (context, colors) => Scaffold(
-        key: const ValueKey<String>('artist-roster-page'),
-        backgroundColor: colors.background,
-        body: Stack(
+      builder: (context, colors) => Material(
+        key: const ValueKey<String>('artist-roster'),
+        color: colors.background,
+        child: Stack(
           fit: StackFit.expand,
           children: [
             ValueListenableBuilder<String?>(
@@ -332,6 +353,8 @@ class _ArtistRosterPageState extends State<ArtistRosterPage> {
               ),
             ),
             SafeArea(
+              top: false,
+              bottom: false,
               // Rebuilt whenever the space changes, which is what opening
               // or closing the keyboard does.
               child: LayoutBuilder(
@@ -348,12 +371,16 @@ class _ArtistRosterPageState extends State<ArtistRosterPage> {
                   _wasSearching = searching;
                   return Column(
                     children: [
-                      _RosterHeader(colors: colors),
+                      _RosterHeader(
+                        colors: colors,
+                        countLabel: widget.countLabel,
+                        onSwitchView: widget.onSwitchView,
+                      ),
                       Expanded(
                         child: searching ? _searchBody(colors) : _body(colors),
                       ),
                       if (!searching)
-                        _SelectButton(colors: colors, onPressed: _confirm),
+                        _SelectButton(colors: colors, onPressed: _openPreview),
                     ],
                   );
                 },
@@ -405,6 +432,7 @@ class _ArtistRosterPageState extends State<ArtistRosterPage> {
                     loaded: widget.statisticsLoaded,
                     colors: colors,
                     compact: true,
+                    onOpen: _openPreview,
                   ),
                 toolbar,
                 SizedBox(
@@ -435,6 +463,7 @@ class _ArtistRosterPageState extends State<ArtistRosterPage> {
                       loaded: widget.statisticsLoaded,
                       colors: colors,
                       compact: false,
+                      onOpen: _openPreview,
                     ),
             ),
             toolbar,
@@ -669,13 +698,20 @@ class _ArtistRosterPageState extends State<ArtistRosterPage> {
 }
 
 class _RosterHeader extends StatelessWidget {
-  const _RosterHeader({required this.colors});
+  const _RosterHeader({
+    required this.colors,
+    required this.countLabel,
+    required this.onSwitchView,
+  });
 
   final SonusCinematicColors colors;
+  final String countLabel;
+  final ValueChanged<LibraryView>? onSwitchView;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final onSwitchView = this.onSwitchView;
     Widget rule() => Expanded(
       child: ExcludeSemantics(
         child: Container(
@@ -691,16 +727,9 @@ class _RosterHeader extends StatelessWidget {
     );
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(4, 4, 4, 0),
+      padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
       child: Row(
         children: [
-          IconButton(
-            key: const ValueKey<String>('roster-back'),
-            tooltip: MaterialLocalizations.of(context).backButtonTooltip,
-            color: colors.textPrimary,
-            icon: const Icon(Icons.arrow_back_rounded),
-            onPressed: () => Navigator.of(context).maybePop(),
-          ),
           rule(),
           Flexible(
             flex: 3,
@@ -731,11 +760,27 @@ class _RosterHeader extends StatelessWidget {
                     ),
                   ),
                 ),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    countLabel,
+                    key: const ValueKey<String>('library-artist-count'),
+                    maxLines: 1,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: colors.textSecondary,
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
           rule(),
-          const SizedBox(width: 48),
+          if (onSwitchView != null)
+            LibraryViewSwitch(
+              current: LibraryView.roster,
+              onChanged: onSwitchView,
+              colors: colors,
+            ),
         ],
       ),
     );
@@ -750,6 +795,7 @@ class _Featured extends StatelessWidget {
     required this.loaded,
     required this.colors,
     required this.compact,
+    required this.onOpen,
   });
 
   final LibraryArtist artist;
@@ -757,6 +803,26 @@ class _Featured extends StatelessWidget {
   final bool loaded;
   final SonusCinematicColors colors;
   final bool compact;
+
+  /// Opens the artist's profile.
+  final VoidCallback onOpen;
+
+  /// The featured portrait, as a button that opens the profile.
+  Widget _openablePortrait(double width) => Semantics(
+    button: true,
+    label: 'Open ${artist.name}',
+    excludeSemantics: true,
+    child: GestureDetector(
+      key: const ValueKey<String>('roster-featured-open'),
+      onTap: onOpen,
+      child: _Portrait(
+        key: const ValueKey<String>('roster-featured-portrait'),
+        artist: artist,
+        width: width,
+        colors: colors,
+      ),
+    ),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -802,12 +868,7 @@ class _Featured extends StatelessWidget {
               top: 6,
               bottom: 6,
               width: portraitWidth,
-              child: _Portrait(
-                key: const ValueKey<String>('roster-featured-portrait'),
-                artist: artist,
-                width: portraitWidth,
-                colors: colors,
-              ),
+              child: _openablePortrait(portraitWidth),
             ),
             Positioned(
               left: portraitWidth + 18,
@@ -864,16 +925,7 @@ class _Featured extends StatelessWidget {
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              SizedBox(
-                width: 110,
-                height: 140,
-                child: _Portrait(
-                  key: const ValueKey<String>('roster-featured-portrait'),
-                  artist: artist,
-                  width: 110,
-                  colors: colors,
-                ),
-              ),
+              SizedBox(width: 110, height: 140, child: _openablePortrait(110)),
               const SizedBox(width: 12),
               Expanded(
                 child: Column(
@@ -1250,7 +1302,7 @@ class _Toolbar extends StatelessWidget {
           PopupMenuItem<ArtistStatisticsSort>(
             key: ValueKey<String>('roster-sort-${option.name}'),
             value: option,
-            child: Text(ArtistRosterPage.sortLabel(option)),
+            child: Text(ArtistRoster.sortLabel(option)),
           ),
       ],
       child: Container(
@@ -1266,7 +1318,7 @@ class _Toolbar extends StatelessWidget {
           children: [
             Flexible(
               child: Text(
-                'Sort: ${ArtistRosterPage.sortLabel(sort)}',
+                'Sort: ${ArtistRoster.sortLabel(sort)}',
                 overflow: TextOverflow.ellipsis,
                 style: theme.textTheme.bodyMedium?.copyWith(
                   color: colors.textPrimary,

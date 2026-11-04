@@ -10,6 +10,7 @@ import 'package:sonus_next/features/library/application/services/library_organiz
 import 'package:sonus_next/features/library/domain/entities/song_artist_credit.dart';
 import 'package:sonus_next/features/library/presentation/models/artist_profile_sections.dart';
 import 'package:sonus_next/features/library/presentation/pages/library_page.dart';
+import 'package:sonus_next/features/library/presentation/widgets/library_view_switch.dart';
 import 'package:sonus_next/features/library/presentation/widgets/artist_profile/artist_library_placement_sheet.dart';
 
 import 'pages/library_page_test.dart' as lib;
@@ -90,7 +91,9 @@ void main() {
           ],
           child: MaterialApp(
             theme: SonusThemeFactory.build(const SonusAppearanceSpec()),
-            home: const Scaffold(body: LibraryPage()),
+            home: const Scaffold(
+              body: LibraryPage(initialView: LibraryView.filmReel),
+            ),
           ),
         ),
       );
