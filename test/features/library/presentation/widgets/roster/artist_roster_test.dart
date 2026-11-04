@@ -12,6 +12,7 @@ import 'package:provider/provider.dart';
 import 'package:sonus_next/core/design/sonus_theme_factory.dart';
 import 'package:sonus_next/core/design/sonus_theme_id.dart';
 import 'package:sonus_next/core/design/sonus_tokens.dart';
+import 'package:sonus_next/core/design/widgets/sonus_framed_artwork.dart';
 import 'package:sonus_next/features/library/application/models/library_artist.dart';
 import 'package:sonus_next/features/library/application/repositories/library_query_repository.dart';
 import 'package:sonus_next/features/library/presentation/models/artist_library_statistics.dart';
@@ -924,6 +925,91 @@ void main() {
       await openRoster(tester);
 
       expect(find.text('AL'), findsWidgets);
+    });
+
+    // Device QA: the featured artist had a faded, larger copy of the
+    // portrait behind it, and group photos lost people at both edges.
+    testWidgets('the featured portrait has no ghost copy behind it', (
+      tester,
+    ) async {
+      await pump(tester);
+
+      final featured = byKey('roster-featured-ada');
+      expect(
+        find.descendant(of: featured, matching: find.byType(Opacity)),
+        findsNothing,
+        reason: 'no faded duplicate',
+      );
+      expect(
+        find.descendant(of: featured, matching: find.text('AL')),
+        findsOneWidget,
+        reason: 'one portrait (initials, as Ada has no artwork)',
+      );
+    });
+
+    testWidgets('featured artwork is framed whole rather than cropped to the '
+        'frame; the small tiles keep their angled crop', (tester) async {
+      final pictured = LibraryArtist(
+        artistId: 'cast',
+        name: 'Victorious Cast',
+        albumCount: 3,
+        songCount: 40,
+        dateAdded: DateTime(2026),
+        topArtistsArtworkPath: '/artwork/victorious-cast.jpg',
+      );
+      await pump(tester, artists: [pictured, ...three], ranks: const {});
+
+      final featured = byKey('roster-featured-cast');
+      expect(
+        find.descendant(
+          of: featured,
+          matching: find.byType(SonusFramedArtwork),
+        ),
+        findsOneWidget,
+      );
+      final tile = byKey('roster-tile-cast');
+      expect(
+        find.descendant(of: tile, matching: find.byType(SonusFramedArtwork)),
+        findsNothing,
+      );
+      final tileImage = tester.widget<Image>(
+        find.descendant(of: tile, matching: find.byType(Image)),
+      );
+      expect(tileImage.fit, BoxFit.cover);
+    });
+
+    testWidgets('narrow screen and large text: one framed portrait, no '
+        'ghost, nothing overflows', (tester) async {
+      final pictured = LibraryArtist(
+        artistId: 'flo',
+        name: 'FLO',
+        albumCount: 2,
+        songCount: 20,
+        dateAdded: DateTime(2026),
+        headerArtworkPath: '/artwork/flo-banner.jpg',
+      );
+      await pump(
+        tester,
+        artists: [pictured, ...three],
+        ranks: const {},
+        size: const Size(320, 640),
+        textScale: 2,
+      );
+
+      expect(byKey('roster-compact'), findsOneWidget);
+      final featured = byKey('roster-featured-flo');
+      expect(
+        find.descendant(
+          of: featured,
+          matching: find.byType(SonusFramedArtwork),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: featured, matching: find.byType(Opacity)),
+        findsNothing,
+      );
+      expect(tester.takeException(), isNull);
     });
 
     testWidgets('with reduced motion the page buttons move at once', (

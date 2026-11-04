@@ -10,6 +10,7 @@ import '../../../../../core/design/sonus_count_label.dart';
 import '../../../../../core/design/sonus_theme.dart';
 import '../../../../../core/design/widgets/sonus_artwork_backdrop.dart';
 import '../../../../../core/design/widgets/sonus_artwork_image.dart';
+import '../../../../../core/design/widgets/sonus_framed_artwork.dart';
 import '../../../../../core/design/widgets/sonus_cinematic_atmosphere_builder.dart';
 import '../../../../../core/design/widgets/sonus_glass_panel.dart';
 import '../../../../../core/design/widgets/sonus_perspective_panel.dart';
@@ -626,24 +627,6 @@ class _Featured extends StatelessWidget {
         );
         return Stack(
           children: [
-            // The ghost: a faint, larger copy behind, as on a select
-            // screen.
-            Positioned(
-              left: -portraitWidth * 0.18,
-              top: 0,
-              bottom: 0,
-              width: portraitWidth * 1.1,
-              child: ExcludeSemantics(
-                child: Opacity(
-                  opacity: 0.18,
-                  child: _Portrait(
-                    artist: artist,
-                    width: portraitWidth,
-                    colors: colors,
-                  ),
-                ),
-              ),
-            ),
             Positioned(
               left: 12,
               top: 6,
@@ -846,20 +829,24 @@ class _Portrait extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final path = ArtistFilmReel.portraitPath(artist);
+    final initials = _Initials(name: artist.name, colors: colors);
+    // Decoded wide enough for an image that fills by trimming a little.
+    final decodeWidth =
+        (width /
+                (1 - ArtworkFraming.defaultMaxCrop) *
+                MediaQuery.devicePixelRatioOf(context))
+            .round();
     return ClipRRect(
       borderRadius: BorderRadius.circular(18),
       child: path == null
-          ? _Initials(name: artist.name, colors: colors)
-          : Image.file(
-              File(path),
-              fit: BoxFit.cover,
-              alignment: const Alignment(0, -0.35),
-              cacheWidth: (width * MediaQuery.devicePixelRatioOf(context))
-                  .round(),
-              gaplessPlayback: true,
-              excludeFromSemantics: true,
-              errorBuilder: (context, error, stackTrace) =>
-                  _Initials(name: artist.name, colors: colors),
+          ? initials
+          // Group and cast photographs keep everyone in the frame: the
+          // image fills the frame only when that trims little, and is
+          // otherwise shown whole over a blur of itself.
+          : SonusFramedArtwork(
+              image: ResizeImage(FileImage(File(path)), width: decodeWidth),
+              fill: colors.surface,
+              fallback: initials,
             ),
     );
   }
