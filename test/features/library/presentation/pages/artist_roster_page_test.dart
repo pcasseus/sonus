@@ -254,6 +254,208 @@ void main() {
     });
   });
 
+  // Device QA (Galaxy S26 Ultra): with the keyboard open, the featured
+  // artist, statistics and SELECT ARTIST used to keep their space and no
+  // portrait was visible above the keyboard.
+  group('searching with the keyboard open (S26 Ultra)', () {
+    const dpr = 3.5;
+    const screen = Size(412, 891);
+    const keyboard = 350.0;
+
+    Future<_Stats> pumpPhone(
+      WidgetTester tester, {
+      List<LibraryArtist>? artists,
+      double textScale = 1,
+      Size size = screen,
+    }) async {
+      tester.view.devicePixelRatio = dpr;
+      tester.view.physicalSize = size * dpr;
+      tester.view.padding = const FakeViewPadding(
+        top: 40 * dpr,
+        bottom: 24 * dpr,
+      );
+      addTearDown(tester.view.reset);
+      final list = artists ?? roster(60);
+      final stats = _Stats(list, const {});
+      await tester.pumpWidget(
+        MultiProvider(
+          providers: [
+            Provider<LibraryQueryRepository?>.value(
+              value: base.FakeLibraryQueryRepository(artists: list),
+            ),
+            Provider<ArtistLibraryStatisticsService?>.value(value: stats),
+          ],
+          child: MaterialApp(
+            theme: SonusThemeFactory.build(const SonusAppearanceSpec()),
+            builder: (context, child) => MediaQuery(
+              data: MediaQuery.of(
+                context,
+              ).copyWith(textScaler: TextScaler.linear(textScale)),
+              child: child!,
+            ),
+            home: const Scaffold(body: LibraryPage()),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      return stats;
+    }
+
+    Future<void> openKeyboard(WidgetTester tester) async {
+      tester.view.viewInsets = const FakeViewPadding(bottom: keyboard * dpr);
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> closeKeyboard(WidgetTester tester) async {
+      tester.view.resetViewInsets();
+      await tester.pumpAndSettle();
+    }
+
+    double keyboardTop(WidgetTester tester) =>
+        tester.view.physicalSize.height / dpr - keyboard;
+
+    Finder tiles() => find.byWidgetPredicate(
+      (widget) =>
+          widget.key is ValueKey<String> &&
+          (widget.key! as ValueKey<String>).value.startsWith('roster-tile-'),
+    );
+
+    int tilesAboveKeyboard(WidgetTester tester) =>
+        tiles().evaluate().where((element) {
+          final rect = tester.getRect(find.byWidget(element.widget));
+          return rect.top >= 0 && rect.bottom <= keyboardTop(tester);
+        }).length;
+
+    testWidgets('the matches take the space above the keyboard', (
+      tester,
+    ) async {
+      await pumpPhone(tester);
+      await tester.tap(byKey('library-search-button'));
+      await tester.pumpAndSettle();
+      await openKeyboard(tester);
+
+      expect(byKey('roster-search-results'), findsOneWidget);
+      expect(byKey('roster-featured-portrait'), findsNothing);
+      expect(byKey('roster-select'), findsNothing);
+      final field = tester.getRect(byKey('roster-search'));
+      expect(field.bottom, lessThan(keyboardTop(tester)));
+      expect(tilesAboveKeyboard(tester), greaterThanOrEqualTo(15));
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('every match can be reached by scrolling', (tester) async {
+      await pumpPhone(tester);
+      await tester.tap(byKey('library-search-button'));
+      await tester.pumpAndSettle();
+      await openKeyboard(tester);
+      await tester.enterText(byKey('roster-search'), 'artist');
+      await tester.pumpAndSettle();
+      expect(find.text('60 matches'), findsOneWidget);
+
+      // The last match in name order is "Artist Z1" (artist-51).
+      await tester.scrollUntilVisible(
+        byKey('roster-tile-artist-51'),
+        200,
+        scrollable: find
+            .descendant(
+              of: byKey('roster-search-results'),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      await tester.ensureVisible(byKey('roster-tile-artist-51'));
+      await tester.pumpAndSettle();
+      final last = tester.getRect(byKey('roster-tile-artist-51'));
+      expect(last.bottom, lessThanOrEqualTo(keyboardTop(tester) + 1));
+    });
+
+    testWidgets('one match, no match, and clearing the search', (tester) async {
+      await pumpPhone(tester);
+      await tester.tap(byKey('library-search-button'));
+      await tester.pumpAndSettle();
+      await openKeyboard(tester);
+
+      await tester.enterText(byKey('roster-search'), 'artist q1');
+      await tester.pumpAndSettle();
+      expect(find.text('1 match'), findsOneWidget);
+      expect(tiles(), findsOneWidget);
+
+      await tester.enterText(byKey('roster-search'), 'nobody');
+      await tester.pumpAndSettle();
+      expect(byKey('roster-no-results'), findsOneWidget);
+      expect(tiles(), findsNothing);
+
+      await tester.tap(byKey('roster-search-clear'));
+      await tester.pumpAndSettle();
+      expect(find.text('60 artists'), findsOneWidget);
+      expect(
+        tester.widget<TextField>(byKey('roster-search')).focusNode!.hasFocus,
+        isTrue,
+        reason: 'clearing keeps typing possible',
+      );
+    });
+
+    testWidgets('picking a match previews it and brings the Roster back', (
+      tester,
+    ) async {
+      await pumpPhone(tester);
+      await tester.tap(byKey('library-search-button'));
+      await tester.pumpAndSettle();
+      await openKeyboard(tester);
+      await tester.enterText(byKey('roster-search'), 'artist q');
+      await tester.pumpAndSettle();
+
+      await tester.tap(byKey('roster-tile-artist-42'));
+      await tester.pump();
+      // The field let go of focus, so the keyboard closes.
+      expect(
+        tester.widget<TextField>(byKey('roster-search')).focusNode!.hasFocus,
+        isFalse,
+      );
+      await closeKeyboard(tester);
+
+      expect(featuredName(tester), 'ARTIST Q1');
+      expect(byKey('roster-select'), findsOneWidget);
+      expect(byKey('roster-tile-artist-42'), findsOneWidget);
+      expect(
+        tester.widget<TextField>(byKey('roster-search')).controller!.text,
+        'artist q',
+        reason: 'the search stays',
+      );
+    });
+
+    testWidgets('closing the keyboard restores the full Roster, still '
+        'filtered', (tester) async {
+      await pumpPhone(tester);
+      await tester.tap(byKey('library-search-button'));
+      await tester.pumpAndSettle();
+      await openKeyboard(tester);
+      await tester.enterText(byKey('roster-search'), 'artist b');
+      await tester.pumpAndSettle();
+
+      await closeKeyboard(tester);
+
+      expect(byKey('roster-search-results'), findsNothing);
+      expect(byKey('roster-featured-portrait'), findsOneWidget);
+      expect(byKey('roster-select'), findsOneWidget);
+      expect(tiles(), findsNWidgets(3), reason: 'B0, B1, B2');
+    });
+
+    testWidgets('320dp with 2x text and the keyboard open', (tester) async {
+      await pumpPhone(tester, size: const Size(320, 700), textScale: 2);
+      await tester.tap(byKey('library-search-button'));
+      await tester.pumpAndSettle();
+      await openKeyboard(tester);
+      await tester.enterText(byKey('roster-search'), 'artist');
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      final field = tester.getRect(byKey('roster-search'));
+      expect(field.bottom, lessThan(keyboardTop(tester)));
+      expect(tilesAboveKeyboard(tester), greaterThanOrEqualTo(1));
+    });
+  });
+
   group('large libraries', () {
     testWidgets('2,000 artists: one page of portraits is built at a time, '
         'and every page is reachable with buttons', (tester) async {
