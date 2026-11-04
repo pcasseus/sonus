@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../../../../core/design/sonus_artwork_palette.dart';
 import '../../../../../core/design/sonus_cinematic_colors.dart';
@@ -26,9 +27,14 @@ import '../library_view_switch.dart';
 /// ([onOpenArtist]). The previewed artist is the Library's selection, shared
 /// with the Film Reel ([selectedArtistId], [onSelected]).
 ///
-/// The grid is sideways pages of portraits (D2); search, sort and A-Z move
-/// to the page that holds what was asked for. Every artist can also be
+/// The grid is sideways pages of portraits (D2); sort and A-Z move to the
+/// page that holds what was asked for, and the search icon opens the Artist
+/// Finder ([onFind]), which owns the keyboard. Every artist can also be
 /// reached with the page buttons, so no gesture is ever required.
+///
+/// It takes the whole screen in the app shell (ShellImmersive, placed by
+/// the Library); [onShowNavigation] brings the Sonus navigation back over
+/// it.
 class ArtistRoster extends StatefulWidget {
   const ArtistRoster({
     super.key,
@@ -41,7 +47,8 @@ class ArtistRoster extends StatefulWidget {
     required this.countLabel,
     this.sort = ArtistStatisticsSort.qualifiedStreams,
     this.onSortChanged,
-    this.searchRequest = 0,
+    this.onFind,
+    this.onShowNavigation,
     this.onSwitchView,
     this.artworkPalette,
   });
@@ -70,9 +77,12 @@ class ArtistRoster extends StatefulWidget {
   /// Remembers the sort for the next time the Roster is shown.
   final ValueChanged<ArtistStatisticsSort>? onSortChanged;
 
-  /// Focuses the search field each time it changes (the Film Reel's search
-  /// icon, D11).
-  final int searchRequest;
+  /// Opens the Artist Finder; no search icon without it.
+  final VoidCallback? onFind;
+
+  /// Shows the Sonus navigation (the shell's top bar) over the Roster; no
+  /// button without it (outside the app shell).
+  final VoidCallback? onShowNavigation;
 
   /// Switches the Library to another view; no switch without it.
   final ValueChanged<LibraryView>? onSwitchView;
@@ -93,7 +103,6 @@ class ArtistRoster extends StatefulWidget {
 
 class _ArtistRosterState extends State<ArtistRoster> {
   late ArtistStatisticsSort _sort = widget.sort;
-  String _query = '';
   late String? _previewId = _listedOrFirst(widget.selectedArtistId);
 
   String? _listedOrFirst(String? artistId) =>
@@ -103,8 +112,6 @@ class _ArtistRosterState extends State<ArtistRoster> {
   late final ValueNotifier<String?> _previewArtwork = ValueNotifier(
     _preview == null ? null : ArtistFilmReel.portraitPath(_preview!),
   );
-  final TextEditingController _search = TextEditingController();
-  final FocusNode _searchFocus = FocusNode();
 
   PageController? _pages;
   int _perPage = 15;
@@ -112,7 +119,7 @@ class _ArtistRosterState extends State<ArtistRoster> {
   bool _pageChosen = false;
 
   ArtistRosterView? _view;
-  (ArtistStatisticsSort, String, Object, Object)? _viewKey;
+  (ArtistStatisticsSort, Object, Object)? _viewKey;
 
   LibraryArtist? get _preview {
     final id = _previewId;
@@ -124,46 +131,16 @@ class _ArtistRosterState extends State<ArtistRoster> {
   }
 
   ArtistRosterView get _rosterView {
-    final key = (_sort, _query, widget.artists, widget.statistics);
+    final key = (_sort, widget.artists, widget.statistics);
     if (_view == null || _viewKey != key) {
       _view = ArtistRosterView(
         artists: widget.artists,
         statistics: widget.statistics,
         sort: _sort,
-        query: _query,
       );
       _viewKey = key;
     }
     return _view!;
-  }
-
-  /// Whether the last build used the search layout.
-  bool _wasSearching = false;
-
-  void _onSearchFocus() {
-    if (mounted) setState(() {});
-  }
-
-  /// The search layout (UI fix after device QA): while the search field
-  /// has focus and the keyboard is open, the featured artist, statistics
-  /// and SELECT ARTIST give way so the matches get the space left above
-  /// the keyboard. Read from the view itself, so it holds however the
-  /// screens above have consumed the inset.
-  bool _searching(BuildContext context) {
-    // Also rebuild when the inset changes without a change of size.
-    MediaQuery.maybeViewInsetsOf(context);
-    return _searchFocus.hasFocus && View.of(context).viewInsets.bottom > 0;
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    _searchFocus.addListener(_onSearchFocus);
-    if (widget.searchRequest > 0) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _searchFocus.requestFocus();
-      });
-    }
   }
 
   @override
@@ -186,20 +163,12 @@ class _ArtistRosterState extends State<ArtistRoster> {
         });
       }
     }
-    if (widget.searchRequest != oldWidget.searchRequest) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _searchFocus.requestFocus();
-      });
-    }
   }
 
   @override
   void dispose() {
     _pages?.dispose();
     _previewArtwork.dispose();
-    _search.dispose();
-    _searchFocus.removeListener(_onSearchFocus);
-    _searchFocus.dispose();
     super.dispose();
   }
 
@@ -213,18 +182,6 @@ class _ArtistRosterState extends State<ArtistRoster> {
     setState(() => _previewId = artist.artistId);
     _previewArtwork.value = ArtistFilmReel.portraitPath(artist);
     widget.onSelected(artist.artistId);
-  }
-
-  /// Picking a match while searching previews it and closes the keyboard,
-  /// so the full Roster shows the artist; the search stays.
-  void _pickMatch(LibraryArtist artist) {
-    _previewArtist(artist);
-    _searchFocus.unfocus();
-  }
-
-  void _clearSearch() {
-    _search.clear();
-    _setQuery('');
   }
 
   void _goToPage(int page) {
@@ -259,15 +216,6 @@ class _ArtistRosterState extends State<ArtistRoster> {
         setState(() => _page = page);
       }
     });
-  }
-
-  void _setQuery(String query) {
-    setState(() {
-      _query = query;
-      _page = 0;
-    });
-    // The results start on the first page.
-    _jumpAfterBuild(0);
   }
 
   void _setSort(ArtistStatisticsSort sort) {
@@ -305,7 +253,6 @@ class _ArtistRosterState extends State<ArtistRoster> {
           artists: widget.artists,
           statistics: widget.statistics,
           sort: ArtistStatisticsSort.name,
-          query: _query,
         );
 
   /// SELECT ARTIST and the featured portrait open the Artist Profile.
@@ -338,55 +285,45 @@ class _ArtistRosterState extends State<ArtistRoster> {
     return SonusCinematicAtmosphereBuilder.listenable(
       artworkPath: _previewArtwork,
       palette: widget.artworkPalette,
-      builder: (context, colors) => Material(
-        key: const ValueKey<String>('artist-roster'),
-        color: colors.background,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            ValueListenableBuilder<String?>(
-              valueListenable: _previewArtwork,
-              builder: (context, path, _) => SonusArtworkBackdrop(
-                artworkPath: path,
-                top: colors.background,
-                bottom: colors.backgroundDeep,
+      builder: (context, colors) => AnnotatedRegion<SystemUiOverlayStyle>(
+        value:
+            ThemeData.estimateBrightnessForColor(colors.background) ==
+                Brightness.dark
+            ? SystemUiOverlayStyle.light
+            : SystemUiOverlayStyle.dark,
+        child: Material(
+          key: const ValueKey<String>('artist-roster'),
+          color: colors.background,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              ValueListenableBuilder<String?>(
+                valueListenable: _previewArtwork,
+                builder: (context, path, _) => SonusArtworkBackdrop(
+                  artworkPath: path,
+                  top: colors.background,
+                  bottom: colors.backgroundDeep,
+                ),
               ),
-            ),
-            SafeArea(
-              top: false,
-              bottom: false,
-              // Rebuilt whenever the space changes, which is what opening
-              // or closing the keyboard does.
-              child: LayoutBuilder(
-                builder: (context, _) {
-                  final searching = _searching(context);
-                  if (_wasSearching && !searching) {
-                    // Back to the full Roster, on the previewed artist.
-                    final id = _previewId;
-                    final page = id == null
-                        ? 0
-                        : _rosterView.pageOf(id, _perPage) ?? 0;
-                    _jumpAfterBuild(page);
-                  }
-                  _wasSearching = searching;
-                  return Column(
-                    children: [
-                      _RosterHeader(
-                        colors: colors,
-                        countLabel: widget.countLabel,
-                        onSwitchView: widget.onSwitchView,
-                      ),
-                      Expanded(
-                        child: searching ? _searchBody(colors) : _body(colors),
-                      ),
-                      if (!searching)
-                        _SelectButton(colors: colors, onPressed: _openPreview),
-                    ],
-                  );
-                },
+              SafeArea(
+                // Full screen in the app shell: below the status bar, which
+                // shows over the Roster's own background.
+                bottom: false,
+                child: Column(
+                  children: [
+                    _RosterHeader(
+                      colors: colors,
+                      countLabel: widget.countLabel,
+                      onShowNavigation: widget.onShowNavigation,
+                      onSwitchView: widget.onSwitchView,
+                    ),
+                    Expanded(child: _body(colors)),
+                    _SelectButton(colors: colors, onPressed: _openPreview),
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -398,13 +335,20 @@ class _ArtistRosterState extends State<ArtistRoster> {
         final width = constraints.maxWidth;
         final height = constraints.maxHeight;
         final textScale = MediaQuery.textScalerOf(context).scale(10) / 10;
-        final compact = textScale >= 1.3 || height < 520 || width < 330;
         final columns = width >= 600 ? 7 : (width >= 360 ? 5 : 4);
-        const arrows = 40.0;
         const gap = 8.0;
-        final gridWidth = width - arrows * 2 - 8;
+        final gridWidth = width - _PageArrow.width * 2 - 8;
         final tileWidth = (gridWidth - gap * (columns - 1)) / columns;
         final tileHeight = tileWidth * 1.18;
+        // The character select comes first: room for its rows (three on
+        // phones, four on wide screens) and the page line, then the
+        // featured artist gets what is left, up to half the height.
+        final wantedRows = width >= 600 ? 4 : 3;
+        final gridNeeded =
+            wantedRows * tileHeight + (wantedRows - 1) * gap + _pageLine;
+        final featuredRoom = height - _toolbarHeight - gridNeeded;
+        final compact =
+            textScale >= 1.3 || width < 330 || featuredRoom < _minFeatured;
         final preview = _preview;
         final stats = preview == null
             ? null
@@ -444,13 +388,8 @@ class _ArtistRosterState extends State<ArtistRoster> {
           );
         }
 
-        final featuredHeight = height * 0.44;
-        final gridHeight = height - featuredHeight - 64;
-        // About three rows on phones, as on the reference; four on wide
-        // screens.
-        final rows = ((gridHeight - 28 + gap) / (tileHeight + gap))
-            .floor()
-            .clamp(1, width >= 600 ? 4 : 3);
+        final featuredHeight = featuredRoom.clamp(_minFeatured, height * 0.5);
+        final rows = wantedRows;
         return Column(
           children: [
             SizedBox(
@@ -483,99 +422,21 @@ class _ArtistRosterState extends State<ArtistRoster> {
     );
   }
 
+  /// The toolbar's height in the full layout, and the page line's.
+  static const double _toolbarHeight = 60;
+  static const double _pageLine = 28;
+
+  /// Below this the featured artist cannot show portrait and statistics
+  /// side by side, and the compact layout is used.
+  static const double _minFeatured = 200;
+
   Widget _toolbar(SonusCinematicColors colors) => _Toolbar(
     colors: colors,
-    search: _search,
-    searchFocus: _searchFocus,
     sort: _sort,
-    onQuery: _setQuery,
-    onClear: _clearSearch,
+    onFind: widget.onFind,
     onSort: _setSort,
     onLetters: _chooseLetter,
   );
-
-  /// While typing with the keyboard open: the search bar, then every match
-  /// in a grid that scrolls in the space left above the keyboard.
-  Widget _searchBody(SonusCinematicColors colors) {
-    final view = _rosterView;
-    final theme = Theme.of(context);
-    final hasQuery = _query.trim().isNotEmpty;
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final width = constraints.maxWidth;
-        final columns = width >= 600 ? 7 : (width >= 360 ? 5 : 4);
-        const gap = 8.0;
-        const padding = 12.0;
-        final tileWidth = (width - padding * 2 - gap * (columns - 1)) / columns;
-        return CustomScrollView(
-          key: const ValueKey<String>('roster-search-results'),
-          slivers: [
-            // Only the field while typing: sort and A-Z return with the
-            // full Roster, leaving the matches as much room as possible.
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
-                child: _Toolbar.searchField(
-                  context,
-                  colors: colors,
-                  search: _search,
-                  searchFocus: _searchFocus,
-                  onQuery: _setQuery,
-                  onClear: _clearSearch,
-                ),
-              ),
-            ),
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                child: Text(
-                  view.isEmpty
-                      ? 'No artists match "$_query"'
-                      : hasQuery
-                      ? sonusCount(
-                          view.artists.length,
-                          'match',
-                          plural: 'matches',
-                        )
-                      : sonusCount(view.artists.length, 'artist'),
-                  key: ValueKey<String>(
-                    view.isEmpty ? 'roster-no-results' : 'roster-match-count',
-                  ),
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: colors.textSecondary,
-                  ),
-                ),
-              ),
-            ),
-            SliverPadding(
-              padding: const EdgeInsets.fromLTRB(padding, 0, padding, 16),
-              sliver: SliverGrid(
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: columns,
-                  crossAxisSpacing: gap,
-                  mainAxisSpacing: gap,
-                  childAspectRatio: 1 / 1.18,
-                ),
-                delegate: SliverChildBuilderDelegate((context, index) {
-                  final artist = view.artists[index];
-                  return _RosterTile(
-                    key: ValueKey<String>('roster-tile-${artist.artistId}'),
-                    artist: artist,
-                    stats: widget.statistics[artist.artistId],
-                    loaded: widget.statisticsLoaded,
-                    selected: artist.artistId == _previewId,
-                    colors: colors,
-                    width: tileWidth,
-                    onTap: () => _pickMatch(artist),
-                  );
-                }, childCount: view.artists.length),
-              ),
-            ),
-          ],
-        );
-      },
-    );
-  }
 
   Widget _grid(
     SonusCinematicColors colors, {
@@ -590,18 +451,6 @@ class _ArtistRosterState extends State<ArtistRoster> {
     final pages = _controllerFor(perPage);
     final count = view.pageCount(perPage);
     final theme = Theme.of(context);
-
-    if (view.isEmpty) {
-      return Center(
-        child: Text(
-          'No artists match "$_query"',
-          key: const ValueKey<String>('roster-no-results'),
-          style: theme.textTheme.bodyLarge?.copyWith(
-            color: colors.textSecondary,
-          ),
-        ),
-      );
-    }
 
     return Column(
       children: [
@@ -701,17 +550,20 @@ class _RosterHeader extends StatelessWidget {
   const _RosterHeader({
     required this.colors,
     required this.countLabel,
+    required this.onShowNavigation,
     required this.onSwitchView,
   });
 
   final SonusCinematicColors colors;
   final String countLabel;
+  final VoidCallback? onShowNavigation;
   final ValueChanged<LibraryView>? onSwitchView;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final onSwitchView = this.onSwitchView;
+    final onShowNavigation = this.onShowNavigation;
     Widget rule() => Expanded(
       child: ExcludeSemantics(
         child: Container(
@@ -727,9 +579,17 @@ class _RosterHeader extends StatelessWidget {
     );
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
+      padding: const EdgeInsets.fromLTRB(4, 4, 8, 0),
       child: Row(
         children: [
+          if (onShowNavigation != null)
+            IconButton(
+              key: const ValueKey<String>('roster-show-navigation'),
+              tooltip: 'Sonus navigation',
+              color: colors.textPrimary,
+              icon: const Icon(Icons.menu_rounded),
+              onPressed: onShowNavigation,
+            ),
           rule(),
           Flexible(
             flex: 3,
@@ -1213,85 +1073,39 @@ class _StatsList extends StatelessWidget {
 class _Toolbar extends StatelessWidget {
   const _Toolbar({
     required this.colors,
-    required this.search,
-    required this.searchFocus,
     required this.sort,
-    required this.onQuery,
-    required this.onClear,
+    required this.onFind,
     required this.onSort,
     required this.onLetters,
   });
 
   final SonusCinematicColors colors;
-  final TextEditingController search;
-  final FocusNode searchFocus;
   final ArtistStatisticsSort sort;
-  final ValueChanged<String> onQuery;
-  final VoidCallback onClear;
+  final VoidCallback? onFind;
   final ValueChanged<ArtistStatisticsSort> onSort;
   final VoidCallback onLetters;
-
-  /// The search field, alone or in the toolbar.
-  static Widget searchField(
-    BuildContext context, {
-    required SonusCinematicColors colors,
-    required TextEditingController search,
-    required FocusNode searchFocus,
-    required ValueChanged<String> onQuery,
-    required VoidCallback onClear,
-  }) {
-    final theme = Theme.of(context);
-    final border = OutlineInputBorder(
-      borderRadius: BorderRadius.circular(14),
-      borderSide: BorderSide(color: colors.edge),
-    );
-    return TextField(
-      key: const ValueKey<String>('roster-search'),
-      controller: search,
-      focusNode: searchFocus,
-      onChanged: onQuery,
-      textInputAction: TextInputAction.search,
-      style: theme.textTheme.bodyMedium?.copyWith(color: colors.textPrimary),
-      decoration: InputDecoration(
-        isDense: true,
-        hintText: 'Search artists…',
-        hintStyle: theme.textTheme.bodyMedium?.copyWith(
-          color: colors.textSecondary,
-        ),
-        prefixIcon: Icon(Icons.search_rounded, color: colors.textSecondary),
-        suffixIcon: ValueListenableBuilder<TextEditingValue>(
-          valueListenable: search,
-          builder: (context, value, _) => value.text.isEmpty
-              ? const SizedBox.shrink()
-              : IconButton(
-                  key: const ValueKey<String>('roster-search-clear'),
-                  tooltip: 'Clear search',
-                  color: colors.textSecondary,
-                  icon: const Icon(Icons.close_rounded),
-                  onPressed: onClear,
-                ),
-        ),
-        filled: true,
-        fillColor: colors.surface.withValues(alpha: 0.7),
-        enabledBorder: border,
-        focusedBorder: border.copyWith(
-          borderSide: BorderSide(color: colors.accent, width: 1.5),
-        ),
-      ),
-    );
-  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final field = searchField(
-      context,
-      colors: colors,
-      search: search,
-      searchFocus: searchFocus,
-      onQuery: onQuery,
-      onClear: onClear,
-    );
+    final onFind = this.onFind;
+    final find = onFind == null
+        ? null
+        : Material(
+            color: colors.surface.withValues(alpha: 0.7),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(14),
+              side: BorderSide(color: colors.edge),
+            ),
+            child: IconButton(
+              key: const ValueKey<String>('roster-find'),
+              tooltip: 'Find an artist',
+              color: colors.textPrimary,
+              constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+              icon: const Icon(Icons.search_rounded),
+              onPressed: onFind,
+            ),
+          );
     final sortMenu = PopupMenuButton<ArtistStatisticsSort>(
       key: const ValueKey<String>('roster-sort'),
       tooltip: 'Sort artists',
@@ -1364,12 +1178,12 @@ class _Toolbar extends StatelessWidget {
       child: LayoutBuilder(
         builder: (context, constraints) {
           final textScale = MediaQuery.textScalerOf(context).scale(10) / 10;
-          if (constraints.maxWidth >= 360 && textScale < 1.3) {
+          if (constraints.maxWidth >= 300 && textScale < 1.3) {
             return Row(
               children: [
-                Expanded(flex: 5, child: field),
-                const SizedBox(width: 8),
-                Flexible(flex: 4, child: sortMenu),
+                ?find,
+                if (find != null) const SizedBox(width: 8),
+                Expanded(child: sortMenu),
                 const SizedBox(width: 8),
                 letters,
               ],
@@ -1378,13 +1192,12 @@ class _Toolbar extends StatelessWidget {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              field,
+              sortMenu,
               const SizedBox(height: 8),
               Row(
                 children: [
-                  Expanded(child: sortMenu),
-                  const SizedBox(width: 8),
-                  letters,
+                  if (find != null) ...[find, const SizedBox(width: 8)],
+                  Expanded(child: letters),
                 ],
               ),
             ],
@@ -1561,6 +1374,10 @@ class _Initials extends StatelessWidget {
 }
 
 class _PageArrow extends StatelessWidget {
+  /// Narrow, so the portraits get the width; the button itself stays a
+  /// 48dp target, overhanging the grid's margins.
+  static const double width = 32;
+
   const _PageArrow({
     super.key,
     required this.icon,
@@ -1577,9 +1394,10 @@ class _PageArrow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: 40,
+      width: width,
       child: IconButton(
         tooltip: tooltip,
+        constraints: const BoxConstraints(minWidth: width, minHeight: 48),
         onPressed: onPressed,
         color: colors.textPrimary,
         disabledColor: colors.textSecondary.withValues(alpha: 0.35),

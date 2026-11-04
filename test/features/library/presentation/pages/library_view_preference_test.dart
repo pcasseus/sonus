@@ -250,8 +250,8 @@ void main() {
       expect(find.text('#2'), findsOneWidget, reason: 'Zed is centred');
     });
 
-    testWidgets('the Film Reel\'s search is a quick look: the saved view '
-        'stays the Film Reel until a view is picked', (tester) async {
+    testWidgets('finding an artist from the Film Reel keeps the Film Reel '
+        'and the saved view', (tester) async {
       final prefs = _Prefs({key: 'filmReel'});
       final controller = await tester.runAsync(() => loaded(prefs));
       addTearDown(controller!.dispose);
@@ -259,34 +259,13 @@ void main() {
 
       await tester.tap(byKey('library-search-button'));
       await tester.pumpAndSettle();
-      expect(byKey('artist-roster'), findsOneWidget);
+      expect(byKey('artist-finder-page'), findsOneWidget);
+      await tester.tap(byKey('artist-finder-zed'));
+      await tester.pumpAndSettle();
+
+      expect(byKey('film-reel-pages'), findsOneWidget);
       expect(controller.view, LibraryView.filmReel);
-      expect(prefs.values, {key: 'filmReel'});
-
-      await tester.tap(byKey('library-view-reel'));
-      await tester.pumpAndSettle();
-      expect(byKey('film-reel-pages'), findsOneWidget);
-
-      expect(prefs.values, {key: 'filmReel'});
       expect(prefs.writes, 0, reason: 'nothing was chosen');
-    });
-    testWidgets('a view chosen in Settings ends a search detour', (
-      tester,
-    ) async {
-      final prefs = _Prefs({key: 'filmReel'});
-      final controller = await tester.runAsync(() => loaded(prefs));
-      addTearDown(controller!.dispose);
-      await pump(tester, controller);
-      await tester.tap(byKey('library-search-button'));
-      await tester.pumpAndSettle();
-      expect(byKey('artist-roster'), findsOneWidget);
-
-      controller.choose(LibraryView.roster);
-      await tester.pumpAndSettle();
-      controller.choose(LibraryView.filmReel);
-      await tester.pumpAndSettle();
-
-      expect(byKey('film-reel-pages'), findsOneWidget);
     });
   });
 

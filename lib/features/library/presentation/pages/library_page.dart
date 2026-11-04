@@ -16,10 +16,12 @@ import '../controllers/artist_reel_statistics_controller.dart';
 import '../controllers/library_artists_controller.dart';
 import '../services/artist_library_statistics_service.dart';
 import '../models/artist_library_statistics.dart';
+import '../../../../core/navigation/shell_chrome.dart';
 import '../controllers/library_view_controller.dart';
 import '../widgets/film_reel/artist_film_reel.dart';
 import '../widgets/library_view_switch.dart';
 import '../widgets/roster/artist_roster.dart';
+import 'artist_finder_page.dart';
 import 'artist_profile_page.dart';
 
 class LibraryPage extends StatefulWidget {
@@ -68,9 +70,6 @@ class _LibraryPageState extends State<LibraryPage> {
 
   LibraryView get _view => _viewController?.view ?? _localView;
 
-  /// Bumped to focus the Roster's search (the Film Reel's search icon).
-  int _searchRequest = 0;
-
   /// Shows [view]; with a [_viewController] it is also saved.
   void _switchView(LibraryView view) {
     final viewController = _viewController;
@@ -82,27 +81,23 @@ class _LibraryPageState extends State<LibraryPage> {
     setState(() => _localView = view);
   }
 
-  /// The Film Reel's search icon: the Roster, ready to type (D11). This
-  /// is a quick look, not a change of the saved view.
-  void _searchArtists() {
-    setState(() {
-      _searchingFromReel = true;
-      _searchRequest++;
-    });
-  }
-
-  /// Set while the Roster was opened by the Film Reel's search icon; the
-  /// saved view stays the Film Reel until the person picks a view.
-  bool _searchingFromReel = false;
-
-  /// The saved view last seen, to notice changes made elsewhere.
-  LibraryView? _watchedView;
-
-  LibraryView get _shownView => _searchingFromReel ? LibraryView.roster : _view;
-
-  void _pickView(LibraryView view) {
-    if (_searchingFromReel) setState(() => _searchingFromReel = false);
-    _switchView(view);
+  /// The search icon of either view: the Artist Finder, which owns the
+  /// keyboard. The chosen artist becomes the selection, previewed in the
+  /// Roster or centred in the Film Reel; the view does not change.
+  Future<void> _findArtist() async {
+    final controller = _controller;
+    final statistics = _statistics;
+    if (controller == null || statistics == null) return;
+    final artist = await ArtistFinderPage.open(
+      context,
+      artists: controller.visibleArtists,
+      statistics: statistics.snapshot,
+      statisticsLoaded: statistics.hasLoaded,
+      sort: _rosterSort,
+      selectedArtistId: _selectedArtistId,
+    );
+    if (artist == null || !mounted) return;
+    setState(() => _select(artist.artistId));
   }
 
   /// A provided notifier, rebuilt on its changes, or null without one.
@@ -132,12 +127,7 @@ class _LibraryPageState extends State<LibraryPage> {
             )?.readState(context, identifier: _selectionKey)
             as String?;
 
-    // A view chosen elsewhere (Settings) ends a search detour.
-    final viewController = _optionalNotifier<LibraryViewController>(context);
-    final view = viewController?.view;
-    if (view != _watchedView) _searchingFromReel = false;
-    _viewController = viewController;
-    _watchedView = view;
+    _viewController = _optionalNotifier<LibraryViewController>(context);
 
     final repository = context.watch<LibraryQueryRepository?>();
 
@@ -251,19 +241,24 @@ class _LibraryPageState extends State<LibraryPage> {
           }
 
           final countLabel = sonusCount(artists.length, 'artist');
-          return switch (_shownView) {
-            LibraryView.roster => ArtistRoster(
-              artists: artists,
-              statistics: statistics.snapshot,
-              statisticsLoaded: statistics.hasLoaded,
-              countLabel: countLabel,
-              selectedArtistId: _selectedArtistId,
-              onSelected: _select,
-              onOpenArtist: _openArtist,
-              sort: _rosterSort,
-              onSortChanged: (sort) => _rosterSort = sort,
-              searchRequest: _searchRequest,
-              onSwitchView: _pickView,
+          return switch (_view) {
+            // The Roster takes the whole screen in the app shell, with the
+            // Sonus navigation one tap away.
+            LibraryView.roster => ShellImmersive(
+              child: ArtistRoster(
+                artists: artists,
+                statistics: statistics.snapshot,
+                statisticsLoaded: statistics.hasLoaded,
+                countLabel: countLabel,
+                selectedArtistId: _selectedArtistId,
+                onSelected: _select,
+                onOpenArtist: _openArtist,
+                sort: _rosterSort,
+                onSortChanged: (sort) => _rosterSort = sort,
+                onFind: _findArtist,
+                onShowNavigation: ShellChromeScope.revealOf(context),
+                onSwitchView: _switchView,
+              ),
             ),
             LibraryView.filmReel => ArtistFilmReel(
               artists: artists,
@@ -273,8 +268,8 @@ class _LibraryPageState extends State<LibraryPage> {
               selectedArtistId: _selectedArtistId,
               onSelected: _select,
               onOpenArtist: _openArtist,
-              onSwitchView: _pickView,
-              onOpenSearch: _searchArtists,
+              onSwitchView: _switchView,
+              onOpenSearch: _findArtist,
               onRefresh: _refresh,
             ),
           };
