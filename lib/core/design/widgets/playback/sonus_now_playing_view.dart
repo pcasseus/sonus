@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 
 import '../../sonus_artwork_palette.dart';
 import '../../sonus_atmosphere_colors.dart';
@@ -85,6 +86,12 @@ class SonusNowPlayingView extends StatelessWidget {
   /// Width from which artwork sits beside the controls (landscape, tablets).
   static const double wideLayoutWidth = 720;
 
+  /// The smallest artwork in the narrow layout. Below this the page
+  /// scrolls instead of shrinking the artwork further.
+  static const double minNarrowArtworkSize = 120;
+
+  static const double _artworkGap = 24;
+
   @override
   Widget build(BuildContext context) {
     return SonusArtworkAtmosphereBuilder(
@@ -142,36 +149,49 @@ class SonusNowPlayingView extends StatelessWidget {
               );
             }
 
-            final artSize = [
-              constraints.maxWidth - gutter * 2,
-              (constraints.maxHeight - insets.top) * 0.46,
-              420.0,
-            ].reduce((a, b) => a < b ? a : b).clamp(120.0, 420.0);
+            // The artwork's preferred size. [_ArtworkOverDetails] shrinks it
+            // (never below [minNarrowArtworkSize]) when the details below it
+            // would otherwise push the page a few pixels past the screen.
+            final preferredArtSize =
+                [
+                      constraints.maxWidth - gutter * 2,
+                      (constraints.maxHeight - insets.top) * 0.46,
+                      420.0,
+                    ]
+                    .reduce((a, b) => a < b ? a : b)
+                    .clamp(minNarrowArtworkSize, 420.0);
+            final topPadding = 12 + insets.top;
+            final bottomPadding = 24 + insets.bottom;
 
-            // Scrolls rather than clips when text is large or the screen
-            // short. Content fades out as it scrolls under the app bar,
-            // instead of meeting a solid slab there.
+            // Scrolls only when the content cannot fit at the smallest
+            // artwork size (large text, short screens). Content fades out as
+            // it scrolls under the app bar, instead of meeting a solid slab
+            // there.
             return _TopFade(
               key: _key('top-fade'),
               fadeStart: insets.top,
               child: SingleChildScrollView(
                 padding: EdgeInsets.fromLTRB(
                   gutter,
-                  12 + insets.top,
+                  topPadding,
                   gutter,
-                  24 + insets.bottom,
+                  bottomPadding,
                 ),
-                child: Column(
-                  children: [
-                    _Artwork(
+                child: _ArtworkOverDetails(
+                  preferredArtworkSize: preferredArtSize,
+                  minArtworkSize: minNarrowArtworkSize,
+                  availableHeight:
+                      constraints.maxHeight - topPadding - bottomPadding,
+                  gap: _artworkGap,
+                  artwork: LayoutBuilder(
+                    builder: (context, artworkConstraints) => _Artwork(
                       key: _key('artwork'),
                       path: artworkPath,
-                      size: artSize,
+                      size: artworkConstraints.maxWidth,
                       atmosphere: atmosphere,
                     ),
-                    const SizedBox(height: 24),
-                    _details(context, atmosphere),
-                  ],
+                  ),
+                  details: _details(context, atmosphere),
                 ),
               ),
             );
@@ -380,4 +400,143 @@ class _TopFade extends StatelessWidget {
       child: child,
     );
   }
+}
+
+/// The narrow layout's artwork above its details. The details are laid out
+/// first; the artwork then takes [preferredArtworkSize], or less when the
+/// whole column would otherwise be taller than [availableHeight], but never
+/// less than [minArtworkSize] (from there the page scrolls instead). So the
+/// page only scrolls when the content truly cannot fit, never by a few
+/// pixels because the artwork ignored what sits below it.
+class _ArtworkOverDetails extends MultiChildRenderObjectWidget {
+  _ArtworkOverDetails({
+    required this.preferredArtworkSize,
+    required this.minArtworkSize,
+    required this.availableHeight,
+    required this.gap,
+    required Widget artwork,
+    required Widget details,
+  }) : super(children: [artwork, details]);
+
+  final double preferredArtworkSize;
+  final double minArtworkSize;
+  final double availableHeight;
+  final double gap;
+
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _RenderArtworkOverDetails(
+        preferredArtworkSize: preferredArtworkSize,
+        minArtworkSize: minArtworkSize,
+        availableHeight: availableHeight,
+        gap: gap,
+      );
+
+  @override
+  void updateRenderObject(
+    BuildContext context,
+    _RenderArtworkOverDetails renderObject,
+  ) {
+    renderObject
+      ..preferredArtworkSize = preferredArtworkSize
+      ..minArtworkSize = minArtworkSize
+      ..availableHeight = availableHeight
+      ..gap = gap;
+  }
+}
+
+class _ArtworkOverDetailsParentData extends ContainerBoxParentData<RenderBox> {}
+
+class _RenderArtworkOverDetails extends RenderBox
+    with
+        ContainerRenderObjectMixin<RenderBox, _ArtworkOverDetailsParentData>,
+        RenderBoxContainerDefaultsMixin<
+          RenderBox,
+          _ArtworkOverDetailsParentData
+        > {
+  _RenderArtworkOverDetails({
+    required this._preferredArtworkSize,
+    required this._minArtworkSize,
+    required this._availableHeight,
+    required this._gap,
+  });
+
+  double _preferredArtworkSize;
+  set preferredArtworkSize(double value) {
+    if (value == _preferredArtworkSize) return;
+    _preferredArtworkSize = value;
+    markNeedsLayout();
+  }
+
+  double _minArtworkSize;
+  set minArtworkSize(double value) {
+    if (value == _minArtworkSize) return;
+    _minArtworkSize = value;
+    markNeedsLayout();
+  }
+
+  double _availableHeight;
+  set availableHeight(double value) {
+    if (value == _availableHeight) return;
+    _availableHeight = value;
+    markNeedsLayout();
+  }
+
+  double _gap;
+  set gap(double value) {
+    if (value == _gap) return;
+    _gap = value;
+    markNeedsLayout();
+  }
+
+  /// The artwork size chosen in the last layout, for tests.
+  @visibleForTesting
+  double get artworkSize => firstChild?.size.width ?? 0;
+
+  @override
+  void setupParentData(RenderBox child) {
+    if (child.parentData is! _ArtworkOverDetailsParentData) {
+      child.parentData = _ArtworkOverDetailsParentData();
+    }
+  }
+
+  @override
+  void performLayout() {
+    final artwork = firstChild!;
+    final details = childAfter(artwork)!;
+    final width = constraints.maxWidth;
+
+    details.layout(BoxConstraints(maxWidth: width), parentUsesSize: true);
+    final detailsHeight = details.size.height;
+
+    final room = _availableHeight - _gap - detailsHeight;
+    final preferred = _preferredArtworkSize < width
+        ? _preferredArtworkSize
+        : width;
+    final artSize = (room < preferred ? room : preferred).clamp(
+      _minArtworkSize < width ? _minArtworkSize : width,
+      preferred < _minArtworkSize ? _minArtworkSize : preferred,
+    );
+
+    artwork.layout(BoxConstraints.tight(Size.square(artSize)));
+
+    (artwork.parentData! as _ArtworkOverDetailsParentData).offset = Offset(
+      (width - artSize) / 2,
+      0,
+    );
+    (details.parentData! as _ArtworkOverDetailsParentData).offset = Offset(
+      (width - details.size.width) / 2,
+      artSize + _gap,
+    );
+
+    size = constraints.constrain(Size(width, artSize + _gap + detailsHeight));
+  }
+
+  @override
+  void paint(PaintingContext context, Offset offset) =>
+      defaultPaint(context, offset);
+
+  @override
+  bool hitTestChildren(BoxHitTestResult result, {required Offset position}) =>
+      defaultHitTestChildren(result, position: position);
 }

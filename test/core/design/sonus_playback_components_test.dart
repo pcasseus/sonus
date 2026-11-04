@@ -295,6 +295,110 @@ void main() {
       expect(opened, ['queue', 'lyrics']);
     });
 
+    // Q2: the narrow layout sized its artwork without the details below it
+    // or the bottom inset, so on ordinary phones the page scrolled by a few
+    // pixels. It now scrolls only when the content cannot fit.
+    Widget withInsets(Widget child) => Builder(
+      builder: (context) => MediaQuery(
+        // A clear app bar over the view and a gesture-navigation bar.
+        data: MediaQuery.of(
+          context,
+        ).copyWith(padding: const EdgeInsets.only(top: 80, bottom: 24)),
+        child: child,
+      ),
+    );
+
+    ScrollPosition scrollOf(WidgetTester tester) => tester
+        .state<ScrollableState>(
+          find.descendant(
+            of: find.byKey(
+              const ValueKey<String>('sonus-now-playing-top-fade'),
+            ),
+            matching: find.byType(Scrollable),
+          ),
+        )
+        .position;
+
+    double artworkSide(WidgetTester tester) => tester
+        .getSize(
+          find.byKey(const ValueKey<String>('sonus-now-playing-artwork')),
+        )
+        .width;
+
+    for (final size in const [
+      Size(360, 800),
+      Size(384, 854),
+      Size(393, 852),
+      Size(412, 915),
+    ]) {
+      testWidgets('does not scroll on a ${size.width.toInt()}x'
+          '${size.height.toInt()} phone at normal text size', (tester) async {
+        await pump(tester, withInsets(view()), size: size);
+        await tester.pumpAndSettle();
+
+        expect(tester.takeException(), isNull);
+        expect(scrollOf(tester).maxScrollExtent, 0);
+        // Everything is on screen without scrolling.
+        final lyrics = tester.getRect(
+          find.byKey(const ValueKey<String>('sonus-now-playing-lyrics')),
+        );
+        expect(lyrics.bottom, lessThanOrEqualTo(size.height));
+      });
+    }
+
+    testWidgets('still scrolls, with every control reachable, at 320dp and '
+        '2x text', (tester) async {
+      final opened = <String>[];
+      await pump(
+        tester,
+        withInsets(
+          view(
+            onQueue: () => opened.add('queue'),
+            onLyrics: () => opened.add('lyrics'),
+          ),
+        ),
+        size: const Size(320, 640),
+        textScale: 2,
+      );
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull);
+      expect(scrollOf(tester).maxScrollExtent, greaterThan(0));
+      expect(
+        artworkSide(tester),
+        SonusNowPlayingView.minNarrowArtworkSize,
+        reason: 'the artwork shrinks to its floor before the page scrolls',
+      );
+
+      final lyrics = find.byKey(
+        const ValueKey<String>('sonus-now-playing-lyrics'),
+      );
+      await tester.ensureVisible(lyrics);
+      await tester.pumpAndSettle();
+      await tester.tap(lyrics);
+      expect(opened, ['lyrics']);
+    });
+
+    testWidgets('keeps its preferred artwork size when there is room', (
+      tester,
+    ) async {
+      const size = Size(411, 1400);
+      await pump(tester, withInsets(view()), size: size);
+      await tester.pumpAndSettle();
+
+      final gutter = SonusThemeFactory.build(
+        const SonusAppearanceSpec(),
+      ).extension<SonusMetrics>()!.pageGutter;
+      final preferred = [
+        size.width - gutter * 2,
+        (size.height - 80) * 0.46,
+        420.0,
+      ].reduce((a, b) => a < b ? a : b);
+
+      expect(artworkSide(tester), preferred);
+      expect(scrollOf(tester).maxScrollExtent, 0);
+    });
+
     testWidgets('wide screens place the artwork beside the controls', (
       tester,
     ) async {
