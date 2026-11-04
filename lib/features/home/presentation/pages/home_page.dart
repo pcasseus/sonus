@@ -118,7 +118,7 @@ class HomePage extends StatelessWidget {
           ],
 
           if (snapshot.recentlyAddedAlbums.isNotEmpty) ...[
-            const _SectionHeading(title: 'New Albums'),
+            const _SectionHeading(title: 'New Releases'),
             const SizedBox(height: _headingGap),
             _AlbumsRail(albums: snapshot.recentlyAddedAlbums),
           ],

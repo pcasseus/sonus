@@ -87,7 +87,7 @@ void main() {
     expect(find.text('Popular This Week'), findsOneWidget);
     expect(find.text('Top Artists This Week'), findsOneWidget);
     expect(find.text('Recently Added'), findsOneWidget);
-    expect(find.text('New Albums'), findsOneWidget);
+    expect(find.text('New Releases'), findsOneWidget);
 
     expect(
       find.byKey(const ValueKey<String>('home-popular-track-song_popular')),
@@ -345,7 +345,7 @@ void main() {
     );
   });
 
-  testWidgets('New Albums card uses album artwork path', (tester) async {
+  testWidgets('New Releases card uses album artwork path', (tester) async {
     final controller = await _loadedController(
       _snapshot(album: _album(artworkPath: 'C:/Music/album-cover.jpg')),
     );
@@ -490,7 +490,7 @@ void _railLayoutTests() {
 
     await _pumpHome(tester, controller, size: const Size(411, 600));
 
-    // The New Albums rail is below the fold and not built yet.
+    // The New Releases rail is below the fold and not built yet.
     expect(find.byKey(album), findsNothing);
 
     final page = tester.state<ScrollableState>(
@@ -841,7 +841,7 @@ void _themeTests() {
         'Popular This Week',
         'Top Artists This Week',
         'Recently Added',
-        'New Albums',
+        'New Releases',
       ]) {
         expect(find.text(title), findsOneWidget);
       }
