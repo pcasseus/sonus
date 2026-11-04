@@ -16,7 +16,6 @@ import '../controllers/artist_reel_statistics_controller.dart';
 import '../controllers/library_artists_controller.dart';
 import '../services/artist_library_statistics_service.dart';
 import '../models/artist_library_statistics.dart';
-import '../../../../core/navigation/shell_chrome.dart';
 import '../controllers/library_view_controller.dart';
 import '../widgets/film_reel/artist_film_reel.dart';
 import '../widgets/library_view_switch.dart';
@@ -242,23 +241,18 @@ class _LibraryPageState extends State<LibraryPage> {
 
           final countLabel = sonusCount(artists.length, 'artist');
           return switch (_view) {
-            // The Roster takes the whole screen in the app shell, with the
-            // Sonus navigation one tap away.
-            LibraryView.roster => ShellImmersive(
-              child: ArtistRoster(
-                artists: artists,
-                statistics: statistics.snapshot,
-                statisticsLoaded: statistics.hasLoaded,
-                countLabel: countLabel,
-                selectedArtistId: _selectedArtistId,
-                onSelected: _select,
-                onOpenArtist: _openArtist,
-                sort: _rosterSort,
-                onSortChanged: (sort) => _rosterSort = sort,
-                onFind: _findArtist,
-                onShowNavigation: ShellChromeScope.revealOf(context),
-                onSwitchView: _switchView,
-              ),
+            LibraryView.roster => ArtistRoster(
+              artists: artists,
+              statistics: statistics.snapshot,
+              statisticsLoaded: statistics.hasLoaded,
+              countLabel: countLabel,
+              selectedArtistId: _selectedArtistId,
+              onSelected: _select,
+              onOpenArtist: _openArtist,
+              sort: _rosterSort,
+              onSortChanged: (sort) => _rosterSort = sort,
+              onFind: _findArtist,
+              onSwitchView: _switchView,
             ),
             LibraryView.filmReel => ArtistFilmReel(
               artists: artists,

@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
+import 'package:flutter/rendering.dart' show OverflowBoxFit;
 
 import '../../../../../core/design/sonus_artwork_palette.dart';
 import '../../../../../core/design/sonus_cinematic_colors.dart';
@@ -32,9 +32,12 @@ import '../library_view_switch.dart';
 /// Finder ([onFind]), which owns the keyboard. Every artist can also be
 /// reached with the page buttons, so no gesture is ever required.
 ///
-/// It takes the whole screen in the app shell (ShellImmersive, placed by
-/// the Library); [onShowNavigation] brings the Sonus navigation back over
-/// it.
+/// It lives in the Library tab, below the Sonus bar and above the
+/// mini-player (Option C, after device QA): one row of controls, the
+/// featured artist, two rows of portraits on phones, and SELECT ARTIST.
+/// Statistics are never scaled down to fit; where they cannot show at
+/// their size beside the portrait (narrow screens, large text), the Roster
+/// scrolls instead, with SELECT ARTIST kept in place.
 class ArtistRoster extends StatefulWidget {
   const ArtistRoster({
     super.key,
@@ -48,7 +51,6 @@ class ArtistRoster extends StatefulWidget {
     this.sort = ArtistStatisticsSort.qualifiedStreams,
     this.onSortChanged,
     this.onFind,
-    this.onShowNavigation,
     this.onSwitchView,
     this.artworkPalette,
   });
@@ -79,10 +81,6 @@ class ArtistRoster extends StatefulWidget {
 
   /// Opens the Artist Finder; no search icon without it.
   final VoidCallback? onFind;
-
-  /// Shows the Sonus navigation (the shell's top bar) over the Roster; no
-  /// button without it (outside the app shell).
-  final VoidCallback? onShowNavigation;
 
   /// Switches the Library to another view; no switch without it.
   final ValueChanged<LibraryView>? onSwitchView;
@@ -285,49 +283,47 @@ class _ArtistRosterState extends State<ArtistRoster> {
     return SonusCinematicAtmosphereBuilder.listenable(
       artworkPath: _previewArtwork,
       palette: widget.artworkPalette,
-      builder: (context, colors) => AnnotatedRegion<SystemUiOverlayStyle>(
-        value:
-            ThemeData.estimateBrightnessForColor(colors.background) ==
-                Brightness.dark
-            ? SystemUiOverlayStyle.light
-            : SystemUiOverlayStyle.dark,
-        child: Material(
-          key: const ValueKey<String>('artist-roster'),
-          color: colors.background,
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              ValueListenableBuilder<String?>(
-                valueListenable: _previewArtwork,
-                builder: (context, path, _) => SonusArtworkBackdrop(
-                  artworkPath: path,
-                  top: colors.background,
-                  bottom: colors.backgroundDeep,
-                ),
+      builder: (context, colors) => Material(
+        key: const ValueKey<String>('artist-roster'),
+        color: colors.background,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            ValueListenableBuilder<String?>(
+              valueListenable: _previewArtwork,
+              builder: (context, path, _) => SonusArtworkBackdrop(
+                artworkPath: path,
+                top: colors.background,
+                bottom: colors.backgroundDeep,
               ),
-              SafeArea(
-                // Full screen in the app shell: below the status bar, which
-                // shows over the Roster's own background.
-                bottom: false,
-                child: Column(
-                  children: [
-                    _RosterHeader(
-                      colors: colors,
-                      countLabel: widget.countLabel,
-                      onShowNavigation: widget.onShowNavigation,
-                      onSwitchView: widget.onSwitchView,
-                    ),
-                    Expanded(child: _body(colors)),
-                    _SelectButton(colors: colors, onPressed: _openPreview),
-                  ],
-                ),
+            ),
+            SafeArea(
+              bottom: false,
+              child: Column(
+                children: [
+                  Expanded(child: _body(colors)),
+                  _SelectButton(colors: colors, onPressed: _openPreview),
+                ],
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
   }
+
+  /// The page line under the grid (the artist count and the page): one
+  /// line of small text and its padding.
+  static double _pageLine(double textScale) => 8 + 16 * textScale;
+
+  /// The height the featured artist needs to show its label, rank and
+  /// statistics at full size beside the portrait, with room left for the
+  /// name: label 16, name at least 26, rank 20 and statistics 152 (Roboto,
+  /// measured), all growing with the text, plus 24dp of spacing.
+  static double featuredNeeded(double textScale) => 214 * textScale + 24;
+
+  /// The least height the name keeps beside the statistics.
+  static double minName(double textScale) => 26 * textScale;
 
   Widget _body(SonusCinematicColors colors) {
     return LayoutBuilder(
@@ -340,35 +336,54 @@ class _ArtistRosterState extends State<ArtistRoster> {
         final gridWidth = width - _PageArrow.width * 2 - 8;
         final tileWidth = (gridWidth - gap * (columns - 1)) / columns;
         final tileHeight = tileWidth * 1.18;
-        // The character select comes first: room for its rows (three on
-        // phones, four on wide screens) and the page line, then the
-        // featured artist gets what is left, up to half the height.
-        final wantedRows = width >= 600 ? 4 : 3;
-        final gridNeeded =
-            wantedRows * tileHeight + (wantedRows - 1) * gap + _pageLine;
-        final featuredRoom = height - _toolbarHeight - gridNeeded;
+        final rowStep = tileHeight + gap;
+        final narrowControls = width < 360 || textScale >= 1.3;
+        final controlsHeight = narrowControls ? 112.0 : 56.0;
+        final needed = featuredNeeded(textScale);
+
+        // Two rows of portraits on phones (Option C); wide screens add rows
+        // while the featured artist keeps generous room.
+        var rows = 2;
+        double gridHeight() =>
+            rows * tileHeight + (rows - 1) * gap + _pageLine(textScale);
+        var featuredRoom = height - controlsHeight - gridHeight();
+        final maxRows = width >= 600 ? 4 : 2;
+        while (rows < maxRows && featuredRoom - rowStep >= needed + 80) {
+          rows++;
+          featuredRoom -= rowStep;
+        }
         final compact =
-            textScale >= 1.3 || width < 330 || featuredRoom < _minFeatured;
+            textScale >= 1.3 || width < 330 || featuredRoom < needed;
+
         final preview = _preview;
         final stats = preview == null
             ? null
             : widget.statistics[preview.artistId];
-        final toolbar = _toolbar(colors);
+        final controls = _Controls(
+          colors: colors,
+          sort: _sort,
+          narrow: narrowControls,
+          onFind: widget.onFind,
+          onSort: _setSort,
+          onLetters: _chooseLetter,
+          onSwitchView: widget.onSwitchView,
+        );
+        final grid = _grid(
+          colors,
+          columns: columns,
+          rows: rows,
+          tileWidth: tileWidth,
+          tileHeight: tileHeight,
+          gap: gap,
+        );
 
         if (compact) {
-          final rows = 2;
-          final grid = _grid(
-            colors,
-            columns: columns,
-            rows: rows,
-            tileWidth: tileWidth,
-            tileHeight: tileHeight,
-            gap: gap,
-          );
+          // Everything at its own size, scrolling; SELECT ARTIST stays put.
           return SingleChildScrollView(
             key: const ValueKey<String>('roster-compact'),
             child: Column(
               children: [
+                controls,
                 if (preview != null)
                   _Featured(
                     artist: preview,
@@ -378,20 +393,35 @@ class _ArtistRosterState extends State<ArtistRoster> {
                     compact: true,
                     onOpen: _openPreview,
                   ),
-                toolbar,
-                SizedBox(
-                  height: tileHeight * rows + gap * (rows - 1) + 40,
-                  child: grid,
-                ),
+                // The portraits come before the statistics, so the select
+                // grid is in view without scrolling past them.
+                SizedBox(height: gridHeight() + 8, child: grid),
+                if (preview != null)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+                    child: SonusGlassPanel(
+                      base: colors.surface,
+                      edge: colors.edge,
+                      padding: const EdgeInsets.all(12),
+                      child: _StatsList(
+                        artist: preview,
+                        stats: stats,
+                        loaded: widget.statisticsLoaded,
+                        colors: colors,
+                      ),
+                    ),
+                  ),
               ],
             ),
           );
         }
 
-        final featuredHeight = featuredRoom.clamp(_minFeatured, height * 0.5);
-        final rows = wantedRows;
+        // The featured artist takes what the controls and grid leave, up to
+        // a little over half the space; the grid gets the rest.
+        final featuredHeight = featuredRoom.clamp(needed, height * 0.55);
         return Column(
           children: [
+            controls,
             SizedBox(
               height: featuredHeight,
               child: preview == null
@@ -405,38 +435,12 @@ class _ArtistRosterState extends State<ArtistRoster> {
                       onOpen: _openPreview,
                     ),
             ),
-            toolbar,
-            Expanded(
-              child: _grid(
-                colors,
-                columns: columns,
-                rows: rows,
-                tileWidth: tileWidth,
-                tileHeight: tileHeight,
-                gap: gap,
-              ),
-            ),
+            Expanded(child: grid),
           ],
         );
       },
     );
   }
-
-  /// The toolbar's height in the full layout, and the page line's.
-  static const double _toolbarHeight = 60;
-  static const double _pageLine = 28;
-
-  /// Below this the featured artist cannot show portrait and statistics
-  /// side by side, and the compact layout is used.
-  static const double _minFeatured = 200;
-
-  Widget _toolbar(SonusCinematicColors colors) => _Toolbar(
-    colors: colors,
-    sort: _sort,
-    onFind: widget.onFind,
-    onSort: _setSort,
-    onLetters: _chooseLetter,
-  );
 
   Widget _grid(
     SonusCinematicColors colors, {
@@ -532,117 +536,31 @@ class _ArtistRosterState extends State<ArtistRoster> {
           ),
         ),
         Padding(
-          padding: const EdgeInsets.only(top: 4, bottom: 4),
-          child: Text(
-            'Page ${_page + 1} of $count',
-            key: const ValueKey<String>('roster-page-indicator'),
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: colors.textSecondary,
-            ),
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  widget.countLabel,
+                  key: const ValueKey<String>('library-artist-count'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: colors.textSecondary,
+                  ),
+                ),
+              ),
+              Text(
+                'Page ${_page + 1} of $count',
+                key: const ValueKey<String>('roster-page-indicator'),
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: colors.textSecondary,
+                ),
+              ),
+            ],
           ),
         ),
       ],
-    );
-  }
-}
-
-class _RosterHeader extends StatelessWidget {
-  const _RosterHeader({
-    required this.colors,
-    required this.countLabel,
-    required this.onShowNavigation,
-    required this.onSwitchView,
-  });
-
-  final SonusCinematicColors colors;
-  final String countLabel;
-  final VoidCallback? onShowNavigation;
-  final ValueChanged<LibraryView>? onSwitchView;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final onSwitchView = this.onSwitchView;
-    final onShowNavigation = this.onShowNavigation;
-    Widget rule() => Expanded(
-      child: ExcludeSemantics(
-        child: Container(
-          height: 2,
-          margin: const EdgeInsets.symmetric(horizontal: 8),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [colors.edge.withValues(alpha: 0), colors.edge],
-            ),
-          ),
-        ),
-      ),
-    );
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(4, 4, 8, 0),
-      child: Row(
-        children: [
-          if (onShowNavigation != null)
-            IconButton(
-              key: const ValueKey<String>('roster-show-navigation'),
-              tooltip: 'Sonus navigation',
-              color: colors.textPrimary,
-              icon: const Icon(Icons.menu_rounded),
-              onPressed: onShowNavigation,
-            ),
-          rule(),
-          Flexible(
-            flex: 3,
-            child: Column(
-              children: [
-                Semantics(
-                  header: true,
-                  child: FittedBox(
-                    fit: BoxFit.scaleDown,
-                    child: Text(
-                      'Artist Roster',
-                      maxLines: 1,
-                      style: theme.textTheme.titleLarge?.copyWith(
-                        color: colors.textPrimary,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-                ),
-                FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: Text(
-                    'SELECT AN ARTIST',
-                    maxLines: 1,
-                    style: theme.textTheme.labelSmall?.copyWith(
-                      color: colors.textSecondary,
-                      letterSpacing: 2.4,
-                    ),
-                  ),
-                ),
-                FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: Text(
-                    countLabel,
-                    key: const ValueKey<String>('library-artist-count'),
-                    maxLines: 1,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: colors.textSecondary,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          rule(),
-          if (onSwitchView != null)
-            LibraryViewSwitch(
-              current: LibraryView.roster,
-              onChanged: onSwitchView,
-              colors: colors,
-            ),
-        ],
-      ),
     );
   }
 }
@@ -702,7 +620,10 @@ class _Featured extends StatelessWidget {
   Widget _full(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final portraitWidth = constraints.maxWidth * 0.46;
+        final portraitWidth = (constraints.maxWidth * 0.40).clamp(
+          0.0,
+          (constraints.maxHeight - 12) * 0.86,
+        );
         return Stack(
           children: [
             // The ghost: a faint, larger copy behind, as on a select
@@ -735,33 +656,51 @@ class _Featured extends StatelessWidget {
               right: 12,
               top: 4,
               bottom: 6,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+              child: CustomMultiChildLayout(
+                delegate: _FeaturedColumnLayout(
+                  minName: _ArtistRosterState.minName(
+                    MediaQuery.textScalerOf(context).scale(1),
+                  ),
+                ),
                 children: [
-                  Flexible(
+                  LayoutId(
+                    id: _FeaturedSlot.label,
+                    child: _SelectLabel(colors: colors),
+                  ),
+                  LayoutId(
+                    id: _FeaturedSlot.name,
                     child: _Name(artist: artist, colors: colors),
                   ),
-                  const SizedBox(height: 6),
-                  _RankBadge(stats: stats, loaded: loaded, colors: colors),
-                  const SizedBox(height: 8),
-                  Flexible(
-                    flex: 3,
-                    child: SonusPerspectivePanel(
-                      angle: -0.16,
-                      alignment: Alignment.centerRight,
-                      child: SonusGlassPanel(
-                        base: colors.surface,
-                        edge: colors.edge,
-                        glow: colors.glow,
-                        padding: const EdgeInsets.all(10),
-                        child: FittedBox(
-                          fit: BoxFit.scaleDown,
-                          alignment: Alignment.topLeft,
-                          child: _StatsList(
-                            artist: artist,
-                            stats: stats,
-                            loaded: loaded,
-                            colors: colors,
+                  LayoutId(
+                    id: _FeaturedSlot.rank,
+                    child: _RankBadge(
+                      stats: stats,
+                      loaded: loaded,
+                      colors: colors,
+                    ),
+                  ),
+                  LayoutId(
+                    id: _FeaturedSlot.stats,
+                    // Its own size; clipped, never squeezed, if ever short.
+                    child: ClipRect(
+                      child: OverflowBox(
+                        alignment: Alignment.topLeft,
+                        maxHeight: double.infinity,
+                        fit: OverflowBoxFit.deferToChild,
+                        child: SonusPerspectivePanel(
+                          angle: -0.16,
+                          alignment: Alignment.centerRight,
+                          child: SonusGlassPanel(
+                            base: colors.surface,
+                            edge: colors.edge,
+                            glow: colors.glow,
+                            padding: const EdgeInsets.all(8),
+                            child: _StatsList(
+                              artist: artist,
+                              stats: stats,
+                              loaded: loaded,
+                              colors: colors,
+                            ),
                           ),
                         ),
                       ),
@@ -791,6 +730,8 @@ class _Featured extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    _SelectLabel(colors: colors),
+                    const SizedBox(height: 4),
                     _Name(artist: artist, colors: colors),
                     const SizedBox(height: 6),
                     _RankBadge(stats: stats, loaded: loaded, colors: colors),
@@ -799,19 +740,92 @@ class _Featured extends StatelessWidget {
               ),
             ],
           ),
-          const SizedBox(height: 10),
-          SonusGlassPanel(
-            base: colors.surface,
-            edge: colors.edge,
-            padding: const EdgeInsets.all(12),
-            child: _StatsList(
-              artist: artist,
-              stats: stats,
-              loaded: loaded,
-              colors: colors,
-            ),
-          ),
         ],
+      ),
+    );
+  }
+}
+
+enum _FeaturedSlot { label, name, rank, stats }
+
+/// The featured artist's text column: the label, rank and statistics at
+/// their own size, the name in what is left (it scales, being display
+/// type). The Roster only uses this layout where everything fits; should
+/// the column ever be shorter than that, the statistics are clipped to
+/// the space rather than overflowing.
+class _FeaturedColumnLayout extends MultiChildLayoutDelegate {
+  _FeaturedColumnLayout({required this.minName});
+
+  final double minName;
+
+  static const double _gapAfterLabel = 4;
+  static const double _gapAfterName = 4;
+  static const double _gapAfterRank = 6;
+
+  @override
+  void performLayout(Size size) {
+    final loose = BoxConstraints.loose(size);
+    final label = layoutChild(_FeaturedSlot.label, loose);
+    final rank = layoutChild(_FeaturedSlot.rank, loose);
+    final fixed =
+        label.height +
+        _gapAfterLabel +
+        _gapAfterName +
+        rank.height +
+        _gapAfterRank;
+    final statsRoom = (size.height - fixed - minName).clamp(0.0, size.height);
+    final stats = layoutChild(
+      _FeaturedSlot.stats,
+      BoxConstraints(maxWidth: size.width, maxHeight: statsRoom),
+    );
+    final nameRoom = (size.height - fixed - stats.height).clamp(
+      0.0,
+      size.height,
+    );
+    final name = layoutChild(
+      _FeaturedSlot.name,
+      BoxConstraints(maxWidth: size.width, maxHeight: nameRoom),
+    );
+
+    var y = 0.0;
+    positionChild(_FeaturedSlot.label, Offset(0, y));
+    y += label.height + _gapAfterLabel;
+    positionChild(_FeaturedSlot.name, Offset(0, y));
+    y += name.height + _gapAfterName;
+    positionChild(_FeaturedSlot.rank, Offset(0, y));
+    y += rank.height + _gapAfterRank;
+    positionChild(_FeaturedSlot.stats, Offset(0, y));
+  }
+
+  @override
+  bool shouldRelayout(_FeaturedColumnLayout oldDelegate) =>
+      oldDelegate.minName != minName;
+}
+
+/// SELECT AN ARTIST, as on a select screen; for screen readers it names
+/// the screen.
+class _SelectLabel extends StatelessWidget {
+  const _SelectLabel({required this.colors});
+
+  final SonusCinematicColors colors;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      header: true,
+      label: 'Artist Roster, select an artist',
+      excludeSemantics: true,
+      child: Text(
+        'SELECT AN ARTIST',
+        key: const ValueKey<String>('roster-select-label'),
+        maxLines: 1,
+        overflow: TextOverflow.fade,
+        softWrap: false,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+          color: colors.textSecondary,
+          letterSpacing: 2.4,
+          fontWeight: FontWeight.w700,
+        ),
       ),
     );
   }
@@ -965,7 +979,7 @@ class _StatsList extends StatelessWidget {
           label: spoken,
           excludeSemantics: true,
           child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 3),
+            padding: const EdgeInsets.symmetric(vertical: 2),
             // Wraps onto a second line rather than overflowing with large
             // text.
             child: Wrap(
@@ -1023,7 +1037,7 @@ class _StatsList extends StatelessWidget {
               ? '${sonusListeningTime(listened)} listened'
               : 'No listening time yet',
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 4),
         Semantics(
           label: top == null
               ? (loaded ? 'No top track yet' : 'Top track loading')
@@ -1031,15 +1045,14 @@ class _StatsList extends StatelessWidget {
           excludeSemantics: true,
           child: Row(
             key: const ValueKey<String>('roster-top-track'),
-            mainAxisSize: MainAxisSize.min,
             children: [
               if (top != null)
-                SonusArtworkImage(path: top.track.artworkPath, size: 40)
+                SonusArtworkImage(path: top.track.artworkPath, size: 36)
               else
                 Icon(Icons.star_rounded, color: colors.accent, size: 22),
               const SizedBox(width: 8),
-              ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 160),
+              // Shortened with an ellipsis, never scaled.
+              Flexible(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
@@ -1070,40 +1083,71 @@ class _StatsList extends StatelessWidget {
   }
 }
 
-class _Toolbar extends StatelessWidget {
-  const _Toolbar({
+/// The Roster's one row of controls (Option C): find, sort, A-Z and the
+/// switch to the Film Reel. Two rows on narrow screens and with large text.
+class _Controls extends StatelessWidget {
+  const _Controls({
     required this.colors,
     required this.sort,
+    required this.narrow,
     required this.onFind,
     required this.onSort,
     required this.onLetters,
+    required this.onSwitchView,
   });
 
   final SonusCinematicColors colors;
   final ArtistStatisticsSort sort;
+  final bool narrow;
   final VoidCallback? onFind;
   final ValueChanged<ArtistStatisticsSort> onSort;
   final VoidCallback onLetters;
+  final ValueChanged<LibraryView>? onSwitchView;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final onFind = this.onFind;
+    final onSwitchView = this.onSwitchView;
+    Widget squareButton({
+      required Key key,
+      required String tooltip,
+      required IconData icon,
+      required VoidCallback onPressed,
+    }) => Material(
+      color: colors.surface.withValues(alpha: 0.7),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: colors.edge),
+      ),
+      child: IconButton(
+        key: key,
+        tooltip: tooltip,
+        color: colors.textPrimary,
+        constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+        icon: Icon(icon),
+        onPressed: onPressed,
+      ),
+    );
     final find = onFind == null
         ? null
-        : Material(
-            color: colors.surface.withValues(alpha: 0.7),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14),
-              side: BorderSide(color: colors.edge),
-            ),
-            child: IconButton(
-              key: const ValueKey<String>('roster-find'),
-              tooltip: 'Find an artist',
-              color: colors.textPrimary,
-              constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
-              icon: const Icon(Icons.search_rounded),
-              onPressed: onFind,
+        : squareButton(
+            key: const ValueKey<String>('roster-find'),
+            tooltip: 'Find an artist',
+            icon: Icons.search_rounded,
+            onPressed: onFind,
+          );
+    final toReel = onSwitchView == null
+        ? null
+        : Semantics(
+            button: true,
+            label: '${LibraryView.filmReel.label} view',
+            excludeSemantics: true,
+            child: squareButton(
+              key: const ValueKey<String>('library-view-reel'),
+              tooltip: 'Show the ${LibraryView.filmReel.label}',
+              icon: LibraryView.filmReel.icon,
+              onPressed: () => onSwitchView(LibraryView.filmReel),
             ),
           );
     final sortMenu = PopupMenuButton<ArtistStatisticsSort>(
@@ -1173,36 +1217,35 @@ class _Toolbar extends StatelessWidget {
       ),
     );
 
+    if (!narrow) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
+        child: Row(
+          children: [
+            if (find != null) ...[find, const SizedBox(width: 8)],
+            Expanded(child: sortMenu),
+            const SizedBox(width: 8),
+            letters,
+            if (toReel != null) ...[const SizedBox(width: 8), toReel],
+          ],
+        ),
+      );
+    }
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final textScale = MediaQuery.textScalerOf(context).scale(10) / 10;
-          if (constraints.maxWidth >= 300 && textScale < 1.3) {
-            return Row(
-              children: [
-                ?find,
-                if (find != null) const SizedBox(width: 8),
-                Expanded(child: sortMenu),
-                const SizedBox(width: 8),
-                letters,
-              ],
-            );
-          }
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
             children: [
-              sortMenu,
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  if (find != null) ...[find, const SizedBox(width: 8)],
-                  Expanded(child: letters),
-                ],
-              ),
+              if (find != null) ...[find, const SizedBox(width: 8)],
+              Expanded(child: letters),
+              if (toReel != null) ...[const SizedBox(width: 8), toReel],
             ],
-          );
-        },
+          ),
+          const SizedBox(height: 8),
+          sortMenu,
+        ],
       ),
     );
   }
@@ -1439,7 +1482,7 @@ class _SelectButton extends StatelessWidget {
     );
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 6, 12, 12),
+      padding: const EdgeInsets.fromLTRB(12, 6, 12, 8),
       child: Row(
         children: [
           speedLines(),

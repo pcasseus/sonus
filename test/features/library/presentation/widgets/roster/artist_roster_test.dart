@@ -4,6 +4,10 @@ import 'dart:ui' show Tristate;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter/rendering.dart';
+import 'package:sonus_next/features/player/application/controllers/playback_coordinator.dart';
+import 'package:sonus_next/features/player/presentation/controllers/playback_state_controller.dart';
+import 'package:sonus_next/features/shell/presentation/widgets/playback_host.dart';
 import 'package:provider/provider.dart';
 import 'package:sonus_next/core/design/sonus_theme_factory.dart';
 import 'package:sonus_next/core/design/sonus_theme_id.dart';
@@ -17,6 +21,7 @@ import 'package:sonus_next/features/library/presentation/services/artist_library
 import 'package:sonus_next/features/shell/domain/models/app_destination.dart';
 import 'package:sonus_next/features/shell/presentation/pages/app_shell_page.dart';
 
+import '../../../../../support/device_layout.dart';
 import '../../pages/library_page_test.dart' as base;
 
 Finder byKey(String key) => find.byKey(ValueKey<String>(key));
@@ -221,9 +226,20 @@ void main() {
       final handle = tester.ensureSemantics();
       await pump(tester);
 
-      final roster = tester.getSemantics(byKey('library-view-roster'));
-      expect(roster.flagsCollection.isSelected, Tristate.isTrue);
+      // In the Roster, one button: to the Film Reel.
       expect(find.bySemanticsLabel('Film Reel view'), findsOneWidget);
+      expect(byKey('library-view-roster'), findsNothing);
+      expect(
+        find.bySemanticsLabel('Artist Roster, select an artist'),
+        findsOneWidget,
+        reason: 'the screen is named',
+      );
+
+      // In the Film Reel, both, the Film Reel's lit.
+      await switchTo(tester, 'reel');
+      final reel = tester.getSemantics(byKey('library-view-reel'));
+      expect(reel.flagsCollection.isSelected, Tristate.isTrue);
+      expect(find.bySemanticsLabel('Artist Roster view'), findsOneWidget);
       handle.dispose();
     });
   });
@@ -234,7 +250,7 @@ void main() {
       await pump(tester, artists: roster(40), ranks: const {});
       await openRoster(tester);
       expect(find.byType(TextField), findsNothing);
-      expect(find.text('Page 1 of 3'), findsOneWidget);
+      expect(find.text('Page 1 of 4'), findsOneWidget);
 
       await tester.tap(byKey('roster-find'));
       await tester.pumpAndSettle();
@@ -246,7 +262,7 @@ void main() {
 
       expect(byKey('artist-finder-page'), findsNothing);
       expect(featuredName(tester), 'ARTIST N1');
-      expect(find.text('Page 2 of 3'), findsOneWidget, reason: 'N1 is 28th');
+      expect(find.text('Page 3 of 4'), findsOneWidget, reason: 'N1 is 28th');
       expect(byKey('roster-tile-artist-39'), findsOneWidget);
       expect(byKey('roster-select'), findsOneWidget);
     });
@@ -310,9 +326,10 @@ void main() {
       await tester.pumpAndSettle();
 
       // A-Z lists by name; M starts at the 37th artist (12 letters x 3),
+      // ten to a page:
       // on page 3 of 4.
       expect(find.text('Sort: Name'), findsOneWidget);
-      expect(find.text('Page 3 of 4'), findsOneWidget);
+      expect(find.text('Page 4 of 6'), findsOneWidget);
       expect(
         find.byKey(const ValueKey<String>('roster-tile-artist-36')),
         findsOneWidget,
@@ -320,189 +337,302 @@ void main() {
     });
   });
 
-  // The Galaxy S26 Ultra: 412 x 891dp, a 40dp status bar, a 24dp gesture
-  // bar and a 72dp mini-player below every route (as the playback host
-  // lays it out).
-  const dpr = 3.5;
-  const screen = Size(412, 891);
-  const miniPlayer = 72.0;
-  const keyboard = 350.0;
-
-  void phone(WidgetTester tester, {Size size = screen}) {
-    tester.view.devicePixelRatio = dpr;
-    tester.view.physicalSize = size * dpr;
-    tester.view.padding = const FakeViewPadding(
-      top: 40 * dpr,
-      bottom: 24 * dpr,
-    );
-    addTearDown(tester.view.reset);
-  }
-
-  /// A stand-in for the playback host: routes above, a mini-player below.
-  Widget withMiniPlayer(BuildContext context, Widget? navigator) => Column(
-    children: [
-      Expanded(
-        child: MediaQuery.removePadding(
-          context: context,
-          removeBottom: true,
-          child: navigator!,
-        ),
-      ),
-      Container(
-        key: const ValueKey<String>('fake-mini-player'),
-        height: miniPlayer + MediaQuery.paddingOf(context).bottom,
-        color: const Color(0xFF222222),
-      ),
-    ],
-  );
-
   Finder tiles() => find.byWidgetPredicate(
     (widget) =>
         widget.key is ValueKey<String> &&
         (widget.key! as ValueKey<String>).value.startsWith('roster-tile-'),
   );
 
-  // Device QA (S26 Ultra): inside the Library tab the Roster sat below the
-  // Sonus title bar and tabs and above the mini-player, fell back to its
-  // compact layout, and its portrait grid was almost entirely hidden.
-  group('full screen in the app shell (S26 Ultra)', () {
-    // The tabs scroll sideways: bring one into view, then tap it.
-    Future<void> tapTab(WidgetTester tester, String name) async {
-      await tester.ensureVisible(byKey('app-tab-$name'));
-      await tester.pumpAndSettle();
-      await tester.tap(byKey('app-tab-$name'));
-      await tester.pumpAndSettle();
-    }
-
-    Future<void> pumpShell(
-      WidgetTester tester, {
-      List<LibraryArtist>? artists,
-      Size size = screen,
-      double textScale = 1,
-    }) async {
-      phone(tester, size: size);
-      final list = artists ?? roster(60);
-      await tester.pumpWidget(
-        MultiProvider(
-          providers: [
-            Provider<LibraryQueryRepository?>.value(
-              value: base.FakeLibraryQueryRepository(artists: list),
-            ),
-            Provider<ArtistLibraryStatisticsService?>.value(
-              value: _Stats(list, const {}),
-            ),
-          ],
-          child: MaterialApp(
-            theme: SonusThemeFactory.build(const SonusAppearanceSpec()),
-            builder: (context, navigator) => MediaQuery(
-              data: MediaQuery.of(
-                context,
-              ).copyWith(textScaler: TextScaler.linear(textScale)),
-              child: Builder(
-                builder: (context) => withMiniPlayer(context, navigator),
-              ),
-            ),
-            home: AppShellPage(
-              pageBuilder: (destination) =>
-                  destination == AppDestination.library
-                  ? const LibraryPage()
-                  : Center(child: Text('${destination.label} page')),
+  /// The Library tab as on the phone: the Sonus bar and tabs, the real
+  /// playback host with a song queued (so the mini-player shows), Roboto,
+  /// and the device's measured size and insets.
+  Future<void> pumpInShell(
+    WidgetTester tester, {
+    List<LibraryArtist>? artists,
+    Size size = s26UltraSize,
+    double ratio = s26UltraRatio,
+    double textScale = 1,
+    Map<String, int>? ranks,
+  }) async {
+    setDevice(tester, size: size, ratio: ratio);
+    final list = artists ?? roster(60);
+    final engine = QueuedSongEngine();
+    final coordinator = PlaybackCoordinator(engine: engine);
+    final playback = PlaybackStateController(coordinator: coordinator);
+    addTearDown(engine.dispose);
+    final navigatorKey = GlobalKey<NavigatorState>();
+    final routes = PlaybackHostRouteObserver();
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          Provider<PlaybackCoordinator>.value(value: coordinator),
+          ChangeNotifierProvider<PlaybackStateController>.value(
+            value: playback,
+          ),
+          Provider<LibraryQueryRepository?>.value(
+            value: base.FakeLibraryQueryRepository(artists: list),
+          ),
+          Provider<ArtistLibraryStatisticsService?>.value(
+            value: _Stats(
+              list,
+              ranks ?? {for (final (i, a) in list.indexed) a.artistId: i + 1},
             ),
           ),
+        ],
+        child: MaterialApp(
+          theme: withRealRoboto(
+            SonusThemeFactory.build(const SonusAppearanceSpec()),
+          ),
+          navigatorKey: navigatorKey,
+          navigatorObservers: [routes],
+          builder: (context, navigator) => MediaQuery(
+            data: MediaQuery.of(
+              context,
+            ).copyWith(textScaler: TextScaler.linear(textScale)),
+            child: PlaybackHost(
+              navigatorKey: navigatorKey,
+              routes: routes,
+              child: navigator!,
+            ),
+          ),
+          home: AppShellPage(
+            pageBuilder: (destination) => destination == AppDestination.library
+                ? const LibraryPage()
+                : Center(child: Text('${destination.label} page')),
+          ),
         ),
-      );
-      await tester.pumpAndSettle();
-      await tapTab(tester, 'library');
+      ),
+    );
+    await tester.pumpAndSettle();
+    // The tabs scroll sideways: bring Library into view, then tap it.
+    await tester.ensureVisible(byKey('app-tab-library'));
+    await tester.pumpAndSettle();
+    await tester.tap(byKey('app-tab-library'));
+    await tester.pumpAndSettle();
+  }
+
+  double miniPlayerTop(WidgetTester tester) =>
+      tester.getTopLeft(byKey('playback-host-bar')).dy;
+
+  int tilesInView(WidgetTester tester) {
+    final selectTop = tester.getTopLeft(byKey('roster-select')).dy;
+    final rosterTop = tester.getTopLeft(byKey('artist-roster')).dy;
+    return tiles().evaluate().where((element) {
+      final rect = tester.getRect(find.byWidget(element.widget));
+      return rect.top >= rosterTop && rect.bottom <= selectTop;
+    }).length;
+  }
+
+  /// The statistics panel beside the portrait: its own height, and the
+  /// height it is shown at.
+  (double, double) statisticsShown(WidgetTester tester) {
+    final box = tester.renderObject<RenderBox>(
+      find
+          .ancestor(
+            of: byKey('roster-top-track'),
+            matching: find.byType(OverflowBox),
+          )
+          .first,
+    );
+    final panel = (box as RenderObjectWithChildMixin<RenderBox>).child!;
+    return (panel.size.height, box.size.height);
+  }
+
+  void expectFullSizeStatistics(WidgetTester tester) {
+    expect(
+      find.ancestor(
+        of: byKey('roster-top-track'),
+        matching: find.byType(FittedBox),
+      ),
+      findsNothing,
+      reason: 'statistics are never scaled',
+    );
+    if (byKey('roster-compact').evaluate().isEmpty) {
+      final (own, shown) = statisticsShown(tester);
+      expect(shown, closeTo(own, 0.5), reason: 'statistics are not clipped');
     }
+  }
 
-    double miniPlayerTop(WidgetTester tester) =>
-        tester.getTopLeft(byKey('fake-mini-player')).dy;
+  // Device QA (S26 Ultra), Option C: the Roster stays in the Library tab,
+  // below the Sonus bar and tabs and above the mini-player, with one row of
+  // controls, the featured artist and two rows of portraits.
+  group('in the Library tab (Galaxy S26 Ultra, Option C)', () {
+    setUpAll(loadRealRoboto);
 
-    testWidgets('the Roster takes the screen: the Sonus bar folds away and '
-        'three full rows of portraits show above the mini-player', (
+    testWidgets('384 x 832: the Sonus bar and mini-player stay; controls, '
+        'featured artist, 5 x 2 portraits and SELECT ARTIST all fit', (
       tester,
     ) async {
-      await pumpShell(tester);
+      await pumpInShell(tester);
 
-      expect(byKey('artist-roster'), findsOneWidget);
-      expect(byKey('app-tab-library'), findsNothing, reason: 'bar folded');
-      expect(byKey('roster-compact'), findsNothing, reason: 'full layout');
+      expect(byKey('app-tab-library'), findsOneWidget, reason: 'tabs stay');
+      expect(byKey('playback-host-bar'), findsOneWidget);
+      expect(byKey('roster-compact'), findsNothing, reason: 'no scrolling');
       final roster = tester.getRect(byKey('artist-roster'));
-      expect(roster.top, 0);
+      expect(roster.top, 144, reason: 'below the 40dp status bar and bar');
       expect(roster.bottom, miniPlayerTop(tester));
 
-      final visible = tiles().evaluate().where((element) {
-        final rect = tester.getRect(find.byWidget(element.widget));
-        return rect.top >= 40 && rect.bottom <= miniPlayerTop(tester);
-      }).length;
-      expect(visible, 15, reason: 'five portraits, three rows');
-      final tile = tester.getRect(byKey('roster-tile-artist-0'));
-      expect(tile.width, greaterThan(60));
+      expect(tilesInView(tester), 10, reason: 'five portraits, two rows');
+      expect(byKey('roster-tile-artist-10'), findsNothing, reason: 'page 2');
+      expect(tester.getSize(byKey('roster-tile-artist-0')).width, 56);
 
-      final header = tester.getRect(find.text('Artist Roster'));
-      expect(header.top, greaterThanOrEqualTo(40), reason: 'below status bar');
+      // One row of controls at the top.
+      final find0 = tester.getRect(byKey('roster-find'));
+      final sort = tester.getRect(byKey('roster-sort'));
+      final letters = tester.getRect(byKey('roster-az'));
+      final reel = tester.getRect(byKey('library-view-reel'));
+      for (final rect in [sort, letters, reel]) {
+        expect(rect.center.dy, closeTo(find0.center.dy, 1));
+      }
+      expect(find.text('Sort: Most Played'), findsOneWidget);
+
+      expect(byKey('roster-select-label'), findsOneWidget);
       final portrait = tester.getRect(byKey('roster-featured-portrait'));
-      expect(portrait.height, greaterThan(180));
+      expect(portrait.height, greaterThan(240));
+      expect(portrait.width, greaterThan(150));
+      expectFullSizeStatistics(tester);
+      expect(
+        tester.getRect(byKey('roster-top-track')).bottom,
+        lessThan(tester.getTopLeft(byKey('roster-pages')).dy),
+        reason: 'the top track shows above the grid',
+      );
+
       final select = tester.getRect(byKey('roster-select'));
+      expect(select.height, greaterThanOrEqualTo(56));
       expect(select.bottom, lessThanOrEqualTo(miniPlayerTop(tester)));
+      expect(find.text('Page 1 of 6'), findsOneWidget);
+      expect(find.text('60 artists'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('the Sonus navigation is one tap away, and leaves when '
-        'dismissed', (tester) async {
-      await pumpShell(tester);
-
-      await tester.tap(byKey('roster-show-navigation'));
-      await tester.pumpAndSettle();
-      expect(byKey('shell-revealed-bar'), findsOneWidget);
-      expect(byKey('app-tab-library'), findsOneWidget);
-      expect(byKey('roster-compact'), findsNothing, reason: 'over the Roster');
-
-      // Back hides it first.
-      await tester.binding.handlePopRoute();
-      await tester.pumpAndSettle();
-      expect(byKey('shell-revealed-bar'), findsNothing);
-      expect(byKey('artist-roster'), findsOneWidget);
-
-      // So does a tap outside it.
-      await tester.tap(byKey('roster-show-navigation'));
-      await tester.pumpAndSettle();
-      await tester.tapAt(const Offset(200, 700));
-      await tester.pumpAndSettle();
-      expect(byKey('shell-revealed-bar'), findsNothing);
-    });
-
-    testWidgets('another tab from the revealed bar: its page, with the bar', (
+    testWidgets('the name keeps its dramatic size beside full statistics', (
       tester,
     ) async {
-      await pumpShell(tester);
+      await pumpInShell(
+        tester,
+        artists: [
+          base.createArtist(
+            artistId: 'mb',
+            name: 'Madison Beer',
+            albumCount: 12,
+            songCount: 148,
+          ),
+          ...roster(20),
+        ],
+      );
 
-      await tester.tap(byKey('roster-show-navigation'));
-      await tester.pumpAndSettle();
-      await tapTab(tester, 'playlists');
-
-      expect(find.text('Playlists page'), findsOneWidget);
-      expect(byKey('shell-revealed-bar'), findsNothing);
-      expect(byKey('app-tab-library'), findsOneWidget, reason: 'normal bar');
+      final name = tester.renderObject<RenderBox>(
+        byKey('roster-featured-name'),
+      );
+      final shown = tester.getSize(
+        find
+            .ancestor(
+              of: byKey('roster-featured-name'),
+              matching: find.byType(FittedBox),
+            )
+            .first,
+      );
+      expect(shown.height / name.size.height, greaterThan(0.9));
+      expectFullSizeStatistics(tester);
     });
 
-    testWidgets('the Film Reel keeps the Sonus bar; back on the Roster it '
-        'folds away again', (tester) async {
-      await pumpShell(tester);
+    testWidgets('text at 1.15x: the same layout, statistics full size', (
+      tester,
+    ) async {
+      await pumpInShell(tester, textScale: 1.15);
 
-      await tester.tap(byKey('library-view-reel'));
-      await tester.pumpAndSettle();
-      expect(byKey('film-reel-pages'), findsOneWidget);
-      expect(byKey('app-tab-library'), findsOneWidget);
-
-      await tester.tap(byKey('library-view-roster'));
-      await tester.pumpAndSettle();
-      expect(byKey('app-tab-library'), findsNothing);
+      expect(byKey('roster-compact'), findsNothing);
+      expect(tilesInView(tester), 10);
+      expectFullSizeStatistics(tester);
+      expect(tester.takeException(), isNull);
     });
 
-    testWidgets('the Finder and SELECT ARTIST open over the full Roster, and '
-        'Back returns to it', (tester) async {
-      await pumpShell(tester);
+    testWidgets('360 x 780: the same layout, statistics full size', (
+      tester,
+    ) async {
+      await pumpInShell(tester, size: const Size(360, 780), ratio: 3);
+
+      expect(byKey('roster-compact'), findsNothing);
+      expect(tilesInView(tester), 10);
+      expectFullSizeStatistics(tester);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('412 x 915: still two rows, the featured artist gets more', (
+      tester,
+    ) async {
+      await pumpInShell(tester, size: const Size(412, 915), ratio: 2.625);
+
+      expect(tilesInView(tester), 10);
+      expect(
+        tester.getSize(byKey('roster-featured-portrait')).height,
+        greaterThan(280),
+      );
+      expectFullSizeStatistics(tester);
+    });
+
+    testWidgets('a tablet shows more rows', (tester) async {
+      await pumpInShell(tester, size: const Size(800, 1280), ratio: 2);
+
+      expect(tilesInView(tester), greaterThanOrEqualTo(21));
+      expectFullSizeStatistics(tester);
+    });
+
+    for (final (label, size, ratio, scale) in [
+      ('S26 Ultra at 1.3x text', s26UltraSize, s26UltraRatio, 1.3),
+      ('S26 Ultra at 2x text', s26UltraSize, s26UltraRatio, 2.0),
+      ('360 x 780 at 1.15x text', const Size(360, 780), 3.0, 1.15),
+      ('320 x 690', const Size(320, 690), 2.0, 1.0),
+      ('320 x 690 at 2x text', const Size(320, 690), 2.0, 2.0),
+    ]) {
+      testWidgets('$label: a scrolling layout at full text size, portraits '
+          'before statistics, SELECT ARTIST in place', (tester) async {
+        await pumpInShell(tester, size: size, ratio: ratio, textScale: scale);
+
+        expect(tester.takeException(), isNull);
+        expect(byKey('roster-compact'), findsOneWidget);
+        expect(byKey('app-tab-library'), findsOneWidget);
+        expectFullSizeStatistics(tester);
+        final select = tester.getRect(byKey('roster-select'));
+        expect(select.bottom, lessThanOrEqualTo(miniPlayerTop(tester)));
+        expect(
+          tester.getTopLeft(byKey('roster-pages')).dy,
+          lessThan(tester.getTopLeft(byKey('roster-top-track')).dy),
+          reason: 'the grid comes before the statistics',
+        );
+
+        // Every portrait can be reached by dragging the Roster up, from
+        // near its top (outside the grid, so the grid's pages stay put).
+        final selectTop = select.top;
+        final rosterTop = tester.getRect(byKey('artist-roster')).topCenter;
+        for (var i = 0; i < 12; i++) {
+          final tile = tester.getRect(byKey('roster-tile-artist-3'));
+          if (tile.bottom <= selectTop) break;
+          await tester.dragFrom(
+            rosterTop.translate(0, 30),
+            const Offset(0, -80),
+          );
+          await tester.pumpAndSettle();
+        }
+        expect(
+          tester.getRect(byKey('roster-tile-artist-3')).bottom,
+          lessThanOrEqualTo(selectTop),
+        );
+        await tester.tap(byKey('roster-tile-artist-3'));
+        await tester.pumpAndSettle();
+        expect(featuredName(tester), 'ARTIST D0');
+        await tester.ensureVisible(byKey('roster-find'));
+        await tester.pumpAndSettle();
+        expect(
+          tester.getSize(byKey('roster-find')).height,
+          greaterThanOrEqualTo(48),
+        );
+      });
+    }
+
+    testWidgets('the Finder and SELECT ARTIST open from the tab, and Back '
+        'returns to the Roster with the Sonus bar', (tester) async {
+      await pumpInShell(tester);
 
       await tester.tap(byKey('roster-find'));
       await tester.pumpAndSettle();
@@ -518,54 +648,46 @@ void main() {
       await tester.pageBack();
       await tester.pumpAndSettle();
       expect(featuredName(tester), 'ARTIST H0');
-      expect(byKey('app-tab-library'), findsNothing);
+      expect(byKey('app-tab-library'), findsOneWidget);
     });
 
-    testWidgets('320dp with 2x text: no overflow, navigation reachable', (
+    testWidgets('the Film Reel switch and the other tabs work as usual', (
       tester,
     ) async {
-      await pumpShell(tester, size: const Size(320, 700), textScale: 2);
+      await pumpInShell(tester);
 
-      expect(tester.takeException(), isNull);
-      expect(byKey('roster-show-navigation'), findsOneWidget);
-      expect(byKey('roster-find'), findsOneWidget);
+      await tester.tap(byKey('library-view-reel'));
+      await tester.pumpAndSettle();
+      expect(byKey('film-reel-pages'), findsOneWidget);
+      await tester.tap(byKey('library-view-roster'));
+      await tester.pumpAndSettle();
+      expect(byKey('artist-roster'), findsOneWidget);
+
+      await tester.ensureVisible(byKey('app-tab-playlists'));
+      await tester.pumpAndSettle();
+      await tester.tap(byKey('app-tab-playlists'));
+      await tester.pumpAndSettle();
+      expect(find.text('Playlists page'), findsOneWidget);
     });
   });
 
   group('the Artist Finder with the keyboard open (S26 Ultra)', () {
+    setUpAll(loadRealRoboto);
+    const keyboard = 330.0;
+
     Future<void> openFinder(
       WidgetTester tester, {
-      Size size = screen,
+      Size size = s26UltraSize,
+      double ratio = s26UltraRatio,
       double textScale = 1,
     }) async {
-      phone(tester, size: size);
-      final list = roster(60);
-      await tester.pumpWidget(
-        MultiProvider(
-          providers: [
-            Provider<LibraryQueryRepository?>.value(
-              value: base.FakeLibraryQueryRepository(artists: list),
-            ),
-            Provider<ArtistLibraryStatisticsService?>.value(
-              value: _Stats(list, const {}),
-            ),
-          ],
-          child: MaterialApp(
-            theme: SonusThemeFactory.build(const SonusAppearanceSpec()),
-            builder: (context, navigator) => MediaQuery(
-              data: MediaQuery.of(
-                context,
-              ).copyWith(textScaler: TextScaler.linear(textScale)),
-              child: Builder(
-                builder: (context) => withMiniPlayer(context, navigator),
-              ),
-            ),
-            home: const Scaffold(body: LibraryPage()),
-          ),
-        ),
+      await pumpInShell(
+        tester,
+        size: size,
+        ratio: ratio,
+        textScale: textScale,
+        ranks: const {},
       );
-      await tester.pumpAndSettle();
-      // With large text the Roster scrolls: the icon may need bringing up.
       await tester.ensureVisible(byKey('roster-find'));
       await tester.pumpAndSettle();
       await tester.tap(byKey('roster-find'));
@@ -575,12 +697,13 @@ void main() {
         tester.widget<TextField>(byKey('artist-finder-field')).autofocus,
         isTrue,
       );
-      tester.view.viewInsets = const FakeViewPadding(bottom: keyboard * dpr);
+      tester.view.viewInsets = FakeViewPadding(bottom: keyboard * ratio);
       await tester.pumpAndSettle();
     }
 
     double keyboardTop(WidgetTester tester) =>
-        tester.view.physicalSize.height / dpr - keyboard;
+        tester.view.physicalSize.height / tester.view.devicePixelRatio -
+        keyboard;
 
     Finder rows() => find.byWidgetPredicate(
       (widget) =>
@@ -602,8 +725,7 @@ void main() {
       final field = tester.getRect(byKey('artist-finder-field'));
       expect(field.bottom, lessThan(keyboardTop(tester)));
       expect(field.top, greaterThanOrEqualTo(40));
-      expect(rowsAboveKeyboard(tester), greaterThanOrEqualTo(5));
-      expect(byKey('fake-mini-player'), findsOneWidget);
+      expect(rowsAboveKeyboard(tester), greaterThanOrEqualTo(4));
       expect(tester.takeException(), isNull);
     });
 
@@ -655,7 +777,7 @@ void main() {
     });
 
     testWidgets('choosing a match closes the Finder and previews it in the '
-        'full Roster', (tester) async {
+        'Roster on its page', (tester) async {
       await openFinder(tester);
       await tester.enterText(byKey('artist-finder-field'), 'artist q');
       await tester.pumpAndSettle();
@@ -672,7 +794,12 @@ void main() {
     });
 
     testWidgets('320dp with 2x text and the keyboard open', (tester) async {
-      await openFinder(tester, size: const Size(320, 700), textScale: 2);
+      await openFinder(
+        tester,
+        size: const Size(320, 690),
+        ratio: 2,
+        textScale: 2,
+      );
       await tester.enterText(byKey('artist-finder-field'), 'artist');
       await tester.pumpAndSettle();
 
@@ -701,26 +828,26 @@ void main() {
           .evaluate()
           .length;
 
-      expect(find.text('Page 1 of 134'), findsOneWidget);
-      expect(builtTiles(), lessThanOrEqualTo(15));
+      expect(find.text('Page 1 of 200'), findsOneWidget);
+      expect(builtTiles(), lessThanOrEqualTo(10));
 
       for (var i = 0; i < 3; i++) {
         await tester.tap(byKey('roster-page-next'));
         await tester.pumpAndSettle();
       }
-      expect(find.text('Page 4 of 134'), findsOneWidget);
-      expect(builtTiles(), lessThanOrEqualTo(30));
+      expect(find.text('Page 4 of 200'), findsOneWidget);
+      expect(builtTiles(), lessThanOrEqualTo(20));
 
       await tester.tap(byKey('roster-page-previous'));
       await tester.pumpAndSettle();
-      expect(find.text('Page 3 of 134'), findsOneWidget);
+      expect(find.text('Page 3 of 200'), findsOneWidget);
       expect(stats.loads, 1, reason: 'no statistics read while browsing');
       expect(tester.takeException(), isNull);
     });
   });
 
   group('layout and accessibility', () {
-    testWidgets('typical phone: five portraits a row, three rows', (
+    testWidgets('typical phone: five portraits a row, two rows', (
       tester,
     ) async {
       await pump(tester, artists: roster(40), ranks: const {});
@@ -735,9 +862,9 @@ void main() {
         for (final tile in tiles.evaluate())
           tester.getRect(find.byWidget(tile.widget)),
       ];
-      expect(rects, hasLength(15));
+      expect(rects, hasLength(10));
       expect({for (final r in rects) r.left.round()}, hasLength(5));
-      expect({for (final r in rects) r.top.round()}, hasLength(3));
+      expect({for (final r in rects) r.top.round()}, hasLength(2));
     });
 
     for (final id in SonusThemeId.values) {
