@@ -997,6 +997,18 @@ class _FakeListening implements PlaybackSessionRepository {
   ];
 
   @override
+  Future<List<PlaybackSession>> getAll({
+    DateTime? startedAtOrAfter,
+    DateTime? startedBefore,
+  }) async => [
+    for (final session in _sessions.values)
+      if ((startedAtOrAfter == null ||
+              !session.startedAt.isBefore(startedAtOrAfter)) &&
+          (startedBefore == null || session.startedAt.isBefore(startedBefore)))
+        session,
+  ];
+
+  @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 

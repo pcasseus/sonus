@@ -20,6 +20,7 @@ import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition_track.dart';
 import 'package:sonus_next/features/library/domain/entities/artist.dart';
 import 'package:sonus_next/features/library/domain/entities/song.dart';
+import 'package:sonus_next/features/library/domain/entities/song_artist_credit.dart';
 
 void main() {
   sqfliteFfiInit();
@@ -533,6 +534,60 @@ void main() {
     expect(deluxe.albumId, fixture.album.id);
     expect(deluxe.type, AlbumEditionType.deluxe);
     expect(deluxe.releaseDate, DateTime.utc(2026, 6, 20));
+  });
+
+  test('credit links name linked artists only, with their roles', () async {
+    final fixture = await _createFixture(appDatabase);
+    final db = fixture.db;
+    final timestamp = DateTime.utc(2026, 11, 4).toIso8601String();
+    Future<void> credit(
+      String songId,
+      String? artistId,
+      String role,
+      int position,
+    ) => db.insert(DatabaseTables.songArtistCredits, {
+      'id': 'link_${songId}_$position',
+      'song_id': songId,
+      'artist_id': artistId,
+      'credited_name': artistId ?? 'Unlinked Guest',
+      'canonical_credited_name': (artistId ?? 'unlinked guest').toLowerCase(),
+      'role': role,
+      'position': position,
+      'created_at': timestamp,
+      'updated_at': timestamp,
+    });
+    final artistId = fixture.artist.id;
+    await credit(fixture.alphaSong.id, artistId, 'primary', 10);
+    await credit(fixture.betaSong.id, artistId, 'coPrimary', 10);
+    await credit(fixture.zuluSong.id, artistId, 'featured', 10);
+    await credit(fixture.zuluSong.id, artistId, 'guest', 11);
+    // Name-only: no library artist to link, so not a link.
+    await credit(fixture.alphaSong.id, null, 'guest', 11);
+
+    final links = await LibraryQueryDao(db).findSongArtistCreditLinks();
+    final mine = [
+      for (final link in links)
+        if (link.artistId == artistId) (link.songId, link.role, link.isMain),
+    ];
+
+    expect(links.every((link) => link.artistId.isNotEmpty), isTrue);
+    expect(
+      mine,
+      containsAll([
+        (fixture.alphaSong.id, SongArtistCreditRole.primary, true),
+        (fixture.betaSong.id, SongArtistCreditRole.coPrimary, true),
+        (fixture.zuluSong.id, SongArtistCreditRole.featured, false),
+        (fixture.zuluSong.id, SongArtistCreditRole.guest, false),
+      ]),
+    );
+    expect(
+      [
+        for (final link in links)
+          if (link.songId == fixture.alphaSong.id) link.role,
+      ],
+      isNot(contains(SongArtistCreditRole.guest)),
+      reason: 'the name-only guest is left out',
+    );
   });
 
   test('an edition without listed songs counts none', () async {

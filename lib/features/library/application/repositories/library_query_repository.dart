@@ -6,6 +6,7 @@ import '../models/library_track.dart';
 import '../models/library_track_order.dart';
 import '../models/project_collaborator.dart';
 import '../models/project_song_credit.dart';
+import '../models/song_artist_credit_link.dart';
 
 abstract interface class LibraryQueryRepository {
   Future<List<LibraryTrack>> getTracks({
@@ -47,6 +48,12 @@ abstract interface class AlbumEditionQueryRepository {
 /// its release (SN-50).
 abstract interface class ReleaseEditionQueryRepository {
   Future<List<LibraryReleaseEdition>> getReleaseEditions();
+}
+
+/// Every linked structured credit in the library, in one query, so
+/// per-artist catalogues can be built for many artists at once.
+abstract interface class SongArtistCreditLinkQueryRepository {
+  Future<List<SongArtistCreditLink>> getSongArtistCreditLinks();
 }
 
 /// Credited performers by project, in one query for the whole library.

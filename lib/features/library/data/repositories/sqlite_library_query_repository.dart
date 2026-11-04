@@ -8,6 +8,7 @@ import '../../application/models/library_track.dart';
 import '../../application/models/library_track_order.dart';
 import '../../application/models/project_collaborator.dart';
 import '../../application/models/project_song_credit.dart';
+import '../../application/models/song_artist_credit_link.dart';
 import '../../application/repositories/library_query_repository.dart';
 import '../daos/library_query_dao.dart';
 
@@ -16,6 +17,7 @@ class SqliteLibraryQueryRepository
         LibraryQueryRepository,
         AlbumEditionQueryRepository,
         ReleaseEditionQueryRepository,
+        SongArtistCreditLinkQueryRepository,
         StructuredArtistQueryRepository,
         ProjectCollaboratorQueryRepository,
         ProjectSongCreditQueryRepository,
@@ -93,6 +95,11 @@ class SqliteLibraryQueryRepository
   @override
   Future<List<LibraryAlbumEdition>> getAlbumEditions(String albumId) {
     return dao.findAlbumEditions(albumId);
+  }
+
+  @override
+  Future<List<SongArtistCreditLink>> getSongArtistCreditLinks() {
+    return dao.findSongArtistCreditLinks();
   }
 
   @override
