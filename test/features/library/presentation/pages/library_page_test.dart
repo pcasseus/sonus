@@ -77,7 +77,9 @@ void main() {
       expect(find.text('Try again'), findsOneWidget);
     });
 
-    testWidgets('renders artists in a two-column grid', (tester) async {
+    testWidgets('shows artists in the Film Reel, one centred at a time', (
+      tester,
+    ) async {
       final repository = FakeLibraryQueryRepository(
         artists: [
           createArtist(
@@ -88,7 +90,7 @@ void main() {
           ),
           createArtist(
             artistId: 'artist-2',
-            name: 'Beyonc\u00e9',
+            name: 'Beyoncé',
             albumCount: 8,
             songCount: 94,
           ),
@@ -109,56 +111,30 @@ void main() {
         find.byKey(const ValueKey<String>('app-destination-library')),
         findsOneWidget,
       );
-
       expect(
-        find.byKey(const PageStorageKey<String>('artists-grid')),
+        find.byKey(const ValueKey<String>('film-reel-pages')),
         findsOneWidget,
       );
+      expect(find.text('3 artists'), findsOneWidget);
 
+      // The first artist is centred; its counts are in the panels.
       expect(find.text('Taylor Swift'), findsOneWidget);
-      expect(find.text('Beyonc\u00e9'), findsOneWidget);
+      expect(find.text('12'), findsOneWidget);
+      expect(find.text('150'), findsOneWidget);
 
-      expect(
-        find.byKey(const ValueKey<String>('artist-album-count-artist-1')),
-        findsOneWidget,
-      );
-      expect(
-        find.byKey(const ValueKey<String>('artist-song-count-artist-1')),
-        findsOneWidget,
-      );
-      expect(
-        find.byKey(const ValueKey<String>('artist-album-count-artist-2')),
-        findsOneWidget,
-      );
-      expect(
-        find.byKey(const ValueKey<String>('artist-song-count-artist-2')),
-        findsOneWidget,
-      );
-
-      await tester.drag(find.byType(CustomScrollView), const Offset(0, -400));
+      await tester.tap(find.byKey(const ValueKey<String>('film-reel-next')));
       await tester.pumpAndSettle();
+      expect(find.text('94'), findsOneWidget);
 
+      await tester.tap(find.byKey(const ValueKey<String>('film-reel-next')));
+      await tester.pumpAndSettle();
       expect(find.text('SZA'), findsOneWidget);
-      expect(
-        find.byKey(const ValueKey<String>('artist-album-count-artist-3')),
-        findsOneWidget,
-      );
-      expect(
-        find.byKey(const ValueKey<String>('artist-song-count-artist-3')),
-        findsOneWidget,
-      );
-
-      final grid = tester.widget<SliverGrid>(
-        find.byKey(const PageStorageKey<String>('artists-grid')),
-      );
-
-      final delegate =
-          grid.gridDelegate as SliverGridDelegateWithFixedCrossAxisCount;
-
-      expect(delegate.crossAxisCount, 2);
+      expect(find.text('42'), findsOneWidget);
     });
 
-    testWidgets('exposes singular album and song stat labels', (tester) async {
+    testWidgets('exposes singular release and song stat labels', (
+      tester,
+    ) async {
       final repository = FakeLibraryQueryRepository(
         artists: [
           createArtist(
@@ -174,14 +150,10 @@ void main() {
 
       await tester.pumpAndSettle();
 
-      expect(
-        find.byKey(const ValueKey<String>('artist-album-count-artist-1')),
-        findsOneWidget,
-      );
-      expect(
-        find.byKey(const ValueKey<String>('artist-song-count-artist-1')),
-        findsOneWidget,
-      );
+      expect(find.text('Release'), findsOneWidget);
+      expect(find.text('Song'), findsOneWidget);
+      expect(find.bySemanticsLabel('1 release'), findsOneWidget);
+      expect(find.bySemanticsLabel('1 song'), findsOneWidget);
     });
 
     testWidgets('shows initials for artist cards', (tester) async {
@@ -262,15 +234,12 @@ void main() {
     testWidgets('keeps every performer on a multi-artist album visible', (
       tester,
     ) async {
-      await tester.binding.setSurfaceSize(const Size(800, 2400));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
-
       final repository = FakeLibraryQueryRepository(
         artists: [
           createArtist(artistId: 'cast', name: 'Fixture Cast'),
+          createArtist(artistId: 'guest', name: 'Fixture Guest'),
           createArtist(artistId: 'lead', name: 'Fixture Lead'),
           createArtist(artistId: 'rival', name: 'Fixture Rival'),
-          createArtist(artistId: 'guest', name: 'Fixture Guest'),
         ],
         albums: [createAlbum(albumId: 'soundtrack', artistId: 'cast')],
         tracks: [
@@ -284,20 +253,28 @@ void main() {
       await tester.pumpWidget(buildSubject(repository: repository));
       await tester.pumpAndSettle();
 
+      expect(find.text('4 artists'), findsOneWidget);
       for (final name in [
         'Fixture Cast',
+        'Fixture Guest',
         'Fixture Lead',
         'Fixture Rival',
-        'Fixture Guest',
       ]) {
+        expect(
+          find.byKey(const ValueKey<String>('film-reel-pages')),
+          findsOneWidget,
+        );
         expect(find.text(name), findsOneWidget, reason: name);
+        if (name != 'Fixture Rival') {
+          await tester.tap(
+            find.byKey(const ValueKey<String>('film-reel-next')),
+          );
+          await tester.pumpAndSettle();
+        }
       }
-      expect(find.text('4 artists'), findsOneWidget);
     });
 
-    // Regression (SN-48I emulator QA): large counts overflowed the card's
-    // stats row at 320dp with 2x text.
-    testWidgets('artist cards fit 320dp at 2x text with large counts', (
+    testWidgets('the reel fits 320dp at 2x text with large counts', (
       tester,
     ) async {
       await tester.binding.setSurfaceSize(const Size(320, 900));
@@ -331,10 +308,12 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(tester.takeException(), isNull);
+      // Large text moves the statistics under the reel instead of beside it.
       expect(
-        find.byKey(const ValueKey<String>('artist-song-count-artist-1')),
+        find.byKey(const ValueKey<String>('film-reel-stats-below')),
         findsOneWidget,
       );
+      expect(find.text('148'), findsOneWidget);
     });
 
     testWidgets('tapping an artist opens the artist profile', (tester) async {
