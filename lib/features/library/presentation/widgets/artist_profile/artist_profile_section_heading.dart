@@ -74,7 +74,13 @@ class ArtistProfileSectionHeading extends StatelessWidget {
             if (count != null)
               DecoratedBox(
                 decoration: BoxDecoration(
-                  color: tokens.colors.raisedSurface,
+                  // V1: tinted by the page's accent where one is given.
+                  color: accent != null && tokens.decoration.allowGradients
+                      ? Color.alphaBlend(
+                          accent.withValues(alpha: 0.30),
+                          tokens.colors.surface,
+                        )
+                      : tokens.colors.raisedSurface,
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Padding(

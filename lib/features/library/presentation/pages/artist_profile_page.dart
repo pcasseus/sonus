@@ -8,7 +8,7 @@ import 'package:provider/provider.dart';
 
 import '../../../../core/design/sonus_artwork_palette.dart';
 import '../../../../core/design/sonus_profile_colors.dart';
-import '../../../../core/design/widgets/sonus_glass_panel.dart';
+import '../../../../core/design/widgets/sonus_profile_surfaces.dart';
 import '../../../../core/design/widgets/sonus_profile_atmosphere_builder.dart';
 import '../../../../core/design/sonus_atmosphere_colors.dart';
 import '../../../../core/design/sonus_theme.dart';
@@ -385,8 +385,11 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
             ),
         ],
       ),
-      body: _ProfileBackground(
+      // V1: the artwork's colour and light behind the whole page, still
+      // while the content scrolls over it.
+      body: SonusProfileBackdrop(
         profile: profile,
+        baseKey: const ValueKey<String>('artist-profile-background'),
         child: controller == null
             ? const Center(child: Text('Loading artist...'))
             : AnimatedBuilder(
@@ -524,45 +527,74 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
                                     key: const ValueKey<String>(
                                       'artist-profile-top-tracks-glass',
                                     ),
-                                    _tracksList(
-                                      context,
-                                      controller,
-                                      userId,
-                                      atmosphere,
-                                      tracks: [
-                                        for (final entry in topTracks)
-                                          entry.track,
-                                      ],
-                                      keyPrefix: 'artist-top-track',
-                                      selection: _selection,
-                                      profileArtistId: artist.artistId,
-                                      onPlay: controller.playTopTrack,
-                                      streamCounts: {
-                                        for (final entry in topTracks)
-                                          entry.track.songId: entry.streamCount,
-                                      },
-                                      onGlass: true,
-                                    ),
-                                  ),
-                                  if (controller.rankedTracks.length >
-                                      topTracks.length)
-                                    Align(
-                                      alignment:
-                                          AlignmentDirectional.centerStart,
-                                      child: TextButton(
-                                        key: const ValueKey<String>(
-                                          'artist-profile-top-tracks-see-all',
-                                        ),
-                                        style: TextButton.styleFrom(
-                                          minimumSize: const Size(48, 48),
-                                        ),
-                                        onPressed: () => _openRankedTracks(
+                                    Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.stretch,
+                                      children: [
+                                        _tracksList(
+                                          context,
                                           controller,
                                           userId,
+                                          atmosphere,
+                                          tracks: [
+                                            for (final entry in topTracks)
+                                              entry.track,
+                                          ],
+                                          keyPrefix: 'artist-top-track',
+                                          selection: _selection,
+                                          profileArtistId: artist.artistId,
+                                          onPlay: controller.playTopTrack,
+                                          streamCounts: {
+                                            for (final entry in topTracks)
+                                              entry.track.songId:
+                                                  entry.streamCount,
+                                          },
+                                          onGlass: true,
                                         ),
-                                        child: const Text('See All'),
-                                      ),
+                                        // V1: the way to every streamed
+                                        // song closes the section, inside
+                                        // its glass.
+                                        if (controller.rankedTracks.length >
+                                            topTracks.length)
+                                          Padding(
+                                            padding: const EdgeInsets.fromLTRB(
+                                              4,
+                                              6,
+                                              4,
+                                              2,
+                                            ),
+                                            child: TextButton.icon(
+                                              key: const ValueKey<String>(
+                                                'artist-profile-top-tracks-see-all',
+                                              ),
+                                              style: TextButton.styleFrom(
+                                                minimumSize:
+                                                    const Size.fromHeight(48),
+                                                foregroundColor:
+                                                    profile.textPrimary,
+                                                backgroundColor: profile.accent
+                                                    .withValues(alpha: 0.10),
+                                                shape: RoundedRectangleBorder(
+                                                  borderRadius:
+                                                      BorderRadius.circular(16),
+                                                ),
+                                              ),
+                                              onPressed: () =>
+                                                  _openRankedTracks(
+                                                    controller,
+                                                    userId,
+                                                  ),
+                                              iconAlignment: IconAlignment.end,
+                                              icon: const Icon(
+                                                Icons.arrow_forward_rounded,
+                                                size: 18,
+                                              ),
+                                              label: const Text('See All'),
+                                            ),
+                                          ),
+                                      ],
                                     ),
+                                  ),
                                 ],
                               ),
                             for (final MapEntry(key: shelf, value: cards)
@@ -671,13 +703,13 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
     );
   }
 
-  /// A glass section (P1): the rows sit on translucent glass tinted by the
-  /// artwork, with a rim; flat and opaque where effects are off.
+  /// A glass section (P1, softened in V1): the rows sit on translucent
+  /// glass tinted by the artwork, with a faint rim and soft depth; flat and
+  /// opaque where effects are off.
   static Widget _glass(SonusProfileColors profile, Widget child, {Key? key}) {
-    return SonusGlassPanel(
+    return SonusSoftGlass(
       key: key,
-      base: profile.surface,
-      edge: profile.edge,
+      profile: profile,
       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
       // Ink from the rows shows on the glass, not under it.
       child: Material(type: MaterialType.transparency, child: child),
@@ -1686,35 +1718,6 @@ class _ArtistNotFound extends StatelessWidget {
           ],
         ),
       ),
-    );
-  }
-}
-
-/// The page behind the profile (P1): the artwork's colour at the top,
-/// fading toward the theme lower down. Flat where gradients are not
-/// allowed, when [SonusProfileColors] are untinted anyway.
-class _ProfileBackground extends StatelessWidget {
-  const _ProfileBackground({required this.profile, required this.child});
-
-  final SonusProfileColors profile;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      key: const ValueKey<String>('artist-profile-background'),
-      decoration: BoxDecoration(
-        color: profile.isTinted ? null : profile.background,
-        gradient: profile.isTinted
-            ? LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [profile.background, profile.backgroundDeep],
-                stops: const [0.25, 1],
-              )
-            : null,
-      ),
-      child: child,
     );
   }
 }

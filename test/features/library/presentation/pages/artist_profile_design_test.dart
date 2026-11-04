@@ -1043,8 +1043,9 @@ void main() {
           find
               .descendant(
                 of: section('artist-profile-top-tracks-glass'),
+                // V1: the profile's soft glass.
                 matching: find.byKey(
-                  const ValueKey<String>('sonus-glass-panel-surface'),
+                  const ValueKey<String>('sonus-soft-glass-surface'),
                 ),
               )
               .first,
@@ -1069,6 +1070,137 @@ void main() {
       expect(pageBackground(tester), colors.background);
       expect(background(tester).color, colors.background);
       expect(section('artist-profile-top-tracks-glass'), findsOneWidget);
+    });
+  });
+
+  // UI redesign V1: the artwork is the environment of the whole page.
+  group('V1 visual fidelity', () {
+    // As Sonus's palette extraction gives them for a dark theme.
+    const palettes = <String, (SonusArtworkColors, double)>{
+      'cool blue': (
+        SonusArtworkColors(
+          accent: Color(0xFFA8C8FF),
+          container: Color(0xFF1B3A63),
+        ),
+        213,
+      ),
+      'vivid pink': (
+        SonusArtworkColors(
+          accent: Color(0xFFFFB0CF),
+          container: Color(0xFF8A1F58),
+        ),
+        327,
+      ),
+      'warm orange': (
+        SonusArtworkColors(
+          accent: Color(0xFFFFB77C),
+          container: Color(0xFF7A3A00),
+        ),
+        28,
+      ),
+      'green': (
+        SonusArtworkColors(
+          accent: Color(0xFF8FD99A),
+          container: Color(0xFF1C5228),
+        ),
+        135,
+      ),
+    };
+
+    double hueDistance(double a, double b) {
+      final d = (a - b).abs() % 360;
+      return d > 180 ? 360 - d : d;
+    }
+
+    for (final MapEntry(key: name, value: (artwork, hue)) in palettes.entries) {
+      testWidgets('$name artwork: the page top and bottom are $name', (
+        tester,
+      ) async {
+        final (colors, decoration) = tokensFor(const SonusAppearanceSpec());
+        final (repository, plays) = catalogue({'a': 1});
+        await pump(
+          tester,
+          repository: repository,
+          plays: plays,
+          colours: {'/art/artist.png': artwork},
+        );
+
+        final profile = SonusProfileColors.resolve(
+          colors: colors,
+          decoration: decoration,
+          artwork: artwork,
+        );
+        expect(pageBackground(tester), profile.background);
+        for (final ground in [profile.background, profile.backgroundDeep]) {
+          final hsl = HSLColor.fromColor(ground);
+          expect(hueDistance(hsl.hue, hue), lessThan(30), reason: name);
+          expect(hsl.saturation, greaterThan(0.2), reason: 'not charcoal');
+        }
+        // The shuffle control takes the artwork's colours too.
+        final shuffle = tester.widget<IconButton>(
+          section('artist-profile-shuffle-button'),
+        );
+        expect(
+          shuffle.style!.backgroundColor!.resolve(const {}),
+          profile.surface.withValues(alpha: 0.55),
+        );
+      });
+    }
+
+    testWidgets('soft light pools sit behind the whole page', (tester) async {
+      final (repository, plays) = catalogue({'a': 1});
+      await pump(tester, repository: repository, plays: plays);
+
+      expect(section('sonus-profile-light-high'), findsOneWidget);
+      // Fixed behind the scrolling content: still there after scrolling.
+      await tester.drag(find.byType(Scrollable).first, const Offset(0, -600));
+      await tester.pumpAndSettle();
+      expect(section('sonus-profile-light-high'), findsOneWidget);
+    });
+
+    testWidgets('glass without a heavy outline', (tester) async {
+      final (repository, plays) = catalogue({'a': 2, 'b': 1});
+      await pump(tester, repository: repository, plays: plays);
+
+      final glass = tester.widget<DecoratedBox>(
+        find
+            .descendant(
+              of: section('artist-profile-top-tracks-glass'),
+              matching: section('sonus-soft-glass-surface'),
+            )
+            .first,
+      );
+      final box = glass.decoration as BoxDecoration;
+      final side = (box.border! as Border).top;
+      expect(side.width, lessThanOrEqualTo(1));
+      expect(side.color.a, lessThan(0.3), reason: 'barely there');
+      expect(box.boxShadow, isNull, reason: 'no shadow through the glass');
+      expect(box.gradient, isNotNull, reason: 'translucent');
+    });
+
+    testWidgets('the banner photo fades into the page, with no band', (
+      tester,
+    ) async {
+      final (repository, plays) = catalogue({'a': 1});
+      await pump(tester, repository: repository, plays: plays);
+
+      expect(section('artist-profile-banner-fade'), findsOneWidget);
+    });
+
+    testWidgets('flat settings: no light pools, no fade mask', (tester) async {
+      final (repository, plays) = catalogue({'a': 1});
+      await pump(
+        tester,
+        repository: repository,
+        plays: plays,
+        spec: const SonusAppearanceSpec(
+          decoration: SonusDecorationIntensity.expressive,
+          lowEffects: true,
+        ),
+      );
+
+      expect(section('sonus-profile-light-high'), findsNothing);
+      expect(section('artist-profile-banner-fade'), findsNothing);
     });
   });
 

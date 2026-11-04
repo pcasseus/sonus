@@ -18,9 +18,9 @@ class ArtistProfilePlaybackControls extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final radius = BorderRadius.circular(
-      SonusTheme.of(context).metrics.controlRadius,
-    );
+    final tokens = SonusTheme.of(context);
+    final radius = BorderRadius.circular(tokens.metrics.controlRadius);
+    final tinted = atmosphere.isTinted && tokens.decoration.allowGradients;
 
     return Row(
       children: [
@@ -29,6 +29,28 @@ class ArtistProfilePlaybackControls extends StatelessWidget {
           tooltip: controller.isShuffleEnabled ? 'Shuffle on' : 'Shuffle off',
           isSelected: controller.isShuffleEnabled,
           constraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+          // V1: artwork-tinted glass with an accent rim, lit when on.
+          style: tinted
+              ? IconButton.styleFrom(
+                  side: BorderSide(
+                    color: atmosphere.accent.withValues(alpha: 0.45),
+                  ),
+                  shape: RoundedRectangleBorder(borderRadius: radius),
+                ).copyWith(
+                  backgroundColor: WidgetStateProperty.resolveWith(
+                    (states) => states.contains(WidgetState.selected)
+                        ? atmosphere.accent
+                        : atmosphere.surface.withValues(alpha: 0.55),
+                  ),
+                  foregroundColor: WidgetStateProperty.resolveWith(
+                    (states) => states.contains(WidgetState.disabled)
+                        ? tokens.colors.textSecondary
+                        : states.contains(WidgetState.selected)
+                        ? atmosphere.onAccent
+                        : tokens.colors.textPrimary,
+                  ),
+                )
+              : null,
           onPressed: controller.hasPlayableTracks
               ? () {
                   unawaited(controller.toggleShuffle());

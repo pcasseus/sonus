@@ -160,14 +160,28 @@ void main() {
               'background': (colors.background, profile.background),
               'lower page': (colors.background, profile.backgroundDeep),
               'surface': (colors.surface, profile.surface),
+              // V1: the soft glass (SonusSoftGlass) over the page, with
+              // its highlight, and the page under its brightest light.
               'glass': (
-                colors.surface,
+                colors.background,
                 Color.alphaBlend(
-                  Color.lerp(
-                    profile.surface,
-                    Colors.white,
-                    0.10,
-                  )!.withValues(alpha: 0.74),
+                  Colors.white.withValues(
+                    alpha: SonusProfileColors.glassHighlight,
+                  ),
+                  Color.alphaBlend(
+                    profile.surface.withValues(
+                      alpha: SonusProfileColors.glassAlpha,
+                    ),
+                    profile.backgroundDeep,
+                  ),
+                ),
+              ),
+              'ambient light': (
+                colors.background,
+                Color.alphaBlend(
+                  profile.light.withValues(
+                    alpha: SonusProfileColors.ambientAlpha,
+                  ),
                   profile.background,
                 ),
               ),

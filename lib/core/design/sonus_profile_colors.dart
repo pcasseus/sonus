@@ -14,8 +14,9 @@ import 'sonus_tokens.dart';
 ///
 /// The artwork's colours are extracted for the theme's brightness, so a
 /// dark theme gets deep tones and a light theme pale ones. The page runs
-/// from [background] at the top to [backgroundDeep], closer to the theme,
-/// lower down. Glass sections sit on [surface] with an [edge] rim.
+/// from [background] at the top to [backgroundDeep] lower down, still clearly the artwork's colour (V1: the atmosphere carries
+/// the whole page), lit by soft pools of [light]. Glass sections sit on
+/// [surface], translucent, with a faint [edge].
 ///
 /// Accessibility comes first:
 /// - Where gradients are not allowed (Decoration Off, High contrast, Low
@@ -33,6 +34,7 @@ class SonusProfileColors {
     required this.surface,
     required this.edge,
     required this.glow,
+    required this.light,
     required this.accent,
     required this.onAccent,
     required this.textPrimary,
@@ -67,12 +69,13 @@ class SonusProfileColors {
     final surface = tinted
         ? _tint(colors.surface, artwork, strength * surfaceShare)
         : colors.surface;
+    final light = tinted ? _light(artwork) : const Color(0x00000000);
 
     final accent = _accent(colors, decoration, tinted ? artwork : null, [
       background,
       backgroundDeep,
       surface,
-      ..._glassGrounds(surface, background, backgroundDeep),
+      ..._glassGrounds(surface, background, backgroundDeep, light),
     ]);
     final onAccent = accent == colors.accentPrimary
         ? colors.onAccentPrimary
@@ -88,6 +91,7 @@ class SonusProfileColors {
       glow: decoration.allowGlow && tinted
           ? accent.withValues(alpha: 0.30)
           : const Color(0x00000000),
+      light: light,
       accent: accent,
       onAccent: onAccent,
       textPrimary: colors.textPrimary,
@@ -112,6 +116,11 @@ class SonusProfileColors {
   /// allowed or there is no tint.
   final Color glow;
 
+  /// The colour of the page's soft ambient light (SonusProfileBackdrop),
+  /// between the artwork's deep tone and its accent; transparent when
+  /// untinted.
+  final Color light;
+
   final Color accent;
   final Color onAccent;
 
@@ -135,41 +144,58 @@ class SonusProfileColors {
     isTinted: isTinted,
   );
 
-  /// How much of the tint reaches the bottom of the page, and the glass.
-  static const double deepShare = 0.45;
+  /// How much of the tint reaches the bottom of the page, and the glass:
+  /// most of it, so the page never turns generic charcoal (V1).
+  static const double deepShare = 0.80;
   static const double surfaceShare = 0.85;
+
+  /// How opaque the soft glass is (SonusSoftGlass), and its top highlight.
+  static const double glassAlpha = 0.55;
+  static const double glassHighlight = 0.07;
+
+  /// The strongest the ambient light gets anywhere on the page.
+  static const double ambientAlpha = 0.30;
 
   /// Tint strength for each Decoration level: enough for the artwork's
   /// colour to carry the page.
   static double strengthFor(SonusDecorationIntensity intensity) =>
       switch (intensity) {
         SonusDecorationIntensity.off => 0,
-        SonusDecorationIntensity.subtle => 0.22,
-        SonusDecorationIntensity.standard => 0.38,
-        SonusDecorationIntensity.expressive => 0.52,
+        SonusDecorationIntensity.subtle => 0.30,
+        SonusDecorationIntensity.standard => 0.52,
+        SonusDecorationIntensity.expressive => 0.66,
       };
 
   static Color _tint(Color base, SonusArtworkColors artwork, double amount) =>
       Color.lerp(base, artwork.container, amount)!;
 
-  /// What text on a glass section actually sits on: SonusGlassPanel's
-  /// light top-left and clearer bottom-right, over the page.
+  static Color _light(SonusArtworkColors artwork) =>
+      Color.lerp(artwork.container, artwork.accent, 0.5)!;
+
+  /// What text actually sits on: the soft glass (SonusSoftGlass) over the
+  /// page, with and without its highlight, and the page where the ambient
+  /// light is strongest.
   static List<Color> _glassGrounds(
     Color surface,
     Color background,
     Color backgroundDeep,
-  ) => [
-    Color.alphaBlend(
-      Color.lerp(
-        surface,
-        const Color(0xFFFFFFFF),
-        0.10,
-      )!.withValues(alpha: 0.74),
-      background,
-    ),
-    Color.alphaBlend(surface.withValues(alpha: 0.56), backgroundDeep),
-    Color.alphaBlend(surface.withValues(alpha: 0.56), background),
-  ];
+    Color light,
+  ) {
+    final glass = [
+      for (final page in [background, backgroundDeep])
+        Color.alphaBlend(surface.withValues(alpha: glassAlpha), page),
+    ];
+    return [
+      ...glass,
+      for (final ground in glass)
+        Color.alphaBlend(
+          const Color(0xFFFFFFFF).withValues(alpha: glassHighlight),
+          ground,
+        ),
+      for (final page in [background, backgroundDeep])
+        Color.alphaBlend(light.withValues(alpha: ambientAlpha), page),
+    ];
+  }
 
   static bool _readable(
     SonusColors colors,
@@ -183,8 +209,13 @@ class SonusProfileColors {
       (colors.background, background),
       (colors.background, deep),
       (colors.surface, surface),
-      for (final glass in _glassGrounds(surface, background, deep))
-        (colors.surface, glass),
+      for (final glass in _glassGrounds(
+        surface,
+        background,
+        deep,
+        _light(artwork),
+      ))
+        (colors.background, glass),
     ];
     for (final text in [colors.textPrimary, colors.textSecondary]) {
       for (final (themeGround, tinted) in grounds) {
@@ -236,6 +267,7 @@ class SonusProfileColors {
       surface: Color.lerp(a.surface, b.surface, t)!,
       edge: Color.lerp(a.edge, b.edge, t)!,
       glow: Color.lerp(a.glow, b.glow, t)!,
+      light: Color.lerp(a.light, b.light, t)!,
       accent: Color.lerp(a.accent, b.accent, t)!,
       // Switches rather than blends, so it never passes through a
       // low-contrast midpoint.
@@ -254,6 +286,7 @@ class SonusProfileColors {
       other.surface == surface &&
       other.edge == edge &&
       other.glow == glow &&
+      other.light == light &&
       other.accent == accent &&
       other.onAccent == onAccent &&
       other.textPrimary == textPrimary &&
@@ -267,6 +300,7 @@ class SonusProfileColors {
     surface,
     edge,
     glow,
+    light,
     accent,
     onAccent,
     textPrimary,
