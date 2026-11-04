@@ -286,15 +286,17 @@ void main() {
     expect(find.text('AL'), findsOneWidget);
   });
 
-  testWidgets('the Roster button is in place and waits for the Roster', (
+  testWidgets('the Roster and search buttons are in the header', (
     tester,
   ) async {
     final artists = [ada];
     await pump(tester, artists: artists, stats: statsFor(artists));
 
-    final button = tester.widget<IconButton>(byKey('library-roster-button'));
-    expect(button.onPressed, isNull, reason: 'the Roster is ticket L2');
-    expect(button.tooltip, 'Artist Roster');
+    final roster = tester.widget<IconButton>(byKey('library-roster-button'));
+    expect(roster.onPressed, isNotNull);
+    expect(roster.tooltip, 'Artist Roster');
+    final search = tester.widget<IconButton>(byKey('library-search-button'));
+    expect(search.tooltip, 'Search artists');
   });
 
   testWidgets('a single artist has no chevrons to move with', (tester) async {

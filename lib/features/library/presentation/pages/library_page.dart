@@ -15,8 +15,10 @@ import '../../application/services/library_organization_service.dart';
 import '../controllers/artist_reel_statistics_controller.dart';
 import '../controllers/library_artists_controller.dart';
 import '../services/artist_library_statistics_service.dart';
+import '../models/artist_library_statistics.dart';
 import '../widgets/film_reel/artist_film_reel.dart';
 import 'artist_profile_page.dart';
+import 'artist_roster_page.dart';
 
 class LibraryPage extends StatefulWidget {
   const LibraryPage({super.key, this.changes});
@@ -43,6 +45,9 @@ class _LibraryPageState extends State<LibraryPage> {
   String? _selectedArtistId;
 
   static const _selectionKey = 'library-film-reel-artist';
+
+  /// The Roster's sort, kept between visits.
+  ArtistStatisticsSort _rosterSort = ArtistStatisticsSort.qualifiedStreams;
 
   static T? _optional<T extends Object>(BuildContext context) {
     try {
@@ -113,6 +118,29 @@ class _LibraryPageState extends State<LibraryPage> {
     )?.writeState(context, artistId, identifier: _selectionKey);
   }
 
+  /// Opens the Artist Roster (L2); the chosen artist is then centred in
+  /// the Film Reel. Closing it without choosing changes nothing.
+  Future<void> _openRoster({bool search = false}) async {
+    final controller = _controller;
+    final statistics = _statistics;
+    if (controller == null || statistics == null) return;
+    final artists = controller.visibleArtists;
+    if (artists.isEmpty) return;
+
+    final chosen = await ArtistRosterPage.open(
+      context,
+      artists: artists,
+      statistics: statistics.snapshot,
+      statisticsLoaded: statistics.hasLoaded,
+      initialArtistId: _selectedArtistId ?? artists.first.artistId,
+      sort: _rosterSort,
+      focusSearch: search,
+      onSortChanged: (sort) => _rosterSort = sort,
+    );
+    if (chosen == null || !mounted) return;
+    setState(() => _select(chosen));
+  }
+
   void _openArtist(LibraryArtist artist) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
@@ -181,6 +209,8 @@ class _LibraryPageState extends State<LibraryPage> {
             selectedArtistId: _selectedArtistId,
             onSelected: _select,
             onOpenArtist: _openArtist,
+            onOpenRoster: () => unawaited(_openRoster()),
+            onOpenSearch: () => unawaited(_openRoster(search: true)),
             onRefresh: _refresh,
           );
         },

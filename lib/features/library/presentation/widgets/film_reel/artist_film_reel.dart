@@ -38,6 +38,7 @@ class ArtistFilmReel extends StatefulWidget {
     required this.onOpenArtist,
     this.selectedArtistId,
     this.onOpenRoster,
+    this.onOpenSearch,
     this.onRefresh,
     this.artworkPalette,
   });
@@ -62,9 +63,11 @@ class ArtistFilmReel extends StatefulWidget {
 
   final ValueChanged<LibraryArtist> onOpenArtist;
 
-  /// Opens the Artist Roster (L2); the button is shown disabled until
-  /// there is one.
+  /// Opens the Artist Roster (L2); the button is disabled without it.
   final VoidCallback? onOpenRoster;
+
+  /// Opens the Roster's artist search (D11); no search button without it.
+  final VoidCallback? onOpenSearch;
 
   final Future<void> Function()? onRefresh;
 
@@ -212,6 +215,7 @@ class _ArtistFilmReelState extends State<ArtistFilmReel> {
                   countLabel: widget.countLabel,
                   colors: colors,
                   onOpenRoster: widget.onOpenRoster,
+                  onOpenSearch: widget.onOpenSearch,
                 ),
                 Expanded(child: _body(context, colors)),
               ],
@@ -516,11 +520,13 @@ class _ReelHeader extends StatelessWidget {
     required this.countLabel,
     required this.colors,
     required this.onOpenRoster,
+    required this.onOpenSearch,
   });
 
   final String countLabel;
   final SonusCinematicColors colors;
   final VoidCallback? onOpenRoster;
+  final VoidCallback? onOpenSearch;
 
   @override
   Widget build(BuildContext context) {
@@ -556,6 +562,15 @@ class _ReelHeader extends StatelessWidget {
               ],
             ),
           ),
+          if (onOpenSearch != null)
+            IconButton(
+              key: const ValueKey<String>('library-search-button'),
+              tooltip: 'Search artists',
+              onPressed: onOpenSearch,
+              color: colors.textPrimary,
+              icon: const Icon(Icons.search_rounded),
+            ),
+          const SizedBox(width: 4),
           Opacity(
             opacity: enabled ? 1 : 0.5,
             child: DecoratedBox(
