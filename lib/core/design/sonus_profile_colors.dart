@@ -1,4 +1,5 @@
 import 'package:flutter/animation.dart';
+import 'package:flutter/painting.dart' show HSLColor;
 import 'package:flutter/foundation.dart';
 
 import 'sonus_artwork_palette.dart';
@@ -45,6 +46,26 @@ class SonusProfileColors {
   /// Resolves the profile colours for [artwork] (extracted for the theme's
   /// brightness) on the theme [colors] under [decoration].
   factory SonusProfileColors.resolve({
+    required SonusColors colors,
+    required SonusDecorationTokens decoration,
+    SonusArtworkColors? artwork,
+    SonusArtworkTone tone = SonusArtworkTone.standard,
+  }) {
+    // The artwork's hue at a tone the page can carry (see [toneFor]).
+    return SonusProfileColors._resolveToned(
+      colors: colors,
+      decoration: decoration,
+      artwork: artwork == null
+          ? null
+          : toneFor(
+              artwork,
+              dark: colors.background.computeLuminance() < 0.5,
+              tone: tone,
+            ),
+    );
+  }
+
+  factory SonusProfileColors._resolveToned({
     required SonusColors colors,
     required SonusDecorationTokens decoration,
     SonusArtworkColors? artwork,
@@ -168,6 +189,71 @@ class SonusProfileColors {
 
   static Color _tint(Color base, SonusArtworkColors artwork, double amount) =>
       Color.lerp(base, artwork.container, amount)!;
+
+  /// The artwork's colours as the page uses them (device audit, V2
+  /// follow-up). Material's extraction keeps the artwork's own tone, so
+  /// bright artwork gives a light "container" (pale blue, orange, yellow).
+  /// Tinting a dark page toward a light colour broke text contrast at once,
+  /// and the contrast guard then removed the tint entirely: the Madison
+  /// Beer, locket, Zara Larsson and Midnight Sun pages came out plain
+  /// charcoal. The page now tints toward the artwork's hue at a fixed,
+  /// readable luminance (deep for dark themes, pale for light ones), which
+  /// treats every hue alike, yellow included. A colourless accent (white
+  /// or grey) takes the artwork's hue instead. The contrast guard stays.
+  @visibleForTesting
+  static SonusArtworkColors toneFor(
+    SonusArtworkColors artwork, {
+    required bool dark,
+    SonusArtworkTone tone = SonusArtworkTone.standard,
+  }) {
+    final container = _atLuminance(
+      artwork.container,
+      dark ? tone.darkTintLuminance : tone.lightTintLuminance,
+      minSaturation: tone.minTintSaturation,
+      maxSaturation: tone.maxTintSaturation,
+    );
+    // A colourless accent (white, grey) takes the artwork's hue, but only
+    // when the artwork has one: near-white artwork keeps its own accent.
+    final colourless = tone.colourlessAccentSaturation;
+    final accent =
+        HSLColor.fromColor(artwork.accent).saturation < colourless &&
+            HSLColor.fromColor(artwork.container).saturation >= colourless
+        ? _atLuminance(
+            artwork.container,
+            dark ? tone.darkAccentLuminance : tone.lightAccentLuminance,
+            minSaturation: tone.minAccentSaturation,
+            maxSaturation: tone.maxAccentSaturation,
+          )
+        : artwork.accent;
+    return SonusArtworkColors(accent: accent, container: container);
+  }
+
+  /// [colour]'s hue at [luminance], its saturation kept within bounds:
+  /// never above [maxSaturation], so neon stays wearable, and only raised
+  /// to [minSaturation] where that is asked for (the page tint asks for
+  /// none, so near-grey artwork stays quiet).
+  static Color _atLuminance(
+    Color colour,
+    double luminance, {
+    required double minSaturation,
+    required double maxSaturation,
+  }) {
+    final hsl = HSLColor.fromColor(colour);
+    final base = hsl.withSaturation(
+      hsl.saturation.clamp(minSaturation, maxSaturation),
+    );
+    var low = 0.0;
+    var high = 1.0;
+    for (var i = 0; i < 24; i++) {
+      final mid = (low + high) / 2;
+      if (base.withLightness(mid).toColor().computeLuminance() < luminance) {
+        low = mid;
+      } else {
+        high = mid;
+      }
+    }
+    return base.withLightness(low).toColor();
+  }
 
   static Color _light(SonusArtworkColors artwork) =>
       Color.lerp(artwork.container, artwork.accent, 0.5)!;
@@ -314,4 +400,56 @@ class SonusProfileColorsTween extends Tween<SonusProfileColors> {
 
   @override
   SonusProfileColors lerp(double t) => SonusProfileColors.lerp(begin!, end!, t);
+}
+
+/// How the profile colours carry an artwork's hue (device-audit fix): the
+/// luminance the page is tinted toward, and the saturation bounds that keep
+/// near-grey artwork quiet and neon wearable. [standard] is today's single
+/// setting; Sonus Themes 2.0 can offer others (a theme's personality, or a
+/// reactivity mode) without changing the resolver. The contrast guard in
+/// [SonusProfileColors.resolve] applies to every tone.
+@immutable
+class SonusArtworkTone {
+  const SonusArtworkTone({
+    required this.darkTintLuminance,
+    required this.lightTintLuminance,
+    required this.minTintSaturation,
+    required this.maxTintSaturation,
+    required this.darkAccentLuminance,
+    required this.lightAccentLuminance,
+    required this.minAccentSaturation,
+    required this.maxAccentSaturation,
+    required this.colourlessAccentSaturation,
+  });
+
+  static const SonusArtworkTone standard = SonusArtworkTone(
+    darkTintLuminance: 0.045,
+    lightTintLuminance: 0.75,
+    minTintSaturation: 0,
+    maxTintSaturation: 0.80,
+    darkAccentLuminance: 0.45,
+    lightAccentLuminance: 0.12,
+    minAccentSaturation: 0.50,
+    maxAccentSaturation: 0.90,
+    colourlessAccentSaturation: 0.20,
+  );
+
+  /// Luminance the page is tinted toward, on dark and on light themes.
+  final double darkTintLuminance;
+  final double lightTintLuminance;
+
+  /// Saturation bounds of the tint; the minimum is 0 by default, so the
+  /// tint is never more colourful than the artwork.
+  final double minTintSaturation;
+  final double maxTintSaturation;
+
+  /// Luminance and saturation bounds of an accent made from the artwork's
+  /// hue, when its own accent is colourless.
+  final double darkAccentLuminance;
+  final double lightAccentLuminance;
+  final double minAccentSaturation;
+  final double maxAccentSaturation;
+
+  /// Below this saturation an extracted accent counts as colourless.
+  final double colourlessAccentSaturation;
 }
