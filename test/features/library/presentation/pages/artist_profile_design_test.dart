@@ -383,10 +383,12 @@ void main() {
             albumId: 'their-album',
             albumTitle: 'Their Album',
           ),
+          // A different release with the same title: C1 groups by album
+          // id, so both stay plain rows that name their release.
           base.createTrack(
             songId: 'soundtrack',
             title: 'Soundtrack Song',
-            albumId: 'their-album',
+            albumId: 'their-other-album',
             albumTitle: 'Their Album',
           ),
         ],

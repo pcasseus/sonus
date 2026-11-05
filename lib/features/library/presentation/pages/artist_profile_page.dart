@@ -657,6 +657,7 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
                                       profileArtistId: artist.artistId,
                                       onPlay: controller.playCollaboration,
                                       onGlass: true,
+                                      groupByAlbum: true,
                                     ),
                                   ),
                                 ],
@@ -932,9 +933,11 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
     Future<void> Function(LibraryTrack track)? onPlay,
     TrackSelectionController? selection,
     bool onGlass = false,
+    bool groupByAlbum = false,
   }) {
     return ArtistProfileTracksList(
       tracks: tracks,
+      groupByAlbum: groupByAlbum,
       selection: selection,
       profileArtistId: profileArtistId,
       keyPrefix: keyPrefix,
