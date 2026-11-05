@@ -1,11 +1,14 @@
 // UI redesign L2 and the Roster-first Library: the Artist Roster is the
 // Library's default screen, through the real LibraryPage.
+import 'dart:async';
 import 'dart:ui' show Tristate;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter/rendering.dart';
 import 'package:sonus_next/features/player/application/controllers/playback_coordinator.dart';
+import 'package:sonus_next/features/player/domain/models/playback_state.dart';
+import 'package:sonus_next/features/player/domain/services/playback_engine.dart';
 import 'package:sonus_next/features/player/presentation/controllers/playback_state_controller.dart';
 import 'package:sonus_next/features/shell/presentation/widgets/playback_host.dart';
 import 'package:provider/provider.dart';
@@ -354,10 +357,14 @@ void main() {
     double ratio = s26UltraRatio,
     double textScale = 1,
     Map<String, int>? ranks,
+    bool withTrack = true,
   }) async {
     setDevice(tester, size: size, ratio: ratio);
     final list = artists ?? roster(60);
-    final engine = QueuedSongEngine();
+    // Without a track there is no mini-player: the Library gets its height.
+    final PlaybackEngine engine = withTrack
+        ? QueuedSongEngine()
+        : _NothingQueuedEngine();
     final coordinator = PlaybackCoordinator(engine: engine);
     final playback = PlaybackStateController(coordinator: coordinator);
     addTearDown(engine.dispose);
@@ -463,6 +470,51 @@ void main() {
   // controls, the featured artist and two rows of portraits.
   group('in the Library tab (Galaxy S26 Ultra, Option C)', () {
     setUpAll(loadRealRoboto);
+
+    // Device regression (b0fc319 install): after a launch that restored no
+    // queue there is no mini-player, the Library is 70dp taller, and the
+    // featured picture grew taller than the approved V3 proportions. The
+    // picture and the portraits keep their approved size either way.
+    testWidgets('the featured picture and portraits keep their approved size '
+        'with or without the mini-player', (tester) async {
+      for (final size in const [s26UltraSize, Size(412, 915), Size(360, 780)]) {
+        await pumpInShell(tester, size: size);
+        expect(byKey('playback-host-bar'), findsOneWidget);
+        final compact = byKey('roster-compact').evaluate().isNotEmpty;
+        final frame = tester.getRect(byKey('roster-featured-frame'));
+        final portrait = tester.getSize(byKey('roster-featured-portrait'));
+        final tile = tester.getSize(byKey('roster-tile-artist-0'));
+
+        await pumpInShell(tester, size: size, withTrack: false);
+        expect(byKey('playback-host-bar'), findsNothing);
+        expect(
+          byKey('roster-compact').evaluate().isNotEmpty,
+          compact,
+          reason: '$size: the same layout',
+        );
+        expect(
+          tester.getRect(byKey('roster-featured-frame')),
+          frame,
+          reason: '$size: featured picture, size and place',
+        );
+        expect(
+          tester.getSize(byKey('roster-featured-portrait')),
+          portrait,
+          reason: '$size: featured portrait',
+        );
+        expect(
+          tester.getSize(byKey('roster-tile-artist-0')),
+          tile,
+          reason: '$size: grid portraits',
+        );
+        expect(tester.takeException(), isNull);
+      }
+      // The approved S26 Ultra picture: near-square, as V3 shipped.
+      await pumpInShell(tester, withTrack: false);
+      final approved = tester.getSize(byKey('roster-featured-frame'));
+      expect(approved.width, closeTo(182, 0.5));
+      expect(approved.height, closeTo(186.8, 0.5));
+    });
 
     testWidgets('384 x 832: the Sonus bar and mini-player stay; controls, '
         'featured artist, 5 x 2 portraits and SELECT ARTIST all fit', (
@@ -1114,4 +1166,25 @@ void main() {
       'Recently Added',
     ]);
   });
+}
+
+/// Nothing loaded: no mini-player, as after a launch that restored no
+/// queue.
+class _NothingQueuedEngine implements PlaybackEngine {
+  final StreamController<PlaybackState> _states =
+      StreamController<PlaybackState>.broadcast();
+
+  @override
+  Stream<PlaybackState> get states => _states.stream;
+
+  @override
+  PlaybackState get currentState => const PlaybackState();
+
+  @override
+  Future<void> dispose() async {
+    if (!_states.isClosed) await _states.close();
+  }
+
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

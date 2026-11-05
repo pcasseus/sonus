@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 
@@ -99,6 +101,7 @@ class SonusMiniPlayer extends StatelessWidget {
   /// Bar height at normal text sizes.
   static const double height = 64;
   static const double _margin = 8;
+  static const double _topMargin = 6;
 
   /// Bar width from which Queue is shown beside the transport controls.
   static const double fullControlsWidth = 380;
@@ -115,6 +118,22 @@ class SonusMiniPlayer extends StatelessWidget {
     return text > height ? text : height;
   }
 
+  /// How much taller the bottom of the screen is while the bar shows than
+  /// without it: its top margin and its own height, plus any part of its
+  /// bottom margin the system's bottom inset does not already cover. Pages
+  /// that size themselves from the height left (the Artist Roster) use it
+  /// to keep one layout whether or not something is loaded.
+  static double addedHeight(BuildContext context) {
+    // The window's own bottom inset: pages below the playback host see it
+    // removed from their MediaQuery, so it is read from the view itself.
+    final view = View.of(context);
+    final systemBottom =
+        math.max(view.padding.bottom, view.viewPadding.bottom) /
+        view.devicePixelRatio;
+    final bottomMargin = _margin > systemBottom ? _margin - systemBottom : 0.0;
+    return _topMargin + barHeight(context) + bottomMargin;
+  }
+
   /// Space a page should leave at its bottom so the bar never covers it.
   static double reservedHeight(BuildContext context) =>
       barHeight(context) + _margin * 2 + MediaQuery.paddingOf(context).bottom;
@@ -128,7 +147,7 @@ class SonusMiniPlayer extends StatelessWidget {
 
     return SafeArea(
       top: false,
-      minimum: const EdgeInsets.fromLTRB(_margin, 6, _margin, _margin),
+      minimum: const EdgeInsets.fromLTRB(_margin, _topMargin, _margin, _margin),
       child: Semantics(
         container: true,
         label: 'Now playing',

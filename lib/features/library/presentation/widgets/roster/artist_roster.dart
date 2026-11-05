@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart' show OverflowBoxFit;
+import 'package:provider/provider.dart';
 
 import '../../../../../core/design/sonus_artwork_palette.dart';
 import '../../../../../core/design/sonus_cinematic_colors.dart';
@@ -13,7 +14,9 @@ import '../../../../../core/design/widgets/sonus_artwork_image.dart';
 import '../../../../../core/design/widgets/sonus_framed_artwork.dart';
 import '../../../../../core/design/widgets/sonus_cinematic_atmosphere_builder.dart';
 import '../../../../../core/design/widgets/sonus_glass_panel.dart';
+import '../../../../../core/design/widgets/playback/sonus_mini_player.dart';
 import '../../../application/models/library_artist.dart';
+import '../../../../player/presentation/controllers/playback_state_controller.dart';
 import '../../models/alphabet_index.dart';
 import '../../models/artist_library_statistics.dart';
 import '../../models/artist_roster_view.dart';
@@ -301,7 +304,7 @@ class _ArtistRosterState extends State<ArtistRoster> {
               bottom: false,
               child: Column(
                 children: [
-                  Expanded(child: _body(colors)),
+                  Expanded(child: _body(colors, _miniPlayerAllowance(context))),
                   _SelectButton(colors: colors, onPressed: _openPreview),
                 ],
               ),
@@ -329,11 +332,36 @@ class _ArtistRosterState extends State<ArtistRoster> {
   /// so group and cast photographs fill more of their frame).
   static const double artworkShare = 0.52;
 
-  Widget _body(SonusCinematicColors colors) {
+  /// The height the mini-player would take when nothing is loaded and it
+  /// is hidden; 0 while it shows, or outside the app's playback scope.
+  ///
+  /// Device regression (b0fc319 install): the Roster sizes the featured
+  /// picture from the height left, so without the mini-player the picture
+  /// grew 70dp taller than the approved V3 proportions. Reserving the bar's
+  /// height keeps the approved layout; the spare height goes to the
+  /// portrait grid, which centres its rows.
+  double _miniPlayerAllowance(BuildContext context) {
+    final bool shown;
+    try {
+      shown = context.select<PlaybackStateController, bool>(
+        (controller) => controller.state.queue.currentTrack != null,
+      );
+    } on ProviderNotFoundException {
+      return 0;
+    }
+    return shown ? 0 : SonusMiniPlayer.addedHeight(context);
+  }
+
+  Widget _body(SonusCinematicColors colors, double miniPlayerAllowance) {
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
-        final height = constraints.maxHeight;
+        // Laid out as if the mini-player were there (see
+        // [_miniPlayerAllowance]); the grid takes any spare height.
+        final height = (constraints.maxHeight - miniPlayerAllowance).clamp(
+          0.0,
+          constraints.maxHeight,
+        );
         final textScale = MediaQuery.textScalerOf(context).scale(10) / 10;
         final columns = width >= 600 ? 7 : (width >= 360 ? 5 : 4);
         const gap = 8.0;
