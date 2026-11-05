@@ -291,7 +291,8 @@ class LibraryIntegrityService {
               severity: HealthSeverity.warning,
               summary:
                   '${_count(removable.length, 'artist')} no longer used '
-                  'anywhere.',
+                  'anywhere. Review them in Settings › Library & Imports › '
+                  'Artists.',
               entityIds: List.unmodifiable(removable),
             ),
     ];

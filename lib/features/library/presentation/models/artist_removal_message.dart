@@ -30,6 +30,21 @@ String _reasonFor(ArtistReference reference) => switch (reference) {
   ArtistReference.pendingCloudWrite => 'changes still syncing to the cloud',
 };
 
+/// Why Sonus keeps an artist that cannot be removed, for the Artists page
+/// (A2). Same reasons, in the same order, as [artistRemovalBlockedMessage].
+String artistKeptMessage(Set<ArtistReference> references) {
+  if (references.isEmpty) {
+    return 'Nothing in Sonus refers to this artist.';
+  }
+
+  final reasons = [
+    for (final reference in ArtistReference.values)
+      if (references.contains(reference)) _reasonFor(reference),
+  ];
+
+  return 'Sonus keeps this artist because it still has ${_joined(reasons)}.';
+}
+
 String _joined(List<String> items) => switch (items.length) {
   1 => items.single,
   2 => '${items.first} and ${items.last}',

@@ -19,6 +19,7 @@ import '../../../library/presentation/widgets/library_view_switch.dart';
 import '../../application/controllers/library_overview_controller.dart';
 import '../../application/services/library_overview_service.dart';
 import '../widgets/settings/settings_section.dart';
+import 'artists_settings_page.dart';
 import 'blacklisted_songs_page.dart';
 import 'unavailable_songs_page.dart';
 
@@ -186,6 +187,15 @@ class _LibrarySettingsPageState extends State<LibrarySettingsPage> {
                   'Check albums, editions, credits and files. Nothing is '
                   'changed unless you choose to.',
               onTap: () => _openAndRefresh(const LibraryHealthPage()),
+            ),
+            SettingsNavTile(
+              key: const ValueKey<String>('library-settings-artists'),
+              icon: Icons.people_alt_outlined,
+              title: 'Artists',
+              subtitle:
+                  'See which artists are in use, kept for history or can be '
+                  'removed.',
+              onTap: () => _openAndRefresh(const ArtistsSettingsPage()),
             ),
             SettingsNavTile(
               key: const ValueKey<String>('settings-blacklisted-songs'),
