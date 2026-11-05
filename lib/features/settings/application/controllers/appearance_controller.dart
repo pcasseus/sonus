@@ -1,3 +1,4 @@
+import '../../../../core/design/sonus_reactivity.dart';
 import 'dart:async';
 import 'dart:developer' as developer;
 
@@ -78,6 +79,7 @@ class AppearanceController extends ChangeNotifier {
     highContrast: _preferences.highContrast || _systemHighContrast,
     reduceMotion: _preferences.reduceMotion || _systemReduceMotion,
     lowEffects: _device.lowEffects,
+    reactivity: _preferences.reactivity,
   );
 
   ThemeData get theme => SonusThemeFactory.build(spec);
@@ -186,6 +188,16 @@ class AppearanceController extends ChangeNotifier {
 
   Future<void> setTypography(SonusTypographyPreset value) {
     _preferences = _preferences.copyWith(typography: value);
+    return _apply(preferences: true);
+  }
+
+  /// The artwork reactivity (Themes 2.0 T1); null returns to the theme's
+  /// default. Accessibility still clamps it (see the decoration tokens).
+  Future<void> setReactivity(SonusReactivityMode? value) {
+    _preferences = _preferences.copyWith(
+      reactivity: value,
+      followThemeReactivity: value == null,
+    );
     return _apply(preferences: true);
   }
 

@@ -2,6 +2,7 @@ import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/material.dart';
 
+import 'sonus_reactivity.dart';
 import 'sonus_theme_definition.dart';
 
 /// Semantic colours. Screens use roles ("chart up", "artwork scrim"), never
@@ -417,6 +418,9 @@ class SonusDecorationTokens extends ThemeExtension<SonusDecorationTokens> {
     required this.allowGlow,
     required this.allowGradients,
     this.progressStyle = SonusProgressStyle.minimalLinear,
+    this.highContrast = false,
+    this.lowEffects = false,
+    this.reactivity = SonusReactivityMode.static,
   });
 
   /// No decoration at all; used when no Sonus theme is installed.
@@ -428,7 +432,10 @@ class SonusDecorationTokens extends ThemeExtension<SonusDecorationTokens> {
       textureOpacity = 0,
       allowGlow = false,
       allowGradients = false,
-      progressStyle = SonusProgressStyle.minimalLinear;
+      progressStyle = SonusProgressStyle.minimalLinear,
+      highContrast = false,
+      lowEffects = false,
+      reactivity = SonusReactivityMode.static;
 
   final SonusDecorationIntensity intensity;
   final SonusMotif motif;
@@ -442,6 +449,19 @@ class SonusDecorationTokens extends ThemeExtension<SonusDecorationTokens> {
 
   /// The theme's playback progress treatment (SN-48E).
   final SonusProgressStyle progressStyle;
+
+  /// The accessibility settings that shaped these tokens (theme
+  /// architecture T0: the effects layer), so widgets read them here instead
+  /// of from the appearance controller. High contrast includes the
+  /// platform's setting; both already cap decoration and turn off glow and
+  /// gradients.
+  final bool highContrast;
+  final bool lowEffects;
+
+  /// The effective artwork reactivity (Themes 2.0 T1): the user's choice or
+  /// the theme's default, made [SonusReactivityMode.static] wherever
+  /// gradients are not allowed (Decoration Off, High contrast, Low effects).
+  final SonusReactivityMode reactivity;
 
   bool get showMarks => intensity != SonusDecorationIntensity.off;
 
@@ -459,6 +479,9 @@ class SonusDecorationTokens extends ThemeExtension<SonusDecorationTokens> {
       allowGlow: allowGlow,
       allowGradients: allowGradients,
       progressStyle: progressStyle,
+      highContrast: highContrast,
+      lowEffects: lowEffects,
+      reactivity: reactivity,
     );
   }
 

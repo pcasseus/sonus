@@ -10,7 +10,6 @@ import '../../../../core/design/widgets/sonus_state_view.dart';
 import '../../../library/presentation/pages/album_profile_page.dart';
 import '../../../library/presentation/pages/artist_profile_page.dart';
 import '../../../player/application/controllers/playback_coordinator.dart';
-import '../../../settings/application/controllers/appearance_controller.dart';
 import '../../application/models/pulse/pulse_delta.dart';
 import '../../application/models/pulse/pulse_period.dart';
 import '../../application/models/pulse/pulse_period_data.dart';
@@ -197,9 +196,10 @@ class _PulseInsightsPageState extends State<PulseInsightsPage> {
       _loadRecap(data.period);
     }
 
+    // Read from the theme's effects tokens (theme architecture T0); the
+    // platform setting still counts where no Sonus appearance is installed.
     final highContrast =
-        context.watch<AppearanceController?>()?.spec.highContrast ??
-        MediaQuery.highContrastOf(context);
+        theme.decoration.highContrast || MediaQuery.highContrastOf(context);
 
     return ListenableBuilder(
       listenable: _accent,

@@ -1,3 +1,4 @@
+import '../../../../core/design/context/sonus_context_theme.dart';
 import '../../../../core/design/widgets/playback/sonus_playing_indicator.dart';
 import '../../../player/presentation/models/now_playing_mark.dart';
 import '../../../artwork/presentation/pages/artwork_crop_editor_page.dart';
@@ -199,8 +200,18 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
     return SonusProfileAtmosphereBuilder.listenable(
       artworkPath: _atmosphereArtwork,
       palette: widget.artworkPalette,
-      builder: (context, profile) =>
-          _buildPage(context, controller, userId, profile),
+      // Theme architecture: the page's menus, dialogs, sheets, buttons and
+      // rows take the artwork's colours, not the theme's blue and charcoal.
+      builder: (context, profile) => SonusContextTheme(
+        colors: SonusContextColors.profile(
+          profile,
+          theme: SonusTheme.of(context).colors,
+        ),
+        child: Builder(
+          builder: (context) =>
+              _buildPage(context, controller, userId, profile),
+        ),
+      ),
     );
   }
 

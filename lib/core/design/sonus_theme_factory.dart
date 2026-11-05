@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'sonus_contrast.dart';
+import 'sonus_reactivity.dart';
 import 'sonus_theme_catalog.dart';
 import 'sonus_theme_definition.dart';
 import 'sonus_theme_id.dart';
@@ -20,6 +21,7 @@ class SonusAppearanceSpec {
     this.highContrast = false,
     this.reduceMotion = false,
     this.lowEffects = false,
+    this.reactivity,
   });
 
   final SonusThemeId themeId;
@@ -29,6 +31,10 @@ class SonusAppearanceSpec {
   final bool reduceMotion;
   final bool lowEffects;
 
+  /// The artwork reactivity the user chose (Themes 2.0 T1); null follows
+  /// the theme's default. Clamped by accessibility in the tokens.
+  final SonusReactivityMode? reactivity;
+
   SonusAppearanceSpec copyWith({SonusThemeId? themeId}) {
     return SonusAppearanceSpec(
       themeId: themeId ?? this.themeId,
@@ -37,6 +43,7 @@ class SonusAppearanceSpec {
       highContrast: highContrast,
       reduceMotion: reduceMotion,
       lowEffects: lowEffects,
+      reactivity: reactivity,
     );
   }
 
@@ -48,7 +55,8 @@ class SonusAppearanceSpec {
         other.decoration == decoration &&
         other.highContrast == highContrast &&
         other.reduceMotion == reduceMotion &&
-        other.lowEffects == lowEffects;
+        other.lowEffects == lowEffects &&
+        other.reactivity == reactivity;
   }
 
   @override
@@ -59,6 +67,7 @@ class SonusAppearanceSpec {
     highContrast,
     reduceMotion,
     lowEffects,
+    reactivity,
   );
 }
 
@@ -95,6 +104,7 @@ abstract final class SonusThemeFactory {
     final metrics = SonusMetrics(
       cardRadius: definition.cardRadius,
       artworkRadius: definition.artworkRadius,
+      controlRadius: definition.controlRadius,
     );
 
     final cardShape = RoundedRectangleBorder(
@@ -281,6 +291,12 @@ abstract final class SonusThemeFactory {
       allowGlow: atLeastStandard && !limited,
       allowGradients: intensity != SonusDecorationIntensity.off && !limited,
       progressStyle: definition.progressStyle,
+      highContrast: spec.highContrast,
+      lowEffects: spec.lowEffects,
+      reactivity: SonusReactivityMode.clamp(
+        spec.reactivity ?? definition.reactivityDefault,
+        allowGradients: intensity != SonusDecorationIntensity.off && !limited,
+      ),
     );
   }
 

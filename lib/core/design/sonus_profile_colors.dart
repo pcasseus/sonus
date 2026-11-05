@@ -2,9 +2,9 @@ import 'package:flutter/animation.dart';
 import 'package:flutter/painting.dart' show HSLColor;
 import 'package:flutter/foundation.dart';
 
+import 'artwork/sonus_artwork_tint.dart';
 import 'sonus_artwork_palette.dart';
 import 'sonus_atmosphere_colors.dart';
-import 'sonus_contrast.dart';
 import 'sonus_tokens.dart';
 
 /// The colours of the Artist and Album Profiles (UI redesign P1, P2, D3):
@@ -62,6 +62,9 @@ class SonusProfileColors {
               dark: colors.background.computeLuminance() < 0.5,
               tone: tone,
             ),
+      // Nearly colourless artwork (near-white, grey, blue-grey) tints the
+      // page gently, in proportion to its colour: it never invents one.
+      quiet: artwork == null ? 1 : quietFactor(artwork, tone),
     );
   }
 
@@ -69,16 +72,17 @@ class SonusProfileColors {
     required SonusColors colors,
     required SonusDecorationTokens decoration,
     SonusArtworkColors? artwork,
+    double quiet = 1,
   }) {
     final flat = !decoration.allowGradients;
     final target = artwork == null || flat
         ? 0.0
-        : strengthFor(decoration.intensity);
+        : strengthFor(decoration.intensity) * quiet;
 
-    var strength = target;
-    while (strength > 0 && !_readable(colors, artwork!, strength)) {
-      strength = (strength - 0.02).clamp(0.0, 1.0);
-    }
+    final strength = SonusArtworkTint.strongestReadable(
+      target,
+      (strength) => _readable(colors, artwork!, strength),
+    );
 
     final tinted = artwork != null && strength > 0;
     final background = tinted
@@ -100,7 +104,7 @@ class SonusProfileColors {
     ]);
     final onAccent = accent == colors.accentPrimary
         ? colors.onAccentPrimary
-        : _onColour(accent);
+        : SonusArtworkTint.onColour(accent);
 
     return SonusProfileColors(
       background: background,
@@ -166,8 +170,9 @@ class SonusProfileColors {
   );
 
   /// How much of the tint reaches the bottom of the page, and the glass:
-  /// most of it, so the page never turns generic charcoal (V1).
-  static const double deepShare = 0.80;
+  /// most of it, so the page never turns generic charcoal (V1); the
+  /// redesign keeps the colour all the way down the scroll.
+  static const double deepShare = 0.88;
   static const double surfaceShare = 0.85;
 
   /// How opaque the soft glass is (SonusSoftGlass), and its top highlight.
@@ -178,17 +183,31 @@ class SonusProfileColors {
   static const double ambientAlpha = 0.30;
 
   /// Tint strength for each Decoration level: enough for the artwork's
-  /// colour to carry the page.
+  /// colour to carry the page (profile redesign: raised from 0.30, 0.52
+  /// and 0.66, which left cool artwork near charcoal, about half the
+  /// saturation of the approved reference). The contrast guard still
+  /// weakens it wherever text would suffer.
   static double strengthFor(SonusDecorationIntensity intensity) =>
       switch (intensity) {
         SonusDecorationIntensity.off => 0,
-        SonusDecorationIntensity.subtle => 0.30,
-        SonusDecorationIntensity.standard => 0.52,
-        SonusDecorationIntensity.expressive => 0.66,
+        SonusDecorationIntensity.subtle => 0.45,
+        SonusDecorationIntensity.standard => 0.76,
+        SonusDecorationIntensity.expressive => 0.86,
       };
 
+  /// 1 for colourful artwork; less for nearly colourless artwork, in
+  /// proportion to the cube of its saturation, so near-white and grey
+  /// covers stay quiet instead of being lifted into a colour they lack.
+  @visibleForTesting
+  static double quietFactor(SonusArtworkColors artwork, SonusArtworkTone tone) {
+    final saturation = HSLColor.fromColor(artwork.container).saturation;
+    if (saturation >= tone.colourfulSaturation) return 1;
+    final share = saturation / tone.colourfulSaturation;
+    return share * share * share;
+  }
+
   static Color _tint(Color base, SonusArtworkColors artwork, double amount) =>
-      Color.lerp(base, artwork.container, amount)!;
+      SonusArtworkTint.tint(base, artwork, amount);
 
   /// The artwork's colours as the page uses them (device audit, V2
   /// follow-up). Material's extraction keeps the artwork's own tone, so
@@ -206,11 +225,20 @@ class SonusProfileColors {
     required bool dark,
     SonusArtworkTone tone = SonusArtworkTone.standard,
   }) {
+    // Colourful artwork is lifted to at least [minTintSaturation], so a
+    // soft blue cover still gives a clearly blue page; nearly colourless
+    // artwork keeps its own (low) saturation.
+    // Nearly colourless artwork keeps even less of its faint cast, by the
+    // same [quietFactor] that softens its tint, so the page reads neutral.
+    final saturation = HSLColor.fromColor(artwork.container).saturation;
+    final colourful = saturation >= tone.colourfulSaturation;
     final container = _atLuminance(
       artwork.container,
       dark ? tone.darkTintLuminance : tone.lightTintLuminance,
-      minSaturation: tone.minTintSaturation,
-      maxSaturation: tone.maxTintSaturation,
+      minSaturation: colourful ? tone.minTintSaturation : 0,
+      maxSaturation: colourful
+          ? tone.maxTintSaturation
+          : saturation * quietFactor(artwork, tone),
     );
     // A colourless accent (white, grey) takes the artwork's hue, but only
     // when the artwork has one: near-white artwork keeps its own accent.
@@ -255,8 +283,22 @@ class SonusProfileColors {
     return base.withLightness(low).toColor();
   }
 
-  static Color _light(SonusArtworkColors artwork) =>
-      Color.lerp(artwork.container, artwork.accent, 0.5)!;
+  /// The ambient light: between the artwork's deep tone and its accent,
+  /// its luminance capped at [maxLightLuminance] so a luminous hue (bright
+  /// green, yellow) glows without washing out the text it sits behind.
+  static Color _light(SonusArtworkColors artwork) {
+    final mixed = Color.lerp(artwork.container, artwork.accent, 0.5)!;
+    if (mixed.computeLuminance() <= maxLightLuminance) return mixed;
+    return _atLuminance(
+      mixed,
+      maxLightLuminance,
+      minSaturation: 0,
+      maxSaturation: 1,
+    );
+  }
+
+  /// The brightest the ambient light's colour may be.
+  static const double maxLightLuminance = 0.16;
 
   /// What text actually sits on: the soft glass (SonusSoftGlass) over the
   /// page, with and without its highlight, and the page where the ambient
@@ -305,8 +347,9 @@ class SonusProfileColors {
     ];
     for (final text in [colors.textPrimary, colors.textSecondary]) {
       for (final (themeGround, tinted) in grounds) {
-        final required = SonusContrast.ratio(text, themeGround).clamp(1.0, 4.5);
-        if (SonusContrast.ratio(text, tinted) < required) return false;
+        if (!SonusArtworkTint.keepsThemeContrast(text, themeGround, tinted)) {
+          return false;
+        }
       }
     }
     return true;
@@ -325,21 +368,11 @@ class SonusProfileColors {
         decoration.intensity == SonusDecorationIntensity.subtle) {
       return colors.accentPrimary;
     }
-    final candidate = artwork.accent;
-    final distinct = grounds.every(
-      (ground) => SonusContrast.ratio(candidate, ground) >= 3,
+    return SonusArtworkTint.distinctAccent(
+      artwork.accent,
+      grounds,
+      fallback: colors.accentPrimary,
     );
-    return distinct ? candidate : colors.accentPrimary;
-  }
-
-  /// Black or white, whichever reads better on [colour] (always ≥ 4.5:1).
-  static Color _onColour(Color colour) {
-    const dark = Color(0xFF000000);
-    const light = Color(0xFFFFFFFF);
-    return SonusContrast.ratio(dark, colour) >=
-            SonusContrast.ratio(light, colour)
-        ? dark
-        : light;
   }
 
   static SonusProfileColors lerp(
@@ -420,13 +453,17 @@ class SonusArtworkTone {
     required this.minAccentSaturation,
     required this.maxAccentSaturation,
     required this.colourlessAccentSaturation,
+    this.colourfulSaturation = 0.25,
   });
 
+  /// The profile redesign's tone: a deep page carrying the artwork's hue at
+  /// a saturation near the approved reference (about 45% for a soft blue
+  /// cover), never above 90%.
   static const SonusArtworkTone standard = SonusArtworkTone(
-    darkTintLuminance: 0.045,
+    darkTintLuminance: 0.055,
     lightTintLuminance: 0.75,
-    minTintSaturation: 0,
-    maxTintSaturation: 0.80,
+    minTintSaturation: 0.50,
+    maxTintSaturation: 0.90,
     darkAccentLuminance: 0.45,
     lightAccentLuminance: 0.12,
     minAccentSaturation: 0.50,
@@ -438,8 +475,8 @@ class SonusArtworkTone {
   final double darkTintLuminance;
   final double lightTintLuminance;
 
-  /// Saturation bounds of the tint; the minimum is 0 by default, so the
-  /// tint is never more colourful than the artwork.
+  /// Saturation bounds of the tint. The minimum applies to colourful
+  /// artwork only, so near-grey artwork is never made colourful.
   final double minTintSaturation;
   final double maxTintSaturation;
 
@@ -452,4 +489,9 @@ class SonusArtworkTone {
 
   /// Below this saturation an extracted accent counts as colourless.
   final double colourlessAccentSaturation;
+
+  /// From this saturation an artwork counts as colourful: it gets the full
+  /// tint and the [minTintSaturation] floor. Below it the page stays quiet
+  /// (see [SonusProfileColors.quietFactor]).
+  final double colourfulSaturation;
 }

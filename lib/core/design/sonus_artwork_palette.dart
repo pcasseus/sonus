@@ -5,7 +5,7 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
-import 'sonus_contrast.dart';
+import 'artwork/sonus_artwork_tint.dart';
 import 'sonus_tokens.dart';
 
 /// Colours taken from one piece of artwork, toned for the theme's
@@ -266,10 +266,10 @@ class SonusArtworkAtmosphere {
         : strengthFor(decoration.intensity);
 
     // Weaken the tint until text stays as readable as the theme demands.
-    var strength = target;
-    while (strength > 0 && !_textReadable(colors, artwork!, strength)) {
-      strength = (strength - 0.02).clamp(0.0, 1.0);
-    }
+    final strength = SonusArtworkTint.strongestReadable(
+      target,
+      (strength) => _textReadable(colors, artwork!, strength),
+    );
 
     if (artwork == null || strength == 0) {
       return SonusArtworkAtmosphere._(
@@ -291,7 +291,7 @@ class SonusArtworkAtmosphere {
       accent: accent,
       onAccent: accent == colors.accentPrimary
           ? colors.onAccentPrimary
-          : _onColour(accent),
+          : SonusArtworkTint.onColour(accent),
       strength: strength,
     );
   }
@@ -324,7 +324,7 @@ class SonusArtworkAtmosphere {
       };
 
   static Color _tint(Color base, SonusArtworkColors artwork, double amount) =>
-      Color.lerp(base, artwork.container, amount)!;
+      SonusArtworkTint.tint(base, artwork, amount);
 
   static bool _textReadable(
     SonusColors colors,
@@ -354,8 +354,9 @@ class SonusArtworkAtmosphere {
       ),
     ];
     for (final (text, themeGround, tinted) in pairs) {
-      final required = SonusContrast.ratio(text, themeGround).clamp(1.0, 4.5);
-      if (SonusContrast.ratio(text, tinted) < required) return false;
+      if (!SonusArtworkTint.keepsThemeContrast(text, themeGround, tinted)) {
+        return false;
+      }
     }
     return true;
   }
@@ -372,20 +373,9 @@ class SonusArtworkAtmosphere {
     if (decoration.intensity == SonusDecorationIntensity.subtle) {
       return colors.accentPrimary;
     }
-    final candidate = artwork.accent;
-    final distinct =
-        SonusContrast.ratio(candidate, background) >= 3 &&
-        SonusContrast.ratio(candidate, surface) >= 3;
-    return distinct ? candidate : colors.accentPrimary;
-  }
-
-  /// Black or white, whichever reads better on [colour] (always ≥ 4.5:1).
-  static Color _onColour(Color colour) {
-    const dark = Color(0xFF000000);
-    const light = Color(0xFFFFFFFF);
-    return SonusContrast.ratio(dark, colour) >=
-            SonusContrast.ratio(light, colour)
-        ? dark
-        : light;
+    return SonusArtworkTint.distinctAccent(artwork.accent, [
+      background,
+      surface,
+    ], fallback: colors.accentPrimary);
   }
 }

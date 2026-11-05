@@ -6,6 +6,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../../core/design/context/sonus_context_theme.dart';
 import '../../../../core/design/sonus_artwork_palette.dart';
 import '../../../../core/design/sonus_profile_colors.dart';
 import '../../../../core/design/widgets/sonus_profile_surfaces.dart';
@@ -191,8 +192,23 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
     return SonusProfileAtmosphereBuilder.listenable(
       artworkPath: _atmosphereArtwork,
       palette: widget.artworkPalette,
-      builder: (context, profile) =>
-          _buildPage(context, controller, userId, artistMergeService, profile),
+      // Theme architecture: the page's menus, dialogs, sheets, buttons and
+      // rows take the artwork's colours, not the theme's blue and charcoal.
+      builder: (context, profile) => SonusContextTheme(
+        colors: SonusContextColors.profile(
+          profile,
+          theme: SonusTheme.of(context).colors,
+        ),
+        child: Builder(
+          builder: (context) => _buildPage(
+            context,
+            controller,
+            userId,
+            artistMergeService,
+            profile,
+          ),
+        ),
+      ),
     );
   }
 

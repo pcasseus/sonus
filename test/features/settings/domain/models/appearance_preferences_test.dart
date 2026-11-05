@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sonus_next/core/design/sonus_reactivity.dart';
 import 'package:sonus_next/core/design/sonus_theme_id.dart';
 import 'package:sonus_next/core/design/sonus_tokens.dart';
 import 'package:sonus_next/core/design/sonus_typography.dart';
@@ -153,6 +154,65 @@ void main() {
 
       expect(decoded.scheduleOverride, isNull);
       expect(issues, ['device.override']);
+    });
+  });
+
+  // Themes 2.0 T1: the optional artwork-reactivity preference.
+  group('reactivity preference', () {
+    test('defaults to the theme and is not written until chosen', () {
+      const preferences = AppearancePreferences();
+      expect(preferences.reactivity, isNull);
+      expect(preferences.toJson().containsKey('reactivity'), isFalse);
+    });
+
+    test('round-trips when chosen', () {
+      for (final mode in SonusReactivityMode.values) {
+        final issues = <String>[];
+        final restored = AppearancePreferences.fromJson(
+          AppearancePreferences(reactivity: mode).toJson(),
+          issues,
+        );
+        expect(restored.reactivity, mode);
+        expect(issues, isEmpty);
+      }
+    });
+
+    test('a document saved before the field existed loads without issues', () {
+      final json = const AppearancePreferences().toJson()..remove('reactivity');
+      final issues = <String>[];
+      final restored = AppearancePreferences.fromJson(json, issues);
+      expect(restored.reactivity, isNull);
+      expect(issues, isEmpty);
+      expect(restored, const AppearancePreferences());
+    });
+
+    test('an unknown value is reported and ignored; the rest is kept', () {
+      final json = {
+        ...const AppearancePreferences(
+          decoration: SonusDecorationIntensity.expressive,
+        ).toJson(),
+        'reactivity': 'vivid',
+      };
+      final issues = <String>[];
+      final restored = AppearancePreferences.fromJson(json, issues);
+      expect(restored.reactivity, isNull);
+      expect(issues, ['preferences.reactivity']);
+      expect(restored.decoration, SonusDecorationIntensity.expressive);
+    });
+
+    test('copyWith keeps, changes and clears it', () {
+      const chosen = AppearancePreferences(
+        reactivity: SonusReactivityMode.immersive,
+      );
+      expect(
+        chosen.copyWith(highContrast: true).reactivity,
+        SonusReactivityMode.immersive,
+      );
+      expect(
+        chosen.copyWith(reactivity: SonusReactivityMode.static).reactivity,
+        SonusReactivityMode.static,
+      );
+      expect(chosen.copyWith(followThemeReactivity: true).reactivity, isNull);
     });
   });
 }
