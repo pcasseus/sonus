@@ -281,6 +281,8 @@ abstract final class SonusThemeFactory {
       allowGlow: atLeastStandard && !limited,
       allowGradients: intensity != SonusDecorationIntensity.off && !limited,
       progressStyle: definition.progressStyle,
+      highContrast: spec.highContrast,
+      lowEffects: spec.lowEffects,
     );
   }
 

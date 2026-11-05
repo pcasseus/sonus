@@ -271,6 +271,27 @@ void main() {
       }
     });
   });
+
+  // Theme architecture T0: the effects layer is readable from the tokens.
+  test(
+    'decoration tokens carry the accessibility settings that shaped them',
+    () {
+      SonusDecorationTokens tokens(SonusAppearanceSpec spec) =>
+          SonusThemeFactory.build(spec).extension<SonusDecorationTokens>()!;
+
+      final plain = tokens(const SonusAppearanceSpec());
+      expect(plain.highContrast, isFalse);
+      expect(plain.lowEffects, isFalse);
+
+      final contrast = tokens(const SonusAppearanceSpec(highContrast: true));
+      expect(contrast.highContrast, isTrue);
+      expect(contrast.allowGradients, isFalse);
+
+      final effects = tokens(const SonusAppearanceSpec(lowEffects: true));
+      expect(effects.lowEffects, isTrue);
+      expect(effects.allowGlow, isFalse);
+    },
+  );
 }
 
 // The instant transition builder never reads its context.
