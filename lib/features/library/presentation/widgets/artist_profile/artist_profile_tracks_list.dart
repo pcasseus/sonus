@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+import '../../../../../core/design/context/sonus_context_theme.dart';
 import '../../../../../core/design/sonus_theme.dart';
 import '../../../application/models/library_track.dart';
 import '../../../application/models/song_credit_line.dart';
@@ -275,7 +276,13 @@ class _TrackTile extends StatelessWidget {
         key: ValueKey<String>('$keyPrefix-${track.songId}'),
         enabled: isPlayable || selecting,
         selected: selected ?? false,
-        tileColor: tileColor ?? colors.surface,
+        // On an artwork-tinted page rows sit on its glass, not on an
+        // opaque card that would hide the colour.
+        tileColor:
+            tileColor ??
+            (SonusContextTheme.of(context).isTinted
+                ? Colors.transparent
+                : colors.surface),
         textColor: colors.textPrimary,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(
@@ -625,7 +632,11 @@ class _AlbumGroupState extends State<_AlbumGroup> {
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 3),
         child: ListTile(
-          tileColor: widget.tileColor ?? colors.surface,
+          tileColor:
+              widget.tileColor ??
+              (SonusContextTheme.of(context).isTinted
+                  ? Colors.transparent
+                  : colors.surface),
           textColor: colors.textPrimary,
           iconColor: colors.textSecondary,
           shape: RoundedRectangleBorder(

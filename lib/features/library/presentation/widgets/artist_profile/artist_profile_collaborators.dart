@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+import '../../../../../core/design/context/sonus_context_theme.dart';
 import '../../../../../core/design/sonus_theme.dart';
 import '../../../../../core/design/sonus_count_label.dart';
 import '../../../../../core/design/widgets/sonus_artwork_frame.dart';
@@ -83,7 +84,13 @@ class _CollaboratorTile extends StatelessWidget {
       padding: const EdgeInsets.symmetric(vertical: 3),
       child: ListTile(
         key: ValueKey<String>('artist-collaborator-$_id'),
-        tileColor: tileColor ?? tokens.colors.surface,
+        // On an artwork-tinted page rows sit on its glass, not on an
+        // opaque card that would hide the colour.
+        tileColor:
+            tileColor ??
+            (SonusContextTheme.of(context).isTinted
+                ? Colors.transparent
+                : tokens.colors.surface),
         textColor: tokens.colors.textPrimary,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(tokens.metrics.cardRadius),

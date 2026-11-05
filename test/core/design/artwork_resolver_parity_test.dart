@@ -139,53 +139,58 @@ Map<String, String> fingerprints() {
 }
 
 /// Recorded before the refactor (0dedca6): profile cinematic atmosphere.
+/// The profile column was re-recorded once, on purpose, by the profile
+/// redesign (stronger tint, saturation floor, quiet near-grey artwork,
+/// capped ambient light); cinematic and atmosphere are still the 0dedca6
+/// values. Untinted cases (Off, High contrast, Low effects) never changed.
 const expected = <String, String>{
   'concreteSpray/off': '7009c6dffb9e5461 -45ae9337d5cb6e30 -66346956b5005a78',
-  'concreteSpray/subtle': '30478c9ea84e287f 16682d083a57d7 3cffd9bd7eb1c26b',
+  'concreteSpray/subtle': '-4d6b69e0d6dedec9 16682d083a57d7 3cffd9bd7eb1c26b',
   'concreteSpray/standard':
-      '66b8856cabd8ecfb -53d8bfa253a2d36e 4454c4aca8b44eb7',
+      '-1aca7a0fc911e0e0 -53d8bfa253a2d36e 4454c4aca8b44eb7',
   'concreteSpray/expressive':
-      '73645bbb970fb9de -16a3a7c7493c50f9 -3dd9a6f28f4e3d1b',
+      '741e1a98589a541e -16a3a7c7493c50f9 -3dd9a6f28f4e3d1b',
   'kickflip/off': '-15db423482bd2e64 -45ae9337d5cb6e30 -7d88e74290d0e9ba',
-  'kickflip/subtle': '63b7d9673c9168fa 16682d083a57d7 14f1ee14959efae',
-  'kickflip/standard': '680575df8c0746e9 -53d8bfa253a2d36e -35b7137ea33ba986',
-  'kickflip/expressive': '-fcc6a81ccf3ddb6 -16a3a7c7493c50f9 76a94f4d79205d17',
+  'kickflip/subtle': '193a185cc0d3a86b 16682d083a57d7 14f1ee14959efae',
+  'kickflip/standard': '-749bdd464b7ef94f -53d8bfa253a2d36e -35b7137ea33ba986',
+  'kickflip/expressive': '43b412203c8da939 -16a3a7c7493c50f9 76a94f4d79205d17',
   'afterHours/off': '60907cc14795633 -45ae9337d5cb6e30 -67343f0a6cf14829',
-  'afterHours/subtle': '34caa4e3034cb3c4 16682d083a57d7 7c3852cd086576e8',
+  'afterHours/subtle': '4027e786da154361 16682d083a57d7 7c3852cd086576e8',
   'afterHours/standard':
-      '-3a0db12602b74351 -53d8bfa253a2d36e -7a4a1c64b017ddfa',
+      '-722479ada75d33f7 -53d8bfa253a2d36e -7a4a1c64b017ddfa',
   'afterHours/expressive':
-      '-4b8535958c4259d6 -16a3a7c7493c50f9 -3d65d8daee206cf1',
+      '224e1c1a7684ce87 -16a3a7c7493c50f9 -3d65d8daee206cf1',
   'y2kReplay/off': '-73daebb4453289a4 -45ae9337d5cb6e30 3fbd837726d9c4b',
-  'y2kReplay/subtle': '533a0a1b5e067b6b 16682d083a57d7 7adf6e0dac5193a6',
-  'y2kReplay/standard': '2d9433a196b07100 -53d8bfa253a2d36e -cbf5c2ac21da0ed',
+  'y2kReplay/subtle': '814a8729adc3efb 16682d083a57d7 7adf6e0dac5193a6',
+  'y2kReplay/standard': '-6f1f672c2b4b7e69 -53d8bfa253a2d36e -cbf5c2ac21da0ed',
   'y2kReplay/expressive':
-      '31b190cc0d385de9 -16a3a7c7493c50f9 -6e63db5481b7b5a9',
+      '13d84acd0743a5e2 -16a3a7c7493c50f9 -6e63db5481b7b5a9',
   'neonMixtape/off': '-328dfe076f45eed7 -45ae9337d5cb6e30 a47d881f62df2e7',
-  'neonMixtape/subtle': '2946ef7d430955de 16682d083a57d7 2a44bd15e04c136b',
+  'neonMixtape/subtle': '66d987292e49d53e 16682d083a57d7 2a44bd15e04c136b',
   'neonMixtape/standard':
-      '5afe7da97a6ccb54 -53d8bfa253a2d36e -1d79241dd7aa3f94',
+      '3c289e058c392bc6 -53d8bfa253a2d36e -1d79241dd7aa3f94',
   'neonMixtape/expressive':
-      '-a5bbd37613e7f63 -16a3a7c7493c50f9 30619725f55c84d5',
+      '6bc83cffd220c8f0 -16a3a7c7493c50f9 30619725f55c84d5',
   'haze2017/off': '235ce15adc1bee79 -45ae9337d5cb6e30 -7e217dfb6201f24c',
-  'haze2017/subtle': '-50ad1773f716257e 16682d083a57d7 8ce0abc65468938',
-  'haze2017/standard': '-7d2fa334296bf835 -53d8bfa253a2d36e 71b1df8394d6ef8b',
+  'haze2017/subtle': '28a8a5b5052cbc4 16682d083a57d7 8ce0abc65468938',
+  'haze2017/standard': '74afc6073a277a8b -53d8bfa253a2d36e 71b1df8394d6ef8b',
   'haze2017/expressive':
-      '-1673b699c8570a41 -16a3a7c7493c50f9 -4248bd8ce71beb44',
+      '-3749e0685e35b177 -16a3a7c7493c50f9 -4248bd8ce71beb44',
   'monochrome/off': '6429ff5d0c77eeab -45ae9337d5cb6e30 2b7c73773eac1f6f',
-  'monochrome/subtle': '-76818f0a5634e260 16682d083a57d7 71d6a33c15b89dad',
-  'monochrome/standard':
-      '-11782cc2ffbf6722 -53d8bfa253a2d36e -5e1eb1490609d558',
+  'monochrome/subtle': '-1b3bffce04cf861e 16682d083a57d7 71d6a33c15b89dad',
+  'monochrome/standard': '1469d48089a745c7 -53d8bfa253a2d36e -5e1eb1490609d558',
   'monochrome/expressive':
-      '-683f03a37fc4b95c -16a3a7c7493c50f9 7afbfe8299a66e3f',
+      '4e7e1de0974b3da7 -16a3a7c7493c50f9 7afbfe8299a66e3f',
   'daylight/off': '-5e3c1e765dee32ee -45ae9337d5cb6e30 6f5c39aa47a64bcd',
-  'daylight/subtle': '3e8a900f2033c8e1 16682d083a57d7 -185ea9aa6948935f',
-  'daylight/standard': '-4a7461965b848707 -53d8bfa253a2d36e -7f065fcd3940ef98',
-  'daylight/expressive': '5aef3830536729e -16a3a7c7493c50f9 -22bb07168716d28d',
+  'daylight/subtle': '-6de46f83e6ac41c5 16682d083a57d7 -185ea9aa6948935f',
+  'daylight/standard': '20cf3db0b8e4c6aa -53d8bfa253a2d36e -7f065fcd3940ef98',
+  'daylight/expressive':
+      '-4c6fb0871f09a132 -16a3a7c7493c50f9 -22bb07168716d28d',
   'evergreen/off': '-6d8ef93991e39e40 -45ae9337d5cb6e30 6a432e65ef8d3b7e',
-  'evergreen/subtle': '410a49faddebaf68 16682d083a57d7 -70a004ab9a32fb22',
-  'evergreen/standard': '18917296dd2130ce -53d8bfa253a2d36e -540e8dd5797a1946',
-  'evergreen/expressive': '78c4af518878ce24 -16a3a7c7493c50f9 46d33bbbdc0951b2',
+  'evergreen/subtle': '-1a8c982323a64253 16682d083a57d7 -70a004ab9a32fb22',
+  'evergreen/standard': 'b5585cc1f185730 -53d8bfa253a2d36e -540e8dd5797a1946',
+  'evergreen/expressive':
+      '-39c4237a21d8312e -16a3a7c7493c50f9 46d33bbbdc0951b2',
   'concreteSpray/standard/hc':
       '-4597a38c3d47107e -45ae9337d5cb6e30 -66346956b5005a78',
   'concreteSpray/standard/le':
