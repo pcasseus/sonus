@@ -1122,6 +1122,15 @@ void main() {
 
       expect(find.text('Guest Artist'), findsNothing);
 
+      // E1: each saved or removed credit was stored at once, against the
+      // song's stored primary artist.
+      expect(editingService.creditSaveCallCount, 4);
+      expect(editingService.lastExpectedPrimaryArtistId, 'artist-1');
+      expect(
+        editingService.lastSavedCredits!.map((credit) => credit.creditedName),
+        ['Renamed Partner', 'Feature Artist', 'New Feature'],
+      );
+
       await tester.tap(
         find.byKey(const ValueKey<String>('track-studio-save-button')),
       );
@@ -2010,6 +2019,11 @@ class FakeTrackStudioEditingService extends TrackProfileEditingService {
   int structuredUpdateCallCount = 0;
   List<SongArtistCreditInput>? lastAdditionalCredits;
 
+  /// Credits-only saves from the credit editor (E1).
+  int creditSaveCallCount = 0;
+  List<SongArtistCreditInput>? lastSavedCredits;
+  String? lastExpectedPrimaryArtistId;
+
   String? lastUserId;
   String? lastSongId;
   String? lastTitle;
@@ -2021,6 +2035,59 @@ class FakeTrackStudioEditingService extends TrackProfileEditingService {
   String? lastAlbumId;
   String? lastAlbumEditionId;
   String? lastPlacementEditionId;
+
+  /// Stores the credits as given, like a save with nothing to normalise.
+  @override
+  Future<TrackCreditSaveResult> updateTrackCredits({
+    required String? userId,
+    required String songId,
+    required String expectedPrimaryArtistId,
+    required Iterable<SongArtistCreditInput> additionalCredits,
+    DateTime? now,
+  }) async {
+    creditSaveCallCount++;
+    lastExpectedPrimaryArtistId = expectedPrimaryArtistId;
+    final credits = List<SongArtistCreditInput>.of(additionalCredits);
+    lastSavedCredits = credits;
+    final at = DateTime.utc(2026, 11, 5);
+
+    return TrackCreditSaveResult(
+      song: Song(
+        id: songId,
+        artistId: expectedPrimaryArtistId,
+        albumId: 'album',
+        albumEditionId: 'edition',
+        title: 'Stored',
+        canonicalTitle: 'stored',
+        trackNumber: 1,
+        discNumber: 1,
+        durationSeconds: 180,
+        isSingle: false,
+        featuredArtists: [
+          for (final credit in credits)
+            if (credit.role == SongArtistCreditRole.featured)
+              credit.creditedName,
+        ],
+        createdAt: at,
+        updatedAt: at,
+      ),
+      credits: [
+        for (final (index, credit) in credits.indexed)
+          SongArtistCredit(
+            id: 'saved-$index',
+            songId: songId,
+            artistId: credit.artistId,
+            creditedName: credit.creditedName,
+            canonicalCreditedName: credit.creditedName.toLowerCase(),
+            role: credit.role,
+            position: index + 1,
+            createdAt: at,
+            updatedAt: at,
+          ),
+      ],
+      changed: true,
+    );
+  }
 
   @override
   Future<TrackProfileEditResult> updateTrackWithCredits({

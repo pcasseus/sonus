@@ -58,6 +58,10 @@ Future<void> openTrackStudio(
       return;
     }
 
+    // Credits saved from the credit editor are stored at once (E1), so the
+    // surface reloads even when the Studio then closes without a draft.
+    var creditsSaved = false;
+
     final draft = await navigator.push<TrackProfileEditDraft>(
       MaterialPageRoute<TrackProfileEditDraft>(
         builder: (routeContext) {
@@ -75,6 +79,19 @@ Future<void> openTrackStudio(
               legacyFeaturedArtists: track.featuredArtists,
               primaryArtistId: track.artistId,
               primaryArtistName: track.artistName,
+            ),
+            onSaveCredits: trackStudioCreditSaver(
+              track: track,
+              save: (credits) async {
+                final result = await service.updateTrackCredits(
+                  userId: userId,
+                  songId: track.songId,
+                  expectedPrimaryArtistId: track.artistId,
+                  additionalCredits: credits,
+                );
+                creditsSaved = creditsSaved || result.changed;
+                return result;
+              },
             ),
             onCreateArtist: artistCreationService == null
                 ? null
@@ -98,6 +115,9 @@ Future<void> openTrackStudio(
     );
 
     if (draft == null) {
+      if (creditsSaved) {
+        await onSaved?.call();
+      }
       return;
     }
 

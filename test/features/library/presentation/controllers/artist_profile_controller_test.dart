@@ -1545,6 +1545,45 @@ void main() {
       },
     );
   });
+
+  // UI redesign E1.
+  test('saveTrackCredits saves only the credits, against the stored '
+      'primary artist, then reloads', () async {
+    final repository = FakeLibraryQueryRepository(
+      artist: createArtist(),
+      tracks: [createTrack(songId: 'song-credits', title: 'Credits')],
+    );
+    final service = FakeTrackProfileEditingService();
+    final controller = ArtistProfileController(
+      repository: repository,
+      artistId: 'artist-1',
+      trackProfileEditingService: service,
+    );
+    await controller.load();
+    final track = controller.tracks.single;
+    final requestsBefore = repository.artistRequestCount;
+
+    final result = await controller.saveTrackCredits(
+      userId: 'user-1',
+      track: track,
+      additionalCredits: const [
+        SongArtistCreditInput(
+          creditedName: 'Guest Artist',
+          role: SongArtistCreditRole.guest,
+        ),
+      ],
+    );
+
+    expect(result!.changed, isTrue);
+    expect(service.creditSaveCallCount, 1);
+    expect(service.lastSongId, track.songId);
+    expect(service.lastExpectedPrimaryArtistId, track.artistId);
+    expect(service.lastSavedCredits!.single.creditedName, 'Guest Artist');
+    // Nothing else about the song is saved.
+    expect(service.updateCallCount, 0);
+    expect(service.structuredUpdateCallCount, 0);
+    expect(repository.artistRequestCount, greaterThan(requestsBefore));
+  });
 }
 
 LibraryArtist createArtist({
@@ -1799,6 +1838,47 @@ class FakeSongArtistCreditRepository implements SongArtistCreditRepository {
 class FakeTrackProfileEditingService extends TrackProfileEditingService {
   FakeTrackProfileEditingService()
     : super(mutationRunner: UnusedSyncMutationRunner());
+
+  /// Credits-only saves from Track Studio's credit editor (E1).
+  int creditSaveCallCount = 0;
+  String? lastExpectedPrimaryArtistId;
+  List<SongArtistCreditInput>? lastSavedCredits;
+  bool creditSaveChanges = true;
+
+  @override
+  Future<TrackCreditSaveResult> updateTrackCredits({
+    required String? userId,
+    required String songId,
+    required String expectedPrimaryArtistId,
+    required Iterable<SongArtistCreditInput> additionalCredits,
+    DateTime? now,
+  }) async {
+    creditSaveCallCount++;
+    lastUserId = userId;
+    lastSongId = songId;
+    lastExpectedPrimaryArtistId = expectedPrimaryArtistId;
+    lastSavedCredits = List<SongArtistCreditInput>.of(additionalCredits);
+    final at = DateTime.utc(2026, 11, 5);
+
+    return TrackCreditSaveResult(
+      song: Song(
+        id: songId,
+        artistId: expectedPrimaryArtistId,
+        albumId: 'album-1',
+        albumEditionId: 'edition-1',
+        title: 'Stored',
+        canonicalTitle: 'stored',
+        trackNumber: 1,
+        discNumber: 1,
+        durationSeconds: 180,
+        isSingle: false,
+        createdAt: at,
+        updatedAt: at,
+      ),
+      credits: const [],
+      changed: creditSaveChanges,
+    );
+  }
 
   int updateCallCount = 0;
   int structuredUpdateCallCount = 0;

@@ -401,6 +401,16 @@ class _TracksPageState extends State<TracksPage> {
               albums: albums,
               initialAdditionalCredits: initialAdditionalCredits,
               canEditDetails: controller.canEditTrack(userId),
+              onSaveCredits: controller.canEditTrack(userId)
+                  ? trackStudioCreditSaver(
+                      track: track,
+                      save: (credits) => controller.saveTrackCredits(
+                        userId: userId,
+                        track: track,
+                        additionalCredits: credits,
+                      ),
+                    )
+                  : null,
               onCreateArtist: artistCreationService == null
                   ? null
                   : (name) async {

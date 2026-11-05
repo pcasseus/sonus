@@ -456,6 +456,34 @@ class AlbumProfileController extends ChangeNotifier {
     return result.changed;
   }
 
+  /// Saves only [track]'s additional credits, at once, from Track Studio's
+  /// credit editor (UI redesign E1), against the stored song and its stored
+  /// primary artist; then reloads. Null without an editing service.
+  Future<TrackCreditSaveResult?> saveTrackCredits({
+    String? userId,
+    required LibraryTrack track,
+    required Iterable<SongArtistCreditInput> additionalCredits,
+  }) async {
+    final service = _trackProfileEditingService;
+
+    if (service == null) {
+      return null;
+    }
+
+    final result = await service.updateTrackCredits(
+      userId: userId,
+      songId: track.songId,
+      expectedPrimaryArtistId: track.artistId,
+      additionalCredits: additionalCredits,
+    );
+
+    if (result.changed) {
+      await refresh();
+    }
+
+    return result;
+  }
+
   bool canSetTrackBlocked(String? userId) {
     return _songBlockService != null;
   }

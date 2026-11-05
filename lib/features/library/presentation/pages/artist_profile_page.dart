@@ -1432,6 +1432,16 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
               albums: albums,
               initialAdditionalCredits: initialAdditionalCredits,
               canEditDetails: controller.canEditTrack(userId),
+              onSaveCredits: controller.canEditTrack(userId)
+                  ? trackStudioCreditSaver(
+                      track: track,
+                      save: (credits) => controller.saveTrackCredits(
+                        userId: userId,
+                        track: track,
+                        additionalCredits: credits,
+                      ),
+                    )
+                  : null,
               onChangeArtwork: controller.canEditTrackArtwork
                   ? () => _changeTrackArtwork(controller, track)
                   : null,
