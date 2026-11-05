@@ -4,6 +4,7 @@ import '../../../artwork/presentation/pages/artwork_crop_editor_page.dart';
 import '../../../artwork/domain/entities/artwork_crop.dart';
 import '../../../artwork/application/services/artwork_crop_service.dart';
 import 'dart:async';
+import 'dart:developer' as developer;
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -32,7 +33,6 @@ import '../../application/models/library_album.dart';
 import '../../application/models/library_album_edition.dart';
 import '../../application/models/library_track.dart';
 import '../../application/models/release_display_title.dart';
-import '../../application/models/song_credit_line.dart';
 import '../../application/repositories/library_query_repository.dart';
 import '../../application/services/album_profile_editing_service.dart';
 import '../../application/services/external_metadata_application_service.dart';
@@ -47,6 +47,7 @@ import '../../domain/services/album_edition_track_order.dart';
 import 'package:sonus_next/features/library/application/services/track_profile_editing_service.dart';
 import '../controllers/album_profile_controller.dart';
 import '../controllers/track_selection_controller.dart';
+import '../models/song_credit_summary.dart';
 import '../models/track_profile_edit_draft.dart';
 import '../widgets/track_selection_bar.dart';
 import 'artist_profile_page.dart';
@@ -87,6 +88,11 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
   AlbumProfileController? _controller;
   LibraryQueryRepository? _repository;
   final TrackSelectionController _selection = TrackSelectionController();
+
+  /// Whether this release is a soundtrack or cast recording, so rows with
+  /// many performers show a compact credit summary (UI redesign C2).
+  bool _compactCredits = false;
+  int _releaseKindRequest = 0;
 
   /// Whether the collapsing artwork has gone under the toolbar, so the
   /// toolbar names the release instead (UI redesign P2).
@@ -143,9 +149,45 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
     _refresher = LibraryChangeRefresher(
       signal: widget.changes ?? LibraryChangeSignal.shared,
       kinds: LibraryChangeKind.values.toSet(),
-      onChange: () => unawaited(controller.refresh()),
+      onChange: () {
+        unawaited(controller.refresh());
+        unawaited(_loadReleaseKind());
+      },
     );
     unawaited(controller.load());
+    unawaited(_loadReleaseKind());
+  }
+
+  /// Reads the release's stated kind. Read only; a failure, or no
+  /// organization service, leaves the full credit lines.
+  Future<void> _loadReleaseKind() async {
+    final service = context.read<LibraryOrganizationService?>();
+    final request = ++_releaseKindRequest;
+    if (service == null) return;
+
+    var compact = false;
+    try {
+      final classifications = await service.organization.getClassifications();
+      for (final classification in classifications) {
+        if (classification.albumId == widget.albumId) {
+          compact = compactCreditReleaseKinds.contains(classification.kind);
+          break;
+        }
+      }
+    } catch (error, stackTrace) {
+      developer.log(
+        'Release kind could not be read (${error.runtimeType})',
+        name: 'sonus.library.album_profile',
+        level: 900,
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    if (!mounted || request != _releaseKindRequest) return;
+    if (compact != _compactCredits) {
+      setState(() => _compactCredits = compact);
+    }
   }
 
   @override
@@ -342,6 +384,7 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
                       controller: controller,
                       selection: _selection,
                       profile: profile,
+                      compactCredits: _compactCredits,
                       onGoToArtist: _openArtist,
                       canEditTrack: controller.canEditTrack(userId),
                       canSetBlocked: controller.canSetTrackBlocked(userId),
@@ -1679,6 +1722,7 @@ class _TracksList extends StatelessWidget {
     required this.controller,
     required this.selection,
     required this.profile,
+    this.compactCredits = false,
     required this.onGoToArtist,
     required this.canEditTrack,
     required this.canSetBlocked,
@@ -1691,6 +1735,9 @@ class _TracksList extends StatelessWidget {
   final AlbumProfileController controller;
   final TrackSelectionController selection;
   final SonusProfileColors profile;
+
+  /// See [_TrackTile.compactCredits].
+  final bool compactCredits;
   final void Function(LibraryTrack track) onGoToArtist;
   final bool canEditTrack;
   final bool canSetBlocked;
@@ -1759,6 +1806,7 @@ class _TracksList extends StatelessWidget {
           _TrackTile(
             track: track,
             profile: profile,
+            compactCredits: compactCredits,
             isCurrent: mark.marks(track.songId),
             isNowPlaying: mark.isPlaying,
             selectedEditionTitle: controller.selectedEdition?.title,
@@ -1822,6 +1870,7 @@ class _TrackTile extends StatelessWidget {
   const _TrackTile({
     required this.track,
     required this.profile,
+    this.compactCredits = false,
     this.isCurrent = false,
     this.isNowPlaying = false,
     this.selectedEditionTitle,
@@ -1845,6 +1894,10 @@ class _TrackTile extends StatelessWidget {
 
   final LibraryTrack track;
   final SonusProfileColors profile;
+
+  /// On soundtracks and cast recordings, a credit line naming many
+  /// performers collapses to a summary the listener can expand.
+  final bool compactCredits;
   final bool isCurrent;
   final bool isNowPlaying;
 
@@ -2107,16 +2160,18 @@ class _TrackTile extends StatelessWidget {
       parts.add('Unavailable');
     }
 
-    final credit = songCreditLine(
+    final credit = songCreditSummary(
       primaryArtistName: track.artistName,
       coPrimaryArtists: track.coPrimaryArtists,
       featuredArtists: track.featuredArtists,
       guestArtists: track.guestArtists,
       omitPrimary: true,
     );
+    final collapsible = compactCredits && credit.isCollapsible;
+    final creditIndex = parts.length;
 
-    if (credit.isNotEmpty) {
-      parts.add(credit);
+    if (credit.full.isNotEmpty) {
+      parts.add(credit.full);
     }
 
     final editionTitle = track.albumEditionTitle.trim();
@@ -2130,6 +2185,20 @@ class _TrackTile extends StatelessWidget {
 
     if (parts.isEmpty) {
       return null;
+    }
+
+    if (collapsible) {
+      return _CollapsibleCredits(
+        key: ValueKey<String>('album-track-credits-${track.songId}'),
+        songId: track.songId,
+        fullLine: parts.join(' \u2022 '),
+        compactLine: [
+          ...parts.take(creditIndex),
+          credit.compact!,
+          ...parts.skip(creditIndex + 1),
+        ].join(' \u2022 '),
+        color: colors.textSecondary,
+      );
     }
 
     return Text(
@@ -2150,6 +2219,94 @@ class _TrackTile extends StatelessWidget {
 
     return '$minutes:'
         '${remainder.toString().padLeft(2, '0')}';
+  }
+}
+
+/// A track row's credit line that starts as a summary ("Ft. Ada, Ben + 3
+/// others") and expands to the full line (UI redesign C2). The whole line
+/// is a 48dp-high control; screen readers always hear the full credits.
+class _CollapsibleCredits extends StatefulWidget {
+  const _CollapsibleCredits({
+    super.key,
+    required this.songId,
+    required this.fullLine,
+    required this.compactLine,
+    required this.color,
+  });
+
+  final String songId;
+  final String fullLine;
+  final String compactLine;
+  final Color color;
+
+  @override
+  State<_CollapsibleCredits> createState() => _CollapsibleCreditsState();
+}
+
+class _CollapsibleCreditsState extends State<_CollapsibleCredits> {
+  bool _expanded = false;
+
+  void _toggle() => setState(() => _expanded = !_expanded);
+
+  @override
+  Widget build(BuildContext context) {
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    final style = TextStyle(
+      color: widget.color,
+      fontFeatures: const [FontFeature.tabularFigures()],
+    );
+    final text = Text(
+      _expanded ? widget.fullLine : widget.compactLine,
+      key: ValueKey<String>(
+        _expanded
+            ? 'album-track-credits-full-${widget.songId}'
+            : 'album-track-credits-summary-${widget.songId}',
+      ),
+      maxLines: _expanded ? null : 2,
+      overflow: _expanded ? null : TextOverflow.ellipsis,
+      style: style,
+    );
+
+    return Semantics(
+      container: true,
+      button: true,
+      expanded: _expanded,
+      label: 'Credits: ${widget.fullLine}',
+      onTap: _toggle,
+      onTapHint: _expanded ? 'Show fewer credits' : 'Show all credits',
+      // The visible line may be the summary; the label is always whole.
+      excludeSemantics: true,
+      child: InkWell(
+        key: ValueKey<String>('album-track-credits-toggle-${widget.songId}'),
+        borderRadius: BorderRadius.circular(8),
+        onTap: _toggle,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 48),
+          child: Row(
+            children: [
+              Expanded(
+                // With reduced motion the line changes at once.
+                child: reduceMotion
+                    ? text
+                    : AnimatedSize(
+                        duration: const Duration(milliseconds: 180),
+                        curve: Curves.easeOutCubic,
+                        alignment: Alignment.topLeft,
+                        child: text,
+                      ),
+              ),
+              Icon(
+                _expanded
+                    ? Icons.expand_less_rounded
+                    : Icons.expand_more_rounded,
+                size: 20,
+                color: widget.color,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 
