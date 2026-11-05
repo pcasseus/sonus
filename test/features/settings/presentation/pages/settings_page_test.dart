@@ -152,11 +152,16 @@ void main() {
       const ValueKey<String>('settings-blacklisted-songs'),
     );
 
+    // The Library settings page is on top; Settings is still below it, so
+    // scroll the top page's list (the last Scrollable), not the first.
     await tester.scrollUntilVisible(
       blacklistedSongsTile,
       300,
-      scrollable: find.byType(Scrollable).first,
+      scrollable: find.byType(Scrollable).last,
     );
+    // Built in the scroll cache is not the same as on screen.
+    await tester.ensureVisible(blacklistedSongsTile);
+    await tester.pumpAndSettle();
     await tester.tap(blacklistedSongsTile);
 
     await tester.pump();
