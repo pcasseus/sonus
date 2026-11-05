@@ -2,6 +2,7 @@ import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/material.dart';
 
+import 'sonus_reactivity.dart';
 import 'sonus_theme_definition.dart';
 
 /// Semantic colours. Screens use roles ("chart up", "artwork scrim"), never
@@ -419,6 +420,7 @@ class SonusDecorationTokens extends ThemeExtension<SonusDecorationTokens> {
     this.progressStyle = SonusProgressStyle.minimalLinear,
     this.highContrast = false,
     this.lowEffects = false,
+    this.reactivity = SonusReactivityMode.static,
   });
 
   /// No decoration at all; used when no Sonus theme is installed.
@@ -432,7 +434,8 @@ class SonusDecorationTokens extends ThemeExtension<SonusDecorationTokens> {
       allowGradients = false,
       progressStyle = SonusProgressStyle.minimalLinear,
       highContrast = false,
-      lowEffects = false;
+      lowEffects = false,
+      reactivity = SonusReactivityMode.static;
 
   final SonusDecorationIntensity intensity;
   final SonusMotif motif;
@@ -455,6 +458,11 @@ class SonusDecorationTokens extends ThemeExtension<SonusDecorationTokens> {
   final bool highContrast;
   final bool lowEffects;
 
+  /// The effective artwork reactivity (Themes 2.0 T1): the user's choice or
+  /// the theme's default, made [SonusReactivityMode.static] wherever
+  /// gradients are not allowed (Decoration Off, High contrast, Low effects).
+  final SonusReactivityMode reactivity;
+
   bool get showMarks => intensity != SonusDecorationIntensity.off;
 
   @override
@@ -473,6 +481,7 @@ class SonusDecorationTokens extends ThemeExtension<SonusDecorationTokens> {
       progressStyle: progressStyle,
       highContrast: highContrast,
       lowEffects: lowEffects,
+      reactivity: reactivity,
     );
   }
 

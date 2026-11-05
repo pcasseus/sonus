@@ -1,3 +1,4 @@
+import '../../../../core/design/sonus_reactivity.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../../../core/design/sonus_theme_id.dart';
@@ -108,6 +109,7 @@ class AppearancePreferences {
     this.schedule = const AppearanceSchedule(),
     this.highContrast = false,
     this.reduceMotion = false,
+    this.reactivity,
   });
 
   static const int version = 1;
@@ -123,6 +125,12 @@ class AppearancePreferences {
   final bool highContrast;
   final bool reduceMotion;
 
+  /// The artwork reactivity the user chose (Themes 2.0 T1); null follows
+  /// the theme's default. Optional within version 1: documents saved before
+  /// it existed stay valid, with nothing to migrate.
+  final SonusReactivityMode? reactivity;
+
+  /// [followThemeReactivity] clears [reactivity] back to the theme default.
   AppearancePreferences copyWith({
     SonusThemeId? theme,
     SonusTypographyPreset? typography,
@@ -130,6 +138,8 @@ class AppearancePreferences {
     AppearanceSchedule? schedule,
     bool? highContrast,
     bool? reduceMotion,
+    SonusReactivityMode? reactivity,
+    bool followThemeReactivity = false,
   }) {
     return AppearancePreferences(
       theme: theme ?? this.theme,
@@ -138,6 +148,7 @@ class AppearancePreferences {
       schedule: schedule ?? this.schedule,
       highContrast: highContrast ?? this.highContrast,
       reduceMotion: reduceMotion ?? this.reduceMotion,
+      reactivity: followThemeReactivity ? null : reactivity ?? this.reactivity,
     );
   }
 
@@ -149,6 +160,7 @@ class AppearancePreferences {
     'schedule': schedule.toJson(),
     'highContrast': highContrast,
     'reduceMotion': reduceMotion,
+    if (reactivity != null) 'reactivity': reactivity!.storageKey,
   };
 
   /// Reads [json] field by field. A missing or invalid field falls back to
@@ -200,7 +212,20 @@ class AppearancePreferences {
         _bool(json['reduceMotion']),
         defaults.reduceMotion,
       ),
+      reactivity: _reactivity(json, issues),
     );
+  }
+
+  /// The optional reactivity field: absent means the theme's default (not
+  /// an issue); present but unknown is reported and ignored.
+  static SonusReactivityMode? _reactivity(
+    Map<String, Object?> json,
+    List<String> issues,
+  ) {
+    if (!json.containsKey('reactivity')) return null;
+    final mode = SonusReactivityMode.fromStorageKey(json['reactivity']);
+    if (mode == null) issues.add('preferences.reactivity');
+    return mode;
   }
 
   static AppearanceSchedule _scheduleFromJson(
@@ -250,7 +275,8 @@ class AppearancePreferences {
       other.decoration == decoration &&
       other.schedule == schedule &&
       other.highContrast == highContrast &&
-      other.reduceMotion == reduceMotion;
+      other.reduceMotion == reduceMotion &&
+      other.reactivity == reactivity;
 
   @override
   int get hashCode => Object.hash(
@@ -260,6 +286,7 @@ class AppearancePreferences {
     schedule,
     highContrast,
     reduceMotion,
+    reactivity,
   );
 }
 
