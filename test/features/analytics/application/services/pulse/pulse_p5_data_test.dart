@@ -341,6 +341,57 @@ void main() {
         reason: 'blacklisted, unavailable and removed songs never play',
       );
     });
+
+    // S2: a play whose artist is no longer in the library keeps its name
+    // and totals, but offers no Artist Profile to open.
+    test(
+      'a track whose artist no longer exists opens no artist profile',
+      () async {
+        await seed();
+        final data = await service().load(PulsePeriod.month(2026, 10));
+        final directory = await PulseEntityDirectoryService(
+          library: _Library(
+            tracks: [track('lp_1')],
+            artists: [
+              LibraryArtist(
+                artistId: 'owner',
+                name: 'Owner Now',
+                albumCount: 2,
+                songCount: 3,
+                dateAdded: DateTime(2026),
+              ),
+            ],
+            // 'other' is gone from the library entirely.
+            albums: const [],
+          ),
+          playbackSessions: _Sessions(db),
+        ).load(data);
+
+        final orphanTrack = directory.infoFor(PulseEntityKind.track, 'other_1');
+        expect(orphanTrack.artistId, isNull, reason: 'no profile to open');
+        expect(orphanTrack.title, 'Title other_1');
+        expect(orphanTrack.subtitle, 'Name other', reason: 'historical name');
+
+        final orphanArtist = directory.infoFor(PulseEntityKind.artist, 'other');
+        expect(orphanArtist.artistId, isNull);
+        expect(orphanArtist.title, 'Name other');
+        expect(orphanArtist.status, PulseEntityStatus.historical);
+
+        // Totals are untouched: the artist still ranks with its one play.
+        expect(
+          data
+              .ranking(PulseEntityKind.artist, PulseMeasure.streams)
+              .any((entry) => entry.id == 'other'),
+          isTrue,
+        );
+
+        // An artist still in the library still opens.
+        expect(
+          directory.infoFor(PulseEntityKind.track, 'lp_1').artistId,
+          'owner',
+        );
+      },
+    );
   });
 }
 

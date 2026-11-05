@@ -474,16 +474,19 @@ class _TopArtistsRail extends StatelessWidget {
         return _ArtistCard(
           entry: entry,
           width: cardWidth,
-          onTap: () {
-            Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => ArtistProfilePage(
-                  artistId: entry.artist.artistId,
-                  initialArtistName: entry.artist.name,
-                ),
-              ),
-            );
-          },
+          // An artist no longer in the library has no profile to open.
+          onTap: entry.isHistorical
+              ? null
+              : () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => ArtistProfilePage(
+                        artistId: entry.artist.artistId,
+                        initialArtistName: entry.artist.name,
+                      ),
+                    ),
+                  );
+                },
         );
       },
     );
@@ -493,11 +496,7 @@ class _TopArtistsRail extends StatelessWidget {
 /// A portrait Top Artists card: tall artwork above a separate information
 /// panel, like an editorial artist feature.
 class _ArtistCard extends StatelessWidget {
-  const _ArtistCard({
-    required this.entry,
-    required this.width,
-    required this.onTap,
-  });
+  const _ArtistCard({required this.entry, required this.width, this.onTap});
 
   /// Portrait artwork, width : height.
   static const double artworkAspectRatio = 3 / 4;
@@ -515,7 +514,9 @@ class _ArtistCard extends StatelessWidget {
 
   final HomeTopArtist entry;
   final double width;
-  final VoidCallback onTap;
+
+  /// Null for an artist no longer in the library: shown, not opened.
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {

@@ -781,6 +781,71 @@ void _topArtistCardTests() {
 
     expect(find.byType(ArtistProfilePage), findsOneWidget);
   });
+
+  // S2: an artist no longer in the library keeps its card, rank, name and
+  // totals, but has no profile to open.
+  testWidgets('a historical artist card shows its stored name and does not '
+      'open a profile', (tester) async {
+    final base = _snapshot();
+    final controller = await _loadedController(
+      HomeSnapshot(
+        recentlyAddedAlbums: base.recentlyAddedAlbums,
+        weeklyPopularTracks: base.weeklyPopularTracks,
+        weeklyTopArtists: [
+          HomeTopArtist(
+            artist: LibraryArtist(
+              artistId: 'artist_gone',
+              name: 'Gone Artist',
+              albumCount: 0,
+              songCount: 0,
+              dateAdded: DateTime.utc(2026, 9, 28),
+            ),
+            rank: 1,
+            qualifiedStreamCount: 9,
+            weeklyListeningDuration: const Duration(minutes: 30),
+            isAvailable: false,
+            isHistorical: true,
+          ),
+          ...base.weeklyTopArtists.map(
+            (entry) => HomeTopArtist(
+              artist: entry.artist,
+              rank: 2,
+              qualifiedStreamCount: entry.qualifiedStreamCount,
+              weeklyListeningDuration: entry.weeklyListeningDuration,
+            ),
+          ),
+        ],
+      ),
+    );
+
+    await _pumpHome(tester, controller);
+
+    const gone = ValueKey<String>('home-top-artist-artist_gone');
+    expect(find.byKey(gone), findsOneWidget);
+    expect(
+      find.descendant(of: find.byKey(gone), matching: find.text('Gone Artist')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(gone),
+        matching: find.text('9 weekly streams'),
+      ),
+      findsOneWidget,
+    );
+    expect(tester.widget<InkWell>(find.byKey(gone)).onTap, isNull);
+
+    await tester.tap(find.byKey(gone));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byType(ArtistProfilePage), findsNothing);
+
+    // The artist still in the library still opens, from rank 2.
+    await tester.tap(find.byKey(card));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byType(ArtistProfilePage), findsOneWidget);
+  });
 }
 
 void _themeTests() {
