@@ -606,6 +606,10 @@ void main() {
         playbackCoordinator: PlaybackCoordinator(engine: engine),
       );
 
+      // SN-51 C1: both songs are on one release, so they sit in its
+      // group; the queue is still every collaboration.
+      await tester.tap(key('artist-collaboration-group-their-album-header'));
+      await tester.pumpAndSettle();
       await tester.tap(key('artist-track-feature'));
       await tester.pump();
 
