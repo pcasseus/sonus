@@ -450,7 +450,11 @@ void main() {
     );
     if (byKey('roster-compact').evaluate().isEmpty) {
       final (own, shown) = statisticsShown(tester);
-      expect(shown, closeTo(own, 0.5), reason: 'statistics are not clipped');
+      expect(
+        own,
+        lessThanOrEqualTo(shown + 0.5),
+        reason: 'statistics are not clipped',
+      );
     }
   }
 
@@ -488,9 +492,20 @@ void main() {
       expect(find.text('Sort: Most Played'), findsOneWidget);
 
       expect(byKey('roster-select-label'), findsOneWidget);
-      final portrait = tester.getRect(byKey('roster-featured-portrait'));
-      expect(portrait.height, greaterThan(240));
-      expect(portrait.width, greaterThan(150));
+      // V3: the name runs across the full width, above the artwork.
+      final name = tester.getRect(byKey('roster-featured-name'));
+      final frame = tester.getRect(byKey('roster-featured-frame'));
+      expect(name.bottom, lessThan(frame.top));
+      expect(
+        tester.getRect(byKey('roster-rank')).bottom,
+        lessThan(frame.top),
+        reason: 'the rank stays with the name',
+      );
+      // Wider, near-square artwork (about 52% of the row) for group photos.
+      expect(frame.width, greaterThan(175));
+      expect(frame.width / frame.height, inInclusiveRange(0.85, 1.15));
+      final stats = tester.getRect(byKey('roster-stat-releases'));
+      expect(stats.left, greaterThan(frame.right), reason: 'stats beside');
       expectFullSizeStatistics(tester);
       expect(
         tester.getRect(byKey('roster-top-track')).bottom,
@@ -537,24 +552,26 @@ void main() {
       expectFullSizeStatistics(tester);
     });
 
-    testWidgets('text at 1.15x: the same layout, statistics full size', (
+    testWidgets('text at 1.15x: the scrolling layout (V3: the full-width '
+        'header and tiles need the height), grid first, full size', (
       tester,
     ) async {
       await pumpInShell(tester, textScale: 1.15);
 
-      expect(byKey('roster-compact'), findsNothing);
+      expect(byKey('roster-compact'), findsOneWidget);
       expect(tilesInView(tester), 10);
       expectFullSizeStatistics(tester);
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('360 x 780: the same layout, statistics full size', (
+    testWidgets('360 x 780: the full-width name leaves too little height, '
+        'so the scrolling layout keeps everything at full size', (
       tester,
     ) async {
       await pumpInShell(tester, size: const Size(360, 780), ratio: 3);
 
-      expect(byKey('roster-compact'), findsNothing);
-      expect(tilesInView(tester), 10);
+      expect(byKey('roster-compact'), findsOneWidget);
+      expect(tilesInView(tester), 10, reason: 'the grid leads');
       expectFullSizeStatistics(tester);
       expect(tester.takeException(), isNull);
     });
@@ -566,8 +583,8 @@ void main() {
 
       expect(tilesInView(tester), 10);
       expect(
-        tester.getSize(byKey('roster-featured-portrait')).height,
-        greaterThan(280),
+        tester.getSize(byKey('roster-featured-frame')).height,
+        greaterThan(240),
       );
       expectFullSizeStatistics(tester);
     });
@@ -630,6 +647,64 @@ void main() {
         );
       });
     }
+
+    // UI redesign V3: the featured layout of the approved Roster reference.
+    testWidgets('V3: statistics as a two-by-two grid, the top track below', (
+      tester,
+    ) async {
+      await pumpInShell(tester);
+
+      Rect at(String id) => tester.getRect(byKey('roster-stat-$id'));
+      expect(at('releases').left, lessThan(at('songs').left));
+      expect(at('releases').top, closeTo(at('songs').top, 1));
+      expect(at('streams').top, greaterThan(at('releases').bottom));
+      expect(at('listened').left, closeTo(at('songs').left, 1));
+      expect(
+        tester.getRect(byKey('roster-top-track')).top,
+        greaterThan(at('streams').bottom),
+      );
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('V3: a very long name stays on one line, scaled, not cut', (
+      tester,
+    ) async {
+      await pumpInShell(
+        tester,
+        artists: [
+          base.createArtist(
+            artistId: 'long',
+            name: 'The Extraordinarily Long Original Broadway Cast',
+          ),
+          ...roster(12),
+        ],
+      );
+
+      final name = tester.renderObject<RenderBox>(
+        byKey('roster-featured-name'),
+      );
+      final shown = tester.getSize(
+        find
+            .ancestor(
+              of: byKey('roster-featured-name'),
+              matching: find.byType(FittedBox),
+            )
+            .first,
+      );
+      expect(shown.width, lessThanOrEqualTo(s26UltraSize.width));
+      expect(shown.height, lessThan(name.size.height + 0.5));
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('V3: the artwork frame carries an accent rim', (tester) async {
+      await pumpInShell(tester);
+
+      final frame =
+          tester.widget<DecoratedBox>(byKey('roster-featured-frame')).decoration
+              as BoxDecoration;
+      expect((frame.border! as Border).top.width, 1.5);
+      expect(byKey('roster-featured-portrait'), findsOneWidget);
+    });
 
     testWidgets('the Finder and SELECT ARTIST open from the tab, and Back '
         'returns to the Roster with the Sonus bar', (tester) async {

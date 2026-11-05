@@ -13,7 +13,6 @@ import '../../../../../core/design/widgets/sonus_artwork_image.dart';
 import '../../../../../core/design/widgets/sonus_framed_artwork.dart';
 import '../../../../../core/design/widgets/sonus_cinematic_atmosphere_builder.dart';
 import '../../../../../core/design/widgets/sonus_glass_panel.dart';
-import '../../../../../core/design/widgets/sonus_perspective_panel.dart';
 import '../../../application/models/library_artist.dart';
 import '../../models/alphabet_index.dart';
 import '../../models/artist_library_statistics.dart';
@@ -317,14 +316,18 @@ class _ArtistRosterState extends State<ArtistRoster> {
   /// line of small text and its padding.
   static double _pageLine(double textScale) => 8 + 16 * textScale;
 
-  /// The height the featured artist needs to show its label, rank and
-  /// statistics at full size beside the portrait, with room left for the
-  /// name: label 16, name at least 26, rank 20 and statistics 152 (Roboto,
-  /// measured), all growing with the text, plus 24dp of spacing.
-  static double featuredNeeded(double textScale) => 214 * textScale + 24;
+  /// The featured header (V3): SELECT AN ARTIST, the full-width name and
+  /// the rank with its padding: 83dp at normal text (Roboto, measured),
+  /// generous above it (the name scales down before it grows past this).
+  static double headerHeight(double textScale) => 83 * textScale;
 
-  /// The least height the name keeps beside the statistics.
-  static double minName(double textScale) => 26 * textScale;
+  /// The height the featured row needs for its statistics at full size:
+  /// two rows of tiles and the top track (Roboto, measured), with spacing.
+  static double featuredNeeded(double textScale) => 160 * textScale + 22;
+
+  /// The artwork's share of the featured row's width (V3: wider artwork,
+  /// so group and cast photographs fill more of their frame).
+  static const double artworkShare = 0.52;
 
   Widget _body(SonusCinematicColors colors) {
     return LayoutBuilder(
@@ -340,6 +343,7 @@ class _ArtistRosterState extends State<ArtistRoster> {
         final rowStep = tileHeight + gap;
         final narrowControls = width < 360 || textScale >= 1.3;
         final controlsHeight = narrowControls ? 112.0 : 56.0;
+        final header = headerHeight(textScale);
         final needed = featuredNeeded(textScale);
 
         // Two rows of portraits on phones (Option C); wide screens add rows
@@ -347,7 +351,7 @@ class _ArtistRosterState extends State<ArtistRoster> {
         var rows = 2;
         double gridHeight() =>
             rows * tileHeight + (rows - 1) * gap + _pageLine(textScale);
-        var featuredRoom = height - controlsHeight - gridHeight();
+        var featuredRoom = height - controlsHeight - header - gridHeight();
         final maxRows = width >= 600 ? 4 : 2;
         while (rows < maxRows && featuredRoom - rowStep >= needed + 80) {
           rows++;
@@ -360,6 +364,15 @@ class _ArtistRosterState extends State<ArtistRoster> {
         final stats = preview == null
             ? null
             : widget.statistics[preview.artistId];
+        final featuredHeader = preview == null
+            ? const SizedBox.shrink()
+            : _FeaturedHeader(
+                key: ValueKey<String>('roster-header-${preview.artistId}'),
+                artist: preview,
+                stats: stats,
+                loaded: widget.statisticsLoaded,
+                colors: colors,
+              );
         final controls = _Controls(
           colors: colors,
           sort: _sort,
@@ -385,6 +398,10 @@ class _ArtistRosterState extends State<ArtistRoster> {
             child: Column(
               children: [
                 controls,
+                featuredHeader,
+                // The portraits come before the artwork and statistics, so
+                // the select grid is in view without scrolling past them.
+                SizedBox(height: gridHeight() + 8, child: grid),
                 if (preview != null)
                   _Featured(
                     artist: preview,
@@ -393,24 +410,6 @@ class _ArtistRosterState extends State<ArtistRoster> {
                     colors: colors,
                     compact: true,
                     onOpen: _openPreview,
-                  ),
-                // The portraits come before the statistics, so the select
-                // grid is in view without scrolling past them.
-                SizedBox(height: gridHeight() + 8, child: grid),
-                if (preview != null)
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
-                    child: SonusGlassPanel(
-                      base: colors.surface,
-                      edge: colors.edge,
-                      padding: const EdgeInsets.all(12),
-                      child: _StatsList(
-                        artist: preview,
-                        stats: stats,
-                        loaded: widget.statisticsLoaded,
-                        colors: colors,
-                      ),
-                    ),
                   ),
               ],
             ),
@@ -423,6 +422,7 @@ class _ArtistRosterState extends State<ArtistRoster> {
         return Column(
           children: [
             controls,
+            featuredHeader,
             SizedBox(
               height: featuredHeight,
               child: preview == null
@@ -567,6 +567,10 @@ class _ArtistRosterState extends State<ArtistRoster> {
 }
 
 /// The previewed artist: portrait, name, rank, statistics and top track.
+/// The featured artist's artwork and statistics (V3): the artwork on
+/// [_ArtistRosterState.artworkShare] of the width with an accent rim and
+/// glow, the statistics beside it on glass. In the scrolling layout the
+/// artwork leads and the statistics follow at full width.
 class _Featured extends StatelessWidget {
   const _Featured({
     required this.artist,
@@ -586,20 +590,56 @@ class _Featured extends StatelessWidget {
   /// Opens the artist's profile.
   final VoidCallback onOpen;
 
-  /// The featured portrait, as a button that opens the profile.
-  Widget _openablePortrait(double width) => Semantics(
-    button: true,
-    label: 'Open ${artist.name}',
-    excludeSemantics: true,
-    child: GestureDetector(
-      key: const ValueKey<String>('roster-featured-open'),
-      onTap: onOpen,
-      child: _Portrait(
-        key: const ValueKey<String>('roster-featured-portrait'),
-        artist: artist,
-        width: width,
-        colors: colors,
+  /// The featured artwork, as a button that opens the profile.
+  Widget _openableArtwork(BuildContext context, double width) {
+    final decoration = SonusTheme.of(context).decoration;
+    return Semantics(
+      button: true,
+      label: 'Open ${artist.name}',
+      excludeSemantics: true,
+      child: GestureDetector(
+        key: const ValueKey<String>('roster-featured-open'),
+        onTap: onOpen,
+        child: DecoratedBox(
+          key: const ValueKey<String>('roster-featured-frame'),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(
+              color: decoration.allowGradients
+                  ? colors.accent.withValues(alpha: 0.7)
+                  : colors.edge,
+              width: 1.5,
+            ),
+            boxShadow: SonusGlow.shadows(
+              colors.glow,
+              decoration,
+              blurRadius: 22,
+            ),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.all(1.5),
+            child: _Portrait(
+              key: const ValueKey<String>('roster-featured-portrait'),
+              artist: artist,
+              width: width,
+              colors: colors,
+            ),
+          ),
+        ),
       ),
+    );
+  }
+
+  Widget _statsPanel() => SonusGlassPanel(
+    base: colors.surface,
+    edge: colors.edge,
+    glow: colors.glow,
+    padding: const EdgeInsets.all(6),
+    child: _StatsGrid(
+      artist: artist,
+      stats: stats,
+      loaded: loaded,
+      colors: colors,
     ),
   );
 
@@ -619,170 +659,137 @@ class _Featured extends StatelessWidget {
   }
 
   Widget _full(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final portraitWidth = (constraints.maxWidth * 0.40).clamp(
-          0.0,
-          (constraints.maxHeight - 12) * 0.86,
-        );
-        return Stack(
-          children: [
-            Positioned(
-              left: 12,
-              top: 6,
-              bottom: 6,
-              width: portraitWidth,
-              child: _openablePortrait(portraitWidth),
-            ),
-            Positioned(
-              left: portraitWidth + 18,
-              right: 12,
-              top: 4,
-              bottom: 6,
-              child: CustomMultiChildLayout(
-                delegate: _FeaturedColumnLayout(
-                  minName: _ArtistRosterState.minName(
-                    MediaQuery.textScalerOf(context).scale(1),
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 6),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          const gap = 10.0;
+          final artworkWidth =
+              (constraints.maxWidth - gap) * _ArtistRosterState.artworkShare;
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SizedBox(
+                width: artworkWidth,
+                child: _openableArtwork(context, artworkWidth),
+              ),
+              const SizedBox(width: gap),
+              Expanded(
+                // Its own size; clipped, never squeezed, if ever short.
+                child: ClipRect(
+                  child: OverflowBox(
+                    // Centred beside the artwork when shorter than it.
+                    alignment: Alignment.center,
+                    minHeight: 0,
+                    maxHeight: double.infinity,
+                    fit: OverflowBoxFit.deferToChild,
+                    child: _statsPanel(),
                   ),
                 ),
-                children: [
-                  LayoutId(
-                    id: _FeaturedSlot.label,
-                    child: _SelectLabel(colors: colors),
-                  ),
-                  LayoutId(
-                    id: _FeaturedSlot.name,
-                    child: _Name(artist: artist, colors: colors),
-                  ),
-                  LayoutId(
-                    id: _FeaturedSlot.rank,
-                    child: _RankBadge(
-                      stats: stats,
-                      loaded: loaded,
-                      colors: colors,
-                    ),
-                  ),
-                  LayoutId(
-                    id: _FeaturedSlot.stats,
-                    // Its own size; clipped, never squeezed, if ever short.
-                    child: ClipRect(
-                      child: OverflowBox(
-                        alignment: Alignment.topLeft,
-                        maxHeight: double.infinity,
-                        fit: OverflowBoxFit.deferToChild,
-                        child: SonusPerspectivePanel(
-                          angle: -0.16,
-                          alignment: Alignment.centerRight,
-                          child: SonusGlassPanel(
-                            base: colors.surface,
-                            edge: colors.edge,
-                            glow: colors.glow,
-                            padding: const EdgeInsets.all(8),
-                            child: _StatsList(
-                              artist: artist,
-                              stats: stats,
-                              loaded: loaded,
-                              colors: colors,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
               ),
-            ),
-          ],
-        );
-      },
+            ],
+          );
+        },
+      ),
     );
   }
 
   Widget _compact(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final size = (constraints.maxWidth * 0.7).clamp(120.0, 280.0);
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              SizedBox(width: 110, height: 140, child: _openablePortrait(110)),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _SelectLabel(colors: colors),
-                    const SizedBox(height: 4),
-                    _Name(artist: artist, colors: colors),
-                    const SizedBox(height: 6),
-                    _RankBadge(stats: stats, loaded: loaded, colors: colors),
-                  ],
+              Center(
+                child: SizedBox(
+                  width: size,
+                  height: size,
+                  child: _openableArtwork(context, size),
                 ),
               ),
+              const SizedBox(height: 12),
+              _statsPanel(),
             ],
-          ),
-        ],
+          );
+        },
       ),
     );
   }
 }
 
-enum _FeaturedSlot { label, name, rank, stats }
+/// The featured artist's name across the full width (V3): SELECT AN
+/// ARTIST, the name in bold italic display type, and the rank between two
+/// rules, as on a select screen.
+class _FeaturedHeader extends StatelessWidget {
+  const _FeaturedHeader({
+    super.key,
+    required this.artist,
+    required this.stats,
+    required this.loaded,
+    required this.colors,
+  });
 
-/// The featured artist's text column: the label, rank and statistics at
-/// their own size, the name in what is left (it scales, being display
-/// type). The Roster only uses this layout where everything fits; should
-/// the column ever be shorter than that, the statistics are clipped to
-/// the space rather than overflowing.
-class _FeaturedColumnLayout extends MultiChildLayoutDelegate {
-  _FeaturedColumnLayout({required this.minName});
-
-  final double minName;
-
-  static const double _gapAfterLabel = 4;
-  static const double _gapAfterName = 4;
-  static const double _gapAfterRank = 6;
+  final LibraryArtist artist;
+  final ArtistLibraryStatistics? stats;
+  final bool loaded;
+  final SonusCinematicColors colors;
 
   @override
-  void performLayout(Size size) {
-    final loose = BoxConstraints.loose(size);
-    final label = layoutChild(_FeaturedSlot.label, loose);
-    final rank = layoutChild(_FeaturedSlot.rank, loose);
-    final fixed =
-        label.height +
-        _gapAfterLabel +
-        _gapAfterName +
-        rank.height +
-        _gapAfterRank;
-    final statsRoom = (size.height - fixed - minName).clamp(0.0, size.height);
-    final stats = layoutChild(
-      _FeaturedSlot.stats,
-      BoxConstraints(maxWidth: size.width, maxHeight: statsRoom),
-    );
-    final nameRoom = (size.height - fixed - stats.height).clamp(
-      0.0,
-      size.height,
-    );
-    final name = layoutChild(
-      _FeaturedSlot.name,
-      BoxConstraints(maxWidth: size.width, maxHeight: nameRoom),
+  Widget build(BuildContext context) {
+    final tokens = SonusTheme.of(context);
+    final reduced =
+        tokens.motion.reduced || MediaQuery.disableAnimationsOf(context);
+    Widget rule({required bool leading}) => Expanded(
+      child: ExcludeSemantics(
+        child: Container(
+          height: 1.5,
+          margin: const EdgeInsets.symmetric(horizontal: 10),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: leading
+                  ? [colors.edge.withValues(alpha: 0), colors.accent]
+                  : [colors.accent, colors.edge.withValues(alpha: 0)],
+            ),
+          ),
+        ),
+      ),
     );
 
-    var y = 0.0;
-    positionChild(_FeaturedSlot.label, Offset(0, y));
-    y += label.height + _gapAfterLabel;
-    positionChild(_FeaturedSlot.name, Offset(0, y));
-    y += name.height + _gapAfterName;
-    positionChild(_FeaturedSlot.rank, Offset(0, y));
-    y += rank.height + _gapAfterRank;
-    positionChild(_FeaturedSlot.stats, Offset(0, y));
+    return AnimatedSwitcher(
+      duration: reduced ? Duration.zero : tokens.motion.baseShort,
+      child: Padding(
+        key: ValueKey<String>('roster-header-body-${artist.artistId}'),
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _SelectLabel(colors: colors),
+            const SizedBox(height: 2),
+            _Name(artist: artist, colors: colors),
+            const SizedBox(height: 2),
+            Row(
+              children: [
+                rule(leading: true),
+                // May wrap with large text on narrow screens, never overflow.
+                Flexible(
+                  flex: 4,
+                  child: _RankBadge(
+                    stats: stats,
+                    loaded: loaded,
+                    colors: colors,
+                  ),
+                ),
+                rule(leading: false),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
   }
-
-  @override
-  bool shouldRelayout(_FeaturedColumnLayout oldDelegate) =>
-      oldDelegate.minName != minName;
 }
 
 /// SELECT AN ARTIST, as on a select screen; for screen readers it names
@@ -867,24 +874,20 @@ class _Name extends StatelessWidget {
       excludeSemantics: true,
       child: FittedBox(
         fit: BoxFit.scaleDown,
-        alignment: Alignment.centerLeft,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 260),
-          child: Text(
-            artist.name.toUpperCase(),
-            key: const ValueKey<String>('roster-featured-name'),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.headlineMedium?.copyWith(
-              color: colors.textPrimary,
-              fontWeight: FontWeight.w900,
-              fontStyle: FontStyle.italic,
-              height: 1.0,
-              letterSpacing: -0.5,
-              shadows: decoration.allowGlow && colors.hasGlow
-                  ? [Shadow(color: colors.glow, blurRadius: 18)]
-                  : null,
-            ),
+        child: Text(
+          artist.name.toUpperCase(),
+          key: const ValueKey<String>('roster-featured-name'),
+          maxLines: 1,
+          softWrap: false,
+          style: Theme.of(context).textTheme.headlineLarge?.copyWith(
+            color: colors.textPrimary,
+            fontWeight: FontWeight.w900,
+            fontStyle: FontStyle.italic,
+            height: 1.0,
+            letterSpacing: -0.5,
+            shadows: decoration.allowGlow && colors.hasGlow
+                ? [Shadow(color: colors.glow, blurRadius: 18)]
+                : null,
           ),
         ),
       ),
@@ -940,8 +943,11 @@ class _RankBadge extends StatelessWidget {
   }
 }
 
-class _StatsList extends StatelessWidget {
-  const _StatsList({
+/// The featured artist's statistics (V3): releases, songs, streams and
+/// listening time as a two-by-two grid of tiles, then the top track with
+/// its artwork. Text is never scaled: values and labels wrap if they must.
+class _StatsGrid extends StatelessWidget {
+  const _StatsGrid({
     required this.artist,
     required this.stats,
     required this.loaded,
@@ -960,109 +966,163 @@ class _StatsList extends StatelessWidget {
     final listened = stats?.listened;
     final hasListened = listened != null && listened > Duration.zero;
     final top = stats?.topTrack;
+    final tileColour = colors.surface.withValues(alpha: 0.6);
 
-    Widget row(IconData icon, String value, String label, String spoken) =>
-        Semantics(
-          label: spoken,
-          excludeSemantics: true,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 2),
-            // Wraps onto a second line rather than overflowing with large
-            // text.
-            child: Wrap(
-              crossAxisAlignment: WrapCrossAlignment.center,
-              spacing: 6,
-              children: [
-                Icon(icon, size: 18, color: colors.accent),
-                Text(
-                  value,
-                  style: theme.textTheme.titleSmall?.copyWith(
-                    color: colors.textPrimary,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                Text(
-                  label,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: colors.textSecondary,
-                  ),
-                ),
-              ],
-            ),
+    Widget tile(
+      String key,
+      IconData icon,
+      String value,
+      String label,
+      String spoken,
+    ) => Expanded(
+      child: Semantics(
+        label: spoken,
+        excludeSemantics: true,
+        child: Container(
+          key: ValueKey<String>('roster-stat-$key'),
+          padding: const EdgeInsets.fromLTRB(7, 5, 5, 5),
+          decoration: BoxDecoration(
+            color: tileColour,
+            borderRadius: BorderRadius.circular(12),
           ),
-        );
+          // The icon beside the value; the label below at the tile's
+          // full width, so it keeps one line at full size.
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Icon(icon, size: 15, color: colors.accent),
+                  ),
+                  const SizedBox(width: 4),
+                  Flexible(
+                    child: Text(
+                      value,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        color: colors.textPrimary,
+                        fontWeight: FontWeight.w800,
+                        height: 1.15,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              Text(
+                label,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: colors.textSecondary,
+                  height: 1.2,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
 
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       mainAxisSize: MainAxisSize.min,
       children: [
-        row(
-          Icons.album_rounded,
-          '${artist.albumCount}',
-          sonusCountNoun(artist.albumCount, 'Release'),
-          sonusCount(artist.albumCount, 'release'),
+        IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              tile(
+                'releases',
+                Icons.album_rounded,
+                '${artist.albumCount}',
+                sonusCountNoun(artist.albumCount, 'Release'),
+                sonusCount(artist.albumCount, 'release'),
+              ),
+              const SizedBox(width: 6),
+              tile(
+                'songs',
+                Icons.music_note_rounded,
+                '${artist.songCount}',
+                sonusCountNoun(artist.songCount, 'Song'),
+                sonusCount(artist.songCount, 'song'),
+              ),
+            ],
+          ),
         ),
-        row(
-          Icons.music_note_rounded,
-          '${artist.songCount}',
-          sonusCountNoun(artist.songCount, 'Song'),
-          sonusCount(artist.songCount, 'song'),
+        const SizedBox(height: 6),
+        IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              tile(
+                'streams',
+                Icons.bar_chart_rounded,
+                loaded ? '$streams' : '–',
+                sonusCountNoun(streams, 'Stream'),
+                loaded ? sonusCount(streams, 'stream') : 'Streams loading',
+              ),
+              const SizedBox(width: 6),
+              tile(
+                'listened',
+                Icons.schedule_rounded,
+                loaded && hasListened ? sonusListeningTime(listened) : '–',
+                'Listened',
+                !loaded
+                    ? 'Listening time loading'
+                    : hasListened
+                    ? '${sonusListeningTime(listened)} listened'
+                    : 'No listening time yet',
+              ),
+            ],
+          ),
         ),
-        row(
-          Icons.bar_chart_rounded,
-          loaded ? '$streams' : '–',
-          sonusCountNoun(streams, 'Stream'),
-          loaded ? sonusCount(streams, 'stream') : 'Streams loading',
-        ),
-        row(
-          Icons.schedule_rounded,
-          loaded && hasListened ? sonusListeningTime(listened) : '–',
-          'Listened',
-          !loaded
-              ? 'Listening time loading'
-              : hasListened
-              ? '${sonusListeningTime(listened)} listened'
-              : 'No listening time yet',
-        ),
-        const SizedBox(height: 4),
+        const SizedBox(height: 6),
         Semantics(
           label: top == null
               ? (loaded ? 'No top track yet' : 'Top track loading')
               : 'Top track: ${top.track.displayTitle}',
           excludeSemantics: true,
-          child: Row(
+          child: Container(
             key: const ValueKey<String>('roster-top-track'),
-            children: [
-              if (top != null)
-                SonusArtworkImage(path: top.track.artworkPath, size: 36)
-              else
-                Icon(Icons.star_rounded, color: colors.accent, size: 22),
-              const SizedBox(width: 8),
-              // Shortened with an ellipsis, never scaled.
-              Flexible(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      top?.track.displayTitle ?? '–',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: colors.textPrimary,
-                        fontWeight: FontWeight.w700,
+            padding: const EdgeInsets.all(6),
+            decoration: BoxDecoration(
+              color: tileColour,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              children: [
+                if (top != null)
+                  SonusArtworkImage(path: top.track.artworkPath, size: 34)
+                else
+                  Icon(Icons.star_rounded, color: colors.accent, size: 22),
+                const SizedBox(width: 8),
+                // Shortened with an ellipsis, never scaled.
+                Flexible(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        top?.track.displayTitle ?? '–',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: colors.textPrimary,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
-                    ),
-                    Text(
-                      'Top Track',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: colors.textSecondary,
+                      Text(
+                        'Top Track',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: colors.textSecondary,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ],
