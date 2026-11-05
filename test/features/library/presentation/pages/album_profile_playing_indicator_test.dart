@@ -192,7 +192,7 @@ void main() {
     ListTile tile(String id) => tester.widget<ListTile>(
       find.byKey(ValueKey<String>('album-track-$id')),
     );
-    expect(tile('two').tileColor, accent.withValues(alpha: 0.14));
+    expect(tile('two').tileColor, accent.withValues(alpha: 0.22));
     expect(tile('one').tileColor, isNull);
     expect(
       tester

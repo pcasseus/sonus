@@ -12,7 +12,7 @@ import 'package:provider/provider.dart';
 import '../../../../core/design/sonus_artwork_palette.dart';
 import '../../../../core/design/sonus_contrast.dart';
 import '../../../../core/design/sonus_profile_colors.dart';
-import '../../../../core/design/widgets/sonus_glass_panel.dart';
+import '../../../../core/design/widgets/sonus_profile_surfaces.dart';
 import '../../../../core/design/widgets/sonus_profile_atmosphere_builder.dart';
 import '../../../../core/design/sonus_atmosphere_colors.dart';
 import '../../../../core/design/sonus_theme.dart';
@@ -172,8 +172,11 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
     return Scaffold(
       key: const ValueKey<String>('album-profile-page'),
       backgroundColor: atmosphere.background,
-      body: _AlbumPageBackground(
+      // V2: the selected edition's colour and light behind the whole page,
+      // still while the content scrolls over it.
+      body: SonusProfileBackdrop(
         profile: profile,
+        baseKey: const ValueKey<String>('album-profile-background'),
         child: controller == null
             ? CustomScrollView(
                 slivers: [
@@ -394,7 +397,11 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
     return SliverAppBar(
       key: const ValueKey<String>('album-profile-app-bar'),
       pinned: true,
-      backgroundColor: atmosphere.background,
+      // V2: clear while the cover leads, so the page's light shows behind
+      // it; the toolbar turns opaque as it collapses (below).
+      backgroundColor: heroArt == null
+          ? atmosphere.background
+          : Colors.transparent,
       surfaceTintColor: Colors.transparent,
       scrolledUnderElevation: 0,
       expandedHeight: heroArt == null || heroArtSize == null
@@ -418,10 +425,36 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
             ),
       flexibleSpace: heroArt == null
           ? null
-          : FlexibleSpaceBar(
-              key: const ValueKey<String>('album-profile-collapsing-hero'),
-              collapseMode: CollapseMode.parallax,
-              background: heroArt,
+          : Stack(
+              fit: StackFit.expand,
+              children: [
+                // The toolbar's colour grows in as the header collapses, so
+                // the list never shows through the toolbar.
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final collapsed =
+                        MediaQuery.paddingOf(context).top + kToolbarHeight;
+                    final expanded = collapsed + (heroArtSize ?? 0);
+                    final t = expanded <= collapsed
+                        ? 1.0
+                        : (1 -
+                                  (constraints.maxHeight - collapsed) /
+                                      (expanded - collapsed))
+                              .clamp(0.0, 1.0);
+                    return ColoredBox(
+                      key: const ValueKey<String>('album-profile-toolbar-fill'),
+                      color: atmosphere.background.withValues(
+                        alpha: Curves.easeIn.transform(t),
+                      ),
+                    );
+                  },
+                ),
+                FlexibleSpaceBar(
+                  key: const ValueKey<String>('album-profile-collapsing-hero'),
+                  collapseMode: CollapseMode.parallax,
+                  background: heroArt,
+                ),
+              ],
             ),
       actions: [
         if (controller != null)
@@ -898,7 +931,7 @@ class _AlbumHero extends StatelessWidget {
   static const double wideLayoutWidth = 560;
 
   /// Space below the collapsing artwork, inside the header.
-  static const double collapsingArtGap = 16;
+  static const double collapsingArtGap = 12;
 
   /// The collapsing header's artwork (P2): large, about three quarters of
   /// the width, but never more than about 40% of the screen's height, so
@@ -991,14 +1024,15 @@ class _AlbumHero extends StatelessWidget {
           _presentationAlbumTitle(album, edition),
           key: ValueKey<String>('album-profile-title-${album.albumId}'),
           textAlign: align,
-          style: theme.textTheme.headlineSmall?.copyWith(
+          style: theme.textTheme.headlineMedium?.copyWith(
             color: colors.textPrimary,
             fontWeight: FontWeight.w900,
-            letterSpacing: -0.3,
-            height: 1.1,
+            fontStyle: FontStyle.italic,
+            letterSpacing: -0.6,
+            height: 1.05,
           ),
         ),
-        const SizedBox(height: 6),
+        const SizedBox(height: 2),
         Text(
           album.artistName,
           key: ValueKey<String>('album-profile-artist-${album.artistId}'),
@@ -1008,13 +1042,13 @@ class _AlbumHero extends StatelessWidget {
           ),
         ),
         if (edition != null) ...[
-          const SizedBox(height: 10),
+          const SizedBox(height: 8),
           _EditionBadge(
             label: _editionDisplayLabel(edition, album.title),
             atmosphere: atmosphere,
           ),
         ],
-        const SizedBox(height: 12),
+        const SizedBox(height: 8),
         Text(
           _summary(),
           key: const ValueKey<String>('album-profile-summary'),
@@ -1180,6 +1214,9 @@ class _AlbumArtwork extends StatelessWidget {
         borderRadius: BorderRadius.circular(
           SonusTheme.of(context).metrics.artworkRadius,
         ),
+        border: glow == null
+            ? null
+            : Border.all(color: glow.withValues(alpha: 0.55), width: 1.5),
         boxShadow: glow == null
             ? null
             : [
@@ -1511,9 +1548,16 @@ class _PlaybackControls extends StatelessWidget {
           style: IconButton.styleFrom(
             minimumSize: const Size.square(48),
             foregroundColor: colors.textPrimary,
+            // V2: artwork-tinted glass with an accent rim when tinted.
+            backgroundColor:
+                atmosphere.isTinted && tokens.decoration.allowGradients
+                ? atmosphere.surface.withValues(alpha: 0.55)
+                : null,
             side: BorderSide(
               color: controller.isShuffleEnabled
                   ? atmosphere.accent
+                  : atmosphere.isTinted && tokens.decoration.allowGradients
+                  ? atmosphere.accent.withValues(alpha: 0.45)
                   : colors.border,
             ),
             shape: shape,
@@ -1572,10 +1616,10 @@ class _TracksSection extends StatelessWidget {
     final colors = tokens.colors;
     final theme = Theme.of(context);
 
-    return SonusGlassPanel(
+    // V2: soft, artwork-tinted glass with a barely-there rim.
+    return SonusSoftGlass(
       key: const ValueKey<String>('album-profile-tracks-section'),
-      base: profile.surface,
-      edge: profile.edge,
+      profile: profile,
       borderRadius: BorderRadius.circular(tokens.metrics.cardRadius + 8),
       padding: const EdgeInsets.fromLTRB(4, 16, 0, 8),
       // A transparent Material, so row ripples show on the glass.
@@ -1710,7 +1754,7 @@ class _TracksList extends StatelessWidget {
               thickness: 0.5,
               indent: 52,
               endIndent: 12,
-              color: profile.edge.withValues(alpha: 0.5),
+              color: profile.edge.withValues(alpha: 0.28),
             ),
           _TrackTile(
             track: track,
@@ -1860,9 +1904,14 @@ class _TrackTile extends StatelessWidget {
       key: ValueKey<String>('album-track-${track.songId}'),
       contentPadding: const EdgeInsets.only(left: 8),
       minTileHeight: 56,
-      // The playing row glows softly in the artwork's accent (P2).
-      tileColor: isCurrent ? profile.accent.withValues(alpha: 0.14) : null,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      // The playing row glows in the artwork's accent (P2, V2).
+      tileColor: isCurrent ? profile.accent.withValues(alpha: 0.22) : null,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: isCurrent && profile.isTinted
+            ? BorderSide(color: profile.accent.withValues(alpha: 0.35))
+            : BorderSide.none,
+      ),
       enabled: isPlayable || selecting,
       selected: selected ?? false,
       textColor: colors.textPrimary,
@@ -2197,35 +2246,6 @@ class _AlbumNotFound extends StatelessWidget {
           ],
         ),
       ),
-    );
-  }
-}
-
-/// The page behind the release (P2): the artwork's colour at the top,
-/// fading toward the theme lower down. Flat when untinted, as it is
-/// wherever gradients are not allowed.
-class _AlbumPageBackground extends StatelessWidget {
-  const _AlbumPageBackground({required this.profile, required this.child});
-
-  final SonusProfileColors profile;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return DecoratedBox(
-      key: const ValueKey<String>('album-profile-background'),
-      decoration: BoxDecoration(
-        color: profile.isTinted ? null : profile.background,
-        gradient: profile.isTinted
-            ? LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [profile.background, profile.backgroundDeep],
-                stops: const [0.3, 1],
-              )
-            : null,
-      ),
-      child: child,
     );
   }
 }
