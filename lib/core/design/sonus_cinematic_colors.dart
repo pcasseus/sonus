@@ -1,6 +1,7 @@
 import 'package:flutter/animation.dart';
 import 'package:flutter/foundation.dart';
 
+import 'artwork/sonus_artwork_tint.dart';
 import 'sonus_artwork_palette.dart';
 import 'sonus_contrast.dart';
 import 'sonus_tokens.dart';
@@ -43,10 +44,10 @@ class SonusCinematicColors {
         ? 0.0
         : strengthFor(decoration.intensity);
 
-    var strength = target;
-    while (strength > 0 && !_readable(artwork!, strength)) {
-      strength = (strength - 0.02).clamp(0.0, 1.0);
-    }
+    final strength = SonusArtworkTint.strongestReadable(
+      target,
+      (strength) => _readable(artwork!, strength),
+    );
 
     final background = artwork == null || strength == 0
         ? baseBackground
@@ -74,7 +75,7 @@ class SonusCinematicColors {
           : Color.lerp(const Color(0x38FFFFFF), accent, 0.35)!,
       glow: glow,
       accent: accent,
-      onAccent: _onColour(accent),
+      onAccent: SonusArtworkTint.onColour(accent),
       textPrimary: baseTextPrimary,
       textSecondary: baseTextSecondary,
       strength: strength,
@@ -129,7 +130,7 @@ class SonusCinematicColors {
       };
 
   static Color _tint(Color base, SonusArtworkColors artwork, double amount) =>
-      Color.lerp(base, artwork.container, amount)!;
+      SonusArtworkTint.tint(base, artwork, amount);
 
   static bool _readable(SonusArtworkColors artwork, double strength) {
     for (final ground in [
@@ -154,20 +155,10 @@ class SonusCinematicColors {
         decoration.intensity == SonusDecorationIntensity.subtle) {
       return baseAccent;
     }
-    final distinct =
-        SonusContrast.ratio(candidate, background) >= 3 &&
-        SonusContrast.ratio(candidate, surface) >= 3;
-    return distinct ? candidate : baseAccent;
-  }
-
-  /// Black or white, whichever reads better on [colour] (always ≥ 4.5:1).
-  static Color _onColour(Color colour) {
-    const dark = Color(0xFF000000);
-    const light = Color(0xFFFFFFFF);
-    return SonusContrast.ratio(dark, colour) >=
-            SonusContrast.ratio(light, colour)
-        ? dark
-        : light;
+    return SonusArtworkTint.distinctAccent(candidate, [
+      background,
+      surface,
+    ], fallback: baseAccent);
   }
 
   static SonusCinematicColors lerp(

@@ -2,9 +2,9 @@ import 'package:flutter/animation.dart';
 import 'package:flutter/painting.dart' show HSLColor;
 import 'package:flutter/foundation.dart';
 
+import 'artwork/sonus_artwork_tint.dart';
 import 'sonus_artwork_palette.dart';
 import 'sonus_atmosphere_colors.dart';
-import 'sonus_contrast.dart';
 import 'sonus_tokens.dart';
 
 /// The colours of the Artist and Album Profiles (UI redesign P1, P2, D3):
@@ -75,10 +75,10 @@ class SonusProfileColors {
         ? 0.0
         : strengthFor(decoration.intensity);
 
-    var strength = target;
-    while (strength > 0 && !_readable(colors, artwork!, strength)) {
-      strength = (strength - 0.02).clamp(0.0, 1.0);
-    }
+    final strength = SonusArtworkTint.strongestReadable(
+      target,
+      (strength) => _readable(colors, artwork!, strength),
+    );
 
     final tinted = artwork != null && strength > 0;
     final background = tinted
@@ -100,7 +100,7 @@ class SonusProfileColors {
     ]);
     final onAccent = accent == colors.accentPrimary
         ? colors.onAccentPrimary
-        : _onColour(accent);
+        : SonusArtworkTint.onColour(accent);
 
     return SonusProfileColors(
       background: background,
@@ -188,7 +188,7 @@ class SonusProfileColors {
       };
 
   static Color _tint(Color base, SonusArtworkColors artwork, double amount) =>
-      Color.lerp(base, artwork.container, amount)!;
+      SonusArtworkTint.tint(base, artwork, amount);
 
   /// The artwork's colours as the page uses them (device audit, V2
   /// follow-up). Material's extraction keeps the artwork's own tone, so
@@ -305,8 +305,9 @@ class SonusProfileColors {
     ];
     for (final text in [colors.textPrimary, colors.textSecondary]) {
       for (final (themeGround, tinted) in grounds) {
-        final required = SonusContrast.ratio(text, themeGround).clamp(1.0, 4.5);
-        if (SonusContrast.ratio(text, tinted) < required) return false;
+        if (!SonusArtworkTint.keepsThemeContrast(text, themeGround, tinted)) {
+          return false;
+        }
       }
     }
     return true;
@@ -325,21 +326,11 @@ class SonusProfileColors {
         decoration.intensity == SonusDecorationIntensity.subtle) {
       return colors.accentPrimary;
     }
-    final candidate = artwork.accent;
-    final distinct = grounds.every(
-      (ground) => SonusContrast.ratio(candidate, ground) >= 3,
+    return SonusArtworkTint.distinctAccent(
+      artwork.accent,
+      grounds,
+      fallback: colors.accentPrimary,
     );
-    return distinct ? candidate : colors.accentPrimary;
-  }
-
-  /// Black or white, whichever reads better on [colour] (always ≥ 4.5:1).
-  static Color _onColour(Color colour) {
-    const dark = Color(0xFF000000);
-    const light = Color(0xFFFFFFFF);
-    return SonusContrast.ratio(dark, colour) >=
-            SonusContrast.ratio(light, colour)
-        ? dark
-        : light;
   }
 
   static SonusProfileColors lerp(
