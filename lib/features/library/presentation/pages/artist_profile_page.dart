@@ -36,6 +36,7 @@ import 'package:sonus_next/features/library/application/services/track_profile_e
 import '../controllers/artist_profile_controller.dart';
 import '../controllers/track_selection_controller.dart';
 import '../models/artist_profile_sections.dart';
+import '../models/artist_removal_message.dart';
 import '../models/track_profile_edit_draft.dart';
 import '../widgets/artist_profile/artist_profile_albums_grid.dart';
 import '../widgets/artist_profile/artist_profile_collaborators.dart';
@@ -1124,18 +1125,15 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
       }
 
       Navigator.of(context).pop();
-    } on ArtistStillReferencedException {
+    } on ArtistStillReferencedException catch (error) {
       if (!mounted) {
         return;
       }
 
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          key: ValueKey<String>('artist-remove-referenced-message'),
-          content: Text(
-            'This artist still has songs or albums in your library. '
-            'Reassign them before removing the artist.',
-          ),
+        SnackBar(
+          key: const ValueKey<String>('artist-remove-referenced-message'),
+          content: Text(artistRemovalBlockedMessage(error.references)),
         ),
       );
     } catch (_) {

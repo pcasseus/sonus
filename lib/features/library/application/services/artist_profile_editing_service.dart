@@ -4,10 +4,20 @@ import '../../../sync/domain/models/sync_data_contract.dart';
 import '../../domain/entities/artist.dart';
 import '../../domain/metadata/metadata_field_state.dart';
 import '../../domain/metadata/metadata_fields.dart';
+import '../../domain/repositories/artist_reference_repository.dart';
 import '../../domain/services/metadata_field_state_service.dart';
 
+/// Removal was refused: something in Sonus still refers to the artist.
+/// Nothing was changed.
 class ArtistStillReferencedException implements Exception {
-  const ArtistStillReferencedException();
+  const ArtistStillReferencedException([this.references = const {}]);
+
+  /// What still refers to the artist, so the reason can be explained.
+  final Set<ArtistReference> references;
+
+  @override
+  String toString() =>
+      'ArtistStillReferencedException(${references.map((r) => r.name).join(', ')})';
 }
 
 class ArtistNameCollisionException implements Exception {
@@ -57,6 +67,15 @@ class ArtistProfileEditingService {
         throw StateError('Artist not found: $normalizedArtistId');
       }
 
+      // Without the reference check the removal cannot be proven safe, so
+      // it does not run.
+      final referenceRepository = context.artistReferenceRepository;
+      if (referenceRepository == null) {
+        throw StateError(
+          'Artist removal needs the artist reference check; nothing removed.',
+        );
+      }
+
       final albums = await context.albumRepository.getByArtistId(
         normalizedArtistId,
       );
@@ -67,8 +86,18 @@ class ArtistProfileEditingService {
         normalizedArtistId,
       );
 
-      if (albums.isNotEmpty || songs.isNotEmpty || credits.isNotEmpty) {
-        throw const ArtistStillReferencedException();
+      // Listening history, charts, Moments, project placement and
+      // unconfirmed cloud writes keep the artist too: deleting it would
+      // orphan their artist id or cascade away the user's grouping.
+      final references = {
+        if (albums.isNotEmpty) ArtistReference.albums,
+        if (songs.isNotEmpty) ArtistReference.songs,
+        if (credits.isNotEmpty) ArtistReference.credits,
+        ...await referenceRepository.findReferences(normalizedArtistId),
+      };
+
+      if (references.isNotEmpty) {
+        throw ArtistStillReferencedException(Set.unmodifiable(references));
       }
 
       final metadataRepository = context.metadataFieldStateRepository;

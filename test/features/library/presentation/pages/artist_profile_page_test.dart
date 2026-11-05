@@ -14,6 +14,7 @@ import 'package:sonus_next/features/library/application/services/external_metada
 import 'package:sonus_next/features/library/application/services/external_metadata_proposal_service.dart';
 import 'package:sonus_next/features/library/application/services/metadata_provider.dart';
 import 'package:sonus_next/features/library/application/services/artist_profile_editing_service.dart';
+import 'package:sonus_next/features/library/domain/repositories/artist_reference_repository.dart';
 import 'package:sonus_next/features/library/application/services/song_block_service.dart';
 import 'package:sonus_next/features/library/application/services/track_profile_editing_service.dart';
 import 'package:sonus_next/features/library/domain/entities/artist.dart';
@@ -816,13 +817,16 @@ void main() {
   });
 
   testWidgets(
-    'referenced artist removal stays on page and explains reassignment',
+    'referenced artist removal stays on page and explains what keeps it',
     (tester) async {
       final repository = FakeLibraryQueryRepository(artist: createArtist());
 
       final editingService = FakeArtistProfileEditingService(
         onRemove: ({required String artistId, required String? userId}) async {
-          throw const ArtistStillReferencedException();
+          throw const ArtistStillReferencedException({
+            ArtistReference.songs,
+            ArtistReference.listeningHistory,
+          });
         },
       );
 
@@ -865,8 +869,8 @@ void main() {
       );
       expect(
         find.text(
-          'This artist still has songs or albums in your library. '
-          'Reassign them before removing the artist.',
+          'This artist was not removed. Sonus keeps it because it still has '
+          'songs and listening history.',
         ),
         findsOneWidget,
       );
