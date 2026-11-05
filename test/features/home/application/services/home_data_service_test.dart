@@ -79,11 +79,6 @@ void main() {
 
       final snapshot = await service.load(referenceLocal: referenceLocal);
 
-      expect(snapshot.recentlyAddedTracks.map((track) => track.songId), [
-        'song_1',
-        'song_2',
-      ]);
-
       expect(snapshot.recentlyAddedAlbums.map((album) => album.albumId), [
         'album_1',
         'album_2',
@@ -256,7 +251,6 @@ void main() {
 
     final snapshot = await service.load(referenceLocal: referenceLocal);
 
-    expect(snapshot.recentlyAddedTracks, hasLength(6));
     expect(snapshot.recentlyAddedAlbums, hasLength(6));
     expect(snapshot.weeklyPopularTracks, hasLength(6));
     expect(snapshot.weeklyTopArtists, hasLength(6));
@@ -269,58 +263,66 @@ void main() {
     );
   });
 
-  test(
-    'recently added hides unavailable tracks but keeps available blocked tracks',
-    () async {
-      final tracks = [
-        _track(id: 'song_missing', title: 'Missing', available: false),
-        _track(id: 'song_blocked', title: 'Blocked', blocked: true),
-        _track(id: 'song_visible', title: 'Visible'),
-      ];
+  // Home no longer has a Recently Added shelf, but the same track rules
+  // still decide which releases New Releases shows.
+  test('new releases skip releases whose only track is unavailable, and keep '
+      'releases with an available blocked track', () async {
+    final tracks = [
+      _track(id: 'song_missing', title: 'Missing', available: false),
+      _track(id: 'song_blocked', title: 'Blocked', blocked: true),
+      _track(id: 'song_visible', title: 'Visible'),
+    ];
 
-      final service = HomeDataService(
-        library: _FakeLibraryQueryRepository(tracks: tracks),
-        artistListeningDurations: _emptyArtistListeningDurations(),
-        analyticsRankings: AnalyticsEntityRankingService(
-          qualifiedPlays: _FakeQualifiedPlayRepository(),
-        ),
-        sectionLimit: 2,
-      );
+    final service = HomeDataService(
+      library: _FakeLibraryQueryRepository(
+        tracks: tracks,
+        albums: [
+          for (final id in ['missing', 'blocked', 'visible'])
+            _album(id: 'album_$id', title: id),
+        ],
+      ),
+      artistListeningDurations: _emptyArtistListeningDurations(),
+      analyticsRankings: AnalyticsEntityRankingService(
+        qualifiedPlays: _FakeQualifiedPlayRepository(),
+      ),
+      sectionLimit: 2,
+    );
 
-      final snapshot = await service.load(referenceLocal: referenceLocal);
+    final snapshot = await service.load(referenceLocal: referenceLocal);
 
-      expect(snapshot.recentlyAddedTracks.map((track) => track.songId), [
-        'song_blocked',
-        'song_visible',
-      ]);
+    expect(snapshot.recentlyAddedAlbums.map((album) => album.albumId).toSet(), {
+      'album_blocked',
+      'album_visible',
+    });
+  });
 
-      expect(snapshot.recentlyAddedTracks.first.isBlocked, isTrue);
-    },
-  );
+  test('new releases skip a release whose track has a blank file path, even '
+      'when marked available', () async {
+    final tracks = [
+      _track(id: 'song_blank', title: 'Blank Path', filePath: '   '),
+      _track(id: 'song_visible', title: 'Visible'),
+    ];
 
-  test(
-    'recently added hides track with blank file path even when marked available',
-    () async {
-      final tracks = [
-        _track(id: 'song_blank', title: 'Blank Path', filePath: '   '),
-        _track(id: 'song_visible', title: 'Visible'),
-      ];
+    final service = HomeDataService(
+      library: _FakeLibraryQueryRepository(
+        tracks: tracks,
+        albums: [
+          _album(id: 'album_blank', title: 'Blank'),
+          _album(id: 'album_visible', title: 'Visible'),
+        ],
+      ),
+      artistListeningDurations: _emptyArtistListeningDurations(),
+      analyticsRankings: AnalyticsEntityRankingService(
+        qualifiedPlays: _FakeQualifiedPlayRepository(),
+      ),
+    );
 
-      final service = HomeDataService(
-        library: _FakeLibraryQueryRepository(tracks: tracks),
-        artistListeningDurations: _emptyArtistListeningDurations(),
-        analyticsRankings: AnalyticsEntityRankingService(
-          qualifiedPlays: _FakeQualifiedPlayRepository(),
-        ),
-      );
+    final snapshot = await service.load(referenceLocal: referenceLocal);
 
-      final snapshot = await service.load(referenceLocal: referenceLocal);
-
-      expect(snapshot.recentlyAddedTracks.map((track) => track.songId), [
-        'song_visible',
-      ]);
-    },
-  );
+    expect(snapshot.recentlyAddedAlbums.map((album) => album.albumId), [
+      'album_visible',
+    ]);
+  });
 
   test('new albums hide albums without usable media', () async {
     final tracks = [

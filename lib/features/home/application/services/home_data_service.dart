@@ -32,9 +32,10 @@ class HomeDataService {
       throw StateError('Home section limit must be greater than zero.');
     }
 
-    final recentlyAddedTracksFuture = _library.getTracks(
-      order: LibraryTrackOrder.dateAdded,
-    );
+    // Every track, newest first. Home no longer shows a Recently Added
+    // shelf, but these tracks still decide which releases (New Releases)
+    // and artists (Top Artists) have playable media.
+    final tracksFuture = _library.getTracks(order: LibraryTrackOrder.dateAdded);
 
     final albumsFuture = _library.getAlbums();
 
@@ -66,19 +67,15 @@ class HomeDataService {
       referenceLocal: lastWeekReference,
     );
 
-    final recentlyAddedTracks = await recentlyAddedTracksFuture;
+    final tracks = await tracksFuture;
     final albums = await albumsFuture;
     final rankings = await rankingsFuture;
     final lastWeekRankings = await lastWeekRankingsFuture;
     final artistDurations = await artistDurationsFuture;
     final lastWeekArtistDurations = await lastWeekArtistDurationsFuture;
 
-    final availableTracks = recentlyAddedTracks
+    final availableTracks = tracks
         .where(_hasAvailableMedia)
-        .toList(growable: false);
-
-    final visibleRecentlyAddedTracks = availableTracks
-        .take(sectionLimit)
         .toList(growable: false);
 
     final availableAlbumIds = availableTracks
@@ -120,7 +117,6 @@ class HomeDataService {
     );
 
     return HomeSnapshot(
-      recentlyAddedTracks: List.unmodifiable(visibleRecentlyAddedTracks),
       recentlyAddedAlbums: List.unmodifiable(
         visibleRecentlyAddedAlbums.take(sectionLimit),
       ),

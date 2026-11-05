@@ -110,13 +110,6 @@ class HomePage extends StatelessWidget {
             const SizedBox(height: _sectionGap),
           ],
 
-          if (snapshot.recentlyAddedTracks.isNotEmpty) ...[
-            const _SectionHeading(title: 'Recently Added'),
-            const SizedBox(height: _headingGap),
-            _RecentlyAddedTracksRail(tracks: snapshot.recentlyAddedTracks),
-            const SizedBox(height: _sectionGap),
-          ],
-
           if (snapshot.recentlyAddedAlbums.isNotEmpty) ...[
             const _SectionHeading(title: 'New Releases'),
             const SizedBox(height: _headingGap),
@@ -220,9 +213,9 @@ class _SectionHeading extends StatelessWidget {
 /// Card widths for the Home rails, derived from the screen so every rail
 /// shows a partial next card and reads as scrollable.
 ///
-/// Popular This Week leads with the largest cards; Recently Added and New
-/// Albums share one smaller size, so the page reads as a feature followed
-/// by supporting rails.
+/// Popular This Week leads with the largest cards; New Releases uses a
+/// smaller size, so the page reads as a feature followed by supporting
+/// rails.
 abstract final class _RailSizing {
   /// Space between cards in a rail.
   static const double gap = 14;
@@ -343,7 +336,6 @@ class _RailCard extends StatelessWidget {
     required this.subtitle,
     this.detail,
     this.onTap,
-    this.dimmed = false,
   });
 
   final Key cardKey;
@@ -357,9 +349,6 @@ class _RailCard extends StatelessWidget {
 
   /// Null leaves the card visible but not interactive.
   final VoidCallback? onTap;
-
-  /// Fades the card for content that cannot be played.
-  final bool dimmed;
 
   @override
   Widget build(BuildContext context) {
@@ -380,44 +369,41 @@ class _RailCard extends StatelessWidget {
           borderRadius: radius,
           onTap: onTap,
           onFocusChange: onFocusChange,
-          child: Opacity(
-            opacity: dimmed ? 0.55 : 1,
-            child: Padding(
-              padding: const EdgeInsets.only(bottom: 6),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  artwork,
-                  const SizedBox(height: 10),
-                  Text(
-                    title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      color: tokens.colors.textPrimary,
-                      fontWeight: FontWeight.w700,
-                    ),
+          child: Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                artwork,
+                const SizedBox(height: 10),
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    color: tokens.colors.textPrimary,
+                    fontWeight: FontWeight.w700,
                   ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: secondaryStyle,
+                ),
+                if (detail != null) ...[
                   const SizedBox(height: 3),
                   Text(
-                    subtitle,
+                    detail,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: secondaryStyle,
-                  ),
-                  if (detail != null) ...[
-                    const SizedBox(height: 3),
-                    Text(
-                      detail,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: secondaryStyle?.copyWith(
-                        fontFeatures: const [FontFeature.tabularFigures()],
-                      ),
+                    style: secondaryStyle?.copyWith(
+                      fontFeatures: const [FontFeature.tabularFigures()],
                     ),
-                  ],
+                  ),
                 ],
-              ),
+              ],
             ),
           ),
         ),
@@ -638,75 +624,6 @@ class _ArtworkFade extends StatelessWidget {
             stops: const [0.72, 1],
             colors: [color.withValues(alpha: 0), color],
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _RecentlyAddedTracksRail extends StatelessWidget {
-  const _RecentlyAddedTracksRail({required this.tracks});
-
-  final List<LibraryTrack> tracks;
-
-  @override
-  Widget build(BuildContext context) {
-    final cardWidth = _RailSizing.standardWidth(context);
-
-    return _Rail(
-      storageId: 'recent',
-      height: _railHeight(context, artwork: cardWidth, text: 75),
-      itemCount: tracks.length,
-      itemBuilder: (context, index) {
-        final track = tracks[index];
-        final isBlocked = track.isBlocked;
-
-        return _RailCard(
-          cardKey: ValueKey<String>('home-recent-track-${track.songId}'),
-          width: cardWidth,
-          title: track.displayTitle,
-          subtitle: track.creditLine,
-          dimmed: isBlocked,
-          artwork: Stack(
-            children: [
-              _SquareArtwork(
-                path: track.artworkPath,
-                fallbackIcon: Icons.music_note_rounded,
-                size: cardWidth,
-              ),
-              if (isBlocked) const Positioned.fill(child: _BlockedOverlay()),
-            ],
-          ),
-          onTap: isBlocked
-              ? null
-              : () {
-                  unawaited(_showTrackContext(context, track, tracks));
-                },
-        );
-      },
-    );
-  }
-}
-
-/// Marks artwork of a track that cannot be played. The icon carries a
-/// label, so the state is not conveyed by fading alone.
-class _BlockedOverlay extends StatelessWidget {
-  const _BlockedOverlay();
-
-  @override
-  Widget build(BuildContext context) {
-    final tokens = SonusTheme.of(context);
-
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: tokens.colors.background.withValues(alpha: 0.45),
-        borderRadius: BorderRadius.circular(tokens.metrics.artworkRadius),
-      ),
-      child: Center(
-        child: Icon(
-          Icons.block_rounded,
-          semanticLabel: 'Unavailable',
-          color: tokens.colors.textPrimary,
         ),
       ),
     );
