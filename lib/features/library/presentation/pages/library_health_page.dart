@@ -13,6 +13,7 @@ import '../../../account/application/controllers/account_controller.dart';
 import '../../../sync/data/repositories/sync_mutation_transaction_runner.dart';
 import '../../application/models/library_health_report.dart';
 import '../../application/services/album_edition_management_service.dart';
+import '../../application/services/artist_retirement_service.dart';
 import '../../application/services/library_integrity_service.dart';
 import '../../data/daos/library_integrity_dao.dart';
 import 'album_profile_page.dart';
@@ -58,12 +59,14 @@ class _LibraryHealthPageState extends State<LibraryHealthPage> {
     }
 
     final appDatabase = context.read<AppDatabase>();
+    final artists = context.read<ArtistRetirementService?>();
     return _service = LibraryIntegrityService(
       dao: LibraryIntegrityDao(await appDatabase.database),
       editions: AlbumEditionManagementService(
         mutationRunner: SyncMutationTransactionRunner(appDatabase: appDatabase),
       ),
       fileExists: (path) => File(path).exists(),
+      artists: artists,
     );
   }
 

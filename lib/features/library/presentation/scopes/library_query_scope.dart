@@ -33,6 +33,7 @@ import '../../application/services/album_profile_editing_service.dart';
 import '../../application/services/artist_creation_service.dart';
 import '../../application/services/artist_merge_service.dart';
 import '../../application/services/artist_profile_editing_service.dart';
+import '../../application/services/artist_retirement_service.dart';
 import '../../application/services/external_metadata_application_service.dart';
 import '../../application/services/external_metadata_proposal_service.dart';
 import '../../../analytics/application/services/listening_artist_attribution.dart';
@@ -51,6 +52,7 @@ import '../../data/daos/song_artist_credit_dao.dart';
 import '../../data/daos/song_dao.dart';
 import '../../data/repositories/sqlite_album_edition_repository.dart';
 import '../../data/repositories/sqlite_artist_repository.dart';
+import '../../data/repositories/sqlite_artist_reference_repository.dart';
 import '../../data/repositories/sqlite_library_organization_repository.dart';
 import '../../data/repositories/sqlite_library_query_repository.dart';
 import '../../data/repositories/sqlite_song_artist_credit_repository.dart';
@@ -86,6 +88,7 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
   ArtistCreationService? _artistCreationService;
   ArtistMergeService? _artistMergeService;
   ArtistProfileEditingService? _artistProfileEditingService;
+  ArtistRetirementService? _artistRetirementService;
   SongBlockService? _songBlockService;
   SongArtistCreditRepository? _songArtistCreditRepository;
   TrackProfileEditingService? _trackProfileEditingService;
@@ -180,6 +183,11 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
       mutationRunner: SyncMutationTransactionRunner(appDatabase: _database),
     );
 
+    // Read-only: which artists are active, kept for history or removable.
+    final artistRetirementService = ArtistRetirementService(
+      () async => SqliteArtistReferenceRepository(database),
+    );
+
     final artistMergeService = ArtistMergeService(
       mutationRunner: SyncMutationTransactionRunner(appDatabase: _database),
     );
@@ -266,6 +274,7 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
       );
       _artistCreationService = artistCreationService;
       _artistProfileEditingService = artistProfileEditingService;
+      _artistRetirementService = artistRetirementService;
       _artistMergeService = artistMergeService;
       _songBlockService = songBlockService;
       _songArtistCreditRepository = songArtistCreditRepository;
@@ -321,6 +330,9 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
         Provider<ArtistCreationService?>.value(value: _artistCreationService),
         Provider<ArtistProfileEditingService?>.value(
           value: _artistProfileEditingService,
+        ),
+        Provider<ArtistRetirementService?>.value(
+          value: _artistRetirementService,
         ),
         Provider<ArtistMergeService?>.value(value: _artistMergeService),
         Provider<SongBlockService?>.value(value: _songBlockService),

@@ -47,6 +47,7 @@ import '../widgets/artist_profile/artist_profile_playback_controls.dart';
 import '../widgets/artist_profile/artist_profile_section_heading.dart';
 import '../widgets/artist_profile/artist_library_placement_sheet.dart';
 import '../widgets/track_selection_bar.dart';
+import '../widgets/track_studio_launcher.dart';
 import 'album_profile_page.dart';
 import 'artist_studio_page.dart';
 import 'track_studio_page.dart';
@@ -1411,7 +1412,7 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
         return;
       }
 
-      final artists = await repository.getArtists();
+      final artists = await trackStudioArtists(context, repository);
       final albums = await repository.getAlbums();
       final structuredCredits = await controller.getTrackAdditionalCredits(
         track.songId,

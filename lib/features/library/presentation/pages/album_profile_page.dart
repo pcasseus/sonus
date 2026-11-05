@@ -51,6 +51,7 @@ import '../controllers/track_selection_controller.dart';
 import '../models/song_credit_summary.dart';
 import '../models/track_profile_edit_draft.dart';
 import '../widgets/track_selection_bar.dart';
+import '../widgets/track_studio_launcher.dart';
 import 'artist_profile_page.dart';
 import 'release_studio_page.dart';
 import 'track_studio_page.dart';
@@ -760,7 +761,7 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
         return;
       }
 
-      final artists = await repository.getArtists();
+      final artists = await trackStudioArtists(context, repository);
       final albums = await repository.getAlbums();
       final structuredCredits = await controller.getTrackAdditionalCredits(
         track.songId,

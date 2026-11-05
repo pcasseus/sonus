@@ -18,6 +18,7 @@ import '../mappers/library_album_edition_row_mapper.dart';
 import '../mappers/library_artist_row_mapper.dart';
 import '../mappers/library_track_row_mapper.dart';
 import 'edition_track_order.dart';
+import '../repositories/sqlite_artist_reference_repository.dart';
 
 class LibraryQueryDao {
   const LibraryQueryDao(this.db);
@@ -1116,12 +1117,16 @@ class LibraryQueryDao {
       findArtists(),
       findAlbums(),
       findTracks(),
+      // Artists kept only for history are not offered in Search (A1).
+      SqliteArtistReferenceRepository(db).findRetiredArtistIds(),
     ]);
+    final retiredArtistIds = results[3] as Set<String>;
 
     final artists =
         (results[0] as List<LibraryArtist>)
             .where(
               (artist) =>
+                  !retiredArtistIds.contains(artist.artistId) &&
                   _normalizeSearchText(artist.name).contains(normalizedQuery),
             )
             .toList(growable: false)
