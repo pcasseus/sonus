@@ -32,6 +32,14 @@ enum HealthCheck {
   /// artists lead songs on them too, as a soundtrack or cast recording
   /// tagged with one performer as album artist would be.
   performerOwnedProjects,
+
+  /// A1: artists no library content uses any more, kept because listening
+  /// history, charts or Moments still name them. Reported only.
+  retiredArtists,
+
+  /// A1: artists nothing refers to at all. Reported only; removal is a
+  /// separate, confirmed action in Settings.
+  removableArtists,
 }
 
 /// A deterministic, low-risk correction. Never applied without the user.

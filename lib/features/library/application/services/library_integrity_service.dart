@@ -3,7 +3,9 @@ import '../../../import/application/folders/source_folder_key.dart';
 import '../../data/daos/library_integrity_dao.dart';
 import '../models/library_health_report.dart';
 import '../models/release_display_title.dart';
+import '../../domain/repositories/artist_reference_repository.dart';
 import 'album_edition_management_service.dart';
+import 'artist_retirement_service.dart';
 import 'library_organization_service.dart';
 
 typedef FileExists = Future<bool> Function(String path);
@@ -22,12 +24,16 @@ class LibraryIntegrityService {
     required this.dao,
     required this.editions,
     required this.fileExists,
+    this.artists,
     DateTime Function()? now,
   }) : _now = now ?? DateTime.now;
 
   final LibraryIntegrityDao dao;
   final AlbumEditionManagementService editions;
   final FileExists fileExists;
+
+  /// When given, artists kept for history or no longer used are reported.
+  final ArtistRetirementService? artists;
   final DateTime Function() _now;
 
   Future<LibraryHealthReport> verify({ImportHealthCounts? importCounts}) async {
@@ -235,6 +241,11 @@ class LibraryIntegrityService {
     findings.add(await _releaseFormats());
     findings.add(await _performerOwnedProjects());
 
+    final artistService = artists;
+    if (artistService != null) {
+      findings.addAll(await _artistStates(artistService));
+    }
+
     return LibraryHealthReport(
       checkedAt: _now(),
       songCount: totals.songs,
@@ -243,6 +254,47 @@ class LibraryIntegrityService {
       findings: List.unmodifiable(findings),
       importCounts: importCounts,
     );
+  }
+
+  /// A1: artists kept only for history, and artists nothing uses. Both are
+  /// reported only; nothing here removes an artist.
+  Future<List<HealthFinding>> _artistStates(
+    ArtistRetirementService service,
+  ) async {
+    final summaries = await service.classifyAll();
+    List<String> idsIn(ArtistLibraryState state) => [
+      for (final summary in summaries)
+        if (summary.state == state) summary.artistId,
+    ];
+    final retired = idsIn(ArtistLibraryState.retired);
+    final removable = idsIn(ArtistLibraryState.removable);
+
+    return [
+      HealthFinding(
+        check: HealthCheck.retiredArtists,
+        severity: HealthSeverity.verified,
+        summary: retired.isEmpty
+            ? 'No artists are kept only for history.'
+            : '${_count(retired.length, 'artist')} kept for history: no '
+                  'songs use ${retired.length == 1 ? 'it' : 'them'} now, but '
+                  'listening history, charts or Moments still do.',
+        entityIds: List.unmodifiable(retired),
+      ),
+      removable.isEmpty
+          ? const HealthFinding(
+              check: HealthCheck.removableArtists,
+              severity: HealthSeverity.verified,
+              summary: 'Every artist is used by your library or its history.',
+            )
+          : HealthFinding(
+              check: HealthCheck.removableArtists,
+              severity: HealthSeverity.warning,
+              summary:
+                  '${_count(removable.length, 'artist')} no longer used '
+                  'anywhere.',
+              entityIds: List.unmodifiable(removable),
+            ),
+    ];
   }
 
   /// SN-45: folders an earlier import split into several albums. Only
