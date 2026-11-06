@@ -80,22 +80,6 @@ const List<ScreenDefinition> protectedScreens = [
     ],
   ),
   ScreenDefinition(
-    id: 'film_reel',
-    title: 'Film Reel (approved, unchanged)',
-    owned: [
-      'lib/features/library/presentation/widgets/film_reel/*.dart',
-      'lib/core/design/widgets/sonus_perspective_panel.dart',
-    ],
-    hosts: [
-      'lib/features/library/presentation/pages/library_page.dart',
-      ..._shellHosts,
-    ],
-    tests: [
-      'test/visual_baselines/film_reel_baseline_test.dart',
-      'test/features/library/presentation/widgets/film_reel/artist_film_reel_test.dart',
-    ],
-  ),
-  ScreenDefinition(
     id: 'home',
     title: 'Home',
     owned: ['lib/features/home/**'],

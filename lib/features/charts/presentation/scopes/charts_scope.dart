@@ -12,6 +12,7 @@ import '../../application/services/all_time_chart_service.dart';
 import '../../application/services/all_time_moment_service.dart';
 import '../../application/services/chart_finalization_service.dart';
 import '../../application/services/chart_snapshot_builder_service.dart';
+import '../../application/services/moment_chart_journey_service.dart';
 import '../../application/services/moment_rules_activation.dart';
 import '../../application/services/this_week_chart_service.dart';
 import '../../application/services/moments_last_seen_store.dart';
@@ -66,13 +67,18 @@ class _ChartsScopeState extends State<ChartsScope> {
 
   ChartsController? _controller;
   SongStatsLoader? _songStats;
+  MomentJourneyLoader? _journeys;
   LibraryChangeRefresher? _refresher;
 
   /// One per process, so its instant is recorded once however often
   /// scopes and controllers are recreated.
   static final MomentRulesActivation _deviceRulesActivation = () {
     final store = SharedPreferencesMomentRulesActivationStore();
-    return MomentRulesActivation(store: store, devicePolish: store);
+    return MomentRulesActivation(
+      store: store,
+      devicePolish: store,
+      chronicle: store,
+    );
   }();
 
   @override
@@ -137,6 +143,7 @@ class _ChartsScopeState extends State<ChartsScope> {
     final previousController = _controller;
     _controller = null;
     _songStats = null;
+    _journeys = null;
 
     _refresher?.dispose();
     _refresher = null;
@@ -229,6 +236,16 @@ class _ChartsScopeState extends State<ChartsScope> {
 
     _controller = controller;
 
+    // App Update 1.1: a Moment's chart journey, replayed read-only from the
+    // same qualified plays as the all-time chart.
+    final journeys = MomentChartJourneyService(
+      qualifiedPlays: qualifiedPlays,
+      releaseEligibility: releaseEligibility,
+      now: widget.now,
+    );
+    _journeys = (chartType, entityId) =>
+        journeys.load(chartType: chartType, entityId: entityId);
+
     // Song Stats (Charts 2.0 C4): read-only, from the same chart history,
     // the same provisional week rules and Pulse's listening definitions.
     final thisWeekSongs = ThisWeekChartService(
@@ -274,11 +291,14 @@ class _ChartsScopeState extends State<ChartsScope> {
 
   @override
   Widget build(BuildContext context) {
-    return Provider<SongStatsLoader?>.value(
-      value: _songStats,
-      child: ChangeNotifierProvider<ChartsController?>.value(
-        value: _controller,
-        child: widget.child,
+    return Provider<MomentJourneyLoader?>.value(
+      value: _journeys,
+      child: Provider<SongStatsLoader?>.value(
+        value: _songStats,
+        child: ChangeNotifierProvider<ChartsController?>.value(
+          value: _controller,
+          child: widget.child,
+        ),
       ),
     );
   }

@@ -14,7 +14,6 @@ import '../../../../../core/design/widgets/sonus_glass_panel.dart';
 import '../../../../../core/design/widgets/sonus_perspective_panel.dart';
 import '../../../application/models/library_artist.dart';
 import '../../models/artist_library_statistics.dart';
-import '../library_view_switch.dart';
 
 /// The Library's artist Film Reel (UI redesign L1): one large portrait at a
 /// time, the previous and next artists peeking above and below, and two
@@ -38,7 +37,6 @@ class ArtistFilmReel extends StatefulWidget {
     required this.onSelected,
     required this.onOpenArtist,
     this.selectedArtistId,
-    this.onSwitchView,
     this.onOpenSearch,
     this.onRefresh,
     this.artworkPalette,
@@ -63,9 +61,6 @@ class ArtistFilmReel extends StatefulWidget {
   final ValueChanged<String> onSelected;
 
   final ValueChanged<LibraryArtist> onOpenArtist;
-
-  /// Switches the Library to another view; no switch without it.
-  final ValueChanged<LibraryView>? onSwitchView;
 
   /// Opens the Roster's artist search (D11); no search button without it.
   final VoidCallback? onOpenSearch;
@@ -239,7 +234,6 @@ class _ArtistFilmReelState extends State<ArtistFilmReel> {
                 _ReelHeader(
                   countLabel: widget.countLabel,
                   colors: colors,
-                  onSwitchView: widget.onSwitchView,
                   onOpenSearch: widget.onOpenSearch,
                 ),
                 Expanded(child: _body(context, colors)),
@@ -429,7 +423,10 @@ class _ArtistFilmReelState extends State<ArtistFilmReel> {
       _StatItem(
         key: const ValueKey<String>('film-reel-listened'),
         icon: Icons.schedule_rounded,
-        value: known && hasListened ? sonusListeningTime(listened) : '–',
+        // A compact value fits the narrow tile on one line ("<1 min").
+        value: known && listened != null
+            ? sonusListeningTimeCompact(listened)
+            : '–',
         label: 'Listened',
         semanticsLabel: !known
             ? 'Listening time loading'
@@ -547,19 +544,16 @@ class _ReelHeader extends StatelessWidget {
   const _ReelHeader({
     required this.countLabel,
     required this.colors,
-    required this.onSwitchView,
     required this.onOpenSearch,
   });
 
   final String countLabel;
   final SonusCinematicColors colors;
-  final ValueChanged<LibraryView>? onSwitchView;
   final VoidCallback? onOpenSearch;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final onSwitchView = this.onSwitchView;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 12, 12, 4),
@@ -596,13 +590,6 @@ class _ReelHeader extends StatelessWidget {
               onPressed: onOpenSearch,
               color: colors.textPrimary,
               icon: const Icon(Icons.search_rounded),
-            ),
-          const SizedBox(width: 4),
-          if (onSwitchView != null)
-            LibraryViewSwitch(
-              current: LibraryView.filmReel,
-              onChanged: onSwitchView,
-              colors: colors,
             ),
         ],
       ),

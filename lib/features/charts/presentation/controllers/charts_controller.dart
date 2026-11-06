@@ -10,6 +10,7 @@ import '../../../library/application/models/library_album.dart';
 import '../../../library/application/models/library_release_edition.dart';
 import '../../../library/application/models/library_artist.dart';
 import '../../../library/application/models/library_track.dart';
+import '../../../library/application/models/song_edition_membership.dart';
 import '../../../library/application/repositories/library_query_repository.dart';
 import '../../../library/domain/entities/library_organization.dart';
 import '../../application/models/chart_moment_feed_item.dart';
@@ -37,6 +38,7 @@ import '../editorial/moment_family.dart';
 import '../editorial/moment_publisher.dart';
 import '../models/chart_album_presentation.dart';
 import '../models/chart_longevity.dart';
+import '../models/moment_edition_resolver.dart';
 import '../models/charts_presentation_mode.dart';
 
 typedef ChartsControllerNow = DateTime Function();
@@ -49,6 +51,11 @@ typedef ReleaseFormatsLoader = Future<Map<String, ReleaseFormat?>> Function();
 /// titles and covers.
 /// Every edition with its song count, for album-level presentation.
 typedef ReleaseEditionsLoader = Future<List<LibraryReleaseEdition>> Function();
+
+/// Which editions of its own release list each song, for the edition a
+/// song Moment shows (App Update 1.1).
+typedef SongEditionMembershipsLoader =
+    Future<List<SongEditionMembership>> Function();
 
 /// The album edition a qualified play was of, or null if the play is gone.
 typedef PlayEditionLoader = Future<String?> Function(String playId);
@@ -97,6 +104,7 @@ class ChartsController extends ChangeNotifier {
     ChartsControllerNow? now,
     ReleaseFormatsLoader? releaseFormats,
     ReleaseEditionsLoader? releaseEditions,
+    SongEditionMembershipsLoader? songEditionMemberships,
     ThisWeekChartService? thisWeekCharts,
     MomentsLastSeenStore? momentsLastSeen,
     PlayEditionLoader? playEdition,
@@ -112,6 +120,13 @@ class ChartsController extends ChangeNotifier {
        _now = now ?? DateTime.now,
        _loadReleaseFormats = releaseFormats,
        _loadReleaseEditions = releaseEditions,
+       _loadSongEditionMemberships =
+           songEditionMemberships ??
+           switch (library) {
+             final SongEditionMembershipQueryRepository memberships =>
+               memberships.getSongEditionMemberships,
+             _ => null,
+           },
        _thisWeekCharts = thisWeekCharts,
        _momentsLastSeen = momentsLastSeen,
        _loadPlayEdition = playEdition,
@@ -138,6 +153,11 @@ class ChartsController extends ChangeNotifier {
 
   final ReleaseEditionsLoader? _loadReleaseEditions;
   Map<String, ChartAlbumPresentation> _albumPresentations = const {};
+
+  /// Without memberships (none loaded, or the read failed) song Moments
+  /// show the song's own artwork, then its album's cover, as before.
+  final SongEditionMembershipsLoader? _loadSongEditionMemberships;
+  MomentEditionResolver _momentEditions = MomentEditionResolver.empty();
 
   /// The published stories for the current feed, composed once per load.
   List<MomentStory>? _momentStories;
@@ -993,6 +1013,46 @@ class ChartsController extends ChangeNotifier {
     return album == null ? null : _albumPresentations[album.albumId]?.title;
   }
 
+  /// The display title of the edition a song first appeared on, for a
+  /// song story's related release card (App Update 1.1): see
+  /// [MomentEditionResolver.songEdition]. Null when the song is not in the
+  /// library or no edition is known. Presentation only.
+  String? momentSongEditionTitle(String songId) {
+    final track = _tracksById[songId];
+    if (track == null) return null;
+    return _momentEditions.songEditionTitle(
+      track,
+      album: _albumsById[track.albumId],
+    );
+  }
+
+  /// The release a Moment's Related card shows (App Update 1.1): for an
+  /// album story, the title and cover of the release's edition with the
+  /// most songs; for a song story, the edition the song first appeared on.
+  /// Presentation only; the story's words never change.
+  ({String title, String? cover})? relatedReleaseForMoment(
+    ChartMomentFeedItem item,
+  ) {
+    final album = albumForMoment(item);
+    if (album == null) return null;
+    switch (item.chartType) {
+      case ChartType.albums:
+        final presentation = _albumPresentations[album.albumId];
+        return (
+          title: presentation?.title ?? album.displayTitle,
+          cover: presentation == null
+              ? album.artworkPath
+              : presentation.artworkPath,
+        );
+      case ChartType.songs:
+        final songId = item.entity.entityId;
+        return (
+          title: momentSongEditionTitle(songId) ?? album.displayTitle,
+          cover: momentLookups.currentSongCover(songId),
+        );
+    }
+  }
+
   LibraryAlbum? albumForMoment(ChartMomentFeedItem item) =>
       switch (item.chartType) {
         ChartType.songs => _albumsById[trackForMoment(item)?.albumId],
@@ -1084,6 +1144,26 @@ class ChartsController extends ChangeNotifier {
         stackTrace: stackTrace,
       );
       return const [];
+    }
+  }
+
+  /// Null when there is no loader or the read failed: song Moments then
+  /// keep their pre-1.1 pictures.
+  Future<List<SongEditionMembership>?> _readSongEditionMemberships() async {
+    final load = _loadSongEditionMemberships;
+    if (load == null) return null;
+    try {
+      return await load();
+    } catch (error, stackTrace) {
+      developer.log(
+        'Song edition memberships could not be read (${error.runtimeType}); '
+        "song Moments show the song's own artwork",
+        name: 'sonus.charts',
+        level: 900,
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return null;
     }
   }
 
@@ -1324,6 +1404,7 @@ class ChartsController extends ChangeNotifier {
       final artists = await _library.getArtists();
       final formats = await _readReleaseFormats();
       final editions = await _readReleaseEditions();
+      final memberships = await _readSongEditionMemberships();
 
       var momentFeedItems = _momentFeedItems;
       var momentPager = _momentPager;
@@ -1366,6 +1447,9 @@ class ChartsController extends ChangeNotifier {
 
       _albumsById = {for (final album in albums) album.albumId: album};
       _albumPresentations = _albumPresentationsOf(albums, editions);
+      _momentEditions = memberships == null
+          ? MomentEditionResolver.empty()
+          : MomentEditionResolver(editions: editions, memberships: memberships);
 
       _artistsById = {for (final artist in artists) artist.artistId: artist};
       _releaseFormats = formats;
@@ -1548,12 +1632,17 @@ class _ControllerMomentLookups implements MomentLookups {
   String? releaseCover(String albumId) =>
       _nonEmpty(_controller._albumsById[albumId]?.artworkPath);
 
+  /// The cover of the edition the song first appeared on, then the song's
+  /// own artwork, then its album's cover (App Update 1.1; see
+  /// [MomentEditionResolver.songCover]).
   @override
   String? currentSongCover(String songId) {
     final track = _controller._tracksById[songId];
     if (track == null) return null;
-    return _nonEmpty(track.artworkPath) ??
-        _nonEmpty(_controller._albumsById[track.albumId]?.artworkPath);
+    return _controller._momentEditions.songCover(
+      track,
+      album: _controller._albumsById[track.albumId],
+    );
   }
 
   /// The represented edition's cover; an edition without one keeps the

@@ -1,44 +1,67 @@
-# sonus_next
+# Sonus
 
-Sonus is a personal music library and player for Android, with listening
-charts, Moments and optional Google sign-in with cloud sync.
+**Your music. Your library. Your story.**
 
-## Account settings
+Sonus is a personal, local-first music player for Android, built with Flutter.
 
-Sign-in and cloud sync need three client values, compiled into the app with
-`--dart-define-from-file`:
+It brings together local music playback, a customizable music library, personal listening charts and listening-history insights in one experience.
 
-| Key | Value |
-|---|---|
-| `SUPABASE_URL` | The Supabase project URL |
-| `SUPABASE_PUBLISHABLE_KEY` | The project's **publishable** key (never a secret or service-role key) |
-| `GOOGLE_WEB_CLIENT_ID` | The Google **Web** OAuth client ID, which Supabase's Google provider also uses |
+Sonus does not treat your music as a collection of files. It turns it into a personal music experience built around the artists, albums and songs you actually listen to.
 
-Copy `config/sonus.dev.example.json` to `config/sonus.dev.json` (git-ignored)
-and fill them in. Without them, Sonus works fully but sign-in is off.
+## Features
 
-## Running and building
+### Your music library
 
-- Develop: `tool/run-dev.ps1` (or the VS Code launch configuration).
-- Release APK: `tool/build-release.ps1`. It refuses to build without the
-  account settings, prints the APK's SHA-256, and never prints the values.
-  Do not use a bare `flutter build apk --release`: that build has no sign-in.
-- Do not run `flutter test` while a release build is running; it rewrites
-  the generated plugin registrant and breaks the build.
+- Import music from folders on your device.
+- Browse your artists in the Artist Roster.
+- Explore artist and album profiles with artwork and release editions (for example, standard and deluxe).
+- Manage metadata, blacklist songs and look after songs that are no longer available.
 
-The SN-50 Moments rules are off unless the build is compiled with
-`--dart-define=SONUS_MOMENTS_REFINED_APPROVED=true` (or the same key set to
-`true` in the `--dart-define-from-file` config). Only add it once the rules
-are approved for release. On its first run, such a build stores the
-activation time in device preferences, and only Moments from then on use the
-new rules. Development and test builds never activate them. If the stored
-time is lost (reinstall or cleared app data without a platform restore), the
-next approved run starts the new rules again from that run.
+### Music playback
 
-## Google sign-in on Android
+- Play your local music with queue management and shuffle.
+- Use the mini-player and the full-screen player.
+- Control playback from Android's media notification and lock screen.
+- Build and play your own playlists.
 
-Android sign-in works only for an app whose package name
-(`com.sonus.sonus_next`) and signing-key SHA-1 fingerprint are registered as
-an **Android** OAuth client in the same Google Cloud project as the Web
-client ID. Each signing key (debug, and later production) needs its own
-registration.
+### Sonus Hot 100
+
+- Personal music charts built from your own listening, for songs and for albums and EPs.
+- Weekly and all-time standings, chart movement, peaks and chart history.
+
+### Sonus Moments
+
+- Follow your chart history as music-news-style stories: debuts, new peaks, number ones, milestones, comebacks and chart exits.
+- Open any story for the full account, with its chart journey and related releases.
+
+### Listening insights
+
+- See your listening at a glance on Home.
+- Explore detailed statistics in Insights and in each song's stats: top artists and songs, listening time and how your favourites change over time.
+
+### Personalization
+
+- Choose from nine visual themes, with artwork-led screens.
+- Accessibility options include larger text, high contrast, reduced motion and lower visual effects.
+
+### Optional account and cloud sync
+
+- Sonus works fully offline, with your music staying on your device.
+- You can sign in with Google to back your library up to the cloud and sync it.
+
+## Built with
+
+Flutter · Dart · SQLite · Android
+
+## Getting started
+
+```
+flutter pub get
+flutter run
+```
+
+Sonus runs fully without an account. Sign-in and cloud sync are turned off unless the build is given its own account configuration. An example file for that configuration is in `config/`.
+
+## Project status
+
+Sonus is an actively developed personal Android music application. It continues to evolve, with improvements to playback, music library management, listening insights and personalized music experiences.

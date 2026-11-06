@@ -16,73 +16,87 @@ import '../controllers/artist_reel_statistics_controller.dart';
 import '../controllers/library_artists_controller.dart';
 import '../services/artist_library_statistics_service.dart';
 import '../models/artist_library_statistics.dart';
-import '../controllers/library_view_controller.dart';
-import '../widgets/film_reel/artist_film_reel.dart';
-import '../widgets/library_view_switch.dart';
+import '../models/library_navigation_memory.dart';
 import '../widgets/roster/artist_roster.dart';
 import 'artist_finder_page.dart';
 import 'artist_profile_page.dart';
 
 class LibraryPage extends StatefulWidget {
-  const LibraryPage({
-    super.key,
-    this.changes,
-    this.initialView = LibraryView.roster,
-  });
+  const LibraryPage({super.key, this.changes, this.navigationMemory});
 
   /// Reloads after library edits, imports and recorded listening; the
   /// shared signal if null.
   final LibraryChangeSignal? changes;
 
-  /// The view shown first: the Artist Roster unless chosen otherwise.
-  final LibraryView initialView;
+  /// Where the Roster left off. When null: the app's (provided by the
+  /// Library scope), else one of this page's own (screens and tests outside
+  /// the app). Tests pass their own, with a controllable clock.
+  final LibraryNavigationMemory? navigationMemory;
 
   @override
   State<LibraryPage> createState() => _LibraryPageState();
 }
 
-/// The Library: every listed artist in the Artist Roster (default) or the
-/// Film Reel (UI redesign L1/L2), with their statistics (D1), loaded once
-/// and refreshed only when the library or listening history changes. Both
-/// views share one selection and open the same Artist Profile.
+/// The Library: every listed artist in the Artist Roster (UI redesign L2),
+/// with their statistics (D1), loaded once and refreshed only when the
+/// library or listening history changes.
 class _LibraryPageState extends State<LibraryPage> {
   LibraryChangeRefresher? _refresher;
   LibraryArtistsController? _controller;
   ArtistReelStatisticsController? _statistics;
   LibraryQueryRepository? _repository;
 
-  /// The centred artist, kept across reloads, the Artist Profile and tab
-  /// switches.
-  String? _selectedArtistId;
+  /// The Roster's navigation session (App Update 1.1): its featured artist,
+  /// kept across reloads and the Artist Profile. On entering the Library it
+  /// comes from [_memory] (the artist left within the last 15 minutes) or
+  /// is null, which starts the Roster on Page 1 with the first artist.
+  String? _rosterArtistId;
 
-  static const _selectionKey = 'library-film-reel-artist';
-
-  /// The Roster's sort, kept between visits.
+  /// The Roster's sort, kept with the selection.
   ArtistStatisticsSort _rosterSort = ArtistStatisticsSort.qualifiedStreams;
 
-  /// The saved view, shared with Settings; without it (tests, previews)
-  /// the view is [LibraryPage.initialView] and is not remembered.
-  LibraryViewController? _viewController;
+  late final LibraryNavigationMemory _memory;
 
-  /// The view on screen when there is no [_viewController].
-  late LibraryView _localView = widget.initialView;
+  /// A new Roster session (its state starts afresh) after the memory's
+  /// window has passed while the app was in the background.
+  int _rosterSession = 0;
 
-  LibraryView get _view => _viewController?.view ?? _localView;
+  AppLifecycleListener? _lifecycle;
 
-  /// Shows [view]; with a [_viewController] it is also saved.
-  void _switchView(LibraryView view) {
-    final viewController = _viewController;
-    if (viewController != null) {
-      viewController.choose(view);
-      return;
-    }
-    if (view == _localView) return;
-    setState(() => _localView = view);
+  @override
+  void initState() {
+    super.initState();
+    _memory =
+        widget.navigationMemory ??
+        _optional<LibraryNavigationMemory>(context) ??
+        LibraryNavigationMemory();
+    _restore();
+    // Sending the app to the background leaves the Roster too; coming back
+    // after the window starts it again on Page 1.
+    _lifecycle = AppLifecycleListener(
+      onHide: _memory.leave,
+      onShow: () {
+        if (_restore() || !mounted) return;
+        setState(() => _rosterSession++);
+      },
+    );
   }
 
-  /// The search icon of either view: the Artist Finder, which owns the
-  /// keyboard. The chosen artist becomes the selection, previewed in the
-  /// Roster or centred in the Film Reel; the view does not change.
+  /// Restores what the memory kept; false when it starts afresh.
+  bool _restore() {
+    final kept = _memory.enter();
+    if (kept == null) {
+      _rosterArtistId = null;
+      _rosterSort = ArtistStatisticsSort.qualifiedStreams;
+      return false;
+    }
+    _rosterArtistId = kept.artistId;
+    _rosterSort = kept.sort ?? ArtistStatisticsSort.qualifiedStreams;
+    return true;
+  }
+
+  /// The Roster's search icon: the Artist Finder, which owns the keyboard.
+  /// The chosen artist becomes the selection, previewed in the Roster.
   Future<void> _findArtist() async {
     final controller = _controller;
     final statistics = _statistics;
@@ -93,19 +107,10 @@ class _LibraryPageState extends State<LibraryPage> {
       statistics: statistics.snapshot,
       statisticsLoaded: statistics.hasLoaded,
       sort: _rosterSort,
-      selectedArtistId: _selectedArtistId,
+      selectedArtistId: _rosterArtistId,
     );
     if (artist == null || !mounted) return;
-    setState(() => _select(artist.artistId));
-  }
-
-  /// A provided notifier, rebuilt on its changes, or null without one.
-  static T? _optionalNotifier<T extends ChangeNotifier>(BuildContext context) {
-    try {
-      return context.watch<T>();
-    } on ProviderNotFoundException {
-      return null;
-    }
+    setState(() => _choose(artist.artistId));
   }
 
   static T? _optional<T extends Object>(BuildContext context) {
@@ -119,14 +124,6 @@ class _LibraryPageState extends State<LibraryPage> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-
-    _selectedArtistId ??=
-        PageStorage.maybeOf(
-              context,
-            )?.readState(context, identifier: _selectionKey)
-            as String?;
-
-    _viewController = _optionalNotifier<LibraryViewController>(context);
 
     final repository = context.watch<LibraryQueryRepository?>();
 
@@ -171,12 +168,11 @@ class _LibraryPageState extends State<LibraryPage> {
     unawaited(statistics.refresh());
   }
 
-  void _select(String artistId) {
-    if (artistId == _selectedArtistId) return;
-    _selectedArtistId = artistId;
-    PageStorage.maybeOf(
-      context,
-    )?.writeState(context, artistId, identifier: _selectionKey);
+  /// The Roster's featured artist (chosen, or its own default): the
+  /// Roster's session remembers it.
+  void _choose(String artistId) {
+    _memory.rememberArtist(artistId);
+    _rosterArtistId = artistId;
   }
 
   void _openArtist(LibraryArtist artist) {
@@ -240,33 +236,24 @@ class _LibraryPageState extends State<LibraryPage> {
           }
 
           final countLabel = sonusCount(artists.length, 'artist');
-          return switch (_view) {
-            LibraryView.roster => ArtistRoster(
-              artists: artists,
-              statistics: statistics.snapshot,
-              statisticsLoaded: statistics.hasLoaded,
-              countLabel: countLabel,
-              selectedArtistId: _selectedArtistId,
-              onSelected: _select,
-              onOpenArtist: _openArtist,
-              sort: _rosterSort,
-              onSortChanged: (sort) => _rosterSort = sort,
-              onFind: _findArtist,
-              onSwitchView: _switchView,
-            ),
-            LibraryView.filmReel => ArtistFilmReel(
-              artists: artists,
-              statistics: statistics.snapshot,
-              statisticsLoaded: statistics.hasLoaded,
-              countLabel: countLabel,
-              selectedArtistId: _selectedArtistId,
-              onSelected: _select,
-              onOpenArtist: _openArtist,
-              onSwitchView: _switchView,
-              onOpenSearch: _findArtist,
-              onRefresh: _refresh,
-            ),
-          };
+          // App Update 1.1: the Artist Roster is the Library's only artist
+          // view (the Film Reel is kept for a future Sonus Wrapped).
+          return ArtistRoster(
+            key: ValueKey<int>(_rosterSession),
+            artists: artists,
+            statistics: statistics.snapshot,
+            statisticsLoaded: statistics.hasLoaded,
+            countLabel: countLabel,
+            selectedArtistId: _rosterArtistId,
+            onSelected: _choose,
+            onOpenArtist: _openArtist,
+            sort: _rosterSort,
+            onSortChanged: (sort) {
+              _rosterSort = sort;
+              _memory.rememberSort(sort);
+            },
+            onFind: _findArtist,
+          );
         },
       ),
     );
@@ -274,6 +261,9 @@ class _LibraryPageState extends State<LibraryPage> {
 
   @override
   void dispose() {
+    // Leaving the Library tab leaves the Roster: its memory's window starts.
+    _memory.leave();
+    _lifecycle?.dispose();
     _refresher?.dispose();
     _controller?.dispose();
     _statistics?.dispose();

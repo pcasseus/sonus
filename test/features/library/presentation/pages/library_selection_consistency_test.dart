@@ -1,12 +1,14 @@
-// The Library's Roster and Film Reel share one selection, kept by artist id,
-// and every statistic shown belongs to the artist shown (device bug: the
-// reel showed 3Quency's portrait and name with Madison Beer's statistics).
+// The Library's selection is kept by artist id, and every statistic shown
+// belongs to the artist shown (device bug: the reel showed 3Quency's
+// portrait and name with Madison Beer's statistics).
 //
-// Root cause: both views' PageViews saved their page in the Library tab's
-// PageStorage (the shell keys each tab with a PageStorageKey). A new reel
-// restored the page saved by the Roster grid or an earlier reel visit while
-// its statistics followed the selected artist, so the portrait and the
-// panels described different artists.
+// Root cause: the views' PageViews saved their page in the Library tab's
+// PageStorage (the shell keys each tab with a PageStorageKey), so a page
+// restored from an earlier visit could disagree with the selected artist.
+//
+// App Update 1.1 retired the Film Reel from the Library: the Roster is
+// checked through the real LibraryPage, and the reel (kept for the future
+// Sonus Wrapped) on its own.
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -25,7 +27,8 @@ import 'package:sonus_next/features/library/presentation/models/artist_library_s
 import 'package:sonus_next/features/library/presentation/models/artist_profile_sections.dart';
 import 'package:sonus_next/features/library/presentation/pages/library_page.dart';
 import 'package:sonus_next/features/library/presentation/services/artist_library_statistics_service.dart';
-import 'package:sonus_next/features/library/presentation/widgets/library_view_switch.dart';
+
+import '../widgets/film_reel/film_reel_harness.dart';
 
 import 'library_page_test.dart' as base;
 
@@ -136,7 +139,6 @@ Future<void> _pump(
   WidgetTester tester, {
   required ArtistLibraryStatisticsService stats,
   LibraryQueryRepository? repository,
-  LibraryView initialView = LibraryView.roster,
   LibraryChangeSignal? signal,
 }) async {
   await tester.binding.setSurfaceSize(const Size(393, 852));
@@ -157,10 +159,7 @@ Future<void> _pump(
         home: Scaffold(
           body: KeyedSubtree(
             key: const PageStorageKey<String>('app-page-library'),
-            child: LibraryPage(
-              initialView: initialView,
-              changes: signal ?? LibraryChangeSignal(),
-            ),
+            child: LibraryPage(changes: signal ?? LibraryChangeSignal()),
           ),
         ),
       ),
@@ -278,17 +277,10 @@ void _expectRosterShows(WidgetTester tester, LibraryArtist artist) {
 
 LibraryArtist _named(String name) => _artists.firstWhere((a) => a.name == name);
 
-Future<void> _switchTo(WidgetTester tester, LibraryView view) async {
-  final page = tester.state<State<LibraryPage>>(find.byType(LibraryPage));
-  // The view switch of either view.
-  final key = view == LibraryView.filmReel
-      ? 'library-view-reel'
-      : 'library-view-roster';
-  final button = byKey(key);
-  expect(button, findsWidgets, reason: 'no $key on ${page.runtimeType}');
-  await tester.tap(button.first);
-  await tester.pumpAndSettle();
-}
+/// The Roster's featured artist.
+LibraryArtist _featured(WidgetTester tester) => _artists.singleWhere(
+  (artist) => byKey('roster-header-${artist.artistId}').evaluate().isNotEmpty,
+);
 
 Future<void> _reelNext(WidgetTester tester, {int times = 1}) async {
   for (var i = 0; i < times; i++) {
@@ -332,127 +324,59 @@ Future<void> _rosterSelect(WidgetTester tester, LibraryArtist artist) async {
 }
 
 void main() {
-  testWidgets('Roster -> Reel -> Roster keeps the selection and the reel '
-      'never mixes artists', (tester) async {
+  testWidgets('the Roster never mixes artists: a page visit, a selection, '
+      'a profile visit and another selection', (tester) async {
     await _pump(tester, stats: _ImmediateStats());
     final madison = _named('Madison Beer');
 
-    // Nothing chosen yet: the first artist listed.
-    _expectRosterShows(tester, _artists.first);
+    // Nothing chosen yet: Page 1, the first artist of the sorted roster
+    // (App Update 1.1), Madison Beer by streams.
+    _expectRosterShows(tester, madison);
 
-    // Madison Beer (#1 by streams) is on the Roster's first page; visiting
-    // the second page first saves a page.
+    // Visiting the second page saves a page in the tab's PageStorage.
     await tester.tap(byKey('roster-page-next'));
     await tester.pumpAndSettle();
+    _expectRosterShows(tester, _featured(tester));
     await tester.tap(byKey('roster-page-previous'));
     await tester.pumpAndSettle();
     await _rosterSelect(tester, madison);
     _expectRosterShows(tester, madison);
 
-    await _switchTo(tester, LibraryView.filmReel);
-    _expectReelShows(tester, madison);
-
-    // Swiping on to another artist: everything follows the new portrait.
-    await _reelNext(tester);
-    final next = _artists[_artists.indexOf(madison) + 1];
-    _expectReelShows(tester, next);
-
-    await _switchTo(tester, LibraryView.roster);
-    _expectRosterShows(tester, next);
-
-    await _switchTo(tester, LibraryView.filmReel);
-    _expectReelShows(tester, next);
-  });
-
-  testWidgets('a reel page saved on an earlier visit never wins over the '
-      'selected artist (3Quency / Madison Beer)', (tester) async {
-    await _pump(tester, stats: _ImmediateStats());
-    final quency = _named('3Quency');
-    final madison = _named('Madison Beer');
-
-    // Earlier visit: the reel at 3Quency, the first artist A-Z.
-    await _switchTo(tester, LibraryView.filmReel);
-    _expectReelShows(tester, quency);
-    await _reelNext(tester, times: 2);
-    await tester.tap(byKey('film-reel-previous'));
+    await tester.tap(byKey('roster-select'));
     await tester.pumpAndSettle();
-    await tester.tap(byKey('film-reel-previous'));
+    expect(byKey('artist-profile-page'), findsOneWidget);
+    await tester.pageBack();
     await tester.pumpAndSettle();
-    _expectReelShows(tester, quency);
-
-    // Madison Beer selected in the Roster.
-    await _switchTo(tester, LibraryView.roster);
-    _expectRosterShows(tester, quency);
-    await _rosterSelect(tester, madison);
     _expectRosterShows(tester, madison);
 
-    // Back in the reel: Madison Beer's portrait with Madison Beer's
-    // statistics, never 3Quency's portrait with hers.
-    await _switchTo(tester, LibraryView.filmReel);
-    _expectReelShows(tester, madison);
-
-    // Navigating from there stays consistent at every step.
-    for (var i = 0; i < 3; i++) {
-      await tester.tap(byKey('film-reel-previous'));
-      await tester.pumpAndSettle();
-      _expectReelShows(tester, _artists[_artists.indexOf(madison) - 1 - i]);
-    }
+    final quency = _named('3Quency');
+    await _rosterSelect(tester, quency);
+    _expectRosterShows(tester, quency);
   });
 
-  testWidgets('rapid navigation in the reel: the statistics follow the '
-      'portrait finally shown', (tester) async {
-    await _pump(
-      tester,
-      stats: _ImmediateStats(),
-      initialView: LibraryView.filmReel,
-    );
-    _expectReelShows(tester, _artists.first);
+  testWidgets('rapid paging in the Roster: the statistics follow the '
+      'artist finally featured', (tester) async {
+    await _pump(tester, stats: _ImmediateStats());
 
     // Several taps before any animation ends.
-    for (var i = 0; i < 4; i++) {
-      await tester.tap(byKey('film-reel-next'));
+    for (var i = 0; i < 2; i++) {
+      await tester.tap(byKey('roster-page-next'));
       await tester.pump(const Duration(milliseconds: 30));
     }
     await tester.pumpAndSettle();
-    final shown = _centredReelArtist(tester);
-    _expectReelShows(tester, shown);
+    _expectRosterShows(tester, _featured(tester));
 
-    // A fast fling across many artists.
-    await tester.fling(byKey('film-reel-pages'), const Offset(0, -900), 4000);
+    await tester.tap(byKey('roster-page-previous'));
     await tester.pumpAndSettle();
-    _expectReelShows(tester, _centredReelArtist(tester));
-
-    await tester.fling(byKey('film-reel-pages'), const Offset(0, 900), 4000);
-    await tester.pumpAndSettle();
-    _expectReelShows(tester, _centredReelArtist(tester));
+    _expectRosterShows(tester, _featured(tester));
   });
 
-  testWidgets('a layout switch (compact and back) keeps the centred '
+  testWidgets('a layout switch (compact and back) keeps the featured '
       'artist and their statistics together', (tester) async {
-    await _pump(
-      tester,
-      stats: _ImmediateStats(),
-      initialView: LibraryView.filmReel,
-    );
-    await _reelNext(tester, times: 3);
-    _expectReelShows(tester, _artists[3]);
-
-    // Short enough for the statistics to move under the reel.
-    await tester.binding.setSurfaceSize(const Size(393, 480));
-    await tester.pumpAndSettle();
-    expect(byKey('film-reel-stats-below'), findsOneWidget);
-    _expectReelShows(tester, _artists[3]);
-    await _reelNext(tester, times: 2);
-    _expectReelShows(tester, _artists[5]);
-
-    await tester.binding.setSurfaceSize(const Size(393, 852));
-    await tester.pumpAndSettle();
-    expect(byKey('film-reel-stats-below'), findsNothing);
-    _expectReelShows(tester, _artists[5]);
-
-    // The Roster previews the same artist, on its page, in both layouts.
-    await _switchTo(tester, LibraryView.roster);
+    await _pump(tester, stats: _ImmediateStats());
+    await _rosterSelect(tester, _artists[5]);
     _expectRosterShows(tester, _artists[5]);
+
     await tester.binding.setSurfaceSize(const Size(393, 480));
     await tester.pumpAndSettle();
     expect(byKey('roster-compact'), findsOneWidget);
@@ -462,8 +386,7 @@ void main() {
     _expectRosterShows(tester, _artists[5]);
   });
 
-  testWidgets('another Roster sort, before and after switching, keeps the '
-      'same artist in both views', (tester) async {
+  testWidgets('another Roster sort keeps the same artist', (tester) async {
     await _pump(tester, stats: _ImmediateStats());
     final wren = _named('Wren');
 
@@ -473,51 +396,31 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(byKey('roster-sort-recentlyAdded').last);
     await tester.pumpAndSettle();
-    _expectRosterShows(tester, _artists.first);
+    // A sort keeps the featured artist, still listed, on its new page
+    // (App Update 1.1): the default, Madison Beer.
+    _expectRosterShows(tester, _named('Madison Beer'));
     final ivo = _named('Ivo');
     await _rosterSelect(tester, ivo);
     _expectRosterShows(tester, ivo);
 
-    await _switchTo(tester, LibraryView.filmReel);
-    _expectReelShows(tester, ivo);
-    await _reelNext(tester, times: 2);
-    final kai = _named('Kai Lark');
-    _expectReelShows(tester, kai);
-
-    await _switchTo(tester, LibraryView.roster);
-    _expectRosterShows(tester, kai);
-
-    // Sorting A-Z after the switch follows the same artist.
+    // Sorting A-Z follows the same artist.
     await tester.tap(byKey('roster-sort'));
     await tester.pumpAndSettle();
     await tester.tap(byKey('roster-sort-name').last);
     await tester.pumpAndSettle();
-    _expectRosterShows(tester, kai);
+    _expectRosterShows(tester, ivo);
     await _rosterSelect(tester, wren);
-
-    await _switchTo(tester, LibraryView.filmReel);
-    _expectReelShows(tester, wren);
+    _expectRosterShows(tester, wren);
   });
 
   testWidgets('delayed statistics: a late result never shows for another '
       'artist, and a stale load never replaces a newer one', (tester) async {
     final stats = _GatedStats();
     final signal = LibraryChangeSignal();
-    await _pump(
-      tester,
-      stats: stats,
-      initialView: LibraryView.filmReel,
-      signal: signal,
-    );
+    await _pump(tester, stats: stats, signal: signal);
     expect(stats.loads, hasLength(1));
     // Not loaded yet: dashes, never another artist's values.
-    expect(_textIn(tester, byKey('film-reel-rank')), contains('–'));
-
-    // The user moves on while the first load is still running.
-    await _reelNext(tester, times: 3);
-    final shown = _artists[3];
-    expect(_centredReelArtist(tester).artistId, shown.artistId);
-    expect(_textIn(tester, byKey('film-reel-rank')), contains('–'));
+    expect(_textIn(tester, byKey('roster-stat-streams')), contains('–'));
 
     // A library change asks for another load while the first runs.
     signal.notify(LibraryChangeKind.libraryEdited);
@@ -525,17 +428,16 @@ void main() {
 
     stats.loads[0].complete(_snapshot());
     await tester.pumpAndSettle();
-    _expectReelShows(tester, shown);
+    _expectRosterShows(tester, _named('Madison Beer'));
 
-    await _reelNext(tester);
-    final later = _artists[4];
     expect(stats.loads, hasLength(2));
     stats.loads[1].complete(_snapshot(generation: 5));
     await tester.pumpAndSettle();
-    _expectReelShows(tester, later, generation: 5);
-
-    await _switchTo(tester, LibraryView.roster);
-    expect(byKey('roster-header-${later.artistId}'), findsOneWidget);
+    final shown = _featured(tester);
+    expect(
+      _textIn(tester, byKey('roster-stat-streams')),
+      contains('${_statsOf(shown, generation: 5).qualifiedStreams}'),
+    );
   });
 
   test('a load answered out of order is dropped: the newest snapshot '
@@ -574,7 +476,7 @@ void main() {
   testWidgets('a load from a replaced library answering late is never '
       'shown', (tester) async {
     final stale = _GatedStats();
-    await _pump(tester, stats: stale, initialView: LibraryView.filmReel);
+    await _pump(tester, stats: stale);
     expect(stale.loads, hasLength(1));
 
     // The library is replaced (new repository): a new controller loads.
@@ -583,16 +485,71 @@ void main() {
       tester,
       stats: fresh,
       repository: base.FakeLibraryQueryRepository(artists: _artists),
-      initialView: LibraryView.filmReel,
     );
     expect(fresh.loads, hasLength(1));
     fresh.loads[0].complete(_snapshot(generation: 9));
     await tester.pumpAndSettle();
-    _expectReelShows(tester, _artists.first, generation: 9);
+    final expected =
+        '${_statsOf(_named('Madison Beer'), generation: 9).qualifiedStreams}';
+    String streams() => _textIn(tester, byKey('roster-stat-streams'));
+    expect(streams(), contains(expected));
 
     // The old load answers last; it must not replace the new values.
     stale.loads[0].complete(_snapshot(generation: 1));
     await tester.pumpAndSettle();
-    _expectReelShows(tester, _artists.first, generation: 9);
+    expect(streams(), contains(expected));
+  });
+
+  // The Film Reel component (kept for Sonus Wrapped) on its own.
+  group('the Film Reel component', () {
+    Future<void> pumpReel(WidgetTester tester) => pumpFilmReel(
+      tester,
+      artists: _artists,
+      statistics: _snapshot(),
+      size: const Size(393, 852),
+    );
+
+    testWidgets('rapid navigation: the statistics follow the portrait '
+        'finally shown', (tester) async {
+      await pumpReel(tester);
+      _expectReelShows(tester, _artists.first);
+
+      // Several taps before any animation ends.
+      for (var i = 0; i < 4; i++) {
+        await tester.tap(byKey('film-reel-next'));
+        await tester.pump(const Duration(milliseconds: 30));
+      }
+      await tester.pumpAndSettle();
+      _expectReelShows(tester, _centredReelArtist(tester));
+
+      // A fast fling across many artists.
+      await tester.fling(byKey('film-reel-pages'), const Offset(0, -900), 4000);
+      await tester.pumpAndSettle();
+      _expectReelShows(tester, _centredReelArtist(tester));
+
+      await tester.fling(byKey('film-reel-pages'), const Offset(0, 900), 4000);
+      await tester.pumpAndSettle();
+      _expectReelShows(tester, _centredReelArtist(tester));
+    });
+
+    testWidgets('a layout switch (compact and back) keeps the centred '
+        'artist and their statistics together', (tester) async {
+      await pumpReel(tester);
+      await _reelNext(tester, times: 3);
+      _expectReelShows(tester, _artists[3]);
+
+      // Short enough for the statistics to move under the reel.
+      await tester.binding.setSurfaceSize(const Size(393, 480));
+      await tester.pumpAndSettle();
+      expect(byKey('film-reel-stats-below'), findsOneWidget);
+      _expectReelShows(tester, _artists[3]);
+      await _reelNext(tester, times: 2);
+      _expectReelShows(tester, _artists[5]);
+
+      await tester.binding.setSurfaceSize(const Size(393, 852));
+      await tester.pumpAndSettle();
+      expect(byKey('film-reel-stats-below'), findsNothing);
+      _expectReelShows(tester, _artists[5]);
+    });
   });
 }

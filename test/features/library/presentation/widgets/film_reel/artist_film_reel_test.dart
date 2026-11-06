@@ -1,22 +1,22 @@
-// UI redesign L1: the Library's artist Film Reel, through the real
-// LibraryPage, with a counting fake of the D1 statistics service.
+// UI redesign L1: the artist Film Reel, retired from the Library in App
+// Update 1.1 and kept as a component for the future Sonus Wrapped. It is
+// tested on its own here, fed by a small host that loads the statistics
+// as the Library did, with a counting fake of the D1 statistics service.
 import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:provider/provider.dart';
 import 'package:sonus_next/core/design/sonus_theme_factory.dart';
-import 'package:sonus_next/core/events/library_change_signal.dart';
+import 'package:sonus_next/core/design/sonus_count_label.dart';
 import 'package:sonus_next/features/library/application/models/library_artist.dart';
 import 'package:sonus_next/features/library/application/models/library_track.dart';
-import 'package:sonus_next/features/library/application/repositories/library_query_repository.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/presentation/models/artist_library_statistics.dart';
 import 'package:sonus_next/features/library/presentation/models/artist_profile_sections.dart';
-import 'package:sonus_next/features/library/presentation/pages/library_page.dart';
-import 'package:sonus_next/features/library/presentation/widgets/library_view_switch.dart';
+import 'package:sonus_next/features/library/presentation/widgets/film_reel/artist_film_reel.dart';
 import 'package:sonus_next/features/library/presentation/services/artist_library_statistics_service.dart';
 
+import '../../../../../support/device_layout.dart';
 import '../../pages/library_page_test.dart' as base;
 
 Finder byKey(String key) => find.byKey(ValueKey<String>(key));
@@ -57,6 +57,68 @@ class _Stats implements ArtistLibraryStatisticsService {
             ArtistLibraryStatistics(artist: artist, listened: Duration.zero),
     ]);
   }
+}
+
+/// Feeds the Film Reel as the Library did: loads the statistics once (on
+/// demand again), keeps the centred artist, and opens a stand-in Artist
+/// Profile.
+class _ReelHost extends StatefulWidget {
+  const _ReelHost({super.key, required this.artists, required this.stats});
+
+  final List<LibraryArtist> artists;
+  final _Stats stats;
+
+  @override
+  State<_ReelHost> createState() => _ReelHostState();
+}
+
+class _ReelHostState extends State<_ReelHost> {
+  late List<LibraryArtist> _artists = List.of(widget.artists);
+  ArtistLibraryStatisticsSnapshot _snapshot =
+      ArtistLibraryStatisticsSnapshot.empty;
+  bool _loaded = false;
+  String? _selected;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final snapshot = await widget.stats.load();
+    if (!mounted) return;
+    setState(() {
+      _snapshot = snapshot;
+      _loaded = true;
+    });
+  }
+
+  /// A reload with another list of artists.
+  void replaceArtists(List<LibraryArtist> artists) {
+    setState(() => _artists = List.of(artists));
+    _load();
+  }
+
+  @override
+  Widget build(BuildContext context) => ArtistFilmReel(
+    artists: _artists,
+    statistics: _snapshot,
+    statisticsLoaded: _loaded,
+    countLabel: sonusCount(_artists.length, 'artist'),
+    selectedArtistId: _selected,
+    onSelected: (id) => _selected = id,
+    onOpenArtist: (artist) => Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => Scaffold(
+          key: const ValueKey<String>('artist-profile-page'),
+          appBar: AppBar(),
+          body: const SizedBox.shrink(),
+        ),
+      ),
+    ),
+    onOpenSearch: () {},
+  );
 }
 
 void main() {
@@ -105,27 +167,20 @@ void main() {
     WidgetTester tester, {
     required List<LibraryArtist> artists,
     required _Stats stats,
-    LibraryChangeSignal? signal,
     Size size = const Size(411, 900),
     bool settle = true,
+    ThemeData? theme,
   }) async {
     await tester.binding.setSurfaceSize(size);
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(
-      MultiProvider(
-        providers: [
-          Provider<LibraryQueryRepository?>.value(
-            value: base.FakeLibraryQueryRepository(artists: artists),
-          ),
-          Provider<ArtistLibraryStatisticsService?>.value(value: stats),
-        ],
-        child: MaterialApp(
-          theme: SonusThemeFactory.build(const SonusAppearanceSpec()),
-          home: Scaffold(
-            body: LibraryPage(
-              changes: signal,
-              initialView: LibraryView.filmReel,
-            ),
+      MaterialApp(
+        theme: theme ?? SonusThemeFactory.build(const SonusAppearanceSpec()),
+        home: Scaffold(
+          body: _ReelHost(
+            key: const ValueKey<String>('reel-host'),
+            artists: artists,
+            stats: stats,
           ),
         ),
       ),
@@ -240,44 +295,19 @@ void main() {
     expect(stats.loads, 1);
   });
 
-  testWidgets('statistics load once, not while scrolling; recorded '
-      'listening reloads them and keeps the centred artist', (tester) async {
-    final artists = [ada, ben, cyd];
-    final stats = statsFor(artists);
-    final signal = LibraryChangeSignal();
-    await pump(tester, artists: artists, stats: stats, signal: signal);
-
-    for (var i = 0; i < 2; i++) {
-      await tester.tap(byKey('film-reel-next'));
-      await tester.pumpAndSettle();
-    }
-    await tester.tap(byKey('film-reel-previous'));
-    await tester.pumpAndSettle();
-    expect(stats.loads, 1);
-
-    signal.notify(LibraryChangeKind.listeningRecorded);
-    await tester.pump(const Duration(milliseconds: 400));
-    await tester.pumpAndSettle();
-
-    expect(stats.loads, 2);
-    expect(find.text('Unranked'), findsOneWidget, reason: 'Ben still');
-  });
-
   testWidgets('a reload that adds an artist ahead keeps the same one centred', (
     tester,
   ) async {
     final artists = [ben, cyd];
     final stats = statsFor(artists);
-    final signal = LibraryChangeSignal();
-    await pump(tester, artists: artists, stats: stats, signal: signal);
+    await pump(tester, artists: artists, stats: stats);
     await tester.tap(byKey('film-reel-next'));
     await tester.pumpAndSettle();
     expect(find.text('#2'), findsOneWidget, reason: 'Cyd');
 
     artists.insert(0, ada);
     stats.artists = artists;
-    signal.notify(LibraryChangeKind.importCompleted);
-    await tester.pump(const Duration(milliseconds: 400));
+    tester.state<_ReelHostState>(byKey('reel-host')).replaceArtists(artists);
     await tester.pumpAndSettle();
 
     expect(find.text('3 artists'), findsOneWidget);
@@ -292,16 +322,14 @@ void main() {
     expect(find.text('AL'), findsOneWidget);
   });
 
-  testWidgets('the view switch and search button are in the header', (
-    tester,
-  ) async {
+  testWidgets('the search button is in the header', (tester) async {
     final artists = [ada];
     await pump(tester, artists: artists, stats: statsFor(artists));
 
-    expect(byKey('library-view-roster'), findsOneWidget);
-    expect(byKey('library-view-reel'), findsOneWidget);
     final search = tester.widget<IconButton>(byKey('library-search-button'));
     expect(search.tooltip, 'Search artists');
+    expect(byKey('library-view-roster'), findsNothing);
+    expect(byKey('library-view-reel'), findsNothing);
   });
 
   testWidgets('a single artist has no chevrons to move with', (tester) async {
@@ -350,5 +378,88 @@ void main() {
     expect(builtCards(), lessThanOrEqualTo(5));
     expect(stats.loads, 1, reason: 'scrolling never reloads statistics');
     expect(tester.takeException(), isNull);
+  });
+
+  // App Update 1.1: the Listened tile keeps a compact one-line value.
+  group('Listened tile', () {
+    // Measured in the real Roboto the device draws, not the square test
+    // font (about 1.7 times wider).
+    setUpAll(loadRealRoboto);
+    final roboto = withRealRoboto(
+      SonusThemeFactory.build(const SonusAppearanceSpec()),
+    );
+    _Stats one(Duration listened) => _Stats({
+      'ada': (artist) => ArtistLibraryStatistics(
+        artist: artist,
+        rank: 1,
+        qualifiedStreams: 1,
+        listened: listened,
+      ),
+    })..artists = [ada];
+
+    double lineHeight(WidgetTester tester, Finder text) {
+      final style = tester.widget<Text>(text).style;
+      final scale = MediaQuery.textScalerOf(tester.element(text)).scale(1);
+      return (style?.fontSize ?? 14) * scale * 1.6;
+    }
+
+    for (final (name, size, scale) in [
+      ('S26 Ultra', const Size(384, 832), 1.0),
+      ('S26 Ultra at 1.3x text', const Size(384, 832), 1.3),
+      ('a 360dp phone', const Size(360, 780), 1.0),
+    ]) {
+      testWidgets('under a minute reads "<1 min" on one line: $name', (
+        tester,
+      ) async {
+        tester.platformDispatcher.textScaleFactorTestValue = scale;
+        addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+        await pump(
+          tester,
+          artists: [ada],
+          stats: one(const Duration(seconds: 40)),
+          size: size,
+          theme: roboto,
+        );
+
+        final tile = find.byKey(const ValueKey<String>('film-reel-listened'));
+        final value = find.descendant(of: tile, matching: find.text('<1 min'));
+        expect(value, findsOneWidget);
+        expect(find.textContaining('under a minute'), findsNothing);
+        expect(
+          tester.getSize(value).height,
+          lessThanOrEqualTo(lineHeight(tester, value)),
+          reason: 'one line, not three',
+        );
+        expect(
+          find.bySemanticsLabel('under a minute listened'),
+          findsOneWidget,
+        );
+        expect(tester.takeException(), isNull);
+      });
+    }
+
+    testWidgets('no listening reads "0 min"', (tester) async {
+      await pump(tester, artists: [ada], stats: one(Duration.zero));
+
+      final tile = find.byKey(const ValueKey<String>('film-reel-listened'));
+      expect(
+        find.descendant(of: tile, matching: find.text('0 min')),
+        findsOneWidget,
+      );
+      expect(find.bySemanticsLabel('No listening time yet'), findsOneWidget);
+    });
+
+    testWidgets('longer times keep their minutes and hours', (tester) async {
+      await pump(
+        tester,
+        artists: [ada],
+        stats: one(const Duration(hours: 3, minutes: 19)),
+      );
+      final tile = find.byKey(const ValueKey<String>('film-reel-listened'));
+      expect(
+        find.descendant(of: tile, matching: find.text('3h 19m')),
+        findsOneWidget,
+      );
+    });
   });
 }

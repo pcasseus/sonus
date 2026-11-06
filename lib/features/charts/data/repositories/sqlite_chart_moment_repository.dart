@@ -63,7 +63,7 @@ class SqliteChartMomentRepository implements ChartMomentRepository {
       return null;
     }
 
-    return ChartMomentEventRowMapper.fromRow(row);
+    return ChartMomentEventRowMapper.tryFromRow(row);
   }
 
   @override
@@ -72,7 +72,9 @@ class SqliteChartMomentRepository implements ChartMomentRepository {
 
     final rows = await ChartMomentEventDao(db).findRecent(limit: limit);
 
-    return List.unmodifiable(rows.map(ChartMomentEventRowMapper.fromRow));
+    return List.unmodifiable(
+      rows.map(ChartMomentEventRowMapper.tryFromRow).nonNulls,
+    );
   }
 
   @override
@@ -93,7 +95,9 @@ class SqliteChartMomentRepository implements ChartMomentRepository {
       limit: limit,
     );
 
-    return List.unmodifiable(rows.map(ChartMomentEventRowMapper.fromRow));
+    return List.unmodifiable(
+      rows.map(ChartMomentEventRowMapper.tryFromRow).nonNulls,
+    );
   }
 }
 

@@ -384,6 +384,99 @@ void main() {
     );
     expect(await saved(), isEmpty);
   });
+
+  // App Update 1.1: everything the chronicle records must stay readable by
+  // Sonus 1.0, which decodes stored event types strictly by name.
+  group('compatibility with Sonus 1.0', () {
+    /// The event type names Sonus 1.0 (484f384) knows, frozen.
+    const sonus10Types = {
+      'rankRise',
+      'rankFall',
+      'rankSame',
+      'debut',
+      'reentry',
+      'chartExit',
+      'newPeak',
+      'peakMatch',
+      'firstThresholdEntry',
+      'thresholdReturn',
+      'thresholdExit',
+      'firstNumberOne',
+      'returnToNumberOne',
+      'losesNumberOne',
+      'consecutiveWeeksMilestone',
+      'totalWeeksMilestone',
+      'consecutiveThresholdWeeksMilestone',
+      'totalThresholdWeeksMilestone',
+      'lifetimeStreamMilestone',
+      'artistFirstThresholdSong',
+      'artistFirstThresholdAlbum',
+      'artistNthThresholdSong',
+      'artistNthThresholdAlbum',
+      'artistHighestChartingSong',
+      'artistHighestChartingAlbum',
+      'artistFirstNumberOneSong',
+      'artistFirstNumberOneAlbum',
+      'artistNthNumberOneSong',
+      'artistNthNumberOneAlbum',
+      'artistReturnsToNumberOneSong',
+      'artistReturnsToNumberOneAlbum',
+      'artistSimultaneousThresholdSongs',
+      'artistSimultaneousThresholdAlbums',
+      'artistBecomesTopArtist',
+      'artistStreamMilestone',
+    };
+
+    test('no event type is added beyond those Sonus 1.0 reads', () {
+      expect(
+        ChartMomentEventType.values.map((type) => type.name).toSet(),
+        sonus10Types,
+      );
+    });
+
+    test(
+      'a recorded daily #1 hold is a rankSame row any build can read',
+      () async {
+        library
+          ..add('a')
+          ..add('b');
+        final yesterday = _today.subtract(const Duration(days: 1));
+        for (var i = 0; i < 3; i++) {
+          plays.add('a', yesterday.add(Duration(minutes: i)));
+        }
+        plays.add('b', yesterday.add(const Duration(minutes: 9)));
+
+        await service().record(
+          referenceLocal: _today,
+          rules: ChartMomentRules(chronicleFromUtc: DateTime.utc(2026, 10, 19)),
+        );
+        // Twice: replaying never duplicates the day's hold.
+        await service().record(
+          referenceLocal: _today,
+          rules: ChartMomentRules(chronicleFromUtc: DateTime.utc(2026, 10, 19)),
+        );
+
+        final holds = [
+          for (final event in await saved())
+            if (event.isDailyNumberOneHold) event,
+        ];
+        expect(holds, hasLength(2), reason: 'one per chart: songs and albums');
+        final song = holds.firstWhere((e) => e.chartType == ChartType.songs);
+        expect(song.entity.entityId, 'song-a');
+        expect(song.eventType, ChartMomentEventType.rankSame);
+        expect(song.sourceId, startsWith('day:'));
+        expect(song.milestoneValue, 1);
+
+        // Every stored row decodes with the strict reader Sonus 1.0 uses.
+        final db = await database.database;
+        final rows = await db.rawQuery('SELECT * FROM chart_moment_events');
+        expect(rows, isNotEmpty);
+        for (final row in rows) {
+          expect(sonus10Types, contains(row['event_type']));
+        }
+      },
+    );
+  });
 }
 
 class _Plays implements QualifiedPlayRepository {

@@ -21,14 +21,13 @@ import '../../models/alphabet_index.dart';
 import '../../models/artist_library_statistics.dart';
 import '../../models/artist_roster_view.dart';
 import '../film_reel/artist_film_reel.dart';
-import '../library_view_switch.dart';
 
 /// The Artist Roster (UI redesign L2), the Library's default screen: a
 /// fighting-game style character select over the Library's artists.
 /// Tapping a portrait previews the artist above the grid; tapping the
 /// featured portrait or SELECT ARTIST opens their Artist Profile
-/// ([onOpenArtist]). The previewed artist is the Library's selection, shared
-/// with the Film Reel ([selectedArtistId], [onSelected]).
+/// ([onOpenArtist]). The previewed artist is the Library's selection
+/// ([selectedArtistId], [onSelected]).
 ///
 /// The grid is sideways pages of portraits (D2); sort and A-Z move to the
 /// page that holds what was asked for, and the search icon opens the Artist
@@ -54,7 +53,6 @@ class ArtistRoster extends StatefulWidget {
     this.sort = ArtistStatisticsSort.qualifiedStreams,
     this.onSortChanged,
     this.onFind,
-    this.onSwitchView,
     this.artworkPalette,
   });
 
@@ -85,9 +83,6 @@ class ArtistRoster extends StatefulWidget {
   /// Opens the Artist Finder; no search icon without it.
   final VoidCallback? onFind;
 
-  /// Switches the Library to another view; no switch without it.
-  final ValueChanged<LibraryView>? onSwitchView;
-
   final SonusArtworkPalette? artworkPalette;
 
   /// Sort labels, as on the sort menu.
@@ -106,10 +101,27 @@ class _ArtistRosterState extends State<ArtistRoster> {
   late ArtistStatisticsSort _sort = widget.sort;
   late String? _previewId = _listedOrFirst(widget.selectedArtistId);
 
+  /// App Update 1.1: whether the featured artist is the default one (the
+  /// first of the sorted roster, on Page 1) because nothing was chosen or
+  /// restored. While true it follows the sorted roster's first artist, for
+  /// example once the statistics load and reorder it.
+  late bool _isDefault = !_isListed(widget.selectedArtistId);
+
+  /// A grid page the Roster moves to itself to show the featured artist
+  /// (after sorting, A-Z, a reload): arriving there keeps that artist
+  /// rather than featuring the page's first artist.
+  int? _followPage;
+
+  bool _isListed(String? artistId) =>
+      artistId != null && widget.artists.any((a) => a.artistId == artistId);
+
+  /// [artistId] when listed, otherwise the first artist of the sorted
+  /// roster (Page 1, Artist 1).
   String? _listedOrFirst(String? artistId) =>
-      artistId != null && widget.artists.any((a) => a.artistId == artistId)
-      ? artistId
-      : (widget.artists.isEmpty ? null : widget.artists.first.artistId);
+      _isListed(artistId) ? artistId : _firstSorted;
+
+  String? get _firstSorted =>
+      _rosterView.isEmpty ? null : _rosterView.artists.first.artistId;
   late final ValueNotifier<String?> _previewArtwork = ValueNotifier(
     _preview == null ? null : ArtistFilmReel.portraitPath(_preview!),
   );
@@ -121,7 +133,6 @@ class _ArtistRosterState extends State<ArtistRoster> {
   /// layout, where the grid sits elsewhere in the tree.
   bool? _compactGrid;
   int _page = 0;
-  bool _pageChosen = false;
 
   ArtistRosterView? _view;
   (ArtistStatisticsSort, Object, Object)? _viewKey;
@@ -151,15 +162,22 @@ class _ArtistRosterState extends State<ArtistRoster> {
   @override
   void didUpdateWidget(ArtistRoster oldWidget) {
     super.didUpdateWidget(oldWidget);
-    final wanted = _listedOrFirst(widget.selectedArtistId ?? _previewId);
-    if (wanted != _previewId || !identical(widget.artists, oldWidget.artists)) {
+    final wanted = _isDefault
+        ? _firstSorted
+        : _listedOrFirst(widget.selectedArtistId ?? _previewId);
+    final reordered =
+        !identical(widget.artists, oldWidget.artists) ||
+        !identical(widget.statistics, oldWidget.statistics);
+    if (wanted != _previewId || reordered) {
       final changed = wanted != _previewId;
       _previewId = wanted;
       _previewArtwork.value = _preview == null
           ? null
           : ArtistFilmReel.portraitPath(_preview!);
-      if (changed && wanted != null) {
-        _jumpAfterBuild(_rosterView.pageOf(wanted, _perPage) ?? 0);
+      // The featured artist is always on the visible page.
+      if (wanted != null) {
+        final page = _rosterView.pageOf(wanted, _perPage) ?? 0;
+        if (changed || page != _page) _jumpAfterBuild(page);
       }
       if (wanted != null && wanted != widget.selectedArtistId) {
         // Report the artist now previewed after a reload.
@@ -183,10 +201,27 @@ class _ArtistRosterState extends State<ArtistRoster> {
   }
 
   void _previewArtist(LibraryArtist artist) {
+    _isDefault = false;
     if (artist.artistId == _previewId) return;
     setState(() => _previewId = artist.artistId);
     _previewArtwork.value = ArtistFilmReel.portraitPath(artist);
     widget.onSelected(artist.artistId);
+  }
+
+  /// The grid shows [page]: after Next, Previous or a swipe, its first
+  /// artist is featured (App Update 1.1); after the Roster moved there to
+  /// show the featured artist, that artist stays.
+  void _pageChanged(int page) {
+    setState(() => _page = page);
+    if (_followPage == page) {
+      _followPage = null;
+      return;
+    }
+    _followPage = null;
+    final onPage = _rosterView.page(page, _perPage);
+    if (onPage.isEmpty) return;
+    if (onPage.any((artist) => artist.artistId == _previewId)) return;
+    _previewArtist(onPage.first);
   }
 
   void _goToPage(int page) {
@@ -216,6 +251,7 @@ class _ArtistRosterState extends State<ArtistRoster> {
       if (!mounted) return;
       final pages = _pages;
       if (pages != null && pages.hasClients) {
+        if (pages.page?.round() != page) _followPage = page;
         pages.jumpToPage(page);
       } else {
         setState(() => _page = page);
@@ -225,6 +261,8 @@ class _ArtistRosterState extends State<ArtistRoster> {
 
   void _setSort(ArtistStatisticsSort sort) {
     if (sort == _sort) return;
+    // A sort keeps the featured artist (still listed), on its new page.
+    _isDefault = false;
     setState(() => _sort = sort);
     widget.onSortChanged?.call(sort);
     // Follow the previewed artist to its place in the new order.
@@ -249,6 +287,8 @@ class _ArtistRosterState extends State<ArtistRoster> {
     final first = _rosterView.firstFor(letter);
     if (first == null) return;
     final page = _rosterView.pageOf(first.artistId, _perPage) ?? 0;
+    // App Update 1.1: the letter's first artist is featured, on its page.
+    _previewArtist(first);
     _jumpAfterBuild(page);
   }
 
@@ -279,14 +319,14 @@ class _ArtistRosterState extends State<ArtistRoster> {
     }
     _compactGrid = compact;
     final view = _rosterView;
-    final page = !_pageChosen && _previewId != null
+    // The featured artist is always on the visible page.
+    final page = _previewId != null
         ? view.pageOf(_previewId!, perPage) ?? 0
         : (_page * _perPage ~/ perPage).clamp(0, view.pageCount(perPage) - 1);
     _perPage = perPage;
     _page = page;
-    _pageChosen = true;
     // The page comes from the previewed artist (by id), never from a page
-    // saved in the Library tab's PageStorage, which the Film Reel shares.
+    // saved in the Library tab's PageStorage.
     final replacement = PageController(initialPage: page, keepPage: false);
     if (current != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) => current.dispose());
@@ -421,7 +461,6 @@ class _ArtistRosterState extends State<ArtistRoster> {
           onFind: widget.onFind,
           onSort: _setSort,
           onLetters: _chooseLetter,
-          onSwitchView: widget.onSwitchView,
         );
         final grid = _grid(
           colors,
@@ -517,7 +556,7 @@ class _ArtistRosterState extends State<ArtistRoster> {
                   key: const ValueKey<String>('roster-pages'),
                   controller: pages,
                   itemCount: count,
-                  onPageChanged: (page) => setState(() => _page = page),
+                  onPageChanged: _pageChanged,
                   itemBuilder: (context, page) {
                     final artists = view.page(page, perPage);
                     return Padding(
@@ -1109,7 +1148,10 @@ class _StatsGrid extends StatelessWidget {
               tile(
                 'listened',
                 Icons.schedule_rounded,
-                loaded && hasListened ? sonusListeningTime(listened) : '–',
+                // A compact value fits the tile on one line ("<1 min").
+                loaded && listened != null
+                    ? sonusListeningTimeCompact(listened)
+                    : '–',
                 'Listened',
                 !loaded
                     ? 'Listening time loading'
@@ -1173,8 +1215,8 @@ class _StatsGrid extends StatelessWidget {
   }
 }
 
-/// The Roster's one row of controls (Option C): find, sort, A-Z and the
-/// switch to the Film Reel. Two rows on narrow screens and with large text.
+/// The Roster's one row of controls (Option C): find, sort and A-Z. Two
+/// rows on narrow screens and with large text.
 class _Controls extends StatelessWidget {
   const _Controls({
     required this.colors,
@@ -1183,7 +1225,6 @@ class _Controls extends StatelessWidget {
     required this.onFind,
     required this.onSort,
     required this.onLetters,
-    required this.onSwitchView,
   });
 
   final SonusCinematicColors colors;
@@ -1192,13 +1233,11 @@ class _Controls extends StatelessWidget {
   final VoidCallback? onFind;
   final ValueChanged<ArtistStatisticsSort> onSort;
   final VoidCallback onLetters;
-  final ValueChanged<LibraryView>? onSwitchView;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final onFind = this.onFind;
-    final onSwitchView = this.onSwitchView;
     Widget squareButton({
       required Key key,
       required String tooltip,
@@ -1226,19 +1265,6 @@ class _Controls extends StatelessWidget {
             tooltip: 'Find an artist',
             icon: Icons.search_rounded,
             onPressed: onFind,
-          );
-    final toReel = onSwitchView == null
-        ? null
-        : Semantics(
-            button: true,
-            label: '${LibraryView.filmReel.label} view',
-            excludeSemantics: true,
-            child: squareButton(
-              key: const ValueKey<String>('library-view-reel'),
-              tooltip: 'Show the ${LibraryView.filmReel.label}',
-              icon: LibraryView.filmReel.icon,
-              onPressed: () => onSwitchView(LibraryView.filmReel),
-            ),
           );
     final sortMenu = PopupMenuButton<ArtistStatisticsSort>(
       key: const ValueKey<String>('roster-sort'),
@@ -1316,7 +1342,6 @@ class _Controls extends StatelessWidget {
             Expanded(child: sortMenu),
             const SizedBox(width: 8),
             letters,
-            if (toReel != null) ...[const SizedBox(width: 8), toReel],
           ],
         ),
       );
@@ -1330,7 +1355,6 @@ class _Controls extends StatelessWidget {
             children: [
               if (find != null) ...[find, const SizedBox(width: 8)],
               Expanded(child: letters),
-              if (toReel != null) ...[const SizedBox(width: 8), toReel],
             ],
           ),
           const SizedBox(height: 8),

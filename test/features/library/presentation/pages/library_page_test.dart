@@ -13,7 +13,8 @@ import 'package:sonus_next/features/library/application/models/library_track_ord
 import 'package:sonus_next/features/library/application/repositories/library_query_repository.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/presentation/pages/library_page.dart';
-import 'package:sonus_next/features/library/presentation/widgets/library_view_switch.dart';
+
+import '../widgets/film_reel/film_reel_harness.dart';
 
 void main() {
   group('LibraryPage', () {
@@ -78,10 +79,10 @@ void main() {
       expect(find.text('Try again'), findsOneWidget);
     });
 
-    testWidgets('shows artists in the Film Reel, one centred at a time', (
-      tester,
-    ) async {
-      final repository = FakeLibraryQueryRepository(
+    testWidgets('the Film Reel component shows artists, one centred at a '
+        'time', (tester) async {
+      await pumpFilmReel(
+        tester,
         artists: [
           createArtist(
             artistId: 'artist-1',
@@ -104,14 +105,6 @@ void main() {
         ],
       );
 
-      await tester.pumpWidget(buildSubject(repository: repository));
-
-      await tester.pumpAndSettle();
-
-      expect(
-        find.byKey(const ValueKey<String>('app-destination-library')),
-        findsOneWidget,
-      );
       expect(
         find.byKey(const ValueKey<String>('film-reel-pages')),
         findsOneWidget,
@@ -169,9 +162,12 @@ void main() {
 
       await tester.pumpAndSettle();
 
-      expect(find.text('TS'), findsOneWidget);
-
-      expect(find.text('S'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey<String>('artist-roster')),
+        findsOneWidget,
+      );
+      expect(find.text('TS'), findsWidgets);
+      expect(find.text('S'), findsWidgets);
     });
 
     testWidgets('ghosts artist whose only media is unavailable', (
@@ -196,8 +192,14 @@ void main() {
       await tester.pumpWidget(buildSubject(repository: repository));
       await tester.pumpAndSettle();
 
-      expect(find.text('Available Artist'), findsOneWidget);
-      expect(find.text('Missing Artist'), findsNothing);
+      expect(
+        find.byKey(const ValueKey<String>('roster-tile-available-artist')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey<String>('roster-tile-missing-artist')),
+        findsNothing,
+      );
       expect(find.text('1 artist'), findsOneWidget);
     });
 
@@ -221,9 +223,8 @@ void main() {
         await tester.pumpWidget(buildSubject(repository: repository));
         await tester.pumpAndSettle();
 
-        expect(find.text('Album Owner'), findsOneWidget);
         expect(
-          find.byKey(const ValueKey<String>('artist-open-album-owner')),
+          find.byKey(const ValueKey<String>('roster-tile-album-owner')),
           findsOneWidget,
         );
       },
@@ -255,33 +256,20 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('4 artists'), findsOneWidget);
-      for (final name in [
-        'Fixture Cast',
-        'Fixture Guest',
-        'Fixture Lead',
-        'Fixture Rival',
-      ]) {
+      for (final id in ['cast', 'guest', 'lead', 'rival']) {
         expect(
-          find.byKey(const ValueKey<String>('film-reel-pages')),
+          find.byKey(ValueKey<String>('roster-tile-$id')),
           findsOneWidget,
+          reason: id,
         );
-        expect(find.text(name), findsOneWidget, reason: name);
-        if (name != 'Fixture Rival') {
-          await tester.tap(
-            find.byKey(const ValueKey<String>('film-reel-next')),
-          );
-          await tester.pumpAndSettle();
-        }
       }
     });
 
-    testWidgets('the reel fits 320dp at 2x text with large counts', (
+    testWidgets('the Film Reel fits 320dp at 2x text with large counts', (
       tester,
     ) async {
-      await tester.binding.setSurfaceSize(const Size(320, 900));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
-
-      final repository = FakeLibraryQueryRepository(
+      await pumpFilmReel(
+        tester,
         artists: [
           createArtist(
             artistId: 'artist-1',
@@ -290,25 +278,10 @@ void main() {
             songCount: 148,
           ),
         ],
+        theme: ThemeData(),
+        size: const Size(320, 900),
+        textScale: 2,
       );
-
-      await tester.pumpWidget(
-        Provider<LibraryQueryRepository?>.value(
-          value: repository,
-          child: MaterialApp(
-            builder: (context, child) => MediaQuery(
-              data: MediaQuery.of(
-                context,
-              ).copyWith(textScaler: const TextScaler.linear(2)),
-              child: child!,
-            ),
-            home: const Scaffold(
-              body: LibraryPage(initialView: LibraryView.filmReel),
-            ),
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
 
       expect(tester.takeException(), isNull);
       // Large text moves the statistics under the reel instead of beside it.
@@ -319,7 +292,7 @@ void main() {
       expect(find.text('148'), findsOneWidget);
     });
 
-    testWidgets('tapping an artist opens the artist profile', (tester) async {
+    testWidgets('SELECT ARTIST opens the artist profile', (tester) async {
       final repository = FakeLibraryQueryRepository(
         artists: [
           createArtist(
@@ -336,13 +309,11 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(
-        find.byKey(const ValueKey<String>('artist-open-artist-1')),
+        find.byKey(const ValueKey<String>('roster-tile-artist-1')),
         findsOneWidget,
       );
 
-      await tester.tap(
-        find.byKey(const ValueKey<String>('artist-open-artist-1')),
-      );
+      await tester.tap(find.byKey(const ValueKey<String>('roster-select')));
 
       await tester.pumpAndSettle();
 
@@ -377,7 +348,10 @@ void main() {
 
       await tester.pumpAndSettle();
 
-      expect(find.text('Recovered Artist'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey<String>('roster-tile-artist-1')),
+        findsOneWidget,
+      );
     });
 
     // Data-1: the Library updates by itself after an import or an edit.
@@ -394,24 +368,25 @@ void main() {
         Provider<LibraryQueryRepository?>.value(
           value: repository,
           child: MaterialApp(
-            home: Scaffold(
-              body: LibraryPage(
-                changes: signal,
-                initialView: LibraryView.filmReel,
-              ),
-            ),
+            home: Scaffold(body: LibraryPage(changes: signal)),
           ),
         ),
       );
       await tester.pumpAndSettle();
-      expect(find.text('Imported Artist'), findsNothing);
+      expect(
+        find.byKey(const ValueKey<String>('roster-tile-artist-2')),
+        findsNothing,
+      );
 
       artists.add(createArtist(artistId: 'artist-2', name: 'Imported Artist'));
       signal.notify(LibraryChangeKind.importCompleted);
       await tester.pump(const Duration(milliseconds: 400));
       await tester.pumpAndSettle();
 
-      expect(find.text('Imported Artist'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey<String>('roster-tile-artist-2')),
+        findsOneWidget,
+      );
 
       await tester.pumpWidget(const SizedBox());
       signal.notify(LibraryChangeKind.libraryEdited);
@@ -424,9 +399,7 @@ void main() {
 Widget buildSubject({required LibraryQueryRepository? repository}) {
   return Provider<LibraryQueryRepository?>.value(
     value: repository,
-    child: const MaterialApp(
-      home: Scaffold(body: LibraryPage(initialView: LibraryView.filmReel)),
-    ),
+    child: const MaterialApp(home: Scaffold(body: LibraryPage())),
   );
 }
 

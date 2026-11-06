@@ -25,7 +25,7 @@ import '../../../artwork/presentation/services/file_picker_artwork_file_picker.d
 import '../../../search/application/repositories/library_search_repository.dart';
 import '../../../sync/data/repositories/sync_mutation_transaction_runner.dart';
 import '../../../settings/application/controllers/metadata_intelligence_settings_controller.dart';
-import '../controllers/library_view_controller.dart';
+import '../models/library_navigation_memory.dart';
 import '../../application/repositories/library_query_repository.dart';
 import '../../application/services/album_edition_management_service.dart';
 import '../../application/services/album_edition_track_ordering_service.dart';
@@ -103,10 +103,6 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
   late final MetadataIntelligenceSettingsController
   _metadataIntelligenceSettingsController;
 
-  /// The saved Library view (Artist Roster or Film Reel), read early so
-  /// the Library opens on it.
-  final LibraryViewController _libraryViewController = LibraryViewController();
-
   @override
   void initState() {
     super.initState();
@@ -122,7 +118,6 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
     );
 
     unawaited(_metadataIntelligenceSettingsController.load());
-    unawaited(_libraryViewController.load());
     unawaited(_initialize());
   }
 
@@ -302,8 +297,10 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
         ChangeNotifierProvider<MetadataIntelligenceSettingsController>.value(
           value: _metadataIntelligenceSettingsController,
         ),
-        ChangeNotifierProvider<LibraryViewController>.value(
-          value: _libraryViewController,
+        // Where the Artist Roster left off: in memory only, one per app
+        // process (App Update 1.1).
+        Provider<LibraryNavigationMemory>.value(
+          value: LibraryNavigationMemory.shared,
         ),
         Provider<AppDatabase>.value(value: _database),
         Provider<LibraryQueryRepository?>.value(value: _repository),
@@ -388,7 +385,6 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
       _handleMetadataIntelligenceSettingsChanged,
     );
     _metadataIntelligenceSettingsController.dispose();
-    _libraryViewController.dispose();
     _coverArtBinaryTransport?.close();
     _musicBrainzTransport?.close();
 

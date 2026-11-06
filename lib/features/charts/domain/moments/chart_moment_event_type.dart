@@ -59,4 +59,10 @@ enum ChartMomentEventType {
 
   /// The artist's qualified plays reach a milestone.
   artistStreamMilestone,
+
+  // Compatibility (App Update 1.1): stored event types are read by name,
+  // and Sonus 1.0 fails to load Moments on a name it does not know. Never
+  // add a type here without a plan for older builds; App Update 1.1 adds
+  // none (a daily #1 hold is a [rankSame] event, see
+  // ChartMomentEvent.isDailyNumberOneHold).
 }

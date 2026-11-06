@@ -25,8 +25,10 @@ import 'package:sonus_next/features/library/application/models/library_album.dar
 import 'package:sonus_next/features/library/application/models/library_album_edition.dart';
 import 'package:sonus_next/features/library/application/models/library_release_edition.dart';
 import 'package:sonus_next/features/library/application/models/library_track.dart';
+import 'package:sonus_next/features/library/application/models/song_edition_membership.dart';
 import 'package:sonus_next/features/library/application/repositories/library_query_repository.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
+import 'package:sonus_next/features/library/domain/entities/release_date.dart';
 
 import '../../support/all_time_chart_fakes.dart';
 import '../../support/moment_page_fakes.dart';
@@ -429,6 +431,80 @@ void main() {
     });
   });
 
+  group('App Update 1.1: song stories show the edition the song first '
+      'appeared on', () {
+    final at = DateTime(2026, 11, 3, 12);
+    Future<List<SongEditionMembership>> memberships() async => const [
+      SongEditionMembership(songId: 'song-both', editionId: 'primary'),
+      SongEditionMembership(songId: 'song-both', editionId: 'deluxe'),
+      SongEditionMembership(songId: 'song-bonus', editionId: 'deluxe'),
+    ];
+
+    test('a song on both editions shows the Standard cover, a Deluxe-only '
+        'song the Deluxe cover, the release the Deluxe', () async {
+      final loaded = await _controller(
+        events: [
+          _releaseDebut('one', at: at),
+          _debut('both', at: at, rank: 20),
+          _debut('bonus', at: at.add(const Duration(minutes: 1)), rank: 21),
+        ],
+        tracks: [
+          _track(
+            'both',
+            artworkPath: '/art/song-both.jpg',
+            albumEditionId: 'primary',
+          ),
+          _track(
+            'bonus',
+            artworkPath: '/art/song-bonus.jpg',
+            albumEditionId: 'deluxe',
+          ),
+        ],
+        editions: [_edition('primary', primary: true), _edition('deluxe')],
+        releaseEditions: _locket,
+        memberships: memberships,
+      );
+      final covers = {
+        for (final story in loaded.controller.momentStories)
+          story.item.entity.entityId: story.visual.left.path,
+      };
+
+      expect(covers['song-both'], '/art/standard.jpg');
+      expect(covers['song-bonus'], '/art/deluxe.jpg');
+      expect(covers['album-1'], '/art/deluxe.jpg');
+      expect(
+        loaded.controller.momentSongEditionTitle('song-both'),
+        'Album One',
+      );
+      expect(
+        loaded.controller.momentSongEditionTitle('song-bonus'),
+        'Album One (Deluxe)',
+      );
+      expect(loaded.controller.momentSongEditionTitle('missing'), isNull);
+    });
+
+    test("a failed membership read keeps the song's own artwork", () async {
+      final loaded = await _controller(
+        events: [_debut('both', at: at, rank: 20)],
+        tracks: [
+          _track(
+            'both',
+            artworkPath: '/art/song-both.jpg',
+            albumEditionId: 'primary',
+          ),
+        ],
+        releaseEditions: _locket,
+        memberships: () async => throw StateError('read failed'),
+      );
+
+      expect(
+        loaded.controller.momentStories.single.visual.left.path,
+        '/art/song-both.jpg',
+      );
+      expect(loaded.controller.momentSongEditionTitle('song-both'), isNull);
+    });
+  });
+
   group('the release is presented by its edition with the most songs', () {
     final at = DateTime(2026, 11, 3, 12);
 
@@ -509,6 +585,39 @@ void main() {
     });
   });
 }
+
+/// Shaped like locket by Madison Beer: Standard (12 tracks, 2026-01-16)
+/// and Deluxe (15 tracks, 2026-05-08).
+final _locket = [
+  LibraryReleaseEdition(
+    edition: LibraryAlbumEdition(
+      editionId: 'primary',
+      albumId: 'album-1',
+      title: 'Album One',
+      type: AlbumEditionType.standard,
+      isPrimary: true,
+      dateAdded: DateTime.utc(2026, 9, 1),
+      releaseDate: DateTime.utc(2026, 1, 16),
+      releaseDatePrecision: ReleaseDatePrecision.day,
+      artworkPath: '/art/standard.jpg',
+    ),
+    trackCount: 12,
+  ),
+  LibraryReleaseEdition(
+    edition: LibraryAlbumEdition(
+      editionId: 'deluxe',
+      albumId: 'album-1',
+      title: 'Album One (Deluxe)',
+      type: AlbumEditionType.deluxe,
+      isPrimary: false,
+      dateAdded: DateTime.utc(2026, 9, 1),
+      releaseDate: DateTime.utc(2026, 5, 8),
+      releaseDatePrecision: ReleaseDatePrecision.day,
+      artworkPath: '/art/deluxe.jpg',
+    ),
+    trackCount: 15,
+  ),
+];
 
 LibraryReleaseEdition _countedEdition(
   String id, {
@@ -624,6 +733,7 @@ ChartMomentEvent _releaseDebut(String id, {required DateTime at}) {
 LibraryTrack _track(
   String id, {
   String? artworkPath,
+  String albumEditionId = 'edition-album-1',
   List<String> featured = const [],
 }) => LibraryTrack(
   songId: 'song-$id',
@@ -632,7 +742,7 @@ LibraryTrack _track(
   artistName: 'Ada Lune',
   albumId: 'album-1',
   albumTitle: 'Album One',
-  albumEditionId: 'edition-album-1',
+  albumEditionId: albumEditionId,
   albumEditionTitle: 'Album One',
   albumEditionType: AlbumEditionType.standard,
   trackNumber: 1,
@@ -663,6 +773,7 @@ Future<({ChartsController controller, _PagedMoments moments})> _controller({
   List<LibraryAlbumEdition> editions = const [],
   Map<String, String> playEditions = const {},
   List<LibraryReleaseEdition>? releaseEditions,
+  SongEditionMembershipsLoader? memberships,
 }) async {
   final moments = _PagedMoments(events);
   final controller = ChartsController(
@@ -692,6 +803,7 @@ Future<({ChartsController controller, _PagedMoments moments})> _controller({
     releaseEditions: releaseEditions == null
         ? null
         : () async => releaseEditions,
+    songEditionMemberships: memberships,
     momentPageSize: pageSize,
     momentRules: () async =>
         ChartMomentRules(activatedAtUtc: DateTime.utc(2026, 11, 1)),

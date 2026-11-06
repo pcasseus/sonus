@@ -28,6 +28,14 @@ abstract interface class MomentDevicePolishStore {
   Future<void> writeDevicePolishStart(String fromUtc);
 }
 
+/// Where the App Update 1.1 Moments chronicle's start is kept.
+abstract interface class MomentChronicleStore {
+  /// Null until a build carrying the chronicle has recorded one.
+  Future<String?> readChronicleStart();
+
+  Future<void> writeChronicleStart(String fromUtc);
+}
+
 /// Decides which Moments rules this run uses (SN-50 R2).
 ///
 /// Only a build compiled with
@@ -48,8 +56,10 @@ class MomentRulesActivation {
     bool approved = buildApproved,
     int catalogVersion = ChartMomentRules.currentCatalogVersion,
     MomentDevicePolishStore? devicePolish,
+    MomentChronicleStore? chronicle,
     MomentRulesActivationNow? now,
   }) : _store = store,
+       _chronicle = chronicle,
        _approved = approved,
        _catalogVersion = catalogVersion,
        _devicePolish = devicePolish,
@@ -67,6 +77,11 @@ class MomentRulesActivation {
 
   /// Where the climb wording starts; without it, no story changes words.
   final MomentDevicePolishStore? _devicePolish;
+
+  /// Where the App Update 1.1 chronicle starts; without it, nothing new is
+  /// recorded or told.
+  final MomentChronicleStore? _chronicle;
+  DateTime? _chronicleStart;
   final MomentRulesActivationNow _now;
 
   Future<ChartMomentRules>? _resolved;
@@ -78,6 +93,43 @@ class MomentRulesActivation {
   /// The rules for this run. Shared by every caller; retried after a
   /// storage failure, which falls back to the earlier rules meanwhile.
   Future<ChartMomentRules> rules() async {
+    final chronicleFrom = await _chronicleFrom();
+    return (await _rulesWithoutChronicle()).withChronicle(chronicleFrom);
+  }
+
+  /// The chronicle's start on this install, recorded once on the first run
+  /// that carries it; everything told before it keeps its words, and no
+  /// earlier event is recorded or told by it. Unreadable or unsaved: no
+  /// chronicle this run, and a later run tries again.
+  Future<DateTime?> _chronicleFrom() async {
+    final known = _chronicleStart;
+    if (known != null) return known;
+    final store = _chronicle;
+    if (store == null) return null;
+    try {
+      var stored = await store.readChronicleStart();
+      if (stored == null) {
+        await store.writeChronicleStart(_now().toUtc().toIso8601String());
+        stored = await store.readChronicleStart();
+        if (stored == null) {
+          throw StateError('The Moments chronicle start was not saved.');
+        }
+      }
+      return _chronicleStart = _instant(stored);
+    } catch (error, stackTrace) {
+      developer.log(
+        'The Moments chronicle start could not be read or saved '
+        '(${error.runtimeType}); no chronicle stories this run',
+        name: 'sonus.charts',
+        level: 900,
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return null;
+    }
+  }
+
+  Future<ChartMomentRules> _rulesWithoutChronicle() async {
     final climbFrom = await _devicePolishFrom();
     if (!_approved) {
       return climbFrom == null

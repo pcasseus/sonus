@@ -590,6 +590,54 @@ void main() {
     );
   });
 
+  test("song edition memberships list only editions of the song's own "
+      'album, each once', () async {
+    final fixture = await _createFixture(appDatabase);
+    final otherAlbum = Album(
+      id: 'album_other',
+      artistId: fixture.artist.id,
+      title: 'Other Album',
+      canonicalTitle: 'other album',
+      createdAt: DateTime.utc(2026, 9, 10, 9),
+      updatedAt: DateTime.utc(2026, 9, 10, 9),
+    );
+    final otherEdition = AlbumEdition(
+      id: 'edition_other',
+      albumId: otherAlbum.id,
+      title: 'Other Album',
+      type: AlbumEditionType.standard,
+      isPrimary: true,
+      createdAt: DateTime.utc(2026, 9, 10, 9),
+      updatedAt: DateTime.utc(2026, 9, 10, 9),
+    );
+    await AlbumDao(fixture.db).insert(otherAlbum);
+    await AlbumEditionDao(fixture.db).insert(otherEdition);
+    await _list(fixture, fixture.standardEdition, [
+      fixture.alphaSong,
+      fixture.betaSong,
+    ]);
+    await _list(fixture, fixture.deluxeEdition, [
+      fixture.alphaSong,
+      fixture.zuluSong,
+    ]);
+    // Listed on another album's edition: never a membership of the song.
+    await _list(fixture, otherEdition, [fixture.alphaSong]);
+
+    final memberships = await LibraryQueryDao(
+      fixture.db,
+    ).findSongEditionMemberships();
+
+    expect(
+      [for (final m in memberships) '${m.songId}>${m.editionId}'],
+      [
+        'song_alpha>edition_deluxe',
+        'song_alpha>edition_standard',
+        'song_beta>edition_standard',
+        'song_zulu>edition_deluxe',
+      ],
+    );
+  });
+
   test('an edition without listed songs counts none', () async {
     final fixture = await _createFixture(appDatabase);
 

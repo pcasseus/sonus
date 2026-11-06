@@ -3,7 +3,7 @@
 These tests protect interfaces that were approved on the phone:
 
 - **Artist Roster**, accepted at `a678b95`: featured portrait geometry and the two-row selection grid.
-- **Film Reel**.
+- **Film Reel**: retired from the Library in App Update 1.1. Its approved goldens are archived in `docs/design/film_reel/` for the future Sonus Wrapped; they are no longer checked.
 - **Home**.
 - **Navigation and mini-player**.
 - **Full-screen player (Now Playing)**.
@@ -17,7 +17,7 @@ They were recorded from the accepted implementation at `a678b95`. Production cod
 | **Source manifest** | `protected_manifest.json`, `protected_manifest_test.dart` | Any change to a file a protected screen **owns**. Also any change to a **shared** file that shapes it: theme pipeline, design widgets it imports, the Library page, the shell, the playback host and mini-player, the app root. The failure lists the affected screens and the exact tests to run. |
 | **Golden images** | `goldens/<screen>/*.png`, `*_baseline_test.dart` | Visible changes: colour, effects, icons, text, layout. Compared with a tolerant comparator (below). |
 | **Pinned geometry** | `goldens/<screen>/geometry.json` | Moves and resizes of key parts, in logical pixels at the phone's real density, ±0.5dp. A part that appears or disappears is a change too. |
-| **Invariants** | in the baseline tests | Approved rules: the Roster picture, portraits and 5 × 2 grid don't change with the mini-player; the mini-player never covers the page; Now Playing hides it; the Film Reel takes the freed height (approved behaviour, kept). |
+| **Invariants** | in the baseline tests | Approved rules: the Roster picture, portraits and 5 × 2 grid don't change with the mini-player; the mini-player never covers the page; Now Playing hides it. |
 
 The older behaviour tests stay as they were. Each screen's list in the manifest names them, for example `artist_roster_test.dart`.
 

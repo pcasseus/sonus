@@ -10,7 +10,10 @@ import '../../application/services/moment_rules_activation.dart';
 /// it back keeps the original instant, otherwise an approved build
 /// records a new one when it next runs.
 class SharedPreferencesMomentRulesActivationStore
-    implements MomentRulesActivationStore, MomentDevicePolishStore {
+    implements
+        MomentRulesActivationStore,
+        MomentDevicePolishStore,
+        MomentChronicleStore {
   SharedPreferencesMomentRulesActivationStore([
     SharedPreferencesAsync? preferences,
   ]) : _preferences = preferences;
@@ -23,6 +26,9 @@ class SharedPreferencesMomentRulesActivationStore
 
   /// Where the climb wording revision started (SN-50 device polish).
   static const String devicePolishKey = 'charts.moments.device_polish_from_utc';
+
+  /// Where the App Update 1.1 Moments chronicle started.
+  static const String chronicleKey = 'charts.moments.chronicle_1_1_from_utc';
 
   SharedPreferencesAsync? _preferences;
 
@@ -51,4 +57,11 @@ class SharedPreferencesMomentRulesActivationStore
   @override
   Future<void> writeDevicePolishStart(String fromUtc) =>
       _platform.setString(devicePolishKey, fromUtc);
+
+  @override
+  Future<String?> readChronicleStart() => _platform.getString(chronicleKey);
+
+  @override
+  Future<void> writeChronicleStart(String fromUtc) =>
+      _platform.setString(chronicleKey, fromUtc);
 }

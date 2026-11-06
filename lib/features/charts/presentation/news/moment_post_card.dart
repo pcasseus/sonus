@@ -154,7 +154,7 @@ class MomentPostCard extends StatelessWidget {
               ),
               if (story.isDeveloping) ...[
                 const SizedBox(height: 8),
-                _UpdateThread(story: story),
+                MomentUpdateThread(story: story),
               ],
               if (hasLinks) ...[
                 const SizedBox(height: 12),
@@ -202,16 +202,16 @@ class MomentPostCard extends StatelessWidget {
 
 /// A developing story's thread: every climb it tells, newest first,
 /// behind a button so the feed stays compact. No animation.
-class _UpdateThread extends StatefulWidget {
-  const _UpdateThread({required this.story});
+class MomentUpdateThread extends StatefulWidget {
+  const MomentUpdateThread({super.key, required this.story});
 
   final MomentStory story;
 
   @override
-  State<_UpdateThread> createState() => _UpdateThreadState();
+  State<MomentUpdateThread> createState() => _UpdateThreadState();
 }
 
-class _UpdateThreadState extends State<_UpdateThread> {
+class _UpdateThreadState extends State<MomentUpdateThread> {
   bool _open = false;
 
   @override

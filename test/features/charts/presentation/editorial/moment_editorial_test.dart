@@ -249,8 +249,10 @@ void main() {
     test('every family has twelve distinct headlines, six per publisher', () {
       final ids = <String>{};
       for (final family in MomentFamily.values) {
+        // App Update 1.1: MomentChronicle writes the chronicle families.
         if (refinedOnlyFamilies.contains(family) ||
-            devicePolishFamilies.contains(family)) {
+            devicePolishFamilies.contains(family) ||
+            family.isChronicle) {
           expect(MomentHeadlines.of(family), isEmpty);
           continue;
         }
@@ -448,7 +450,12 @@ void main() {
     test('SN-50 release safety: only approved families can publish', () {
       expect(
         MomentHeadlines.approvedFamilies,
-        MomentFamily.values.toSet().difference(stillDraftFamilies),
+        // App Update 1.1 chronicle families are written by MomentChronicle,
+        // never from the catalog, and are approved with the update.
+        MomentFamily.values
+            .where((family) => !family.isChronicle)
+            .toSet()
+            .difference(stillDraftFamilies),
       );
       expect(MomentHeadlines.approvedFamilies, containsAll(chartJumpFamilies));
     });

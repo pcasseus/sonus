@@ -86,7 +86,42 @@ enum MomentFamily {
 
   // SN-50 complete coverage: a release climbing the Albums & EPs chart
   // (device-polish stories only; ClimbHeadlines has its lines).
-  releaseClimb;
+  releaseClimb,
+
+  // App Update 1.1 (Moments chronicle): all-time stories from the
+  // chronicle start, told by MomentChronicle.
+
+  /// One play's climb told with the new peak and the zone it enters (for
+  /// the first time) or returns to: one story, not one per fact.
+  songChartMove,
+  releaseChartMove,
+
+  /// #1 at the close of a completed chart day, with its consecutive days.
+  songNumberOneHold,
+  releaseNumberOneHold,
+
+  /// Back on the Hot 100 from Bubbling Under, having charted on it before.
+  songHot100Return,
+
+  /// Pushed off the Hot 100 onto Bubbling Under (#101).
+  songHot100Departure,
+
+  /// Pushed out of the Top 200: off the Sonus charts.
+  songChartDeparture,
+  releaseChartDeparture;
+
+  /// The App Update 1.1 chronicle families.
+  bool get isChronicle => switch (this) {
+    songChartMove ||
+    releaseChartMove ||
+    songNumberOneHold ||
+    releaseNumberOneHold ||
+    songHot100Return ||
+    songHot100Departure ||
+    songChartDeparture ||
+    releaseChartDeparture => true,
+    _ => false,
+  };
 
   /// How much a story matters (SN-45 spam control). Minor stories are
   /// capped per day; the others always appear.
@@ -122,6 +157,9 @@ enum MomentFamily {
   };
 
   bool get isRelease => switch (this) {
+    releaseChartMove ||
+    releaseNumberOneHold ||
+    releaseChartDeparture ||
     releaseClimb ||
     releaseDebutNumberOne ||
     releaseDebut ||
