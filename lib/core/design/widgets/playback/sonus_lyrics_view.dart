@@ -94,12 +94,10 @@ class _SonusLyricsViewState extends State<SonusLyricsView> {
       final context = _keyFor(active).currentContext;
       if (!mounted || context == null) return;
       final tokens = SonusTheme.of(this.context);
-      final reduce =
-          tokens.motion.reduced || MediaQuery.disableAnimationsOf(this.context);
       Scrollable.ensureVisible(
         context,
         alignment: 0.35,
-        duration: reduce ? Duration.zero : tokens.motion.baseMedium,
+        duration: tokens.motion.medium,
         curve: tokens.motion.curve,
       );
     });

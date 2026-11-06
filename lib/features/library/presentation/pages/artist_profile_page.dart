@@ -241,9 +241,7 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
             child: AnimatedOpacity(
               key: const ValueKey<String>('artist-profile-toolbar-title'),
               opacity: shown ? 1 : 0,
-              duration:
-                  SonusTheme.of(context).motion.reduced ||
-                      MediaQuery.disableAnimationsOf(context)
+              duration: SonusTheme.of(context).motion.reduced
                   ? Duration.zero
                   : const Duration(milliseconds: 160),
               child: controller == null

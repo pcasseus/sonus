@@ -73,12 +73,10 @@ class _SonusArtworkAtmosphereBuilderState
       decoration: tokens.decoration,
       artwork: artworkColors,
     );
-    final reduceMotion =
-        tokens.motion.reduced || MediaQuery.disableAnimationsOf(context);
 
     return TweenAnimationBuilder<SonusAtmosphereColors>(
       tween: SonusAtmosphereColorsTween(end: SonusAtmosphereColors.of(target)),
-      duration: reduceMotion ? Duration.zero : tokens.motion.baseMedium,
+      duration: tokens.motion.medium,
       curve: tokens.motion.curve,
       builder: (context, colors, _) => widget.builder(context, colors),
     );

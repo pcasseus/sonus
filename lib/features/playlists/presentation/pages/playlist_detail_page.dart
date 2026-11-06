@@ -153,12 +153,10 @@ class _PlaylistDetailPageState extends State<PlaylistDetailPage> {
       decoration: tokens.decoration,
       artwork: _artworkColors,
     );
-    final reduceMotion =
-        tokens.motion.reduced || MediaQuery.disableAnimationsOf(context);
 
     return TweenAnimationBuilder<SonusAtmosphereColors>(
       tween: SonusAtmosphereColorsTween(end: SonusAtmosphereColors.of(target)),
-      duration: reduceMotion ? Duration.zero : tokens.motion.baseMedium,
+      duration: tokens.motion.medium,
       curve: tokens.motion.curve,
       builder: (context, atmosphere, _) =>
           _buildPage(context, controller, atmosphere),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'package:sonus_next/core/design/sonus_tokens.dart';
 import 'package:sonus_next/features/library/application/models/library_track.dart';
 import 'package:sonus_next/features/library/application/repositories/library_query_repository.dart';
 import 'package:sonus_next/features/library/application/services/library_organization_service.dart';
@@ -35,6 +36,7 @@ void main() {
     Size size = const Size(411, 1200),
     double textScale = 1,
     bool disableAnimations = false,
+    ThemeData? theme,
   }) async {
     await tester.binding.setSurfaceSize(size);
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -74,6 +76,7 @@ void main() {
             : null,
         child: base.buildSubject(
           repository: repository,
+          theme: theme,
           appBuilder: (context, child) => MediaQuery(
             data: MediaQuery.of(context).copyWith(
               textScaler: TextScaler.linear(textScale),
@@ -158,6 +161,31 @@ void main() {
 
   testWidgets('reduced motion expands at once', (tester) async {
     await pump(tester, kind: ReleaseKind.soundtrack, disableAnimations: true);
+
+    await tester.tap(byKey('album-track-credits-toggle-s1'));
+    await tester.pump();
+    expect(rowText('s1', manyFull), findsOneWidget);
+    expect(
+      find.descendant(
+        of: byKey('album-track-credits-s1'),
+        matching: find.byType(AnimatedSize),
+      ),
+      findsNothing,
+    );
+  });
+
+  // Register R6: the in-app Reduce motion setting reaches the theme's
+  // SonusMotion, never MediaQuery, and must stop the animation too.
+  testWidgets('in-app Reduce motion expands at once', (tester) async {
+    await pump(
+      tester,
+      kind: ReleaseKind.soundtrack,
+      theme: ThemeData(
+        extensions: const [
+          SonusMotion(reduced: true, curve: Curves.easeOutCubic),
+        ],
+      ),
+    );
 
     await tester.tap(byKey('album-track-credits-toggle-s1'));
     await tester.pump();

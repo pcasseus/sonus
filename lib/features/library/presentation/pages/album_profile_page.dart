@@ -435,9 +435,7 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
     double? heroArtSize,
     bool alwaysShowTitle = true,
   }) {
-    final reduced =
-        SonusTheme.of(context).motion.reduced ||
-        MediaQuery.disableAnimationsOf(context);
+    final reduced = SonusTheme.of(context).motion.reduced;
     final title = controller == null
         ? Text(widget.initialAlbumTitle ?? 'Album')
         : Text(
@@ -2272,7 +2270,8 @@ class _CollapsibleCreditsState extends State<_CollapsibleCredits> {
 
   @override
   Widget build(BuildContext context) {
-    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    // Covers both the device setting and the in-app Reduce motion.
+    final reduceMotion = SonusTheme.of(context).motion.reduced;
     final style = TextStyle(
       color: widget.color,
       fontFeatures: const [FontFeature.tabularFigures()],

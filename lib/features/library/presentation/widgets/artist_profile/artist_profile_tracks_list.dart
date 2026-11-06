@@ -606,9 +606,8 @@ class _AlbumGroupState extends State<_AlbumGroup> {
     final tokens = SonusTheme.of(context);
     final colors = tokens.colors;
     final theme = Theme.of(context);
-    final reduced =
-        tokens.motion.reduced || MediaQuery.disableAnimationsOf(context);
-    final duration = reduced ? Duration.zero : tokens.motion.short;
+    final reduced = tokens.motion.reduced;
+    final duration = tokens.motion.short;
     final tracks = widget.tracks;
     final first = tracks.first;
     final title = first.albumDisplayTitle.trim().isEmpty

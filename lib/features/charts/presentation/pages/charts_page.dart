@@ -1988,7 +1988,7 @@ Future<void> _jumpToRank(
       await Scrollable.ensureVisible(
         built,
         alignment: 0.15,
-        duration: motion.reduced ? Duration.zero : motion.medium,
+        duration: motion.medium,
         curve: motion.curve,
       );
       return;

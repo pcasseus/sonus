@@ -32,9 +32,7 @@ class _SonusPlayingIndicatorState extends State<SonusPlayingIndicator>
   );
 
   bool _animates(BuildContext context) =>
-      widget.isPlaying &&
-      !SonusTheme.of(context).motion.reduced &&
-      !MediaQuery.disableAnimationsOf(context);
+      widget.isPlaying && !SonusTheme.of(context).motion.reduced;
 
   @override
   void didChangeDependencies() {
