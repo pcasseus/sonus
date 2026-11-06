@@ -291,10 +291,10 @@
     "lib/core/design/sonus_theme.dart": "eee8cad69797a4e7f0c9bee3522837d5bb143d69f250b599e25eb0186afa5c24",
     "lib/core/design/sonus_theme_catalog.dart": "1f6bb5e7ef038e8861f1af3d2ff22f2cfc866a9c0c286f3c8b13ff5fa3425e7e",
     "lib/core/design/sonus_theme_definition.dart": "6e210aa3074b7751bbc14025434625076628a18c905a8aa5b5a4ad59d1de06ef",
-    "lib/core/design/sonus_theme_factory.dart": "de427fbdb5c5269a66f582c77c5c645abf8e08086cd872b225cb67b0a1dfad7f",
+    "lib/core/design/sonus_theme_factory.dart": "13200776efe588f4cedb74f21a3ae4b3e5b7a58097dc30b95bb2083fa3ad80fd",
     "lib/core/design/sonus_theme_id.dart": "874334a84326c52d4f893280a6401ef620cefe6008e30ae33b29ea0800f621f8",
     "lib/core/design/sonus_tokens.dart": "7ea664bb8f3e5c20fad2f63370da76a641ce478bf48715feffa09dd8b46e40c3",
-    "lib/core/design/sonus_typography.dart": "486cd2c5f2044d54af1d63b54a48a1f5bfb43a90f8d53bbaf7eb3acd98ab3020",
+    "lib/core/design/sonus_typography.dart": "888369f2812f5d37345db96e41f79b2e639b6f2c86a9e380d841c4aaa5338315",
     "lib/core/design/widgets/playback/sonus_mini_player.dart": "6bc6e9818c1f47e714a85500202ac3095d0bf34c47667a34ed211885297cbd06",
     "lib/core/design/widgets/playback/sonus_now_playing_view.dart": "0afc10de4ceb5afe997532043d229bccdc99e9b5eecb7ecdd17888da519d8ad5",
     "lib/core/design/widgets/playback/sonus_playback_controls.dart": "24782519fe7ed9dc302b4a5a96c8954759ad9c29def285aebb29cd533408674b",
@@ -321,10 +321,10 @@
     "lib/features/home/presentation/pages/home_page.dart": "e8848ea6fb8f3f7f28e22a4ccf30f4a4b7bed7b96069eab0cca4c4be9ade142d",
     "lib/features/home/presentation/scopes/home_scope.dart": "2a132edb4959462dc6b172c31b2efdcec11211d4772ba2ad2981f11e0f8efa53",
     "lib/features/library/presentation/pages/library_page.dart": "7cb64c87b502e2f9f2e2754f75b03d199d52ce2af6e56f3a9080e793bc826e52",
-    "lib/features/library/presentation/widgets/film_reel/artist_film_reel.dart": "72b728862a40f0da18e509cc3031225ab145b35c4f2df6e032c7412e27e03cd1",
-    "lib/features/library/presentation/widgets/roster/artist_roster.dart": "5fe6d32b89df2409c2ee8ca5a0d214942af8517174b5c8d2f6a3aafc9e129066",
+    "lib/features/library/presentation/widgets/film_reel/artist_film_reel.dart": "de96ccf8b6ec8b6d3d2b668ee9b2f5a7032adda261828a446880626bfe3c58e1",
+    "lib/features/library/presentation/widgets/roster/artist_roster.dart": "9eaf78e7c88b658b9f83ed21235a43737001f3663836d52a8ad1d778ebaee5de",
     "lib/features/player/presentation/pages/now_playing_page.dart": "4d7805a22dea9d129df996ce14a88979fd5bd06058d86e0c28b784616c3ef6b3",
-    "lib/features/settings/presentation/scopes/appearance_scope.dart": "17e101d486cfb2ea399cf27551132eb6549a46e3014ca02124bab827bf4d971e",
+    "lib/features/settings/presentation/scopes/appearance_scope.dart": "f39d676979c07c14c3c918a4aab4b7be417b8c0d0e28532d735e5cda66bdbf04",
     "lib/features/shell/application/controllers/app_shell_controller.dart": "c337f5b8b9367c58ced794a575bafe46bc9f898b0ba1e524c963aae651af92f4",
     "lib/features/shell/domain/models/app_destination.dart": "7577c6f325de8bcc9f42d2bcf6c501b4b3c6d2be46079be7886fb61213d8a5ba",
     "lib/features/shell/presentation/pages/app_shell_page.dart": "4b045dcd9e18d292ff85f407c02de7681ab39dc6787349874cb9aab0b823c69a",
@@ -372,6 +372,46 @@
           "lib/core/design/sonus_theme_factory.dart",
           "lib/core/design/sonus_tokens.dart",
           "lib/core/design/widgets/sonus_artwork_atmosphere_builder.dart"
+        ]
+      },
+      "dependencyListChanges": []
+    },
+    {
+      "date": "2026-11-06",
+      "approval": "SN-51 consolidated sprint at 70a613d: Roster and Film Reel statistics fix (8577949; behaviour only, PageController keepPage false) and Bold text shared files (7407571: sonus_theme_factory, sonus_typography, appearance_scope); no golden or geometry changes, 118 protected visual checks unchanged. Approved by the user 2026-11-06.",
+      "protectedChanges": {
+        "roster": [
+          "lib/features/library/presentation/widgets/roster/artist_roster.dart"
+        ],
+        "film_reel": [
+          "lib/features/library/presentation/widgets/film_reel/artist_film_reel.dart"
+        ]
+      },
+      "sharedChanges": {
+        "roster": [
+          "lib/core/design/sonus_theme_factory.dart",
+          "lib/core/design/sonus_typography.dart",
+          "lib/features/settings/presentation/scopes/appearance_scope.dart"
+        ],
+        "film_reel": [
+          "lib/core/design/sonus_theme_factory.dart",
+          "lib/core/design/sonus_typography.dart",
+          "lib/features/settings/presentation/scopes/appearance_scope.dart"
+        ],
+        "home": [
+          "lib/core/design/sonus_theme_factory.dart",
+          "lib/core/design/sonus_typography.dart",
+          "lib/features/settings/presentation/scopes/appearance_scope.dart"
+        ],
+        "navigation": [
+          "lib/core/design/sonus_theme_factory.dart",
+          "lib/core/design/sonus_typography.dart",
+          "lib/features/settings/presentation/scopes/appearance_scope.dart"
+        ],
+        "now_playing": [
+          "lib/core/design/sonus_theme_factory.dart",
+          "lib/core/design/sonus_typography.dart",
+          "lib/features/settings/presentation/scopes/appearance_scope.dart"
         ]
       },
       "dependencyListChanges": []
