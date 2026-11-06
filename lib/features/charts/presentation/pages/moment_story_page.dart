@@ -127,12 +127,7 @@ class _MomentStoryPageState extends State<MomentStoryPage> {
           return ListView(
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 32),
             children: [
-              _Hero(story: story, palette: palette),
-              const SizedBox(height: 16),
-              Align(
-                alignment: AlignmentDirectional.centerStart,
-                child: _KindPill(kind: kind, palette: palette),
-              ),
+              _Hero(story: story, palette: palette, kind: kind),
               const SizedBox(height: 12),
               Semantics(
                 header: true,
@@ -203,10 +198,15 @@ class _MomentStoryPageState extends State<MomentStoryPage> {
 }
 
 class _Hero extends StatelessWidget {
-  const _Hero({required this.story, required this.palette});
+  const _Hero({required this.story, required this.palette, required this.kind});
 
   final MomentStory story;
   final MomentEditorialPalette palette;
+  final MomentKind kind;
+
+  /// The pill over a faded hero needs gradients; High contrast, Low effects
+  /// and Decoration off keep it below the pictures, on the page.
+  bool get overlay => palette.gradients && !palette.highContrast;
 
   @override
   Widget build(BuildContext context) {
@@ -221,33 +221,107 @@ class _Hero extends StatelessWidget {
     final images = [first, ?second].where((i) => i.hasImage).toList();
     final shown = images.isEmpty ? [visual.left] : images;
     final width = MediaQuery.sizeOf(context).width;
-    final height = math.min(260.0, width * 0.62);
-    return DecoratedBox(
-      decoration: BoxDecoration(borderRadius: BorderRadius.circular(20)),
-      child: SizedBox(
-        key: ValueKey<String>('moment-story-artwork-${story.id}'),
-        height: height,
-        child: Row(
-          children: [
-            for (var i = 0; i < shown.length; i++) ...[
-              if (i > 0) const SizedBox(width: 8),
-              Expanded(
-                flex: shown.length == 2 && i == 0 ? 11 : 10,
-                child: MomentArtwork(image: shown[i], radius: 18),
-              ),
-            ],
+    final height = math.min(280.0, width * 0.70);
+    final background = SonusTheme.of(context).colors.background;
+    final artwork = SizedBox(
+      key: ValueKey<String>('moment-story-artwork-${story.id}'),
+      height: height,
+      child: Row(
+        // The pictures fill the hero's height (cover-cropped), so the fade
+        // and the kind pill sit on them, not in empty space below.
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (var i = 0; i < shown.length; i++) ...[
+            if (i > 0) const SizedBox(width: 6),
+            Expanded(
+              flex: shown.length == 2 && i == 0 ? 11 : 10,
+              child: MomentArtwork(image: shown[i], radius: 18),
+            ),
           ],
-        ),
+        ],
       ),
+    );
+    if (!overlay) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          artwork,
+          const SizedBox(height: 14),
+          _KindPill(kind: kind, palette: palette),
+        ],
+      );
+    }
+    // The pictures fade into the page and carry the kind pill, so the
+    // artwork, badge and headline read as one composition (approved
+    // hybrid). The fade covers only the lower edge of the pictures.
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Positioned.fill(
+          top: -24,
+          left: -16,
+          right: -16,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: RadialGradient(
+                center: const Alignment(0, -0.2),
+                radius: 0.9,
+                colors: [
+                  palette.purple.withValues(alpha: 0.22),
+                  palette.pink.withValues(alpha: 0.06),
+                  background.withValues(alpha: 0),
+                ],
+                stops: const [0, 0.55, 1],
+              ),
+            ),
+          ),
+        ),
+        artwork,
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 0,
+          height: height * 0.42,
+          child: IgnorePointer(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                borderRadius: const BorderRadius.vertical(
+                  bottom: Radius.circular(18),
+                ),
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    background.withValues(alpha: 0),
+                    background.withValues(alpha: 0.92),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+        PositionedDirectional(
+          start: 12,
+          bottom: 12,
+          child: _KindPill(kind: kind, palette: palette, solid: true),
+        ),
+      ],
     );
   }
 }
 
 class _KindPill extends StatelessWidget {
-  const _KindPill({required this.kind, required this.palette});
+  const _KindPill({
+    required this.kind,
+    required this.palette,
+    this.solid = false,
+  });
 
   final MomentKind kind;
   final MomentEditorialPalette palette;
+
+  /// Over the hero: an ink backing keeps the label readable on any artwork.
+  final bool solid;
 
   @override
   Widget build(BuildContext context) {
@@ -260,7 +334,11 @@ class _KindPill extends StatelessWidget {
           color: palette.highContrast ? palette.outline : color,
           width: 1.5,
         ),
-        color: palette.highContrast ? null : color.withValues(alpha: 0.12),
+        color: palette.highContrast
+            ? null
+            : solid
+            ? Color.alphaBlend(color.withValues(alpha: 0.16), palette.ink)
+            : color.withValues(alpha: 0.12),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -442,19 +520,15 @@ class _Tile extends StatelessWidget {
     final tokens = SonusTheme.of(context);
     final colors = tokens.colors;
     final theme = Theme.of(context);
-    final hc = tokens.decoration.highContrast;
+    final palette = MomentEditorialPalette.of(colors, tokens.decoration);
     return Semantics(
       label: '$label: ${spoken ?? value}',
       excludeSemantics: true,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 14),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(16),
-          color: colors.raisedSurface,
-          border: Border.all(
-            color: hc ? colors.textPrimary : colors.border,
-            width: hc ? 2 : 1,
-          ),
+        decoration: palette.panelDecoration(
+          BorderRadius.circular(16),
+          lift: 0.12,
         ),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -573,16 +647,7 @@ class _JourneyCard extends StatelessWidget {
 
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(18),
-        color: colors.raisedSurface,
-        border: Border.all(
-          color: tokens.decoration.highContrast
-              ? colors.textPrimary
-              : colors.border,
-          width: tokens.decoration.highContrast ? 2 : 1,
-        ),
-      ),
+      decoration: palette.panelDecoration(BorderRadius.circular(18)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -792,16 +857,10 @@ class _FactsCard extends StatelessWidget {
     final theme = Theme.of(context);
     return Container(
       key: ValueKey<String>('moment-story-facts-${story.id}'),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(18),
-        color: colors.raisedSurface,
-        border: Border.all(
-          color: tokens.decoration.highContrast
-              ? colors.textPrimary
-              : colors.border,
-          width: tokens.decoration.highContrast ? 2 : 1,
-        ),
-      ),
+      decoration: MomentEditorialPalette.of(
+        colors,
+        tokens.decoration,
+      ).panelDecoration(BorderRadius.circular(18), lift: 0.06),
       child: Column(
         children: [
           for (var i = 0; i < rows.length; i++) ...[
@@ -928,57 +987,49 @@ class _RelatedRow extends StatelessWidget {
         label: 'Open ${link.kind.toLowerCase()}, ${link.title}',
         excludeSemantics: true,
         child: Material(
-          color: artist && palette.gradients
-              ? Color.alphaBlend(
-                  palette.purple.withValues(alpha: 0.18),
-                  colors.raisedSurface,
-                )
-              : colors.raisedSurface,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(18),
-            side: BorderSide(
-              color: tokens.decoration.highContrast
-                  ? colors.textPrimary
-                  : colors.border,
-              width: tokens.decoration.highContrast ? 2 : 1,
+          type: MaterialType.transparency,
+          child: Ink(
+            decoration: palette.panelDecoration(
+              BorderRadius.circular(18),
+              lift: artist ? 0.22 : 0.08,
             ),
-          ),
-          clipBehavior: Clip.antiAlias,
-          child: InkWell(
-            key: ValueKey<String>('moment-story-related-${link.kind}'),
-            onTap: link.onOpen,
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  SizedBox.square(
-                    dimension: links.length > 2 ? 72 : 88,
-                    child: MomentArtwork(
-                      image: link.image,
-                      radius: artist ? 44 : 12,
+            child: InkWell(
+              key: ValueKey<String>('moment-story-related-${link.kind}'),
+              borderRadius: BorderRadius.circular(18),
+              onTap: link.onOpen,
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox.square(
+                      dimension: links.length > 2 ? 72 : 88,
+                      child: MomentArtwork(
+                        image: link.image,
+                        radius: artist ? 44 : 12,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 10),
-                  Text(
-                    link.title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      color: colors.textPrimary,
-                      fontWeight: FontWeight.w800,
+                    const SizedBox(height: 10),
+                    Text(
+                      link.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.titleSmall?.copyWith(
+                        color: colors.textPrimary,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    link.subtitle,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: colors.textSecondary,
+                    const SizedBox(height: 2),
+                    Text(
+                      link.subtitle,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: colors.textSecondary,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ),

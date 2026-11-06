@@ -614,6 +614,11 @@ class _MomentsFilters extends StatelessWidget {
       key: const ValueKey<String>('charts-moments-filters'),
       builder: (context, constraints) {
         final sideBySide = constraints.maxWidth / scale >= sideBySideWidth;
+        // App Update 1.1: at standard text sizes the side-by-side menus
+        // show only their value on one line ("All stories", "All
+        // publishers"), as the approved design does; screen readers still
+        // hear "Category: All stories". Larger text keeps the caption.
+        final bare = sideBySide && scale < 1.15;
         final category = _MomentsMenu<MomentCategory>(
           label: 'Category',
           allLabel: 'All stories',
@@ -622,7 +627,8 @@ class _MomentsFilters extends StatelessWidget {
           selected: controller.momentCategory,
           onSelected: controller.selectMomentCategory,
           fill: true,
-          captioned: sideBySide,
+          captioned: sideBySide && !bare,
+          bare: bare,
         );
         final publisher = _MomentsMenu<MomentPublisher>(
           label: 'Publisher',
@@ -632,7 +638,8 @@ class _MomentsFilters extends StatelessWidget {
           selected: controller.momentPublisher,
           onSelected: controller.selectMomentPublisher,
           fill: true,
-          captioned: sideBySide,
+          captioned: sideBySide && !bare,
+          bare: bare,
         );
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -676,7 +683,10 @@ class _MomentsMenu<T extends Enum> extends StatelessWidget {
     required this.onSelected,
     this.fill = false,
     this.captioned = false,
+    this.bare = false,
   });
+
+  final bool bare;
 
   final String label;
   final String allLabel;
@@ -697,6 +707,7 @@ class _MomentsMenu<T extends Enum> extends StatelessWidget {
       active: current != null,
       fill: fill,
       captioned: captioned,
+      bare: bare,
       items: [
         (null, allLabel),
         for (final value in values) (value, labelOf(value)),
@@ -768,7 +779,11 @@ class _MenuButton<V> extends StatelessWidget {
     required this.onSelected,
     this.fill = false,
     this.captioned = false,
+    this.bare = false,
   });
+
+  /// Only the value, on one line; the label is still spoken.
+  final bool bare;
 
   final String label;
   final String value;
@@ -809,9 +824,10 @@ class _MenuButton<V> extends StatelessWidget {
           constraints: const BoxConstraints(minHeight: 44),
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
           decoration: BoxDecoration(
+            // Moments menus sit on the page, not on a grey panel.
             color: active
                 ? colors.accentPrimary.withValues(alpha: 0.16)
-                : colors.raisedSurface,
+                : Colors.transparent,
             borderRadius: BorderRadius.circular(22),
             border: Border.all(
               color: active ? colors.accentPrimary : colors.border,
@@ -822,7 +838,17 @@ class _MenuButton<V> extends StatelessWidget {
             children: [
               Flexible(
                 fit: fill ? FlexFit.tight : FlexFit.loose,
-                child: captioned
+                child: bare
+                    ? Text(
+                        value,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: colors.textPrimary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      )
+                    : captioned
                     ? Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         mainAxisSize: MainAxisSize.min,

@@ -284,7 +284,11 @@ class MomentEditorialPalette {
     SonusColors colors,
     SonusDecorationTokens d,
   ) {
-    final surface = colors.raisedSurface;
+    // Moments cards sit on an ink foundation (App Update 1.1 polish): the
+    // theme's own background taken halfway to black, so each theme keeps
+    // its undertone and no card is a flat grey panel. Colours are checked
+    // for contrast against it.
+    final surface = Color.lerp(colors.background, Colors.black, 0.5)!;
     if (d.highContrast) {
       return MomentEditorialPalette(
         pink: colors.textPrimary,
@@ -364,6 +368,94 @@ class MomentEditorialPalette {
     MomentKind.exit => pinkText,
     _ => purpleText,
   };
+
+  /// The ink foundation every Moments card and panel is built on.
+  Color get ink => surface;
+
+  /// [color] washed over the ink. High contrast keeps plain ink (its
+  /// accents are the text colour, which would turn the ink grey).
+  Color _tint(Color color, double alpha) => highContrast
+      ? surface
+      : Color.alphaBlend(color.withValues(alpha: alpha), surface);
+
+  /// A soft edge: the foundation lifted toward [color], never a bright
+  /// outline. High contrast keeps a solid, strong edge.
+  Border _edge(Color color, double toward) => Border.all(
+    color: highContrast ? outline : Color.lerp(surface, color, toward)!,
+    width: highContrast ? 2 : 1,
+  );
+
+  /// A Feature Story: the richest surface, magenta and purple light over
+  /// ink, with the luminous pink feature border and a soft glow where glow
+  /// is allowed. Without gradients (Low effects, Decoration off) a quietly
+  /// tinted ink.
+  BoxDecoration featureDecoration(BorderRadius radius) => BoxDecoration(
+    borderRadius: radius,
+    color: gradients ? null : _tint(purple, 0.10),
+    gradient: gradients
+        ? LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              _tint(purple, 0.30),
+              _tint(purple, 0.12),
+              surface,
+              _tint(pink, 0.16),
+            ],
+            stops: const [0, 0.38, 0.72, 1],
+          )
+        : null,
+    border: highContrast
+        ? Border.all(color: outline, width: 2)
+        : Border.all(color: pink, width: 1.5),
+    boxShadow: glow
+        ? [
+            BoxShadow(
+              color: pink.withValues(alpha: 0.24),
+              blurRadius: 24,
+              spreadRadius: -6,
+            ),
+          ]
+        : null,
+  );
+
+  /// A Chart Bulletin: darker and quieter, a faint purple lift toward the
+  /// artwork side. A Milestone Spotlight takes a little more light.
+  BoxDecoration bulletinDecoration(
+    BorderRadius radius, {
+    bool spotlight = false,
+  }) => BoxDecoration(
+    borderRadius: radius,
+    color: gradients ? null : _tint(purple, spotlight ? 0.08 : 0.05),
+    gradient: gradients
+        ? LinearGradient(
+            begin: Alignment.centerLeft,
+            end: Alignment.centerRight,
+            colors: [
+              _tint(purple, spotlight ? 0.18 : 0.10),
+              surface,
+              if (spotlight) _tint(pink, 0.06) else surface,
+            ],
+            stops: const [0, 0.6, 1],
+          )
+        : null,
+    border: _edge(purple, spotlight ? 0.42 : 0.30),
+  );
+
+  /// An expanded-story panel (stat tiles, Chart Journey, facts, related).
+  BoxDecoration panelDecoration(BorderRadius radius, {double lift = 0.08}) =>
+      BoxDecoration(
+        borderRadius: radius,
+        color: gradients ? null : _tint(purple, lift * 0.6),
+        gradient: gradients
+            ? LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [_tint(purple, lift), surface],
+              )
+            : null,
+        border: _edge(purple, 0.28),
+      );
 
   static double contrast(Color a, Color b) {
     final la = a.computeLuminance();

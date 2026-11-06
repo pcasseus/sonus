@@ -13,6 +13,9 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'package:sonus_next/core/design/sonus_theme.dart';
+import 'package:sonus_next/features/charts/presentation/news/moment_feed_cards.dart';
+import 'package:sonus_next/features/charts/presentation/pages/moment_story_page.dart';
 import 'package:sonus_next/core/design/sonus_theme_factory.dart';
 import 'package:sonus_next/core/design/sonus_theme_id.dart';
 import 'package:sonus_next/core/design/sonus_tokens.dart';
@@ -508,6 +511,64 @@ void main() {
         expect(tester.takeException(), isNull, reason: theme.label);
       }
     });
+  });
+
+  group('dark editorial surfaces', () {
+    /// Every box colour drawn under [scope]: fills and gradient stops.
+    List<Color> colorsUnder(WidgetTester tester, Finder scope) => [
+      for (final box in tester.widgetList<DecoratedBox>(
+        find.descendant(of: scope, matching: find.byType(DecoratedBox)),
+      ))
+        if (box.decoration case final BoxDecoration d) ...[
+          ?d.color,
+          ...?d.gradient?.colors,
+        ],
+      for (final ink in tester.widgetList<Ink>(
+        find.descendant(of: scope, matching: find.byType(Ink)),
+      ))
+        if (ink.decoration case final BoxDecoration d) ...[
+          ?d.color,
+          ...?d.gradient?.colors,
+        ],
+    ];
+
+    for (final theme in SonusThemeId.values) {
+      for (final MapEntry(key: mode, value: base) in {
+        'standard': const SonusAppearanceSpec(),
+        'high contrast': const SonusAppearanceSpec(highContrast: true),
+        'low effects': const SonusAppearanceSpec(lowEffects: true),
+      }.entries) {
+        testWidgets('no flat grey card or panel: ${theme.label}, $mode', (
+          tester,
+        ) async {
+          final spec = SonusAppearanceSpec(
+            themeId: theme,
+            highContrast: base.highContrast,
+            lowEffects: base.lowEffects,
+          );
+          await _pump(tester, f, spec: spec, surface: const Size(384, 3400));
+          final colors = SonusTheme.of(
+            tester.element(find.byType(ChartsPage)),
+          ).colors;
+          final grey = colors.raisedSurface;
+          final cards = find.byType(MomentFeedCard);
+          expect(cards, findsWidgets);
+          final feed = colorsUnder(tester, cards);
+          expect(feed, isNotEmpty);
+          expect(feed, isNot(contains(grey)));
+          // The card foundations are darker than the old grey panels.
+          final darkest = feed
+              .map((c) => c.computeLuminance())
+              .reduce((a, b) => a < b ? a : b);
+          expect(darkest, lessThan(grey.computeLuminance()));
+
+          await _openFeature(tester);
+          final story = colorsUnder(tester, find.byType(MomentStoryPage));
+          expect(story, isNotEmpty);
+          expect(story, isNot(contains(grey)));
+        });
+      }
+    }
   });
 
   group('the expanded story', () {

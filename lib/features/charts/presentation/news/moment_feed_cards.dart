@@ -86,41 +86,7 @@ class MomentFeatureStoryCard extends StatelessWidget {
       story: story,
       onOpen: onOpen,
       radius: radius,
-      decoration: BoxDecoration(
-        borderRadius: radius,
-        color: colors.raisedSurface,
-        gradient: palette.gradients
-            ? LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [
-                  Color.alphaBlend(
-                    palette.purple.withValues(alpha: 0.22),
-                    colors.raisedSurface,
-                  ),
-                  colors.raisedSurface,
-                  Color.alphaBlend(
-                    palette.pink.withValues(alpha: 0.12),
-                    colors.raisedSurface,
-                  ),
-                ],
-                stops: const [0, 0.55, 1],
-              )
-            : null,
-        border: Border.all(
-          color: palette.highContrast ? palette.outline : palette.pink,
-          width: palette.highContrast ? 2 : 1.5,
-        ),
-        boxShadow: palette.glow
-            ? [
-                BoxShadow(
-                  color: palette.pink.withValues(alpha: 0.28),
-                  blurRadius: 22,
-                  spreadRadius: -4,
-                ),
-              ]
-            : null,
-      ),
+      decoration: palette.featureDecoration(radius),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(14, 14, 14, 16),
         child: Column(
@@ -223,14 +189,7 @@ class MomentBulletinCard extends StatelessWidget {
       story: story,
       onOpen: onOpen,
       radius: radius,
-      decoration: BoxDecoration(
-        borderRadius: radius,
-        color: colors.raisedSurface,
-        border: Border.all(
-          color: palette.highContrast ? palette.outline : colors.border,
-          width: palette.highContrast ? 2 : 1,
-        ),
-      ),
+      decoration: palette.bulletinDecoration(radius, spotlight: spotlight),
       child: IntrinsicHeight(
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -724,7 +683,7 @@ class _SpotlightTile extends StatelessWidget {
               DecoratedBox(
                 decoration: BoxDecoration(
                   color: palette.highContrast
-                      ? colors.surface
+                      ? palette.ink
                       : Colors.black.withValues(alpha: 0.45),
                   border: palette.highContrast
                       ? Border.all(color: palette.outline, width: 2)
