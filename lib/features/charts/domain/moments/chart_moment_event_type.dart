@@ -59,4 +59,11 @@ enum ChartMomentEventType {
 
   /// The artist's qualified plays reach a milestone.
   artistStreamMilestone,
+
+  // App Update 1.1 (Moments chronicle).
+
+  /// The entity finished a completed chart day (local midnight) at #1 on
+  /// the all-time chart: at most one per chart and day. `milestoneValue`
+  /// is its consecutive days at #1 ending that day.
+  numberOneDayHold,
 }

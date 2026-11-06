@@ -18,6 +18,7 @@ class ChartMomentRules {
     this.activatedAtUtc,
     this.catalogStarts = const [],
     this.devicePolishFromUtc,
+    this.chronicleFromUtc,
   });
 
   /// No activation: every Moment follows the earlier rules.
@@ -43,6 +44,30 @@ class ChartMomentRules {
   /// published. It changes which recorded Moments are told and how, never
   /// which are recorded.
   final DateTime? devicePolishFromUtc;
+
+  /// Where the App Update 1.1 Moments chronicle starts on this install:
+  /// the first run of a build that carries it, recorded once (like
+  /// [devicePolishFromUtc], on every build). From then on the all-time
+  /// charts also record zone returns, Hot 100 and Top 200 exits, Hot 100
+  /// returns and daily #1 holds, and a play's climb, new peak and new zones
+  /// are told as one chart-move story. Stories from before it keep what
+  /// they were first published as: nothing is re-told or backfilled.
+  final DateTime? chronicleFromUtc;
+
+  /// Whether a story that happened at [occurredAt] is told by the
+  /// chronicle (App Update 1.1).
+  bool chronicles(DateTime occurredAt) {
+    final from = chronicleFromUtc;
+    return from != null && !occurredAt.toUtc().isBefore(from.toUtc());
+  }
+
+  /// These rules with the chronicle starting at [fromUtc].
+  ChartMomentRules withChronicle(DateTime? fromUtc) => ChartMomentRules(
+    activatedAtUtc: activatedAtUtc,
+    catalogStarts: catalogStarts,
+    devicePolishFromUtc: devicePolishFromUtc,
+    chronicleFromUtc: fromUtc,
+  );
 
   /// Whether a story that happened at [occurredAt] follows the device
   /// polish. Stories from before the start keep what they were first

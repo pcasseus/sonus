@@ -47,6 +47,32 @@ enum AllTimeAchievementType {
   /// First ever entry into the Top [AllTimeAchievement.zone] (one of
   /// [AllTimeHistoryReplay.thresholdZones]) after the debut.
   thresholdEntry,
+
+  // App Update 1.1 (Moments chronicle), recorded only from the replay's
+  // `chronicleFromUtc` on.
+
+  /// Back in a zone it reached before ([AllTimeAchievement.zone], one of
+  /// [AllTimeHistoryReplay.chronicleZones]), from below it.
+  thresholdReturn,
+
+  /// Back on the Hot 100 from Bubbling Under (#101-200) after charting on
+  /// it before.
+  hot100Return,
+
+  /// Pushed from #100 to #101 by another entity's play: off the Hot 100,
+  /// still on the Top 200. [AllTimeAchievement.milestone] is the completed
+  /// chart days it finished on the Hot 100.
+  hot100Exit,
+
+  /// Pushed out of the Top 200 by another entity's play.
+  /// [AllTimeAchievement.milestone] is the completed chart days it
+  /// finished in the Top 200.
+  chartExit,
+
+  /// #1 at the close of a completed chart day (local midnight).
+  /// [AllTimeAchievement.milestone] is the consecutive days at #1 ending
+  /// that day; [AllTimeAchievement.cumulative] the days at #1 in all.
+  numberOneDay,
 }
 
 /// One achievement, at the play that caused it.
@@ -64,9 +90,20 @@ class AllTimeAchievement {
     this.milestone,
     this.displacedEntityId,
     this.groupId,
+    this.cumulative,
+    this.sourceId,
   });
 
   final AllTimeAchievementType type;
+
+  /// For [AllTimeAchievementType.numberOneDay]: every completed day the
+  /// entity finished at #1, this one included. Not stored with the Moment.
+  final int? cumulative;
+
+  /// The source a Moment groups by, when it is not [playId]: an exit is
+  /// caused by another entity's play, and a day close by no play at all,
+  /// so neither joins that play's story.
+  final String? sourceId;
   final String entityId;
 
   /// The qualified play that caused it.
@@ -108,6 +145,11 @@ class AllTimeAchievement {
       AllTimeAchievementType.careerNumberOne ||
       AllTimeAchievementType.careerTop10 ||
       AllTimeAchievementType.careerTop100 => '',
+      AllTimeAchievementType.thresholdReturn => '$zone|$playId',
+      AllTimeAchievementType.hot100Return ||
+      AllTimeAchievementType.hot100Exit ||
+      AllTimeAchievementType.chartExit ||
+      AllTimeAchievementType.numberOneDay => playId,
     };
     return 'alltime|$chartType|${type.name}|$entityId|$discriminator';
   }
@@ -136,13 +178,66 @@ class ZoneWeeks {
   }
 }
 
+/// One completed chart day's standing of an entity (App Update 1.1): its
+/// rank at the day's close (local midnight), or null when it finished the
+/// day outside the Top 200.
+class ChartDayStanding {
+  const ChartDayStanding({required this.dayStartLocal, required this.rank});
+
+  /// Local midnight starting the day.
+  final DateTime dayStartLocal;
+  final int? rank;
+}
+
+/// Completed chart days an entity finished in each place (App Update 1.1).
+class ChartDayTotals {
+  const ChartDayTotals({
+    this.numberOneDays = 0,
+    this.hot100Days = 0,
+    this.chartDays = 0,
+    this.numberOneRun = 0,
+    this.hot100Run = 0,
+    this.chartRun = 0,
+    this.longestNumberOneRun = 0,
+  });
+
+  /// Completed days finished at #1, on the Hot 100 and in the Top 200.
+  final int numberOneDays;
+  final int hot100Days;
+  final int chartDays;
+
+  /// The current runs: consecutive days, ending with the last completed
+  /// day, at #1, on the Hot 100 and in the Top 200 (0: not now).
+  final int numberOneRun;
+  final int hot100Run;
+  final int chartRun;
+  final int longestNumberOneRun;
+}
+
 class AllTimeReplayResult {
   const AllTimeReplayResult({
     required this.achievements,
     required this.zoneWeeks,
     required this.observedWeeks,
     this.observedFromUtc,
+    this.dayTotals = const {},
+    this.dayStandings = const {},
+    this.observedDays = 0,
   });
+
+  /// Per entity, its completed chart days (App Update 1.1).
+  final Map<String, ChartDayTotals> dayTotals;
+
+  /// Per entity, its rank at every completed day close since it first
+  /// charted, oldest first: only for the replay's `collectDayStandings`
+  /// (one entity's chart journey).
+  final Map<String, List<ChartDayStanding>> dayStandings;
+
+  /// Completed chart days closed.
+  final int observedDays;
+
+  ChartDayTotals daysOf(String entityId) =>
+      dayTotals[entityId] ?? const ChartDayTotals();
 
   final List<AllTimeAchievement> achievements;
   final Map<String, ZoneWeeks> zoneWeeks;
@@ -201,6 +296,28 @@ class AllTimeHistoryReplay {
 
   static const int bigClimbPlaces = 15;
 
+  /// Zones whose returns the Moments chronicle tells (App Update 1.1).
+  static const List<int> chronicleZones = [50, 25, 20, 15, 10, 5, 3];
+
+  /// An exit is told only for an entity that finished at least this many
+  /// completed days on the chart it leaves: a song passing through for a
+  /// few hours is churn, not news.
+  static const int exitMinimumDays = 1;
+
+  /// Local midnight starting the day of [local].
+  static DateTime dayStartOf(DateTime local) =>
+      DateTime(local.year, local.month, local.day);
+
+  /// Local midnight ending the day starting at [dayStartLocal] (calendar
+  /// arithmetic, so a daylight-saving day is still one day).
+  static DateTime dayEndOf(DateTime dayStartLocal) =>
+      DateTime(dayStartLocal.year, dayStartLocal.month, dayStartLocal.day + 1);
+
+  static String dayKey(DateTime dayStartLocal) =>
+      '${dayStartLocal.year.toString().padLeft(4, '0')}-'
+      '${dayStartLocal.month.toString().padLeft(2, '0')}-'
+      '${dayStartLocal.day.toString().padLeft(2, '0')}';
+
   /// A Top 200 return sooner than this after dropping out is ordinary churn
   /// at the bottom of the standings, not a re-entry story.
   static const Duration reentryAbsence = Duration(days: 7);
@@ -227,7 +344,18 @@ class AllTimeHistoryReplay {
     bool collectAchievements = true,
     List<int> streamMilestones = const [],
     String? Function(String entityId)? groupOf,
+    DateTime? chronicleFromUtc,
+    Set<String> collectDayStandings = const {},
   }) {
+    final chronicleFrom = chronicleFromUtc?.toUtc();
+    // Chart days close at local midnight; only days that ended by the
+    // start of today (from [referenceLocal]) are complete.
+    final todayStart = dayStartOf(referenceLocal.toLocal());
+    final days = <String, _DayCount>{};
+    final standings = <String, List<ChartDayStanding>>{};
+    DateTime? day;
+    var observedDays = 0;
+    String? leaderYesterday;
     final ordered = events.toList(growable: false)
       ..sort((a, b) {
         final byTime = a.qualifiedAt.toUtc().compareTo(b.qualifiedAt.toUtc());
@@ -266,10 +394,89 @@ class AllTimeHistoryReplay {
       }
     }
 
+    void closeDaysBefore(DateTime instant) {
+      while (day != null) {
+        final end = dayEndOf(day!);
+        if (end.isAfter(instant.toLocal()) || end.isAfter(todayStart)) break;
+        observedDays++;
+        final leader = top.isEmpty ? null : top.first;
+        final inTop = <String>{};
+        for (var index = 0; index < top.length; index++) {
+          final state = top[index];
+          inTop.add(state.entityId);
+          final count = days.putIfAbsent(state.entityId, _DayCount.new)
+            ..chart += 1
+            ..chartRun += 1;
+          if (index < hot100) {
+            count
+              ..hot100 += 1
+              ..hot100Run += 1;
+          } else {
+            count.hot100Run = 0;
+          }
+          if (collectDayStandings.contains(state.entityId)) {
+            standings
+                .putIfAbsent(state.entityId, () => [])
+                .add(ChartDayStanding(dayStartLocal: day!, rank: index + 1));
+          }
+        }
+        for (final MapEntry(key: id, value: count) in days.entries) {
+          if (!inTop.contains(id)) {
+            count
+              ..chartRun = 0
+              ..hot100Run = 0;
+            if (collectDayStandings.contains(id)) {
+              standings
+                  .putIfAbsent(id, () => [])
+                  .add(ChartDayStanding(dayStartLocal: day!, rank: null));
+            }
+          }
+          if (id != leader?.entityId) count.numberOneRun = 0;
+        }
+        if (leader != null) {
+          final count = days[leader.entityId]!;
+          count
+            ..numberOne += 1
+            ..numberOneRun = leaderYesterday == leader.entityId
+                ? count.numberOneRun + 1
+                : 1;
+          if (count.numberOneRun > count.longestNumberOneRun) {
+            count.longestNumberOneRun = count.numberOneRun;
+          }
+          final closedAt = end.toUtc();
+          if (collectAchievements &&
+              chronicleFrom != null &&
+              !closedAt.isBefore(chronicleFrom) &&
+              (from == null || !closedAt.isBefore(from))) {
+            final key = 'day:${dayKey(day!)}';
+            achievements.add(
+              AllTimeAchievement(
+                type: AllTimeAchievementType.numberOneDay,
+                entityId: leader.entityId,
+                playId: key,
+                sourceId: key,
+                occurredAt: closedAt,
+                rank: 1,
+                streams: leader.count,
+                previousRank: 1,
+                previousPeakRank: 1,
+                milestone: count.numberOneRun,
+                cumulative: count.numberOne,
+              ),
+            );
+          }
+        }
+        leaderYesterday = leader?.entityId;
+        day = end;
+      }
+    }
+
     for (final event in ordered) {
       final at = event.qualifiedAt.toUtc();
       week ??= _weeks.resolve(at.toLocal());
       closeWeeksBefore(at);
+      day ??= dayStartOf(at.toLocal());
+      closeDaysBefore(at);
 
       final state = states.putIfAbsent(
         event.entityId,
@@ -285,23 +492,110 @@ class AllTimeHistoryReplay {
         ..reachedAt = at;
 
       final position = _insertionPoint(top, state);
+      final playId = event.sourceEventId ?? '${event.entityId}@$at';
+      final collecting =
+          collectAchievements && (from == null || !at.isBefore(from));
+      final chronicling =
+          collecting && chronicleFrom != null && !at.isBefore(chronicleFrom);
+
+      // App Update 1.1: whoever this play pushes off the Hot 100 or out of
+      // the Top 200, at this play, with its completed days there.
+      AllTimeAchievement exit(
+        _State left,
+        AllTimeAchievementType type, {
+        required int previousRank,
+        required int rank,
+        required int days,
+      }) => AllTimeAchievement(
+        type: type,
+        entityId: left.entityId,
+        playId: playId,
+        sourceId: 'exit:$playId:${left.entityId}',
+        occurredAt: at,
+        rank: rank,
+        streams: left.count,
+        previousRank: previousRank,
+        previousPeakRank: left.bestRank,
+        milestone: days,
+      );
+      if (chronicling &&
+          position < hot100 &&
+          top.length >= hot100 &&
+          (previousRank == null || previousRank > hot100)) {
+        final left = top[hot100 - 1];
+        final hot100Days = days[left.entityId]?.hot100 ?? 0;
+        if (hot100Days >= exitMinimumDays) {
+          achievements.add(
+            exit(
+              left,
+              AllTimeAchievementType.hot100Exit,
+              previousRank: hot100,
+              rank: hot100 + 1,
+              days: hot100Days,
+            ),
+          );
+        }
+      }
+
       int? rank;
       if (position < standingsLimit) {
         top.insert(position, state);
         state.inTop = true;
         rank = position + 1;
         if (top.length > standingsLimit) {
-          top.removeLast()
+          final left = top.removeLast()
             ..inTop = false
             ..leftTopAt = at;
+          final chartDays = days[left.entityId]?.chart ?? 0;
+          if (chronicling && chartDays >= exitMinimumDays) {
+            achievements.add(
+              exit(
+                left,
+                AllTimeAchievementType.chartExit,
+                previousRank: standingsLimit,
+                rank: 0,
+                days: chartDays,
+              ),
+            );
+          }
         }
       } else {
         state.inTop = false;
       }
 
-      final playId = event.sourceEventId ?? '${event.entityId}@$at';
-      final collecting =
-          collectAchievements && (from == null || !at.isBefore(from));
+      if (chronicling && rank != null && previousRank != null) {
+        final best = state.bestRank;
+        if (state.everTop100 && rank <= hot100 && previousRank > hot100) {
+          achievements.add(
+            _make(
+              state,
+              AllTimeAchievementType.hot100Return,
+              rank: rank,
+              previousRank: previousRank,
+              playId: playId,
+              at: at,
+            ),
+          );
+        }
+        for (final zone in chronicleZones) {
+          if (best != null &&
+              best <= zone &&
+              rank <= zone &&
+              previousRank > zone) {
+            achievements.add(
+              _make(
+                state,
+                AllTimeAchievementType.thresholdReturn,
+                rank: rank,
+                previousRank: previousRank,
+                playId: playId,
+                at: at,
+                zone: zone,
+              ),
+            );
+          }
+        }
+      }
 
       AllTimeAchievement extra(
         AllTimeAchievementType type,
@@ -440,8 +734,26 @@ class AllTimeHistoryReplay {
     }
 
     if (week != null) closeWeeksBefore(currentWeekStart);
+    if (day != null) closeDaysBefore(todayStart.toUtc());
 
     return AllTimeReplayResult(
+      dayTotals: {
+        for (final MapEntry(key: id, value: count) in days.entries)
+          id: ChartDayTotals(
+            numberOneDays: count.numberOne,
+            hot100Days: count.hot100,
+            chartDays: count.chart,
+            numberOneRun: count.numberOneRun,
+            hot100Run: count.hot100Run,
+            chartRun: count.chartRun,
+            longestNumberOneRun: count.longestNumberOneRun,
+          ),
+      },
+      dayStandings: {
+        for (final MapEntry(key: id, value: list) in standings.entries)
+          id: List.unmodifiable(list),
+      },
+      observedDays: observedDays,
       achievements: List.unmodifiable(achievements),
       zoneWeeks: {
         for (final MapEntry(key: id, value: counts) in zones.entries)
@@ -606,4 +918,14 @@ class _State {
   bool everNumberOne = false;
   int? bestRank;
   DateTime? leftTopAt;
+}
+
+class _DayCount {
+  int numberOne = 0;
+  int hot100 = 0;
+  int chart = 0;
+  int numberOneRun = 0;
+  int hot100Run = 0;
+  int chartRun = 0;
+  int longestNumberOneRun = 0;
 }

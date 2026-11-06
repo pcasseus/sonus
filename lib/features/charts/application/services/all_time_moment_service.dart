@@ -213,9 +213,16 @@ class AllTimeMomentService {
       ],
       referenceLocal: referenceLocal,
       achievementsFromUtc: from,
-      thresholdEntriesFromUtc: rules.activatedAtUtc,
       // SN-50 complete coverage, from the device-polish start: every climb.
       everyClimbFromUtc: rules.devicePolishFromUtc,
+      // App Update 1.1: from the chronicle start, first zone entries are
+      // recorded on every build (the refined flag may be off), with zone
+      // returns, Hot 100 and Top 200 exits, Hot 100 returns and daily #1s.
+      thresholdEntriesFromUtc: _earliest(
+        rules.activatedAtUtc,
+        rules.chronicleFromUtc,
+      ),
+      chronicleFromUtc: rules.chronicleFromUtc,
       streamMilestones: switch (chartType) {
         ChartType.songs => songStreamMilestones,
         ChartType.albums => releaseStreamMilestones,
@@ -329,6 +336,26 @@ class AllTimeMomentService {
         1,
       ),
       AllTimeAchievementType.bigClimb => (ChartMomentEventType.rankRise, null),
+      AllTimeAchievementType.thresholdReturn => (
+        ChartMomentEventType.thresholdReturn,
+        achievement.zone,
+      ),
+      AllTimeAchievementType.hot100Return => (
+        ChartMomentEventType.thresholdReturn,
+        AllTimeHistoryReplay.hot100,
+      ),
+      AllTimeAchievementType.hot100Exit => (
+        ChartMomentEventType.thresholdExit,
+        AllTimeHistoryReplay.hot100,
+      ),
+      AllTimeAchievementType.chartExit => (
+        ChartMomentEventType.chartExit,
+        null,
+      ),
+      AllTimeAchievementType.numberOneDay => (
+        ChartMomentEventType.numberOneDayHold,
+        1,
+      ),
       AllTimeAchievementType.streamMilestone => (
         ChartMomentEventType.lifetimeStreamMilestone,
         null,
@@ -356,6 +383,9 @@ class AllTimeMomentService {
       ),
     };
     final carriesMilestone = switch (achievement.type) {
+      AllTimeAchievementType.hot100Exit ||
+      AllTimeAchievementType.chartExit ||
+      AllTimeAchievementType.numberOneDay ||
       AllTimeAchievementType.streamMilestone ||
       AllTimeAchievementType.careerNumberOne ||
       AllTimeAchievementType.careerTop10 ||
@@ -374,6 +404,12 @@ class AllTimeMomentService {
       threshold: threshold,
       milestoneValue: carriesMilestone ? achievement.milestone : null,
     );
+  }
+
+  static DateTime? _earliest(DateTime? a, DateTime? b) {
+    if (a == null) return b;
+    if (b == null) return a;
+    return a.isBefore(b) ? a : b;
   }
 
   /// The artist ranking: every play counts once, for its attributed
@@ -473,7 +509,7 @@ class AllTimeMomentService {
     return ChartMomentEvent(
       id: key,
       deduplicationKey: key,
-      sourceId: achievement.playId,
+      sourceId: achievement.sourceId ?? achievement.playId,
       chartType: chartType,
       scope: ChartMomentScope.allTime,
       eventType: type,

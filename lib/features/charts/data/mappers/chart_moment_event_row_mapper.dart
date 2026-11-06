@@ -40,6 +40,18 @@ abstract final class ChartMomentEventRowMapper {
     };
   }
 
+  /// The stored event, or null when it was written by a newer Sonus with
+  /// an event type this build does not know (App Update 1.1): it is kept
+  /// in the database untouched and simply not shown.
+  static ChartMomentEvent? tryFromRow(Map<String, Object?> row) {
+    final type = row['event_type'] as String?;
+    if (type == null ||
+        !ChartMomentEventType.values.any((value) => value.name == type)) {
+      return null;
+    }
+    return fromRow(row);
+  }
+
   static ChartMomentEvent fromRow(Map<String, Object?> row) {
     final relatedEntityId = row['related_entity_id'] as String?;
 
