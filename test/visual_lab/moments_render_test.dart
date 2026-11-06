@@ -117,6 +117,17 @@ class _Fixture {
   late final bitter = _song('song-bitter', 'bittersweet', 'madison');
   late final exes = _song('song-exes', 'exes', 'tate');
   late final yes = _song('song-yes', 'yes baby', 'madison');
+  late final live = _song(
+    'song-housewife-live',
+    'Housewife [Live From Victoria Secret Fashion Show]',
+    'tate',
+  );
+  late final silence = const ChartEntitySnapshot(
+    entityId: 'album-silence',
+    title: 'Silence Between Songs',
+    artistId: 'artist-madison',
+    artistName: 'Madison Beer',
+  );
   late final midnight = const ChartEntitySnapshot(
     entityId: 'album-midnight',
     title: 'Midnight Sun (Girls Trip Deluxe)',
@@ -215,6 +226,28 @@ class _Fixture {
       previousPeakRank: 41,
       milestone: 18,
     ),
+    // Device acceptance: an album's developing story (update thread) and a
+    // long live-version title climbing.
+    for (final (hour, from, to) in [(16, 19, 15), (15, 15, 12), (14, 12, 10)])
+      _event(
+        ChartMomentEventType.rankRise,
+        silence,
+        chart: ChartType.albums,
+        ago: Duration(hours: hour),
+        source: 'play-silence-$hour',
+        previousRank: from,
+        currentRank: to,
+        previousPeakRank: 8,
+      ),
+    _event(
+      ChartMomentEventType.rankRise,
+      live,
+      ago: const Duration(hours: 20),
+      source: 'play-live',
+      previousRank: 51,
+      currentRank: 9,
+      previousPeakRank: 6,
+    ),
     // A Hot 100 debut (bulletin).
     _event(
       ChartMomentEventType.debut,
@@ -252,6 +285,7 @@ class _Fixture {
     _track(bitter, 'album-locket', art.cover('hue_0')),
     _track(exes, 'album-tate', art.cover('warm')),
     _track(yes, 'album-locket', art.cover('hue_0')),
+    _track(live, 'album-tate', art.cover('cool')),
   ];
 
   List<LibraryAlbum> get albums => [
@@ -272,6 +306,15 @@ class _Fixture {
       trackCount: 20,
       dateAdded: DateTime.utc(2026, 9, 1),
       artworkPath: art.cover('hue_2'),
+    ),
+    LibraryAlbum(
+      albumId: 'album-silence',
+      title: 'Silence Between Songs',
+      artistId: 'artist-madison',
+      artistName: 'Madison Beer',
+      trackCount: 14,
+      dateAdded: DateTime.utc(2026, 9, 1),
+      artworkPath: art.cover('neutral'),
     ),
     LibraryAlbum(
       albumId: 'album-tate',

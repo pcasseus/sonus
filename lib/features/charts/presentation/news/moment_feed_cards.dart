@@ -158,71 +158,167 @@ class MomentBulletinCard extends StatelessWidget {
     final scale = MediaQuery.textScalerOf(context).scale(1);
     final number = spotlight ? MomentSpotlightNumber.of(story) : null;
 
-    final media = number != null
-        ? _SpotlightTile(story: story, number: number, palette: palette)
-        : _SingleArtwork(image: _leadImage(story), size: 112);
-
-    final text = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _KindAndByline(story: story, now: now, palette: palette, compact: true),
-        const SizedBox(height: 8),
-        Text(
-          story.headline,
-          key: ValueKey<String>('moment-post-headline-${story.id}'),
-          style: theme.textTheme.titleSmall?.copyWith(
-            color: colors.textPrimary,
-            fontWeight: FontWeight.w700,
-            fontSize: 16,
-            height: 1.28,
-          ),
-        ),
-        _CreditLine(story: story, credit: credit),
-        const SizedBox(height: 10),
-        MomentBadgeRow(story: story, palette: palette),
-        _Developing(story: story),
-      ],
+    final media = KeyedSubtree(
+      key: ValueKey<String>('moment-post-media-${story.id}'),
+      child: number != null
+          ? _SpotlightTile(story: story, number: number, palette: palette)
+          : _SingleArtwork(image: _leadImage(story), size: mediaSize),
     );
-
-    return _StoryTapTarget(
-      key: ValueKey<String>('moment-post-${story.id}'),
+    final headlineStyle = theme.textTheme.titleSmall?.copyWith(
+      color: colors.textPrimary,
+      fontWeight: FontWeight.w700,
+      fontSize: 16,
+      height: 1.28,
+    );
+    final kind = _KindAndByline(
       story: story,
-      onOpen: onOpen,
-      radius: radius,
-      decoration: palette.bulletinDecoration(radius, spotlight: spotlight),
-      child: IntrinsicHeight(
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // The editorial accent stripe.
-            Container(
-              width: 4,
-              color: spotlight ? palette.purple : palette.pink,
-            ),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(10, 10, 12, 12),
-                // Large text: the picture goes above the words, so the
-                // headline keeps a readable measure.
-                child: scale >= 1.3
-                    ? Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [media, const SizedBox(height: 10), text],
-                      )
-                    : Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          media,
-                          const SizedBox(width: 12),
-                          Expanded(child: text),
-                        ],
-                      ),
-              ),
-            ),
-          ],
-        ),
-      ),
+      now: now,
+      palette: palette,
+      compact: true,
     );
+    final headline = Text(
+      story.headline,
+      key: ValueKey<String>('moment-post-headline-${story.id}'),
+      style: headlineStyle,
+    );
+    final badges = MomentBadgeRow(story: story, palette: palette);
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final layout = scale >= 1.3
+            ? _BulletinLayout.stacked
+            : _layoutFor(
+                context,
+                cardWidth: constraints.maxWidth,
+                headlineStyle: headlineStyle,
+              );
+
+        final Widget content = switch (layout) {
+          // Large text: the picture goes above the words, so the headline
+          // keeps a readable measure.
+          _BulletinLayout.stacked => Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              media,
+              const SizedBox(height: 10),
+              kind,
+              const SizedBox(height: 8),
+              headline,
+              _CreditLine(story: story, credit: credit),
+              const SizedBox(height: 10),
+              badges,
+              _Developing(story: story),
+            ],
+          ),
+          // A short story: the words beside the picture.
+          _BulletinLayout.side => Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              media,
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    kind,
+                    const SizedBox(height: 8),
+                    headline,
+                    _CreditLine(story: story, credit: credit),
+                    const SizedBox(height: 10),
+                    badges,
+                  ],
+                ),
+              ),
+            ],
+          ),
+          // A long headline or an update thread: kind, byline and badges
+          // beside the picture, then the headline and updates across the
+          // whole card, so no blank column is left under the artwork.
+          _BulletinLayout.flow => Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  media,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [kind, const SizedBox(height: 10), badges],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              headline,
+              _CreditLine(story: story, credit: credit),
+              _Developing(story: story),
+            ],
+          ),
+        };
+
+        return _StoryTapTarget(
+          key: ValueKey<String>('moment-post-${story.id}'),
+          story: story,
+          onOpen: onOpen,
+          radius: radius,
+          decoration: palette.bulletinDecoration(radius, spotlight: spotlight),
+          child: IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // The editorial accent stripe.
+                Container(
+                  width: 4,
+                  color: spotlight ? palette.purple : palette.pink,
+                ),
+                Expanded(
+                  child: Padding(
+                    key: ValueKey<String>(
+                      'moment-post-layout-${layout.name}-${story.id}',
+                    ),
+                    padding: const EdgeInsets.fromLTRB(10, 10, 12, 12),
+                    child: content,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// The artwork (or spotlight number) size.
+  static const double mediaSize = 112;
+
+  /// The most headline lines a card keeps beside its picture (App Update
+  /// 1.1 device acceptance): up to four lines end close to the picture's
+  /// bottom; more would leave a tall blank column under it.
+  static const int maxSideLines = 4;
+
+  /// Side by side for a headline of at most [maxSideLines] lines beside the
+  /// picture, measured with the real headline, width and text scale;
+  /// otherwise (a long headline, or an update thread, which always grows
+  /// the card) the headline flows beneath the picture.
+  _BulletinLayout _layoutFor(
+    BuildContext context, {
+    required double cardWidth,
+    required TextStyle? headlineStyle,
+  }) {
+    if (story.isDeveloping) return _BulletinLayout.flow;
+    // Stripe 4, padding 10 + 12, picture, gap 12.
+    final textWidth = cardWidth - 4 - 22 - mediaSize - 12;
+    if (textWidth <= 0) return _BulletinLayout.flow;
+    final painter = TextPainter(
+      text: TextSpan(text: story.headline, style: headlineStyle),
+      textDirection: Directionality.of(context),
+      textScaler: MediaQuery.textScalerOf(context),
+    )..layout(maxWidth: textWidth);
+    final lines = painter.computeLineMetrics().length;
+    painter.dispose();
+    return lines > maxSideLines ? _BulletinLayout.flow : _BulletinLayout.side;
   }
 
   static MomentImage _leadImage(MomentStory story) {
@@ -310,6 +406,9 @@ class _Developing extends StatelessWidget {
     );
   }
 }
+
+/// How a bulletin arranges its picture and words.
+enum _BulletinLayout { side, flow, stacked }
 
 /// The badges under a story ([MomentBadge.of]).
 class MomentBadgeRow extends StatelessWidget {
