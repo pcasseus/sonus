@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 
 import '../../../../core/design/sonus_artwork_palette.dart';
 import '../../../../core/design/sonus_theme.dart';
+import '../../../../core/design/sonus_text_scale.dart';
 import '../../../../core/design/widgets/sonus_artwork_image.dart';
 import '../../../library/application/models/library_track.dart';
 import '../../application/models/pulse/pulse_delta.dart';
@@ -301,7 +302,10 @@ class _PulseRankingCardState extends State<PulseRankingCard> {
             );
             final stacked =
                 constraints.maxWidth < 340 ||
-                MediaQuery.textScalerOf(context).scale(1) >= 1.3;
+                // Stacks at exactly 1.3 too, unlike the other rows (`>`);
+                // kept as approved until a decision (register R21).
+                MediaQuery.textScalerOf(context).scale(1) >=
+                    sonusLargeTextScale;
             return stacked
                 ? Column(
                     crossAxisAlignment: CrossAxisAlignment.start,

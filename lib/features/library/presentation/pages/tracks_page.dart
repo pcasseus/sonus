@@ -32,6 +32,7 @@ import '../controllers/library_tracks_controller.dart';
 import '../controllers/track_selection_controller.dart';
 import '../models/track_profile_edit_draft.dart';
 import '../widgets/track_selection_bar.dart';
+import '../widgets/track_studio_launcher.dart';
 import 'album_profile_page.dart';
 import 'artist_profile_page.dart';
 import 'track_studio_page.dart';
@@ -363,7 +364,7 @@ class _TracksPageState extends State<TracksPage> {
         return;
       }
 
-      final artists = await repository.getArtists();
+      final artists = await trackStudioArtists(context, repository);
       final albums = await repository.getAlbums();
       final structuredCredits = await controller.getTrackAdditionalCredits(
         track.songId,
@@ -401,6 +402,16 @@ class _TracksPageState extends State<TracksPage> {
               albums: albums,
               initialAdditionalCredits: initialAdditionalCredits,
               canEditDetails: controller.canEditTrack(userId),
+              onSaveCredits: controller.canEditTrack(userId)
+                  ? trackStudioCreditSaver(
+                      track: track,
+                      save: (credits) => controller.saveTrackCredits(
+                        userId: userId,
+                        track: track,
+                        additionalCredits: credits,
+                      ),
+                    )
+                  : null,
               onCreateArtist: artistCreationService == null
                   ? null
                   : (name) async {

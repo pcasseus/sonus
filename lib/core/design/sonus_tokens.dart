@@ -2,6 +2,7 @@ import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/material.dart';
 
+import 'sonus_reactivity.dart';
 import 'sonus_theme_definition.dart';
 
 /// Semantic colours. Screens use roles ("chart up", "artwork scrim"), never
@@ -28,12 +29,9 @@ class SonusColors extends ThemeExtension<SonusColors> {
     required this.chartNew,
     required this.chartReentry,
     required this.chartSteady,
-    required this.storyFeatured,
-    required this.onStoryFeatured,
     required this.artworkPlaceholder,
     required this.onArtworkPlaceholder,
     required this.artworkFrame,
-    required this.artworkScrim,
     required this.onArtworkScrim,
     required this.playbackControl,
     required this.onPlaybackControl,
@@ -67,12 +65,9 @@ class SonusColors extends ThemeExtension<SonusColors> {
       chartNew: scheme.secondary,
       chartReentry: scheme.primary,
       chartSteady: scheme.onSurfaceVariant,
-      storyFeatured: scheme.secondaryContainer,
-      onStoryFeatured: scheme.onSecondaryContainer,
       artworkPlaceholder: scheme.surfaceContainerHighest,
       onArtworkPlaceholder: scheme.onSurfaceVariant,
       artworkFrame: scheme.outlineVariant,
-      artworkScrim: scheme.scrim.withValues(alpha: 0.6),
       onArtworkScrim: Colors.white,
       playbackControl: scheme.primary,
       onPlaybackControl: scheme.onPrimary,
@@ -112,14 +107,11 @@ class SonusColors extends ThemeExtension<SonusColors> {
   /// colour, though the words carry the meaning.
   final Color chartReentry;
   final Color chartSteady;
-  final Color storyFeatured;
-  final Color onStoryFeatured;
   final Color artworkPlaceholder;
   final Color onArtworkPlaceholder;
   final Color artworkFrame;
 
-  /// Overlay laid over artwork so text on it stays readable.
-  final Color artworkScrim;
+  /// Text and icons laid over artwork (each screen draws its own scrim).
   final Color onArtworkScrim;
   final Color playbackControl;
   final Color onPlaybackControl;
@@ -149,12 +141,9 @@ class SonusColors extends ThemeExtension<SonusColors> {
     Color? chartNew,
     Color? chartReentry,
     Color? chartSteady,
-    Color? storyFeatured,
-    Color? onStoryFeatured,
     Color? artworkPlaceholder,
     Color? onArtworkPlaceholder,
     Color? artworkFrame,
-    Color? artworkScrim,
     Color? onArtworkScrim,
     Color? playbackControl,
     Color? onPlaybackControl,
@@ -183,12 +172,9 @@ class SonusColors extends ThemeExtension<SonusColors> {
       chartNew: chartNew ?? this.chartNew,
       chartReentry: chartReentry ?? this.chartReentry,
       chartSteady: chartSteady ?? this.chartSteady,
-      storyFeatured: storyFeatured ?? this.storyFeatured,
-      onStoryFeatured: onStoryFeatured ?? this.onStoryFeatured,
       artworkPlaceholder: artworkPlaceholder ?? this.artworkPlaceholder,
       onArtworkPlaceholder: onArtworkPlaceholder ?? this.onArtworkPlaceholder,
       artworkFrame: artworkFrame ?? this.artworkFrame,
-      artworkScrim: artworkScrim ?? this.artworkScrim,
       onArtworkScrim: onArtworkScrim ?? this.onArtworkScrim,
       playbackControl: playbackControl ?? this.playbackControl,
       onPlaybackControl: onPlaybackControl ?? this.onPlaybackControl,
@@ -227,15 +213,12 @@ class SonusColors extends ThemeExtension<SonusColors> {
       chartNew: mix(chartNew, other.chartNew),
       chartReentry: mix(chartReentry, other.chartReentry),
       chartSteady: mix(chartSteady, other.chartSteady),
-      storyFeatured: mix(storyFeatured, other.storyFeatured),
-      onStoryFeatured: mix(onStoryFeatured, other.onStoryFeatured),
       artworkPlaceholder: mix(artworkPlaceholder, other.artworkPlaceholder),
       onArtworkPlaceholder: mix(
         onArtworkPlaceholder,
         other.onArtworkPlaceholder,
       ),
       artworkFrame: mix(artworkFrame, other.artworkFrame),
-      artworkScrim: mix(artworkScrim, other.artworkScrim),
       onArtworkScrim: mix(onArtworkScrim, other.onArtworkScrim),
       playbackControl: mix(playbackControl, other.playbackControl),
       onPlaybackControl: mix(onPlaybackControl, other.onPlaybackControl),
@@ -417,6 +400,9 @@ class SonusDecorationTokens extends ThemeExtension<SonusDecorationTokens> {
     required this.allowGlow,
     required this.allowGradients,
     this.progressStyle = SonusProgressStyle.minimalLinear,
+    this.highContrast = false,
+    this.lowEffects = false,
+    this.reactivity = SonusReactivityMode.static,
   });
 
   /// No decoration at all; used when no Sonus theme is installed.
@@ -428,7 +414,10 @@ class SonusDecorationTokens extends ThemeExtension<SonusDecorationTokens> {
       textureOpacity = 0,
       allowGlow = false,
       allowGradients = false,
-      progressStyle = SonusProgressStyle.minimalLinear;
+      progressStyle = SonusProgressStyle.minimalLinear,
+      highContrast = false,
+      lowEffects = false,
+      reactivity = SonusReactivityMode.static;
 
   final SonusDecorationIntensity intensity;
   final SonusMotif motif;
@@ -442,6 +431,19 @@ class SonusDecorationTokens extends ThemeExtension<SonusDecorationTokens> {
 
   /// The theme's playback progress treatment (SN-48E).
   final SonusProgressStyle progressStyle;
+
+  /// The accessibility settings that shaped these tokens (theme
+  /// architecture T0: the effects layer), so widgets read them here instead
+  /// of from the appearance controller. High contrast includes the
+  /// platform's setting; both already cap decoration and turn off glow and
+  /// gradients.
+  final bool highContrast;
+  final bool lowEffects;
+
+  /// The effective artwork reactivity (Themes 2.0 T1): the user's choice or
+  /// the theme's default, made [SonusReactivityMode.static] wherever
+  /// gradients are not allowed (Decoration Off, High contrast, Low effects).
+  final SonusReactivityMode reactivity;
 
   bool get showMarks => intensity != SonusDecorationIntensity.off;
 
@@ -459,6 +461,9 @@ class SonusDecorationTokens extends ThemeExtension<SonusDecorationTokens> {
       allowGlow: allowGlow,
       allowGradients: allowGradients,
       progressStyle: progressStyle,
+      highContrast: highContrast,
+      lowEffects: lowEffects,
+      reactivity: reactivity,
     );
   }
 

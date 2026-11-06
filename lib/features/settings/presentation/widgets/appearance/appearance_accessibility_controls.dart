@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../../application/controllers/appearance_controller.dart';
 
-/// High contrast, reduced motion and low effects, bound to the shared
+/// High contrast, bold text, reduced motion and low effects, bound to the shared
 /// [AppearanceController]. Used by both Appearance and Accessibility so
 /// there is one set of preferences, shown in two places.
 class AppearanceAccessibilityControls extends StatelessWidget {
@@ -26,12 +26,28 @@ class AppearanceAccessibilityControls extends StatelessWidget {
               controller.systemHighContrast
                   ? 'Your device already asks for high contrast, so Sonus '
                         'uses it.'
-                  : 'Stronger text, borders and focus outlines in every '
-                        'theme.',
+                  : 'Stronger colours, borders and focus outlines; turns '
+                        'off glows and glass.',
             ),
             value: preferences.highContrast,
             onChanged: (value) {
               unawaited(controller.setHighContrast(value));
+            },
+          ),
+          const Divider(height: 1),
+          SwitchListTile(
+            key: const ValueKey<String>('appearance-bold-text'),
+            title: const Text('Bold text'),
+            subtitle: Text(
+              controller.systemBoldText
+                  ? 'Your device already asks for bold text, so Sonus '
+                        'uses it.'
+                  : 'Heavier text in every theme, without changing colours '
+                        'or effects.',
+            ),
+            value: preferences.boldText,
+            onChanged: (value) {
+              unawaited(controller.setBoldText(value));
             },
           ),
           const Divider(height: 1),

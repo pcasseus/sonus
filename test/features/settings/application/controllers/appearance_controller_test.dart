@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sonus_next/core/design/sonus_reactivity.dart';
 import 'package:sonus_next/core/design/sonus_theme_id.dart';
 import 'package:sonus_next/core/design/sonus_tokens.dart';
 import 'package:sonus_next/features/settings/application/controllers/appearance_controller.dart';
@@ -154,6 +155,30 @@ void main() {
       );
     });
 
+    // Themes 2.0 T1.
+    test('artwork reactivity persists, reaches the spec, and clears back '
+        'to the theme default', () async {
+      final controller = buildController();
+      await controller.load();
+      expect(controller.spec.reactivity, isNull);
+
+      await controller.setReactivity(SonusReactivityMode.immersive);
+      expect(controller.spec.reactivity, SonusReactivityMode.immersive);
+      expect(
+        stored(AppearancePreferencesStore.preferencesKey)['reactivity'],
+        'immersive',
+      );
+
+      await controller.setReactivity(null);
+      expect(controller.spec.reactivity, isNull);
+      expect(
+        stored(
+          AppearancePreferencesStore.preferencesKey,
+        ).containsKey('reactivity'),
+        isFalse,
+      );
+    });
+
     test('every setting persists to the right document', () async {
       final controller = buildController();
       await controller.load();
@@ -241,6 +266,42 @@ void main() {
       await controller.setHighContrast(false);
       expect(controller.spec.highContrast, isTrue);
     });
+
+    test('bold text is saved and changes typography only', () async {
+      final controller = buildController();
+      await controller.load();
+
+      await controller.setBoldText(true);
+
+      expect(controller.preferences.boldText, isTrue);
+      expect(controller.spec.boldText, isTrue);
+      expect(controller.spec.highContrast, isFalse);
+      expect(controller.spec.lowEffects, isFalse);
+      expect(
+        stored(AppearancePreferencesStore.preferencesKey)['boldText'],
+        isTrue,
+      );
+    });
+
+    test(
+      "the device's bold text turns bold text on without storing it",
+      () async {
+        final controller = buildController();
+        await controller.load();
+
+        controller.updateSystemAccessibility(
+          highContrast: false,
+          reduceMotion: false,
+          boldText: true,
+        );
+
+        expect(controller.systemBoldText, isTrue);
+        expect(controller.spec.boldText, isTrue);
+        expect(controller.spec.highContrast, isFalse);
+        expect(controller.preferences.boldText, isFalse);
+        expect(storage, isEmpty);
+      },
+    );
   });
 
   group('schedule', () {

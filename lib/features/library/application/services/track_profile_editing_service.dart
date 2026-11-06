@@ -18,6 +18,44 @@ class TrackProfileEditResult {
   final bool changed;
 }
 
+/// The outcome of a credits-only save (UI redesign E1).
+class TrackCreditSaveResult {
+  const TrackCreditSaveResult({
+    required this.song,
+    required this.credits,
+    required this.changed,
+  });
+
+  /// The song as stored after the save.
+  final Song song;
+
+  /// The song's stored structured credits, primary included.
+  final List<SongArtistCredit> credits;
+
+  /// False when the credits already matched: nothing was written.
+  final bool changed;
+}
+
+/// A credits-only save was refused: the song's stored primary artist is not
+/// the one the editor showed, so the credits could repeat or omit them.
+/// Nothing was changed.
+class TrackCreditPrimaryArtistChangedException implements Exception {
+  const TrackCreditPrimaryArtistChangedException({
+    required this.songId,
+    required this.expectedPrimaryArtistId,
+    required this.storedPrimaryArtistId,
+  });
+
+  final String songId;
+  final String expectedPrimaryArtistId;
+  final String storedPrimaryArtistId;
+
+  @override
+  String toString() =>
+      'TrackCreditPrimaryArtistChangedException(song: $songId, '
+      'expected: $expectedPrimaryArtistId, stored: $storedPrimaryArtistId)';
+}
+
 class TrackProfileEditingService {
   const TrackProfileEditingService({
     required this.mutationRunner,
@@ -135,6 +173,151 @@ class TrackProfileEditingService {
       placementEditionId: placementEditionId,
       now: now,
     );
+  }
+
+  /// Saves only the song's additional credits, at once, from Track Studio's
+  /// credit editor (UI redesign E1, decision D7).
+  ///
+  /// One transaction, against the song as stored (never an editor's draft):
+  /// the credits replace every non-primary credit, a new co-primary artist
+  /// is created inside the same transaction, the song's featured names
+  /// follow the saved featured credits, the credit field is marked as the
+  /// user's, and the song is queued for sync. Title, numbers, release,
+  /// album and primary artist are not touched.
+  ///
+  /// Refuses with [TrackCreditPrimaryArtistChangedException] when the
+  /// stored primary artist is not [expectedPrimaryArtistId]. Credits that
+  /// repeat someone already credited are dropped (as [updateTrackWithCredits]
+  /// does), so editors check with [redundantCreditNames] first. When the
+  /// credits already match, nothing is written.
+  Future<TrackCreditSaveResult> updateTrackCredits({
+    required String? userId,
+    required String songId,
+    required String expectedPrimaryArtistId,
+    required Iterable<SongArtistCreditInput> additionalCredits,
+    DateTime? now,
+  }) {
+    final normalizedUserId = userId?.trim();
+    final normalizedSongId = songId.trim();
+    final expectedArtistId = expectedPrimaryArtistId.trim();
+
+    if (normalizedSongId.isEmpty) {
+      throw ArgumentError.value(songId, 'songId', 'Song id must not be blank.');
+    }
+
+    if (expectedArtistId.isEmpty) {
+      throw ArgumentError.value(
+        expectedPrimaryArtistId,
+        'expectedPrimaryArtistId',
+        'Primary artist id must not be blank.',
+      );
+    }
+
+    final requested = List<SongArtistCreditInput>.of(additionalCredits);
+    final timestamp = now ?? DateTime.now();
+
+    return mutationRunner.run((context) async {
+      final song = await context.songRepository.getById(normalizedSongId);
+
+      if (song == null) {
+        throw StateError('Song not found: $normalizedSongId');
+      }
+
+      if (song.artistId != expectedArtistId) {
+        throw TrackCreditPrimaryArtistChangedException(
+          songId: song.id,
+          expectedPrimaryArtistId: expectedArtistId,
+          storedPrimaryArtistId: song.artistId,
+        );
+      }
+
+      final primaryArtist = await context.artistRepository.getById(
+        song.artistId,
+      );
+
+      if (primaryArtist == null) {
+        throw StateError('Artist not found: ${song.artistId}');
+      }
+
+      final existingCredits = await context.songArtistCreditRepository
+          .getBySongId(song.id);
+
+      final normalized = _normalizeAdditionalCredits(
+        requested,
+        primaryArtistId: song.artistId,
+        primaryCanonicalName: primaryArtist.canonicalName,
+      );
+
+      final projectedFeaturedArtists = [
+        for (final credit in normalized)
+          if (credit.role == SongArtistCreditRole.featured) credit.creditedName,
+      ];
+
+      final creditsChanged = _structuredCreditsChanged(
+        existingCredits: existingCredits,
+        song: song,
+        primaryArtistId: song.artistId,
+        primaryCanonicalName: primaryArtist.canonicalName,
+        desiredAdditionalCredits: normalized,
+      );
+
+      if (!creditsChanged &&
+          _listsEqual(song.featuredArtists, projectedFeaturedArtists)) {
+        return TrackCreditSaveResult(
+          song: song,
+          credits: List<SongArtistCredit>.unmodifiable(existingCredits),
+          changed: false,
+        );
+      }
+
+      final structuredCredits =
+          await SongArtistCreditService.replaceCreditsInContext(
+            context: context,
+            userId: normalizedUserId,
+            songId: song.id,
+            primaryArtistId: song.artistId,
+            additionalCredits: normalized,
+            now: timestamp,
+          );
+
+      final persisted = song.copyWith(
+        featuredArtists: List<String>.unmodifiable([
+          for (final credit in structuredCredits)
+            if (credit.role == SongArtistCreditRole.featured)
+              credit.creditedName,
+        ]),
+        updatedAt: timestamp,
+      );
+
+      await context.songRepository.save(persisted);
+
+      final metadataRepository = context.metadataFieldStateRepository;
+
+      if (metadataRepository != null) {
+        await MetadataFieldStateService(
+          repository: metadataRepository,
+        ).recordAll(
+          entityType: MetadataEntityType.song,
+          entityId: persisted.id,
+          fieldNames: const {MetadataFields.songArtistCredits},
+          authority: metadataAuthority,
+          source: metadataSource,
+          updatedAt: timestamp,
+        );
+      }
+
+      await context.localSyncRepository.recordUpsert(
+        userId: normalizedUserId,
+        entityType: CloudDataEntity.song,
+        entityId: persisted.id,
+      );
+
+      return TrackCreditSaveResult(
+        song: persisted,
+        credits: List<SongArtistCredit>.unmodifiable(structuredCredits),
+        changed: true,
+      );
+    });
   }
 
   /// The names in [credits] that would not be saved because they repeat

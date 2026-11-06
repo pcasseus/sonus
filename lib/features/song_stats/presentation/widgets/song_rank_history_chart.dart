@@ -3,9 +3,9 @@ import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 
+import '../../../../core/design/sonus_greyscale_theme.dart';
 import '../../../../core/design/sonus_theme.dart';
 import '../../../charts/presentation/models/chart_week_label.dart';
-import '../../../charts/presentation/widgets/chart_board_rows.dart';
 import '../../application/song_stats_models.dart';
 import '../../application/song_stats_service.dart';
 
@@ -56,7 +56,7 @@ class SongRankHistoryChart extends StatelessWidget {
     if (points.isEmpty) return const SizedBox.shrink();
     final tokens = SonusTheme.of(context);
     final colors = tokens.colors;
-    final grey = chartThemeIsGreyscale(colors.accentPrimary);
+    final grey = sonusThemeIsGreyscale(colors.accentPrimary);
     final scaler = MediaQuery.textScalerOf(context);
     final labelStyle = Theme.of(
       context,

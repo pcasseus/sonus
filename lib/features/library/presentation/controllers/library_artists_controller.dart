@@ -52,6 +52,37 @@ class LibraryArtistsController extends ChangeNotifier {
   bool isShownInLibrary(String artistId) =>
       _organization?.isShownInLibrary(artistId) ?? true;
 
+  /// The artists the Library lists, in [artists] order: those with a
+  /// playable track of their own, or on an album they own, that have their
+  /// own Library entry ([isShownInLibrary]). Computed once per load.
+  List<LibraryArtist> get visibleArtists =>
+      _visibleArtists ??= _computeVisibleArtists();
+  List<LibraryArtist>? _visibleArtists;
+
+  List<LibraryArtist> _computeVisibleArtists() {
+    final albumOwnerById = {
+      for (final album in _albums) album.albumId: album.artistId,
+    };
+    final withPlayableMusic = <String>{};
+    for (final track in _tracks) {
+      if (!_hasAvailableMedia(track)) continue;
+      withPlayableMusic.add(track.artistId);
+      final owner = albumOwnerById[track.albumId];
+      if (owner != null) withPlayableMusic.add(owner);
+    }
+    return List.unmodifiable([
+      for (final artist in _artists)
+        if (withPlayableMusic.contains(artist.artistId) &&
+            isShownInLibrary(artist.artistId))
+          artist,
+    ]);
+  }
+
+  static bool _hasAvailableMedia(LibraryTrack track) =>
+      track.isAvailable &&
+      track.filePath != null &&
+      track.filePath!.trim().isNotEmpty;
+
   Future<void> load() async {
     _isLoading = true;
     _error = null;
@@ -68,6 +99,7 @@ class LibraryArtistsController extends ChangeNotifier {
       _albums = results[1] as List<LibraryAlbum>;
       _tracks = results[2] as List<LibraryTrack>;
       _organization = await _loadOrganization();
+      _visibleArtists = null;
     } catch (error) {
       _error = error;
     } finally {

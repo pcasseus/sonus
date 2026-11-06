@@ -28,12 +28,12 @@ class ArtistProfileAlbumsGrid extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         const spacing = 14.0;
-        final columns =
-            ((constraints.maxWidth + spacing) / (_minTileWidth + spacing))
-                .floor()
-                .clamp(1, 4);
-        final tileWidth =
-            (constraints.maxWidth - spacing * (columns - 1)) / columns;
+        // Profile Lab: a carousel; about two and a half covers in view, so
+        // the next release shows there is more.
+        final tileWidth = ((constraints.maxWidth - spacing * 2) / 2.4).clamp(
+          _minTileWidth,
+          200.0,
+        );
         // Room under each cover for the title, summary and the most notes
         // any card here has, at any text size.
         final notes = cards.fold(
@@ -44,28 +44,33 @@ class ArtistProfileAlbumsGrid extends StatelessWidget {
           context,
         ).scale(48 + 18.0 * notes);
 
-        return GridView.builder(
-          key: const ValueKey<String>('artist-profile-albums-grid'),
-          shrinkWrap: true,
-          padding: EdgeInsets.zero,
-          physics: const NeverScrollableScrollPhysics(),
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: columns,
-            crossAxisSpacing: spacing,
-            mainAxisSpacing: 18,
-            mainAxisExtent: tileWidth + 10 + captionHeight,
+        return SizedBox(
+          height: tileWidth + 10 + captionHeight,
+          // Every card is built (as the grid did), so each release stays
+          // findable by screen readers and lookups; covers decode lazily.
+          child: SingleChildScrollView(
+            key: const ValueKey<String>('artist-profile-albums-grid'),
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (final (index, card) in cards.indexed) ...[
+                  if (index > 0) const SizedBox(width: spacing),
+                  SizedBox(
+                    width: tileWidth,
+                    child: _AlbumCard(
+                      key: ValueKey<String>(
+                        'artist-album-${card.album.albumId}',
+                      ),
+                      card: card,
+                      artworkSize: tileWidth,
+                      onTap: () => onAlbumTap(card.album),
+                    ),
+                  ),
+                ],
+              ],
+            ),
           ),
-          itemCount: cards.length,
-          itemBuilder: (context, index) {
-            final card = cards[index];
-
-            return _AlbumCard(
-              key: ValueKey<String>('artist-album-${card.album.albumId}'),
-              card: card,
-              artworkSize: tileWidth,
-              onTap: () => onAlbumTap(card.album),
-            );
-          },
         );
       },
     );

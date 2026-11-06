@@ -7,6 +7,7 @@ import '../../application/models/library_artist.dart';
 import '../../application/models/library_track.dart';
 import '../../application/repositories/library_query_repository.dart';
 import '../../application/services/artist_creation_service.dart';
+import '../../application/services/artist_retirement_service.dart';
 import '../../application/services/external_metadata_application_service.dart';
 import '../../application/services/external_metadata_proposal_service.dart';
 import '../../application/services/metadata_provider.dart';
@@ -20,6 +21,35 @@ import '../pages/track_studio_page.dart';
 bool canOpenTrackStudio(BuildContext context) {
   return context.read<TrackProfileEditingService?>() != null &&
       context.read<LibraryQueryRepository?>() != null;
+}
+
+/// The artists Track Studio offers as primary artist and in credits: every
+/// artist except those kept only for history (A1). A retired artist comes
+/// back by typing its name, which reuses its identity. If the check fails,
+/// every artist is offered, as before.
+Future<List<LibraryArtist>> trackStudioArtists(
+  BuildContext context,
+  LibraryQueryRepository repository,
+) async {
+  final retirement = context.read<ArtistRetirementService?>();
+  final artists = await repository.getArtists();
+
+  if (retirement == null) {
+    return artists;
+  }
+
+  try {
+    return await retirement.withoutRetired(artists);
+  } catch (error, stackTrace) {
+    developer.log(
+      'Retired artists could not be checked (${error.runtimeType})',
+      name: 'sonus.library',
+      level: 900,
+      error: error,
+      stackTrace: stackTrace,
+    );
+    return artists;
+  }
 }
 
 /// Opens Track Studio for [track] and saves its draft the way the Tracks and
@@ -48,7 +78,7 @@ Future<void> openTrackStudio(
   final messenger = ScaffoldMessenger.of(context);
 
   try {
-    final artists = await repository.getArtists();
+    final artists = await trackStudioArtists(context, repository);
     final albums = await repository.getAlbums();
     final credits = creditRepository == null
         ? null
@@ -57,6 +87,10 @@ Future<void> openTrackStudio(
     if (!context.mounted) {
       return;
     }
+
+    // Credits saved from the credit editor are stored at once (E1), so the
+    // surface reloads even when the Studio then closes without a draft.
+    var creditsSaved = false;
 
     final draft = await navigator.push<TrackProfileEditDraft>(
       MaterialPageRoute<TrackProfileEditDraft>(
@@ -75,6 +109,19 @@ Future<void> openTrackStudio(
               legacyFeaturedArtists: track.featuredArtists,
               primaryArtistId: track.artistId,
               primaryArtistName: track.artistName,
+            ),
+            onSaveCredits: trackStudioCreditSaver(
+              track: track,
+              save: (credits) async {
+                final result = await service.updateTrackCredits(
+                  userId: userId,
+                  songId: track.songId,
+                  expectedPrimaryArtistId: track.artistId,
+                  additionalCredits: credits,
+                );
+                creditsSaved = creditsSaved || result.changed;
+                return result;
+              },
             ),
             onCreateArtist: artistCreationService == null
                 ? null
@@ -98,6 +145,9 @@ Future<void> openTrackStudio(
     );
 
     if (draft == null) {
+      if (creditsSaved) {
+        await onSaved?.call();
+      }
       return;
     }
 

@@ -154,7 +154,6 @@ class _BlacklistedSongsPageState extends State<BlacklistedSongsPage> {
       appBar: AppBar(
         title: const Text('Blacklisted songs'),
         backgroundColor: colors.background,
-        surfaceTintColor: Colors.transparent,
       ),
       body: _buildBody(userId: userId, service: service),
     );

@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import '../../../../core/design/sonus_theme.dart';
+import '../../../../core/design/sonus_text_scale.dart';
 import '../../../../core/design/widgets/sonus_artwork_frame.dart';
 import '../../../artwork/application/models/cover_art_archive_image.dart';
 import '../../../artwork/application/services/cover_art_album_edition_import_service.dart';
@@ -1791,9 +1792,8 @@ class _StudioTrackRow extends StatelessWidget {
   final bool isBonus;
   final Future<void> Function(LibraryTrack track) onEditPlacement;
 
-  /// Text scale above which the number column and placement button give
-  /// their width to the title; tapping the row still edits the placement.
-  static const double _largeTextScale = 1.3;
+  // Above sonusLargeTextScale the number column and placement button give
+  // their width to the title; tapping the row still edits the placement.
 
   @override
   Widget build(BuildContext context) {
@@ -1802,7 +1802,7 @@ class _StudioTrackRow extends StatelessWidget {
     final theme = Theme.of(context);
     const tabular = [FontFeature.tabularFigures()];
     final scaler = MediaQuery.textScalerOf(context);
-    final largeText = scaler.scale(1) > _largeTextScale;
+    final largeText = scaler.scale(1) > sonusLargeTextScale;
 
     final placement = multiDisc
         ? 'Disc ${track.discNumber} • Track ${track.trackNumber}'

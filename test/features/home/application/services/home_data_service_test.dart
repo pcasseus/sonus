@@ -79,11 +79,6 @@ void main() {
 
       final snapshot = await service.load(referenceLocal: referenceLocal);
 
-      expect(snapshot.recentlyAddedTracks.map((track) => track.songId), [
-        'song_1',
-        'song_2',
-      ]);
-
       expect(snapshot.recentlyAddedAlbums.map((album) => album.albumId), [
         'album_1',
         'album_2',
@@ -169,47 +164,117 @@ void main() {
     },
   );
 
-  test(
-    'skips missing artists while keeping visible artist ranks dense',
-    () async {
-      final library = _FakeLibraryQueryRepository(
-        tracks: [_track(id: 'song_1', title: 'Song 1')],
-        artists: [_artist(id: 'artist_visible', name: 'Visible Artist')],
+  // S2: an artist no longer in the library keeps its ranking position and
+  // is named from when it was played; it is never dropped or re-ranked.
+  group('a ranked artist no longer in the library', () {
+    PlaybackSession session(
+      String id, {
+      required String artistId,
+      required String artistName,
+      required DateTime startedAt,
+    }) => PlaybackSession(
+      id: id,
+      songId: 'song_missing_artist',
+      artistId: artistId,
+      albumId: 'album_gone',
+      albumEditionId: 'edition_gone',
+      songTitle: 'Gone Song',
+      artistName: artistName,
+      albumTitle: 'Gone Album',
+      albumEditionTitle: 'Standard',
+      startedAt: startedAt,
+      endedAt: startedAt.add(const Duration(minutes: 3)),
+      listenedDuration: const Duration(minutes: 3),
+      trackDuration: const Duration(minutes: 3),
+      finalPosition: const Duration(minutes: 3),
+      createdAt: startedAt,
+      updatedAt: startedAt,
+    );
+
+    HomeDataService serviceWith({PlaybackSessionRepository? sessions}) =>
+        HomeDataService(
+          library: _FakeLibraryQueryRepository(
+            tracks: [_track(id: 'song_1', title: 'Song 1')],
+            artists: [_artist(id: 'artist_visible', name: 'Visible Artist')],
+          ),
+          artistListeningDurations: _emptyArtistListeningDurations(),
+          analyticsRankings: AnalyticsEntityRankingService(
+            qualifiedPlays: _FakeQualifiedPlayRepository([
+              ..._plays(
+                count: 4,
+                songId: 'song_missing_artist',
+                artistId: 'artist_missing',
+              ),
+              ..._plays(
+                count: 3,
+                songId: 'song_1',
+                artistId: 'artist_visible',
+                startingIndex: 10,
+              ),
+            ]),
+          ),
+          playbackSessions: sessions,
+        );
+
+    test('keeps its rank and totals, named from its latest session', () async {
+      final service = serviceWith(
+        sessions: _FakePlaybackSessionRepository([
+          session(
+            'old',
+            artistId: 'artist_missing',
+            artistName: 'Earlier Name',
+            startedAt: DateTime.utc(2026, 9, 20),
+          ),
+          session(
+            'new',
+            artistId: 'artist_missing',
+            artistName: 'Gone Artist',
+            startedAt: DateTime.utc(2026, 9, 27),
+          ),
+          session(
+            'other',
+            artistId: 'artist_visible',
+            artistName: 'Not This One',
+            startedAt: DateTime.utc(2026, 9, 28),
+          ),
+        ]),
       );
 
-      final qualifiedPlays = _FakeQualifiedPlayRepository([
-        ..._plays(
-          count: 4,
-          songId: 'song_missing_artist',
-          artistId: 'artist_missing',
-        ),
-        ..._plays(
-          count: 3,
-          songId: 'song_1',
-          artistId: 'artist_visible',
-          startingIndex: 10,
-        ),
-      ]);
+      final artists = (await service.load(
+        referenceLocal: referenceLocal,
+      )).weeklyTopArtists;
 
-      final service = HomeDataService(
-        library: library,
-        artistListeningDurations: _emptyArtistListeningDurations(),
-        analyticsRankings: AnalyticsEntityRankingService(
-          qualifiedPlays: qualifiedPlays,
-        ),
-      );
-
-      final snapshot = await service.load(referenceLocal: referenceLocal);
-
-      expect(snapshot.weeklyTopArtists, hasLength(1));
-      expect(
-        snapshot.weeklyTopArtists.single.artist.artistId,
+      // Same order and ranks as the ranking itself: nothing shifts up.
+      expect(artists.map((entry) => entry.artist.artistId), [
+        'artist_missing',
         'artist_visible',
-      );
-      expect(snapshot.weeklyTopArtists.single.rank, 1);
-      expect(snapshot.weeklyTopArtists.single.qualifiedStreamCount, 3);
-    },
-  );
+      ]);
+      expect(artists.map((entry) => entry.rank), [1, 2]);
+      expect(artists.map((entry) => entry.qualifiedStreamCount), [4, 3]);
+
+      final missing = artists.first;
+      expect(missing.isHistorical, isTrue);
+      expect(missing.isAvailable, isFalse);
+      expect(missing.artist.name, 'Gone Artist');
+
+      // An artist still in the library is unchanged.
+      final visible = artists.last;
+      expect(visible.isHistorical, isFalse);
+      expect(visible.artist.name, 'Visible Artist');
+    });
+
+    test('with no stored name, it reads "Unknown artist"', () async {
+      for (final sessions in [null, _FakePlaybackSessionRepository()]) {
+        final artists = (await serviceWith(
+          sessions: sessions,
+        ).load(referenceLocal: referenceLocal)).weeklyTopArtists;
+
+        expect(artists.map((entry) => entry.rank), [1, 2]);
+        expect(artists.first.isHistorical, isTrue);
+        expect(artists.first.artist.name, HomeDataService.unknownArtistName);
+      }
+    });
+  });
 
   test('respects the configured section limit after filtering', () async {
     final tracks = List.generate(
@@ -256,7 +321,6 @@ void main() {
 
     final snapshot = await service.load(referenceLocal: referenceLocal);
 
-    expect(snapshot.recentlyAddedTracks, hasLength(6));
     expect(snapshot.recentlyAddedAlbums, hasLength(6));
     expect(snapshot.weeklyPopularTracks, hasLength(6));
     expect(snapshot.weeklyTopArtists, hasLength(6));
@@ -269,58 +333,66 @@ void main() {
     );
   });
 
-  test(
-    'recently added hides unavailable tracks but keeps available blocked tracks',
-    () async {
-      final tracks = [
-        _track(id: 'song_missing', title: 'Missing', available: false),
-        _track(id: 'song_blocked', title: 'Blocked', blocked: true),
-        _track(id: 'song_visible', title: 'Visible'),
-      ];
+  // Home no longer has a Recently Added shelf, but the same track rules
+  // still decide which releases New Releases shows.
+  test('new releases skip releases whose only track is unavailable, and keep '
+      'releases with an available blocked track', () async {
+    final tracks = [
+      _track(id: 'song_missing', title: 'Missing', available: false),
+      _track(id: 'song_blocked', title: 'Blocked', blocked: true),
+      _track(id: 'song_visible', title: 'Visible'),
+    ];
 
-      final service = HomeDataService(
-        library: _FakeLibraryQueryRepository(tracks: tracks),
-        artistListeningDurations: _emptyArtistListeningDurations(),
-        analyticsRankings: AnalyticsEntityRankingService(
-          qualifiedPlays: _FakeQualifiedPlayRepository(),
-        ),
-        sectionLimit: 2,
-      );
+    final service = HomeDataService(
+      library: _FakeLibraryQueryRepository(
+        tracks: tracks,
+        albums: [
+          for (final id in ['missing', 'blocked', 'visible'])
+            _album(id: 'album_$id', title: id),
+        ],
+      ),
+      artistListeningDurations: _emptyArtistListeningDurations(),
+      analyticsRankings: AnalyticsEntityRankingService(
+        qualifiedPlays: _FakeQualifiedPlayRepository(),
+      ),
+      sectionLimit: 2,
+    );
 
-      final snapshot = await service.load(referenceLocal: referenceLocal);
+    final snapshot = await service.load(referenceLocal: referenceLocal);
 
-      expect(snapshot.recentlyAddedTracks.map((track) => track.songId), [
-        'song_blocked',
-        'song_visible',
-      ]);
+    expect(snapshot.recentlyAddedAlbums.map((album) => album.albumId).toSet(), {
+      'album_blocked',
+      'album_visible',
+    });
+  });
 
-      expect(snapshot.recentlyAddedTracks.first.isBlocked, isTrue);
-    },
-  );
+  test('new releases skip a release whose track has a blank file path, even '
+      'when marked available', () async {
+    final tracks = [
+      _track(id: 'song_blank', title: 'Blank Path', filePath: '   '),
+      _track(id: 'song_visible', title: 'Visible'),
+    ];
 
-  test(
-    'recently added hides track with blank file path even when marked available',
-    () async {
-      final tracks = [
-        _track(id: 'song_blank', title: 'Blank Path', filePath: '   '),
-        _track(id: 'song_visible', title: 'Visible'),
-      ];
+    final service = HomeDataService(
+      library: _FakeLibraryQueryRepository(
+        tracks: tracks,
+        albums: [
+          _album(id: 'album_blank', title: 'Blank'),
+          _album(id: 'album_visible', title: 'Visible'),
+        ],
+      ),
+      artistListeningDurations: _emptyArtistListeningDurations(),
+      analyticsRankings: AnalyticsEntityRankingService(
+        qualifiedPlays: _FakeQualifiedPlayRepository(),
+      ),
+    );
 
-      final service = HomeDataService(
-        library: _FakeLibraryQueryRepository(tracks: tracks),
-        artistListeningDurations: _emptyArtistListeningDurations(),
-        analyticsRankings: AnalyticsEntityRankingService(
-          qualifiedPlays: _FakeQualifiedPlayRepository(),
-        ),
-      );
+    final snapshot = await service.load(referenceLocal: referenceLocal);
 
-      final snapshot = await service.load(referenceLocal: referenceLocal);
-
-      expect(snapshot.recentlyAddedTracks.map((track) => track.songId), [
-        'song_visible',
-      ]);
-    },
-  );
+    expect(snapshot.recentlyAddedAlbums.map((album) => album.albumId), [
+      'album_visible',
+    ]);
+  });
 
   test('new albums hide albums without usable media', () async {
     final tracks = [

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../../core/design/sonus_count_label.dart';
 import '../../../../core/design/sonus_theme.dart';
+import '../../../../core/design/sonus_text_scale.dart';
 import '../../../../core/design/widgets/sonus_segmented_selector.dart';
 import '../../../../core/design/widgets/sonus_decorations.dart';
 import '../../../song_stats/presentation/song_stats_navigation.dart';
@@ -337,7 +338,8 @@ ButtonStyle _chartsSegmentedStyle(SonusThemeData tokens) {
 /// "Moments" keep their width instead of breaking mid-word. The selection
 /// checkmark stays, so the selected segment never relies on colour alone.
 Widget? _segmentIcon(BuildContext context, IconData icon) {
-  final isLargeText = MediaQuery.textScalerOf(context).scale(1) > 1.3;
+  final isLargeText =
+      MediaQuery.textScalerOf(context).scale(1) > sonusLargeTextScale;
 
   return isLargeText ? null : Icon(icon);
 }
@@ -1988,7 +1990,7 @@ Future<void> _jumpToRank(
       await Scrollable.ensureVisible(
         built,
         alignment: 0.15,
-        duration: motion.reduced ? Duration.zero : motion.medium,
+        duration: motion.medium,
         curve: motion.curve,
       );
       return;

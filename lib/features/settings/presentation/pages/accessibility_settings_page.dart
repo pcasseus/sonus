@@ -5,6 +5,7 @@ import '../../application/controllers/appearance_controller.dart';
 import '../widgets/appearance/appearance_accessibility_controls.dart';
 import '../widgets/settings/settings_section.dart';
 import 'appearance_settings_page.dart';
+import 'appearance_summary_page.dart';
 
 /// Accessibility preferences. These are the same appearance preferences
 /// shown on the Appearance page, not a separate system.
@@ -49,6 +50,13 @@ class AccessibilitySettingsPage extends StatelessWidget {
                     'reduces motion even if the switch above is off.',
               ),
               SettingsInfoTile(
+                icon: Icons.format_bold_rounded,
+                title: 'Bold text',
+                body:
+                    'When your device uses bold text, Sonus uses heavier '
+                    'text even if the switch above is off.',
+              ),
+              SettingsInfoTile(
                 icon: Icons.contrast_rounded,
                 title: 'High contrast text',
                 body:
@@ -68,6 +76,14 @@ class AccessibilitySettingsPage extends StatelessWidget {
                   subtitle: 'Choose a calmer theme or turn decoration off.',
                   onTap: () =>
                       pushSettingsPage(context, const AppearanceSettingsPage()),
+                ),
+                SettingsNavTile(
+                  key: const ValueKey<String>('accessibility-open-summary'),
+                  icon: Icons.fact_check_outlined,
+                  title: 'Appearance summary',
+                  subtitle: 'See what is on, and what limits artwork colours.',
+                  onTap: () =>
+                      pushSettingsPage(context, const AppearanceSummaryPage()),
                 ),
               ],
             ),

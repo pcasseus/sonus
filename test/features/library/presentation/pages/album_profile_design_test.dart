@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sonus_next/core/design/sonus_artwork_palette.dart';
+import 'package:sonus_next/core/design/sonus_profile_colors.dart';
 import 'package:sonus_next/core/design/sonus_theme_factory.dart';
+import 'package:sonus_next/core/design/widgets/sonus_frosted_glass.dart';
 import 'package:sonus_next/core/design/sonus_theme_id.dart';
 import 'package:sonus_next/core/design/sonus_tokens.dart';
 import 'package:sonus_next/features/library/application/models/library_album_edition.dart';
@@ -140,18 +142,20 @@ void main() {
       )
       .backgroundColor!;
 
+  // The track list sits on frosted glass (Profile Lab) tinted with the
+  // profile colours' surface.
   Color tracksSurface(WidgetTester tester) => tester
-      .widget<Material>(
+      .widget<SonusFrostedGlass>(
         find.byKey(const ValueKey<String>('album-profile-tracks-section')),
       )
-      .color!;
+      .tint;
 
   group('atmosphere', () {
     testWidgets('theme colours show first, then the artwork tints the page '
         'and the track list', (tester) async {
       const spec = SonusAppearanceSpec();
       final (colors, decoration) = tokensFor(spec);
-      final tinted = SonusArtworkAtmosphere.resolve(
+      final tinted = SonusProfileColors.resolve(
         colors: colors,
         decoration: decoration,
         artwork: red,
@@ -207,7 +211,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 16));
       await tester.pump(const Duration(milliseconds: 60));
       final (colors, decoration) = tokensFor(const SonusAppearanceSpec());
-      final end = SonusArtworkAtmosphere.resolve(
+      final end = SonusProfileColors.resolve(
         colors: colors,
         decoration: decoration,
         artwork: red,
@@ -225,7 +229,7 @@ void main() {
       final (rc, rd) = tokensFor(reduced);
       expect(
         pageBackground(tester),
-        SonusArtworkAtmosphere.resolve(
+        SonusProfileColors.resolve(
           colors: rc,
           decoration: rd,
           artwork: red,
@@ -254,7 +258,12 @@ void main() {
       final image = tester.widget<Image>(find.byType(Image).first);
       expect(image.image, isA<ResizeImage>());
       final width = (image.image as ResizeImage).width!;
-      expect(width, lessThanOrEqualTo(264 * 3));
+      // P2: the cover is larger, and still decoded at its display size.
+      final shown = tester.getSize(
+        find.byKey(const ValueKey<String>('album-profile-artwork-album-1')),
+      );
+      final ratio = tester.view.devicePixelRatio;
+      expect(width, lessThanOrEqualTo((shown.width * ratio).ceil()));
     });
   });
 
@@ -297,7 +306,7 @@ void main() {
       expect(palette.requested, contains('/art/deluxe.png'));
       expect(
         pageBackground(tester),
-        SonusArtworkAtmosphere.resolve(
+        SonusProfileColors.resolve(
           colors: colors,
           decoration: decoration,
           artwork: blue,
@@ -605,10 +614,430 @@ void main() {
     ) async {
       await pump(tester, padding: const EdgeInsets.only(bottom: 120));
 
-      final list = tester.widget<ListView>(
-        find.byKey(const PageStorageKey<String>('album-profile-scroll')),
+      // The track list is the last sliver; its padding clears the inset.
+      final paddings = tester.widgetList<SliverPadding>(
+        find.descendant(
+          of: find.byKey(const PageStorageKey<String>('album-profile-scroll')),
+          matching: find.byType(SliverPadding),
+        ),
       );
-      expect((list.padding! as EdgeInsets).bottom, greaterThanOrEqualTo(120));
+      expect(
+        (paddings.last.padding as EdgeInsets).bottom,
+        greaterThanOrEqualTo(120),
+      );
+    });
+  });
+
+  // UI redesign P2: artwork-adaptive page, a collapsing artwork header and
+  // the track list on glass.
+  group('P2 album revamp', () {
+    Finder byKey(String key) => find.byKey(ValueKey<String>(key));
+
+    BoxDecoration background(WidgetTester tester) =>
+        tester
+                .widget<DecoratedBox>(byKey('album-profile-background'))
+                .decoration
+            as BoxDecoration;
+
+    ScrollableState page(WidgetTester tester) => tester.state<ScrollableState>(
+      find
+          .descendant(
+            of: find.byKey(
+              const PageStorageKey<String>('album-profile-scroll'),
+            ),
+            matching: find.byType(Scrollable),
+          )
+          .first,
+    );
+
+    double titleOpacity(WidgetTester tester) => tester
+        .widget<AnimatedOpacity>(byKey('album-profile-toolbar-title'))
+        .opacity;
+
+    testWidgets('the page runs from the artwork\'s colour to the theme', (
+      tester,
+    ) async {
+      final (colors, decoration) = tokensFor(const SonusAppearanceSpec());
+      await pump(tester, colours: {'/art/standard.png': blue, null: null});
+
+      final profile = SonusProfileColors.resolve(
+        colors: colors,
+        decoration: decoration,
+        artwork: blue,
+      );
+      final gradient = background(tester).gradient! as LinearGradient;
+      expect(gradient.colors, [profile.background, profile.backgroundDeep]);
+      expect(tracksSurface(tester), profile.surface);
+    });
+
+    // The hero scrolls away naturally: the full cover leads it at the top,
+    // nothing is pinned or shrunk under the toolbar, and the compact
+    // toolbar names the release once the hero has gone.
+    testWidgets('phones: a large cover in a hero that scrolls away; the '
+        'toolbar then names the release', (tester) async {
+      // A release long enough to scroll its cover away.
+      final long = base.FakeEditionAwareLibraryQueryRepository(
+        album: base.createAlbum(
+          title: 'Concept Album',
+          primaryEditionId: 'edition-standard',
+          primaryEditionTitle: 'Standard',
+        ),
+        editions: [
+          edition(
+            'edition-standard',
+            'Standard',
+            AlbumEditionType.standard,
+            primary: true,
+            artworkPath: '/art/standard.png',
+          ),
+        ],
+        editionTracks: {
+          'edition-standard': [
+            for (var i = 1; i <= 14; i++)
+              track('t$i', edition: 'edition-standard', number: i),
+          ],
+        },
+      );
+      await pump(tester, repository: long);
+
+      expect(byKey('album-profile-collapsing-hero'), findsNothing);
+      expect(
+        find.descendant(
+          of: byKey('album-profile-hero'),
+          matching: byKey('album-profile-artwork-album-1'),
+        ),
+        findsOneWidget,
+      );
+      final art = tester.getSize(byKey('album-profile-artwork-album-1'));
+      expect(art.width, greaterThan(300), reason: 'prominent on 411dp');
+      expect(titleOpacity(tester), 0, reason: 'the cover names it at first');
+      expect(
+        tester
+            .widget<ExcludeSemantics>(
+              find
+                  .ancestor(
+                    of: byKey('album-profile-toolbar-title'),
+                    matching: find.byType(ExcludeSemantics),
+                  )
+                  .first,
+            )
+            .excluding,
+        isTrue,
+      );
+
+      page(tester).position.jumpTo(art.height + 40);
+      await tester.pumpAndSettle();
+
+      expect(titleOpacity(tester), 1);
+      final bar = tester.getRect(
+        find.descendant(
+          of: byKey('album-profile-app-bar'),
+          matching: find.byType(AppBar),
+        ),
+      );
+      expect(
+        bar.height,
+        lessThanOrEqualTo(kToolbarHeight + 1),
+        reason: 'a compact toolbar',
+      );
+      // No cover left partly visible behind the pinned toolbar.
+      final cover = byKey('album-profile-artwork-album-1');
+      if (cover.evaluate().isNotEmpty) {
+        expect(tester.getRect(cover).bottom, lessThanOrEqualTo(bar.bottom));
+      }
+      expect(byKey('album-profile-artwork-menu'), findsOneWidget);
+    });
+
+    testWidgets('reduced motion: the title appears at once', (tester) async {
+      await pump(tester, spec: const SonusAppearanceSpec(reduceMotion: true));
+
+      expect(
+        tester
+            .widget<AnimatedOpacity>(byKey('album-profile-toolbar-title'))
+            .duration,
+        Duration.zero,
+      );
+    });
+
+    testWidgets('wide screens keep the cover beside the details, no '
+        'collapsing header', (tester) async {
+      await pump(tester, size: const Size(800, 900));
+
+      expect(byKey('album-profile-collapsing-hero'), findsNothing);
+      expect(byKey('album-profile-artwork-album-1'), findsOneWidget);
+    });
+
+    testWidgets('tracks on glass with hairlines between rows', (tester) async {
+      await pump(tester);
+
+      final glass = byKey('album-profile-tracks-section');
+      expect(
+        find.descendant(of: glass, matching: byKey('album-track-s1')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: glass, matching: find.byType(Divider)),
+        findsOneWidget,
+        reason: 'two tracks, one hairline',
+      );
+      expect(tester.takeException(), isNull);
+    });
+
+    for (final (label, spec) in [
+      (
+        'Low effects',
+        const SonusAppearanceSpec(
+          decoration: SonusDecorationIntensity.expressive,
+          lowEffects: true,
+        ),
+      ),
+      (
+        'High contrast',
+        const SonusAppearanceSpec(
+          decoration: SonusDecorationIntensity.expressive,
+          highContrast: true,
+        ),
+      ),
+      (
+        'Decoration Off',
+        const SonusAppearanceSpec(decoration: SonusDecorationIntensity.off),
+      ),
+    ]) {
+      testWidgets('$label: flat page and an opaque track panel', (
+        tester,
+      ) async {
+        final (colors, _) = tokensFor(spec);
+        await pump(tester, spec: spec);
+
+        expect(background(tester).gradient, isNull);
+        expect(background(tester).color, colors.background);
+        final surface = tester.widget<DecoratedBox>(
+          find
+              .descendant(
+                of: byKey('album-profile-tracks-section'),
+                matching: byKey('sonus-frosted-glass-surface'),
+              )
+              .first,
+        );
+        final box = surface.decoration as BoxDecoration;
+        expect(box.gradient, isNull);
+        expect(box.color!.a, 1);
+      });
+    }
+
+    testWidgets('editions still switch, the header follows the new cover', (
+      tester,
+    ) async {
+      final palette = await pump(tester);
+
+      await tester.tap(
+        find.descendant(
+          of: byKey('album-profile-edition-segmented-button'),
+          matching: find.text('Deluxe'),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Bonus'), findsOneWidget);
+      expect(palette.requested, contains('/art/deluxe.png'));
+      expect(byKey('album-profile-collapsing-hero'), findsNothing);
+      expect(
+        find.descendant(
+          of: byKey('album-profile-hero'),
+          matching: byKey('album-profile-artwork-album-1'),
+        ),
+        findsOneWidget,
+      );
+    });
+  });
+
+  // UI redesign V2: the selected edition's cover is the environment of the
+  // whole page; nothing is a fixed palette.
+  group('V2 visual fidelity', () {
+    Finder byKey(String key) => find.byKey(ValueKey<String>(key));
+
+    // As Sonus's palette extraction gives them for a dark theme.
+    const palettes = <String, (SonusArtworkColors, double)>{
+      'cool blue': (
+        SonusArtworkColors(
+          accent: Color(0xFFA8C8FF),
+          container: Color(0xFF1B3A63),
+        ),
+        213,
+      ),
+      'vivid pink': (
+        SonusArtworkColors(
+          accent: Color(0xFFFFB0CF),
+          container: Color(0xFF8A1F58),
+        ),
+        327,
+      ),
+      'warm orange': (
+        SonusArtworkColors(
+          accent: Color(0xFFFFB77C),
+          container: Color(0xFF7A3A00),
+        ),
+        28,
+      ),
+      'green': (
+        SonusArtworkColors(
+          accent: Color(0xFF8FD99A),
+          container: Color(0xFF1C5228),
+        ),
+        135,
+      ),
+    };
+
+    double hueDistance(double a, double b) {
+      final d = (a - b).abs() % 360;
+      return d > 180 ? 360 - d : d;
+    }
+
+    for (final MapEntry(key: name, value: (artwork, hue)) in palettes.entries) {
+      testWidgets('$name cover: a $name page, controls and track list', (
+        tester,
+      ) async {
+        final (colors, decoration) = tokensFor(const SonusAppearanceSpec());
+        await pump(tester, colours: {'/art/standard.png': artwork, null: null});
+
+        final profile = SonusProfileColors.resolve(
+          colors: colors,
+          decoration: decoration,
+          artwork: artwork,
+        );
+        for (final ground in [profile.background, profile.backgroundDeep]) {
+          final hsl = HSLColor.fromColor(ground);
+          expect(hueDistance(hsl.hue, hue), lessThan(30), reason: name);
+          expect(hsl.saturation, greaterThan(0.2), reason: 'not charcoal');
+        }
+        expect(pageBackground(tester), profile.background);
+        expect(tracksSurface(tester), profile.surface);
+        final shuffle = tester.widget<IconButton>(
+          byKey('album-profile-shuffle-button'),
+        );
+        expect(
+          shuffle.style!.backgroundColor!.resolve(const {}),
+          profile.surface.withValues(alpha: 0.55),
+        );
+      });
+    }
+
+    testWidgets('the page\'s light shows behind the expanded header; the '
+        'toolbar turns opaque as it collapses', (tester) async {
+      final long = base.FakeEditionAwareLibraryQueryRepository(
+        album: base.createAlbum(
+          title: 'Concept Album',
+          primaryEditionId: 'edition-standard',
+          primaryEditionTitle: 'Standard',
+        ),
+        editions: [
+          edition(
+            'edition-standard',
+            'Standard',
+            AlbumEditionType.standard,
+            primary: true,
+            artworkPath: '/art/standard.png',
+          ),
+        ],
+        editionTracks: {
+          'edition-standard': [
+            for (var i = 1; i <= 14; i++)
+              track('t$i', edition: 'edition-standard', number: i),
+          ],
+        },
+      );
+      await pump(tester, repository: long);
+
+      expect(byKey('sonus-profile-light-high'), findsOneWidget);
+      Color fill() =>
+          tester.widget<ColoredBox>(byKey('album-profile-toolbar-fill')).color;
+      expect(fill().a, lessThan(0.05), reason: 'clear while expanded');
+
+      tester
+          .state<ScrollableState>(
+            find
+                .descendant(
+                  of: find.byKey(
+                    const PageStorageKey<String>('album-profile-scroll'),
+                  ),
+                  matching: find.byType(Scrollable),
+                )
+                .first,
+          )
+          .position
+          .jumpTo(900);
+      await tester.pumpAndSettle();
+      // Profile Lab: translucent glass once collapsed, over a blur of the
+      // list that scrolls under it.
+      expect(fill().a, closeTo(0.72, 0.01), reason: 'glass when collapsed');
+      expect(
+        find.ancestor(
+          of: byKey('album-profile-toolbar-fill'),
+          matching: find.byType(BackdropFilter),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('the cover carries an accent rim and glow', (tester) async {
+      await pump(tester);
+
+      final frame = tester.widget<DecoratedBox>(
+        find
+            .ancestor(
+              of: byKey('album-profile-artwork-album-1'),
+              matching: find.byType(DecoratedBox),
+            )
+            .first,
+      );
+      final box = frame.decoration as BoxDecoration;
+      expect(box.border, isNotNull);
+      expect(box.boxShadow, isNotEmpty);
+    });
+
+    // Profile Lab: frosted glass. A painted rim (lit at the top, almost
+    // gone at the bottom), a shadow painted outside the plate only, and a
+    // translucent plate. Measured separation and text contrast on real
+    // renders: test/visual_lab/album_profile_render_test.dart.
+    testWidgets('frosted glass tracks: no heavy outline, no shadow through', (
+      tester,
+    ) async {
+      await pump(tester);
+
+      final glass = tester.widget<DecoratedBox>(
+        find
+            .descendant(
+              of: byKey('album-profile-tracks-section'),
+              matching: byKey('sonus-frosted-glass-surface'),
+            )
+            .first,
+      );
+      final box = glass.decoration as BoxDecoration;
+      expect(box.border, isNull, reason: 'no even outline');
+      expect(box.boxShadow, isNull, reason: 'no shadow through the glass');
+      expect(box.gradient, isNotNull, reason: 'translucent');
+      expect(SonusFrostedGlass.rimAlpha, lessThanOrEqualTo(0.1));
+    });
+
+    testWidgets('Low effects: no light pools, the plain cover', (tester) async {
+      await pump(
+        tester,
+        spec: const SonusAppearanceSpec(
+          decoration: SonusDecorationIntensity.expressive,
+          lowEffects: true,
+        ),
+      );
+
+      expect(byKey('sonus-profile-light-high'), findsNothing);
+      final frame = tester.widget<DecoratedBox>(
+        find
+            .ancestor(
+              of: byKey('album-profile-artwork-album-1'),
+              matching: find.byType(DecoratedBox),
+            )
+            .first,
+      );
+      expect((frame.decoration as BoxDecoration).border, isNull);
     });
   });
 

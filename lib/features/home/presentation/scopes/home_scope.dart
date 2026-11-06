@@ -103,6 +103,7 @@ class _HomeScopeState extends State<HomeScope> {
         listeningSegments: listeningSegments,
         artistAttribution: attribution,
       ),
+      playbackSessions: playbackSessions,
     );
 
     final controller = HomeController(service: service, now: widget.now);

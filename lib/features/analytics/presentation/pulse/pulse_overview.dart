@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../../../core/design/sonus_theme.dart';
+import '../../../../core/design/sonus_text_scale.dart';
 import '../../application/models/pulse/pulse_delta.dart';
 import '../../application/models/pulse/pulse_period.dart';
 import '../../application/models/pulse/pulse_period_data.dart';
@@ -103,7 +104,10 @@ class PulseOverviewGrid extends StatelessWidget {
         const SizedBox(height: 8),
         LayoutBuilder(
           builder: (context, constraints) {
-            final columns = constraints.maxWidth < 340 || textScale >= 1.3
+            // Two columns from exactly 1.3 too, unlike the other rows
+            // (`>`); kept as approved until a decision (register R21).
+            final columns =
+                constraints.maxWidth < 340 || textScale >= sonusLargeTextScale
                 ? 2
                 : 3;
             final rows = <Widget>[];

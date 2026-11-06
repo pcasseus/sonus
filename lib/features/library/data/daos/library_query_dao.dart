@@ -9,6 +9,7 @@ import '../../application/models/library_track.dart';
 import '../../application/models/library_track_order.dart';
 import '../../application/models/project_collaborator.dart';
 import '../../application/models/project_song_credit.dart';
+import '../../application/models/song_artist_credit_link.dart';
 import '../../application/models/song_display_title.dart';
 import '../../domain/entities/song_artist_credit.dart';
 import '../../../search/application/models/library_search_results.dart';
@@ -17,6 +18,7 @@ import '../mappers/library_album_edition_row_mapper.dart';
 import '../mappers/library_artist_row_mapper.dart';
 import '../mappers/library_track_row_mapper.dart';
 import 'edition_track_order.dart';
+import '../repositories/sqlite_artist_reference_repository.dart';
 
 class LibraryQueryDao {
   const LibraryQueryDao(this.db);
@@ -414,6 +416,39 @@ class LibraryQueryDao {
       roles: const ['primary', 'coPrimary'],
       order: order,
     );
+  }
+
+  /// Every structured credit that names a library artist, in one query:
+  /// song, artist and role. Unlinked (name-only) credits are left out, as
+  /// [findMainTracksByArtistId] and [findCollaborationTracksByArtistId]
+  /// only ever match linked artists.
+  Future<List<SongArtistCreditLink>> findSongArtistCreditLinks() async {
+    final rows = await db.rawQuery('''
+      SELECT DISTINCT
+        sac.song_id AS song_id,
+        sac.artist_id AS artist_id,
+        sac.role AS role
+      FROM ${DatabaseTables.songArtistCredits} sac
+      WHERE sac.artist_id IS NOT NULL
+      ORDER BY sac.song_id ASC, sac.artist_id ASC, sac.role ASC
+      ''');
+
+    return [
+      for (final row in rows)
+        if (_creditRole(row['role'] as String?) case final role?)
+          SongArtistCreditLink(
+            songId: row['song_id'] as String,
+            artistId: row['artist_id'] as String,
+            role: role,
+          ),
+    ];
+  }
+
+  static SongArtistCreditRole? _creditRole(String? name) {
+    for (final role in SongArtistCreditRole.values) {
+      if (role.name == name) return role;
+    }
+    return null;
   }
 
   Future<List<LibraryTrack>> findCollaborationTracksByArtistId(
@@ -1082,12 +1117,16 @@ class LibraryQueryDao {
       findArtists(),
       findAlbums(),
       findTracks(),
+      // Artists kept only for history are not offered in Search (A1).
+      SqliteArtistReferenceRepository(db).findRetiredArtistIds(),
     ]);
+    final retiredArtistIds = results[3] as Set<String>;
 
     final artists =
         (results[0] as List<LibraryArtist>)
             .where(
               (artist) =>
+                  !retiredArtistIds.contains(artist.artistId) &&
                   _normalizeSearchText(artist.name).contains(normalizedQuery),
             )
             .toList(growable: false)

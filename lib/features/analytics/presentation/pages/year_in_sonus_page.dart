@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 
 import '../../../../core/design/sonus_count_label.dart';
 import '../../../../core/design/sonus_theme.dart';
+import '../../../../core/design/sonus_text_scale.dart';
 import '../../../../core/design/widgets/sonus_artwork_frame.dart';
 import '../../../../core/design/widgets/sonus_decorations.dart';
 import '../../../../core/design/widgets/sonus_metric_tile.dart';
@@ -805,9 +806,6 @@ class _MonthTimelineRow extends StatelessWidget {
   /// The most active month, marked with a word as well as the accent.
   final bool isPeak;
 
-  /// Text scale above which the row stacks, as in the shared data tables.
-  static const double _largeTextScale = 1.3;
-
   @override
   Widget build(BuildContext context) {
     final tokens = SonusTheme.of(context);
@@ -824,7 +822,7 @@ class _MonthTimelineRow extends StatelessWidget {
     // bar spans the row beneath, so "Jan" never wraps and the bar keeps its
     // width. Below that, the label column scales with the text.
     final textScaler = MediaQuery.textScalerOf(context);
-    final stacked = textScaler.scale(1) > _largeTextScale;
+    final stacked = textScaler.scale(1) > sonusLargeTextScale;
     final labelWidth = stacked ? 0.0 : textScaler.scale(46);
 
     final label = Text(

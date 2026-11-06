@@ -3,15 +3,13 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+import '../../../../../core/design/context/sonus_context_theme.dart';
 import '../../../../../core/design/sonus_theme.dart';
+import '../../../../../core/design/sonus_text_scale.dart';
 import '../../../application/models/library_track.dart';
 import '../../../application/models/song_credit_line.dart';
 import '../../controllers/track_selection_controller.dart';
 import '../../../../song_stats/presentation/song_stats_navigation.dart';
-
-/// Text scale above which rows switch to their large-text layout, as in
-/// the shared Sonus data components.
-const double _largeTextScale = 1.3;
 
 class ArtistProfileTracksList extends StatelessWidget {
   const ArtistProfileTracksList({
@@ -36,6 +34,7 @@ class ArtistProfileTracksList extends StatelessWidget {
     this.firstRank = 1,
     this.tileColor,
     this.profileArtistId,
+    this.groupByAlbum = false,
   });
 
   final List<LibraryTrack> tracks;
@@ -73,6 +72,14 @@ class ArtistProfileTracksList extends StatelessWidget {
   /// The page's multi-select, when its rows can be selected.
   final TrackSelectionController? selection;
 
+  /// Collaborations (SN-51 C1, D9): two or more songs of one release,
+  /// keyed by its stable album id and never by title, show as one
+  /// expandable entry at the place of its first song. Editions of a
+  /// release share the id, so they stay one entry. A release with one
+  /// song keeps its plain row. Playing still uses [onPlay] per song, so
+  /// queues are unchanged.
+  final bool groupByAlbum;
+
   @override
   Widget build(BuildContext context) {
     if (tracks.isEmpty) {
@@ -80,46 +87,99 @@ class ArtistProfileTracksList extends StatelessWidget {
     }
 
     final largeText =
-        MediaQuery.textScalerOf(context).scale(1) > _largeTextScale;
-    final selection = this.selection;
+        MediaQuery.textScalerOf(context).scale(1) > sonusLargeTextScale;
+
+    if (!groupByAlbum) {
+      return Column(
+        key: ValueKey<String>('$keyPrefix-list'),
+        children: [
+          for (final (index, track) in tracks.indexed)
+            _tile(track, index, largeText: largeText),
+        ],
+      );
+    }
+
+    final indexOf = {
+      for (final (index, track) in tracks.indexed) track.songId: index,
+    };
 
     return Column(
       key: ValueKey<String>('$keyPrefix-list'),
       children: [
-        for (final (index, track) in tracks.indexed)
-          _TrackTile(
-            track: track,
-            keyPrefix: keyPrefix,
-            rank: streamCounts == null ? null : firstRank + index,
-            streamCount: streamCounts?[track.songId],
-            largeText: largeText,
-            tileColor: tileColor,
-            showArtist:
-                profileArtistId != null && track.artistId != profileArtistId,
-            isPlayable: isTrackPlayable(track),
-            canEditArtwork: canEditArtwork,
-            canEditTrack: canEditTrack,
-            canSetBlocked: canSetBlocked,
-            onPlay: () => onPlay(track),
-            onPlayNext: () => onPlayNext(track),
-            onAddToQueue: () => onAddToQueue(track),
-            onAddToPlaylist: () => onAddToPlaylist(track),
-            onEditTrack: () => onEditTrack(track),
-            onChangeArtwork: () => onChangeArtwork(track),
-            onClearArtwork: () => onClearArtwork(track),
-            onSetBlocked: (isBlocked) => onSetBlocked(track, isBlocked),
-            onGoToAlbum: () => onGoToAlbum(track),
-            selected: selection != null && selection.isActive
-                ? selection.isSelected(track.songId)
-                : null,
-            onSelect: selection == null
-                ? null
-                : () => selection.start(track.songId),
-            onToggleSelected: selection == null
-                ? null
-                : () => selection.toggle(track.songId),
-          ),
+        for (final group in albumGroups(tracks))
+          if (group.length == 1)
+            _tile(
+              group.single,
+              indexOf[group.single.songId]!,
+              largeText: largeText,
+            )
+          else
+            _AlbumGroup(
+              key: ValueKey<String>(
+                'artist-collaboration-group-${group.first.albumId}',
+              ),
+              tracks: group,
+              largeText: largeText,
+              tileColor: tileColor,
+              rowOf: (track) => _tile(
+                track,
+                indexOf[track.songId]!,
+                largeText: largeText,
+                showAlbum: false,
+              ),
+            ),
       ],
+    );
+  }
+
+  /// [tracks] split by release (album id), each group at the place of its
+  /// first song and keeping the songs' order.
+  @visibleForTesting
+  static List<List<LibraryTrack>> albumGroups(List<LibraryTrack> tracks) {
+    final groups = <String, List<LibraryTrack>>{};
+    for (final track in tracks) {
+      (groups[track.albumId] ??= []).add(track);
+    }
+    return [for (final group in groups.values) List.unmodifiable(group)];
+  }
+
+  Widget _tile(
+    LibraryTrack track,
+    int index, {
+    required bool largeText,
+    bool showAlbum = true,
+  }) {
+    final selection = this.selection;
+
+    return _TrackTile(
+      track: track,
+      keyPrefix: keyPrefix,
+      rank: streamCounts == null ? null : firstRank + index,
+      streamCount: streamCounts?[track.songId],
+      largeText: largeText,
+      tileColor: tileColor,
+      showAlbum: showAlbum,
+      showArtist: profileArtistId != null && track.artistId != profileArtistId,
+      isPlayable: isTrackPlayable(track),
+      canEditArtwork: canEditArtwork,
+      canEditTrack: canEditTrack,
+      canSetBlocked: canSetBlocked,
+      onPlay: () => onPlay(track),
+      onPlayNext: () => onPlayNext(track),
+      onAddToQueue: () => onAddToQueue(track),
+      onAddToPlaylist: () => onAddToPlaylist(track),
+      onEditTrack: () => onEditTrack(track),
+      onChangeArtwork: () => onChangeArtwork(track),
+      onClearArtwork: () => onClearArtwork(track),
+      onSetBlocked: (isBlocked) => onSetBlocked(track, isBlocked),
+      onGoToAlbum: () => onGoToAlbum(track),
+      selected: selection != null && selection.isActive
+          ? selection.isSelected(track.songId)
+          : null,
+      onSelect: selection == null ? null : () => selection.start(track.songId),
+      onToggleSelected: selection == null
+          ? null
+          : () => selection.toggle(track.songId),
     );
   }
 }
@@ -132,6 +192,7 @@ class _TrackTile extends StatelessWidget {
     required this.streamCount,
     required this.largeText,
     required this.tileColor,
+    required this.showAlbum,
     required this.showArtist,
     required this.isPlayable,
     required this.canEditArtwork,
@@ -157,6 +218,9 @@ class _TrackTile extends StatelessWidget {
   final int? streamCount;
   final bool largeText;
   final Color? tileColor;
+
+  /// False inside an album group, whose header already names the release.
+  final bool showAlbum;
   final bool showArtist;
   final bool isPlayable;
   final bool canEditArtwork;
@@ -209,7 +273,13 @@ class _TrackTile extends StatelessWidget {
         key: ValueKey<String>('$keyPrefix-${track.songId}'),
         enabled: isPlayable || selecting,
         selected: selected ?? false,
-        tileColor: tileColor ?? colors.surface,
+        // On an artwork-tinted page rows sit on its glass, not on an
+        // opaque card that would hide the colour.
+        tileColor:
+            tileColor ??
+            (SonusContextTheme.of(context).isTinted
+                ? Colors.transparent
+                : colors.surface),
         textColor: colors.textPrimary,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(
@@ -436,7 +506,7 @@ class _TrackTile extends StatelessWidget {
     final albumTitle = track.albumDisplayTitle.trim();
 
     // A single named like its song says it once (B-Q20).
-    if (albumTitle.isNotEmpty && !_sameTitle(albumTitle, track)) {
+    if (showAlbum && albumTitle.isNotEmpty && !_sameTitle(albumTitle, track)) {
       parts.add(albumTitle);
     }
 
@@ -483,6 +553,151 @@ enum _TrackMenuAction {
   select,
   trackStudio,
   toggleBlocked,
+}
+
+/// One release's collaborations (SN-51 C1): a header with the release's
+/// artwork, title and song count that expands to the songs' own rows.
+/// Collapsed at first; the choice is kept in the page's storage while the
+/// page lives.
+class _AlbumGroup extends StatefulWidget {
+  const _AlbumGroup({
+    required super.key,
+    required this.tracks,
+    required this.largeText,
+    required this.tileColor,
+    required this.rowOf,
+  });
+
+  final List<LibraryTrack> tracks;
+  final bool largeText;
+  final Color? tileColor;
+  final Widget Function(LibraryTrack track) rowOf;
+
+  @override
+  State<_AlbumGroup> createState() => _AlbumGroupState();
+}
+
+class _AlbumGroupState extends State<_AlbumGroup> {
+  late bool _expanded;
+
+  String get _storageId => (widget.key! as ValueKey<String>).value;
+
+  @override
+  void initState() {
+    super.initState();
+    _expanded =
+        PageStorage.maybeOf(context)?.readState(context, identifier: _storageId)
+            as bool? ??
+        false;
+  }
+
+  void _toggle() {
+    setState(() => _expanded = !_expanded);
+    PageStorage.maybeOf(
+      context,
+    )?.writeState(context, _expanded, identifier: _storageId);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final tokens = SonusTheme.of(context);
+    final colors = tokens.colors;
+    final theme = Theme.of(context);
+    final reduced = tokens.motion.reduced;
+    final duration = tokens.motion.short;
+    final tracks = widget.tracks;
+    final first = tracks.first;
+    final title = first.albumDisplayTitle.trim().isEmpty
+        ? 'Unknown album'
+        : first.albumDisplayTitle.trim();
+    final count = '${tracks.length} collaborations';
+    final artworkTrack = tracks.firstWhere(
+      (track) => track.artworkPath?.trim().isNotEmpty ?? false,
+      orElse: () => first,
+    );
+    final groupKey = _storageId;
+
+    final header = Semantics(
+      key: ValueKey<String>('$groupKey-header'),
+      container: true,
+      button: true,
+      expanded: _expanded,
+      label: '$title, $count',
+      onTap: _toggle,
+      excludeSemantics: true,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 3),
+        child: ListTile(
+          tileColor:
+              widget.tileColor ??
+              (SonusContextTheme.of(context).isTinted
+                  ? Colors.transparent
+                  : colors.surface),
+          textColor: colors.textPrimary,
+          iconColor: colors.textSecondary,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(tokens.metrics.cardRadius),
+          ),
+          contentPadding: const EdgeInsets.only(left: 12, right: 4),
+          minVerticalPadding: 8,
+          leading: _TrackArtwork(track: artworkTrack, size: 44),
+          title: Text(
+            title,
+            maxLines: widget.largeText ? 3 : 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodyLarge?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          subtitle: Text(
+            count,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: colors.textSecondary,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
+          trailing: SizedBox.square(
+            dimension: 48,
+            child: AnimatedRotation(
+              turns: _expanded ? 0.5 : 0,
+              duration: duration,
+              curve: tokens.motion.curve,
+              child: const Icon(Icons.expand_more_rounded),
+            ),
+          ),
+          onTap: _toggle,
+        ),
+      ),
+    );
+
+    final songs = _expanded
+        ? Padding(
+            key: ValueKey<String>('$groupKey-tracks'),
+            padding: const EdgeInsetsDirectional.only(start: 8),
+            child: Column(
+              children: [for (final track in tracks) widget.rowOf(track)],
+            ),
+          )
+        : const SizedBox(width: double.infinity);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        header,
+        if (reduced)
+          songs
+        else
+          AnimatedSize(
+            duration: duration,
+            curve: tokens.motion.curve,
+            alignment: Alignment.topCenter,
+            child: songs,
+          ),
+      ],
+    );
+  }
 }
 
 class _EmptySection extends StatelessWidget {

@@ -6,7 +6,7 @@ import 'package:flutter/services.dart';
 import '../../../../core/design/sonus_theme.dart';
 import '../../../../core/design/widgets/sonus_artwork_image.dart';
 import '../../../../core/design/widgets/sonus_form_section.dart';
-import '../../../../core/design/widgets/sonus_track_tile.dart';
+import '../../../../core/design/sonus_text_scale.dart';
 import '../../../../core/identity/text_normalizer.dart';
 import '../../application/models/external_metadata_search_query.dart';
 import '../../application/models/library_album.dart';
@@ -16,12 +16,45 @@ import '../../application/models/song_display_title.dart';
 import '../../application/services/external_metadata_application_service.dart';
 import '../../application/services/external_metadata_proposal_service.dart';
 import '../../application/services/metadata_provider.dart';
+import '../../application/services/song_artist_credit_service.dart';
 import '../../application/services/track_profile_editing_service.dart';
 import '../../domain/entities/song.dart';
 import '../../domain/entities/song_artist_credit.dart';
 import '../models/track_profile_edit_draft.dart';
 import '../widgets/musicbrainz_search_dialog.dart';
 import '../widgets/track_credit_editor_dialog.dart';
+
+/// Saves Track Studio's credits at once (UI redesign E1) and returns them
+/// as now stored, or null when nothing could be saved here.
+typedef TrackStudioCreditSaver =
+    Future<List<TrackProfileCreditDraft>?> Function(
+      List<TrackProfileCreditDraft> credits,
+    );
+
+/// A [TrackStudioCreditSaver] from a save of the song's credits: converts
+/// what was stored back into the editor's credits.
+TrackStudioCreditSaver trackStudioCreditSaver({
+  required LibraryTrack track,
+  required Future<TrackCreditSaveResult?> Function(
+    Iterable<SongArtistCreditInput> credits,
+  )
+  save,
+}) {
+  return (credits) async {
+    final result = await save(credits.map((credit) => credit.toInput()));
+
+    if (result == null) {
+      return null;
+    }
+
+    return trackStudioInitialCredits(
+      credits: result.credits,
+      legacyFeaturedArtists: result.song.featuredArtists,
+      primaryArtistId: result.song.artistId,
+      primaryArtistName: track.artistName,
+    );
+  };
+}
 
 class TrackStudioPage extends StatefulWidget {
   const TrackStudioPage({
@@ -31,6 +64,7 @@ class TrackStudioPage extends StatefulWidget {
     this.albums = const [],
     this.initialAdditionalCredits = const [],
     this.onCreateArtist,
+    this.onSaveCredits,
     this.onChangeArtwork,
     this.onClearArtwork,
     this.canEditDetails = true,
@@ -46,6 +80,11 @@ class TrackStudioPage extends StatefulWidget {
   final List<LibraryAlbum> albums;
   final List<TrackProfileCreditDraft> initialAdditionalCredits;
   final TrackArtistCreationCallback? onCreateArtist;
+
+  /// When set, saving or removing a credit in the credit editor saves the
+  /// song's credits at once (UI redesign E1, D7); the Studio's other edits
+  /// stay unsaved drafts. Without it, credits save with the rest.
+  final TrackStudioCreditSaver? onSaveCredits;
   final Future<void> Function()? onChangeArtwork;
   final Future<void> Function()? onClearArtwork;
   final bool canEditDetails;
@@ -120,6 +159,15 @@ class _TrackStudioPageState extends State<TrackStudioPage> {
   late final TextEditingController _versionLabelController;
 
   late List<TrackProfileCreditDraft> _additionalCredits;
+
+  /// The credits as stored: the baseline the Studio's own Save compares
+  /// against, updated after every credit save.
+  late List<TrackProfileCreditDraft> _savedCredits;
+  bool _isSavingCredits = false;
+
+  /// Whether Back must ask first, kept current as text fields are typed in
+  /// (they do not rebuild the page on their own).
+  bool _guardsBack = false;
   late List<LibraryArtist> _artists;
   late String _artistId;
   late String _albumId;
@@ -142,7 +190,18 @@ class _TrackStudioPageState extends State<TrackStudioPage> {
     _versionLabelController = TextEditingController(
       text: widget.track.versionLabel ?? '',
     );
+    for (final controller in [
+      _titleController,
+      _trackNumberController,
+      _discNumberController,
+      _versionLabelController,
+    ]) {
+      controller.addListener(_onTextEdited);
+    }
     _additionalCredits = List<TrackProfileCreditDraft>.from(
+      widget.initialAdditionalCredits,
+    );
+    _savedCredits = List<TrackProfileCreditDraft>.unmodifiable(
       widget.initialAdditionalCredits,
     );
     _artists = List<LibraryArtist>.from(widget.artists);
@@ -231,164 +290,271 @@ class _TrackStudioPageState extends State<TrackStudioPage> {
       },
     );
 
-    return Scaffold(
-      key: const ValueKey<String>('track-studio-page'),
-      backgroundColor: colors.background,
-      appBar: AppBar(
-        title: const Text('Track Studio'),
+    return PopScope<Object?>(
+      // Saved credits stay saved; only the other, unsaved edits can be lost,
+      // so leaving with any asks first.
+      canPop: !(_guardsBack = _hasUnsavedChanges),
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) {
+          unawaited(_confirmDiscard());
+        }
+      },
+      child: Scaffold(
+        key: const ValueKey<String>('track-studio-page'),
         backgroundColor: colors.background,
-        surfaceTintColor: Colors.transparent,
-        actions: [
-          Padding(
-            padding: const EdgeInsets.only(right: 8),
-            child: FilledButton(
-              key: const ValueKey<String>('track-studio-save-button'),
-              onPressed: widget.canEditDetails ? _submit : null,
-              style: FilledButton.styleFrom(
-                backgroundColor: colors.accentPrimary,
-                foregroundColor: colors.onAccentPrimary,
-                minimumSize: const Size(64, 40),
+        appBar: AppBar(
+          title: const Text('Track Studio'),
+          backgroundColor: colors.background,
+          actions: [
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: FilledButton(
+                key: const ValueKey<String>('track-studio-save-button'),
+                onPressed: widget.canEditDetails ? _submit : null,
+                style: FilledButton.styleFrom(
+                  backgroundColor: colors.accentPrimary,
+                  foregroundColor: colors.onAccentPrimary,
+                  minimumSize: const Size(64, 40),
+                ),
+                child: const Text('Save'),
               ),
-              child: const Text('Save'),
             ),
-          ),
-        ],
-      ),
-      body: SafeArea(
-        child: Form(
-          key: _formKey,
-          child: ListView(
-            // Dragging the form hides the keyboard, so fields stay visible.
-            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-            padding: EdgeInsets.fromLTRB(gutter, 8, gutter, 32),
-            children: [
-              _TrackStudioSummary(track: widget.track),
-              const SizedBox(height: 16),
-              SonusFormSection(
-                title: 'Metadata and artwork',
-                icon: Icons.image_outlined,
-                padding: const EdgeInsets.only(bottom: 6),
-                children: [
-                  ListTile(
-                    key: const ValueKey<String>(
-                      'track-studio-search-musicbrainz',
+          ],
+        ),
+        body: SafeArea(
+          child: Form(
+            key: _formKey,
+            child: ListView(
+              // Dragging the form hides the keyboard, so fields stay visible.
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+              padding: EdgeInsets.fromLTRB(gutter, 8, gutter, 32),
+              children: [
+                _TrackStudioSummary(track: widget.track),
+                const SizedBox(height: 16),
+                SonusFormSection(
+                  title: 'Metadata and artwork',
+                  icon: Icons.image_outlined,
+                  padding: const EdgeInsets.only(bottom: 6),
+                  children: [
+                    ListTile(
+                      key: const ValueKey<String>(
+                        'track-studio-search-musicbrainz',
+                      ),
+                      leading: const Icon(Icons.travel_explore_rounded),
+                      title: const Text('Search MusicBrainz'),
+                      subtitle: const Text(
+                        'Match this recording and apply allowed metadata.',
+                      ),
+                      enabled: canSearchMusicBrainz,
+                      onTap: canSearchMusicBrainz
+                          ? () => unawaited(_searchMusicBrainz())
+                          : null,
                     ),
-                    leading: const Icon(Icons.travel_explore_rounded),
-                    title: const Text('Search MusicBrainz'),
-                    subtitle: const Text(
-                      'Match this recording and apply allowed metadata.',
+                    ListTile(
+                      key: const ValueKey<String>(
+                        'track-studio-change-artwork',
+                      ),
+                      leading: const Icon(Icons.image_rounded),
+                      title: const Text('Change artwork'),
+                      enabled: widget.onChangeArtwork != null,
+                      onTap: widget.onChangeArtwork == null
+                          ? null
+                          : () {
+                              widget.onChangeArtwork!();
+                            },
                     ),
-                    enabled: canSearchMusicBrainz,
-                    onTap: canSearchMusicBrainz
-                        ? () => unawaited(_searchMusicBrainz())
-                        : null,
-                  ),
-                  ListTile(
-                    key: const ValueKey<String>('track-studio-change-artwork'),
-                    leading: const Icon(Icons.image_rounded),
-                    title: const Text('Change artwork'),
-                    enabled: widget.onChangeArtwork != null,
-                    onTap: widget.onChangeArtwork == null
-                        ? null
-                        : () {
-                            widget.onChangeArtwork!();
-                          },
-                  ),
-                  ListTile(
-                    key: const ValueKey<String>('track-studio-clear-artwork'),
-                    leading: const Icon(Icons.hide_image_rounded),
-                    title: const Text('Clear artwork'),
-                    enabled: widget.onClearArtwork != null,
-                    onTap: widget.onClearArtwork == null
-                        ? null
-                        : () {
-                            widget.onClearArtwork!();
-                          },
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
+                    ListTile(
+                      key: const ValueKey<String>('track-studio-clear-artwork'),
+                      leading: const Icon(Icons.hide_image_rounded),
+                      title: const Text('Clear artwork'),
+                      enabled: widget.onClearArtwork != null,
+                      onTap: widget.onClearArtwork == null
+                          ? null
+                          : () {
+                              widget.onClearArtwork!();
+                            },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
 
-              SonusFormSection(
-                title: 'Details',
-                icon: Icons.edit_outlined,
-                children: [
-                  TextFormField(
-                    key: const ValueKey<String>('track-title-field'),
-                    controller: _titleController,
-                    textInputAction: TextInputAction.next,
-                    decoration: const InputDecoration(labelText: 'Song title'),
-                    validator: (value) {
-                      if (value == null || value.trim().isEmpty) {
-                        return 'Song title cannot be blank.';
-                      }
-
-                      return null;
-                    },
-                  ),
-                  const SizedBox(height: 12),
-
-                  if (canSelectArtist) ...[
-                    DropdownButtonFormField<String>(
-                      key: const ValueKey<String>('track-primary-artist-field'),
-                      isExpanded: true,
-                      initialValue: _artistId,
+                SonusFormSection(
+                  title: 'Details',
+                  icon: Icons.edit_outlined,
+                  children: [
+                    TextFormField(
+                      key: const ValueKey<String>('track-title-field'),
+                      controller: _titleController,
+                      textInputAction: TextInputAction.next,
                       decoration: const InputDecoration(
-                        labelText: 'Primary artist',
+                        labelText: 'Song title',
                       ),
-                      items: [
-                        for (final artist in _artists)
-                          DropdownMenuItem(
-                            value: artist.artistId,
-                            child: Text(
-                              artist.name,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                      ],
-                      onChanged: (value) {
-                        if (value == null) {
-                          return;
+                      validator: (value) {
+                        if (value == null || value.trim().isEmpty) {
+                          return 'Song title cannot be blank.';
                         }
 
-                        setState(() {
-                          _artistId = value;
-                        });
+                        return null;
                       },
                     ),
-                    const SizedBox(height: 4),
-                  ],
+                    const SizedBox(height: 12),
 
-                  if (widget.onCreateArtist != null) ...[
-                    Align(
-                      alignment: AlignmentDirectional.centerStart,
-                      child: TextButton.icon(
+                    if (canSelectArtist) ...[
+                      DropdownButtonFormField<String>(
                         key: const ValueKey<String>(
-                          'track-add-primary-artist-button',
+                          'track-primary-artist-field',
                         ),
-                        onPressed: _createArtist,
-                        icon: const Icon(Icons.person_add_alt_1_rounded),
-                        label: const Text('Add new artist...'),
+                        isExpanded: true,
+                        initialValue: _artistId,
+                        decoration: const InputDecoration(
+                          labelText: 'Primary artist',
+                        ),
+                        items: [
+                          for (final artist in _artists)
+                            DropdownMenuItem(
+                              value: artist.artistId,
+                              child: Text(
+                                artist.name,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                        ],
+                        onChanged: (value) {
+                          if (value == null) {
+                            return;
+                          }
+
+                          setState(() {
+                            _artistId = value;
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 4),
+                    ],
+
+                    if (widget.onCreateArtist != null) ...[
+                      Align(
+                        alignment: AlignmentDirectional.centerStart,
+                        child: TextButton.icon(
+                          key: const ValueKey<String>(
+                            'track-add-primary-artist-button',
+                          ),
+                          onPressed: _createArtist,
+                          icon: const Icon(Icons.person_add_alt_1_rounded),
+                          label: const Text('Add new artist...'),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                    ],
+
+                    if (canSelectAlbum) ...[
+                      DropdownButtonFormField<String>(
+                        key: const ValueKey<String>('track-album-field'),
+                        isExpanded: true,
+                        initialValue: _albumId,
+                        decoration: const InputDecoration(labelText: 'Album'),
+                        items: [
+                          for (final album in availableAlbums)
+                            DropdownMenuItem(
+                              value: album.albumId,
+                              child: Text(
+                                '${album.displayTitle} — ${album.artistName}',
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                        ],
+                        onChanged: (value) {
+                          if (value == null) {
+                            return;
+                          }
+
+                          setState(() {
+                            _albumId = value;
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                    ],
+
+                    if (stackNumbers) ...[
+                      trackNumberField,
+                      const SizedBox(height: 12),
+                      discNumberField,
+                    ] else
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Expanded(child: trackNumberField),
+                          const SizedBox(width: 12),
+                          Expanded(child: discNumberField),
+                        ],
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+
+                SonusFormSection(
+                  title: 'Version',
+                  icon: Icons.tune_rounded,
+                  children: [
+                    TextFormField(
+                      key: const ValueKey<String>('track-version-label-field'),
+                      controller: _versionLabelController,
+                      decoration: const InputDecoration(
+                        labelText: 'Version label',
+                        hintText: 'Live, Remix, 2024 Remaster...',
                       ),
                     ),
-                    const SizedBox(height: 8),
-                  ],
+                    const SizedBox(height: 12),
 
-                  if (canSelectAlbum) ...[
-                    DropdownButtonFormField<String>(
-                      key: const ValueKey<String>('track-album-field'),
-                      isExpanded: true,
-                      initialValue: _albumId,
-                      decoration: const InputDecoration(labelText: 'Album'),
-                      items: [
-                        for (final album in availableAlbums)
-                          DropdownMenuItem(
-                            value: album.albumId,
-                            child: Text(
-                              '${album.displayTitle} — ${album.artistName}',
-                              overflow: TextOverflow.ellipsis,
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final characteristic
+                            in SongVersionCharacteristic.values)
+                          FilterChip(
+                            key: ValueKey<String>(
+                              'track-version-${characteristic.name}',
                             ),
+                            label: Text(
+                              songVersionCharacteristicLabel(characteristic),
+                            ),
+                            selected: _versionCharacteristics.contains(
+                              characteristic,
+                            ),
+                            onSelected: (selected) {
+                              setState(() {
+                                if (selected) {
+                                  _versionCharacteristics.add(characteristic);
+                                } else {
+                                  _versionCharacteristics.remove(
+                                    characteristic,
+                                  );
+                                }
+                              });
+                            },
                           ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+
+                    DropdownButtonFormField<SongReleaseStatus>(
+                      key: const ValueKey<String>('track-release-status-field'),
+                      isExpanded: true,
+                      initialValue: _releaseStatus,
+                      decoration: const InputDecoration(
+                        labelText: 'Release status',
+                      ),
+                      items: const [
+                        DropdownMenuItem(
+                          value: SongReleaseStatus.released,
+                          child: Text('Released'),
+                        ),
+                        DropdownMenuItem(
+                          value: SongReleaseStatus.unreleased,
+                          child: Text('Unreleased'),
+                        ),
                       ],
                       onChanged: (value) {
                         if (value == null) {
@@ -396,145 +562,60 @@ class _TrackStudioPageState extends State<TrackStudioPage> {
                         }
 
                         setState(() {
-                          _albumId = value;
+                          _releaseStatus = value;
                         });
                       },
                     ),
-                    const SizedBox(height: 12),
+
+                    SwitchListTile(
+                      key: const ValueKey<String>('track-leak-toggle'),
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Leak'),
+                      subtitle: const Text(
+                        'Mark this track as leaked material.',
+                      ),
+                      value: _isLeak,
+                      onChanged: (value) {
+                        setState(() {
+                          _isLeak = value;
+                        });
+                      },
+                    ),
                   ],
+                ),
+                const SizedBox(height: 16),
 
-                  if (stackNumbers) ...[
-                    trackNumberField,
-                    const SizedBox(height: 12),
-                    discNumberField,
-                  ] else
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(child: trackNumberField),
-                        const SizedBox(width: 12),
-                        Expanded(child: discNumberField),
-                      ],
-                    ),
-                ],
-              ),
-              const SizedBox(height: 16),
-
-              SonusFormSection(
-                title: 'Version',
-                icon: Icons.tune_rounded,
-                children: [
-                  TextFormField(
-                    key: const ValueKey<String>('track-version-label-field'),
-                    controller: _versionLabelController,
-                    decoration: const InputDecoration(
-                      labelText: 'Version label',
-                      hintText: 'Live, Remix, 2024 Remaster...',
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (final characteristic
-                          in SongVersionCharacteristic.values)
-                        FilterChip(
-                          key: ValueKey<String>(
-                            'track-version-${characteristic.name}',
-                          ),
-                          label: Text(
-                            songVersionCharacteristicLabel(characteristic),
-                          ),
-                          selected: _versionCharacteristics.contains(
-                            characteristic,
-                          ),
-                          onSelected: (selected) {
-                            setState(() {
-                              if (selected) {
-                                _versionCharacteristics.add(characteristic);
-                              } else {
-                                _versionCharacteristics.remove(characteristic);
-                              }
-                            });
-                          },
-                        ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-
-                  DropdownButtonFormField<SongReleaseStatus>(
-                    key: const ValueKey<String>('track-release-status-field'),
-                    isExpanded: true,
-                    initialValue: _releaseStatus,
-                    decoration: const InputDecoration(
-                      labelText: 'Release status',
-                    ),
-                    items: const [
-                      DropdownMenuItem(
-                        value: SongReleaseStatus.released,
-                        child: Text('Released'),
+                SonusFormSection(
+                  title: 'Credits',
+                  icon: Icons.people_alt_outlined,
+                  children: [
+                    AbsorbPointer(
+                      absorbing: _isSavingCredits,
+                      child: TrackCreditList(
+                        credits: _additionalCredits,
+                        artists: _artists,
+                        primaryArtistId: _artistId,
+                        primaryArtistName: _primaryArtistName,
+                        onChanged: (credits) {
+                          unawaited(_onCreditsChanged(credits));
+                        },
                       ),
-                      DropdownMenuItem(
-                        value: SongReleaseStatus.unreleased,
-                        child: Text('Unreleased'),
-                      ),
-                    ],
-                    onChanged: (value) {
-                      if (value == null) {
-                        return;
-                      }
-
-                      setState(() {
-                        _releaseStatus = value;
-                      });
-                    },
-                  ),
-
-                  SwitchListTile(
-                    key: const ValueKey<String>('track-leak-toggle'),
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Leak'),
-                    subtitle: const Text('Mark this track as leaked material.'),
-                    value: _isLeak,
-                    onChanged: (value) {
-                      setState(() {
-                        _isLeak = value;
-                      });
-                    },
-                  ),
-                ],
-              ),
-              const SizedBox(height: 16),
-
-              SonusFormSection(
-                title: 'Credits',
-                icon: Icons.people_alt_outlined,
-                children: [
-                  TrackCreditList(
-                    credits: _additionalCredits,
-                    artists: _artists,
-                    primaryArtistId: _artistId,
-                    primaryArtistName: _primaryArtistName,
-                    onChanged: (credits) {
-                      setState(() => _additionalCredits = credits);
-                    },
-                  ),
-                  SwitchListTile(
-                    key: const ValueKey<String>('track-single-toggle'),
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text('Single'),
-                    value: _isSingle,
-                    onChanged: (value) {
-                      setState(() {
-                        _isSingle = value;
-                      });
-                    },
-                  ),
-                ],
-              ),
-            ],
+                    ),
+                    SwitchListTile(
+                      key: const ValueKey<String>('track-single-toggle'),
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Single'),
+                      value: _isSingle,
+                      onChanged: (value) {
+                        setState(() {
+                          _isSingle = value;
+                        });
+                      },
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -750,6 +831,199 @@ class _TrackStudioPageState extends State<TrackStudioPage> {
     } finally {
       nameController.dispose();
     }
+  }
+
+  /// Saves edited credits at once when the Studio can (E1), against the
+  /// song's stored primary artist; otherwise keeps them as a draft.
+  Future<void> _onCreditsChanged(List<TrackProfileCreditDraft> credits) async {
+    final save = widget.onSaveCredits;
+
+    if (save == null || !widget.canEditDetails) {
+      setState(() => _additionalCredits = credits);
+      return;
+    }
+
+    final messenger = ScaffoldMessenger.of(context);
+
+    // An unsaved primary artist change: the credits would be checked
+    // against an artist that is not stored, so they wait for Save.
+    if (_artistId != widget.track.artistId) {
+      setState(() => _additionalCredits = credits);
+      messenger.showSnackBar(
+        const SnackBar(
+          key: ValueKey<String>('track-studio-credits-wait-message'),
+          content: Text(
+            'The new primary artist is not saved yet, so these credits will '
+            'be saved with your other changes.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    final redundantNames = TrackProfileEditingService.redundantCreditNames(
+      credits.map((credit) => credit.toInput()),
+      primaryArtistId: widget.track.artistId,
+      primaryCanonicalName: TextNormalizer.canonicalize(
+        widget.track.artistName,
+      ),
+    );
+
+    if (redundantNames.isNotEmpty) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            '${redundantNames.first} is already credited as the primary '
+            'artist or in another credit, so the credits were not saved.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    final previous = _additionalCredits;
+    setState(() {
+      _additionalCredits = credits;
+      _isSavingCredits = true;
+    });
+
+    try {
+      final saved = await save(credits);
+
+      if (!mounted) {
+        return;
+      }
+
+      if (saved == null) {
+        // Nothing could be saved here: the credits stay a draft for Save.
+        return;
+      }
+
+      setState(() {
+        _additionalCredits = List<TrackProfileCreditDraft>.of(saved);
+        _savedCredits = List<TrackProfileCreditDraft>.unmodifiable(saved);
+      });
+      messenger.showSnackBar(
+        const SnackBar(
+          key: ValueKey<String>('track-studio-credits-saved-message'),
+          content: Text('Credits saved.'),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() => _additionalCredits = previous);
+      messenger.showSnackBar(
+        SnackBar(
+          key: const ValueKey<String>('track-studio-credits-failed-message'),
+          content: Text(
+            error is TrackCreditPrimaryArtistChangedException
+                ? 'This song\'s primary artist changed, so the credits were '
+                      'not saved.'
+                : 'Could not save the credits.',
+          ),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isSavingCredits = false);
+      }
+    }
+  }
+
+  void _onTextEdited() {
+    if (_hasUnsavedChanges != _guardsBack) {
+      setState(() {});
+    }
+  }
+
+  /// Whether leaving would lose an edit: credits differ from what is stored
+  /// or another field differs from the song.
+  bool get _hasUnsavedChanges {
+    final track = widget.track;
+
+    return _titleController.text.trim() != track.title.trim() ||
+        _trackNumberController.text.trim() != track.trackNumber.toString() ||
+        _discNumberController.text.trim() != track.discNumber.toString() ||
+        _versionLabelController.text.trim() !=
+            (track.versionLabel ?? '').trim() ||
+        _artistId != track.artistId ||
+        _albumId != track.albumId ||
+        _isSingle != track.isSingle ||
+        _releaseStatus != track.releaseStatus ||
+        _isLeak != track.isLeak ||
+        !_sameCharacteristics(
+          _versionCharacteristics,
+          track.versionCharacteristics,
+        ) ||
+        !_sameCredits(_additionalCredits, _savedCredits);
+  }
+
+  static bool _sameCharacteristics(
+    Set<SongVersionCharacteristic> edited,
+    List<SongVersionCharacteristic> stored,
+  ) => edited.length == stored.toSet().length && edited.containsAll(stored);
+
+  static bool _sameCredits(
+    List<TrackProfileCreditDraft> first,
+    List<TrackProfileCreditDraft> second,
+  ) {
+    if (first.length != second.length) {
+      return false;
+    }
+
+    for (var index = 0; index < first.length; index++) {
+      final a = first[index];
+      final b = second[index];
+
+      if (a.creditedName != b.creditedName ||
+          a.role != b.role ||
+          a.artistId != b.artistId) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
+  Future<void> _confirmDiscard() async {
+    final navigator = Navigator.of(context);
+    final discard = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          key: const ValueKey<String>('track-studio-discard-dialog'),
+          title: const Text('Discard unsaved changes?'),
+          content: Text(
+            widget.onSaveCredits == null
+                ? 'Your changes to this song will be lost.'
+                : 'Your other changes to this song will be lost. Credits '
+                      'you already saved stay saved.',
+          ),
+          actions: [
+            TextButton(
+              key: const ValueKey<String>('track-studio-keep-editing'),
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Keep editing'),
+            ),
+            FilledButton(
+              key: const ValueKey<String>('track-studio-discard'),
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Discard'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (!mounted || discard != true) {
+      return;
+    }
+
+    // Leaves without a draft, so nothing else is saved.
+    navigator.pop();
   }
 
   String get _primaryArtistName {

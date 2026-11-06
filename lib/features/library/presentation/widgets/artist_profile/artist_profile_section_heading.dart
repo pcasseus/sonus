@@ -8,9 +8,14 @@ class ArtistProfileSectionHeading extends StatelessWidget {
     required this.title,
     this.count,
     this.subtitle,
+    this.accent,
   });
 
   final String title;
+
+  /// A short bar before the title in the page's accent (UI redesign P1);
+  /// none when null.
+  final Color? accent;
 
   /// Shown as a badge after the title when given.
   final int? count;
@@ -24,12 +29,27 @@ class ArtistProfileSectionHeading extends StatelessWidget {
     final tokens = SonusTheme.of(context);
     final count = this.count;
     final subtitle = this.subtitle;
+    final accent = this.accent;
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
+            if (accent != null) ...[
+              ExcludeSemantics(
+                child: Container(
+                  key: const ValueKey<String>('section-heading-accent'),
+                  width: 4,
+                  height: 22,
+                  decoration: BoxDecoration(
+                    color: accent,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+            ],
             Expanded(
               child: Semantics(
                 header: true,
@@ -54,7 +74,13 @@ class ArtistProfileSectionHeading extends StatelessWidget {
             if (count != null)
               DecoratedBox(
                 decoration: BoxDecoration(
-                  color: tokens.colors.raisedSurface,
+                  // V1: tinted by the page's accent where one is given.
+                  color: accent != null && tokens.decoration.allowGradients
+                      ? Color.alphaBlend(
+                          accent.withValues(alpha: 0.30),
+                          tokens.colors.surface,
+                        )
+                      : tokens.colors.raisedSurface,
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Padding(

@@ -10,12 +10,16 @@ import '../../../import/application/services/import_review_service.dart';
 import '../../../import/application/services/import_workflow_service.dart';
 import '../../../import/presentation/pages/import_review_page.dart';
 import '../../../import/presentation/pages/imports_page.dart';
+import '../../../../core/design/widgets/sonus_segmented_selector.dart';
 import '../../../library/application/repositories/library_query_repository.dart';
 import '../../../library/application/services/album_profile_editing_service.dart';
+import '../../../library/presentation/controllers/library_view_controller.dart';
 import '../../../library/presentation/pages/library_health_page.dart';
+import '../../../library/presentation/widgets/library_view_switch.dart';
 import '../../application/controllers/library_overview_controller.dart';
 import '../../application/services/library_overview_service.dart';
 import '../widgets/settings/settings_section.dart';
+import 'artists_settings_page.dart';
 import 'blacklisted_songs_page.dart';
 import 'unavailable_songs_page.dart';
 
@@ -131,6 +135,7 @@ class _LibrarySettingsPageState extends State<LibrarySettingsPage> {
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
       children: [
         _SummarySection(controller: controller),
+        const _LibraryViewSection(),
         SettingsSection(
           title: 'Manage',
           footer:
@@ -182,6 +187,15 @@ class _LibrarySettingsPageState extends State<LibrarySettingsPage> {
                   'Check albums, editions, credits and files. Nothing is '
                   'changed unless you choose to.',
               onTap: () => _openAndRefresh(const LibraryHealthPage()),
+            ),
+            SettingsNavTile(
+              key: const ValueKey<String>('library-settings-artists'),
+              icon: Icons.people_alt_outlined,
+              title: 'Artists',
+              subtitle:
+                  'See which artists are in use, kept for history or can be '
+                  'removed.',
+              onTap: () => _openAndRefresh(const ArtistsSettingsPage()),
             ),
             SettingsNavTile(
               key: const ValueKey<String>('settings-blacklisted-songs'),
@@ -279,3 +293,40 @@ class _SummarySection extends StatelessWidget {
 
 String _count(int value, String noun) =>
     value == 1 ? '1 $noun' : '$value ${noun}s';
+
+/// The Library tab's saved view: the Artist Roster or the Film Reel. Hidden
+/// where the Library's view is not saved (no [LibraryViewController]).
+class _LibraryViewSection extends StatelessWidget {
+  const _LibraryViewSection();
+
+  @override
+  Widget build(BuildContext context) {
+    final LibraryViewController controller;
+    try {
+      controller = context.watch<LibraryViewController>();
+    } on ProviderNotFoundException {
+      return const SizedBox.shrink();
+    }
+
+    return SettingsSection(
+      title: 'Library view',
+      footer:
+          'Choose what the Library tab opens on. You can also switch '
+          'from the Library itself.',
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(12),
+          child: SonusSegmentedSelector<LibraryView>(
+            key: const ValueKey<String>('library-settings-view'),
+            segments: [
+              for (final view in LibraryView.values)
+                SonusSegment(value: view, label: view.label, icon: view.icon),
+            ],
+            selected: controller.view,
+            onChanged: controller.choose,
+          ),
+        ),
+      ],
+    );
+  }
+}

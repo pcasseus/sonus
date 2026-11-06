@@ -175,6 +175,33 @@ void main() {
     expect(tester.getSize(row), before);
   });
 
+  // UI redesign P2: the playing row glows softly in the page's accent, and
+  // its bars take that accent; the other rows stay plain.
+  testWidgets('the playing row is highlighted in the page accent', (
+    tester,
+  ) async {
+    await pumpAlbum(tester);
+    final play = tester.widget<FilledButton>(
+      find.byKey(const ValueKey<String>('album-profile-play-all-button')),
+    );
+    final accent = play.style!.backgroundColor!.resolve(const {})!;
+
+    engine.emit('two', PlaybackStatus.paused);
+    await tester.pumpAndSettle();
+
+    ListTile tile(String id) => tester.widget<ListTile>(
+      find.byKey(ValueKey<String>('album-track-$id')),
+    );
+    expect(tile('two').tileColor, accent.withValues(alpha: 0.22));
+    expect(tile('one').tileColor, isNull);
+    expect(
+      tester
+          .widget<SonusPlayingIndicator>(find.byType(SonusPlayingIndicator))
+          .color,
+      accent,
+    );
+  });
+
   testWidgets('with reduced motion the bars stay still', (tester) async {
     tester.platformDispatcher.accessibilityFeaturesTestValue =
         const FakeAccessibilityFeatures(disableAnimations: true);

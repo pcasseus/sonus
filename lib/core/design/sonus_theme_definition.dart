@@ -1,3 +1,4 @@
+import 'sonus_reactivity.dart';
 import 'package:flutter/material.dart';
 
 import 'sonus_theme_id.dart';
@@ -107,6 +108,9 @@ class SonusThemeDefinition {
     required this.artworkRadius,
     required this.hasTexture,
     required this.motionCurve,
+    this.reactivityDefault = SonusReactivityMode.ambient,
+    this.controlRadius = 12,
+    this.surfaceStyle = SonusSurfaceStyle.glass,
   });
 
   final SonusThemeId id;
@@ -124,4 +128,16 @@ class SonusThemeDefinition {
 
   /// The easing that gives the theme its motion character.
   final Curve motionCurve;
+
+  /// How much artwork colours this theme by default (Themes 2.0 T1). Every
+  /// theme is [SonusReactivityMode.ambient] today, which is how Sonus
+  /// already behaves.
+  final SonusReactivityMode reactivityDefault;
+
+  /// Corner radius of buttons, chips and small controls (12 everywhere,
+  /// as before; a theme's personality may change it later).
+  final double controlRadius;
+
+  /// How raised surfaces are drawn (glass everywhere, as before).
+  final SonusSurfaceStyle surfaceStyle;
 }

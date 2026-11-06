@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../sonus_text_scale.dart';
 import '../sonus_theme.dart';
 
 /// A numeric column of a [SonusNumericTable].
@@ -67,9 +68,6 @@ class SonusNumericTable extends StatelessWidget {
   /// some numeric columns always show beside it on narrow phones.
   static const double maxIdentityShare = 0.55;
 
-  /// Text scale above which the table stacks its rows.
-  static const double stackedAboveTextScale = 1.3;
-
   final String storageId;
   final String identityLabel;
   final double identityWidth;
@@ -87,7 +85,7 @@ class SonusNumericTable extends StatelessWidget {
         final textScale = MediaQuery.textScalerOf(context).scale(1);
         final stacked =
             constraints.maxWidth < stackedBelowWidth ||
-            textScale > stackedAboveTextScale;
+            textScale > sonusLargeTextScale;
 
         return stacked
             ? _StackedTable(table: this)

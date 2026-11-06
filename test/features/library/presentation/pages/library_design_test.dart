@@ -7,6 +7,7 @@ import 'package:sonus_next/core/design/sonus_tokens.dart';
 import 'package:sonus_next/features/library/application/models/library_artist.dart';
 import 'package:sonus_next/features/library/application/repositories/library_query_repository.dart';
 import 'package:sonus_next/features/library/presentation/pages/library_page.dart';
+import 'package:sonus_next/features/library/presentation/widgets/library_view_switch.dart';
 
 import 'library_page_test.dart' as base;
 
@@ -49,20 +50,16 @@ void main() {
             ).copyWith(textScaler: TextScaler.linear(textScale)),
             child: child!,
           ),
-          home: const Scaffold(body: LibraryPage()),
+          home: const Scaffold(
+            body: LibraryPage(initialView: LibraryView.filmReel),
+          ),
         ),
       ),
     );
     await tester.pumpAndSettle();
   }
 
-  int columns(WidgetTester tester) {
-    final grid = tester.widget<SliverGrid>(
-      find.byKey(const PageStorageKey<String>('artists-grid')),
-    );
-    return (grid.gridDelegate as SliverGridDelegateWithFixedCrossAxisCount)
-        .crossAxisCount;
-  }
+  Finder byKey(String key) => find.byKey(ValueKey<String>(key));
 
   for (final id in SonusThemeId.values) {
     testWidgets('${id.label} fits 320dp at 2x text', (tester) async {
@@ -74,7 +71,7 @@ void main() {
       );
 
       expect(tester.takeException(), isNull);
-      expect(columns(tester), 2);
+      expect(byKey('film-reel-stats-below'), findsOneWidget);
     });
   }
 
@@ -86,14 +83,79 @@ void main() {
     });
   }
 
-  testWidgets('phones keep two columns; wide screens add columns', (
+  testWidgets('on a phone the panels sit beside the portrait, tilted', (
     tester,
   ) async {
     await pump(tester);
-    expect(columns(tester), 2);
 
+    expect(byKey('film-reel-panel-left'), findsOneWidget);
+    expect(byKey('film-reel-panel-right'), findsOneWidget);
+    expect(byKey('film-reel-stats-below'), findsNothing);
+    expect(byKey('sonus-perspective-panel-transform'), findsNWidgets(2));
+
+    final card = tester.getRect(byKey('artist-artist-1'));
+    final left = tester.getRect(byKey('film-reel-panel-left'));
+    final right = tester.getRect(byKey('film-reel-panel-right'));
+    expect(left.center.dx, lessThan(card.left + 20));
+    expect(right.center.dx, greaterThan(card.right - 20));
+    expect(left.left, greaterThanOrEqualTo(0));
+    expect(right.right, lessThanOrEqualTo(411));
+  });
+
+  testWidgets('wide screens keep the panels beside the portrait', (
+    tester,
+  ) async {
     await pump(tester, size: const Size(1280, 900));
-    expect(columns(tester), 4);
+
+    expect(tester.takeException(), isNull);
+    expect(byKey('film-reel-stats-below'), findsNothing);
+  });
+
+  testWidgets('narrow screens put the statistics under the reel', (
+    tester,
+  ) async {
+    await pump(tester, size: const Size(340, 760));
+
+    expect(tester.takeException(), isNull);
+    expect(byKey('film-reel-stats-below'), findsOneWidget);
+    expect(byKey('sonus-perspective-panel-transform'), findsNothing);
+  });
+
+  for (final (name, spec) in const [
+    ('High contrast', SonusAppearanceSpec(highContrast: true)),
+    ('Low effects', SonusAppearanceSpec(lowEffects: true)),
+  ]) {
+    testWidgets('$name: the panels stay flat', (tester) async {
+      await pump(tester, spec: spec);
+
+      expect(tester.takeException(), isNull);
+      expect(byKey('sonus-perspective-panel-transform'), findsNothing);
+    });
+  }
+
+  testWidgets('dark and cinematic in Daylight too (D3)', (tester) async {
+    await pump(
+      tester,
+      spec: const SonusAppearanceSpec(themeId: SonusThemeId.daylight),
+    );
+
+    final colours =
+        tester
+                .widget<DecoratedBox>(byKey('sonus-artwork-backdrop-colours'))
+                .decoration
+            as BoxDecoration;
+    final top = (colours.gradient! as LinearGradient).colors.first;
+    expect(top.computeLuminance(), lessThan(0.05));
+  });
+
+  testWidgets('with reduced motion a chevron moves at once', (tester) async {
+    await pump(tester, spec: const SonusAppearanceSpec(reduceMotion: true));
+
+    await tester.tap(byKey('film-reel-next'));
+    await tester.pump();
+
+    final pages = tester.widget<PageView>(byKey('film-reel-pages'));
+    expect(pages.controller!.page, 1);
   });
 
   testWidgets('names wrap to two lines instead of truncating at once', (
@@ -107,11 +169,19 @@ void main() {
     expect(name.maxLines, 2);
   });
 
-  testWidgets('artwork is decoded at the card size', (tester) async {
+  testWidgets('portraits are decoded at the card size', (tester) async {
     await pump(tester);
+    await tester.tap(byKey('film-reel-next'));
+    await tester.pumpAndSettle();
+    await tester.tap(byKey('film-reel-next'));
+    await tester.pumpAndSettle();
 
-    final image = tester.widget<Image>(find.byType(Image));
+    final image = tester.widget<Image>(byKey('film-reel-portrait-artist-3'));
     expect(image.image, isA<ResizeImage>());
-    expect((image.image as ResizeImage).width, lessThanOrEqualTo(411 * 3));
+    final card = tester.getSize(byKey('artist-artist-3'));
+    expect(
+      (image.image as ResizeImage).width,
+      lessThanOrEqualTo((card.width * 3).ceil()),
+    );
   });
 }

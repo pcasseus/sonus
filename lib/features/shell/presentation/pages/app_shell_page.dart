@@ -16,7 +16,11 @@ import '../../application/controllers/app_shell_controller.dart';
 import '../../domain/models/app_destination.dart';
 
 class AppShellPage extends StatefulWidget {
-  const AppShellPage({super.key});
+  const AppShellPage({super.key, this.pageBuilder});
+
+  /// Replaces the destination pages, for tests of pages inside the shell.
+  @visibleForTesting
+  final Widget Function(AppDestination destination)? pageBuilder;
 
   @override
   State<AppShellPage> createState() => _AppShellPageState();
@@ -104,17 +108,20 @@ class _AppShellPageState extends State<AppShellPage>
   }
 
   Widget _buildDestinationPage(AppDestination destination) {
-    final Widget page = switch (destination) {
-      AppDestination.tracks => const TracksPage(),
-      AppDestination.library => const LibraryPage(),
-      AppDestination.home => const HomePage(),
-      AppDestination.playlists => const PlaylistsPage(),
-      AppDestination.settings => const SettingsPage(),
-      AppDestination.hot100 => const ChartsPage(),
-      // Sonus Pulse 2.0 replaces the Monthly/Year layouts (which remain
-      // available elsewhere, e.g. Monthly in Listening settings).
-      AppDestination.insights => const PulseInsightsPage(),
-    };
+    final custom = widget.pageBuilder;
+    final Widget page = custom != null
+        ? custom(destination)
+        : switch (destination) {
+            AppDestination.tracks => const TracksPage(),
+            AppDestination.library => const LibraryPage(),
+            AppDestination.home => const HomePage(),
+            AppDestination.playlists => const PlaylistsPage(),
+            AppDestination.settings => const SettingsPage(),
+            AppDestination.hot100 => const ChartsPage(),
+            // Sonus Pulse 2.0 replaces the Monthly/Year layouts (which remain
+            // available elsewhere, e.g. Monthly in Listening settings).
+            AppDestination.insights => const PulseInsightsPage(),
+          };
 
     return KeyedSubtree(
       key: PageStorageKey<String>('app-page-${destination.name}'),

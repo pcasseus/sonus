@@ -57,8 +57,7 @@ void main() {
     ) async {
       final controller = await _loadedController(
         HomeSnapshot(
-          recentlyAddedTracks: [_track(id: 'song_recent', title: 'Recent')],
-          recentlyAddedAlbums: const [],
+          recentlyAddedAlbums: [_album()],
           weeklyPopularTracks: const [],
           weeklyTopArtists: const [],
         ),
@@ -75,7 +74,7 @@ void main() {
         findsOneWidget,
       );
       expect(find.textContaining('Top Artists'), findsNothing);
-      expect(find.text('Recently Added'), findsOneWidget);
+      expect(find.text('New Releases'), findsOneWidget);
     });
   });
 
@@ -86,8 +85,9 @@ void main() {
 
     expect(find.text('Popular This Week'), findsOneWidget);
     expect(find.text('Top Artists This Week'), findsOneWidget);
-    expect(find.text('Recently Added'), findsOneWidget);
-    expect(find.text('New Albums'), findsOneWidget);
+    expect(find.text('New Releases'), findsOneWidget);
+    // The Recently Added shelf was removed: it repeated New Releases.
+    expect(find.text('Recently Added'), findsNothing);
 
     expect(
       find.byKey(const ValueKey<String>('home-popular-track-song_popular')),
@@ -100,8 +100,14 @@ void main() {
     );
 
     expect(
-      find.byKey(const ValueKey<String>('home-recent-track-song_recent')),
-      findsOneWidget,
+      find.byWidgetPredicate(
+        (widget) =>
+            widget.key is ValueKey<String> &&
+            (widget.key! as ValueKey<String>).value.startsWith(
+              'home-recent-track-',
+            ),
+      ),
+      findsNothing,
     );
 
     expect(
@@ -179,59 +185,39 @@ void main() {
     );
   });
 
-  testWidgets('blocked recently added track remains visible and disabled', (
-    tester,
-  ) async {
-    final controller = await _loadedController(
-      _snapshot(
-        recentTrack: _track(
-          id: 'song_blocked',
-          title: 'Blocked Song',
-          blocked: true,
-        ),
-      ),
-    );
-
-    await _pumpHome(tester, controller);
-
-    final blockedTrack = find.byKey(
-      const ValueKey<String>('home-recent-track-song_blocked'),
-    );
-
-    expect(blockedTrack, findsOneWidget);
-    expect(find.byIcon(Icons.block_rounded), findsOneWidget);
-
-    await tester.tap(blockedTrack);
-    await tester.pumpAndSettle();
-
-    expect(find.text('Play next'), findsNothing);
-    expect(find.text('Add to queue'), findsNothing);
-  });
-
-  group('SN-50 BUG-02: Recently Added versions', () {
+  // These cases first ran on the Recently Added shelf, since removed; the
+  // Popular rail uses the same card, so they run there.
+  group('SN-50 BUG-02: versions on Home track cards', () {
     HomeSnapshot versions() => HomeSnapshot(
-      recentlyAddedTracks: [
-        _track(id: 'orig', title: 'Original Song'),
-        _track(
-          id: 'remix',
-          title: 'Original Song (Remix)',
-          versionLabel: 'Remix',
-          featured: const ['Artist A'],
-        ),
-        _track(
-          id: 'alt',
-          title: 'Original Song',
-          versionLabel: 'Alternate Remix',
-          featured: const ['Artist B', 'Artist C', 'Artist D'],
-        ),
-      ],
       recentlyAddedAlbums: const [],
-      weeklyPopularTracks: const [],
+      weeklyPopularTracks: [
+        // The longest credit leads, so it is on screen at 320dp.
+        for (final (index, track) in [
+          _track(
+            id: 'alt',
+            title: 'Original Song',
+            versionLabel: 'Alternate Remix',
+            featured: const ['Artist B', 'Artist C', 'Artist D'],
+          ),
+          _track(id: 'orig', title: 'Original Song'),
+          _track(
+            id: 'remix',
+            title: 'Original Song (Remix)',
+            versionLabel: 'Remix',
+            featured: const ['Artist A'],
+          ),
+        ].indexed)
+          HomePopularTrack(
+            track: track,
+            rank: index + 1,
+            qualifiedStreamCount: 3 - index,
+          ),
+      ],
       weeklyTopArtists: const [],
     );
 
     Finder card(String id) =>
-        find.byKey(ValueKey<String>('home-recent-track-$id'));
+        find.byKey(ValueKey<String>('home-popular-track-$id'));
 
     testWidgets('three same-base-title recordings read differently', (
       tester,
@@ -244,6 +230,13 @@ void main() {
             find.descendant(of: card(id), matching: find.byType(Text)),
           )
           .map((text) => text.data)
+          // Title and credit line; the rank and stream count are left out.
+          .where(
+            (text) =>
+                text != null &&
+                !text.contains('stream') &&
+                !text.startsWith('#'),
+          )
           .join(' | ');
 
       expect(textsOf('orig'), 'Original Song | Artist 1');
@@ -288,7 +281,6 @@ void main() {
   testWidgets('renders empty state', (tester) async {
     final controller = await _loadedController(
       const HomeSnapshot(
-        recentlyAddedTracks: [],
         recentlyAddedAlbums: [],
         weeklyPopularTracks: [],
         weeklyTopArtists: [],
@@ -345,7 +337,7 @@ void main() {
     );
   });
 
-  testWidgets('New Albums card uses album artwork path', (tester) async {
+  testWidgets('New Releases card uses album artwork path', (tester) async {
     final controller = await _loadedController(
       _snapshot(album: _album(artworkPath: 'C:/Music/album-cover.jpg')),
     );
@@ -381,7 +373,6 @@ void main() {
 
     completer.complete(
       const HomeSnapshot(
-        recentlyAddedTracks: [],
         recentlyAddedAlbums: [],
         weeklyPopularTracks: [],
         weeklyTopArtists: [],
@@ -453,7 +444,6 @@ void main() {
 void _railLayoutTests() {
   const popular = ValueKey<String>('home-popular-track-song_popular');
   const artist = ValueKey<String>('home-top-artist-artist_1');
-  const recent = ValueKey<String>('home-recent-track-song_recent');
   const album = ValueKey<String>('home-new-album-album_1');
 
   double widthOf(WidgetTester tester, Key key) =>
@@ -468,7 +458,6 @@ void _railLayoutTests() {
     final base = _snapshot();
     final controller = await _loadedController(
       HomeSnapshot(
-        recentlyAddedTracks: base.recentlyAddedTracks,
         recentlyAddedAlbums: [
           for (var i = 1; i <= 6; i++)
             LibraryAlbum(
@@ -490,7 +479,7 @@ void _railLayoutTests() {
 
     await _pumpHome(tester, controller, size: const Size(411, 600));
 
-    // The New Albums rail is below the fold and not built yet.
+    // The New Releases rail is below the fold and not built yet.
     expect(find.byKey(album), findsNothing);
 
     final page = tester.state<ScrollableState>(
@@ -537,8 +526,7 @@ void _railLayoutTests() {
 
       final reason = 'screen $width';
       expect(widthOf(tester, popular), closeTo(featured, 0.01), reason: reason);
-      expect(widthOf(tester, recent), closeTo(standard, 0.01), reason: reason);
-      expect(widthOf(tester, album), widthOf(tester, recent), reason: reason);
+      expect(widthOf(tester, album), closeTo(standard, 0.01), reason: reason);
       expect(
         widthOf(tester, popular),
         greaterThan(widthOf(tester, artist)),
@@ -546,7 +534,7 @@ void _railLayoutTests() {
       );
       expect(
         widthOf(tester, artist),
-        greaterThan(widthOf(tester, recent)),
+        greaterThan(widthOf(tester, album)),
         reason: reason,
       );
     }
@@ -594,33 +582,6 @@ void _railLayoutTests() {
       ),
     );
     expect(title.style!.color, colors.textPrimary);
-  });
-
-  testWidgets('a blocked track is labelled unavailable for screen readers', (
-    tester,
-  ) async {
-    final semantics = tester.ensureSemantics();
-    final controller = await _loadedController(
-      _snapshot(
-        recentTrack: _track(
-          id: 'song_blocked',
-          title: 'Blocked Song',
-          blocked: true,
-        ),
-      ),
-    );
-
-    await _pumpHome(tester, controller);
-
-    // The card merges its children, so the state is part of its label.
-    final label = tester
-        .getSemantics(
-          find.byKey(const ValueKey<String>('home-recent-track-song_blocked')),
-        )
-        .label;
-    expect(label, startsWith('Unavailable'));
-    expect(label, contains('Blocked Song'));
-    semantics.dispose();
   });
 
   testWidgets('keyboard focus outlines a card in the theme focus colour', (
@@ -820,6 +781,71 @@ void _topArtistCardTests() {
 
     expect(find.byType(ArtistProfilePage), findsOneWidget);
   });
+
+  // S2: an artist no longer in the library keeps its card, rank, name and
+  // totals, but has no profile to open.
+  testWidgets('a historical artist card shows its stored name and does not '
+      'open a profile', (tester) async {
+    final base = _snapshot();
+    final controller = await _loadedController(
+      HomeSnapshot(
+        recentlyAddedAlbums: base.recentlyAddedAlbums,
+        weeklyPopularTracks: base.weeklyPopularTracks,
+        weeklyTopArtists: [
+          HomeTopArtist(
+            artist: LibraryArtist(
+              artistId: 'artist_gone',
+              name: 'Gone Artist',
+              albumCount: 0,
+              songCount: 0,
+              dateAdded: DateTime.utc(2026, 9, 28),
+            ),
+            rank: 1,
+            qualifiedStreamCount: 9,
+            weeklyListeningDuration: const Duration(minutes: 30),
+            isAvailable: false,
+            isHistorical: true,
+          ),
+          ...base.weeklyTopArtists.map(
+            (entry) => HomeTopArtist(
+              artist: entry.artist,
+              rank: 2,
+              qualifiedStreamCount: entry.qualifiedStreamCount,
+              weeklyListeningDuration: entry.weeklyListeningDuration,
+            ),
+          ),
+        ],
+      ),
+    );
+
+    await _pumpHome(tester, controller);
+
+    const gone = ValueKey<String>('home-top-artist-artist_gone');
+    expect(find.byKey(gone), findsOneWidget);
+    expect(
+      find.descendant(of: find.byKey(gone), matching: find.text('Gone Artist')),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(gone),
+        matching: find.text('9 weekly streams'),
+      ),
+      findsOneWidget,
+    );
+    expect(tester.widget<InkWell>(find.byKey(gone)).onTap, isNull);
+
+    await tester.tap(find.byKey(gone));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byType(ArtistProfilePage), findsNothing);
+
+    // The artist still in the library still opens, from rank 2.
+    await tester.tap(find.byKey(card));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.byType(ArtistProfilePage), findsOneWidget);
+  });
 }
 
 void _themeTests() {
@@ -840,8 +866,7 @@ void _themeTests() {
       for (final title in [
         'Popular This Week',
         'Top Artists This Week',
-        'Recently Added',
-        'New Albums',
+        'New Releases',
       ]) {
         expect(find.text(title), findsOneWidget);
       }
@@ -973,9 +998,10 @@ void _themeTests() {
       theme: SonusThemeFactory.build(const SonusAppearanceSpec()),
     );
 
+    // One mark per section heading: Popular, Top Artists, New Releases.
     expect(
       find.byKey(const ValueKey<String>('sonus-motif-mark')),
-      findsNWidgets(4),
+      findsNWidgets(3),
     );
     expect(
       find.byKey(const ValueKey<String>('sonus-surface-texture')),
@@ -1031,7 +1057,6 @@ Future<void> _pumpHome(
 }
 
 HomeSnapshot _snapshot({
-  LibraryTrack? recentTrack,
   LibraryArtist? artist,
   LibraryAlbum? album,
   HomeRankingWeek popularTracksWeek = HomeRankingWeek.thisWeek,
@@ -1039,14 +1064,10 @@ HomeSnapshot _snapshot({
 }) {
   final popularTrack = _track(id: 'song_popular', title: 'Popular Song');
 
-  final resolvedRecentTrack =
-      recentTrack ?? _track(id: 'song_recent', title: 'Recent Song');
-
   final resolvedArtist = artist ?? _artist();
   final resolvedAlbum = album ?? _album();
 
   return HomeSnapshot(
-    recentlyAddedTracks: [resolvedRecentTrack],
     recentlyAddedAlbums: [resolvedAlbum],
     weeklyPopularTracks: [
       HomePopularTrack(track: popularTrack, rank: 1, qualifiedStreamCount: 12),
@@ -1125,7 +1146,6 @@ class _FakeHomeDataService implements HomeDataService {
     : snapshot =
           snapshot ??
           const HomeSnapshot(
-            recentlyAddedTracks: [],
             recentlyAddedAlbums: [],
             weeklyPopularTracks: [],
             weeklyTopArtists: [],

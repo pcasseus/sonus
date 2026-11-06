@@ -16,7 +16,10 @@ void main() {
   testWidgets('scrolled content fades out under a clear app bar', (
     tester,
   ) async {
-    await tester.binding.setSurfaceSize(const Size(320, 640));
+    // A screen short enough that the content cannot fit even with the
+    // smallest artwork, so the page genuinely scrolls (Q2: on screens where
+    // it fits, it no longer scrolls at all).
+    await tester.binding.setSurfaceSize(const Size(320, 480));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final theme = SonusThemeFactory.build(const SonusAppearanceSpec());
     final engine = shell.FakePlaybackEngine(

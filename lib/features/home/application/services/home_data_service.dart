@@ -4,6 +4,8 @@ import '../../../analytics/application/models/analytics_period.dart';
 import '../../../analytics/application/models/analytics_ranked_entity.dart';
 import '../../../analytics/application/services/analytics_artist_listening_duration_service.dart';
 import '../../../analytics/application/services/analytics_entity_ranking_service.dart';
+import '../../../analytics/domain/repositories/playback_session_repository.dart';
+import '../../../library/application/models/library_artist.dart';
 import '../../../library/application/models/library_album.dart';
 import '../../../library/application/models/library_track.dart';
 import '../../../library/application/models/library_track_order.dart';
@@ -18,6 +20,7 @@ class HomeDataService {
     required this._library,
     required this._analyticsRankings,
     required this._artistListeningDurations,
+    this._playbackSessions,
     this.sectionLimit = 6,
   });
 
@@ -25,16 +28,23 @@ class HomeDataService {
   final AnalyticsEntityRankingService _analyticsRankings;
   final AnalyticsArtistListeningDurationService _artistListeningDurations;
 
+  /// Names artists no longer in the library from when they were played.
+  final PlaybackSessionRepository? _playbackSessions;
+
   final int sectionLimit;
+
+  /// The name shown for a ranked artist with no stored name at all.
+  static const String unknownArtistName = 'Unknown artist';
 
   Future<HomeSnapshot> load({required DateTime referenceLocal}) async {
     if (sectionLimit <= 0) {
       throw StateError('Home section limit must be greater than zero.');
     }
 
-    final recentlyAddedTracksFuture = _library.getTracks(
-      order: LibraryTrackOrder.dateAdded,
-    );
+    // Every track, newest first. Home no longer shows a Recently Added
+    // shelf, but these tracks still decide which releases (New Releases)
+    // and artists (Top Artists) have playable media.
+    final tracksFuture = _library.getTracks(order: LibraryTrackOrder.dateAdded);
 
     final albumsFuture = _library.getAlbums();
 
@@ -66,19 +76,15 @@ class HomeDataService {
       referenceLocal: lastWeekReference,
     );
 
-    final recentlyAddedTracks = await recentlyAddedTracksFuture;
+    final tracks = await tracksFuture;
     final albums = await albumsFuture;
     final rankings = await rankingsFuture;
     final lastWeekRankings = await lastWeekRankingsFuture;
     final artistDurations = await artistDurationsFuture;
     final lastWeekArtistDurations = await lastWeekArtistDurationsFuture;
 
-    final availableTracks = recentlyAddedTracks
+    final availableTracks = tracks
         .where(_hasAvailableMedia)
-        .toList(growable: false);
-
-    final visibleRecentlyAddedTracks = availableTracks
-        .take(sectionLimit)
         .toList(growable: false);
 
     final availableAlbumIds = availableTracks
@@ -120,7 +126,6 @@ class HomeDataService {
     );
 
     return HomeSnapshot(
-      recentlyAddedTracks: List.unmodifiable(visibleRecentlyAddedTracks),
       recentlyAddedAlbums: List.unmodifiable(
         visibleRecentlyAddedAlbums.take(sectionLimit),
       ),
@@ -200,6 +205,7 @@ class HomeDataService {
     Set<String> availableArtistIds,
   ) async {
     final result = <HomeTopArtist>[];
+    Map<String, String>? historicalNames;
 
     for (final ranking in rankings) {
       if (result.length >= sectionLimit) {
@@ -208,7 +214,27 @@ class HomeDataService {
 
       final artist = await _library.getArtistById(ranking.entityId);
 
+      // An artist no longer in the library keeps its place (S2): it is
+      // named from when it was played, never dropped or re-ranked.
       if (artist == null) {
+        historicalNames ??= await _historicalArtistNames();
+        result.add(
+          HomeTopArtist(
+            artist: LibraryArtist(
+              artistId: ranking.entityId,
+              name: historicalNames[ranking.entityId] ?? unknownArtistName,
+              albumCount: 0,
+              songCount: 0,
+              dateAdded: ranking.firstQualifiedAt,
+            ),
+            rank: result.length + 1,
+            qualifiedStreamCount: ranking.qualifiedStreamCount,
+            weeklyListeningDuration:
+                artistDurations[ranking.entityId] ?? Duration.zero,
+            isAvailable: false,
+            isHistorical: true,
+          ),
+        );
         continue;
       }
 
@@ -225,6 +251,24 @@ class HomeDataService {
     }
 
     return result;
+  }
+
+  /// The most recent stored name for each artist id in listening history.
+  /// Read only; loaded only when a ranked artist is missing.
+  Future<Map<String, String>> _historicalArtistNames() async {
+    final sessions = _playbackSessions;
+    if (sessions == null) return const {};
+
+    final latest = <String, (DateTime, String)>{};
+    for (final session in await sessions.getAll()) {
+      final name = session.artistName.trim();
+      if (name.isEmpty) continue;
+      final known = latest[session.artistId];
+      if (known == null || session.startedAt.isAfter(known.$1)) {
+        latest[session.artistId] = (session.startedAt, name);
+      }
+    }
+    return {for (final MapEntry(:key, :value) in latest.entries) key: value.$2};
   }
 
   static bool _hasAvailableMedia(LibraryTrack track) {

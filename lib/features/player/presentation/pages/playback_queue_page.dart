@@ -41,7 +41,6 @@ class PlaybackQueuePage extends StatelessWidget {
           title: const Text('Queue'),
           centerTitle: true,
           backgroundColor: atmosphere.background,
-          surfaceTintColor: Colors.transparent,
           actions: [
             IconButton(
               key: const ValueKey<String>('playback-queue-clear'),

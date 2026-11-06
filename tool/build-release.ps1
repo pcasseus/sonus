@@ -32,7 +32,28 @@ if (-not "$($settings.GOOGLE_WEB_CLIENT_ID)".Trim().EndsWith('.apps.googleuserco
 
 Push-Location (Join-Path $PSScriptRoot '..')
 try {
-    flutter build apk --release "--dart-define-from-file=$Config" @FlutterArgs
+    # Build identity, shown in Settings > About. Without Git the app says
+    # the commit was not recorded instead of guessing.
+    $buildDefines = @()
+    if (Get-Command git -ErrorAction SilentlyContinue) {
+        $commit = "$(git rev-parse --short HEAD 2>$null)".Trim()
+        if ($LASTEXITCODE -eq 0 -and $commit) {
+            $changes = "$(git status --porcelain 2>$null)".Trim()
+            if ($changes) { $commit = "$commit-dirty" }
+            $buildDefines += "--dart-define=SONUS_BUILD_COMMIT=$commit"
+            Write-Output "Build commit $commit"
+        }
+        else {
+            Write-Warning 'Git did not report a commit; the build commit will show as not recorded.'
+        }
+    }
+    else {
+        Write-Warning 'Git is not available; the build commit will show as not recorded.'
+    }
+    $buildTime = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+    $buildDefines += "--dart-define=SONUS_BUILD_TIME=$buildTime"
+
+    flutter build apk --release "--dart-define-from-file=$Config" @buildDefines @FlutterArgs
     if ($LASTEXITCODE -ne 0) { throw "flutter build failed ($LASTEXITCODE)" }
 
     $apk = 'build\app\outputs\flutter-apk\app-release.apk'

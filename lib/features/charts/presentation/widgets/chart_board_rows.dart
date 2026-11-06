@@ -1,7 +1,10 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../../../core/design/sonus_artwork_palette.dart';
+import '../../../../core/design/sonus_greyscale_theme.dart';
 import '../../../../core/design/sonus_theme.dart';
+import '../../../../core/design/widgets/sonus_artwork_colors_request.dart';
 import '../../../../core/design/widgets/sonus_artwork_image.dart';
 import '../../domain/entities/chart_entry.dart';
 import '../models/chart_entry_movement.dart';
@@ -26,10 +29,6 @@ enum ChartRowTier {
       : ChartRowTier.compact;
 }
 
-/// Whether the theme is greyscale (Monochrome): no tints, only artwork.
-bool chartThemeIsGreyscale(Color accent) =>
-    (accent.r - accent.g).abs() < 0.02 && (accent.g - accent.b).abs() < 0.02;
-
 /// #1: a slim frame in the theme's own gradient around the compact row,
 /// over a tint of it; the row shows a trophy beside the rank. Plain under
 /// high contrast, low effects and Decoration Off; greyscale in Monochrome.
@@ -47,7 +46,7 @@ class ChartFeaturedFrame extends StatelessWidget {
   Widget build(BuildContext context) {
     final tokens = SonusTheme.of(context);
     final colors = tokens.colors;
-    final grey = chartThemeIsGreyscale(colors.accentPrimary);
+    final grey = sonusThemeIsGreyscale(colors.accentPrimary);
     final gradient = tokens.decoration.allowGradients;
     final a = grey ? colors.textSecondary : colors.accentPrimary;
     final b = grey ? colors.textPrimary : colors.accentSecondary;
@@ -119,42 +118,29 @@ class ChartTopTenFrame extends StatefulWidget {
   State<ChartTopTenFrame> createState() => _ChartTopTenFrameState();
 }
 
-class _ChartTopTenFrameState extends State<ChartTopTenFrame> {
-  SonusArtworkColors? _art;
-  String? _loadedFor;
+class _ChartTopTenFrameState extends State<ChartTopTenFrame>
+    with SonusArtworkColorsRequest<ChartTopTenFrame> {
+  @override
+  SonusArtworkPalette? get artworkPalette => widget.palette;
 
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _load();
-  }
+  ValueListenable<String?>? artworkPathListenableOf(ChartTopTenFrame widget) =>
+      null;
 
   @override
-  void didUpdateWidget(ChartTopTenFrame oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.artworkPath != widget.artworkPath) _load();
-  }
-
-  void _load() {
-    final path = widget.artworkPath;
-    if (path == _loadedFor) return;
-    _loadedFor = path;
-    _art = null;
-    final brightness = Theme.of(context).brightness;
-    (widget.palette ?? SonusArtworkPalette.shared)
-        .colorsFor(path, brightness: brightness)
-        .then((colors) {
-          if (mounted && _loadedFor == path) setState(() => _art = colors);
-        });
-  }
+  String? artworkPathOf(ChartTopTenFrame widget) => widget.artworkPath;
 
   @override
   Widget build(BuildContext context) {
+    // Re-requested when the artwork or the theme's brightness changes.
+    requestArtworkColors(Theme.of(context).brightness);
     final tokens = SonusTheme.of(context);
     final colors = tokens.colors;
-    final grey = chartThemeIsGreyscale(colors.accentPrimary);
+    final grey = sonusThemeIsGreyscale(colors.accentPrimary);
     final gradient = tokens.decoration.allowGradients && !grey;
-    final accent = grey ? colors.border : _art?.accent ?? colors.accentPrimary;
+    final accent = grey
+        ? colors.border
+        : artworkColors?.accent ?? colors.accentPrimary;
     final radius = BorderRadius.circular(tokens.metrics.cardRadius + 1.5);
     final tint = grey || !tokens.decoration.allowGradients
         ? colors.surface
@@ -278,7 +264,7 @@ class _ChartCompactRowState extends State<ChartCompactRow> {
                           Icons.emoji_events_rounded,
                           key: const ValueKey<String>('charts-number-one'),
                           size: 16,
-                          color: chartThemeIsGreyscale(colors.accentPrimary)
+                          color: sonusThemeIsGreyscale(colors.accentPrimary)
                               ? colors.textPrimary
                               : colors.accentPrimary,
                         ),

@@ -25,6 +25,7 @@ import '../../../artwork/presentation/services/file_picker_artwork_file_picker.d
 import '../../../search/application/repositories/library_search_repository.dart';
 import '../../../sync/data/repositories/sync_mutation_transaction_runner.dart';
 import '../../../settings/application/controllers/metadata_intelligence_settings_controller.dart';
+import '../controllers/library_view_controller.dart';
 import '../../application/repositories/library_query_repository.dart';
 import '../../application/services/album_edition_management_service.dart';
 import '../../application/services/album_edition_track_ordering_service.dart';
@@ -32,6 +33,7 @@ import '../../application/services/album_profile_editing_service.dart';
 import '../../application/services/artist_creation_service.dart';
 import '../../application/services/artist_merge_service.dart';
 import '../../application/services/artist_profile_editing_service.dart';
+import '../../application/services/artist_retirement_service.dart';
 import '../../application/services/external_metadata_application_service.dart';
 import '../../application/services/external_metadata_proposal_service.dart';
 import '../../../analytics/application/services/listening_artist_attribution.dart';
@@ -50,6 +52,7 @@ import '../../data/daos/song_artist_credit_dao.dart';
 import '../../data/daos/song_dao.dart';
 import '../../data/repositories/sqlite_album_edition_repository.dart';
 import '../../data/repositories/sqlite_artist_repository.dart';
+import '../../data/repositories/sqlite_artist_reference_repository.dart';
 import '../../data/repositories/sqlite_library_organization_repository.dart';
 import '../../data/repositories/sqlite_library_query_repository.dart';
 import '../../data/repositories/sqlite_song_artist_credit_repository.dart';
@@ -85,6 +88,7 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
   ArtistCreationService? _artistCreationService;
   ArtistMergeService? _artistMergeService;
   ArtistProfileEditingService? _artistProfileEditingService;
+  ArtistRetirementService? _artistRetirementService;
   SongBlockService? _songBlockService;
   SongArtistCreditRepository? _songArtistCreditRepository;
   TrackProfileEditingService? _trackProfileEditingService;
@@ -98,6 +102,10 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
   DartIoMusicBrainzHttpTransport? _musicBrainzTransport;
   late final MetadataIntelligenceSettingsController
   _metadataIntelligenceSettingsController;
+
+  /// The saved Library view (Artist Roster or Film Reel), read early so
+  /// the Library opens on it.
+  final LibraryViewController _libraryViewController = LibraryViewController();
 
   @override
   void initState() {
@@ -114,6 +122,7 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
     );
 
     unawaited(_metadataIntelligenceSettingsController.load());
+    unawaited(_libraryViewController.load());
     unawaited(_initialize());
   }
 
@@ -172,6 +181,11 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
 
     final artistProfileEditingService = ArtistProfileEditingService(
       mutationRunner: SyncMutationTransactionRunner(appDatabase: _database),
+    );
+
+    // Read-only: which artists are active, kept for history or removable.
+    final artistRetirementService = ArtistRetirementService(
+      () async => SqliteArtistReferenceRepository(database),
     );
 
     final artistMergeService = ArtistMergeService(
@@ -260,6 +274,7 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
       );
       _artistCreationService = artistCreationService;
       _artistProfileEditingService = artistProfileEditingService;
+      _artistRetirementService = artistRetirementService;
       _artistMergeService = artistMergeService;
       _songBlockService = songBlockService;
       _songArtistCreditRepository = songArtistCreditRepository;
@@ -287,6 +302,9 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
         ChangeNotifierProvider<MetadataIntelligenceSettingsController>.value(
           value: _metadataIntelligenceSettingsController,
         ),
+        ChangeNotifierProvider<LibraryViewController>.value(
+          value: _libraryViewController,
+        ),
         Provider<AppDatabase>.value(value: _database),
         Provider<LibraryQueryRepository?>.value(value: _repository),
         Provider<LibrarySearchRepository?>.value(value: _searchRepository),
@@ -312,6 +330,9 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
         Provider<ArtistCreationService?>.value(value: _artistCreationService),
         Provider<ArtistProfileEditingService?>.value(
           value: _artistProfileEditingService,
+        ),
+        Provider<ArtistRetirementService?>.value(
+          value: _artistRetirementService,
         ),
         Provider<ArtistMergeService?>.value(value: _artistMergeService),
         Provider<SongBlockService?>.value(value: _songBlockService),
@@ -367,6 +388,7 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
       _handleMetadataIntelligenceSettingsChanged,
     );
     _metadataIntelligenceSettingsController.dispose();
+    _libraryViewController.dispose();
     _coverArtBinaryTransport?.close();
     _musicBrainzTransport?.close();
 

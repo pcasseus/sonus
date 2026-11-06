@@ -333,7 +333,9 @@ void main() {
         ],
       ),
       libraryAlbums: releases,
-      size: const Size(411, 800),
+      // Short enough that the page scrolls the hero away (the releases
+      // are a single carousel row now).
+      size: const Size(411, 400),
     );
 
     double titleOpacity() => tester
@@ -341,12 +343,33 @@ void main() {
         .opacity;
 
     expect(titleOpacity(), 0, reason: 'the hero names the artist');
+    final position = tester
+        .state<ScrollableState>(
+          find
+              .descendant(
+                of: find.byKey(
+                  const PageStorageKey<String>('artist-profile-scroll'),
+                ),
+                matching: find.byType(Scrollable),
+              )
+              .first,
+        )
+        .position;
     await tester.drag(
       find.byKey(const PageStorageKey<String>('artist-profile-scroll')),
       const Offset(0, -900),
     );
     await tester.pumpAndSettle();
-    expect(titleOpacity(), 1);
+    expect(
+      position.pixels,
+      greaterThan(0),
+      reason: 'max ${position.maxScrollExtent}',
+    );
+    expect(
+      titleOpacity(),
+      1,
+      reason: "pixels ${position.pixels} max ${position.maxScrollExtent}",
+    );
   });
 
   testWidgets('a contributor sees where it appears, never a catalog', (

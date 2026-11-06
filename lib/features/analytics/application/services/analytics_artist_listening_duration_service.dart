@@ -40,7 +40,16 @@ class AnalyticsArtistListeningDurationService {
     );
 
     final attributor = await ArtistAttributor.of(_artistAttribution);
-    final sessionCache = <String, PlaybackSession?>{};
+    // Every session that could own one of these segments, read at once
+    // instead of one query per session. A session always starts before its
+    // segments, so those started before the window's end are enough; any
+    // not found here is still looked up on its own below.
+    final sessionCache = <String, PlaybackSession?>{
+      for (final session in await _playbackSessions.getAll(
+        startedBefore: window.endUtc,
+      ))
+        session.id: session,
+    };
     final totalsMilliseconds = <String, int>{};
 
     for (final segment in segments) {

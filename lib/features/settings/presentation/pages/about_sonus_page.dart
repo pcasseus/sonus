@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/build/sonus_build_info.dart';
 import '../../../../core/database/app_database.dart';
 import '../../../../core/design/sonus_theme.dart';
 import '../../../../core/design/widgets/sonus_brand_mark.dart';
@@ -12,10 +13,13 @@ import 'library_settings_page.dart';
 /// The Sonus identity, version, licenses and short troubleshooting help.
 /// Shows no account identifiers, device paths or other personal data.
 class AboutSonusPage extends StatefulWidget {
-  const AboutSonusPage({super.key, this.appInfoService});
+  const AboutSonusPage({super.key, this.appInfoService, this.buildInfo});
 
   /// Overrides the platform version source (tests).
   final AppInfoService? appInfoService;
+
+  /// Overrides the compile-time build identity (tests).
+  final SonusBuildInfo? buildInfo;
 
   @override
   State<AboutSonusPage> createState() => _AboutSonusPageState();
@@ -49,6 +53,7 @@ class _AboutSonusPageState extends State<AboutSonusPage> {
   Widget build(BuildContext context) {
     final tokens = SonusTheme.of(context);
     final textTheme = Theme.of(context).textTheme;
+    final build = widget.buildInfo ?? SonusBuildInfo.current;
 
     return Scaffold(
       key: const ValueKey<String>('about-sonus-page'),
@@ -95,6 +100,17 @@ class _AboutSonusPageState extends State<AboutSonusPage> {
                 subtitle: Text(
                   _versionText,
                   key: const ValueKey<String>('about-version'),
+                ),
+              ),
+              ListTile(
+                key: const ValueKey<String>('about-build'),
+                leading: const Icon(Icons.commit_rounded),
+                title: const Text('Build'),
+                subtitle: Text(
+                  'Commit: ${build.commitLabel}\n'
+                  'Built: ${build.timeLabel}\n'
+                  'Type: ${build.modeLabel}',
+                  key: const ValueKey<String>('about-build-details'),
                 ),
               ),
               const ListTile(

@@ -254,6 +254,140 @@ void main() {
       expect(styles.first.bodyMedium!.fontFamily, isNot('serif'));
     });
 
+    test('bold text raises every weight and keeps the hierarchy', () {
+      for (final preset in SonusTypographyPreset.values) {
+        // Theme.of adds the Material geometry; compare what screens see.
+        TextTheme resolved(bool bold) => ThemeData.localize(
+          SonusThemeFactory.build(
+            SonusAppearanceSpec(typography: preset, boldText: bold),
+          ),
+          Typography.material2021().englishLike,
+        ).textTheme;
+
+        final plain = resolved(false);
+        final bold = resolved(true);
+
+        List<TextStyle> all(TextTheme t) => [
+          t.displayLarge!,
+          t.displayMedium!,
+          t.displaySmall!,
+          t.headlineLarge!,
+          t.headlineMedium!,
+          t.headlineSmall!,
+          t.titleLarge!,
+          t.titleMedium!,
+          t.titleSmall!,
+          t.bodyLarge!,
+          t.bodyMedium!,
+          t.bodySmall!,
+          t.labelLarge!,
+          t.labelMedium!,
+          t.labelSmall!,
+        ];
+
+        final before = all(plain);
+        final after = all(bold);
+
+        for (var i = 0; i < before.length; i++) {
+          final from = before[i].fontWeight!;
+          final to = after[i].fontWeight!;
+          expect(to, SonusTypography.bolder(from), reason: '${preset.name} $i');
+          expect(to.value, greaterThanOrEqualTo(from.value));
+          expect(after[i].fontSize, before[i].fontSize);
+          expect(after[i].color, before[i].color);
+          expect(after[i].fontFamily, before[i].fontFamily);
+
+          // A style that was at least as heavy as another stays so.
+          for (var j = 0; j < before.length; j++) {
+            if (before[i].fontWeight!.value >= before[j].fontWeight!.value) {
+              expect(
+                after[i].fontWeight!.value,
+                greaterThanOrEqualTo(after[j].fontWeight!.value),
+              );
+            }
+          }
+        }
+      }
+
+      expect(SonusTypography.bolder(FontWeight.w400), FontWeight.w600);
+      expect(SonusTypography.bolder(FontWeight.w500), FontWeight.w700);
+      expect(SonusTypography.bolder(FontWeight.w600), FontWeight.w800);
+      expect(SonusTypography.bolder(FontWeight.w800), FontWeight.w900);
+      expect(SonusTypography.bolder(FontWeight.w900), FontWeight.w900);
+    });
+
+    test('bold text also raises Sonus heading styles and tab labels', () {
+      final plain = SonusThemeFactory.build(const SonusAppearanceSpec());
+      final bold = SonusThemeFactory.build(
+        const SonusAppearanceSpec(boldText: true),
+      );
+
+      final plainText = plain.extension<SonusTextStyles>()!;
+      final boldText = bold.extension<SonusTextStyles>()!;
+      expect(boldText.sectionHeading.fontWeight, FontWeight.w900);
+      expect(boldText.chartRank.fontWeight, FontWeight.w900);
+      expect(plainText.sectionHeading.fontWeight, FontWeight.w700);
+      expect(
+        bold.tabBarTheme.unselectedLabelStyle!.fontWeight,
+        FontWeight.w700,
+      );
+      expect(
+        plain.tabBarTheme.unselectedLabelStyle!.fontWeight,
+        FontWeight.w500,
+      );
+    });
+
+    test('bold text never changes colours or decoration', () {
+      for (final themeId in SonusThemeId.values) {
+        for (final decoration in SonusDecorationIntensity.values) {
+          for (final highContrast in [false, true]) {
+            for (final lowEffects in [false, true]) {
+              SonusAppearanceSpec spec(bool bold) => SonusAppearanceSpec(
+                themeId: themeId,
+                decoration: decoration,
+                highContrast: highContrast,
+                lowEffects: lowEffects,
+                boldText: bold,
+              );
+              final plain = SonusThemeFactory.build(spec(false));
+              final bold = SonusThemeFactory.build(spec(true));
+              final a = plain.extension<SonusDecorationTokens>()!;
+              final b = bold.extension<SonusDecorationTokens>()!;
+              final reason =
+                  '${themeId.name} ${decoration.name} hc=$highContrast '
+                  'le=$lowEffects';
+
+              expect(b.intensity, a.intensity, reason: reason);
+              expect(b.allowGradients, a.allowGradients, reason: reason);
+              expect(b.allowGlow, a.allowGlow, reason: reason);
+              expect(b.highContrast, a.highContrast, reason: reason);
+              expect(b.lowEffects, a.lowEffects, reason: reason);
+              expect(b.showTexture, a.showTexture, reason: reason);
+              expect(b.markOpacity, a.markOpacity, reason: reason);
+              expect(b.textureOpacity, a.textureOpacity, reason: reason);
+              expect(b.reactivity, a.reactivity, reason: reason);
+              expect(b.motif, a.motif, reason: reason);
+              expect(b.progressStyle, a.progressStyle, reason: reason);
+              expect(bold.colorScheme, plain.colorScheme, reason: reason);
+              expect(
+                bold.extension<SonusColors>()!.textSecondary,
+                plain.extension<SonusColors>()!.textSecondary,
+                reason: reason,
+              );
+            }
+          }
+        }
+      }
+
+      // Bold text alone keeps the full atmosphere.
+      final boldOnly = SonusThemeFactory.build(
+        const SonusAppearanceSpec(boldText: true),
+      ).extension<SonusDecorationTokens>()!;
+      expect(boldOnly.allowGradients, isTrue);
+      expect(boldOnly.allowGlow, isTrue);
+      expect(boldOnly.highContrast, isFalse);
+    });
+
     test('featured figures use tabular digits', () {
       final styles = SonusThemeFactory.build(
         const SonusAppearanceSpec(),
@@ -271,6 +405,27 @@ void main() {
       }
     });
   });
+
+  // Theme architecture T0: the effects layer is readable from the tokens.
+  test(
+    'decoration tokens carry the accessibility settings that shaped them',
+    () {
+      SonusDecorationTokens tokens(SonusAppearanceSpec spec) =>
+          SonusThemeFactory.build(spec).extension<SonusDecorationTokens>()!;
+
+      final plain = tokens(const SonusAppearanceSpec());
+      expect(plain.highContrast, isFalse);
+      expect(plain.lowEffects, isFalse);
+
+      final contrast = tokens(const SonusAppearanceSpec(highContrast: true));
+      expect(contrast.highContrast, isTrue);
+      expect(contrast.allowGradients, isFalse);
+
+      final effects = tokens(const SonusAppearanceSpec(lowEffects: true));
+      expect(effects.lowEffects, isTrue);
+      expect(effects.allowGlow, isFalse);
+    },
+  );
 }
 
 // The instant transition builder never reads its context.

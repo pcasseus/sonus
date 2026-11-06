@@ -4,6 +4,7 @@ import '../../../library/domain/repositories/album_edition_track_repository.dart
 import '../../../library/domain/repositories/album_repository.dart';
 import '../../../library/domain/repositories/artist_repository.dart';
 import '../../../library/domain/repositories/artist_identity_repair_repository.dart';
+import '../../../library/domain/repositories/artist_reference_repository.dart';
 import '../../../library/domain/repositories/song_repository.dart';
 import '../../../library/domain/repositories/song_artist_credit_repository.dart';
 import '../../../library/domain/repositories/metadata_field_state_repository.dart';
@@ -19,6 +20,7 @@ class SyncMutationContext {
   const SyncMutationContext({
     required this.artistRepository,
     this.artistIdentityRepairRepository,
+    this.artistReferenceRepository,
     required this.albumRepository,
     required this.albumEditionRepository,
     required this.albumEditionTrackRepository,
@@ -37,6 +39,10 @@ class SyncMutationContext {
 
   final ArtistRepository artistRepository;
   final ArtistIdentityRepairRepository? artistIdentityRepairRepository;
+
+  /// What still refers to an artist; artist removal refuses to run
+  /// without it.
+  final ArtistReferenceRepository? artistReferenceRepository;
   final AlbumRepository albumRepository;
   final AlbumEditionRepository albumEditionRepository;
   final AlbumEditionTrackRepository albumEditionTrackRepository;

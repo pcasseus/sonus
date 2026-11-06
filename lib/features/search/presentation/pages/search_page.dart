@@ -8,6 +8,7 @@ import '../../../../core/design/sonus_theme.dart';
 import '../../../../core/events/library_change_signal.dart';
 import '../../../../core/design/widgets/sonus_artwork_image.dart';
 import '../../../../core/design/widgets/sonus_state_view.dart';
+import '../../../../core/design/sonus_text_scale.dart';
 import '../../../../core/design/widgets/sonus_track_tile.dart';
 
 import '../../../library/application/models/library_album.dart';
@@ -372,7 +373,6 @@ class _SearchPageState extends State<SearchPage> {
       appBar: AppBar(
         title: const Text('Search'),
         backgroundColor: tokens.colors.background,
-        surfaceTintColor: Colors.transparent,
       ),
       body: controller == null
           ? const Center(

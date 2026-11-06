@@ -4,9 +4,11 @@ import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 
 import '../../../../../core/design/sonus_atmosphere_colors.dart';
+import '../../../../../core/design/sonus_profile_colors.dart';
 import '../../../../../core/design/sonus_count_label.dart';
 import '../../../../../core/design/sonus_theme.dart';
 import '../../../../../core/design/widgets/sonus_artwork_frame.dart';
+import '../../../../../core/design/widgets/sonus_frosted_glass.dart';
 import '../../../application/models/library_artist.dart';
 import '../../models/artist_profile_sections.dart';
 
@@ -24,6 +26,7 @@ class ArtistProfileHeader extends StatelessWidget {
     required this.bannerPath,
     required this.portraitPath,
     required this.atmosphere,
+    this.profile,
     this.standing,
     this.summary,
   });
@@ -32,6 +35,11 @@ class ArtistProfileHeader extends StatelessWidget {
   final String? bannerPath;
   final String? portraitPath;
   final SonusAtmosphereColors atmosphere;
+
+  /// The page's full profile colours (UI redesign P1): when given, the
+  /// standing sits on glass and the name and portrait glow where allowed.
+  final SonusProfileColors? profile;
+
   final ArtistStanding? standing;
 
   /// A short line under the name, such as a contributor's projects. The
@@ -82,6 +90,14 @@ class ArtistProfileHeader extends StatelessWidget {
             ? imageHeightFor(context, width)
             : topInset + 168.0;
 
+        // V1: over the page's lit backdrop the photo itself fades out, so it
+        // melts into the artwork's atmosphere with no band or edge; without
+        // a photo the backdrop shows through.
+        final immersive = profile?.isTinted ?? false;
+        final photo = hasBanner
+            ? _Banner(path: banner, artistId: artist.artistId, width: width)
+            : null;
+
         return Stack(
           key: const ValueKey<String>('artist-profile-hero'),
           clipBehavior: Clip.none,
@@ -91,13 +107,35 @@ class ArtistProfileHeader extends StatelessWidget {
                 SizedBox(
                   height: imageHeight,
                   width: double.infinity,
-                  child: hasBanner
-                      ? _Banner(
-                          path: banner,
-                          artistId: artist.artistId,
-                          width: width,
+                  child: photo == null
+                      ? (immersive
+                            ? const SizedBox.expand(
+                                key: ValueKey<String>(
+                                  'artist-profile-banner-fallback',
+                                ),
+                              )
+                            : _AtmosphereBackdrop(atmosphere: atmosphere))
+                      : immersive
+                      ? ShaderMask(
+                          key: const ValueKey<String>(
+                            'artist-profile-banner-fade',
+                          ),
+                          blendMode: BlendMode.dstIn,
+                          shaderCallback: (bounds) => const LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            // Profile Lab: the photo at full strength over
+                            // most of its height, then a short fade.
+                            colors: [
+                              Color(0xFFFFFFFF),
+                              Color(0xFFFFFFFF),
+                              Color(0x00FFFFFF),
+                            ],
+                            stops: [0, 0.6, 1],
+                          ).createShader(bounds),
+                          child: photo,
                         )
-                      : _AtmosphereBackdrop(atmosphere: atmosphere),
+                      : photo,
                 ),
                 // Room for the identity row below the photo's edge.
                 const SizedBox(height: _portraitSize / 2 + 8),
@@ -112,6 +150,37 @@ class ArtistProfileHeader extends StatelessWidget {
                     atmosphere: atmosphere,
                     topInset: topInset,
                     imageHeight: imageHeight,
+                    // The photo fades itself over the backdrop: only the
+                    // scrim under the bars remains.
+                    scrimOnly: immersive,
+                  ),
+                ),
+              ),
+            // Profile Lab: a soft local ground under the name and the
+            // statistics only, so they read over any photo without darkening
+            // the whole picture.
+            if (immersive && hasBanner)
+              Positioned(
+                key: const ValueKey<String>('artist-profile-identity-scrim'),
+                left: 0,
+                right: 0,
+                bottom: -24,
+                height: _portraitSize + 96,
+                child: IgnorePointer(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          atmosphere.background.withValues(alpha: 0),
+                          atmosphere.background.withValues(alpha: 0.42),
+                          atmosphere.background.withValues(alpha: 0.5),
+                          atmosphere.background.withValues(alpha: 0),
+                        ],
+                        stops: const [0, 0.4, 0.75, 1],
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -125,6 +194,7 @@ class ArtistProfileHeader extends StatelessWidget {
                 standing: standing,
                 summary: summary,
                 atmosphere: atmosphere,
+                profile: profile,
                 portraitSize: _portraitSize,
               ),
             ),
@@ -206,15 +276,21 @@ class _Fades extends StatelessWidget {
     required this.atmosphere,
     required this.topInset,
     required this.imageHeight,
+    this.scrimOnly = false,
   });
 
   final SonusAtmosphereColors atmosphere;
   final double topInset;
   final double imageHeight;
 
+  /// Only the scrim under the status and app bars, no fade to the page.
+  final bool scrimOnly;
+
   @override
   Widget build(BuildContext context) {
-    final background = atmosphere.background;
+    final background = scrimOnly
+        ? atmosphere.background.withValues(alpha: 0)
+        : atmosphere.background;
 
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -254,6 +330,7 @@ class _Identity extends StatelessWidget {
     required this.standing,
     required this.summary,
     required this.atmosphere,
+    required this.profile,
     required this.portraitSize,
   });
 
@@ -262,6 +339,7 @@ class _Identity extends StatelessWidget {
   final ArtistStanding? standing;
   final String? summary;
   final SonusAtmosphereColors atmosphere;
+  final SonusProfileColors? profile;
   final double portraitSize;
 
   @override
@@ -270,7 +348,12 @@ class _Identity extends StatelessWidget {
     final colors = tokens.colors;
     final theme = Theme.of(context);
     final standing = this.standing;
+    final profile = this.profile;
     const shadow = [ui.Shadow(blurRadius: 12, color: Color(0x66000000))];
+    // The name glows in the artwork's accent where glow is allowed.
+    final nameShadows = profile != null && profile.hasGlow
+        ? [...shadow, ui.Shadow(blurRadius: 24, color: profile.glow)]
+        : shadow;
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.end,
@@ -279,7 +362,9 @@ class _Identity extends StatelessWidget {
           artist: artist,
           path: portraitPath,
           size: portraitSize,
-          ring: atmosphere.background,
+          ring: profile != null && profile.isTinted
+              ? profile.edge
+              : atmosphere.background,
           glow: atmosphere.isTinted && tokens.decoration.allowGlow
               ? atmosphere.accent
               : null,
@@ -299,35 +384,37 @@ class _Identity extends StatelessWidget {
                   color: colors.textPrimary,
                   fontWeight: FontWeight.w800,
                   height: 1.05,
-                  shadows: shadow,
+                  shadows: nameShadows,
                 ),
               ),
               const SizedBox(height: 6),
-              if (standing != null) ...[
-                Text(
-                  standing.rankLabel,
-                  key: const ValueKey<String>('artist-profile-standing'),
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: colors.textPrimary,
-                    fontWeight: FontWeight.w700,
-                    shadows: shadow,
+              if (standing != null)
+                _Standing(
+                  profile: profile,
+                  rank: Text(
+                    standing.rankLabel,
+                    key: const ValueKey<String>('artist-profile-standing'),
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: colors.textPrimary,
+                      fontWeight: FontWeight.w700,
+                      shadows: shadow,
+                    ),
+                  ),
+                  listening: Text(
+                    [
+                      sonusCount(standing.streamCount, 'stream'),
+                      if (standing.listened case final listened?
+                          when listened > Duration.zero)
+                        '${sonusListeningTime(listened)} listened',
+                    ].join(' · '),
+                    key: const ValueKey<String>('artist-profile-listening'),
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: colors.textPrimary,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                      shadows: shadow,
+                    ),
                   ),
                 ),
-                Text(
-                  [
-                    sonusCount(standing.streamCount, 'stream'),
-                    if (standing.listened case final listened?
-                        when listened > Duration.zero)
-                      '${sonusListeningTime(listened)} listened',
-                  ].join(' · '),
-                  key: const ValueKey<String>('artist-profile-listening'),
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: colors.textPrimary,
-                    fontFeatures: const [FontFeature.tabularFigures()],
-                    shadows: shadow,
-                  ),
-                ),
-              ],
               if (summary case final summary?)
                 Text(
                   summary,
@@ -445,4 +532,85 @@ String artistInitials(String name) {
   return '${parts.first.substring(0, 1)}'
           '${parts.last.substring(0, 1)}'
       .toUpperCase();
+}
+
+/// The artist's standing (UI redesign V1): the rank in a pill outlined in
+/// the artwork's accent, and the streams and listening time beside a
+/// headphones mark, both sitting directly on the hero's colour. Without
+/// profile colours, the two lines as plain text.
+class _Standing extends StatelessWidget {
+  const _Standing({
+    required this.profile,
+    required this.rank,
+    required this.listening,
+  });
+
+  final SonusProfileColors? profile;
+  final Widget rank;
+  final Widget listening;
+
+  @override
+  Widget build(BuildContext context) {
+    final profile = this.profile;
+    if (profile == null) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [rank, listening],
+      );
+    }
+    final flat = !SonusTheme.of(context).decoration.allowGradients;
+    return Column(
+      key: const ValueKey<String>('artist-profile-standing-glass'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const SizedBox(height: 4),
+        DecoratedBox(
+          key: const ValueKey<String>('artist-profile-standing-pill'),
+          decoration: BoxDecoration(
+            color: profile.surface.withValues(alpha: flat ? 1 : 0.35),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+              color: flat
+                  ? SonusTheme.of(context).colors.border
+                  : profile.accent.withValues(alpha: 0.6),
+            ),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            child: rank,
+          ),
+        ),
+        const SizedBox(height: 8),
+        // Profile Lab: the listening statistics on a small plate.
+        SonusFrostedGlass(
+          key: const ValueKey<String>('artist-profile-stats-plate'),
+          frosted: !flat,
+          tint: profile.surface,
+          light: profile.light,
+          shadow: profile.backgroundDeep,
+          solid: profile.surface,
+          edge: SonusTheme.of(context).colors.border,
+          borderRadius: 14,
+          raised: false,
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ExcludeSemantics(
+                child: Icon(
+                  Icons.headphones_rounded,
+                  size: 18,
+                  color: profile.accent,
+                ),
+              ),
+              const SizedBox(width: 6),
+              Flexible(child: listening),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
 }

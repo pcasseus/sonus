@@ -150,6 +150,17 @@ class PulseEntityDirectoryService implements PulseDirectoryLoader {
 
     final entries = <(PulseEntityKind, String), PulseEntityInfo>{};
 
+    // Only an artist still in the library can be opened (S2): a play's
+    // artist may since have been removed or merged away. The row keeps
+    // its historical name and totals; it just offers no profile.
+    final existingArtistIds = <String, bool>{};
+    Future<String?> openableArtist(String? id) async {
+      if (id == null) return null;
+      final exists = existingArtistIds[id] ??=
+          artists.containsKey(id) || await _library.getArtistById(id) != null;
+      return exists ? id : null;
+    }
+
     for (final id in _ids(data, PulseEntityKind.track)) {
       final track = tracks[id];
       final snapshot = latest.songs[id];
@@ -171,7 +182,9 @@ class PulseEntityDirectoryService implements PulseDirectoryLoader {
             ? PulseEntityStatus.unavailable
             : PulseEntityStatus.current,
         track: track,
-        artistId: data.artistOfTrack(id) ?? track?.artistId,
+        artistId: await openableArtist(
+          data.artistOfTrack(id) ?? track?.artistId,
+        ),
         albumId: track?.albumId ?? data.releaseOfTrack(id),
       );
     }

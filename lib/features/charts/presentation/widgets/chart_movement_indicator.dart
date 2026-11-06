@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../../core/design/sonus_greyscale_theme.dart';
 import '../../../../core/design/sonus_theme.dart';
 import '../../domain/entities/chart_entry.dart';
 import '../../domain/models/chart_movement.dart';
@@ -34,14 +35,11 @@ class ChartMovementIndicator extends StatelessWidget {
   static const Color _gold = Color(0xFFFFC53D);
   static const Color _blue = Color(0xFF4DA3FF);
 
-  /// Monochrome stays greyscale: gold and blue become light and mid grey.
-  static bool _greyscale(Color accent) =>
-      (accent.r - accent.g).abs() < 0.02 && (accent.g - accent.b).abs() < 0.02;
-
   Widget _c2(BuildContext context, ChartEntryMovement m) {
     final tokens = SonusTheme.of(context);
     final colors = tokens.colors;
-    final grey = _greyscale(colors.accentPrimary);
+    // Monochrome stays greyscale: gold and blue become light and mid grey.
+    final grey = sonusThemeIsGreyscale(colors.accentPrimary);
     final gold = grey ? colors.textPrimary : _gold;
     final blue = grey ? colors.textSecondary : _blue;
     final base = Theme.of(context).textTheme.labelMedium?.copyWith(

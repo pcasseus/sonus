@@ -10,7 +10,6 @@ void main() {
 
   test('loads and exposes a home snapshot', () async {
     const snapshot = HomeSnapshot(
-      recentlyAddedTracks: [],
       recentlyAddedAlbums: [],
       weeklyPopularTracks: [],
       weeklyTopArtists: [],
@@ -71,7 +70,6 @@ void main() {
 
     completer.complete(
       const HomeSnapshot(
-        recentlyAddedTracks: [],
         recentlyAddedAlbums: [],
         weeklyPopularTracks: [],
         weeklyTopArtists: [],
@@ -86,14 +84,12 @@ void main() {
 
   test('refresh replaces the previous snapshot', () async {
     const firstSnapshot = HomeSnapshot(
-      recentlyAddedTracks: [],
       recentlyAddedAlbums: [],
       weeklyPopularTracks: [],
       weeklyTopArtists: [],
     );
 
     const secondSnapshot = HomeSnapshot(
-      recentlyAddedTracks: [],
       recentlyAddedAlbums: [],
       weeklyPopularTracks: [],
       weeklyTopArtists: [],
@@ -120,7 +116,6 @@ void main() {
 
   test('refresh preserves existing data when refresh fails', () async {
     const snapshot = HomeSnapshot(
-      recentlyAddedTracks: [],
       recentlyAddedAlbums: [],
       weeklyPopularTracks: [],
       weeklyTopArtists: [],
@@ -148,7 +143,6 @@ void main() {
 class _FakeHomeDataService implements HomeDataService {
   _FakeHomeDataService({
     this.snapshot = const HomeSnapshot(
-      recentlyAddedTracks: [],
       recentlyAddedAlbums: [],
       weeklyPopularTracks: [],
       weeklyTopArtists: [],

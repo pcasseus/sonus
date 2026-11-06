@@ -145,7 +145,6 @@ class _DeviceMusicFolderPageState extends State<DeviceMusicFolderPage>
         appBar: AppBar(
           title: Text(current?.name ?? 'Choose a music folder'),
           backgroundColor: colors.background,
-          surfaceTintColor: Colors.transparent,
         ),
         body: SafeArea(top: false, child: _body(context)),
         bottomNavigationBar: _importBar(context),

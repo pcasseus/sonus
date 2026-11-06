@@ -11,7 +11,7 @@ import '../../data/appearance_preferences_store.dart';
 ///
 /// Placed above the restart scope, so the theme survives a reload after a
 /// restore. It re-evaluates the schedule when the app resumes and follows
-/// the device's high-contrast and reduced-motion settings.
+/// the device's high-contrast, reduced-motion and bold-text settings.
 class AppearanceScope extends StatefulWidget {
   const AppearanceScope({super.key, this.controller, required this.child});
 
@@ -65,6 +65,7 @@ class _AppearanceScopeState extends State<AppearanceScope>
     _controller.updateSystemAccessibility(
       highContrast: features.highContrast,
       reduceMotion: features.disableAnimations || features.reduceMotion,
+      boldText: features.boldText,
     );
   }
 
