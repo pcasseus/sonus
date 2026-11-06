@@ -126,11 +126,25 @@ void main() {
         ),
       );
     }
+    // 2x text: every state, on the S26 and the small phone (clearance).
+    final large = <List<BoardCell>>[];
+    for (final device in [
+      LabDevice.s26.withText(2.0),
+      LabDevice.small.withText(2.0),
+    ]) {
+      large.add([
+        for (final state in LabState.values)
+          BoardCell(
+            '${device.name} · ${state.label}',
+            await shot(tester, profile, state, device: device),
+          ),
+      ]);
+    }
     await writeBoard(
       tester,
       '$_out/board_sizes.png',
       'Phones and text sizes · cool artwork',
-      [cells, collapsed],
+      [cells, collapsed, ...large],
       cellHeight: 900,
     );
   });
@@ -235,6 +249,13 @@ void main() {
         ),
       );
     }
+    final real = _realProfiles();
+    // The reference beside the lab on comparable (real) artwork first.
+    for (final (name, profile) in real.take(2)) {
+      row.add(
+        BoardCell('Lab · $name', await shot(tester, profile, LabState.top)),
+      );
+    }
     for (final variant in [LabVariant.cool, LabVariant.warm]) {
       row.add(
         BoardCell(
@@ -243,7 +264,6 @@ void main() {
         ),
       );
     }
-    final real = _realProfiles();
     final realRow = <BoardCell>[];
     for (final (name, profile) in real) {
       for (final state in LabState.values) {
@@ -274,6 +294,42 @@ void main() {
         '$_out/real/board_real_artwork.png',
         'Real artwork (local only, never committed)',
         [for (var i = 0; i < realRow.length; i += 3) realRow.sublist(i, i + 3)],
+      );
+      // Real artwork on a small phone, with large text, and in the
+      // accessibility modes.
+      final (name, cool) = real.first;
+      final sizes = <BoardCell>[
+        for (final (device, state) in [
+          (LabDevice.small, LabState.top),
+          (LabDevice.small, LabState.middle),
+          (LabDevice.s26.withText(1.3), LabState.top),
+          (LabDevice.s26.withText(2.0), LabState.top),
+          (LabDevice.s26.withText(2.0), LabState.middle),
+        ])
+          BoardCell(
+            '$name · ${device.name} · ${state.label}',
+            await shot(tester, cool, state, device: device),
+          ),
+      ];
+      final modes = <List<BoardCell>>[
+        for (final (label, spec) in const [
+          ('High contrast', SonusAppearanceSpec(highContrast: true)),
+          ('Low effects', SonusAppearanceSpec(lowEffects: true)),
+        ])
+          [
+            for (final (n, p) in real)
+              BoardCell(
+                '$n · $label',
+                await shot(tester, p, LabState.top, spec: spec),
+              ),
+          ],
+      ];
+      await writeBoard(
+        tester,
+        '$_out/real/board_real_sizes_modes.png',
+        'Real artwork: small phone, large text, High contrast, Low effects',
+        [sizes, ...modes],
+        cellHeight: 900,
       );
     }
   });
@@ -367,17 +423,22 @@ Future<Map<String, Object>> _measure(
     ),
   );
   final ground = await render(LabLayers.groundOnly.copyWith(ink: false));
+  final bare = await render(const LabLayers(ink: false, thumbnails: false));
+  final bareNoGlass = await render(
+    const LabLayers(ink: false, thumbnails: false, glass: false),
+  );
   final glass = <String, Object>{};
   for (final key in [
     'lab-top-tracks-card',
     'lab-stats',
+    'lab-tabs',
     'lab-collaboration-0',
   ]) {
     final f = find.byKey(ValueKey<String>(key));
     if (f.evaluate().isEmpty) continue;
     final rect = tester.getRect(f);
     if (rect.top < 100 || rect.bottom > device.size.height) continue;
-    glass[key] = GlassSeparation.of(inkless, rect).toJson();
+    glass[key] = GlassSeparation.of(bare, bareNoGlass, rect).toJson();
   }
   final failing = texts.where((t) => !t.passes).toList();
   texts.sort((a, b) => a.worst.compareTo(b.worst));

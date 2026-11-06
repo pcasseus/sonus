@@ -24,6 +24,7 @@ class LabGlass extends StatelessWidget {
     this.layers = LabLayers.all,
     this.shape = BoxShape.rectangle,
     this.raised = true,
+    this.quiet = false,
   });
 
   final LabAtmosphere atmosphere;
@@ -35,6 +36,10 @@ class LabGlass extends StatelessWidget {
 
   /// Casts the soft shadow (cards); small chips and buttons do not.
   final bool raised;
+
+  /// A lighter plate for controls that sit in the page (tabs, the stats):
+  /// thinner fill, a fainter rim, no sheen.
+  final bool quiet;
 
   @override
   Widget build(BuildContext context) {
@@ -55,9 +60,21 @@ class LabGlass extends StatelessWidget {
       );
     }
 
+    final fill = quiet ? a.glass.withValues(alpha: a.glass.a * 0.6) : a.glass;
+    // Frosted lift: a screen blend raises whatever is behind the plate by
+    // about the same amount, so the plate stays visible over dark and
+    // bright backdrops alike (a fixed fill colour cannot).
+    final lift = Color.lerp(
+      const Color(0xFFFFFFFF),
+      a.light,
+      0.35,
+    )!.withValues(alpha: quiet ? 0.05 : 0.12);
+    final rim = quiet
+        ? a.glassRim.withValues(alpha: a.glassRim.a * 0.55)
+        : a.glassRim;
     return CustomPaint(
       foregroundPainter: _RimPainter(
-        colour: a.glassRim,
+        colour: rim,
         radius: radius,
         circle: circle,
       ),
@@ -65,31 +82,41 @@ class LabGlass extends StatelessWidget {
         decoration: BoxDecoration(
           shape: shape,
           borderRadius: borderRadius,
-          color: a.glass,
-          gradient: LinearGradient(
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-            colors: [
-              Color.alphaBlend(
-                const Color(0xFFFFFFFF).withValues(alpha: 0.07),
-                a.glass,
-              ),
-              a.glass,
-              a.glass,
-            ],
-            stops: const [0, 0.45, 1],
-          ),
-          boxShadow: raised
-              ? [
-                  BoxShadow(
-                    color: a.groundDeep.withValues(alpha: 0.55),
-                    blurRadius: 28,
-                    offset: const Offset(0, 12),
-                  ),
-                ]
-              : null,
+          color: lift,
+          backgroundBlendMode: BlendMode.screen,
         ),
-        child: Padding(padding: padding, child: child),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            shape: shape,
+            borderRadius: borderRadius,
+            color: fill,
+            gradient: quiet
+                ? null
+                : LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      Color.alphaBlend(
+                        const Color(0xFFFFFFFF).withValues(alpha: 0.05),
+                        fill,
+                      ),
+                      fill,
+                      fill,
+                    ],
+                    stops: const [0, 0.45, 1],
+                  ),
+            boxShadow: raised
+                ? [
+                    BoxShadow(
+                      color: a.groundDeep.withValues(alpha: 0.38),
+                      blurRadius: 24,
+                      offset: const Offset(0, 8),
+                    ),
+                  ]
+                : null,
+          ),
+          child: Padding(padding: padding, child: child),
+        ),
       ),
     );
   }

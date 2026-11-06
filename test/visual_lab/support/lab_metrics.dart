@@ -140,32 +140,42 @@ double meanDeltaE(LabPixels a, LabPixels b, Rect region) {
   return pa.isEmpty ? 0 : sum / pa.length;
 }
 
-/// How a glass plate differs from the backdrop just outside it: median L*
-/// inside (away from content) against a ring around it.
+/// How much a glass plate changes the backdrop directly behind it: median
+/// L* inside the plate (away from its edge) with the plate drawn, against
+/// the same pixels rendered without glass. Comparing with a ring outside
+/// the plate instead mixes in uneven light around it.
 class GlassSeparation {
   GlassSeparation(this.inside, this.outside);
 
-  factory GlassSeparation.of(LabPixels inkless, Rect plate) {
-    final inner = plate.deflate(10);
-    final inside = pixelsIn(inkless, inner, step: 3).map(lStar).toList();
-    final ring = <double>[];
-    for (final band in [
-      Rect.fromLTRB(plate.left, plate.top - 16, plate.right, plate.top - 6),
-      Rect.fromLTRB(plate.left - 16, plate.top, plate.left - 6, plate.bottom),
-      Rect.fromLTRB(plate.right + 6, plate.top, plate.right + 16, plate.bottom),
-    ]) {
-      ring.addAll(pixelsIn(inkless, band, step: 2).map(lStar));
-    }
-    return GlassSeparation(percentile(inside, 0.5), percentile(ring, 0.5));
+  factory GlassSeparation.of(
+    LabPixels withGlass,
+    LabPixels withoutGlass,
+    Rect plate,
+  ) {
+    // A strip of bare plate: inside its right edge, past row dividers and
+    // content (icons are transparent in an ink-off render), clear of the
+    // rim. Pictures and placeholders are drawn the same either way and
+    // would hide the plate's own effect.
+    final strip = Rect.fromLTRB(
+      plate.right - 14,
+      plate.top + 16,
+      plate.right - 6,
+      plate.bottom - 16,
+    );
+    double median(LabPixels p) =>
+        percentile(pixelsIn(p, strip, step: 1).map(lStar).toList(), 0.5);
+    return GlassSeparation(median(withGlass), median(withoutGlass));
   }
 
   final double inside;
+
+  /// The same region without the plate.
   final double outside;
   double get delta => (inside - outside).abs();
 
   Map<String, Object> toJson() => {
-    'inside_L*': _r(inside),
-    'outside_L*': _r(outside),
+    'with_glass_L*': _r(inside),
+    'without_glass_L*': _r(outside),
     'delta_L*': _r(delta),
   };
 }

@@ -34,12 +34,15 @@ class LabBackdrop extends StatelessWidget {
   /// The artwork is decoded this wide: blurred this much, more pixels add
   /// nothing, and the decode stays a few kilobytes.
   static const int decodeWidth = 40;
-  static const double blurSigma = 22;
+
+  /// Blurred well past recognisable shapes (a face or a silhouette): the
+  /// artwork's colour and light stay, its outlines do not.
+  static const double blurSigma = 46;
 
   /// Lightness compression of the artwork (see [toneMap]).
-  static const double keepChroma = 0.62;
-  static const double lightnessSlope = 0.34;
-  static const double lift = 0.03;
+  static const double keepChroma = 0.66;
+  static const double lightnessSlope = 0.27;
+  static const double lift = 0.035;
 
   /// Maps each channel to `keepChroma * c + (slope - keepChroma) * L + lift`
   /// (L the pixel's luma): lightness is compressed to [lift, lift + slope]

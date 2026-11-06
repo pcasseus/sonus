@@ -171,16 +171,33 @@ void main() {
   group('glass reads as its own material', () {
     for (final variant in LabVariant.values) {
       testWidgets(variant.label, (tester) async {
-        final inkless = await render(
+        const bare = LabLayers(ink: false, thumbnails: false);
+        final withGlass = await render(
           tester,
           variant,
           LabState.middle,
-          layers: LabLayers.all.copyWith(ink: false),
+          layers: bare,
         );
         final card = tester.getRect(_key('lab-top-tracks-card'));
+        final withoutGlass = await render(
+          tester,
+          variant,
+          LabState.middle,
+          layers: bare.copyWith(glass: false),
+        );
         final separation = GlassSeparation.of(
-          inkless,
-          Rect.fromLTRB(card.left, card.top, card.right, card.top + 260),
+          withGlass,
+          withoutGlass,
+          // The whole plate, as far as it is on screen above the player.
+          Rect.fromLTRB(
+            card.left,
+            card.top,
+            card.right,
+            card.bottom.clamp(
+              card.top,
+              tester.getRect(_key('lab-mini-player')).top,
+            ),
+          ),
         );
         expect(separation.delta, greaterThan(LabTargets.minimumGlassDelta));
       });
@@ -235,6 +252,56 @@ void main() {
         );
       });
     }
+  });
+
+  group('nothing stays under the mini-player', () {
+    for (final device in [
+      for (final phone in LabDevice.phones) ...[
+        phone,
+        phone.withText(1.3),
+        phone.withText(2.0),
+      ],
+    ]) {
+      testWidgets(device.name, (tester) async {
+        final scroll = await pumpLab(
+          tester,
+          profile: labProfile(LabVariant.cool),
+          device: device,
+        );
+        final player = tester.getRect(_key('lab-mini-player'));
+        // At the top of the page every control is above the player.
+        for (final key in [
+          'lab-shuffle',
+          'lab-play',
+          'lab-favourite',
+          'lab-tabs',
+        ]) {
+          expect(
+            tester.getRect(_key(key)).bottom,
+            lessThanOrEqualTo(player.top),
+            reason: key,
+          );
+        }
+        // At the end, the last content scrolls fully above it.
+        scroll.jumpTo(scroll.position.maxScrollExtent);
+        await tester.pump();
+        expect(
+          tester.getRect(_key('lab-collaborations')).bottom,
+          lessThanOrEqualTo(player.top),
+        );
+      });
+    }
+  });
+
+  testWidgets('S26: Top Tracks and Releases share one screen', (tester) async {
+    final scroll = await pumpLab(tester, profile: labProfile(LabVariant.cool));
+    await scrollLab(tester, scroll, LabState.middle);
+    final toolbar = tester.getRect(_key('lab-toolbar'));
+    final player = tester.getRect(_key('lab-mini-player'));
+    final card = tester.getRect(_key('lab-top-tracks-card'));
+    final releases = tester.getRect(_key('lab-releases-header'));
+    expect(card.top, greaterThanOrEqualTo(toolbar.bottom));
+    expect(releases.bottom, lessThanOrEqualTo(player.top));
   });
 
   group('accessibility modes give the flat, solid page', () {

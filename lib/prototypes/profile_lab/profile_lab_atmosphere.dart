@@ -179,8 +179,11 @@ class LabAtmosphere {
       // An analogous second hue for depth, as light falling from another
       // direction; muted so the artwork's own colour leads.
       lightSecondary: tone(0.50, chromaScale: 0.7, shift: neutral ? 0 : 24),
-      glass: tone(0.16, chromaScale: 0.55).withValues(alpha: 0.46),
-      glassRim: white.withValues(alpha: 0.20),
+      // Lighter than the backdrop it sits on, as frosted glass catching the
+      // light (the reference's material), still dark enough for its text.
+      // The plate's tint; LabGlass also lifts the backdrop under it.
+      glass: tone(0.16, chromaScale: 0.55).withValues(alpha: 0.06),
+      glassRim: white.withValues(alpha: 0.13),
       accentTop: accentTop,
       accentBottom: accentBottom,
       onAccent: onAccent,

@@ -17,6 +17,7 @@ import '../../core/design/sonus_artwork_palette.dart';
 import '../../core/design/sonus_text_scale.dart';
 import '../../core/design/sonus_theme.dart';
 import '../../core/design/widgets/sonus_artwork_colors_request.dart';
+import '../../core/design/widgets/playback/sonus_mini_player.dart';
 import '../../core/design/widgets/sonus_artwork_image.dart';
 import 'profile_lab_atmosphere.dart';
 import 'profile_lab_backdrop.dart';
@@ -25,25 +26,43 @@ import 'profile_lab_models.dart';
 
 /// Named sizes of the lab page, with their responsive rules.
 abstract final class LabGeometry {
-  /// The hero photo's height: 37% of the screen, within [270, 390].
-  static double heroPhotoHeight(Size screen) =>
-      (screen.height * 0.37).clamp(270.0, 390.0);
+  /// The hero photo's height: about a third of the screen (the reference's
+  /// proportion), shorter with large text so the controls stay above the
+  /// player at the top of the page.
+  static double heroPhotoHeight(Size screen, {double textScale = 1}) =>
+      textScale > sonusLargeTextScale
+      ? (screen.height * 0.22).clamp(170.0, 240.0)
+      : (screen.height * 0.32).clamp(230.0, 330.0);
 
   /// How far the identity block rises into the photo.
-  static const double identityOverlap = 108;
+  static const double identityOverlap = 92;
 
   /// The portrait: smaller on narrow phones and with large text.
   static double portraitSize(double width, {required bool largeText}) =>
-      largeText ? 104 : (width < 400 ? 108 : 124);
+      largeText ? 88 : (width < 400 ? 96 : 108);
 
   static const double gutter = 20;
-  static const double controlHeight = 56;
-  static const double trackRowHeight = 64;
-  static const double trackArtwork = 48;
-  static const double releaseCover = 128;
+  static const double controlHeight = 52;
+
+  /// Track rows: compact, still a full 48dp touch target.
+  static const double trackRowHeight = 56;
+  static const double trackArtwork = 44;
+  static const double releaseCover = 112;
   static const double toolbarHeight = 56;
-  static const double miniPlayerHeight = 68;
-  static const double sectionGap = 28;
+  static const double sectionGap = 22;
+
+  /// The mini-player's own sizes (the production bar's, read, not copied),
+  /// so clearance here is what the integrated page will need.
+  static double miniPlayerHeight(BuildContext context) =>
+      SonusMiniPlayer.barHeight(context);
+  static const double miniPlayerMargin = 8;
+
+  /// Room left under the content so its end scrolls fully above the
+  /// player and the navigation bar.
+  static double bottomRoom(BuildContext context, {required bool player}) =>
+      MediaQuery.paddingOf(context).bottom +
+      (player ? miniPlayerHeight(context) + miniPlayerMargin * 2 : 0) +
+      16;
 }
 
 class ProfileLabPage extends StatefulWidget {
@@ -109,15 +128,12 @@ class _ProfileLabPageState extends State<ProfileLabPage>
     final media = MediaQuery.of(context);
     final screen = media.size;
     final largeText = media.textScaler.scale(1) > sonusLargeTextScale;
-    final photoHeight = LabGeometry.heroPhotoHeight(screen);
-    final bottomRoom =
-        media.padding.bottom +
-        (widget.showMiniPlayer && profile.nowPlaying != null
-            ? LabGeometry.miniPlayerHeight *
-                      media.textScaler.scale(1).clamp(1.0, 1.6) +
-                  20
-            : 0) +
-        24;
+    final photoHeight = LabGeometry.heroPhotoHeight(
+      screen,
+      textScale: media.textScaler.scale(1),
+    );
+    final showPlayer = widget.showMiniPlayer && profile.nowPlaying != null;
+    final bottomRoom = LabGeometry.bottomRoom(context, player: showPlayer);
 
     final content = CustomScrollView(
       key: const ValueKey<String>('lab-scroll'),
@@ -132,7 +148,7 @@ class _ProfileLabPageState extends State<ProfileLabPage>
             largeText: largeText,
           ),
         ),
-        _padded(_Controls(atmosphere: a, layers: layers), top: 22),
+        _padded(_Controls(atmosphere: a, layers: layers), top: 14),
         _padded(
           _Tabs(
             atmosphere: a,
@@ -140,7 +156,7 @@ class _ProfileLabPageState extends State<ProfileLabPage>
             selected: _tab,
             onSelected: (i) => setState(() => _tab = i),
           ),
-          top: 20,
+          top: 12,
         ),
         _padded(
           _SectionHeader(
@@ -154,7 +170,7 @@ class _ProfileLabPageState extends State<ProfileLabPage>
         ),
         _padded(
           _TopTracks(tracks: profile.topTracks, atmosphere: a, layers: layers),
-          top: 12,
+          top: 10,
         ),
         _padded(
           _SectionHeader(
@@ -168,7 +184,7 @@ class _ProfileLabPageState extends State<ProfileLabPage>
         ),
         SliverToBoxAdapter(
           child: Padding(
-            padding: const EdgeInsets.only(top: 12),
+            padding: const EdgeInsets.only(top: 10),
             child: _Releases(
               releases: profile.releases,
               atmosphere: a,
@@ -188,7 +204,7 @@ class _ProfileLabPageState extends State<ProfileLabPage>
         ),
         SliverToBoxAdapter(
           child: Padding(
-            padding: const EdgeInsets.only(top: 12),
+            padding: const EdgeInsets.only(top: 10),
             child: _Collaborations(
               artistPortrait: profile.portraitPath,
               collaborations: profile.collaborations,
@@ -234,14 +250,14 @@ class _ProfileLabPageState extends State<ProfileLabPage>
               left: 0,
               right: 0,
               bottom: 0,
-              height: bottomRoom + 24,
+              height: bottomRoom + 20,
               child: _Scrim.vertical(a.groundDeep, 0.9, fromTop: false),
             ),
-          if (widget.showMiniPlayer && profile.nowPlaying != null)
+          if (showPlayer)
             Positioned(
-              left: 12,
-              right: 12,
-              bottom: media.padding.bottom + 10,
+              left: LabGeometry.miniPlayerMargin,
+              right: LabGeometry.miniPlayerMargin,
+              bottom: media.padding.bottom + LabGeometry.miniPlayerMargin,
               child: _MiniPlayerPlaceholder(
                 track: profile.nowPlaying!,
                 artistName: profile.name,
@@ -307,7 +323,7 @@ class _Hero extends StatelessWidget {
       style: theme.textTheme.headlineMedium?.copyWith(
         color: a.textPrimary,
         fontWeight: FontWeight.w800,
-        fontSize: 32,
+        fontSize: 28,
         height: 1.08,
         letterSpacing: -0.4,
         shadows: textShadow,
@@ -322,7 +338,7 @@ class _Hero extends StatelessWidget {
       children: [
         name,
         if (profile.standing case final standing?) ...[
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           LabGlass(
             key: const ValueKey<String>('lab-standing'),
             atmosphere: a,
@@ -339,7 +355,7 @@ class _Hero extends StatelessWidget {
             ),
           ),
         ],
-        const SizedBox(height: 12),
+        const SizedBox(height: 8),
         _StatsPlate(
           atmosphere: a,
           layers: layers,
@@ -371,13 +387,13 @@ class _Hero extends StatelessWidget {
 
     final identity = largeText
         ? Column(
-            children: [portraitWidget, const SizedBox(height: 14), details],
+            children: [portraitWidget, const SizedBox(height: 10), details],
           )
         : Row(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               portraitWidget,
-              const SizedBox(width: 16),
+              const SizedBox(width: 14),
               Expanded(child: details),
             ],
           );
@@ -432,10 +448,10 @@ class _Hero extends StatelessWidget {
           // name and chips sit.
           Positioned(
             key: const ValueKey<String>('lab-scrim-identity'),
-            top: photoHeight - LabGeometry.identityOverlap - 70,
+            top: photoHeight - LabGeometry.identityOverlap - 60,
             left: 0,
             right: 0,
-            height: LabGeometry.identityOverlap + 140,
+            height: LabGeometry.identityOverlap + 120,
             child: _Scrim.band(a.ground, 0.62),
           ),
         ],
@@ -582,6 +598,7 @@ class _StatsPlate extends StatelessWidget {
           layers: layers,
           radius: 16,
           raised: false,
+          quiet: true,
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
           child: sideBySide
               ? IntrinsicHeight(
@@ -795,57 +812,66 @@ class _Tabs extends StatelessWidget {
   Widget build(BuildContext context) {
     final a = atmosphere;
     final text = Theme.of(context).textTheme;
+    // With large text the labels keep their full width and the row scrolls
+    // sideways, rather than truncating to "Over…".
+    final large =
+        MediaQuery.textScalerOf(context).scale(1) > sonusLargeTextScale;
+    Widget tab(int i) => Semantics(
+      button: true,
+      selected: i == selected,
+      label: labels[i],
+      excludeSemantics: true,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(22),
+        onTap: () => onSelected(i),
+        child: Container(
+          constraints: const BoxConstraints(minHeight: 48),
+          alignment: Alignment.center,
+          padding: EdgeInsets.symmetric(horizontal: large ? 14 : 6),
+          decoration: i == selected
+              ? BoxDecoration(
+                  borderRadius: BorderRadius.circular(22),
+                  gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [a.accentTop, a.accentBottom],
+                  ),
+                )
+              : null,
+          child: Text(
+            labels[i],
+            maxLines: 1,
+            overflow: large ? TextOverflow.visible : TextOverflow.ellipsis,
+            softWrap: false,
+            style: text.labelLarge?.copyWith(
+              color: i == selected ? a.onAccent : a.textPrimary,
+              fontWeight: i == selected ? FontWeight.w800 : FontWeight.w600,
+            ),
+          ),
+        ),
+      ),
+    );
     return LabGlass(
       key: const ValueKey<String>('lab-tabs'),
       atmosphere: a,
       layers: layers,
       radius: 26,
       raised: false,
+      quiet: true,
       padding: const EdgeInsets.all(4),
-      child: Row(
-        children: [
-          for (var i = 0; i < labels.length; i++)
-            Expanded(
-              flex: i == 2 ? 13 : 10,
-              child: Semantics(
-                button: true,
-                selected: i == selected,
-                label: labels[i],
-                excludeSemantics: true,
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(22),
-                  onTap: () => onSelected(i),
-                  child: Container(
-                    constraints: const BoxConstraints(minHeight: 48),
-                    alignment: Alignment.center,
-                    padding: const EdgeInsets.symmetric(horizontal: 6),
-                    decoration: i == selected
-                        ? BoxDecoration(
-                            borderRadius: BorderRadius.circular(22),
-                            gradient: LinearGradient(
-                              begin: Alignment.topCenter,
-                              end: Alignment.bottomCenter,
-                              colors: [a.accentTop, a.accentBottom],
-                            ),
-                          )
-                        : null,
-                    child: Text(
-                      labels[i],
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: text.labelLarge?.copyWith(
-                        color: i == selected ? a.onAccent : a.textPrimary,
-                        fontWeight: i == selected
-                            ? FontWeight.w800
-                            : FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ),
+      child: large
+          ? SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: [for (var i = 0; i < labels.length; i++) tab(i)],
               ),
+            )
+          : Row(
+              children: [
+                for (var i = 0; i < labels.length; i++)
+                  Expanded(flex: i == 2 ? 13 : 10, child: tab(i)),
+              ],
             ),
-        ],
-      ),
     );
   }
 }
@@ -872,6 +898,14 @@ class _SectionHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final a = atmosphere;
     final text = Theme.of(context).textTheme;
+    final large =
+        MediaQuery.textScalerOf(context).scale(1) > sonusLargeTextScale;
+    final count = trailing == null
+        ? null
+        : Text(
+            trailing!,
+            style: text.labelLarge?.copyWith(color: a.textSecondary),
+          );
     final header = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -907,13 +941,12 @@ class _SectionHeader extends StatelessWidget {
                 ),
               ),
             ),
-            if (trailing case final trailing?)
-              Text(
-                trailing,
-                style: text.labelLarge?.copyWith(color: a.textSecondary),
-              ),
+            if (count != null && !large) count,
           ],
         ),
+        // With large text the count gets its own line, so the title never
+        // breaks inside a word ("Collaborat-ions").
+        if (count != null && large) ...[const SizedBox(height: 2), count],
         if (subtitle case final subtitle?) ...[
           const SizedBox(height: 4),
           Text(
@@ -988,8 +1021,8 @@ class _TopTracks extends StatelessWidget {
       key: const ValueKey<String>('lab-top-tracks-card'),
       atmosphere: a,
       layers: layers,
-      radius: 24,
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      radius: 22,
+      padding: const EdgeInsets.symmetric(vertical: 4),
       child: Column(
         children: [
           for (var i = 0; i < tracks.length; i++) ...[
@@ -997,9 +1030,10 @@ class _TopTracks extends StatelessWidget {
               Divider(
                 height: 1,
                 thickness: 1,
-                indent: 92,
+                indent: 84,
                 endIndent: 16,
-                color: a.border,
+                // Hairlines, not rules: the rows read as one list.
+                color: a.border.withValues(alpha: a.border.a * 0.6),
               ),
             _TrackRow(
               key: ValueKey<String>('lab-track-$i'),
@@ -1009,8 +1043,15 @@ class _TopTracks extends StatelessWidget {
               layers: layers,
             ),
           ],
+          Divider(
+            height: 1,
+            thickness: 1,
+            indent: 16,
+            endIndent: 16,
+            color: a.border.withValues(alpha: a.border.a * 0.6),
+          ),
           Padding(
-            padding: const EdgeInsets.fromLTRB(8, 6, 8, 2),
+            padding: const EdgeInsets.symmetric(horizontal: 8),
             child: Semantics(
               button: true,
               label: 'View all tracks',
@@ -1022,12 +1063,6 @@ class _TopTracks extends StatelessWidget {
                 child: Container(
                   constraints: const BoxConstraints(minHeight: 48),
                   alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(16),
-                    color: a.effects
-                        ? const Color(0xFFFFFFFF).withValues(alpha: 0.05)
-                        : null,
-                  ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -1075,6 +1110,8 @@ class _TrackRow extends StatelessWidget {
     final a = atmosphere;
     final text = Theme.of(context).textTheme;
     final playing = track.isPlaying;
+    final large =
+        MediaQuery.textScalerOf(context).scale(1) > sonusLargeTextScale;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 6),
       child: Material(
@@ -1086,11 +1123,12 @@ class _TrackRow extends StatelessWidget {
             constraints: const BoxConstraints(
               minHeight: LabGeometry.trackRowHeight,
             ),
-            padding: const EdgeInsets.fromLTRB(8, 8, 0, 8),
+            padding: const EdgeInsets.fromLTRB(8, 5, 0, 5),
+            // The playing row is lit, not framed: a faint tint, no edge.
             decoration: playing
                 ? BoxDecoration(
-                    borderRadius: BorderRadius.circular(18),
-                    color: a.accentLine.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(16),
+                    color: a.accentLine.withValues(alpha: 0.08),
                   )
                 : null,
             child: Row(
@@ -1113,29 +1151,29 @@ class _TrackRow extends StatelessWidget {
                           ),
                         ),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: 8),
                 SonusArtworkImage(
                   path: layers.thumbnails ? track.artworkPath : null,
                   size: LabGeometry.trackArtwork,
                 ),
-                const SizedBox(width: 14),
+                const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
                         track.title,
-                        maxLines: 2,
+                        maxLines: large ? 2 : 1,
                         overflow: TextOverflow.ellipsis,
                         style: text.titleMedium?.copyWith(
                           color: a.textPrimary,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
-                      const SizedBox(height: 2),
+                      const SizedBox(height: 1),
                       Text(
                         '${track.streams} streams · ${track.releaseTitle}',
-                        maxLines: 2,
+                        maxLines: large ? 2 : 1,
                         overflow: TextOverflow.ellipsis,
                         style: text.bodySmall?.copyWith(color: a.textSecondary),
                       ),
@@ -1178,9 +1216,12 @@ class _Releases extends StatelessWidget {
     final a = atmosphere;
     final text = Theme.of(context).textTheme;
     final scale = MediaQuery.textScalerOf(context).scale(1);
+    // Wider cards with large text so titles wrap between words.
+    final cardWidth = (LabGeometry.releaseCover * (1 + (scale - 1) * 0.5))
+        .clamp(LabGeometry.releaseCover, 170.0);
     return SizedBox(
       key: const ValueKey<String>('lab-releases'),
-      height: LabGeometry.releaseCover + 12 + 62 * scale,
+      height: cardWidth + 12 + 62 * scale,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: LabGeometry.gutter),
@@ -1190,7 +1231,7 @@ class _Releases extends StatelessWidget {
           final release = releases[i];
           return SizedBox(
             key: ValueKey<String>('lab-release-$i'),
-            width: LabGeometry.releaseCover,
+            width: cardWidth,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -1209,7 +1250,7 @@ class _Releases extends StatelessWidget {
                   ),
                   child: SonusArtworkImage(
                     path: layers.thumbnails ? release.artworkPath : null,
-                    size: LabGeometry.releaseCover,
+                    size: cardWidth,
                     semanticLabel: 'Cover of ${release.title}',
                   ),
                 ),
@@ -1506,8 +1547,8 @@ class _MiniPlayerPlaceholder extends StatelessWidget {
             child: const SizedBox.expand(),
           );
     final body = ConstrainedBox(
-      constraints: const BoxConstraints(
-        minHeight: LabGeometry.miniPlayerHeight,
+      constraints: BoxConstraints(
+        minHeight: LabGeometry.miniPlayerHeight(context),
       ),
       child: Row(
         children: [
