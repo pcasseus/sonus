@@ -35,9 +35,12 @@ abstract interface class MomentLookups {
 
   String? releaseCover(String albumId);
 
-  /// The song's picture for SN-50 stories (A-Q12, C-23), as song rows
-  /// show it: its own artwork, else the cover of the edition it lives on
-  /// (a Deluxe-only song shows the Deluxe cover), else the primary's.
+  /// The song's picture for SN-50 stories (A-Q12, C-23; App Update 1.1):
+  /// the cover of the edition the song first appeared on (the earliest
+  /// released edition of its own album that lists it, so a song on both
+  /// Standard and Deluxe shows the Standard cover and a Deluxe-only song
+  /// the Deluxe cover), else its own artwork as song rows show it, else
+  /// the album's cover.
   String? currentSongCover(String songId);
 
   /// The release's cover for SN-50 stories: the current album chart's,

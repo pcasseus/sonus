@@ -9,6 +9,7 @@ import '../../application/models/library_track_order.dart';
 import '../../application/models/project_collaborator.dart';
 import '../../application/models/project_song_credit.dart';
 import '../../application/models/song_artist_credit_link.dart';
+import '../../application/models/song_edition_membership.dart';
 import '../../application/repositories/library_query_repository.dart';
 import '../daos/library_query_dao.dart';
 
@@ -17,6 +18,7 @@ class SqliteLibraryQueryRepository
         LibraryQueryRepository,
         AlbumEditionQueryRepository,
         ReleaseEditionQueryRepository,
+        SongEditionMembershipQueryRepository,
         SongArtistCreditLinkQueryRepository,
         StructuredArtistQueryRepository,
         ProjectCollaboratorQueryRepository,
@@ -105,6 +107,11 @@ class SqliteLibraryQueryRepository
   @override
   Future<List<LibraryReleaseEdition>> getReleaseEditions() {
     return dao.findReleaseEditions();
+  }
+
+  @override
+  Future<List<SongEditionMembership>> getSongEditionMemberships() {
+    return dao.findSongEditionMemberships();
   }
 
   @override

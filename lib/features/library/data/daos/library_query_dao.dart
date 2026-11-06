@@ -11,6 +11,7 @@ import '../../application/models/project_collaborator.dart';
 import '../../application/models/project_song_credit.dart';
 import '../../application/models/song_artist_credit_link.dart';
 import '../../application/models/song_display_title.dart';
+import '../../application/models/song_edition_membership.dart';
 import '../../domain/entities/song_artist_credit.dart';
 import '../../../search/application/models/library_search_results.dart';
 import '../mappers/library_album_row_mapper.dart';
@@ -661,6 +662,33 @@ class LibraryQueryDao {
         LibraryReleaseEdition(
           edition: LibraryAlbumEditionRowMapper.fromRow(row),
           trackCount: row['edition_track_count'] as int? ?? 0,
+        ),
+    ];
+  }
+
+  /// Every edition that lists each song, in one read-only query: only the
+  /// editions of the song's own release (an edition of another album that
+  /// lists the song is ignored), each pair once. Ordered by song, then
+  /// edition id.
+  Future<List<SongEditionMembership>> findSongEditionMemberships() async {
+    final rows = await db.rawQuery('''
+      SELECT DISTINCT
+        et.song_id AS song_id,
+        et.album_edition_id AS album_edition_id
+      FROM ${DatabaseTables.albumEditionTracks} et
+      INNER JOIN ${DatabaseTables.songs} s
+        ON s.id = et.song_id
+      INNER JOIN ${DatabaseTables.albumEditions} ae
+        ON ae.id = et.album_edition_id
+        AND ae.album_id = s.album_id
+      ORDER BY et.song_id ASC, et.album_edition_id ASC
+      ''');
+
+    return [
+      for (final row in rows)
+        SongEditionMembership(
+          songId: row['song_id']! as String,
+          editionId: row['album_edition_id']! as String,
         ),
     ];
   }

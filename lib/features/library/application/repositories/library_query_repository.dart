@@ -7,6 +7,7 @@ import '../models/library_track_order.dart';
 import '../models/project_collaborator.dart';
 import '../models/project_song_credit.dart';
 import '../models/song_artist_credit_link.dart';
+import '../models/song_edition_membership.dart';
 
 abstract interface class LibraryQueryRepository {
   Future<List<LibraryTrack>> getTracks({
@@ -48,6 +49,13 @@ abstract interface class AlbumEditionQueryRepository {
 /// its release (SN-50).
 abstract interface class ReleaseEditionQueryRepository {
   Future<List<LibraryReleaseEdition>> getReleaseEditions();
+}
+
+/// Which editions of its own release list each song, in one query, so a
+/// song Moment can show the edition the song first appeared on
+/// (App Update 1.1).
+abstract interface class SongEditionMembershipQueryRepository {
+  Future<List<SongEditionMembership>> getSongEditionMemberships();
 }
 
 /// Every linked structured credit in the library, in one query, so
