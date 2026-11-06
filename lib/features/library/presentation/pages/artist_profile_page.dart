@@ -10,9 +10,9 @@ import '../../../../core/design/context/sonus_context_theme.dart';
 import '../../../../core/design/sonus_artwork_palette.dart';
 import '../../../../core/design/sonus_profile_colors.dart';
 import '../../../../core/design/widgets/sonus_profile_surfaces.dart';
-import '../../../../core/design/sonus_tokens.dart';
 import '../../../../core/design/widgets/sonus_artwork_environment.dart';
 import '../../../../core/design/widgets/sonus_frosted_glass.dart';
+import '../../../../core/design/widgets/sonus_secondary_text_scope.dart';
 import '../../../../core/design/widgets/sonus_profile_atmosphere_builder.dart';
 import '../../../../core/design/sonus_atmosphere_colors.dart';
 import '../../../../core/design/sonus_theme.dart';
@@ -199,8 +199,7 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
       // Theme architecture: the page's menus, dialogs, sheets, buttons and
       // rows take the artwork's colours, not the theme's blue and charcoal.
       builder: (context, resolved) {
-        final profile = _onEnvironment(
-          resolved,
+        final profile = resolved.forEnvironment(
           effects: SonusTheme.of(context).decoration.allowGradients,
         );
         return SonusContextTheme(
@@ -209,10 +208,9 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
             theme: SonusTheme.of(context).colors,
           ),
           child: Builder(
-            builder: (context) => _withSecondaryText(
-              context,
-              profile.textSecondary,
-              Builder(
+            builder: (context) => SonusSecondaryTextScope(
+              secondary: profile.textSecondary,
+              child: Builder(
                 builder: (context) => _buildPage(
                   context,
                   controller,
@@ -225,54 +223,6 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
           ),
         );
       },
-    );
-  }
-
-  /// Gives the rows the page's secondary text where the context theme does
-  /// not (an untinted page over the environment, from neutral artwork).
-  static Widget _withSecondaryText(
-    BuildContext context,
-    Color secondary,
-    Widget child,
-  ) {
-    final theme = Theme.of(context);
-    final colors = theme.extension<SonusColors>();
-    if (colors == null || colors.textSecondary == secondary) return child;
-    return Theme(
-      data: theme.copyWith(
-        colorScheme: theme.colorScheme.copyWith(onSurfaceVariant: secondary),
-        extensions: [
-          for (final extension in theme.extensions.values)
-            if (extension is SonusColors)
-              extension.copyWith(textSecondary: secondary)
-            else
-              extension,
-        ],
-      ),
-      child: child,
-    );
-  }
-
-  /// Over the lit artwork environment and frosted glass, secondary text
-  /// takes a lighter tone (halfway to the primary text) so it keeps 4.5:1
-  /// on its local ground; the flat page keeps the theme's own.
-  static SonusProfileColors _onEnvironment(
-    SonusProfileColors p, {
-    required bool effects,
-  }) {
-    if (!effects) return p;
-    return SonusProfileColors(
-      background: p.background,
-      backgroundDeep: p.backgroundDeep,
-      surface: p.surface,
-      edge: p.edge,
-      glow: p.glow,
-      light: p.light,
-      accent: p.accent,
-      onAccent: p.onAccent,
-      textPrimary: p.textPrimary,
-      textSecondary: Color.lerp(p.textSecondary, p.textPrimary, 0.5)!,
-      strength: p.strength,
     );
   }
 

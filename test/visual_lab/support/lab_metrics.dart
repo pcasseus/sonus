@@ -355,3 +355,48 @@ double glyphCoverage(LabPixels image, Rect box, (int, int, int) ground) {
   }
   return total == 0 ? 0 : hits / total;
 }
+
+/// Every shown text, against the ground just above and below its box (thin
+/// bands inside the line spacing, where no glyph ink falls): the brightest
+/// 5% of those pixels is its worst ground. The production page has no
+/// ink-off switch, so the ground is read beside the glyphs, not under them.
+List<TextContrast> measureTextsBeside(
+  List<TextSample> samples,
+  LabPixels pixels,
+) {
+  final results = <TextContrast>[];
+  for (final s in samples) {
+    final c = s.colour;
+    final textLum = luminance((
+      (c.r * 255).round(),
+      (c.g * 255).round(),
+      (c.b * 255).round(),
+    ));
+    final r = s.rect;
+    final ground = [
+      for (final band in [
+        Rect.fromLTRB(r.left, r.top - 2, r.right, r.top),
+        Rect.fromLTRB(r.left, r.bottom, r.right, r.bottom + 2),
+      ])
+        for (final p in pixelsIn(pixels, band, step: 1)) luminance(p),
+    ];
+    if (ground.isEmpty) continue;
+    double ratio(double g) {
+      final fg = c.a * textLum + (1 - c.a) * g;
+      final hi = fg > g ? fg : g, lo = fg > g ? g : fg;
+      return (hi + 0.05) / (lo + 0.05);
+    }
+
+    results.add(
+      TextContrast(
+        s.icon ? 'icon U+${s.text.runes.first.toRadixString(16)}' : s.text,
+        r,
+        ratio(percentile(ground, 0.95)),
+        ratio(percentile(ground, 0.5)),
+        s.large || s.icon,
+        icon: s.icon,
+      ),
+    );
+  }
+  return results;
+}

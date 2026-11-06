@@ -1,3 +1,4 @@
+import 'dart:ui' show ImageFilter;
 import '../../../../core/design/context/sonus_context_theme.dart';
 import '../../../../core/design/widgets/playback/sonus_playing_indicator.dart';
 import '../../../player/presentation/models/now_playing_mark.dart';
@@ -15,6 +16,9 @@ import '../../../../core/design/sonus_artwork_palette.dart';
 import '../../../../core/design/sonus_contrast.dart';
 import '../../../../core/design/sonus_profile_colors.dart';
 import '../../../../core/design/widgets/sonus_profile_surfaces.dart';
+import '../../../../core/design/widgets/sonus_artwork_environment.dart';
+import '../../../../core/design/widgets/sonus_frosted_glass.dart';
+import '../../../../core/design/widgets/sonus_secondary_text_scope.dart';
 import '../../../../core/design/widgets/sonus_profile_atmosphere_builder.dart';
 import '../../../../core/design/sonus_atmosphere_colors.dart';
 import '../../../../core/design/sonus_theme.dart';
@@ -204,16 +208,27 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
       palette: widget.artworkPalette,
       // Theme architecture: the page's menus, dialogs, sheets, buttons and
       // rows take the artwork's colours, not the theme's blue and charcoal.
-      builder: (context, profile) => SonusContextTheme(
-        colors: SonusContextColors.profile(
-          profile,
-          theme: SonusTheme.of(context).colors,
-        ),
-        child: Builder(
-          builder: (context) =>
-              _buildPage(context, controller, userId, profile),
-        ),
-      ),
+      builder: (context, resolved) {
+        // Profile Lab: lighter secondary text over the lit page.
+        final profile = resolved.forEnvironment(
+          effects: SonusTheme.of(context).decoration.allowGradients,
+        );
+        return SonusContextTheme(
+          colors: SonusContextColors.profile(
+            profile,
+            theme: SonusTheme.of(context).colors,
+          ),
+          child: Builder(
+            builder: (context) => SonusSecondaryTextScope(
+              secondary: profile.textSecondary,
+              child: Builder(
+                builder: (context) =>
+                    _buildPage(context, controller, userId, profile),
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 
@@ -232,6 +247,17 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
       body: SonusProfileBackdrop(
         profile: profile,
         baseKey: const ValueKey<String>('album-profile-background'),
+        // Profile Lab: the selected edition's cover itself behind the page,
+        // blurred and tone-mapped (also for neutral covers).
+        environment: ValueListenableBuilder<String?>(
+          valueListenable: _atmosphereArtwork,
+          builder: (context, path, _) => SonusArtworkEnvironment(
+            artworkPath: path,
+            light: profile.light,
+            deep: profile.backgroundDeep,
+            enabled: SonusTheme.of(context).decoration.allowGradients,
+          ),
+        ),
         child: controller == null
             ? CustomScrollView(
                 slivers: [
@@ -494,10 +520,26 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
                                   (constraints.maxHeight - collapsed) /
                                       (expanded - collapsed))
                               .clamp(0.0, 1.0);
-                    return ColoredBox(
+                    final effects = SonusTheme.of(
+                      context,
+                    ).decoration.allowGradients;
+                    final fill = ColoredBox(
                       key: const ValueKey<String>('album-profile-toolbar-fill'),
+                      // Profile Lab: translucent glass once collapsed, over
+                      // a blur of the list; opaque without effects.
                       color: atmosphere.background.withValues(
-                        alpha: Curves.easeIn.transform(t),
+                        alpha:
+                            (effects ? 0.72 : 1.0) * Curves.easeIn.transform(t),
+                      ),
+                    );
+                    if (!effects || t == 0) return fill;
+                    return ClipRect(
+                      child: BackdropFilter(
+                        filter: ImageFilter.blur(
+                          sigmaX: 18 * t,
+                          sigmaY: 18 * t,
+                        ),
+                        child: fill,
                       ),
                     );
                   },
@@ -1252,6 +1294,7 @@ class _AlbumArtwork extends StatelessWidget {
     required this.artworkPath,
     required this.size,
     this.glow,
+    this.depth,
   });
 
   final LibraryAlbum album;
@@ -1260,6 +1303,9 @@ class _AlbumArtwork extends StatelessWidget {
 
   /// A soft glow in the artwork's accent, only with decoration effects on.
   final Color? glow;
+
+  /// A soft drop shadow under the cover (the page's deep tone), with glow.
+  final Color? depth;
 
   @override
   Widget build(BuildContext context) {
@@ -1280,10 +1326,16 @@ class _AlbumArtwork extends StatelessWidget {
             ? null
             : [
                 BoxShadow(
-                  color: glow.withValues(alpha: 0.32),
-                  blurRadius: 36,
+                  color: glow.withValues(alpha: 0.36),
+                  blurRadius: 34,
                   spreadRadius: 2,
                 ),
+                if (depth case final depth?)
+                  BoxShadow(
+                    color: depth.withValues(alpha: 0.5),
+                    blurRadius: 24,
+                    offset: const Offset(0, 12),
+                  ),
               ],
       ),
       child: SonusArtworkFrame(
@@ -1334,9 +1386,12 @@ class _CollapsingArtwork extends StatelessWidget {
           album: album,
           artworkPath: artworkPath,
           size: size,
-          glow: profile.isTinted && decoration.allowGlow
-              ? profile.accent
+          // Profile Lab: a luminous rim and glow in the page's light, also
+          // for neutral covers; none where glow is off.
+          glow: decoration.allowGlow
+              ? (profile.isTinted ? profile.light : profile.accent)
               : null,
+          depth: decoration.allowGlow ? profile.backgroundDeep : null,
         ),
       ),
     );
@@ -1389,6 +1444,7 @@ class _EditionSelector extends StatelessWidget {
     if (selectedEdition == null || editions.length < 2) {
       return const SizedBox.shrink();
     }
+    final quiet = SonusTheme.of(context).decoration.allowGradients;
 
     final baseTitle = controller.album?.title ?? '';
     final labels = [
@@ -1424,8 +1480,18 @@ class _EditionSelector extends StatelessWidget {
                         ),
                     ],
                     selected: selectedEdition.editionId,
-                    selectedBackgroundColor: atmosphere.accent,
-                    selectedForegroundColor: atmosphere.onAccent,
+                    // Profile Lab: with effects, a quiet selected segment
+                    // (faint accent over the surface, primary text, check)
+                    // so it stays subordinate to Play.
+                    selectedBackgroundColor: quiet
+                        ? Color.alphaBlend(
+                            atmosphere.accent.withValues(alpha: 0.22),
+                            atmosphere.surface,
+                          )
+                        : atmosphere.accent,
+                    selectedForegroundColor: quiet
+                        ? SonusTheme.of(context).colors.textPrimary
+                        : atmosphere.onAccent,
                     onChanged: _select,
                   ),
                 ),
@@ -1498,6 +1564,9 @@ class _EditionChoices extends StatelessWidget {
   Widget build(BuildContext context) {
     final tokens = SonusTheme.of(context);
     final colors = tokens.colors;
+    // Profile Lab: with effects, a quiet selected state (faint accent fill,
+    // accent edge, check and weight) instead of a filled accent chip.
+    final quiet = tokens.decoration.allowGradients;
 
     return Wrap(
       key: const ValueKey<String>('album-profile-edition-choices'),
@@ -1526,17 +1595,30 @@ class _EditionChoices extends StatelessWidget {
               ),
               selected: selected,
               showCheckmark: true,
-              checkmarkColor: selected
+              checkmarkColor: selected && !quiet
                   ? atmosphere.onAccent
                   : colors.textPrimary,
-              selectedColor: atmosphere.accent,
+              selectedColor: quiet
+                  ? Color.alphaBlend(
+                      atmosphere.accent.withValues(alpha: 0.18),
+                      atmosphere.surface,
+                    )
+                  : atmosphere.accent,
               backgroundColor: Colors.transparent,
               labelStyle: TextStyle(
-                color: selected ? atmosphere.onAccent : colors.textPrimary,
+                color: selected && !quiet
+                    ? atmosphere.onAccent
+                    : selected
+                    ? colors.textPrimary
+                    : (quiet ? colors.textSecondary : colors.textPrimary),
                 fontWeight: selected ? FontWeight.w800 : FontWeight.w500,
               ),
               side: BorderSide(
-                color: selected ? atmosphere.accent : colors.border,
+                color: selected
+                    ? (quiet
+                          ? atmosphere.accent.withValues(alpha: 0.55)
+                          : atmosphere.accent)
+                    : colors.border,
               ),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(
@@ -1675,11 +1757,17 @@ class _TracksSection extends StatelessWidget {
     final colors = tokens.colors;
     final theme = Theme.of(context);
 
-    // V2: soft, artwork-tinted glass with a barely-there rim.
-    return SonusSoftGlass(
+    // Profile Lab: frosted glass over the artwork environment; solid where
+    // effects are off.
+    return SonusFrostedGlass(
       key: const ValueKey<String>('album-profile-tracks-section'),
-      profile: profile,
-      borderRadius: BorderRadius.circular(tokens.metrics.cardRadius + 8),
+      frosted: tokens.decoration.allowGradients,
+      tint: profile.surface,
+      light: profile.light,
+      shadow: profile.backgroundDeep,
+      solid: profile.surface,
+      edge: profile.edge,
+      borderRadius: tokens.metrics.cardRadius + 8,
       padding: const EdgeInsets.fromLTRB(4, 16, 0, 8),
       // A transparent Material, so row ripples show on the glass.
       child: Material(

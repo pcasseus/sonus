@@ -4,9 +4,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sonus_next/core/design/sonus_artwork_palette.dart';
 import 'package:sonus_next/core/design/sonus_profile_colors.dart';
 import 'package:sonus_next/core/design/sonus_theme_factory.dart';
+import 'package:sonus_next/core/design/widgets/sonus_frosted_glass.dart';
 import 'package:sonus_next/core/design/sonus_theme_id.dart';
 import 'package:sonus_next/core/design/sonus_tokens.dart';
-import 'package:sonus_next/core/design/widgets/sonus_profile_surfaces.dart';
 import 'package:sonus_next/features/library/application/models/library_album_edition.dart';
 import 'package:sonus_next/features/library/application/models/library_track.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
@@ -142,14 +142,13 @@ void main() {
       )
       .backgroundColor!;
 
-  // UI redesign P2: the track list sits on glass, based on the profile
-  // colours' surface.
+  // The track list sits on frosted glass (Profile Lab) tinted with the
+  // profile colours' surface.
   Color tracksSurface(WidgetTester tester) => tester
-      .widget<SonusSoftGlass>(
+      .widget<SonusFrostedGlass>(
         find.byKey(const ValueKey<String>('album-profile-tracks-section')),
       )
-      .profile
-      .surface;
+      .tint;
 
   group('atmosphere', () {
     testWidgets('theme colours show first, then the artwork tints the page '
@@ -801,7 +800,7 @@ void main() {
           find
               .descendant(
                 of: byKey('album-profile-tracks-section'),
-                matching: byKey('sonus-soft-glass-surface'),
+                matching: byKey('sonus-frosted-glass-surface'),
               )
               .first,
         );
@@ -946,7 +945,16 @@ void main() {
           .position
           .jumpTo(900);
       await tester.pumpAndSettle();
-      expect(fill().a, closeTo(1, 0.01), reason: 'opaque when collapsed');
+      // Profile Lab: translucent glass once collapsed, over a blur of the
+      // list that scrolls under it.
+      expect(fill().a, closeTo(0.72, 0.01), reason: 'glass when collapsed');
+      expect(
+        find.ancestor(
+          of: byKey('album-profile-toolbar-fill'),
+          matching: find.byType(BackdropFilter),
+        ),
+        findsOneWidget,
+      );
     });
 
     testWidgets('the cover carries an accent rim and glow', (tester) async {
@@ -965,7 +973,11 @@ void main() {
       expect(box.boxShadow, isNotEmpty);
     });
 
-    testWidgets('soft glass tracks: no heavy outline, no shadow', (
+    // Profile Lab: frosted glass. A painted rim (lit at the top, almost
+    // gone at the bottom), a shadow painted outside the plate only, and a
+    // translucent plate. Measured separation and text contrast on real
+    // renders: test/visual_lab/album_profile_render_test.dart.
+    testWidgets('frosted glass tracks: no heavy outline, no shadow through', (
       tester,
     ) async {
       await pump(tester);
@@ -974,15 +986,15 @@ void main() {
         find
             .descendant(
               of: byKey('album-profile-tracks-section'),
-              matching: byKey('sonus-soft-glass-surface'),
+              matching: byKey('sonus-frosted-glass-surface'),
             )
             .first,
       );
       final box = glass.decoration as BoxDecoration;
-      final side = (box.border! as Border).top;
-      expect(side.width, lessThanOrEqualTo(1));
-      expect(side.color.a, lessThan(0.3));
-      expect(box.boxShadow, isNull);
+      expect(box.border, isNull, reason: 'no even outline');
+      expect(box.boxShadow, isNull, reason: 'no shadow through the glass');
+      expect(box.gradient, isNotNull, reason: 'translucent');
+      expect(SonusFrostedGlass.rimAlpha, lessThanOrEqualTo(0.1));
     });
 
     testWidgets('Low effects: no light pools, the plain cover', (tester) async {

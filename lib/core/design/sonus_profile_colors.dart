@@ -158,6 +158,27 @@ class SonusProfileColors {
 
   bool get isTinted => strength > 0;
 
+  /// These colours over the artwork environment and frosted glass (Profile
+  /// Lab method): secondary text takes a lighter tone, halfway to the
+  /// primary text, so it keeps 4.5:1 on its local ground. Without effects
+  /// the theme's own secondary text stays.
+  SonusProfileColors forEnvironment({required bool effects}) {
+    if (!effects) return this;
+    return SonusProfileColors(
+      background: background,
+      backgroundDeep: backgroundDeep,
+      surface: surface,
+      edge: edge,
+      glow: glow,
+      light: light,
+      accent: accent,
+      onAccent: onAccent,
+      textPrimary: textPrimary,
+      textSecondary: Color.lerp(textSecondary, textPrimary, 0.5)!,
+      strength: strength,
+    );
+  }
+
   bool get hasGlow => glow.a > 0;
 
   /// The same colours for widgets that take the quieter atmosphere type.
