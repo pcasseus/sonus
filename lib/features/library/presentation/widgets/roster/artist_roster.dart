@@ -1109,7 +1109,10 @@ class _StatsGrid extends StatelessWidget {
               tile(
                 'listened',
                 Icons.schedule_rounded,
-                loaded && hasListened ? sonusListeningTime(listened) : '–',
+                // A compact value fits the tile on one line ("<1 min").
+                loaded && listened != null
+                    ? sonusListeningTimeCompact(listened)
+                    : '–',
                 'Listened',
                 !loaded
                     ? 'Listening time loading'

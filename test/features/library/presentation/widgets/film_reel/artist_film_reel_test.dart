@@ -17,6 +17,7 @@ import 'package:sonus_next/features/library/presentation/pages/library_page.dart
 import 'package:sonus_next/features/library/presentation/widgets/library_view_switch.dart';
 import 'package:sonus_next/features/library/presentation/services/artist_library_statistics_service.dart';
 
+import '../../../../../support/device_layout.dart';
 import '../../pages/library_page_test.dart' as base;
 
 Finder byKey(String key) => find.byKey(ValueKey<String>(key));
@@ -108,6 +109,7 @@ void main() {
     LibraryChangeSignal? signal,
     Size size = const Size(411, 900),
     bool settle = true,
+    ThemeData? theme,
   }) async {
     await tester.binding.setSurfaceSize(size);
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -120,7 +122,7 @@ void main() {
           Provider<ArtistLibraryStatisticsService?>.value(value: stats),
         ],
         child: MaterialApp(
-          theme: SonusThemeFactory.build(const SonusAppearanceSpec()),
+          theme: theme ?? SonusThemeFactory.build(const SonusAppearanceSpec()),
           home: Scaffold(
             body: LibraryPage(
               changes: signal,
@@ -350,5 +352,88 @@ void main() {
     expect(builtCards(), lessThanOrEqualTo(5));
     expect(stats.loads, 1, reason: 'scrolling never reloads statistics');
     expect(tester.takeException(), isNull);
+  });
+
+  // App Update 1.1: the Listened tile keeps a compact one-line value.
+  group('Listened tile', () {
+    // Measured in the real Roboto the device draws, not the square test
+    // font (about 1.7 times wider).
+    setUpAll(loadRealRoboto);
+    final roboto = withRealRoboto(
+      SonusThemeFactory.build(const SonusAppearanceSpec()),
+    );
+    _Stats one(Duration listened) => _Stats({
+      'ada': (artist) => ArtistLibraryStatistics(
+        artist: artist,
+        rank: 1,
+        qualifiedStreams: 1,
+        listened: listened,
+      ),
+    })..artists = [ada];
+
+    double lineHeight(WidgetTester tester, Finder text) {
+      final style = tester.widget<Text>(text).style;
+      final scale = MediaQuery.textScalerOf(tester.element(text)).scale(1);
+      return (style?.fontSize ?? 14) * scale * 1.6;
+    }
+
+    for (final (name, size, scale) in [
+      ('S26 Ultra', const Size(384, 832), 1.0),
+      ('S26 Ultra at 1.3x text', const Size(384, 832), 1.3),
+      ('a 360dp phone', const Size(360, 780), 1.0),
+    ]) {
+      testWidgets('under a minute reads "<1 min" on one line: $name', (
+        tester,
+      ) async {
+        tester.platformDispatcher.textScaleFactorTestValue = scale;
+        addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+        await pump(
+          tester,
+          artists: [ada],
+          stats: one(const Duration(seconds: 40)),
+          size: size,
+          theme: roboto,
+        );
+
+        final tile = find.byKey(const ValueKey<String>('film-reel-listened'));
+        final value = find.descendant(of: tile, matching: find.text('<1 min'));
+        expect(value, findsOneWidget);
+        expect(find.textContaining('under a minute'), findsNothing);
+        expect(
+          tester.getSize(value).height,
+          lessThanOrEqualTo(lineHeight(tester, value)),
+          reason: 'one line, not three',
+        );
+        expect(
+          find.bySemanticsLabel('under a minute listened'),
+          findsOneWidget,
+        );
+        expect(tester.takeException(), isNull);
+      });
+    }
+
+    testWidgets('no listening reads "0 min"', (tester) async {
+      await pump(tester, artists: [ada], stats: one(Duration.zero));
+
+      final tile = find.byKey(const ValueKey<String>('film-reel-listened'));
+      expect(
+        find.descendant(of: tile, matching: find.text('0 min')),
+        findsOneWidget,
+      );
+      expect(find.bySemanticsLabel('No listening time yet'), findsOneWidget);
+    });
+
+    testWidgets('longer times keep their minutes and hours', (tester) async {
+      await pump(
+        tester,
+        artists: [ada],
+        stats: one(const Duration(hours: 3, minutes: 19)),
+      );
+      final tile = find.byKey(const ValueKey<String>('film-reel-listened'));
+      expect(
+        find.descendant(of: tile, matching: find.text('3h 19m')),
+        findsOneWidget,
+      );
+    });
   });
 }

@@ -18,3 +18,13 @@ String sonusListeningTime(Duration duration) {
   final rest = minutes % 60;
   return rest == 0 ? '${hours}h' : '${hours}h ${rest}m';
 }
+
+/// [sonusListeningTime] for a narrow statistics tile (App Update 1.1):
+/// "0 min" for none, "<1 min" for a positive time under a minute (never
+/// rounded up to a minute), then "45 min", "2h" or "1h 58m". Spoken
+/// labels keep the descriptive [sonusListeningTime] ("under a minute").
+String sonusListeningTimeCompact(Duration duration) {
+  if (duration <= Duration.zero) return '0 min';
+  if (duration.inMinutes < 1) return '<1 min';
+  return sonusListeningTime(duration);
+}

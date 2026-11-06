@@ -429,7 +429,10 @@ class _ArtistFilmReelState extends State<ArtistFilmReel> {
       _StatItem(
         key: const ValueKey<String>('film-reel-listened'),
         icon: Icons.schedule_rounded,
-        value: known && hasListened ? sonusListeningTime(listened) : '–',
+        // A compact value fits the narrow tile on one line ("<1 min").
+        value: known && listened != null
+            ? sonusListeningTimeCompact(listened)
+            : '–',
         label: 'Listened',
         semanticsLabel: !known
             ? 'Listening time loading'
