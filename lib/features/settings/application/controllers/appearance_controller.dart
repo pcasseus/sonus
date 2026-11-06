@@ -53,6 +53,7 @@ class AppearanceController extends ChangeNotifier {
   AppearanceDeviceSettings _device = const AppearanceDeviceSettings();
   bool _systemHighContrast = false;
   bool _systemReduceMotion = false;
+  bool _systemBoldText = false;
   bool _isLoaded = false;
   Object? _saveError;
   late ResolvedAppearance _resolved;
@@ -66,6 +67,7 @@ class AppearanceController extends ChangeNotifier {
   bool get isLoaded => _isLoaded;
   bool get systemHighContrast => _systemHighContrast;
   bool get systemReduceMotion => _systemReduceMotion;
+  bool get systemBoldText => _systemBoldText;
 
   /// The most recent save failure, until a later save succeeds.
   Object? get saveError => _saveError;
@@ -80,6 +82,7 @@ class AppearanceController extends ChangeNotifier {
     reduceMotion: _preferences.reduceMotion || _systemReduceMotion,
     lowEffects: _device.lowEffects,
     reactivity: _preferences.reactivity,
+    boldText: _preferences.boldText || _systemBoldText,
   );
 
   ThemeData get theme => SonusThemeFactory.build(spec);
@@ -151,14 +154,17 @@ class AppearanceController extends ChangeNotifier {
   void updateSystemAccessibility({
     required bool highContrast,
     required bool reduceMotion,
+    bool boldText = false,
   }) {
     if (highContrast == _systemHighContrast &&
-        reduceMotion == _systemReduceMotion) {
+        reduceMotion == _systemReduceMotion &&
+        boldText == _systemBoldText) {
       return;
     }
 
     _systemHighContrast = highContrast;
     _systemReduceMotion = reduceMotion;
+    _systemBoldText = boldText;
     notifyListeners();
   }
 
@@ -208,6 +214,12 @@ class AppearanceController extends ChangeNotifier {
 
   Future<void> setHighContrast(bool value) {
     _preferences = _preferences.copyWith(highContrast: value);
+    return _apply(preferences: true);
+  }
+
+  /// Heavier text; typography only, so colours and effects are unchanged.
+  Future<void> setBoldText(bool value) {
+    _preferences = _preferences.copyWith(boldText: value);
     return _apply(preferences: true);
   }
 

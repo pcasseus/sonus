@@ -50,6 +50,13 @@ class AccessibilitySettingsPage extends StatelessWidget {
                     'reduces motion even if the switch above is off.',
               ),
               SettingsInfoTile(
+                icon: Icons.format_bold_rounded,
+                title: 'Bold text',
+                body:
+                    'When your device uses bold text, Sonus uses heavier '
+                    'text even if the switch above is off.',
+              ),
+              SettingsInfoTile(
                 icon: Icons.contrast_rounded,
                 title: 'High contrast text',
                 body:

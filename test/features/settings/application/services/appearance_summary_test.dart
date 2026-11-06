@@ -154,6 +154,34 @@ void main() {
     );
   });
 
+  test('bold text is shown but never limits artwork atmospheres', () {
+    final summary = _summary(
+      preferences: const AppearancePreferences(boldText: true),
+    );
+
+    expect(summary.boldText.label, 'On');
+    expect(summary.limits, isEmpty);
+    expect(summary.effectiveReactivity, SonusReactivityMode.ambient);
+  });
+
+  test("the device's bold text is named as the source", () {
+    final summary = AppearanceSummary.resolve(
+      theme: SonusThemeId.concreteSpray,
+      preferences: const AppearancePreferences(),
+      device: const AppearanceDeviceSettings(),
+      systemHighContrast: false,
+      systemReduceMotion: false,
+      systemBoldText: true,
+      decoration: SonusThemeFactory.decorationFor(
+        SonusThemeCatalog.of(SonusThemeId.concreteSpray),
+        const SonusAppearanceSpec(boldText: true),
+      ),
+    );
+
+    expect(summary.boldText.label, "On (from your device's Bold text setting)");
+    expect(summary.limits, isEmpty);
+  });
+
   test('a chosen reactivity is shown without the default note', () {
     final summary = _summary(
       preferences: const AppearancePreferences(

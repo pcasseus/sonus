@@ -30,6 +30,50 @@ enum SonusTypographyPreset {
 }
 
 abstract final class SonusTypography {
+  /// [weight] raised two steps (w400 to w600, w500 to w700, w600 to w800),
+  /// capped at w900. Never lowers a weight, so heavier styles stay at
+  /// least as heavy as lighter ones.
+  static FontWeight bolder(FontWeight weight) {
+    final index = FontWeight.values.indexOf(weight);
+    return FontWeight.values[(index + 2).clamp(
+      0,
+      FontWeight.values.length - 1,
+    )];
+  }
+
+  /// Bold text: every style of [theme] one weight class heavier (see
+  /// [bolder]). Styles without a weight take it from the Material 3
+  /// geometry first, which is where Material would take it from. Sizes,
+  /// colours and families are unchanged.
+  static TextTheme embolden(TextTheme theme) {
+    final geometry = Typography.material2021().englishLike;
+
+    TextStyle? heavier(TextStyle? style, TextStyle? geometryStyle) {
+      if (style == null) return null;
+      final weight =
+          style.fontWeight ?? geometryStyle?.fontWeight ?? FontWeight.w400;
+      return style.copyWith(fontWeight: bolder(weight));
+    }
+
+    return theme.copyWith(
+      displayLarge: heavier(theme.displayLarge, geometry.displayLarge),
+      displayMedium: heavier(theme.displayMedium, geometry.displayMedium),
+      displaySmall: heavier(theme.displaySmall, geometry.displaySmall),
+      headlineLarge: heavier(theme.headlineLarge, geometry.headlineLarge),
+      headlineMedium: heavier(theme.headlineMedium, geometry.headlineMedium),
+      headlineSmall: heavier(theme.headlineSmall, geometry.headlineSmall),
+      titleLarge: heavier(theme.titleLarge, geometry.titleLarge),
+      titleMedium: heavier(theme.titleMedium, geometry.titleMedium),
+      titleSmall: heavier(theme.titleSmall, geometry.titleSmall),
+      bodyLarge: heavier(theme.bodyLarge, geometry.bodyLarge),
+      bodyMedium: heavier(theme.bodyMedium, geometry.bodyMedium),
+      bodySmall: heavier(theme.bodySmall, geometry.bodySmall),
+      labelLarge: heavier(theme.labelLarge, geometry.labelLarge),
+      labelMedium: heavier(theme.labelMedium, geometry.labelMedium),
+      labelSmall: heavier(theme.labelSmall, geometry.labelSmall),
+    );
+  }
+
   /// Platform serif families, tried in order. All are system fonts.
   static const editorialFamilyFallback = [
     'Georgia',

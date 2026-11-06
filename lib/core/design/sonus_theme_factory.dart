@@ -22,6 +22,7 @@ class SonusAppearanceSpec {
     this.reduceMotion = false,
     this.lowEffects = false,
     this.reactivity,
+    this.boldText = false,
   });
 
   final SonusThemeId themeId;
@@ -35,6 +36,10 @@ class SonusAppearanceSpec {
   /// the theme's default. Clamped by accessibility in the tokens.
   final SonusReactivityMode? reactivity;
 
+  /// Heavier text weights (the user's Bold text or the device's bold
+  /// text). Typography only: never changes colours or decoration.
+  final bool boldText;
+
   SonusAppearanceSpec copyWith({SonusThemeId? themeId}) {
     return SonusAppearanceSpec(
       themeId: themeId ?? this.themeId,
@@ -44,6 +49,7 @@ class SonusAppearanceSpec {
       reduceMotion: reduceMotion,
       lowEffects: lowEffects,
       reactivity: reactivity,
+      boldText: boldText,
     );
   }
 
@@ -56,7 +62,8 @@ class SonusAppearanceSpec {
         other.highContrast == highContrast &&
         other.reduceMotion == reduceMotion &&
         other.lowEffects == lowEffects &&
-        other.reactivity == reactivity;
+        other.reactivity == reactivity &&
+        other.boldText == boldText;
   }
 
   @override
@@ -68,6 +75,7 @@ class SonusAppearanceSpec {
     reduceMotion,
     lowEffects,
     reactivity,
+    boldText,
   );
 }
 
@@ -95,11 +103,31 @@ abstract final class SonusThemeFactory {
       brightness: definition.palette.brightness,
     );
 
-    final textTheme = SonusTypography.apply(
+    final presetTextTheme = SonusTypography.apply(
       base.textTheme,
       spec.typography,
       colors.textPrimary,
     );
+    final textTheme = spec.boldText
+        ? SonusTypography.embolden(presetTextTheme)
+        : presetTextTheme;
+
+    // Tab labels and two Sonus styles set their own weights; Bold text
+    // raises them by the same step so the hierarchy holds.
+    FontWeight weight(FontWeight value) =>
+        spec.boldText ? SonusTypography.bolder(value) : value;
+
+    var sonusText = SonusTextStyles.fromTextTheme(textTheme);
+    if (spec.boldText) {
+      sonusText = sonusText.copyWith(
+        sectionHeading: sonusText.sectionHeading.copyWith(
+          fontWeight: weight(FontWeight.w700),
+        ),
+        chartRank: sonusText.chartRank.copyWith(
+          fontWeight: weight(FontWeight.w800),
+        ),
+      );
+    }
 
     final metrics = SonusMetrics(
       cardRadius: definition.cardRadius,
@@ -143,9 +171,11 @@ abstract final class SonusThemeFactory {
       tabBarTheme: TabBarThemeData(
         labelColor: colors.textPrimary,
         unselectedLabelColor: colors.textSecondary,
-        labelStyle: textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w800),
+        labelStyle: textTheme.titleSmall?.copyWith(
+          fontWeight: weight(FontWeight.w800),
+        ),
         unselectedLabelStyle: textTheme.titleSmall?.copyWith(
-          fontWeight: FontWeight.w500,
+          fontWeight: weight(FontWeight.w500),
         ),
         indicatorColor: colors.accentPrimary,
         indicator: UnderlineTabIndicator(
@@ -191,7 +221,7 @@ abstract final class SonusThemeFactory {
       ),
       extensions: [
         colors,
-        SonusTextStyles.fromTextTheme(textTheme),
+        sonusText,
         metrics,
         decorationFor(definition, spec),
         SonusMotion(reduced: spec.reduceMotion, curve: definition.motionCurve),

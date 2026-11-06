@@ -110,6 +110,7 @@ class AppearancePreferences {
     this.highContrast = false,
     this.reduceMotion = false,
     this.reactivity,
+    this.boldText = false,
   });
 
   static const int version = 1;
@@ -130,6 +131,11 @@ class AppearancePreferences {
   /// it existed stay valid, with nothing to migrate.
   final SonusReactivityMode? reactivity;
 
+  /// Heavier text weights in every theme. Typography only: colours,
+  /// artwork backgrounds and effects are unchanged. Optional within
+  /// version 1: documents saved before it existed read as off.
+  final bool boldText;
+
   /// [followThemeReactivity] clears [reactivity] back to the theme default.
   AppearancePreferences copyWith({
     SonusThemeId? theme,
@@ -140,6 +146,7 @@ class AppearancePreferences {
     bool? reduceMotion,
     SonusReactivityMode? reactivity,
     bool followThemeReactivity = false,
+    bool? boldText,
   }) {
     return AppearancePreferences(
       theme: theme ?? this.theme,
@@ -149,6 +156,7 @@ class AppearancePreferences {
       highContrast: highContrast ?? this.highContrast,
       reduceMotion: reduceMotion ?? this.reduceMotion,
       reactivity: followThemeReactivity ? null : reactivity ?? this.reactivity,
+      boldText: boldText ?? this.boldText,
     );
   }
 
@@ -161,6 +169,7 @@ class AppearancePreferences {
     'highContrast': highContrast,
     'reduceMotion': reduceMotion,
     if (reactivity != null) 'reactivity': reactivity!.storageKey,
+    'boldText': boldText,
   };
 
   /// Reads [json] field by field. A missing or invalid field falls back to
@@ -213,7 +222,17 @@ class AppearancePreferences {
         defaults.reduceMotion,
       ),
       reactivity: _reactivity(json, issues),
+      boldText: _boldText(json, issues),
     );
+  }
+
+  /// The optional bold-text field: absent means off (not an issue);
+  /// present but not a boolean is reported and read as off.
+  static bool _boldText(Map<String, Object?> json, List<String> issues) {
+    if (!json.containsKey('boldText')) return false;
+    final value = _bool(json['boldText']);
+    if (value == null) issues.add('preferences.boldText');
+    return value ?? false;
   }
 
   /// The optional reactivity field: absent means the theme's default (not
@@ -276,7 +295,8 @@ class AppearancePreferences {
       other.schedule == schedule &&
       other.highContrast == highContrast &&
       other.reduceMotion == reduceMotion &&
-      other.reactivity == reactivity;
+      other.reactivity == reactivity &&
+      other.boldText == boldText;
 
   @override
   int get hashCode => Object.hash(
@@ -287,6 +307,7 @@ class AppearancePreferences {
     highContrast,
     reduceMotion,
     reactivity,
+    boldText,
   );
 }
 

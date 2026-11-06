@@ -6,6 +6,7 @@ import 'package:sonus_next/core/build/sonus_build_info.dart';
 import 'package:sonus_next/core/database/app_database.dart';
 import 'package:sonus_next/core/design/sonus_theme_factory.dart';
 import 'package:sonus_next/core/design/sonus_theme_id.dart';
+import 'package:sonus_next/core/design/sonus_tokens.dart';
 import 'package:sonus_next/features/account/application/controllers/account_controller.dart';
 import 'package:sonus_next/features/account/application/repositories/local_account_binding_repository.dart';
 import 'package:sonus_next/features/import/application/services/import_review_service.dart';
@@ -101,6 +102,7 @@ class _Harness {
     SonusThemeId theme = SonusThemeId.concreteSpray,
     double textScale = 1,
     AccountController? account,
+    SonusAppearanceSpec? spec,
   }) {
     return MultiProvider(
       providers: [
@@ -121,7 +123,9 @@ class _Harness {
         ChangeNotifierProvider<AccountController?>.value(value: account),
       ],
       child: MaterialApp(
-        theme: SonusThemeFactory.build(SonusAppearanceSpec(themeId: theme)),
+        theme: SonusThemeFactory.build(
+          spec ?? SonusAppearanceSpec(themeId: theme),
+        ),
         themeAnimationDuration: Duration.zero,
         builder: (context, child) => MediaQuery.withClampedTextScaling(
           minScaleFactor: textScale,
@@ -668,6 +672,44 @@ void main() {
       expect(harness.appearance.spec.reduceMotion, isTrue);
     });
 
+    testWidgets('bold text is its own switch and keeps artwork effects', (
+      tester,
+    ) async {
+      final harness = await _Harness.create();
+
+      await tester.pumpWidget(harness.app(const AccessibilitySettingsPage()));
+      await tester.pumpAndSettle();
+      final toggle = find.byKey(_key('appearance-bold-text'));
+      expect(
+        find.descendant(of: toggle, matching: find.text('Bold text')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: toggle,
+          matching: find.text(
+            'Heavier text in every theme, without changing colours or '
+            'effects.',
+          ),
+        ),
+        findsOneWidget,
+      );
+
+      await tester.tap(toggle);
+      await tester.pumpAndSettle();
+
+      expect(harness.appearance.preferences.boldText, isTrue);
+      expect(harness.appearance.spec.boldText, isTrue);
+      expect(harness.appearance.spec.highContrast, isFalse);
+      expect(tester.widget<SwitchListTile>(toggle).value, isTrue);
+      expect(
+        harness.appearance.theme
+            .extension<SonusDecorationTokens>()!
+            .allowGradients,
+        isTrue,
+      );
+    });
+
     testWidgets('opens the read-only appearance summary', (tester) async {
       await tester.binding.setSurfaceSize(const Size(420, 2000));
       addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -699,6 +741,8 @@ void main() {
     testWidgets('the summary says when nothing limits atmospheres', (
       tester,
     ) async {
+      await tester.binding.setSurfaceSize(const Size(420, 2000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
       final harness = await _Harness.create();
 
       await tester.pumpWidget(harness.app(const AppearanceSummaryPage()));
@@ -737,6 +781,29 @@ void main() {
       AboutSonusPage(),
     ]) {
       await tester.pumpWidget(harness.app(page, textScale: 2));
+      await tester.pumpAndSettle();
+
+      expect(tester.takeException(), isNull, reason: '${page.runtimeType}');
+    }
+  });
+
+  testWidgets('accessibility pages lay out at 320dp with 2x bold text', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(320, 3000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final harness = await _Harness.create();
+    await harness.appearance.setBoldText(true);
+    await harness.appearance.setLowEffects(true);
+    await harness.appearance.setHighContrast(true);
+
+    for (final page in const <Widget>[
+      AccessibilitySettingsPage(),
+      AppearanceSummaryPage(),
+    ]) {
+      await tester.pumpWidget(
+        harness.app(page, textScale: 2, spec: harness.appearance.spec),
+      );
       await tester.pumpAndSettle();
 
       expect(tester.takeException(), isNull, reason: '${page.runtimeType}');

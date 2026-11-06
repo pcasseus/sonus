@@ -73,6 +73,7 @@ class AppearanceSummary {
     required this.chosenDecoration,
     required this.effectiveDecoration,
     required this.highContrast,
+    required this.boldText,
     required this.lowEffects,
     required this.reduceMotion,
     required this.requestedReactivity,
@@ -89,11 +90,17 @@ class AppearanceSummary {
     required AppearanceDeviceSettings device,
     required bool systemHighContrast,
     required bool systemReduceMotion,
+    bool systemBoldText = false,
     required SonusDecorationTokens decoration,
   }) {
     final highContrast = AppearanceSwitchState(
       chosen: preferences.highContrast,
       fromDevice: systemHighContrast,
+    );
+    final boldText = AppearanceSwitchState(
+      chosen: preferences.boldText,
+      fromDevice: systemBoldText,
+      deviceSettingName: 'Bold text',
     );
     final lowEffects = AppearanceSwitchState(chosen: device.lowEffects);
     final reduceMotion = AppearanceSwitchState(
@@ -118,6 +125,7 @@ class AppearanceSummary {
       chosenDecoration: preferences.decoration,
       effectiveDecoration: decoration.intensity,
       highContrast: highContrast,
+      boldText: boldText,
       lowEffects: lowEffects,
       reduceMotion: reduceMotion,
       requestedReactivity:
@@ -140,6 +148,7 @@ class AppearanceSummary {
       device: controller.device,
       systemHighContrast: controller.systemHighContrast,
       systemReduceMotion: controller.systemReduceMotion,
+      systemBoldText: controller.systemBoldText,
       decoration: decoration,
     );
   }
@@ -152,6 +161,9 @@ class AppearanceSummary {
   final SonusDecorationIntensity chosenDecoration;
   final SonusDecorationIntensity effectiveDecoration;
   final AppearanceSwitchState highContrast;
+
+  /// Typography only; never limits artwork atmospheres.
+  final AppearanceSwitchState boldText;
   final AppearanceSwitchState lowEffects;
   final AppearanceSwitchState reduceMotion;
   final SonusReactivityMode requestedReactivity;

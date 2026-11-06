@@ -75,6 +75,49 @@ void main() {
       expect(issues, isNot(contains('preferences.theme')));
     });
 
+    test('bold text is off by default and round-trips', () {
+      expect(const AppearancePreferences().boldText, isFalse);
+
+      const preferences = AppearancePreferences(boldText: true);
+      final issues = <String>[];
+      final json = preferences.toJson();
+
+      expect(json['boldText'], isTrue);
+      expect(AppearancePreferences.fromJson(json, issues), preferences);
+      expect(issues, isEmpty);
+    });
+
+    test('a document saved before bold text existed reads it as off', () {
+      final issues = <String>[];
+
+      final decoded = AppearancePreferences.fromJson({
+        'version': 1,
+        'theme': 'after_hours',
+        'typography': 'street_bold',
+        'decoration': 'standard',
+        'schedule': const AppearanceSchedule().toJson(),
+        'highContrast': true,
+        'reduceMotion': false,
+        'someFutureField': 'ignored',
+      }, issues);
+
+      expect(decoded.boldText, isFalse);
+      expect(decoded.highContrast, isTrue);
+      expect(decoded.theme, SonusThemeId.afterHours);
+      expect(issues, isEmpty);
+    });
+
+    test('an unreadable bold text value is reported and read as off', () {
+      final issues = <String>[];
+
+      final decoded = AppearancePreferences.fromJson({
+        'boldText': 'yes',
+      }, issues);
+
+      expect(decoded.boldText, isFalse);
+      expect(issues, contains('preferences.boldText'));
+    });
+
     test('a schedule with identical or invalid times is turned off', () {
       for (final times in [
         {'dayStartsAt': 480, 'nightStartsAt': 480},

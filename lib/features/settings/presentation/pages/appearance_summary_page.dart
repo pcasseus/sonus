@@ -72,6 +72,12 @@ class _SummaryBody extends StatelessWidget {
               summary.highContrast.label,
             ),
             row(
+              'bold-text',
+              Icons.format_bold_rounded,
+              'Bold text',
+              summary.boldText.label,
+            ),
+            row(
               'low-effects',
               Icons.speed_rounded,
               'Low effects',

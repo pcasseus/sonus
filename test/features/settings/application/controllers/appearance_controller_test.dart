@@ -266,6 +266,42 @@ void main() {
       await controller.setHighContrast(false);
       expect(controller.spec.highContrast, isTrue);
     });
+
+    test('bold text is saved and changes typography only', () async {
+      final controller = buildController();
+      await controller.load();
+
+      await controller.setBoldText(true);
+
+      expect(controller.preferences.boldText, isTrue);
+      expect(controller.spec.boldText, isTrue);
+      expect(controller.spec.highContrast, isFalse);
+      expect(controller.spec.lowEffects, isFalse);
+      expect(
+        stored(AppearancePreferencesStore.preferencesKey)['boldText'],
+        isTrue,
+      );
+    });
+
+    test(
+      "the device's bold text turns bold text on without storing it",
+      () async {
+        final controller = buildController();
+        await controller.load();
+
+        controller.updateSystemAccessibility(
+          highContrast: false,
+          reduceMotion: false,
+          boldText: true,
+        );
+
+        expect(controller.systemBoldText, isTrue);
+        expect(controller.spec.boldText, isTrue);
+        expect(controller.spec.highContrast, isFalse);
+        expect(controller.preferences.boldText, isFalse);
+        expect(storage, isEmpty);
+      },
+    );
   });
 
   group('schedule', () {
