@@ -670,8 +670,11 @@ void main() {
       expect(tracksSurface(tester), profile.surface);
     });
 
-    testWidgets('phones: a large cover in a header that collapses under the '
-        'toolbar, which then names the release', (tester) async {
+    // The hero scrolls away naturally: the full cover leads it at the top,
+    // nothing is pinned or shrunk under the toolbar, and the compact
+    // toolbar names the release once the hero has gone.
+    testWidgets('phones: a large cover in a hero that scrolls away; the '
+        'toolbar then names the release', (tester) async {
       // A release long enough to scroll its cover away.
       final long = base.FakeEditionAwareLibraryQueryRepository(
         album: base.createAlbum(
@@ -697,7 +700,14 @@ void main() {
       );
       await pump(tester, repository: long);
 
-      expect(byKey('album-profile-collapsing-hero'), findsOneWidget);
+      expect(byKey('album-profile-collapsing-hero'), findsNothing);
+      expect(
+        find.descendant(
+          of: byKey('album-profile-hero'),
+          matching: byKey('album-profile-artwork-album-1'),
+        ),
+        findsOneWidget,
+      );
       final art = tester.getSize(byKey('album-profile-artwork-album-1'));
       expect(art.width, greaterThan(300), reason: 'prominent on 411dp');
       expect(titleOpacity(tester), 0, reason: 'the cover names it at first');
@@ -728,8 +738,13 @@ void main() {
       expect(
         bar.height,
         lessThanOrEqualTo(kToolbarHeight + 1),
-        reason: 'collapsed to the toolbar',
+        reason: 'a compact toolbar',
       );
+      // No cover left partly visible behind the pinned toolbar.
+      final cover = byKey('album-profile-artwork-album-1');
+      if (cover.evaluate().isNotEmpty) {
+        expect(tester.getRect(cover).bottom, lessThanOrEqualTo(bar.bottom));
+      }
       expect(byKey('album-profile-artwork-menu'), findsOneWidget);
     });
 
@@ -825,7 +840,14 @@ void main() {
 
       expect(find.text('Bonus'), findsOneWidget);
       expect(palette.requested, contains('/art/deluxe.png'));
-      expect(byKey('album-profile-collapsing-hero'), findsOneWidget);
+      expect(byKey('album-profile-collapsing-hero'), findsNothing);
+      expect(
+        find.descendant(
+          of: byKey('album-profile-hero'),
+          matching: byKey('album-profile-artwork-album-1'),
+        ),
+        findsOneWidget,
+      );
     });
   });
 

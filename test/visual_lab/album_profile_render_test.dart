@@ -29,6 +29,10 @@ const String _realArt = String.fromEnvironment('SONUS_LAB_REAL_ART');
 
 Finder _key(String key) => find.byKey(ValueKey<String>(key));
 
+/// A compact toolbar: the status bar plus one toolbar row.
+double _barLimit(WidgetTester tester) =>
+    tester.view.padding.top / tester.view.devicePixelRatio + kToolbarHeight + 1;
+
 /// Illustrative fixture: Standard (two discs, an unavailable and a blocked
 /// song, a featured artist) and Deluxe (more songs), each with its cover.
 base.FakeEditionAwareLibraryQueryRepository _catalogue(
@@ -259,6 +263,138 @@ void main() {
     );
     // Unavailable songs stay off the album page, as before.
     expect(_key('album-track-s4'), findsNothing);
+  });
+
+  // The album hero scrolls away naturally: never a cover cropped behind
+  // pinned metadata, never a second title or cover layer.
+  group('the hero scrolls away, the toolbar stays compact', () {
+    for (final (name, device, spec) in [
+      ('S26', LabDevice.s26, const SonusAppearanceSpec()),
+      ('360x780', LabDevice.small, const SonusAppearanceSpec()),
+      ('1.3x text', LabDevice.s26.withText(1.3), const SonusAppearanceSpec()),
+      ('2x text', LabDevice.s26.withText(2.0), const SonusAppearanceSpec()),
+      (
+        'High contrast',
+        LabDevice.s26,
+        const SonusAppearanceSpec(highContrast: true),
+      ),
+      (
+        'Low effects',
+        LabDevice.s26,
+        const SonusAppearanceSpec(lowEffects: true),
+      ),
+      (
+        'Reduce motion',
+        LabDevice.s26,
+        const SonusAppearanceSpec(reduceMotion: true),
+      ),
+    ]) {
+      testWidgets(name, (tester) async {
+        final (s, d) = _covers(LabVariant.cool);
+        await _pump(tester, standard: s, deluxe: d, device: device, spec: spec);
+        final cover = _key('album-profile-artwork-album-1');
+        // Top: the full cover inside the hero, below the toolbar.
+        final bar = tester.getRect(
+          find.descendant(
+            of: _key('album-profile-app-bar'),
+            matching: find.byType(AppBar),
+          ),
+        );
+        expect(
+          find.descendant(of: _key('album-profile-hero'), matching: cover),
+          findsOneWidget,
+        );
+        expect(tester.getRect(cover).top, greaterThanOrEqualTo(bar.bottom));
+        final start = tester.getRect(cover);
+        expect(bar.height, lessThanOrEqualTo(_barLimit(tester)));
+        expect(tester.takeException(), isNull);
+        for (final to in [80.0, 200.0, 360.0, 900.0]) {
+          await _scroll(tester, to);
+          expect(tester.takeException(), isNull);
+          // The bar never grows.
+          final now = tester.getRect(
+            find.descendant(
+              of: _key('album-profile-app-bar'),
+              matching: find.byType(AppBar),
+            ),
+          );
+          expect(now.height, lessThanOrEqualTo(_barLimit(tester)));
+          expect(_key('album-profile-collapsing-hero'), findsNothing);
+          // Natural scroll: the cover keeps its full size and moves exactly
+          // with the page (never pinned, shrunk or cropped in place).
+          if (cover.evaluate().isNotEmpty) {
+            final rect = tester.getRect(cover);
+            expect(rect.size.width, closeTo(start.width, 0.5), reason: '$to');
+            expect(rect.size.height, closeTo(start.height, 0.5));
+            final moved = _scrollable(tester).position.pixels;
+            expect(rect.top, closeTo(start.top - moved, 0.5), reason: '$to');
+          }
+        }
+        // Once the hero has gone the toolbar is filled (glass or solid).
+        expect(
+          tester.widget<ColoredBox>(_key('album-profile-toolbar-fill')).color.a,
+          greaterThan(0.6),
+        );
+        // Fully scrolled: the title names the release in the toolbar.
+        expect(
+          tester
+              .widget<AnimatedOpacity>(_key('album-profile-toolbar-title'))
+              .opacity,
+          1,
+        );
+      });
+    }
+  });
+
+  testWidgets('switching to Deluxe while scrolled keeps the page coherent', (
+    tester,
+  ) async {
+    final (s, d) = _covers(LabVariant.cool);
+    await _pump(tester, standard: s, deluxe: d);
+    await _selectDeluxe(tester);
+    await _scroll(tester, 600);
+    expect(
+      _key('album-track-d0').evaluate().isNotEmpty ||
+          _key('album-track-d5').evaluate().isNotEmpty,
+      isTrue,
+    );
+    expect(_key('album-profile-collapsing-hero'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a long title stays on one line in the toolbar', (tester) async {
+    final (s, d) = _covers(LabVariant.cool);
+    await _pump(tester, standard: s, deluxe: d, device: LabDevice.small);
+    await _selectDeluxe(tester);
+    await _scroll(tester, 900);
+    final title = tester.widget<Text>(
+      find.descendant(
+        of: _key('album-profile-toolbar-title'),
+        matching: find.byType(Text),
+      ),
+    );
+    expect(title.maxLines, 1);
+    expect(title.overflow, TextOverflow.ellipsis);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('the end of the list scrolls clear of the mini-player room', (
+    tester,
+  ) async {
+    final (s, d) = _covers(LabVariant.cool);
+    await _pump(tester, standard: s, deluxe: d);
+    final position = _scrollable(tester).position;
+    position.jumpTo(position.maxScrollExtent);
+    await tester.pump();
+    await settleLab(tester);
+    final last = _key('album-track-s5');
+    expect(last, findsOneWidget);
+    final bottomInset =
+        tester.view.padding.bottom / tester.view.devicePixelRatio;
+    expect(
+      tester.getRect(last).bottom,
+      lessThanOrEqualTo(LabDevice.s26.size.height - bottomInset),
+    );
   });
 
   testWidgets('the header collapses into translucent glass', (tester) async {

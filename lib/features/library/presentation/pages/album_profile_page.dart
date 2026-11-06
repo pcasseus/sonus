@@ -106,6 +106,10 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
   /// toolbar names the release instead (UI redesign P2).
   final ValueNotifier<bool> _titleShown = ValueNotifier<bool>(false);
 
+  /// How far the toolbar has filled in: 0 over the hero, 1 once the hero
+  /// has scrolled away (phones).
+  final ValueNotifier<double> _barProgress = ValueNotifier<double>(0);
+
   /// The artwork the page's atmosphere comes from. Updated as soon as the
   /// controller changes (it notifies without rebuilding this State), so
   /// [SonusProfileAtmosphereBuilder] requests its colours at once.
@@ -269,7 +273,7 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
         child: controller == null
             ? CustomScrollView(
                 slivers: [
-                  _appBar(context, null, userId, atmosphere, heroArt: null),
+                  _appBar(context, null, userId, atmosphere),
                   const SliverFillRemaining(
                     hasScrollBody: false,
                     child: Center(child: Text('Loading album...')),
@@ -294,7 +298,7 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
     final atmosphere = profile.atmosphere;
     Widget message(Widget child) => CustomScrollView(
       slivers: [
-        _appBar(context, controller, userId, atmosphere, heroArt: null),
+        _appBar(context, controller, userId, atmosphere),
         SliverFillRemaining(hasScrollBody: false, child: child),
       ],
     );
@@ -331,11 +335,12 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
     final gutter = tokens.metrics.pageGutter;
     final wide = constraints.maxWidth >= _AlbumHero.wideLayoutWidth;
     final artworkPath = _presentationArtworkPath(controller);
-    // On phones the artwork leads, in a header that collapses under the
-    // toolbar; wide screens keep it beside the details.
+    // On phones the full cover leads the hero, and the whole hero scrolls
+    // away naturally (no shrinking cover pinned under the toolbar); wide
+    // screens keep it beside the details.
     final heroArt = wide
         ? null
-        : _AlbumHero.collapsingArtSize(
+        : _AlbumHero.phoneArtSize(
             context,
             width: constraints.maxWidth,
             height: constraints.maxHeight,
@@ -354,9 +359,14 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
           onNotification: (notification) {
             if (notification.depth == 0 &&
                 notification.metrics.axis == Axis.vertical) {
-              _titleShown.value =
-                  wide ||
-                  notification.metrics.pixels > (heroArt ?? 0) * 0.75 + 12;
+              final pixels = notification.metrics.pixels;
+              _titleShown.value = wide || pixels > (heroArt ?? 0) * 0.75 + 12;
+              _barProgress.value = heroArt == null
+                  ? 1
+                  : ((pixels - heroArt * 0.55) / (heroArt * 0.3)).clamp(
+                      0.0,
+                      1.0,
+                    );
             }
             return false;
           },
@@ -369,15 +379,7 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
                 controller,
                 userId,
                 atmosphere,
-                heroArt: heroArt == null
-                    ? null
-                    : _CollapsingArtwork(
-                        album: album,
-                        artworkPath: artworkPath,
-                        size: heroArt,
-                        profile: profile,
-                      ),
-                heroArtSize: heroArt,
+                scrollAway: !wide,
                 alwaysShowTitle: wide,
               ),
               SliverToBoxAdapter(
@@ -386,7 +388,8 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
                   controller: controller,
                   artworkPath: artworkPath,
                   atmosphere: atmosphere,
-                  showArtwork: heroArt == null,
+                  profile: profile,
+                  artSize: heroArt,
                 ),
               ),
               SliverPadding(
@@ -458,16 +461,17 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
     );
   }
 
-  /// The pinned toolbar. With [heroArt] it expands to hold the artwork,
-  /// which shrinks and fades under the toolbar as the page scrolls; the
-  /// release's title then fades in (immediately with reduced motion).
+  /// The pinned, compact toolbar. With [scrollAway] (phones) it is clear
+  /// over the hero and fills in once the hero has scrolled away: glass over
+  /// a blur of the list with effects on, solid otherwise. The release's
+  /// title then fades in (at once with reduced motion). The cover is never
+  /// pinned or shrunk under it.
   Widget _appBar(
     BuildContext context,
     AlbumProfileController? controller,
     String? userId,
     SonusAtmosphereColors atmosphere, {
-    required Widget? heroArt,
-    double? heroArtSize,
+    bool scrollAway = false,
     bool alwaysShowTitle = true,
   }) {
     final reduced = SonusTheme.of(context).motion.reduced;
@@ -480,21 +484,16 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
                     controller.album!,
                     controller.selectedEdition,
                   ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           );
 
     return SliverAppBar(
       key: const ValueKey<String>('album-profile-app-bar'),
       pinned: true,
-      // V2: clear while the cover leads, so the page's light shows behind
-      // it; the toolbar turns opaque as it collapses (below).
-      backgroundColor: heroArt == null
-          ? atmosphere.background
-          : Colors.transparent,
+      backgroundColor: scrollAway ? Colors.transparent : atmosphere.background,
       scrolledUnderElevation: 0,
-      expandedHeight: heroArt == null || heroArtSize == null
-          ? null
-          : kToolbarHeight + heroArtSize + _AlbumHero.collapsingArtGap,
-      title: heroArt == null || alwaysShowTitle
+      title: !scrollAway || alwaysShowTitle
           ? title
           : ValueListenableBuilder<bool>(
               valueListenable: _titleShown,
@@ -510,54 +509,29 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
                 ),
               ),
             ),
-      flexibleSpace: heroArt == null
+      flexibleSpace: !scrollAway
           ? null
-          : Stack(
-              fit: StackFit.expand,
-              children: [
-                // The toolbar's colour grows in as the header collapses, so
-                // the list never shows through the toolbar.
-                LayoutBuilder(
-                  builder: (context, constraints) {
-                    final collapsed =
-                        MediaQuery.paddingOf(context).top + kToolbarHeight;
-                    final expanded = collapsed + (heroArtSize ?? 0);
-                    final t = expanded <= collapsed
-                        ? 1.0
-                        : (1 -
-                                  (constraints.maxHeight - collapsed) /
-                                      (expanded - collapsed))
-                              .clamp(0.0, 1.0);
-                    final effects = SonusTheme.of(
-                      context,
-                    ).decoration.allowGradients;
-                    final fill = ColoredBox(
-                      key: const ValueKey<String>('album-profile-toolbar-fill'),
-                      // Profile Lab: translucent glass once collapsed, over
-                      // a blur of the list; opaque without effects.
-                      color: atmosphere.background.withValues(
-                        alpha:
-                            (effects ? 0.72 : 1.0) * Curves.easeIn.transform(t),
-                      ),
-                    );
-                    if (!effects || t == 0) return fill;
-                    return ClipRect(
-                      child: BackdropFilter(
-                        filter: ImageFilter.blur(
-                          sigmaX: 18 * t,
-                          sigmaY: 18 * t,
-                        ),
-                        child: fill,
-                      ),
-                    );
-                  },
-                ),
-                FlexibleSpaceBar(
-                  key: const ValueKey<String>('album-profile-collapsing-hero'),
-                  collapseMode: CollapseMode.parallax,
-                  background: heroArt,
-                ),
-              ],
+          : ValueListenableBuilder<double>(
+              valueListenable: _barProgress,
+              builder: (context, t, _) {
+                final effects = SonusTheme.of(
+                  context,
+                ).decoration.allowGradients;
+                final fill = ColoredBox(
+                  key: const ValueKey<String>('album-profile-toolbar-fill'),
+                  color: atmosphere.background.withValues(
+                    alpha: (effects ? 0.72 : 1.0) * Curves.easeIn.transform(t),
+                  ),
+                  child: const SizedBox.expand(),
+                );
+                if (!effects || t == 0) return fill;
+                return ClipRect(
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 18 * t, sigmaY: 18 * t),
+                    child: fill,
+                  ),
+                );
+              },
             ),
       actions: [
         if (controller != null)
@@ -1006,6 +980,7 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
     _controller?.dispose();
     _atmosphereArtwork.dispose();
     _titleShown.dispose();
+    _barProgress.dispose();
     super.dispose();
   }
 }
@@ -1024,7 +999,8 @@ class _AlbumHero extends StatelessWidget {
     required this.controller,
     required this.artworkPath,
     required this.atmosphere,
-    this.showArtwork = true,
+    this.profile,
+    this.artSize,
   });
 
   final LibraryAlbum album;
@@ -1032,20 +1008,20 @@ class _AlbumHero extends StatelessWidget {
   final String? artworkPath;
   final SonusAtmosphereColors atmosphere;
 
-  /// False when the artwork leads in the collapsing header instead.
-  final bool showArtwork;
+  /// The page's colours, for the cover's rim, glow and depth.
+  final SonusProfileColors? profile;
+
+  /// The phone cover's size ([phoneArtSize]); null on wide screens.
+  final double? artSize;
 
   /// Page width from which the artwork sits beside the details
   /// (landscape and tablets), keeping the track list in view.
   static const double wideLayoutWidth = 560;
 
-  /// Space below the collapsing artwork, inside the header.
-  static const double collapsingArtGap = 12;
-
-  /// The collapsing header's artwork (P2): large, about three quarters of
-  /// the width, but never more than about 40% of the screen's height, so
-  /// the title and controls still start on the first screen.
-  static double collapsingArtSize(
+  /// The phone hero's cover: large, about four fifths of the width, but
+  /// never more than about 40% of the screen's height, so the title and
+  /// controls still start on the first screen.
+  static double phoneArtSize(
     BuildContext context, {
     required double width,
     required double height,
@@ -1069,17 +1045,23 @@ class _AlbumHero extends StatelessWidget {
       key: const ValueKey<String>('album-profile-hero'),
       padding: EdgeInsets.fromLTRB(
         tokens.metrics.pageGutter,
-        showArtwork ? 12 : 4,
+        12,
         tokens.metrics.pageGutter,
         20,
       ),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final glow = atmosphere.isTinted && tokens.decoration.allowGlow
-              ? atmosphere.accent
+          // Profile Lab: a luminous rim and glow in the page's light and a
+          // soft depth, wherever glow is allowed (also neutral covers).
+          final profile = this.profile;
+          final glow = !tokens.decoration.allowGlow
+              ? null
+              : profile == null
+              ? (atmosphere.isTinted ? atmosphere.accent : null)
+              : (profile.isTinted ? profile.light : profile.accent);
+          final depth = tokens.decoration.allowGlow
+              ? profile?.backgroundDeep
               : null;
-
-          if (!showArtwork) return _details(context, centered: true);
 
           if (constraints.maxWidth >= wideLayoutWidth) {
             final size = (constraints.maxWidth * 0.3).clamp(140.0, 220.0);
@@ -1098,7 +1080,8 @@ class _AlbumHero extends StatelessWidget {
             );
           }
 
-          final size = (constraints.maxWidth * 0.66).clamp(140.0, 264.0);
+          final size =
+              artSize ?? (constraints.maxWidth * 0.66).clamp(140.0, 264.0);
           return Column(
             children: [
               _AlbumArtwork(
@@ -1106,6 +1089,7 @@ class _AlbumHero extends StatelessWidget {
                 artworkPath: artworkPath,
                 size: size,
                 glow: glow,
+                depth: depth,
               ),
               const SizedBox(height: 20),
               _details(context, centered: true),
@@ -1362,45 +1346,6 @@ class _AlbumArtwork extends StatelessWidget {
                   return const _ArtworkFallback();
                 },
               ),
-      ),
-    );
-  }
-}
-
-/// The album's cover, large in the collapsing header (P2), with the
-/// artwork's glow where allowed. FlexibleSpaceBar fades and scrolls it
-/// under the toolbar.
-class _CollapsingArtwork extends StatelessWidget {
-  const _CollapsingArtwork({
-    required this.album,
-    required this.artworkPath,
-    required this.size,
-    required this.profile,
-  });
-
-  final LibraryAlbum album;
-  final String? artworkPath;
-  final double size;
-  final SonusProfileColors profile;
-
-  @override
-  Widget build(BuildContext context) {
-    final decoration = SonusTheme.of(context).decoration;
-    return Align(
-      alignment: Alignment.bottomCenter,
-      child: Padding(
-        padding: const EdgeInsets.only(bottom: _AlbumHero.collapsingArtGap),
-        child: _AlbumArtwork(
-          album: album,
-          artworkPath: artworkPath,
-          size: size,
-          // Profile Lab: a luminous rim and glow in the page's light, also
-          // for neutral covers; none where glow is off.
-          glow: decoration.allowGlow
-              ? (profile.isTinted ? profile.light : profile.accent)
-              : null,
-          depth: decoration.allowGlow ? profile.backgroundDeep : null,
-        ),
       ),
     );
   }
