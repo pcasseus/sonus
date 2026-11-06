@@ -38,8 +38,6 @@ import 'package:sonus_next/features/song_stats/application/song_stats_service.da
 
 import '../features/charts/presentation/pages/charts_page_test.dart' as page;
 import '../support/device_layout.dart';
-import '../visual_baselines/support/baseline_fonts.dart';
-import 'support/lab_artwork.dart';
 import 'support/lab_board.dart';
 import 'support/lab_harness.dart';
 
