@@ -48,7 +48,15 @@ enum MomentCategory {
     MomentFamily.releaseFirstThreshold ||
     MomentFamily.releaseThresholds ||
     MomentFamily.songBubblingUnderFall ||
-    MomentFamily.songHot100Exit => peaks,
+    MomentFamily.songHot100Exit ||
+    MomentFamily.songChartMove ||
+    MomentFamily.releaseChartMove ||
+    MomentFamily.songHot100Departure ||
+    MomentFamily.songChartDeparture ||
+    MomentFamily.releaseChartDeparture => peaks,
+    MomentFamily.songNumberOneHold ||
+    MomentFamily.releaseNumberOneHold => numberOnes,
+    MomentFamily.songHot100Return => entries,
     MomentFamily.songStreamMilestone ||
     MomentFamily.songWeeksMilestone ||
     MomentFamily.releaseStreamMilestone ||

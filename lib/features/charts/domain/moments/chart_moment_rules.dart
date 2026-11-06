@@ -62,12 +62,15 @@ class ChartMomentRules {
   }
 
   /// These rules with the chronicle starting at [fromUtc].
-  ChartMomentRules withChronicle(DateTime? fromUtc) => ChartMomentRules(
-    activatedAtUtc: activatedAtUtc,
-    catalogStarts: catalogStarts,
-    devicePolishFromUtc: devicePolishFromUtc,
-    chronicleFromUtc: fromUtc,
-  );
+  ChartMomentRules withChronicle(DateTime? fromUtc) =>
+      fromUtc == chronicleFromUtc
+      ? this
+      : ChartMomentRules(
+          activatedAtUtc: activatedAtUtc,
+          catalogStarts: catalogStarts,
+          devicePolishFromUtc: devicePolishFromUtc,
+          chronicleFromUtc: fromUtc,
+        );
 
   /// Whether a story that happened at [occurredAt] follows the device
   /// polish. Stories from before the start keep what they were first

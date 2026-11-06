@@ -8,6 +8,7 @@ import '../../domain/moments/chart_moment_rules.dart';
 import '../../domain/moments/chart_moment_scope.dart';
 import '../../domain/services/all_time_history_replay.dart';
 import '../../domain/services/chart_ranking_engine.dart';
+import 'moment_chronicle.dart';
 import 'moment_climb.dart';
 import 'moment_developing.dart';
 import 'moment_publisher.dart';
@@ -172,9 +173,14 @@ class MomentEditorialDesk {
       // SN-50 device polish: from its start, every recorded chart
       // achievement is told, without the daily cap.
       final complete = !refined && rules.tellsEveryChartEvent(item.occurredAt);
-      final planned = refined
+      final desked = refined
           ? planner.plan(item)
           : _legacyPlan(item, gainers, complete: complete);
+      // App Update 1.1: from the chronicle start, all-time stories are
+      // planned by the chronicle; earlier stories keep their telling.
+      final planned = MomentChronicle.applies(item, rules.chronicles)
+          ? MomentChronicle.revise(item, desked)
+          : desked;
 
       // The developing story whose latest climb this item holds, if any.
       String? developingHere;
@@ -189,6 +195,16 @@ class MomentEditorialDesk {
       }
 
       for (final moment in planned) {
+        if (moment.family.isChronicle) {
+          final story = MomentChronicle.write(
+            moment,
+            lookups,
+            previousVariant: previousVariant,
+          );
+          previousVariant = story.variantId;
+          stories.add(story);
+          continue;
+        }
         // Release safety: drafts never publish, not even with a plain
         // fallback headline (MomentHeadlines.approvedFamilies).
         if (!MomentHeadlines.approvedFamilies.contains(moment.family)) {
@@ -709,6 +725,14 @@ class MomentEditorialDesk {
     MomentFamily.artistSimultaneousReleases => 'RECORD',
     MomentFamily.songBubblingUnderFall => 'FALL',
     MomentFamily.songHot100Exit => 'HOT 100 EXIT',
+    // App Update 1.1: MomentChronicle writes these stories' status.
+    MomentFamily.songChartMove || MomentFamily.releaseChartMove => 'CLIMBING',
+    MomentFamily.songNumberOneHold ||
+    MomentFamily.releaseNumberOneHold => '#1 HOLD',
+    MomentFamily.songHot100Return => 'RE-ENTRY',
+    MomentFamily.songHot100Departure => 'EXIT (HOT 100)',
+    MomentFamily.songChartDeparture ||
+    MomentFamily.releaseChartDeparture => 'CHART EXIT',
   };
 
   /// Who writes a story under the SN-50 rules (F-Q28), by its character
@@ -751,7 +775,15 @@ class MomentEditorialDesk {
     MomentFamily.songHot100ClimbRun ||
     MomentFamily.songBubblingUnderFall ||
     MomentFamily.songHot100Exit ||
-    MomentFamily.releaseClimb => MomentPublisher.sonusDaily,
+    MomentFamily.releaseClimb ||
+    MomentFamily.songNumberOneHold ||
+    MomentFamily.releaseNumberOneHold ||
+    MomentFamily.songHot100Departure ||
+    MomentFamily.songChartDeparture ||
+    MomentFamily.releaseChartDeparture => MomentPublisher.sonusDaily,
+    MomentFamily.songChartMove ||
+    MomentFamily.releaseChartMove ||
+    MomentFamily.songHot100Return => MomentPublisher.pulsePop,
     MomentFamily.songDebutNumberOne ||
     MomentFamily.songDebutTop10 ||
     MomentFamily.songHot100Breakthrough ||
