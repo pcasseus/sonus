@@ -11,6 +11,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/design/sonus_artwork_palette.dart';
+import '../../core/design/sonus_profile_effects.dart';
 import '../../core/design/sonus_text_scale.dart';
 import '../../core/design/sonus_theme.dart';
 import '../../core/design/widgets/sonus_artwork_colors_request.dart';
@@ -265,6 +266,9 @@ class _AlbumLabPageState extends State<AlbumLabPage>
               artworkPath: layers.backdropImage ? edition.coverPath : null,
               atmosphere: a,
               layers: layers,
+              restrained:
+                  sonusProfileBackdrop(tokens.decoration) ==
+                  SonusProfileBackdrop.restrained,
             ),
           ),
           Positioned.fill(child: content),

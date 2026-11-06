@@ -14,6 +14,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/design/sonus_artwork_palette.dart';
+import '../../core/design/sonus_profile_effects.dart';
 import '../../core/design/sonus_text_scale.dart';
 import '../../core/design/sonus_theme.dart';
 import '../../core/design/widgets/sonus_artwork_colors_request.dart';
@@ -227,6 +228,9 @@ class _ProfileLabPageState extends State<ProfileLabPage>
               artworkPath: profile.atmospherePath,
               atmosphere: a,
               layers: layers,
+              restrained:
+                  sonusProfileBackdrop(tokens.decoration) ==
+                  SonusProfileBackdrop.restrained,
             ),
           ),
           Positioned.fill(child: content),
@@ -995,7 +999,9 @@ class _SectionHeader extends StatelessWidget {
         ],
       ],
     );
-    if (!layers.scrims || !a.effects) return header;
+    // Scrims also in High contrast, over its restrained backdrop.
+    final backdrop = sonusProfileBackdrop(SonusTheme.of(context).decoration);
+    if (!layers.scrims || backdrop == SonusProfileBackdrop.none) return header;
     // A soft local ground: darkest under the words, gone at the edges.
     return Stack(
       clipBehavior: Clip.none,

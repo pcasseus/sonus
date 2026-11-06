@@ -330,13 +330,42 @@ void main() {
     expect(releases.bottom, lessThanOrEqualTo(player.top));
   });
 
-  group('accessibility modes give the flat, solid page', () {
+  // High contrast prioritises legibility without removing the artwork's
+  // identity: a restrained backdrop (darker, less colour, no light or
+  // glass) behind solid panels and text grounds; every text and icon keeps
+  // its contrast on the pixels under it, for every artwork family.
+  group('High contrast keeps a restrained artwork backdrop', () {
+    for (final variant in LabVariant.values) {
+      for (final state in [LabState.top, LabState.middle]) {
+        testWidgets('${variant.label}, ${state.label}', (tester) async {
+          final measured = await texts(
+            tester,
+            variant,
+            state,
+            spec: const SonusAppearanceSpec(highContrast: true),
+          );
+          expect(_key('lab-backdrop-image'), findsOneWidget);
+          expect(_key('lab-backdrop-lights'), findsNothing);
+          expect(measured.length, greaterThan(8));
+          expect([
+            for (final t in measured)
+              if (!t.passes) '${t.text}: ${t.worst.toStringAsFixed(2)}',
+          ], isEmpty);
+        });
+      }
+    }
+  });
+
+  group('Low effects and Decoration Off draw no artwork behind content', () {
     for (final (name, spec) in const [
-      ('High contrast', SonusAppearanceSpec(highContrast: true)),
       ('Low effects', SonusAppearanceSpec(lowEffects: true)),
       (
         'Decoration Off',
         SonusAppearanceSpec(decoration: SonusDecorationIntensity.off),
+      ),
+      (
+        'High contrast with Low effects',
+        SonusAppearanceSpec(highContrast: true, lowEffects: true),
       ),
     ]) {
       testWidgets(name, (tester) async {

@@ -231,12 +231,37 @@ void main() {
     }
   });
 
-  testWidgets('flat modes draw no imagery behind content', (tester) async {
+  group('High contrast: restrained backdrop, readable text', () {
+    for (final variant in LabVariant.values) {
+      testWidgets(variant.label, (tester) async {
+        final (s, d) = _covers(variant);
+        final album = _album(standard: s, deluxe: d);
+        const spec = SonusAppearanceSpec(highContrast: true);
+        await _pump(tester, album, spec: spec);
+        expect(_key('lab-backdrop-image'), findsOneWidget);
+        expect(_key('lab-backdrop-lights'), findsNothing);
+        final samples = collectTextsIn(tester, 'album-lab-page');
+        await _pump(
+          tester,
+          album,
+          spec: spec,
+          layers: LabLayers.all.copyWith(ink: false),
+        );
+        final measured = measureTexts(samples, (await captureLab(tester)).$1);
+        expect([
+          for (final t in measured)
+            if (!t.passes) '${t.text}: ${t.worst.toStringAsFixed(2)}',
+        ], isEmpty);
+      });
+    }
+  });
+
+  testWidgets('Low effects draws no imagery behind content', (tester) async {
     final (s, d) = _covers(LabVariant.cool);
     await _pump(
       tester,
       _album(standard: s, deluxe: d),
-      spec: const SonusAppearanceSpec(highContrast: true),
+      spec: const SonusAppearanceSpec(lowEffects: true),
     );
     expect(_key('lab-backdrop-image'), findsNothing);
   });

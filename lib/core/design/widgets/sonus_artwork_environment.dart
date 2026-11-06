@@ -21,6 +21,7 @@ class SonusArtworkEnvironment extends StatelessWidget {
     required this.light,
     required this.deep,
     required this.enabled,
+    this.restrained = false,
   });
 
   final String? artworkPath;
@@ -32,6 +33,11 @@ class SonusArtworkEnvironment extends StatelessWidget {
   final Color deep;
   final bool enabled;
 
+  /// High contrast: the artwork darker and less saturated, no wisps, so
+  /// solid panels and strong text stay legible over it (see
+  /// SonusProfileBackdrop.restrained).
+  final bool restrained;
+
   /// Decoded this wide: blurred this much, more pixels add nothing.
   static const int decodeWidth = 40;
   static const double blurSigma = 46;
@@ -41,15 +47,20 @@ class SonusArtworkEnvironment extends StatelessWidget {
   static const double lightnessSlope = 0.27;
   static const double lift = 0.035;
 
+  /// The restrained (High contrast) tone map: darker, less colour.
+  static const double restrainedChroma = 0.45;
+  static const double restrainedSlope = 0.15;
+  static const double restrainedLift = 0.02;
+
   /// Maps each channel to `keepChroma * c + (slope - keepChroma) * L + lift`
   /// (L the pixel's luma): lightness is compressed to [lift, lift + slope]
   /// while the colour's own difference from grey is kept at [keepChroma].
-  static ColorFilter toneMap() {
-    const a = keepChroma;
-    const b = lightnessSlope - keepChroma;
-    const c = lift * 255;
-    const r = 0.2126 * b, g = 0.7152 * b, bl = 0.0722 * b;
-    return const ColorFilter.matrix(<double>[
+  static ColorFilter toneMap({bool restrained = false}) {
+    final a = restrained ? restrainedChroma : keepChroma;
+    final b = (restrained ? restrainedSlope : lightnessSlope) - a;
+    final c = (restrained ? restrainedLift : lift) * 255;
+    final r = 0.2126 * b, g = 0.7152 * b, bl = 0.0722 * b;
+    return ColorFilter.matrix(<double>[
       a + r, g, bl, 0, c, //
       r, a + g, bl, 0, c, //
       r, g, a + bl, 0, c, //
@@ -83,7 +94,7 @@ class SonusArtworkEnvironment extends StatelessWidget {
                   key: const ValueKey<String>(
                     'sonus-artwork-environment-image',
                   ),
-                  colorFilter: toneMap(),
+                  colorFilter: toneMap(restrained: restrained),
                   child: ImageFiltered(
                     imageFilter: ImageFilter.blur(
                       sigmaX: blurSigma,
@@ -104,10 +115,11 @@ class SonusArtworkEnvironment extends StatelessWidget {
                   ),
                 ),
               ),
-            CustomPaint(
-              key: const ValueKey<String>('sonus-artwork-environment-light'),
-              painter: _WispsPainter(light: light, deep: deep),
-            ),
+            if (!restrained)
+              CustomPaint(
+                key: const ValueKey<String>('sonus-artwork-environment-light'),
+                painter: _WispsPainter(light: light, deep: deep),
+              ),
           ],
         ),
       ),

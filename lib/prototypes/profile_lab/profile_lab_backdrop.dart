@@ -25,7 +25,12 @@ class LabBackdrop extends StatelessWidget {
     required this.artworkPath,
     required this.atmosphere,
     this.layers = LabLayers.all,
+    this.restrained = false,
   });
+
+  /// High contrast: a darker, less saturated artwork behind solid plates;
+  /// no light or wisps (SonusProfileBackdrop.restrained).
+  final bool restrained;
 
   final String? artworkPath;
   final LabAtmosphere atmosphere;
@@ -43,6 +48,18 @@ class LabBackdrop extends StatelessWidget {
   static const double keepChroma = 0.66;
   static const double lightnessSlope = 0.27;
   static const double lift = 0.035;
+
+  /// The High contrast tone map: darker and less colourful.
+  static ColorFilter restrainedToneMap() {
+    const a = 0.45, b = 0.15 - 0.45, c = 0.02 * 255;
+    const r = 0.2126 * b, g = 0.7152 * b, bl = 0.0722 * b;
+    return const ColorFilter.matrix(<double>[
+      a + r, g, bl, 0, c, //
+      r, a + g, bl, 0, c, //
+      r, g, a + bl, 0, c, //
+      0, 0, 0, 1, 0, //
+    ]);
+  }
 
   /// Maps each channel to `keepChroma * c + (slope - keepChroma) * L + lift`
   /// (L the pixel's luma): lightness is compressed to [lift, lift + slope]
@@ -65,7 +82,10 @@ class LabBackdrop extends StatelessWidget {
     final a = atmosphere;
     final path = artworkPath?.trim();
     final showImage =
-        a.effects && layers.backdropImage && path != null && path.isNotEmpty;
+        (a.effects || restrained) &&
+        layers.backdropImage &&
+        path != null &&
+        path.isNotEmpty;
 
     return ExcludeSemantics(
       child: RepaintBoundary(
@@ -93,7 +113,7 @@ class LabBackdrop extends StatelessWidget {
                 ).createShader(rect),
                 child: ColorFiltered(
                   key: const ValueKey<String>('lab-backdrop-image'),
-                  colorFilter: toneMap(),
+                  colorFilter: restrained ? restrainedToneMap() : toneMap(),
                   child: ImageFiltered(
                     imageFilter: ImageFilter.blur(
                       sigmaX: blurSigma,
