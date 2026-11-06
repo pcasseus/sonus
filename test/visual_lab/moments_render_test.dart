@@ -189,7 +189,7 @@ class _Fixture {
     ),
     // A #1 hold (Spotlight).
     _event(
-      ChartMomentEventType.numberOneDayHold,
+      ChartMomentEventType.rankSame,
       housewife,
       ago: const Duration(hours: 36),
       source: 'day:2026-11-04',

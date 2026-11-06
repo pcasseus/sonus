@@ -187,7 +187,6 @@ class ChartMomentFeedAggregator {
       ChartMomentEventType.artistSimultaneousThresholdSongs ||
       ChartMomentEventType.artistSimultaneousThresholdAlbums => 700,
 
-      ChartMomentEventType.numberOneDayHold => 660,
       ChartMomentEventType.lifetimeStreamMilestone => 650,
       ChartMomentEventType.artistStreamMilestone => 645,
       ChartMomentEventType.consecutiveWeeksMilestone => 640,

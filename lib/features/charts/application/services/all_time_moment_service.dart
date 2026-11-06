@@ -352,8 +352,10 @@ class AllTimeMomentService {
         ChartMomentEventType.chartExit,
         null,
       ),
+      // A daily #1 hold is stored with an existing type (rankSame, #1 to
+      // #1, a `day:` source): Sonus 1.0 reads it and tells nothing.
       AllTimeAchievementType.numberOneDay => (
-        ChartMomentEventType.numberOneDayHold,
+        ChartMomentEventType.rankSame,
         1,
       ),
       AllTimeAchievementType.streamMilestone => (

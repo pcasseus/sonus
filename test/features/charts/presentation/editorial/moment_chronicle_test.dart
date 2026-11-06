@@ -258,7 +258,7 @@ void main() {
     test('one hold story per day, with its consecutive days', () {
       final stories = _compose([
         _event(
-          ChartMomentEventType.numberOneDayHold,
+          ChartMomentEventType.rankSame,
           source: 'day:2026-11-06',
           at: DateTime(2026, 11, 7).toUtc(),
           previousRank: 1,
@@ -279,7 +279,7 @@ void main() {
     test('a first day says nothing about a streak', () {
       final story = _compose([
         _event(
-          ChartMomentEventType.numberOneDayHold,
+          ChartMomentEventType.rankSame,
           entity: _locket,
           chart: ChartType.albums,
           source: 'day:2026-11-06',
@@ -294,6 +294,79 @@ void main() {
       expect(story.family, MomentFamily.releaseNumberOneHold);
       expect(story.headline, isNot(contains('straight')));
       expect(story.headline, contains('Albums & EPs'));
+    });
+  });
+
+  group('zone by zone: first entry vs re-entry', () {
+    for (final zone in [3, 5, 10, 15, 20, 25, 50]) {
+      for (final first in [true, false]) {
+        test('Top $zone, ${first ? 'first entry' : 're-entry'}', () {
+          final from = zone + 6;
+          final story = _compose([
+            _event(
+              ChartMomentEventType.rankRise,
+              previousRank: from,
+              currentRank: zone,
+              previousPeakRank: first ? from : 1,
+            ),
+            _event(
+              first
+                  ? ChartMomentEventType.firstThresholdEntry
+                  : ChartMomentEventType.thresholdReturn,
+              previousRank: from,
+              currentRank: zone,
+              previousPeakRank: first ? from : 1,
+              threshold: zone,
+            ),
+          ]).single;
+
+          expect(story.family, MomentFamily.songChartMove);
+          expect(story.status, first ? 'TOP $zone ENTRY' : 'BACK IN TOP $zone');
+          expect(story.headline, contains('Top $zone'));
+          expect(story.headline, contains('#$zone'));
+          if (first) {
+            expect(
+              story.headline,
+              anyOf(contains('first time'), contains('unlocked')),
+            );
+          } else {
+            expect(story.headline, isNot(contains('first time')));
+            expect(story.headline, isNot(contains('unlocked')));
+          }
+        });
+      }
+    }
+  });
+
+  group('Sonus 1.0 telling (no chronicle)', () {
+    test('holds and exits are read but tell nothing', () {
+      final stories = _compose([
+        _event(
+          ChartMomentEventType.rankSame,
+          source: 'day:2026-11-06',
+          at: DateTime(2026, 11, 7).toUtc(),
+          previousRank: 1,
+          currentRank: 1,
+          threshold: 1,
+          milestone: 6,
+        ),
+        _event(
+          ChartMomentEventType.thresholdExit,
+          source: 'exit:play-9:song-angel',
+          previousRank: 100,
+          currentRank: 101,
+          threshold: 100,
+          milestone: 18,
+        ),
+        _event(
+          ChartMomentEventType.chartExit,
+          source: 'exit:play-8:song-angel',
+          previousRank: 200,
+          milestone: 3,
+        ),
+      ], chronicleFrom: DateTime.utc(2030));
+
+      expect(stories, isEmpty);
     });
   });
 

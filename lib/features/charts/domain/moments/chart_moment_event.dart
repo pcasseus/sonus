@@ -103,6 +103,20 @@ class ChartMomentEvent {
     return previous != null && current != null && current > previous;
   }
 
+  /// A completed chart day finished at #1 on the all-time chart (App Update
+  /// 1.1): stored as [ChartMomentEventType.rankSame] from #1 to #1, with
+  /// the day as its source (`day:YYYY-MM-DD`) and `milestoneValue` its
+  /// consecutive days at #1. An existing type, so Sonus 1.0 reads it and
+  /// tells nothing; weekly rankSame events never have a day source.
+  bool get isDailyNumberOneHold =>
+      eventType == ChartMomentEventType.rankSame &&
+      scope == ChartMomentScope.allTime &&
+      threshold == 1 &&
+      currentRank == 1 &&
+      (sourceId?.startsWith(dailyHoldSourcePrefix) ?? false);
+
+  static const String dailyHoldSourcePrefix = 'day:';
+
   bool get isStationary {
     final previous = previousRank;
     final current = currentRank;

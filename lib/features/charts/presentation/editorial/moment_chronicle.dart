@@ -90,7 +90,7 @@ abstract final class MomentChronicle {
     );
 
     final hold = find(
-      (e) => e.eventType == ChartMomentEventType.numberOneDayHold,
+      (e) => e.isDailyNumberOneHold,
     );
     if (hold != null) {
       return [
