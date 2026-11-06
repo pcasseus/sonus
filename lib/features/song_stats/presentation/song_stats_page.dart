@@ -1,17 +1,19 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../core/design/sonus_artwork_palette.dart';
+import '../../../core/design/sonus_greyscale_theme.dart';
 import '../../../core/design/sonus_theme.dart';
+import '../../../core/design/widgets/sonus_artwork_colors_request.dart';
 import '../../../core/design/widgets/sonus_artwork_image.dart';
 import '../../../core/design/widgets/sonus_bar_strip.dart';
 import '../../../core/design/widgets/sonus_surface_card.dart';
 import '../../analytics/presentation/pulse/pulse_format.dart';
 import '../../charts/presentation/models/chart_entry_movement.dart';
 import '../../charts/presentation/models/chart_week_label.dart';
-import '../../charts/presentation/widgets/chart_board_rows.dart';
 import '../../charts/presentation/widgets/chart_extended_divider.dart';
 import '../../charts/presentation/widgets/chart_movement_indicator.dart';
 import '../../library/application/models/library_track.dart';
@@ -31,6 +33,7 @@ class SongStatsPage extends StatefulWidget {
     this.playContext,
     this.loader,
     this.now,
+    this.artworkPalette,
   });
 
   static const routeName = 'song-stats';
@@ -48,6 +51,9 @@ class SongStatsPage extends StatefulWidget {
 
   /// For the live chart's 24-hour NEW / RE-ENTRY highlight; tests fix it.
   final DateTime Function()? now;
+
+  /// Where artwork colours come from; the app-wide cache by default.
+  final SonusArtworkPalette? artworkPalette;
 
   @override
   State<SongStatsPage> createState() => _SongStatsPageState();
@@ -138,6 +144,7 @@ class _SongStatsPageState extends State<SongStatsPage> {
             stats: stats,
             playContext: widget.playContext,
             now: widget.now ?? DateTime.now,
+            artworkPalette: widget.artworkPalette,
           );
         },
       ),
@@ -150,11 +157,13 @@ class _SongStatsBody extends StatelessWidget {
     required this.stats,
     required this.playContext,
     required this.now,
+    required this.artworkPalette,
   });
 
   final SongStats stats;
   final List<LibraryTrack>? playContext;
   final DateTime Function() now;
+  final SonusArtworkPalette? artworkPalette;
 
   @override
   Widget build(BuildContext context) {
@@ -167,7 +176,11 @@ class _SongStatsBody extends StatelessWidget {
           key: const ValueKey<String>('song-stats-list'),
           padding: EdgeInsets.fromLTRB(16 + side, 4, 16 + side, 32),
           children: [
-            _Hero(identity: stats.identity, playContext: playContext),
+            _Hero(
+              identity: stats.identity,
+              playContext: playContext,
+              palette: artworkPalette,
+            ),
             const SizedBox(height: 24),
             _SectionTitle(
               key: const ValueKey<String>('song-stats-chart-title'),
@@ -194,42 +207,41 @@ class _SongStatsBody extends StatelessWidget {
 // ---------------------------------------------------------------- Hero
 
 class _Hero extends StatefulWidget {
-  const _Hero({required this.identity, required this.playContext});
+  const _Hero({
+    required this.identity,
+    required this.playContext,
+    required this.palette,
+  });
 
   final SongStatsIdentity identity;
   final List<LibraryTrack>? playContext;
+  final SonusArtworkPalette? palette;
 
   @override
   State<_Hero> createState() => _HeroState();
 }
 
-class _HeroState extends State<_Hero> {
-  SonusArtworkColors? _art;
-  String? _loadedFor;
+class _HeroState extends State<_Hero> with SonusArtworkColorsRequest<_Hero> {
+  @override
+  SonusArtworkPalette? get artworkPalette => widget.palette;
 
   @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    final path = widget.identity.artworkPath;
-    if (path == _loadedFor) return;
-    _loadedFor = path;
-    final brightness = Theme.of(context).brightness;
-    SonusArtworkPalette.shared.colorsFor(path, brightness: brightness).then((
-      colors,
-    ) {
-      if (mounted && _loadedFor == path) setState(() => _art = colors);
-    });
-  }
+  ValueListenable<String?>? artworkPathListenableOf(_Hero widget) => null;
+
+  @override
+  String? artworkPathOf(_Hero widget) => widget.identity.artworkPath;
 
   @override
   Widget build(BuildContext context) {
+    // Re-requested when the song's artwork or the brightness changes.
+    requestArtworkColors(Theme.of(context).brightness);
     final tokens = SonusTheme.of(context);
     final colors = tokens.colors;
     final theme = Theme.of(context);
     final identity = widget.identity;
-    final grey = chartThemeIsGreyscale(colors.accentPrimary);
+    final grey = sonusThemeIsGreyscale(colors.accentPrimary);
     final gradient = tokens.decoration.allowGradients && !grey;
-    final accent = _art?.accent ?? colors.accentPrimary;
+    final accent = artworkColors?.accent ?? colors.accentPrimary;
     final playback = _playbackOf(context);
     final track = identity.track;
     final canPlay = identity.isPlayable && playback != null && track != null;
@@ -744,7 +756,7 @@ class _WeekRow extends StatelessWidget {
     final tokens = SonusTheme.of(context);
     final colors = tokens.colors;
     final theme = Theme.of(context);
-    final grey = chartThemeIsGreyscale(colors.accentPrimary);
+    final grey = sonusThemeIsGreyscale(colors.accentPrimary);
     final eventColor = switch (week.event) {
       SongChartWeekEvent.up || SongChartWeekEvent.promoted => colors.chartUp,
       SongChartWeekEvent.down || SongChartWeekEvent.demoted => colors.chartDown,
@@ -1077,7 +1089,7 @@ class _Tile extends StatelessWidget {
     final tokens = SonusTheme.of(context);
     final colors = tokens.colors;
     final theme = Theme.of(context);
-    final grey = chartThemeIsGreyscale(colors.accentPrimary);
+    final grey = sonusThemeIsGreyscale(colors.accentPrimary);
     final tint = featured && tokens.decoration.allowGradients && !grey;
     final radius = BorderRadius.circular(tokens.metrics.cardRadius);
 
@@ -1157,7 +1169,7 @@ class _SectionTitle extends StatelessWidget {
   Widget build(BuildContext context) {
     final tokens = SonusTheme.of(context);
     final colors = tokens.colors;
-    final grey = chartThemeIsGreyscale(colors.accentPrimary);
+    final grey = sonusThemeIsGreyscale(colors.accentPrimary);
     return Semantics(
       header: true,
       child: Row(

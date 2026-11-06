@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import '../../../../core/design/sonus_artwork_palette.dart';
 import '../../../../core/design/sonus_atmosphere_colors.dart';
 import '../../../../core/design/sonus_theme.dart';
+import '../../../../core/design/widgets/sonus_artwork_atmosphere_builder.dart';
 import '../../../../core/events/library_change_signal.dart';
 import '../../../../core/design/widgets/sonus_state_view.dart';
 import '../../../../core/design/widgets/sonus_track_tile.dart';
@@ -62,40 +63,14 @@ class _PlaylistDetailPageState extends State<PlaylistDetailPage> {
   }
 
   // Artwork atmosphere, as on the Album Profile: theme colours first, the
-  // cover's colours once extracted.
-  SonusArtworkPalette get _palette =>
-      widget.artworkPalette ?? SonusArtworkPalette.shared;
-  String? _atmospherePath;
-  Brightness? _atmosphereBrightness;
-  SonusArtworkColors? _artworkColors;
-
-  /// Never sets state synchronously, so it is safe to call while building.
-  void _requestAtmosphere(String? artworkPath, Brightness brightness) {
-    if (artworkPath == _atmospherePath && brightness == _atmosphereBrightness) {
-      return;
-    }
-    _atmospherePath = artworkPath;
-    _atmosphereBrightness = brightness;
-
-    unawaited(
-      _palette.colorsFor(artworkPath, brightness: brightness).then((colors) {
-        if (!mounted ||
-            artworkPath != _atmospherePath ||
-            brightness != _atmosphereBrightness ||
-            colors == _artworkColors) {
-          return;
-        }
-        setState(() {
-          _artworkColors = colors;
-        });
-      }),
-    );
-  }
+  // cover's colours once extracted. The cover follows the controller, so
+  // the shared builder requests new colours the moment it changes.
+  final ValueNotifier<String?> _cover = ValueNotifier<String?>(null);
 
   void _onControllerChanged() {
     final controller = _controller;
     if (controller == null || !mounted) return;
-    _requestAtmosphere(_coverPath(controller), Theme.of(context).brightness);
+    _cover.value = _coverPath(controller);
   }
 
   /// The first visible song's artwork, used as the playlist's cover.
@@ -121,6 +96,7 @@ class _PlaylistDetailPageState extends State<PlaylistDetailPage> {
     _controller?.removeListener(_onControllerChanged);
     _controller?.dispose();
     _controller = null;
+    _cover.value = null;
     _service = service;
 
     if (service == null) {
@@ -142,23 +118,11 @@ class _PlaylistDetailPageState extends State<PlaylistDetailPage> {
   @override
   Widget build(BuildContext context) {
     final controller = _controller;
-    final tokens = SonusTheme.of(context);
 
-    if (controller != null) {
-      _requestAtmosphere(_coverPath(controller), Theme.of(context).brightness);
-    }
-
-    final target = SonusArtworkAtmosphere.resolve(
-      colors: tokens.colors,
-      decoration: tokens.decoration,
-      artwork: _artworkColors,
-    );
-
-    return TweenAnimationBuilder<SonusAtmosphereColors>(
-      tween: SonusAtmosphereColorsTween(end: SonusAtmosphereColors.of(target)),
-      duration: tokens.motion.medium,
-      curve: tokens.motion.curve,
-      builder: (context, atmosphere, _) =>
+    return SonusArtworkAtmosphereBuilder.listenable(
+      artworkPath: _cover,
+      palette: widget.artworkPalette,
+      builder: (context, atmosphere) =>
           _buildPage(context, controller, atmosphere),
     );
   }
@@ -482,6 +446,7 @@ class _PlaylistDetailPageState extends State<PlaylistDetailPage> {
     _libraryChanges?.dispose();
     _controller?.removeListener(_onControllerChanged);
     _controller?.dispose();
+    _cover.dispose();
     _selection.dispose();
     super.dispose();
   }

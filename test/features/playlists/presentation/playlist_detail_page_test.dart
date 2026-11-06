@@ -4,9 +4,14 @@ import 'package:provider/provider.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:sonus_next/core/database/app_database.dart';
+import 'package:sonus_next/core/design/sonus_artwork_palette.dart';
+import 'package:sonus_next/core/design/sonus_theme_factory.dart';
+import 'package:sonus_next/core/design/sonus_tokens.dart';
+import 'package:sonus_next/core/events/library_change_signal.dart';
 import 'package:sonus_next/core/database/database_tables.dart';
 import 'package:sonus_next/features/import/data/daos/media_file_binding_dao.dart';
 import 'package:sonus_next/features/import/domain/entities/media_file_binding.dart';
+import 'package:sonus_next/features/library/application/models/library_track.dart';
 import 'package:sonus_next/features/library/application/repositories/library_query_repository.dart';
 import 'package:sonus_next/features/library/application/services/track_profile_editing_service.dart';
 import 'package:sonus_next/features/library/data/daos/library_query_dao.dart';
@@ -16,6 +21,8 @@ import 'package:sonus_next/features/player/application/controllers/playback_coor
 import 'package:sonus_next/features/player/domain/models/playback_state.dart';
 import 'package:sonus_next/features/player/domain/services/playback_engine.dart';
 import 'package:sonus_next/features/player/presentation/controllers/playback_state_controller.dart';
+import 'package:sonus_next/features/playlists/application/models/playlist_detail.dart';
+import 'package:sonus_next/features/playlists/application/models/playlist_track.dart';
 import 'package:sonus_next/features/playlists/application/services/playlist_service.dart';
 import 'package:sonus_next/features/playlists/data/daos/playlist_dao.dart';
 import 'package:sonus_next/features/playlists/data/repositories/sqlite_playlist_repository.dart';
@@ -69,6 +76,92 @@ void main() {
     playbackStateController.dispose();
     await playbackEngine.dispose();
     await appDatabase.close();
+  });
+
+  // Register R10: the page tints with the shared artwork atmosphere
+  // builder, following the cover (first visible song's artwork) as the
+  // playlist reloads.
+  testWidgets('tints with the cover artwork and follows a new cover', (
+    tester,
+  ) async {
+    await _seedSongs(
+      appDatabase,
+      now: now,
+      songIds: const ['song_a'],
+      availableSongIds: const {'song_a'},
+    );
+    final db = await appDatabase.database;
+    final artworkService = _ArtworkPlaylistService(
+      repository: playlistRepository,
+      library: SqliteLibraryQueryRepository(LibraryQueryDao(db)),
+      mutationRunner: SyncMutationTransactionRunner(appDatabase: appDatabase),
+      generatePlaylistId: () => 'playlist_art',
+      generatePlaylistItemId: () => 'item_art',
+      now: () => now,
+    )..artwork = '/red.jpg';
+    final playlist = await artworkService.createPlaylist(name: 'Art');
+    await artworkService.addSong(playlistId: playlist.id, songId: 'song_a');
+
+    const red = SonusArtworkColors(
+      accent: Color(0xFFE53935),
+      container: Color(0xFF5C1A1A),
+    );
+    const blue = SonusArtworkColors(
+      accent: Color(0xFF1E88E5),
+      container: Color(0xFF0D2B52),
+    );
+    final palette = _FakePalette({'/red.jpg': red, '/blue.jpg': blue});
+    final theme = SonusThemeFactory.build(const SonusAppearanceSpec());
+    Color backgroundFor(SonusArtworkColors? artwork) =>
+        SonusArtworkAtmosphere.resolve(
+          colors: theme.extension<SonusColors>()!,
+          decoration: theme.extension<SonusDecorationTokens>()!,
+          artwork: artwork,
+        ).background;
+    Color pageBackground() => tester
+        .widget<Scaffold>(
+          find.byKey(const ValueKey<String>('playlist-detail-page')),
+        )
+        .backgroundColor!;
+    Future<void> settle(bool Function() done) async {
+      for (var attempt = 0; attempt < 60 && !done(); attempt++) {
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+    }
+
+    await tester.pumpWidget(
+      MultiProvider(
+        providers: [
+          Provider<PlaylistService?>.value(value: artworkService),
+          Provider<PlaybackCoordinator>.value(value: playbackCoordinator),
+          ChangeNotifierProvider<PlaybackStateController>.value(
+            value: playbackStateController,
+          ),
+        ],
+        child: MaterialApp(
+          theme: theme,
+          home: PlaylistDetailPage(
+            playlistId: playlist.id,
+            initialName: playlist.name,
+            artworkPalette: palette,
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    expect(pageBackground(), backgroundFor(null));
+
+    await settle(() => pageBackground() == backgroundFor(red));
+    expect(backgroundFor(red), isNot(backgroundFor(null)));
+    expect(pageBackground(), backgroundFor(red));
+
+    artworkService.artwork = '/blue.jpg';
+    LibraryChangeSignal.shared.notify(LibraryChangeKind.libraryEdited);
+    await settle(() => pageBackground() == backgroundFor(blue));
+    expect(pageBackground(), backgroundFor(blue));
+    expect(palette.requested, containsAllInOrder(['/red.jpg', '/blue.jpg']));
+
+    await tester.pumpWidget(const SizedBox());
   });
 
   testWidgets('ghosts unavailable playlist rows while preserving membership', (
@@ -555,5 +648,67 @@ class _NoOpPlaybackEngine implements PlaybackEngine {
   @override
   dynamic noSuchMethod(Invocation invocation) {
     return super.noSuchMethod(invocation);
+  }
+}
+
+/// Gives every song the [artwork] path, so a test can change the cover.
+class _ArtworkPlaylistService extends PlaylistService {
+  _ArtworkPlaylistService({
+    required super.repository,
+    required super.library,
+    required super.mutationRunner,
+    super.generatePlaylistId,
+    super.generatePlaylistItemId,
+    super.now,
+  });
+
+  String? artwork;
+
+  @override
+  Future<PlaylistDetail> getPlaylist(String playlistId) async {
+    final detail = await super.getPlaylist(playlistId);
+    return PlaylistDetail(
+      playlist: detail.playlist,
+      tracks: [
+        for (final entry in detail.tracks)
+          PlaylistTrack(item: entry.item, track: _withArtwork(entry.track)),
+      ],
+    );
+  }
+
+  LibraryTrack _withArtwork(LibraryTrack t) => LibraryTrack(
+    songId: t.songId,
+    title: t.title,
+    artistId: t.artistId,
+    artistName: t.artistName,
+    albumId: t.albumId,
+    albumTitle: t.albumTitle,
+    albumEditionId: t.albumEditionId,
+    albumEditionTitle: t.albumEditionTitle,
+    albumEditionType: t.albumEditionType,
+    trackNumber: t.trackNumber,
+    durationSeconds: t.durationSeconds,
+    isSingle: t.isSingle,
+    featuredArtists: t.featuredArtists,
+    dateAdded: t.dateAdded,
+    isAvailable: t.isAvailable,
+    filePath: t.filePath,
+    artworkPath: artwork,
+  );
+}
+
+class _FakePalette extends SonusArtworkPalette {
+  _FakePalette(this.colours);
+
+  final Map<String?, SonusArtworkColors?> colours;
+  final requested = <String?>[];
+
+  @override
+  Future<SonusArtworkColors?> colorsFor(
+    String? artworkPath, {
+    required Brightness brightness,
+  }) async {
+    requested.add(artworkPath);
+    return colours[artworkPath];
   }
 }

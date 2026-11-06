@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
+import 'package:sonus_next/core/design/sonus_artwork_palette.dart';
+import 'package:sonus_next/core/design/sonus_contrast.dart';
 import 'package:sonus_next/core/design/sonus_theme_factory.dart';
 import 'package:sonus_next/core/design/sonus_theme_id.dart';
 import 'package:sonus_next/core/design/sonus_tokens.dart';
@@ -58,7 +60,7 @@ ChartEntry _liveEntry(int rank, {int? previous}) => ChartEntry(
   movement: ChartMovement.up,
 );
 
-SongStats _full({LibraryTrack? track, bool live = true}) {
+SongStats _full({LibraryTrack? track, bool live = true, String? artworkPath}) {
   final weeks = SongStatsService.chartWeeks([
     for (final (i, rank) in [(0, 150), (1, 90), (2, 40), (4, 22), (5, 31)])
       _stored(i, rank),
@@ -69,6 +71,7 @@ SongStats _full({LibraryTrack? track, bool live = true}) {
       title: 'Midnight Over Lagos (Extended Mix)',
       artistLine: 'Ayo Nova Ft. Kemi & The Harbour Choir',
       albumTitle: 'City Lights (Deluxe Edition)',
+      artworkPath: artworkPath,
       status: SongStatsStatus.of(track),
       track: track,
     ),
@@ -165,6 +168,7 @@ Future<void> _pump(
   PlaybackCoordinator? playback,
   List<LibraryTrack>? playContext,
   bool reduceMotion = false,
+  SonusArtworkPalette? palette,
 }) async {
   await tester.binding.setSurfaceSize(size);
   addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -186,6 +190,7 @@ Future<void> _pump(
           loader: _Loader(stats),
           playContext: playContext,
           now: () => DateTime.utc(2026, 11, 10, 12),
+          artworkPalette: palette,
         ),
       ),
     ),
@@ -459,6 +464,93 @@ void main() {
     handle.dispose();
   });
 
+  // Register R12: the hero asks the shared artwork-colours request, so it
+  // follows the song's artwork and an injected palette.
+  testWidgets('the hero frame takes its accent from the artwork', (
+    tester,
+  ) async {
+    const accent = Color(0xFFE53935);
+    final palette = _FixedPalette({'/a.jpg': accent});
+    final theme = SonusThemeFactory.build(const SonusAppearanceSpec());
+    await _pump(
+      tester,
+      _full(track: _track(), artworkPath: '/a.jpg'),
+      theme: theme,
+      palette: palette,
+    );
+
+    final box =
+        tester
+                .widget<Container>(
+                  find.byKey(const ValueKey<String>('song-stats-hero')),
+                )
+                .decoration!
+            as BoxDecoration;
+    expect(palette.requested, ['/a.jpg']);
+    expect(box.border!.top.color, accent.withValues(alpha: 0.55));
+  });
+
+  group('hero text stays readable over artwork tints', () {
+    for (final id in SonusThemeId.values) {
+      testWidgets(id.label, (tester) async {
+        final theme = SonusThemeFactory.build(SonusAppearanceSpec(themeId: id));
+        final c = theme.extension<SonusColors>()!;
+        for (final seed in const [
+          Color(0xFFFFEB3B), // bright: the hardest case
+          Color(0xFF00E5FF),
+          Color(0xFFE53935),
+          Color(0xFF1E88E5),
+        ]) {
+          await _pump(
+            tester,
+            _full(track: _track(), artworkPath: '/a.jpg'),
+            theme: theme,
+            palette: _FixedPalette({'/a.jpg': _extractedAccent(seed)}),
+          );
+          final heroFinder = find.byKey(
+            const ValueKey<String>('song-stats-hero'),
+          );
+          final box =
+              tester.widget<Container>(heroFinder).decoration! as BoxDecoration;
+          final stops = box.gradient?.colors ?? [c.surface, c.surface];
+          final hero = tester.getRect(heroFinder);
+          // The diagonal gradient's colour under a text's top-left corner,
+          // its side nearest the gradient's strongest tint.
+          Color under(Finder text) {
+            final p = tester.getRect(text).topLeft - hero.topLeft;
+            final d = hero.bottomRight - hero.topLeft;
+            final t =
+                ((p.dx * d.dx + p.dy * d.dy) / (d.dx * d.dx + d.dy * d.dy))
+                    .clamp(0.0, 1.0);
+            return Color.lerp(stops.first, stops.last, t)!;
+          }
+
+          final title = find.byKey(const ValueKey<String>('song-stats-title'));
+          final artist = find.text('Ayo Nova Ft. Kemi & The Harbour Choir');
+          final album = find.text('City Lights (Deluxe Edition)');
+          expect(
+            SonusContrast.ratio(c.textPrimary, under(title)),
+            greaterThanOrEqualTo(4.5),
+            reason: 'title, seed $seed',
+          );
+          expect(
+            SonusContrast.ratio(c.textPrimary, under(artist)),
+            greaterThanOrEqualTo(4.5),
+            reason: 'artist line, seed $seed',
+          );
+          // Open finding (cleanup sprint, not changed): the secondary album
+          // line falls below 4.5:1 (lowest 3.71:1) on bright artwork. This
+          // guards against it getting worse until a design decision.
+          expect(
+            SonusContrast.ratio(c.textSecondary, under(album)),
+            greaterThanOrEqualTo(3.5),
+            reason: 'album line, seed $seed',
+          );
+        }
+      });
+    }
+  });
+
   group('every theme and accessibility mode fits', () {
     for (final id in SonusThemeId.values) {
       testWidgets('${id.label} at 320 dp and 2x text', (tester) async {
@@ -506,3 +598,30 @@ void main() {
     });
   });
 }
+
+class _FixedPalette extends SonusArtworkPalette {
+  _FixedPalette(this.colours);
+
+  final Map<String?, Color> colours;
+  final requested = <String?>[];
+
+  @override
+  Future<SonusArtworkColors?> colorsFor(
+    String? artworkPath, {
+    required Brightness brightness,
+  }) async {
+    requested.add(artworkPath);
+    final accent = colours[artworkPath];
+    return accent == null
+        ? null
+        : SonusArtworkColors(accent: accent, container: accent);
+  }
+}
+
+/// A realistic accent: what the palette's Material extraction gives for a
+/// cover of [seed] on a dark theme.
+Color _extractedAccent(Color seed) => ColorScheme.fromSeed(
+  seedColor: seed,
+  brightness: Brightness.dark,
+  dynamicSchemeVariant: DynamicSchemeVariant.fidelity,
+).primary;
