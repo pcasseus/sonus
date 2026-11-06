@@ -104,7 +104,6 @@ class _SongStatsPageState extends State<SongStatsPage> {
       appBar: AppBar(
         title: const Text('Song Stats'),
         backgroundColor: colors.background,
-        surfaceTintColor: Colors.transparent,
       ),
       body: FutureBuilder<SongStats>(
         future: _stats,

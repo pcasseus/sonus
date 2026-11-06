@@ -115,7 +115,6 @@ class _ImportsPageState extends State<ImportsPage> {
       appBar: AppBar(
         title: const Text('Import music'),
         backgroundColor: colors.background,
-        surfaceTintColor: Colors.transparent,
       ),
       body: controller == null
           ? const Center(

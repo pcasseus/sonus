@@ -70,7 +70,6 @@ class _ImportReviewPageState extends State<ImportReviewPage> {
       appBar: AppBar(
         title: const Text('Review metadata'),
         backgroundColor: colors.background,
-        surfaceTintColor: Colors.transparent,
       ),
       body: AnimatedBuilder(
         animation: _controller,

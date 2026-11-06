@@ -73,7 +73,6 @@ class _ArtistStudioPageState extends State<ArtistStudioPage> {
           appBar: AppBar(
             title: const Text('Artist Studio'),
             backgroundColor: colors.background,
-            surfaceTintColor: Colors.transparent,
           ),
           body: artist == null
               ? const Center(child: Text('Artist is unavailable.'))

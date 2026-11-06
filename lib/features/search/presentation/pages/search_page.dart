@@ -373,7 +373,6 @@ class _SearchPageState extends State<SearchPage> {
       appBar: AppBar(
         title: const Text('Search'),
         backgroundColor: tokens.colors.background,
-        surfaceTintColor: Colors.transparent,
       ),
       body: controller == null
           ? const Center(

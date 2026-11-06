@@ -47,7 +47,6 @@ class BackupRestorePage extends StatelessWidget {
       appBar: AppBar(
         title: const Text('Backup & Restore'),
         backgroundColor: tokens.colors.background,
-        surfaceTintColor: Colors.transparent,
       ),
       body: RefreshIndicator(
         onRefresh: controller.refresh,

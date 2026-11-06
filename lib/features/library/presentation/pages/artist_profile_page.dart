@@ -232,7 +232,6 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
               ? atmosphere.background
               : Colors.transparent,
         ),
-        surfaceTintColor: Colors.transparent,
         scrolledUnderElevation: 0,
         title: ValueListenableBuilder<bool>(
           valueListenable: _titleShown,

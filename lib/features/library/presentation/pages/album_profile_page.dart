@@ -456,7 +456,6 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
       backgroundColor: heroArt == null
           ? atmosphere.background
           : Colors.transparent,
-      surfaceTintColor: Colors.transparent,
       scrolledUnderElevation: 0,
       expandedHeight: heroArt == null || heroArtSize == null
           ? null

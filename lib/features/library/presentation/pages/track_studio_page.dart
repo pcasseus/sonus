@@ -305,7 +305,6 @@ class _TrackStudioPageState extends State<TrackStudioPage> {
         appBar: AppBar(
           title: const Text('Track Studio'),
           backgroundColor: colors.background,
-          surfaceTintColor: Colors.transparent,
           actions: [
             Padding(
               padding: const EdgeInsets.only(right: 8),

@@ -137,7 +137,6 @@ class _PlaylistDetailPageState extends State<PlaylistDetailPage> {
       backgroundColor: atmosphere.background,
       appBar: AppBar(
         backgroundColor: atmosphere.background,
-        surfaceTintColor: Colors.transparent,
         title: AnimatedBuilder(
           animation: controller ?? _NoopListenable.instance,
           builder: (_, _) {

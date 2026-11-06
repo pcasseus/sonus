@@ -190,7 +190,6 @@ class _LibraryHealthPageState extends State<LibraryHealthPage> {
       backgroundColor: tokens.colors.background,
       appBar: AppBar(
         backgroundColor: tokens.colors.background,
-        surfaceTintColor: Colors.transparent,
         title: Text(
           widget.importCounts == null
               ? 'Verify Library'

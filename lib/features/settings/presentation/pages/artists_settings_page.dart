@@ -200,7 +200,6 @@ class _ArtistsSettingsPageState extends State<ArtistsSettingsPage> {
       appBar: AppBar(
         title: const Text('Artists'),
         backgroundColor: colors.background,
-        surfaceTintColor: Colors.transparent,
       ),
       body: _buildBody(context),
     );
