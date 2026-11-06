@@ -233,6 +233,48 @@ void main() {
     });
   });
 
+  group('first entries and re-entries, zone by zone', () {
+    for (final zone in [3, 5, 10, 15, 20, 25, 50]) {
+      test('Top $zone: a first entry once, then a re-entry', () {
+        final plays = _Plays();
+        // Fillers ranked by distinct totals: filler i has 200 - 2i plays.
+        final fillers = zone + 5;
+        for (var i = 0; i < fillers; i++) {
+          plays.play('f${i.toString().padLeft(2, '0')}', 200 - 2 * i);
+        }
+        // X debuts below the zone, then climbs to exactly #zone.
+        plays.play('x', 1);
+        plays.play('x', 200 - 2 * (zone - 1));
+        // Three fillers below pass it: X falls out of the zone.
+        for (var i = zone; i < zone + 3; i++) {
+          plays.play('f${i.toString().padLeft(2, '0')}', 2 * (zone + 2));
+        }
+        // X climbs back in.
+        plays.play('x', 12);
+
+        final result = replay.run(
+          events: plays.events,
+          referenceLocal: plays.now,
+          thresholdEntriesFromUtc: chronicle,
+          chronicleFromUtc: chronicle,
+        );
+        List<AllTimeAchievement> of(AllTimeAchievementType type) => [
+          for (final a in result.achievements)
+            if (a.entityId == 'x' && a.type == type && a.zone == zone) a,
+        ];
+
+        final first = of(AllTimeAchievementType.thresholdEntry);
+        final back = of(AllTimeAchievementType.thresholdReturn);
+        expect(first, hasLength(1), reason: 'first entry into the Top $zone');
+        expect(first.single.rank, zone);
+        expect(back, hasLength(1), reason: 're-entry into the Top $zone');
+        expect(back.single.previousRank, greaterThan(zone));
+        expect(back.single.rank, lessThanOrEqualTo(zone));
+        expect(back.single.occurredAt.isAfter(first.single.occurredAt), isTrue);
+      });
+    }
+  });
+
   group('chart days and the journey', () {
     test('day standings follow one entity, including days off the chart', () {
       final plays = _Plays()..play('a', 3);
