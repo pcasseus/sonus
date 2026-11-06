@@ -7,6 +7,7 @@ import '../../../../core/design/sonus_theme.dart';
 import '../../../../core/design/widgets/sonus_notice_card.dart';
 import '../../../../core/design/widgets/sonus_state_view.dart';
 import '../../../../core/design/widgets/sonus_surface_card.dart';
+import '../../../../core/design/sonus_text_scale.dart';
 import '../../../../core/design/widgets/sonus_track_tile.dart';
 import '../../../artwork/application/services/artwork_assignment_service.dart';
 import '../../../artwork/application/services/artwork_file_picker.dart';

@@ -18,6 +18,7 @@ import '../../../../core/design/widgets/sonus_profile_surfaces.dart';
 import '../../../../core/design/widgets/sonus_profile_atmosphere_builder.dart';
 import '../../../../core/design/sonus_atmosphere_colors.dart';
 import '../../../../core/design/sonus_theme.dart';
+import '../../../../core/design/sonus_text_scale.dart';
 import '../../../../core/design/sonus_tokens.dart';
 import '../../../../core/design/widgets/sonus_artwork_frame.dart';
 import '../../../../core/design/widgets/sonus_segmented_selector.dart';
@@ -959,10 +960,6 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
     super.dispose();
   }
 }
-
-/// Text scale above which rows and controls switch to their large-text
-/// layout, as in the shared Sonus data components.
-const double _largeTextScale = 1.3;
 
 bool _hasAvailableMedia(LibraryTrack track) {
   return track.isAvailable &&
@@ -1964,7 +1961,7 @@ class _TrackTile extends StatelessWidget {
     // Above 1.3x text the duration moves onto the credit line, so the title
     // keeps enough width to wrap between words, not inside them.
     final largeText =
-        MediaQuery.textScalerOf(context).scale(1) > _largeTextScale;
+        MediaQuery.textScalerOf(context).scale(1) > sonusLargeTextScale;
     final duration = _formatDuration(track.durationSeconds);
     // The playing song in the artwork's accent, where it reads as text on
     // the glass; otherwise in the text colour, marked by its highlight.

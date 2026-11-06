@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../sonus_text_scale.dart';
 import '../sonus_theme.dart';
 
 /// One option of a [SonusSegmentedSelector].
@@ -30,9 +31,6 @@ class SonusSegmentedSelector<T> extends StatelessWidget {
     this.selectedForegroundColor,
   });
 
-  /// Text scale above which decorative segment icons are dropped.
-  static const double largeTextScale = 1.3;
-
   final List<SonusSegment<T>> segments;
   final T selected;
   final ValueChanged<T> onChanged;
@@ -48,7 +46,7 @@ class SonusSegmentedSelector<T> extends StatelessWidget {
     final tokens = SonusTheme.of(context);
     final colors = tokens.colors;
     final isLargeText =
-        MediaQuery.textScalerOf(context).scale(1) > largeTextScale;
+        MediaQuery.textScalerOf(context).scale(1) > sonusLargeTextScale;
 
     return SegmentedButton<T>(
       style: SegmentedButton.styleFrom(

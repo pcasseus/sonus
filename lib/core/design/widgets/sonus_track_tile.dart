@@ -1,12 +1,9 @@
 import 'playback/sonus_playing_indicator.dart';
 import 'package:flutter/material.dart';
 
+import '../sonus_text_scale.dart';
 import '../sonus_theme.dart';
 import 'sonus_artwork_image.dart';
-
-/// Text scale above which rows switch to their large-text layout, as in
-/// the other Sonus rows.
-const double sonusLargeTextScale = 1.3;
 
 /// One song row in the Sonus style: artwork, title, a supporting line,
 /// a tabular duration and trailing actions (usually an overflow menu).

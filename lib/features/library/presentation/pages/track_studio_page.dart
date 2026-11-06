@@ -6,7 +6,7 @@ import 'package:flutter/services.dart';
 import '../../../../core/design/sonus_theme.dart';
 import '../../../../core/design/widgets/sonus_artwork_image.dart';
 import '../../../../core/design/widgets/sonus_form_section.dart';
-import '../../../../core/design/widgets/sonus_track_tile.dart';
+import '../../../../core/design/sonus_text_scale.dart';
 import '../../../../core/identity/text_normalizer.dart';
 import '../../application/models/external_metadata_search_query.dart';
 import '../../application/models/library_album.dart';

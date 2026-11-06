@@ -5,14 +5,11 @@ import 'package:flutter/material.dart';
 
 import '../../../../../core/design/context/sonus_context_theme.dart';
 import '../../../../../core/design/sonus_theme.dart';
+import '../../../../../core/design/sonus_text_scale.dart';
 import '../../../application/models/library_track.dart';
 import '../../../application/models/song_credit_line.dart';
 import '../../controllers/track_selection_controller.dart';
 import '../../../../song_stats/presentation/song_stats_navigation.dart';
-
-/// Text scale above which rows switch to their large-text layout, as in
-/// the shared Sonus data components.
-const double _largeTextScale = 1.3;
 
 class ArtistProfileTracksList extends StatelessWidget {
   const ArtistProfileTracksList({
@@ -90,7 +87,7 @@ class ArtistProfileTracksList extends StatelessWidget {
     }
 
     final largeText =
-        MediaQuery.textScalerOf(context).scale(1) > _largeTextScale;
+        MediaQuery.textScalerOf(context).scale(1) > sonusLargeTextScale;
 
     if (!groupByAlbum) {
       return Column(
