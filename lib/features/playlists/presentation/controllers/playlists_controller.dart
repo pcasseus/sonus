@@ -4,8 +4,9 @@ import 'package:flutter/foundation.dart';
 
 import '../../application/models/playlist_summary.dart';
 import '../../application/services/playlist_service.dart';
+import '../../../../core/state/dispose_safe_notifier.dart';
 
-class PlaylistsController extends ChangeNotifier {
+class PlaylistsController extends ChangeNotifier with DisposeSafeNotifier {
   PlaylistsController({required PlaylistService service}) : _service = service;
 
   final PlaylistService _service;

@@ -7,8 +7,9 @@ import '../../application/models/library_artist.dart';
 import '../../application/models/library_track.dart';
 import '../../application/repositories/library_query_repository.dart';
 import '../../application/services/library_organization_service.dart';
+import '../../../../core/state/dispose_safe_notifier.dart';
 
-class LibraryArtistsController extends ChangeNotifier {
+class LibraryArtistsController extends ChangeNotifier with DisposeSafeNotifier {
   factory LibraryArtistsController({
     required LibraryQueryRepository repository,
     LibraryOrganizationService? organization,

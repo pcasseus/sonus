@@ -14,8 +14,9 @@ import '../../application/services/track_profile_editing_service.dart';
 import '../../domain/entities/song_artist_credit.dart';
 import '../../domain/entities/song.dart';
 import '../../domain/repositories/song_artist_credit_repository.dart';
+import '../../../../core/state/dispose_safe_notifier.dart';
 
-class LibraryTracksController extends ChangeNotifier {
+class LibraryTracksController extends ChangeNotifier with DisposeSafeNotifier {
   factory LibraryTracksController({
     required LibraryQueryRepository repository,
     required PlaybackCoordinator playbackCoordinator,
