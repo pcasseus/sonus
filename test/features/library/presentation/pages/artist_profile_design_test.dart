@@ -3,6 +3,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sonus_next/core/design/sonus_artwork_palette.dart';
 import 'package:sonus_next/core/design/sonus_profile_colors.dart';
+import 'package:sonus_next/core/design/sonus_contrast.dart';
 import 'package:sonus_next/core/design/sonus_theme_factory.dart';
 import 'package:sonus_next/core/design/widgets/sonus_frosted_glass.dart';
 import 'package:sonus_next/core/design/sonus_theme_id.dart';
@@ -961,18 +962,24 @@ void main() {
 
       expect(section('artist-profile-top-tracks-glass'), findsOneWidget);
       expect(section('artist-profile-collaborations-glass'), findsOneWidget);
-      final accent = tester
+      final style = tester
           .widget<FilledButton>(section('artist-profile-play-all-button'))
-          .style!
-          .backgroundColor!
-          .resolve(const {});
+          .style!;
+      final play = style.backgroundColor!.resolve(const {})!;
+      final label = style.foregroundColor!.resolve(const {})!;
       final marks = tester.widgetList<Container>(
         section('section-heading-accent'),
       );
       expect(marks.length, greaterThanOrEqualTo(3));
+      final accent = (marks.first.decoration! as BoxDecoration).color!;
       for (final mark in marks) {
         expect((mark.decoration! as BoxDecoration).color, accent);
       }
+      // Profile Lab: Play all in a deep tone of the same accent, its label
+      // readable at 4.5:1.
+      final hue = HSLColor.fromColor(play).hue - HSLColor.fromColor(accent).hue;
+      expect(hue.abs() % 360, anyOf(lessThan(12), greaterThan(348)));
+      expect(SonusContrast.ratio(label, play), greaterThanOrEqualTo(4.5));
       expect(tester.takeException(), isNull);
     });
 
@@ -1246,7 +1253,14 @@ void main() {
 
         expect(tester.takeException(), isNull);
         expect(find.text('Top Tracks'), findsOneWidget);
-        expect(find.text('Collaborations'), findsOneWidget);
+        // The section, not the section tab of the same name.
+        expect(
+          find.descendant(
+            of: section('artist-profile-collaborations'),
+            matching: find.text('Collaborations'),
+          ),
+          findsOneWidget,
+        );
       });
     }
 
@@ -1280,7 +1294,7 @@ void main() {
 
       for (final heading in ['Top Tracks', 'Albums', 'Collaborations']) {
         final paragraph = tester.renderObject<RenderParagraph>(
-          find.text(heading),
+          find.text(heading).last,
         );
         final lines = paragraph
             .getBoxesForSelection(

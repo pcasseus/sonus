@@ -1,3 +1,4 @@
+import 'dart:ui' show ImageFilter;
 import '../../../artwork/presentation/pages/artwork_crop_editor_page.dart';
 import '../../../artwork/domain/entities/artwork_crop.dart';
 import '../../../artwork/application/services/artwork_crop_service.dart';
@@ -49,6 +50,7 @@ import '../widgets/artist_profile/artist_profile_header.dart';
 import '../widgets/artist_profile/artist_profile_tracks_list.dart';
 import '../widgets/artist_profile/artist_profile_playback_controls.dart';
 import '../widgets/artist_profile/artist_profile_section_heading.dart';
+import '../widgets/artist_profile/artist_profile_section_tabs.dart';
 import '../widgets/artist_profile/artist_library_placement_sheet.dart';
 import '../widgets/track_selection_bar.dart';
 import '../widgets/track_studio_launcher.dart';
@@ -88,6 +90,16 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
   /// Whether the hero's name has scrolled under the toolbar. Until then
   /// the hero alone names the artist; afterwards the toolbar does.
   final ValueNotifier<bool> _titleShown = ValueNotifier<bool>(false);
+
+  // Section navigation (Profile Lab): Overview is the top of the page;
+  // Releases and Collaborations scroll to their real sections.
+  final GlobalKey _releasesAnchor = GlobalKey(debugLabel: 'releases');
+  final GlobalKey _collaborationsAnchor = GlobalKey(
+    debugLabel: 'collaborations',
+  );
+  final ValueNotifier<int> _sectionTab = ValueNotifier<int>(0);
+  final ScrollController _pageScroll = ScrollController();
+  List<GlobalKey?> _tabAnchors = const [];
 
   LibraryChangeRefresher? _refresher;
   ArtistProfileController? _controller;
@@ -241,10 +253,29 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
       // The hero photo runs to the top of the screen, under the bars.
       extendBodyBehindAppBar: true,
       appBar: AppBar(
+        // Profile Lab: once scrolled, translucent glass over a blur of the
+        // page with effects on; solid otherwise.
         backgroundColor: WidgetStateColor.resolveWith(
           (states) => states.contains(WidgetState.scrolledUnder)
-              ? atmosphere.background
+              ? atmosphere.background.withValues(
+                  alpha: SonusTheme.of(context).decoration.allowGradients
+                      ? 0.72
+                      : 1,
+                )
               : Colors.transparent,
+        ),
+        flexibleSpace: ValueListenableBuilder<bool>(
+          valueListenable: _titleShown,
+          builder: (context, shown, _) =>
+              shown && SonusTheme.of(context).decoration.allowGradients
+              ? ClipRect(
+                  key: const ValueKey<String>('artist-profile-toolbar-glass'),
+                  child: BackdropFilter(
+                    filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                    child: const SizedBox.expand(),
+                  ),
+                )
+              : const SizedBox.shrink(),
         ),
         scrolledUnderElevation: 0,
         title: ValueListenableBuilder<bool>(
@@ -530,6 +561,7 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
                           key: const PageStorageKey<String>(
                             'artist-profile-scroll',
                           ),
+                          controller: _pageScroll,
                           physics: const AlwaysScrollableScrollPhysics(),
                           // Clears the system inset and any bottom player.
                           padding: EdgeInsets.only(
@@ -555,6 +587,15 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
                                 controller: controller,
                                 atmosphere: atmosphere,
                               ),
+                            ),
+                            ?_sectionTabs(
+                              context,
+                              gutter: gutter,
+                              accent: atmosphere.accent,
+                              hasReleases: shelves.isNotEmpty,
+                              hasCollaborations:
+                                  collaborations.isNotEmpty ||
+                                  collaborators.isNotEmpty,
                             ),
                             if (topTracks.isNotEmpty)
                               section(
@@ -646,103 +687,121 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
                                   ),
                                 ],
                               ),
-                            for (final MapEntry(key: shelf, value: cards)
-                                in shelves.entries)
-                              section(
-                                ValueKey<String>('artist-profile-${shelf.key}'),
-                                [
-                                  ArtistProfileSectionHeading(
-                                    title: shelf.title,
-                                    accent: atmosphere.accent,
-                                    subtitle:
-                                        shelf == ArtistReleaseShelf.needsReview
-                                        ? 'Choose Single, EP or Album in '
-                                              'Edit Release'
-                                        : null,
-                                    count: cards.length,
+                            for (final (
+                                  index,
+                                  MapEntry(key: shelf, value: cards),
+                                )
+                                in shelves.entries.indexed)
+                              KeyedSubtree(
+                                key: index == 0 ? _releasesAnchor : null,
+                                child: section(
+                                  ValueKey<String>(
+                                    'artist-profile-${shelf.key}',
                                   ),
-                                  const SizedBox(height: 12),
-                                  ArtistProfileAlbumsGrid(
-                                    cards: cards,
-                                    onAlbumTap: (album) {
-                                      unawaited(
-                                        _pushAndRefresh(
-                                          AlbumProfilePage(
-                                            albumId: album.albumId,
-                                            initialAlbumTitle:
-                                                album.displayTitle,
+                                  [
+                                    ArtistProfileSectionHeading(
+                                      title: shelf.title,
+                                      accent: atmosphere.accent,
+                                      subtitle:
+                                          shelf ==
+                                              ArtistReleaseShelf.needsReview
+                                          ? 'Choose Single, EP or Album in '
+                                                'Edit Release'
+                                          : null,
+                                      count: cards.length,
+                                    ),
+                                    const SizedBox(height: 12),
+                                    ArtistProfileAlbumsGrid(
+                                      cards: cards,
+                                      onAlbumTap: (album) {
+                                        unawaited(
+                                          _pushAndRefresh(
+                                            AlbumProfilePage(
+                                              albumId: album.albumId,
+                                              initialAlbumTitle:
+                                                  album.displayTitle,
+                                            ),
                                           ),
-                                        ),
-                                      );
-                                    },
-                                  ),
-                                ],
+                                        );
+                                      },
+                                    ),
+                                  ],
+                                ),
                               ),
                             if (collaborations.isNotEmpty)
-                              section(
-                                const ValueKey<String>(
-                                  'artist-profile-collaborations',
-                                ),
-                                [
-                                  ArtistProfileSectionHeading(
-                                    title: 'Collaborations',
-                                    accent: atmosphere.accent,
-                                    count: collaborations.length,
+                              KeyedSubtree(
+                                key: _collaborationsAnchor,
+                                child: section(
+                                  const ValueKey<String>(
+                                    'artist-profile-collaborations',
                                   ),
-                                  const SizedBox(height: 8),
-                                  _glass(
-                                    context,
-                                    profile,
-                                    key: const ValueKey<String>(
-                                      'artist-profile-collaborations-glass',
+                                  [
+                                    ArtistProfileSectionHeading(
+                                      title: 'Collaborations',
+                                      accent: atmosphere.accent,
+                                      count: collaborations.length,
                                     ),
-                                    _tracksList(
+                                    const SizedBox(height: 8),
+                                    _glass(
                                       context,
-                                      controller,
-                                      userId,
-                                      atmosphere,
-                                      tracks: collaborations,
-                                      keyPrefix: 'artist-track',
-                                      selection: _selection,
-                                      profileArtistId: artist.artistId,
-                                      onPlay: controller.playCollaboration,
-                                      onGlass: true,
-                                      groupByAlbum: true,
+                                      profile,
+                                      key: const ValueKey<String>(
+                                        'artist-profile-collaborations-glass',
+                                      ),
+                                      _tracksList(
+                                        context,
+                                        controller,
+                                        userId,
+                                        atmosphere,
+                                        tracks: collaborations,
+                                        keyPrefix: 'artist-track',
+                                        selection: _selection,
+                                        profileArtistId: artist.artistId,
+                                        onPlay: controller.playCollaboration,
+                                        onGlass: true,
+                                        groupByAlbum: true,
+                                      ),
                                     ),
-                                  ),
-                                ],
+                                  ],
+                                ),
                               ),
                             if (collaborators.isNotEmpty)
-                              section(
-                                const ValueKey<String>(
-                                  'artist-profile-collaborators',
+                              KeyedSubtree(
+                                key: collaborations.isEmpty
+                                    ? _collaborationsAnchor
+                                    : null,
+                                child: section(
+                                  const ValueKey<String>(
+                                    'artist-profile-collaborators',
+                                  ),
+                                  [
+                                    ArtistProfileSectionHeading(
+                                      title: 'Collaborators',
+                                      accent: atmosphere.accent,
+                                      count: collaborators.length,
+                                      subtitle:
+                                          'Artists who appear on these releases',
+                                    ),
+                                    const SizedBox(height: 8),
+                                    _glass(
+                                      context,
+                                      profile,
+                                      key: const ValueKey<String>(
+                                        'artist-profile-collaborators-glass',
+                                      ),
+                                      ArtistProfileCollaborators(
+                                        collaborators: collaborators,
+                                        tileColor: Colors.transparent,
+                                        isPlayable: (collaborator) =>
+                                            collaborator.tracks.any(
+                                              controller.isTrackPlayable,
+                                            ),
+                                        onPlay: controller.playCollaborator,
+                                        onOpen: _openCollaborator,
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                                [
-                                  ArtistProfileSectionHeading(
-                                    title: 'Collaborators',
-                                    accent: atmosphere.accent,
-                                    count: collaborators.length,
-                                    subtitle:
-                                        'Artists who appear on these releases',
-                                  ),
-                                  const SizedBox(height: 8),
-                                  _glass(
-                                    context,
-                                    profile,
-                                    key: const ValueKey<String>(
-                                      'artist-profile-collaborators-glass',
-                                    ),
-                                    ArtistProfileCollaborators(
-                                      collaborators: collaborators,
-                                      tileColor: Colors.transparent,
-                                      isPlayable: (collaborator) => collaborator
-                                          .tracks
-                                          .any(controller.isTrackPlayable),
-                                      onPlay: controller.playCollaborator,
-                                      onOpen: _openCollaborator,
-                                    ),
-                                  ),
-                                ],
                               ),
                           ],
                         ),
@@ -793,10 +852,99 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
               width: MediaQuery.sizeOf(context).width,
               hasBanner: controller.bannerPath != null,
             );
+        _followSection();
         return false;
       },
       child: child,
     );
+  }
+
+  /// The section tabs, when the page has somewhere to go beyond the top.
+  Widget? _sectionTabs(
+    BuildContext context, {
+    required double gutter,
+    required Color accent,
+    required bool hasReleases,
+    required bool hasCollaborations,
+  }) {
+    final tabs = <ArtistProfileSectionTab>[
+      ArtistProfileSectionTab(label: 'Overview', anchor: GlobalKey()),
+      if (hasReleases)
+        ArtistProfileSectionTab(label: 'Releases', anchor: _releasesAnchor),
+      if (hasCollaborations)
+        ArtistProfileSectionTab(
+          label: 'Collaborations',
+          anchor: _collaborationsAnchor,
+        ),
+    ];
+    _tabAnchors = [null, for (final tab in tabs.skip(1)) tab.anchor];
+    if (tabs.length < 2) return null;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(gutter, 12, gutter, 0),
+      child: ArtistProfileSectionTabs(
+        tabs: tabs,
+        selected: _sectionTab,
+        accent: accent,
+        onSelected: (index) => unawaited(_goToSection(index)),
+      ),
+    );
+  }
+
+  /// The height the transparent toolbar covers at the top of the page.
+  double _toolbarBottom(BuildContext context) =>
+      MediaQuery.paddingOf(context).top + kToolbarHeight;
+
+  /// Scrolls to the tab's section (the top for Overview), just below the
+  /// toolbar. A section far down the list is not built yet: the page steps
+  /// down a frame at a time until it is, then settles on it.
+  Future<void> _goToSection(int index) async {
+    _sectionTab.value = index;
+    if (!_pageScroll.hasClients) return;
+    final position = _pageScroll.position;
+    final motion = SonusTheme.of(context).motion;
+    final anchor = index < _tabAnchors.length ? _tabAnchors[index] : null;
+    double target = 0;
+    if (anchor != null) {
+      while (anchor.currentContext == null &&
+          position.pixels < position.maxScrollExtent) {
+        position.jumpTo(
+          (position.pixels + position.viewportDimension * 0.8).clamp(
+            0.0,
+            position.maxScrollExtent,
+          ),
+        );
+        await WidgetsBinding.instance.endOfFrame;
+        if (!mounted) return;
+      }
+      final box = anchor.currentContext?.findRenderObject() as RenderBox?;
+      if (box == null || !box.attached) return;
+      final top = box.localToGlobal(Offset.zero).dy;
+      target = position.pixels + top - _toolbarBottom(context) - 8;
+    }
+    target = target.clamp(0.0, position.maxScrollExtent);
+    if (motion.reduced) {
+      position.jumpTo(target);
+    } else {
+      await position.animateTo(
+        target,
+        duration: motion.medium,
+        curve: motion.curve,
+      );
+    }
+    if (mounted) _sectionTab.value = index;
+  }
+
+  /// Marks the tab of the section now under the toolbar.
+  void _followSection() {
+    final limit = _toolbarBottom(context) + 64;
+    var current = 0;
+    for (var i = 1; i < _tabAnchors.length; i++) {
+      final box =
+          _tabAnchors[i]?.currentContext?.findRenderObject() as RenderBox?;
+      if (box == null || !box.attached) continue;
+      if (box.localToGlobal(Offset.zero).dy <= limit) current = i;
+    }
+    _sectionTab.value = current;
   }
 
   /// Says why the header's artist total can be lower than these songs'
@@ -1614,6 +1762,8 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
   @override
   void dispose() {
     _titleShown.dispose();
+    _sectionTab.dispose();
+    _pageScroll.dispose();
     _selection.dispose();
     _controller?.removeListener(_onControllerChanged);
     _refresher?.dispose();

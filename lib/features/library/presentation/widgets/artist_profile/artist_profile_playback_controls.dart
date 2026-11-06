@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../../../../core/design/sonus_atmosphere_colors.dart';
+import '../../../../../core/design/sonus_contrast.dart';
 import '../../../../../core/design/sonus_theme.dart';
 import '../../controllers/artist_profile_controller.dart';
 
@@ -23,6 +24,19 @@ class ArtistProfilePlaybackControls extends StatelessWidget {
     // Glass whenever effects are on: over the artwork environment even
     // untinted (neutral) artwork needs the plate under the icon.
     final tinted = tokens.decoration.allowGradients;
+    // Profile Lab: Play all in a deep tone of the accent with a white label
+    // when it reads at 4.5:1 (otherwise the accent's own label colour).
+    final deep = HSLColor.fromColor(atmosphere.accent);
+    // Only where glow is allowed (Standard and Expressive); Subtle keeps
+    // the accent as it was.
+    final play = tokens.decoration.allowGlow && atmosphere.isTinted
+        ? deep.withLightness(deep.lightness.clamp(0.0, 0.40)).toColor()
+        : atmosphere.accent;
+    final onPlay = play == atmosphere.accent
+        ? atmosphere.onAccent
+        : SonusContrast.ratio(const Color(0xFFFFFFFF), play) >= 4.5
+        ? const Color(0xFFFFFFFF)
+        : atmosphere.onAccent;
 
     return Row(
       children: [
@@ -66,24 +80,40 @@ class ArtistProfilePlaybackControls extends StatelessWidget {
         ),
         const SizedBox(width: 12),
         Expanded(
-          child: FilledButton.icon(
-            key: const ValueKey<String>('artist-profile-play-all-button'),
-            onPressed: controller.hasPlayableTracks
-                ? () {
-                    unawaited(controller.playAll());
-                  }
-                : null,
-            style: FilledButton.styleFrom(
-              backgroundColor: atmosphere.accent,
-              foregroundColor: atmosphere.onAccent,
-              minimumSize: const Size.fromHeight(48),
-              shape: RoundedRectangleBorder(borderRadius: radius),
+          child: DecoratedBox(
+            // Profile Lab: a soft glow in the accent with effects on.
+            decoration: BoxDecoration(
+              borderRadius: radius,
+              boxShadow: tokens.decoration.allowGlow && atmosphere.isTinted
+                  ? [
+                      BoxShadow(
+                        color: play.withValues(alpha: 0.42),
+                        blurRadius: 26,
+                        spreadRadius: -6,
+                        offset: const Offset(0, 8),
+                      ),
+                    ]
+                  : null,
             ),
-            icon: const Icon(Icons.play_arrow_rounded),
-            label: const Text(
-              'Play all',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
+            child: FilledButton.icon(
+              key: const ValueKey<String>('artist-profile-play-all-button'),
+              onPressed: controller.hasPlayableTracks
+                  ? () {
+                      unawaited(controller.playAll());
+                    }
+                  : null,
+              style: FilledButton.styleFrom(
+                backgroundColor: play,
+                foregroundColor: onPlay,
+                minimumSize: const Size.fromHeight(48),
+                shape: RoundedRectangleBorder(borderRadius: radius),
+              ),
+              icon: const Icon(Icons.play_arrow_rounded),
+              label: const Text(
+                'Play all',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
             ),
           ),
         ),

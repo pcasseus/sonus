@@ -229,6 +229,125 @@ void main() {
     }
   });
 
+  // Workstream C: the Lab composition in the real page. Every control
+  // does something real; nothing is a placeholder.
+  group('Artist Profile composition', () {
+    Future<void> open(WidgetTester tester, {LabDevice? device}) async {
+      final (banner, portrait, covers) = generated(LabVariant.cool);
+      await _pump(
+        tester,
+        banner: banner,
+        portrait: portrait,
+        covers: covers,
+        device: device ?? LabDevice.s26,
+      );
+    }
+
+    testWidgets('section tabs scroll to their real sections and follow', (
+      tester,
+    ) async {
+      await open(tester);
+      final tabs = _key('artist-profile-section-tabs');
+      expect(tabs, findsOneWidget);
+      expect(
+        find.descendant(of: tabs, matching: find.text('Overview')),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: tabs, matching: find.text('Releases')),
+        findsOneWidget,
+      );
+      // No collaborations in this catalogue: no tab for them.
+      expect(
+        find.descendant(of: tabs, matching: find.text('Collaborations')),
+        findsNothing,
+      );
+      expect(
+        tester.getSemantics(_key('artist-profile-section-tab-0')),
+        isSemantics(isSelected: true, isButton: true),
+      );
+      final tab = tester.getSize(_key('artist-profile-section-tab-1'));
+      expect(tab.height, greaterThanOrEqualTo(47.99));
+
+      await tester.tap(_key('artist-profile-section-tab-1'));
+      await tester.pumpAndSettle();
+      final position = tester
+          .state<ScrollableState>(find.byType(Scrollable).first)
+          .position;
+      final shelf = tester.getRect(_key('artist-profile-albums'));
+      final barBottom =
+          tester.view.padding.top / tester.view.devicePixelRatio +
+          kToolbarHeight;
+      // Just below the toolbar, or as far as a short page goes.
+      expect(
+        shelf.top <= barBottom + 40 ||
+            position.pixels >= position.maxScrollExtent - 0.5,
+        isTrue,
+        reason:
+            'shelf $shelf at ${position.pixels}/${position.maxScrollExtent}',
+      );
+      expect(shelf.top, greaterThanOrEqualTo(barBottom - 0.5));
+
+      // Back near the top the tabs follow the position: Overview again.
+      position.jumpTo(120);
+      await tester.pumpAndSettle();
+      await tester.drag(find.byType(Scrollable).first, const Offset(0, 10));
+      await tester.pumpAndSettle();
+      expect(
+        tester.getSemantics(_key('artist-profile-section-tab-0')),
+        isSemantics(isSelected: true, isButton: true),
+      );
+      await tester.tap(_key('artist-profile-section-tab-0'));
+      await tester.pumpAndSettle();
+      expect(position.pixels, 0);
+    });
+
+    testWidgets('statistics plate, glass toolbar and release carousel', (
+      tester,
+    ) async {
+      await open(tester);
+      expect(_key('artist-profile-stats-plate'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: _key('artist-profile-stats-plate'),
+          matching: _key('artist-profile-listening'),
+        ),
+        findsOneWidget,
+      );
+      expect(_key('artist-profile-toolbar-glass'), findsNothing);
+      await _scroll(tester, 2000);
+      expect(_key('artist-profile-toolbar-glass'), findsOneWidget);
+      final releases = find.descendant(
+        of: _key('artist-profile-albums-grid'),
+        matching: find.byType(Scrollable),
+      );
+      expect(
+        tester.widget<Scrollable>(releases.first).axisDirection,
+        AxisDirection.right,
+      );
+      expect(_key('artist-album-album-1'), findsOneWidget);
+      expect(_key('artist-album-album-2'), findsOneWidget);
+    });
+
+    for (final device in [
+      LabDevice.small,
+      LabDevice.s26.withText(1.3),
+      LabDevice.s26.withText(2.0),
+      LabDevice.small.withText(2.0),
+    ]) {
+      testWidgets('lays out at ${device.name}', (tester) async {
+        await open(tester, device: device);
+        expect(tester.takeException(), isNull);
+        final tab = tester.getSize(_key('artist-profile-section-tab-1'));
+        expect(tab.height, greaterThanOrEqualTo(47.99));
+        await tester.tap(_key('artist-profile-section-tab-1'));
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+        expect(_key('artist-profile-albums'), findsOneWidget);
+      });
+    }
+  });
+
   group('Artist Profile: the glass reads as its own material', () {
     for (final variant in LabVariant.values) {
       testWidgets(variant.label, (tester) async {

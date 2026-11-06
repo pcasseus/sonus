@@ -8,6 +8,7 @@ import '../../../../../core/design/sonus_profile_colors.dart';
 import '../../../../../core/design/sonus_count_label.dart';
 import '../../../../../core/design/sonus_theme.dart';
 import '../../../../../core/design/widgets/sonus_artwork_frame.dart';
+import '../../../../../core/design/widgets/sonus_frosted_glass.dart';
 import '../../../application/models/library_artist.dart';
 import '../../models/artist_profile_sections.dart';
 
@@ -582,19 +583,32 @@ class _Standing extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 8),
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ExcludeSemantics(
-              child: Icon(
-                Icons.headphones_rounded,
-                size: 18,
-                color: profile.accent,
+        // Profile Lab: the listening statistics on a small plate.
+        SonusFrostedGlass(
+          key: const ValueKey<String>('artist-profile-stats-plate'),
+          frosted: !flat,
+          tint: profile.surface,
+          light: profile.light,
+          shadow: profile.backgroundDeep,
+          solid: profile.surface,
+          edge: SonusTheme.of(context).colors.border,
+          borderRadius: 14,
+          raised: false,
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ExcludeSemantics(
+                child: Icon(
+                  Icons.headphones_rounded,
+                  size: 18,
+                  color: profile.accent,
+                ),
               ),
-            ),
-            const SizedBox(width: 6),
-            Flexible(child: listening),
-          ],
+              const SizedBox(width: 6),
+              Flexible(child: listening),
+            ],
+          ),
         ),
       ],
     );

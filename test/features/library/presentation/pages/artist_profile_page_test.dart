@@ -171,7 +171,16 @@ void main() {
 
         expect(find.text('Songs'), findsNothing);
         expect(find.text('Featured On'), findsNothing);
-        expect(find.text('Collaborations'), findsOneWidget);
+        // The section, not the section tab of the same name.
+        expect(
+          find.descendant(
+            of: find.byKey(
+              const ValueKey<String>('artist-profile-collaborations'),
+            ),
+            matching: find.text('Collaborations'),
+          ),
+          findsOneWidget,
+        );
         expect(find.text('Featured Song'), findsOneWidget);
         // Their own song on their own album is not a collaboration.
         expect(find.text('Primary Song'), findsNothing);
