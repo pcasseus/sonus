@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sonus_next/core/build/sonus_build_info.dart';
 import 'package:sonus_next/core/database/app_database.dart';
 import 'package:sonus_next/core/design/sonus_theme_factory.dart';
 import 'package:sonus_next/core/design/sonus_theme_id.dart';
@@ -20,6 +21,7 @@ import 'package:sonus_next/features/settings/domain/models/settings_data_coverag
 import 'package:sonus_next/features/settings/presentation/pages/about_sonus_page.dart';
 import 'package:sonus_next/features/settings/presentation/pages/accessibility_settings_page.dart';
 import 'package:sonus_next/features/settings/presentation/pages/account_cloud_settings_page.dart';
+import 'package:sonus_next/features/settings/presentation/pages/appearance_summary_page.dart';
 import 'package:sonus_next/features/settings/presentation/pages/data_privacy_page.dart';
 import 'package:sonus_next/features/settings/presentation/pages/library_settings_page.dart';
 import 'package:sonus_next/features/settings/presentation/pages/listening_settings_page.dart';
@@ -600,6 +602,44 @@ void main() {
       );
     });
 
+    testWidgets('shows the build commit, time and type', (tester) async {
+      stubAppInfoChannel(tester, null);
+      final harness = await _Harness.create();
+
+      await tester.pumpWidget(
+        harness.app(
+          const AboutSonusPage(
+            buildInfo: SonusBuildInfo(
+              commit: '4d640c4',
+              time: '2026-11-06T10:00:00Z',
+              mode: SonusBuildMode.release,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.widget<Text>(find.byKey(_key('about-build-details'))).data,
+        'Commit: 4d640c4\nBuilt: 2026-11-06T10:00:00Z\nType: Release',
+      );
+    });
+
+    testWidgets('says the build commit was not recorded', (tester) async {
+      stubAppInfoChannel(tester, null);
+      final harness = await _Harness.create();
+
+      await tester.pumpWidget(harness.app(const AboutSonusPage()));
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.widget<Text>(find.byKey(_key('about-build-details'))).data,
+        'Commit: ${SonusBuildInfo.commitNotRecorded}\n'
+        'Built: Not recorded\n'
+        'Type: Debug',
+      );
+    });
+
     testWidgets('opens the open-source licenses', (tester) async {
       await tester.binding.setSurfaceSize(const Size(420, 1600));
       addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -628,6 +668,45 @@ void main() {
       expect(harness.appearance.spec.reduceMotion, isTrue);
     });
 
+    testWidgets('opens the read-only appearance summary', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(420, 2000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final harness = await _Harness.create();
+      await harness.appearance.setLowEffects(true);
+
+      await tester.pumpWidget(harness.app(const AccessibilitySettingsPage()));
+      await tester.pumpAndSettle();
+      final open = find.byKey(_key('accessibility-open-summary'));
+      await tester.ensureVisible(open);
+      await tester.pumpAndSettle();
+      await tester.tap(open);
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(_key('appearance-summary-page')), findsOneWidget);
+      expect(
+        find.byKey(_key('appearance-summary-cause-lowEffects')),
+        findsOneWidget,
+      );
+      expect(
+        find.text(
+          'Low effects is on: artwork backgrounds, glows and glass are off '
+          'on this device.',
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('the summary says when nothing limits atmospheres', (
+      tester,
+    ) async {
+      final harness = await _Harness.create();
+
+      await tester.pumpWidget(harness.app(const AppearanceSummaryPage()));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(_key('appearance-summary-cause-none')), findsOneWidget);
+    });
+
     testWidgets('explains when accessibility settings are unavailable', (
       tester,
     ) async {
@@ -650,6 +729,7 @@ void main() {
     for (final page in const <Widget>[
       AccountCloudSettingsPage(),
       AccessibilitySettingsPage(),
+      AppearanceSummaryPage(),
       PlaybackSettingsPage(),
       LibrarySettingsPage(),
       ListeningSettingsPage(),
