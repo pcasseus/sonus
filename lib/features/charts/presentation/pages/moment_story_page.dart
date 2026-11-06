@@ -3,6 +3,8 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../../../core/design/sonus_theme.dart';
+import '../../application/models/chart_moment_feed_item.dart';
+import '../../domain/moments/chart_moment_scope.dart';
 import '../../application/services/moment_chart_journey_service.dart';
 import '../../domain/models/chart_type.dart';
 import '../../domain/services/all_time_history_replay.dart';
@@ -61,9 +63,29 @@ class MomentStoryPage extends StatefulWidget {
 class _MomentStoryPageState extends State<MomentStoryPage> {
   Future<MomentChartJourney?>? _journey;
 
-  bool get _hasSubjectChart =>
-      !widget.story.family.name.startsWith('artist') &&
-      widget.story.facts.chartType == widget.story.item.chartType;
+  /// Why this story has no Chart Journey, or null when it has one. Day-by-
+  /// day ranks are reconstructed only for the all-time charts (from the
+  /// stored qualified plays); a weekly story never borrows them, and an
+  /// artist story has no chart position to follow.
+  String? get _unavailableReason {
+    final story = widget.story;
+    final item = story.item;
+    final chart = item.chartType == ChartType.albums
+        ? 'Sonus Albums & EPs'
+        : 'Sonus Hot 100';
+    if (story.family.name.startsWith('artist') ||
+        item.subjectType == ChartMomentFeedSubjectType.artist) {
+      return 'Chart journeys follow songs and releases; this story is about '
+          'an artist.';
+    }
+    if (item.scope != ChartMomentScope.allTime) {
+      return 'This story is from the weekly $chart. Day-by-day ranks are '
+          'kept only for the all-time $chart, so no journey is shown here.';
+    }
+    return null;
+  }
+
+  bool get _hasSubjectChart => _unavailableReason == null;
 
   @override
   void initState() {
@@ -138,13 +160,15 @@ class _MomentStoryPageState extends State<MomentStoryPage> {
               ],
               const SizedBox(height: 18),
               _StatTiles(story: story, journey: journey, palette: palette),
-              if (_journey != null) ...[
+              if (_journey != null ||
+                  (widget.journey != null && _unavailableReason != null)) ...[
                 const SizedBox(height: 16),
                 _JourneyCard(
                   story: story,
                   journey: journey,
                   loading: loading,
                   palette: palette,
+                  unavailableReason: _unavailableReason,
                 ),
                 if (journey != null) ...[
                   const SizedBox(height: 16),
@@ -476,12 +500,16 @@ class _JourneyCard extends StatelessWidget {
     required this.journey,
     required this.loading,
     required this.palette,
+    this.unavailableReason,
   });
 
   final MomentStory story;
   final MomentChartJourney? journey;
   final bool loading;
   final MomentEditorialPalette palette;
+
+  /// Set when no journey on this story's own chart can be reconstructed.
+  final String? unavailableReason;
 
   @override
   Widget build(BuildContext context) {
@@ -495,7 +523,19 @@ class _JourneyCard extends StatelessWidget {
         : 'Sonus Hot 100';
 
     Widget content;
-    if (loading) {
+    final reason = unavailableReason;
+    if (reason != null) {
+      content = Padding(
+        key: ValueKey<String>('moment-story-journey-unavailable-${story.id}'),
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Text(
+          reason,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: colors.textSecondary,
+          ),
+        ),
+      );
+    } else if (loading) {
       content = const Padding(
         padding: EdgeInsets.symmetric(vertical: 24),
         child: Center(child: CircularProgressIndicator()),
@@ -556,13 +596,15 @@ class _JourneyCard extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(height: 4),
-          Text(
-            'Rank at the close of each completed day, all-time $chartName.',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: colors.textSecondary,
+          if (reason == null) ...[
+            const SizedBox(height: 4),
+            Text(
+              'Rank at the close of each completed day, all-time $chartName.',
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: colors.textSecondary,
+              ),
             ),
-          ),
+          ],
           const SizedBox(height: 10),
           content,
         ],
