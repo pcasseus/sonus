@@ -21,14 +21,13 @@ import '../../models/alphabet_index.dart';
 import '../../models/artist_library_statistics.dart';
 import '../../models/artist_roster_view.dart';
 import '../film_reel/artist_film_reel.dart';
-import '../library_view_switch.dart';
 
 /// The Artist Roster (UI redesign L2), the Library's default screen: a
 /// fighting-game style character select over the Library's artists.
 /// Tapping a portrait previews the artist above the grid; tapping the
 /// featured portrait or SELECT ARTIST opens their Artist Profile
-/// ([onOpenArtist]). The previewed artist is the Library's selection, shared
-/// with the Film Reel ([selectedArtistId], [onSelected]).
+/// ([onOpenArtist]). The previewed artist is the Library's selection
+/// ([selectedArtistId], [onSelected]).
 ///
 /// The grid is sideways pages of portraits (D2); sort and A-Z move to the
 /// page that holds what was asked for, and the search icon opens the Artist
@@ -54,7 +53,6 @@ class ArtistRoster extends StatefulWidget {
     this.sort = ArtistStatisticsSort.qualifiedStreams,
     this.onSortChanged,
     this.onFind,
-    this.onSwitchView,
     this.artworkPalette,
   });
 
@@ -84,9 +82,6 @@ class ArtistRoster extends StatefulWidget {
 
   /// Opens the Artist Finder; no search icon without it.
   final VoidCallback? onFind;
-
-  /// Switches the Library to another view; no switch without it.
-  final ValueChanged<LibraryView>? onSwitchView;
 
   final SonusArtworkPalette? artworkPalette;
 
@@ -331,7 +326,7 @@ class _ArtistRosterState extends State<ArtistRoster> {
     _perPage = perPage;
     _page = page;
     // The page comes from the previewed artist (by id), never from a page
-    // saved in the Library tab's PageStorage, which the Film Reel shares.
+    // saved in the Library tab's PageStorage.
     final replacement = PageController(initialPage: page, keepPage: false);
     if (current != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) => current.dispose());
@@ -466,7 +461,6 @@ class _ArtistRosterState extends State<ArtistRoster> {
           onFind: widget.onFind,
           onSort: _setSort,
           onLetters: _chooseLetter,
-          onSwitchView: widget.onSwitchView,
         );
         final grid = _grid(
           colors,
@@ -1221,8 +1215,8 @@ class _StatsGrid extends StatelessWidget {
   }
 }
 
-/// The Roster's one row of controls (Option C): find, sort, A-Z and the
-/// switch to the Film Reel. Two rows on narrow screens and with large text.
+/// The Roster's one row of controls (Option C): find, sort and A-Z. Two
+/// rows on narrow screens and with large text.
 class _Controls extends StatelessWidget {
   const _Controls({
     required this.colors,
@@ -1231,7 +1225,6 @@ class _Controls extends StatelessWidget {
     required this.onFind,
     required this.onSort,
     required this.onLetters,
-    required this.onSwitchView,
   });
 
   final SonusCinematicColors colors;
@@ -1240,13 +1233,11 @@ class _Controls extends StatelessWidget {
   final VoidCallback? onFind;
   final ValueChanged<ArtistStatisticsSort> onSort;
   final VoidCallback onLetters;
-  final ValueChanged<LibraryView>? onSwitchView;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final onFind = this.onFind;
-    final onSwitchView = this.onSwitchView;
     Widget squareButton({
       required Key key,
       required String tooltip,
@@ -1274,19 +1265,6 @@ class _Controls extends StatelessWidget {
             tooltip: 'Find an artist',
             icon: Icons.search_rounded,
             onPressed: onFind,
-          );
-    final toReel = onSwitchView == null
-        ? null
-        : Semantics(
-            button: true,
-            label: '${LibraryView.filmReel.label} view',
-            excludeSemantics: true,
-            child: squareButton(
-              key: const ValueKey<String>('library-view-reel'),
-              tooltip: 'Show the ${LibraryView.filmReel.label}',
-              icon: LibraryView.filmReel.icon,
-              onPressed: () => onSwitchView(LibraryView.filmReel),
-            ),
           );
     final sortMenu = PopupMenuButton<ArtistStatisticsSort>(
       key: const ValueKey<String>('roster-sort'),
@@ -1364,7 +1342,6 @@ class _Controls extends StatelessWidget {
             Expanded(child: sortMenu),
             const SizedBox(width: 8),
             letters,
-            if (toReel != null) ...[const SizedBox(width: 8), toReel],
           ],
         ),
       );
@@ -1378,7 +1355,6 @@ class _Controls extends StatelessWidget {
             children: [
               if (find != null) ...[find, const SizedBox(width: 8)],
               Expanded(child: letters),
-              if (toReel != null) ...[const SizedBox(width: 8), toReel],
             ],
           ),
           const SizedBox(height: 8),

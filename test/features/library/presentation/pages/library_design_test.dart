@@ -1,17 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:provider/provider.dart';
 import 'package:sonus_next/core/design/sonus_theme_factory.dart';
 import 'package:sonus_next/core/design/sonus_theme_id.dart';
 import 'package:sonus_next/core/design/sonus_tokens.dart';
 import 'package:sonus_next/features/library/application/models/library_artist.dart';
-import 'package:sonus_next/features/library/application/repositories/library_query_repository.dart';
-import 'package:sonus_next/features/library/presentation/pages/library_page.dart';
-import 'package:sonus_next/features/library/presentation/widgets/library_view_switch.dart';
 
+import '../widgets/film_reel/film_reel_harness.dart';
 import 'library_page_test.dart' as base;
 
-// SN-48H: Artists Library presentation. Fictional fixtures only.
+// SN-48H: the artist Film Reel's presentation (retired from the Library in
+// App Update 1.1; kept for the future Sonus Wrapped). Fictional fixtures.
 void main() {
   List<LibraryArtist> artists() => [
     base.createArtist(
@@ -36,28 +34,13 @@ void main() {
     SonusAppearanceSpec spec = const SonusAppearanceSpec(),
     Size size = const Size(411, 900),
     double textScale = 1,
-  }) async {
-    await tester.binding.setSurfaceSize(size);
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-    await tester.pumpWidget(
-      Provider<LibraryQueryRepository?>.value(
-        value: base.FakeLibraryQueryRepository(artists: artists()),
-        child: MaterialApp(
-          theme: SonusThemeFactory.build(spec),
-          builder: (context, child) => MediaQuery(
-            data: MediaQuery.of(
-              context,
-            ).copyWith(textScaler: TextScaler.linear(textScale)),
-            child: child!,
-          ),
-          home: const Scaffold(
-            body: LibraryPage(initialView: LibraryView.filmReel),
-          ),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-  }
+  }) => pumpFilmReel(
+    tester,
+    artists: artists(),
+    spec: spec,
+    size: size,
+    textScale: textScale,
+  );
 
   Finder byKey(String key) => find.byKey(ValueKey<String>(key));
 

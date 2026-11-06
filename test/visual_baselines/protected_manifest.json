@@ -61,65 +61,6 @@
         "lib/features/shell/presentation/widgets/sonus_system_bars.dart"
       ]
     },
-    "film_reel": {
-      "title": "Film Reel (approved, unchanged)",
-      "tests": [
-        "test/visual_baselines/film_reel_baseline_test.dart",
-        "test/features/library/presentation/widgets/film_reel/artist_film_reel_test.dart"
-      ],
-      "ownedPatterns": [
-        "lib/features/library/presentation/widgets/film_reel/*.dart",
-        "lib/core/design/widgets/sonus_perspective_panel.dart"
-      ],
-      "hosts": [
-        "lib/features/library/presentation/pages/library_page.dart",
-        "lib/features/shell/presentation/pages/app_shell_page.dart",
-        "lib/features/shell/presentation/widgets/playback_host.dart",
-        "lib/features/shell/presentation/widgets/shell_playback_slot.dart",
-        "lib/core/design/widgets/playback/sonus_mini_player.dart"
-      ],
-      "owned": [
-        "lib/core/design/widgets/sonus_perspective_panel.dart",
-        "lib/features/library/presentation/widgets/film_reel/artist_film_reel.dart"
-      ],
-      "shared": [
-        "lib/app/sonus_app.dart",
-        "lib/core/design/artwork/sonus_artwork_tint.dart",
-        "lib/core/design/sonus_artwork_palette.dart",
-        "lib/core/design/sonus_atmosphere_colors.dart",
-        "lib/core/design/sonus_cinematic_colors.dart",
-        "lib/core/design/sonus_contrast.dart",
-        "lib/core/design/sonus_count_label.dart",
-        "lib/core/design/sonus_reactivity.dart",
-        "lib/core/design/sonus_theme.dart",
-        "lib/core/design/sonus_theme_catalog.dart",
-        "lib/core/design/sonus_theme_definition.dart",
-        "lib/core/design/sonus_theme_factory.dart",
-        "lib/core/design/sonus_theme_id.dart",
-        "lib/core/design/sonus_tokens.dart",
-        "lib/core/design/sonus_typography.dart",
-        "lib/core/design/widgets/playback/sonus_mini_player.dart",
-        "lib/core/design/widgets/sonus_artwork_atmosphere_builder.dart",
-        "lib/core/design/widgets/sonus_artwork_backdrop.dart",
-        "lib/core/design/widgets/sonus_artwork_colors_request.dart",
-        "lib/core/design/widgets/sonus_artwork_frame.dart",
-        "lib/core/design/widgets/sonus_artwork_image.dart",
-        "lib/core/design/widgets/sonus_brand_mark.dart",
-        "lib/core/design/widgets/sonus_cinematic_atmosphere_builder.dart",
-        "lib/core/design/widgets/sonus_decorations.dart",
-        "lib/core/design/widgets/sonus_glass_panel.dart",
-        "lib/core/design/widgets/sonus_state_view.dart",
-        "lib/features/library/presentation/pages/library_page.dart",
-        "lib/features/settings/presentation/scopes/appearance_scope.dart",
-        "lib/features/shell/application/controllers/app_shell_controller.dart",
-        "lib/features/shell/domain/models/app_destination.dart",
-        "lib/features/shell/presentation/pages/app_shell_page.dart",
-        "lib/features/shell/presentation/widgets/keyboard_inset_guard.dart",
-        "lib/features/shell/presentation/widgets/playback_host.dart",
-        "lib/features/shell/presentation/widgets/shell_playback_slot.dart",
-        "lib/features/shell/presentation/widgets/sonus_system_bars.dart"
-      ]
-    },
     "home": {
       "title": "Home",
       "tests": [
@@ -309,7 +250,6 @@
     "lib/core/design/widgets/sonus_decorations.dart": "a73c415b6d3ee7c5afa8c89ee1cd58870973dd68e67d20ce670c8b2d22cfcf90",
     "lib/core/design/widgets/sonus_framed_artwork.dart": "736794a04b7872860fa790e8cda63079b0d77b65ce1f0cb3ef346ef457677038",
     "lib/core/design/widgets/sonus_glass_panel.dart": "a7a8ea60ba0ee9c730f516789924931a6abec60e73c1a60edf05f8c0f2138ae8",
-    "lib/core/design/widgets/sonus_perspective_panel.dart": "f0e67ae42d781ab7ff1d94410125f352de3e660103b1c774081b6ad2d770608a",
     "lib/core/design/widgets/sonus_state_view.dart": "e7f977f470d2e50caf71e312348dcf17325f343491f3cc71e9fa14cbfd741ed3",
     "lib/core/design/widgets/sonus_word_fit_text.dart": "0edc5de1397193d3114434ea8a14380ea0afd132c373f6adda45003e38d1a0a4",
     "lib/features/home/application/models/home_popular_track.dart": "1a194f93e23b93e078789a8e9d6a19bb6f77002f4f66019ea4e00e6484126291",
@@ -320,9 +260,8 @@
     "lib/features/home/presentation/controllers/home_controller.dart": "7d4726023dbe09ed74eded52f2f735635d4a24d275cde652db91f385f3385803",
     "lib/features/home/presentation/pages/home_page.dart": "e8848ea6fb8f3f7f28e22a4ccf30f4a4b7bed7b96069eab0cca4c4be9ade142d",
     "lib/features/home/presentation/scopes/home_scope.dart": "2a132edb4959462dc6b172c31b2efdcec11211d4772ba2ad2981f11e0f8efa53",
-    "lib/features/library/presentation/pages/library_page.dart": "97380008f13a6da0105c0eead6dd789da0a376e6800baa63ef5fa0ccc25b7d4f",
-    "lib/features/library/presentation/widgets/film_reel/artist_film_reel.dart": "fde136df86cc6cfdd2b4ef58155ebf1af6e21b719c1cbdfed1c041ccae144fed",
-    "lib/features/library/presentation/widgets/roster/artist_roster.dart": "fafbaa7e1482a2768340888ee6d547345a05a658061ff8ac7a4825e7dcceb29c",
+    "lib/features/library/presentation/pages/library_page.dart": "4f725ab06918902d006136d867dbb91da45ed8d46eade9c356de73dd51f23a3e",
+    "lib/features/library/presentation/widgets/roster/artist_roster.dart": "9980315edf3d00c33e54105681f81d3bfce720e9abbf805bc7a422e922299f8b",
     "lib/features/player/presentation/pages/now_playing_page.dart": "4d7805a22dea9d129df996ce14a88979fd5bd06058d86e0c28b784616c3ef6b3",
     "lib/features/settings/presentation/scopes/appearance_scope.dart": "f39d676979c07c14c3c918a4aab4b7be417b8c0d0e28532d735e5cda66bdbf04",
     "lib/features/shell/application/controllers/app_shell_controller.dart": "c337f5b8b9367c58ced794a575bafe46bc9f898b0ba1e524c963aae651af92f4",
@@ -467,6 +406,21 @@
           "lib/features/library/presentation/pages/library_page.dart"
         ],
         "film_reel": [
+          "lib/features/library/presentation/pages/library_page.dart"
+        ]
+      },
+      "dependencyListChanges": []
+    },
+    {
+      "date": "2026-11-06",
+      "approval": "AU11-REEL-RETIRE: Film Reel retired from the Library; Roster is the only artist view; the Roster's Film Reel switch button removed (Sort/A-Z take its space; artwork, geometry, typography and statistics unchanged); film_reel protected screen retired, goldens archived in docs/design/film_reel. Approved by the user, 2026-11-06 (Retire Film Reel from Library and Prepare GitHub Merge).",
+      "protectedChanges": {
+        "roster": [
+          "lib/features/library/presentation/widgets/roster/artist_roster.dart"
+        ]
+      },
+      "sharedChanges": {
+        "roster": [
           "lib/features/library/presentation/pages/library_page.dart"
         ]
       },

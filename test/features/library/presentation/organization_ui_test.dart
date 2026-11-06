@@ -10,12 +10,14 @@ import 'package:sonus_next/features/library/application/services/library_organiz
 import 'package:sonus_next/features/library/domain/entities/song_artist_credit.dart';
 import 'package:sonus_next/features/library/presentation/models/artist_profile_sections.dart';
 import 'package:sonus_next/features/library/presentation/pages/library_page.dart';
-import 'package:sonus_next/features/library/presentation/widgets/library_view_switch.dart';
 import 'package:sonus_next/features/library/presentation/widgets/artist_profile/artist_library_placement_sheet.dart';
 
 import 'pages/library_page_test.dart' as lib;
 
 // Soundtrack collaborators and reversible Library organization (UI).
+Finder _tile(String artistId) =>
+    find.byKey(ValueKey<String>('roster-tile-$artistId'));
+
 void main() {
   group('credited collaborators', () {
     ProjectSongCredit credit(
@@ -91,9 +93,7 @@ void main() {
           ],
           child: MaterialApp(
             theme: SonusThemeFactory.build(const SonusAppearanceSpec()),
-            home: const Scaffold(
-              body: LibraryPage(initialView: LibraryView.filmReel),
-            ),
+            home: const Scaffold(body: LibraryPage()),
           ),
         ),
       );
@@ -105,8 +105,8 @@ void main() {
     ) async {
       await pumpLibrary(tester, _FakeOrganization(grouped: {'cast': 'ost'}));
 
-      expect(find.text('Lead Artist'), findsOneWidget);
-      expect(find.text('Cast Member'), findsNothing);
+      expect(_tile('lead'), findsOneWidget);
+      expect(_tile('cast'), findsNothing);
       // A plain count of the artists listed; no note about grouping.
       expect(find.text('1 artist'), findsOneWidget);
       expect(find.textContaining('listed under a project'), findsNothing);
@@ -117,8 +117,8 @@ void main() {
     ) async {
       await pumpLibrary(tester, _FakeOrganization(failLoad: true));
 
-      expect(find.text('Lead Artist'), findsOneWidget);
-      expect(find.text('Cast Member'), findsOneWidget);
+      expect(_tile('lead'), findsOneWidget);
+      expect(_tile('cast'), findsOneWidget);
     });
   });
 

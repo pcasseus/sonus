@@ -8,7 +8,6 @@ import 'package:sonus_next/features/library/presentation/models/artist_library_s
 import 'package:sonus_next/features/library/presentation/models/library_navigation_memory.dart';
 import 'package:sonus_next/features/library/presentation/pages/library_page.dart';
 import 'package:sonus_next/features/library/presentation/services/artist_library_statistics_service.dart';
-import 'package:sonus_next/features/library/presentation/widgets/library_view_switch.dart';
 
 import '../../pages/library_page_test.dart' as base;
 
@@ -24,7 +23,7 @@ class _Stats implements ArtistLibraryStatisticsService {
   final List<LibraryArtist> artists;
 
   /// As on the device, the statistics can arrive after the first frame
-  /// (the views then update, and the Film Reel reports its centred artist).
+  /// (the Roster then updates).
   final Duration delay;
 
   /// Artist a<i> has 100 - i streams: "Most played" runs a0, a1, …
@@ -77,7 +76,6 @@ void main() {
     WidgetTester tester, {
     List<LibraryArtist>? artists,
     LibraryNavigationMemory? using,
-    LibraryView view = LibraryView.roster,
     Duration statsDelay = Duration.zero,
   }) async {
     final list = artists ?? _roster();
@@ -95,12 +93,7 @@ void main() {
         ],
         child: MaterialApp(
           theme: SonusThemeFactory.build(const SonusAppearanceSpec()),
-          home: Scaffold(
-            body: LibraryPage(
-              navigationMemory: using ?? memory,
-              initialView: view,
-            ),
-          ),
+          home: Scaffold(body: LibraryPage(navigationMemory: using ?? memory)),
         ),
       ),
     );
@@ -309,172 +302,60 @@ void main() {
     expect(byKey('roster-featured-name'), findsNothing);
   });
 
-  testWidgets('Roster and Film Reel share the featured artist', (tester) async {
-    await enter(tester);
-    await tester.tap(byKey('roster-page-next'));
-    await tester.pumpAndSettle();
-    await tapTile(tester, 13);
-
-    await tester.tap(byKey('library-view-reel'));
-    await tester.pumpAndSettle();
-    expect(byKey('film-reel-pages'), findsOneWidget);
-    expect(find.textContaining('Artist 13'), findsWidgets);
-
-    await tester.tap(byKey('library-view-roster'));
-    await tester.pumpAndSettle();
-    expectFeatured(tester, 13, 'Page 2 of 3');
-  });
-
-  // App Update 1.1 entry-state correction: the Roster's session is its
-  // own; the Film Reel's automatic first centring never moves it.
-  group('Roster session independent of the Film Reel', () {
-    /// The library lists artists in the reverse of the "Most played"
-    /// order (as the device lists them by name): the reel centres a29
-    /// first, while the Roster's first (most played) is a0.
-    const reelFirst = 29;
+  // App Update 1.1: the Film Reel is retired, so the Library opens straight
+  // into the Roster. As on the device, the library lists artists in another
+  // order than "Most played" and the statistics arrive after the first
+  // frame; the Roster still starts on Page 1 with its first artist.
+  group('the Roster as the only artist view', () {
+    const late = Duration(milliseconds: 300);
     List<LibraryArtist> listed() => _roster().reversed.toList();
 
-    late WidgetTester current;
+    testWidgets('1. opens directly in the Roster: no view switch', (
+      tester,
+    ) async {
+      await enter(tester, artists: listed(), statsDelay: late);
 
-    /// The artist number of the reel's centred card (its neighbours are
-    /// built too).
-    int centred() {
-      final pages = current.getRect(byKey('film-reel-pages'));
-      int? best;
-      var distance = double.infinity;
-      for (var i = 0; i < 30; i++) {
-        final card = byKey('artist-open-a$i');
-        if (card.evaluate().isEmpty) continue;
-        final d = (current.getCenter(card) - pages.center).distance;
-        if (d < distance) {
-          distance = d;
-          best = i;
-        }
-      }
-      return best!;
-    }
-
-    bool reelShows(int i) => centred() == i;
-
-    Future<void> toRoster(WidgetTester tester) async {
-      await tester.tap(byKey('library-view-roster').first);
-      await tester.pumpAndSettle();
-    }
-
-    Future<void> toReel(WidgetTester tester) async {
-      await tester.tap(byKey('library-view-reel').first);
-      await tester.pumpAndSettle();
-    }
-
-    testWidgets('1. saved Film Reel view, fresh launch, then the Roster: '
-        'Page 1, first artist', (tester) async {
-      current = tester;
-      await enter(
-        tester,
-        artists: listed(),
-        statsDelay: const Duration(milliseconds: 300),
-        view: LibraryView.filmReel,
-      );
-      expect(reelShows(reelFirst), isTrue, reason: 'the reel is unchanged');
-
-      await toRoster(tester);
+      expect(byKey('artist-roster'), findsOneWidget);
+      expect(byKey('film-reel-pages'), findsNothing);
+      expect(byKey('library-view-reel'), findsNothing);
+      expect(byKey('library-view-roster'), findsNothing);
       expectFeatured(tester, 0, 'Page 1 of 3');
     });
 
-    testWidgets('2. saved Roster view, fresh launch: Page 1, first artist', (
-      tester,
-    ) async {
-      current = tester;
+    testWidgets('2. a fresh launch: Page 1, first artist', (tester) async {
       await enter(
         tester,
         artists: listed(),
-        statsDelay: const Duration(milliseconds: 300),
+        statsDelay: late,
         using: LibraryNavigationMemory(clock: () => clock.now),
       );
       expectFeatured(tester, 0, 'Page 1 of 3');
     });
 
-    testWidgets("3. the reel's automatic selection stays the reel's", (
-      tester,
-    ) async {
-      current = tester;
-      await enter(
-        tester,
-        artists: listed(),
-        statsDelay: const Duration(milliseconds: 300),
-        view: LibraryView.filmReel,
-      );
-      expect(reelShows(reelFirst), isTrue);
-      await leave(tester);
-
-      // Nothing was chosen: the Roster still starts at its default.
-      clock.advance(const Duration(minutes: 2));
-      await enter(tester, artists: listed());
-      expectFeatured(tester, 0, 'Page 1 of 3');
-    });
-
-    testWidgets('4. switching views within 15 minutes keeps a choice made in '
-        'either', (tester) async {
-      current = tester;
-      await enter(tester, artists: listed());
+    testWidgets('3. a choice is kept within 15 minutes', (tester) async {
+      await enter(tester, artists: listed(), statsDelay: late);
       await tester.tap(byKey('roster-page-next'));
       await tester.pumpAndSettle();
       await tapTile(tester, 14);
-
-      await toReel(tester);
-      expect(reelShows(14), isTrue, reason: "the Roster's choice");
-
-      // A reel swipe is a choice: the Roster follows it.
-      await tester.tap(byKey('film-reel-next'));
-      await tester.pumpAndSettle();
-      final next = centred();
-      expect(next, isNot(14));
-      await toRoster(tester);
-      expect(featured(tester), _name(next));
-      expect(visible('a$next'), isTrue);
-
       await leave(tester);
+
       clock.advance(const Duration(minutes: 10));
-      await enter(
-        tester,
-        artists: listed(),
-        statsDelay: const Duration(milliseconds: 300),
-        view: LibraryView.filmReel,
-      );
-      expect(reelShows(next), isTrue);
-      await toRoster(tester);
-      expect(featured(tester), _name(next));
+      await enter(tester, artists: listed(), statsDelay: late);
+      expectFeatured(tester, 14, 'Page 2 of 3');
     });
 
-    testWidgets('5. after 15 minutes both views start afresh', (tester) async {
-      current = tester;
+    testWidgets('4. after 15 minutes: Page 1, first artist', (tester) async {
       await enter(tester, artists: listed());
       await tapTile(tester, 6);
       await leave(tester);
 
       clock.advance(const Duration(minutes: 16));
-      await enter(
-        tester,
-        artists: listed(),
-        statsDelay: const Duration(milliseconds: 300),
-        view: LibraryView.filmReel,
-      );
-      expect(reelShows(reelFirst), isTrue);
-      await toRoster(tester);
+      await enter(tester, artists: listed(), statsDelay: late);
       expectFeatured(tester, 0, 'Page 1 of 3');
     });
 
-    testWidgets('6. after the reel: tapping an artist and SELECT ARTIST', (
-      tester,
-    ) async {
-      current = tester;
-      await enter(
-        tester,
-        artists: listed(),
-        statsDelay: const Duration(milliseconds: 300),
-        view: LibraryView.filmReel,
-      );
-      await toRoster(tester);
+    testWidgets('5. tapping an artist and SELECT ARTIST', (tester) async {
+      await enter(tester, artists: listed(), statsDelay: late);
       await tapTile(tester, 4);
       expectFeatured(tester, 4, 'Page 1 of 3');
 
@@ -484,15 +365,8 @@ void main() {
       expect(find.text(_name(4, upper: false)), findsWidgets);
     });
 
-    testWidgets('7. after the reel: paging and sorting', (tester) async {
-      current = tester;
-      await enter(
-        tester,
-        artists: listed(),
-        statsDelay: const Duration(milliseconds: 300),
-        view: LibraryView.filmReel,
-      );
-      await toRoster(tester);
+    testWidgets('6. paging and sorting', (tester) async {
+      await enter(tester, artists: listed(), statsDelay: late);
 
       await tester.tap(byKey('roster-page-next'));
       await tester.pumpAndSettle();

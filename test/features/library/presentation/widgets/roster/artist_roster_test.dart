@@ -115,11 +115,6 @@ void main() {
     expect(byKey('artist-roster'), findsOneWidget, reason: 'the default');
   }
 
-  Future<void> switchTo(WidgetTester tester, String view) async {
-    await tester.tap(byKey('library-view-$view'));
-    await tester.pumpAndSettle();
-  }
-
   String featuredName(WidgetTester tester) =>
       tester.widget<Text>(byKey('roster-featured-name')).data!;
 
@@ -181,69 +176,23 @@ void main() {
       expect(byKey('artist-profile-page'), findsOneWidget);
     });
 
-    testWidgets('the selection is shared with the Film Reel, both ways', (
+    // App Update 1.1: the Film Reel is retired from the Library.
+    testWidgets('the Roster is the only artist view: no view switch', (
       tester,
     ) async {
-      await pump(tester);
-      await tester.tap(byKey('roster-tile-zed'));
-      await tester.pumpAndSettle();
-
-      await switchTo(tester, 'reel');
-      expect(byKey('film-reel-pages'), findsOneWidget);
-      expect(find.text('#2'), findsOneWidget, reason: 'Zed is centred');
-
-      await tester.tap(byKey('film-reel-previous'));
-      await tester.pumpAndSettle();
-      await switchTo(tester, 'roster');
-
-      expect(featuredName(tester), 'BEN VALE');
-    });
-
-    testWidgets('the Film Reel still opens profiles', (tester) async {
-      await pump(tester);
-      await switchTo(tester, 'reel');
-
-      await tester.tap(byKey('artist-open-ada'));
-      await tester.pumpAndSettle();
-
-      expect(byKey('artist-profile-page'), findsOneWidget);
-    });
-
-    testWidgets('the Film Reel\'s search icon opens the Artist Finder, and '
-        'the chosen artist is centred in the Film Reel', (tester) async {
-      await pump(tester);
-      await switchTo(tester, 'reel');
-
-      await tester.tap(byKey('library-search-button'));
-      await tester.pumpAndSettle();
-      expect(byKey('artist-finder-page'), findsOneWidget);
-
-      await tester.tap(byKey('artist-finder-zed'));
-      await tester.pumpAndSettle();
-
-      expect(byKey('artist-finder-page'), findsNothing);
-      expect(byKey('film-reel-pages'), findsOneWidget, reason: 'same view');
-      expect(find.text('#2'), findsOneWidget, reason: 'Zed is centred');
-    });
-
-    testWidgets('the view switch says which view is shown', (tester) async {
       final handle = tester.ensureSemantics();
       await pump(tester);
 
-      // In the Roster, one button: to the Film Reel.
-      expect(find.bySemanticsLabel('Film Reel view'), findsOneWidget);
+      expect(byKey('library-view-reel'), findsNothing);
       expect(byKey('library-view-roster'), findsNothing);
+      expect(find.bySemanticsLabel('Film Reel view'), findsNothing);
+      expect(find.byTooltip('Show the Film Reel'), findsNothing);
+      expect(byKey('film-reel-pages'), findsNothing);
       expect(
         find.bySemanticsLabel('Artist Roster, select an artist'),
         findsOneWidget,
         reason: 'the screen is named',
       );
-
-      // In the Film Reel, both, the Film Reel's lit.
-      await switchTo(tester, 'reel');
-      final reel = tester.getSemantics(byKey('library-view-reel'));
-      expect(reel.flagsCollection.isSelected, Tristate.isTrue);
-      expect(find.bySemanticsLabel('Artist Roster view'), findsOneWidget);
       handle.dispose();
     });
   });
@@ -302,8 +251,10 @@ void main() {
       await tester.pumpAndSettle();
       expect(left('ben'), lessThan(left('zed')));
 
-      await switchTo(tester, 'reel');
-      await switchTo(tester, 'roster');
+      await tester.tap(byKey('roster-select'));
+      await tester.pumpAndSettle();
+      await tester.pageBack();
+      await tester.pumpAndSettle();
       expect(find.text('Sort: Name'), findsOneWidget);
     });
 
@@ -537,8 +488,8 @@ void main() {
       final find0 = tester.getRect(byKey('roster-find'));
       final sort = tester.getRect(byKey('roster-sort'));
       final letters = tester.getRect(byKey('roster-az'));
-      final reel = tester.getRect(byKey('library-view-reel'));
-      for (final rect in [sort, letters, reel]) {
+      expect(byKey('library-view-reel'), findsNothing, reason: 'retired');
+      for (final rect in [sort, letters]) {
         expect(rect.center.dy, closeTo(find0.center.dy, 1));
       }
       expect(find.text('Sort: Most Played'), findsOneWidget);
@@ -779,17 +730,13 @@ void main() {
       expect(byKey('app-tab-library'), findsOneWidget);
     });
 
-    testWidgets('the Film Reel switch and the other tabs work as usual', (
-      tester,
-    ) async {
+    testWidgets('the tab opens on the Roster, with no view switch, and the '
+        'other tabs work as usual', (tester) async {
       await pumpInShell(tester);
 
-      await tester.tap(byKey('library-view-reel'));
-      await tester.pumpAndSettle();
-      expect(byKey('film-reel-pages'), findsOneWidget);
-      await tester.tap(byKey('library-view-roster'));
-      await tester.pumpAndSettle();
       expect(byKey('artist-roster'), findsOneWidget);
+      expect(byKey('library-view-reel'), findsNothing);
+      expect(byKey('film-reel-pages'), findsNothing);
 
       await tester.ensureVisible(byKey('app-tab-playlists'));
       await tester.pumpAndSettle();
