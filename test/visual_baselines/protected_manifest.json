@@ -320,9 +320,9 @@
     "lib/features/home/presentation/controllers/home_controller.dart": "7d4726023dbe09ed74eded52f2f735635d4a24d275cde652db91f385f3385803",
     "lib/features/home/presentation/pages/home_page.dart": "e8848ea6fb8f3f7f28e22a4ccf30f4a4b7bed7b96069eab0cca4c4be9ade142d",
     "lib/features/home/presentation/scopes/home_scope.dart": "2a132edb4959462dc6b172c31b2efdcec11211d4772ba2ad2981f11e0f8efa53",
-    "lib/features/library/presentation/pages/library_page.dart": "7cb64c87b502e2f9f2e2754f75b03d199d52ce2af6e56f3a9080e793bc826e52",
+    "lib/features/library/presentation/pages/library_page.dart": "7b2441a426d1d2b1e06495eaae74efcbeeca7e475685c820e20a65c6c208bc18",
     "lib/features/library/presentation/widgets/film_reel/artist_film_reel.dart": "fde136df86cc6cfdd2b4ef58155ebf1af6e21b719c1cbdfed1c041ccae144fed",
-    "lib/features/library/presentation/widgets/roster/artist_roster.dart": "7de3884db3605f0018a54634d739807db6f27c80f0f7d2d6d811d91293a8b8f8",
+    "lib/features/library/presentation/widgets/roster/artist_roster.dart": "fafbaa7e1482a2768340888ee6d547345a05a658061ff8ac7a4825e7dcceb29c",
     "lib/features/player/presentation/pages/now_playing_page.dart": "4d7805a22dea9d129df996ce14a88979fd5bd06058d86e0c28b784616c3ef6b3",
     "lib/features/settings/presentation/scopes/appearance_scope.dart": "f39d676979c07c14c3c918a4aab4b7be417b8c0d0e28532d735e5cda66bdbf04",
     "lib/features/shell/application/controllers/app_shell_controller.dart": "c337f5b8b9367c58ced794a575bafe46bc9f898b0ba1e524c963aae651af92f4",
@@ -436,6 +436,24 @@
         ],
         "home": [
           "lib/core/design/sonus_count_label.dart"
+        ]
+      },
+      "dependencyListChanges": []
+    },
+    {
+      "date": "2026-11-06",
+      "approval": "App Update 1.1 'Corrected Artist Roster Selection Behavior', requested by the user 2026-11-06: interaction only - default Page 1 with the sorted roster's first artist; paging/swipe features the page's first artist; A-Z features the letter's first artist; sorting keeps a still-listed artist on its page; the featured artist always on the visible page; 15-minute in-memory navigation memory (LibraryPage). No geometry, artwork, typography or styling change; 118 protected visual checks unchanged.",
+      "protectedChanges": {
+        "roster": [
+          "lib/features/library/presentation/widgets/roster/artist_roster.dart"
+        ]
+      },
+      "sharedChanges": {
+        "roster": [
+          "lib/features/library/presentation/pages/library_page.dart"
+        ],
+        "film_reel": [
+          "lib/features/library/presentation/pages/library_page.dart"
         ]
       },
       "dependencyListChanges": []

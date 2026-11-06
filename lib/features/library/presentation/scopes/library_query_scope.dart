@@ -26,6 +26,7 @@ import '../../../search/application/repositories/library_search_repository.dart'
 import '../../../sync/data/repositories/sync_mutation_transaction_runner.dart';
 import '../../../settings/application/controllers/metadata_intelligence_settings_controller.dart';
 import '../controllers/library_view_controller.dart';
+import '../models/library_navigation_memory.dart';
 import '../../application/repositories/library_query_repository.dart';
 import '../../application/services/album_edition_management_service.dart';
 import '../../application/services/album_edition_track_ordering_service.dart';
@@ -304,6 +305,11 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
         ),
         ChangeNotifierProvider<LibraryViewController>.value(
           value: _libraryViewController,
+        ),
+        // Where the Artist Roster left off: in memory only, one per app
+        // process (App Update 1.1).
+        Provider<LibraryNavigationMemory>.value(
+          value: LibraryNavigationMemory.shared,
         ),
         Provider<AppDatabase>.value(value: _database),
         Provider<LibraryQueryRepository?>.value(value: _repository),

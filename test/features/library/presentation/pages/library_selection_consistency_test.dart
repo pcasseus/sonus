@@ -337,8 +337,9 @@ void main() {
     await _pump(tester, stats: _ImmediateStats());
     final madison = _named('Madison Beer');
 
-    // Nothing chosen yet: the first artist listed.
-    _expectRosterShows(tester, _artists.first);
+    // Nothing chosen yet: Page 1, the first artist of the sorted roster
+    // (App Update 1.1), Madison Beer by streams.
+    _expectRosterShows(tester, madison);
 
     // Madison Beer (#1 by streams) is on the Roster's first page; visiting
     // the second page first saves a page.
@@ -473,7 +474,9 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(byKey('roster-sort-recentlyAdded').last);
     await tester.pumpAndSettle();
-    _expectRosterShows(tester, _artists.first);
+    // A sort keeps the featured artist, still listed, on its new page
+    // (App Update 1.1): the default, Madison Beer.
+    _expectRosterShows(tester, _named('Madison Beer'));
     final ivo = _named('Ivo');
     await _rosterSelect(tester, ivo);
     _expectRosterShows(tester, ivo);

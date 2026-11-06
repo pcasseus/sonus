@@ -1084,7 +1084,13 @@ void main() {
         dateAdded: DateTime(2026),
         topArtistsArtworkPath: '/artwork/victorious-cast.jpg',
       );
-      await pump(tester, artists: [pictured, ...three], ranks: const {});
+      await pump(
+        tester,
+        artists: [pictured, ...three],
+        // Featured by default: the first of the sorted roster (App Update
+        // 1.1).
+        ranks: const {'cast': 1},
+      );
 
       final featured = byKey('roster-featured-cast');
       expect(
@@ -1118,7 +1124,9 @@ void main() {
       await pump(
         tester,
         artists: [pictured, ...three],
-        ranks: const {},
+        // Featured by default: the first of the sorted roster (App Update
+        // 1.1).
+        ranks: const {'flo': 1},
         size: const Size(320, 640),
         textScale: 2,
       );
