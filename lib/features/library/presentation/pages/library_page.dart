@@ -58,11 +58,19 @@ class _LibraryPageState extends State<LibraryPage> {
   ArtistReelStatisticsController? _statistics;
   LibraryQueryRepository? _repository;
 
-  /// The featured (Roster) and centred (Film Reel) artist, kept across
-  /// reloads, the Artist Profile and view switches. On entering the Library
-  /// it comes from [_memory]: the artist left within the last 15 minutes,
-  /// or none, which starts the Roster on Page 1 with the first artist.
-  String? _selectedArtistId;
+  /// The Roster's navigation session (App Update 1.1): its featured artist,
+  /// kept across reloads, the Artist Profile and view switches. On entering
+  /// the Library it comes from [_memory] (the artist left within the last
+  /// 15 minutes) or is null, which starts the Roster on Page 1 with the
+  /// first artist.
+  String? _rosterArtistId;
+
+  /// The Film Reel's centred artist. A choice in either view (a Roster
+  /// tap, page or letter, a reel swipe, the Artist Finder) sets both, so
+  /// the views show the same artist; the reel's own automatic first
+  /// centring (when it has no artist yet) sets only this one, so it never
+  /// moves the Roster from its default start.
+  String? _reelArtistId;
 
   /// The Roster's sort, kept with the selection.
   ArtistStatisticsSort _rosterSort = ArtistStatisticsSort.qualifiedStreams;
@@ -98,11 +106,13 @@ class _LibraryPageState extends State<LibraryPage> {
   bool _restore() {
     final kept = _memory.enter();
     if (kept == null) {
-      _selectedArtistId = null;
+      _rosterArtistId = null;
+      _reelArtistId = null;
       _rosterSort = ArtistStatisticsSort.qualifiedStreams;
       return false;
     }
-    _selectedArtistId = kept.artistId;
+    _rosterArtistId = kept.artistId;
+    _reelArtistId = kept.artistId;
     _rosterSort = kept.sort ?? ArtistStatisticsSort.qualifiedStreams;
     return true;
   }
@@ -140,10 +150,12 @@ class _LibraryPageState extends State<LibraryPage> {
       statistics: statistics.snapshot,
       statisticsLoaded: statistics.hasLoaded,
       sort: _rosterSort,
-      selectedArtistId: _selectedArtistId,
+      selectedArtistId: _view == LibraryView.roster
+          ? _rosterArtistId
+          : _reelArtistId,
     );
     if (artist == null || !mounted) return;
-    setState(() => _select(artist.artistId));
+    setState(() => _choose(artist.artistId));
   }
 
   /// A provided notifier, rebuilt on its changes, or null without one.
@@ -212,10 +224,22 @@ class _LibraryPageState extends State<LibraryPage> {
     unawaited(statistics.refresh());
   }
 
-  void _select(String artistId) {
+  /// An artist chosen (or the Roster's own featured artist): both views
+  /// show it, and the Roster's session remembers it.
+  void _choose(String artistId) {
     _memory.rememberArtist(artistId);
-    if (artistId == _selectedArtistId) return;
-    _selectedArtistId = artistId;
+    _rosterArtistId = artistId;
+    _reelArtistId = artistId;
+  }
+
+  /// The Film Reel's centred artist. Its automatic first centring (no
+  /// artist yet) stays the reel's own; anything after is a choice.
+  void _reelCentred(String artistId) {
+    if (_reelArtistId == null) {
+      _reelArtistId = artistId;
+      return;
+    }
+    _choose(artistId);
   }
 
   void _openArtist(LibraryArtist artist) {
@@ -286,8 +310,8 @@ class _LibraryPageState extends State<LibraryPage> {
               statistics: statistics.snapshot,
               statisticsLoaded: statistics.hasLoaded,
               countLabel: countLabel,
-              selectedArtistId: _selectedArtistId,
-              onSelected: _select,
+              selectedArtistId: _rosterArtistId,
+              onSelected: _choose,
               onOpenArtist: _openArtist,
               sort: _rosterSort,
               onSortChanged: (sort) {
@@ -302,8 +326,8 @@ class _LibraryPageState extends State<LibraryPage> {
               statistics: statistics.snapshot,
               statisticsLoaded: statistics.hasLoaded,
               countLabel: countLabel,
-              selectedArtistId: _selectedArtistId,
-              onSelected: _select,
+              selectedArtistId: _reelArtistId,
+              onSelected: _reelCentred,
               onOpenArtist: _openArtist,
               onSwitchView: _switchView,
               onOpenSearch: _findArtist,

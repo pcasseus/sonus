@@ -320,7 +320,7 @@
     "lib/features/home/presentation/controllers/home_controller.dart": "7d4726023dbe09ed74eded52f2f735635d4a24d275cde652db91f385f3385803",
     "lib/features/home/presentation/pages/home_page.dart": "e8848ea6fb8f3f7f28e22a4ccf30f4a4b7bed7b96069eab0cca4c4be9ade142d",
     "lib/features/home/presentation/scopes/home_scope.dart": "2a132edb4959462dc6b172c31b2efdcec11211d4772ba2ad2981f11e0f8efa53",
-    "lib/features/library/presentation/pages/library_page.dart": "7b2441a426d1d2b1e06495eaae74efcbeeca7e475685c820e20a65c6c208bc18",
+    "lib/features/library/presentation/pages/library_page.dart": "97380008f13a6da0105c0eead6dd789da0a376e6800baa63ef5fa0ccc25b7d4f",
     "lib/features/library/presentation/widgets/film_reel/artist_film_reel.dart": "fde136df86cc6cfdd2b4ef58155ebf1af6e21b719c1cbdfed1c041ccae144fed",
     "lib/features/library/presentation/widgets/roster/artist_roster.dart": "fafbaa7e1482a2768340888ee6d547345a05a658061ff8ac7a4825e7dcceb29c",
     "lib/features/player/presentation/pages/now_playing_page.dart": "4d7805a22dea9d129df996ce14a88979fd5bd06058d86e0c28b784616c3ef6b3",
@@ -448,6 +448,20 @@
           "lib/features/library/presentation/widgets/roster/artist_roster.dart"
         ]
       },
+      "sharedChanges": {
+        "roster": [
+          "lib/features/library/presentation/pages/library_page.dart"
+        ],
+        "film_reel": [
+          "lib/features/library/presentation/pages/library_page.dart"
+        ]
+      },
+      "dependencyListChanges": []
+    },
+    {
+      "date": "2026-11-06",
+      "approval": "App Update 1.1 'Final Roster Entry-State Correction', approved by the user 2026-11-06: the Library page keeps the Roster's navigation session separate from the Film Reel's automatic first centring (choices in either view still shared). Interaction only; no geometry, artwork or styling change; 118 protected visual checks unchanged.",
+      "protectedChanges": {},
       "sharedChanges": {
         "roster": [
           "lib/features/library/presentation/pages/library_page.dart"
