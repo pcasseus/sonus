@@ -100,5 +100,16 @@ logcat*.txt
 # production project, the account and local backup folders. Kept locally.
 /supabase/deploy/sn50_*
 
-# Release decision checklist, kept local by decision (SN-50).
-/SN50_Decision_and_Release_Checklist.md
+# Internal Sonus development records: audits, handoffs, restart notes,
+# approval packages, QA reports and progress logs. They are kept locally in
+# /_internal/ and are never published. These rules only cover root-level
+# files with the internal naming patterns; README files and docs/ stay
+# trackable.
+/_internal/
+/SN[0-9]*_*.md
+/SN[0-9]*_*.txt
+/SONUS_SN*.md
+/APP_UPDATE_*.md
+/Sonus_*_Audit.md
+/Sonus_*_Roadmap.md
+/Sonus_Visual_Audit/
