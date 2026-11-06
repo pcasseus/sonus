@@ -97,6 +97,10 @@ class ArtistFilmReel extends StatefulWidget {
 
 class _ArtistFilmReelState extends State<ArtistFilmReel> {
   PageController? _pages;
+
+  /// Whether [_pages] was made for the compact layout, where the reel sits
+  /// elsewhere in the tree.
+  bool? _compactReel;
   late int _index;
   late final ValueNotifier<String?> _centredArtwork;
 
@@ -129,7 +133,13 @@ class _ArtistFilmReelState extends State<ArtistFilmReel> {
     if (index != _index) {
       _index = index;
       final pages = _pages;
-      if (pages != null && pages.hasClients) pages.jumpToPage(index);
+      if (pages != null && pages.hasClients) {
+        pages.jumpToPage(index);
+      } else if (pages != null) {
+        // Not attached yet: a new controller starts on the artist.
+        _pages = null;
+        WidgetsBinding.instance.addPostFrameCallback((_) => pages.dispose());
+      }
     }
     _centredArtwork.value = ArtistFilmReel.portraitPath(widget.artists[_index]);
     final id = widget.artists[_index].artistId;
@@ -141,15 +151,29 @@ class _ArtistFilmReelState extends State<ArtistFilmReel> {
     }
   }
 
-  PageController _controllerFor(double viewportFraction) {
+  /// The reel's controller, made anew (on the centred artist) when the
+  /// viewport fraction changes or the layout switches between compact and
+  /// beside-the-portrait: the PageView is then built anew, and an older
+  /// controller would open on the page it was first made for.
+  PageController _controllerFor(
+    double viewportFraction, {
+    required bool compact,
+  }) {
     final current = _pages;
     if (current != null &&
+        compact == _compactReel &&
         (current.viewportFraction - viewportFraction).abs() < 0.005) {
       return current;
     }
+    _compactReel = compact;
     final replacement = PageController(
       initialPage: _index,
       viewportFraction: viewportFraction,
+      // The centred artist comes from the shared selection (by id), never
+      // from a page saved in the Library tab's PageStorage: that page may
+      // be the Roster grid's or an earlier reel's, and restoring it would
+      // centre another artist than the one the statistics describe.
+      keepPage: false,
     );
     if (current != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) => current.dispose());
@@ -262,6 +286,7 @@ class _ArtistFilmReelState extends State<ArtistFilmReel> {
                     return _reel(
                       context,
                       colors,
+                      compact: true,
                       height: reel.maxHeight,
                       cardWidth: cardWidth,
                       cardHeight: cardWidth / ArtistFilmReel.cardAspect,
@@ -326,6 +351,7 @@ class _ArtistFilmReelState extends State<ArtistFilmReel> {
               child: _reel(
                 context,
                 colors,
+                compact: false,
                 height: height,
                 cardWidth: cardWidth,
                 cardHeight: cardHeight,
@@ -419,13 +445,14 @@ class _ArtistFilmReelState extends State<ArtistFilmReel> {
   Widget _reel(
     BuildContext context,
     SonusCinematicColors colors, {
+    required bool compact,
     required double height,
     required double cardWidth,
     required double cardHeight,
   }) {
     const gap = 28.0;
     final fraction = ((cardHeight + gap) / height).clamp(0.3, 1.0);
-    final pages = _controllerFor(fraction);
+    final pages = _controllerFor(fraction, compact: compact);
     final peek = (height - height * fraction) / 2;
     final many = widget.artists.length > 1;
 

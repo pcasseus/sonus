@@ -116,6 +116,10 @@ class _ArtistRosterState extends State<ArtistRoster> {
 
   PageController? _pages;
   int _perPage = 15;
+
+  /// Whether the grid's controller was made for the compact (scrolling)
+  /// layout, where the grid sits elsewhere in the tree.
+  bool? _compactGrid;
   int _page = 0;
   bool _pageChosen = false;
 
@@ -264,9 +268,16 @@ class _ArtistRosterState extends State<ArtistRoster> {
 
   /// The page controller for [perPage] portraits a page, recreated (on the
   /// previewed artist's page) when the grid's size changes.
-  PageController _controllerFor(int perPage) {
+  ///
+  /// Also recreated when the layout switches between compact and full: the
+  /// grid's PageView is then built anew, and a controller's first page is
+  /// fixed when it is made, so an older one would open on a stale page.
+  PageController _controllerFor(int perPage, {required bool compact}) {
     final current = _pages;
-    if (current != null && perPage == _perPage) return current;
+    if (current != null && perPage == _perPage && compact == _compactGrid) {
+      return current;
+    }
+    _compactGrid = compact;
     final view = _rosterView;
     final page = !_pageChosen && _previewId != null
         ? view.pageOf(_previewId!, perPage) ?? 0
@@ -274,7 +285,9 @@ class _ArtistRosterState extends State<ArtistRoster> {
     _perPage = perPage;
     _page = page;
     _pageChosen = true;
-    final replacement = PageController(initialPage: page);
+    // The page comes from the previewed artist (by id), never from a page
+    // saved in the Library tab's PageStorage, which the Film Reel shares.
+    final replacement = PageController(initialPage: page, keepPage: false);
     if (current != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) => current.dispose());
     }
@@ -417,6 +430,7 @@ class _ArtistRosterState extends State<ArtistRoster> {
           tileWidth: tileWidth,
           tileHeight: tileHeight,
           gap: gap,
+          compact: compact,
         );
 
         if (compact) {
@@ -478,10 +492,11 @@ class _ArtistRosterState extends State<ArtistRoster> {
     required double tileWidth,
     required double tileHeight,
     required double gap,
+    required bool compact,
   }) {
     final view = _rosterView;
     final perPage = columns * rows;
-    final pages = _controllerFor(perPage);
+    final pages = _controllerFor(perPage, compact: compact);
     final count = view.pageCount(perPage);
     final theme = Theme.of(context);
 
