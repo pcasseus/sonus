@@ -21,6 +21,7 @@ import '../../../../core/design/widgets/sonus_frosted_glass.dart';
 import '../../../../core/design/widgets/sonus_secondary_text_scope.dart';
 import '../../../../core/design/widgets/sonus_profile_atmosphere_builder.dart';
 import '../../../../core/design/sonus_atmosphere_colors.dart';
+import '../../../../core/design/sonus_profile_effects.dart';
 import '../../../../core/design/sonus_theme.dart';
 import '../../../../core/design/sonus_text_scale.dart';
 import '../../../../core/design/sonus_tokens.dart';
@@ -255,7 +256,14 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
             artworkPath: path,
             light: profile.light,
             deep: profile.backgroundDeep,
-            enabled: SonusTheme.of(context).decoration.allowGradients,
+            // High contrast keeps a restrained backdrop behind its solid
+            // panels; Low effects and Decoration Off draw none.
+            enabled:
+                sonusProfileBackdropMode(SonusTheme.of(context).decoration) !=
+                SonusProfileBackdropMode.none,
+            restrained:
+                sonusProfileBackdropMode(SonusTheme.of(context).decoration) ==
+                SonusProfileBackdropMode.restrained,
           ),
         ),
         child: controller == null

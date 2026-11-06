@@ -35,7 +35,7 @@ class SonusArtworkEnvironment extends StatelessWidget {
 
   /// High contrast: the artwork darker and less saturated, no wisps, so
   /// solid panels and strong text stay legible over it (see
-  /// SonusProfileBackdrop.restrained).
+  /// SonusProfileBackdropMode.restrained).
   final bool restrained;
 
   /// Decoded this wide: blurred this much, more pixels add nothing.

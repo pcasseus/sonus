@@ -257,11 +257,45 @@ void main() {
     }
   });
 
-  group('Artist Profile: flat modes keep the solid page', () {
+  // High contrast keeps a restrained artwork backdrop (no light, glass or
+  // glow) behind its solid panels; every text and icon still reads.
+  group('Artist Profile: High contrast keeps a restrained backdrop', () {
+    for (final variant in LabVariant.values) {
+      for (final (state, by) in const [('top', 0.0), ('scrolled', 560.0)]) {
+        testWidgets('${variant.label}, $state', (tester) async {
+          final (banner, portrait, covers) = generated(variant);
+          await _pump(
+            tester,
+            banner: banner,
+            portrait: portrait,
+            covers: covers,
+            spec: const SonusAppearanceSpec(highContrast: true),
+          );
+          await _scroll(tester, by);
+          expect(_key('sonus-artwork-environment-image'), findsOneWidget);
+          expect(_key('sonus-artwork-environment-light'), findsNothing);
+          final barBottom =
+              tester.view.padding.top / tester.view.devicePixelRatio +
+              kToolbarHeight;
+          final measured = measureTextsBeside([
+            for (final t in collectTextsIn(tester, 'artist-profile-page'))
+              if (t.rect.top >= barBottom + 4) t,
+          ], (await captureLab(tester)).$1);
+          expect(measured.length, greaterThan(6));
+          expect([
+            for (final t in measured)
+              if (!t.passes) '${t.text}: ${t.worst.toStringAsFixed(2)}',
+          ], isEmpty);
+        });
+      }
+    }
+  });
+
+  group('Artist Profile: Low effects and Decoration Off draw no artwork', () {
     for (final spec in const [
-      SonusAppearanceSpec(highContrast: true),
       SonusAppearanceSpec(lowEffects: true),
       SonusAppearanceSpec(decoration: SonusDecorationIntensity.off),
+      SonusAppearanceSpec(highContrast: true, lowEffects: true),
     ]) {
       testWidgets('$spec', (tester) async {
         final (banner, portrait, covers) = generated(LabVariant.cool);

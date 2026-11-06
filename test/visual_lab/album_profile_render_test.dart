@@ -288,22 +288,44 @@ void main() {
     expect(find.text('Add to queue'), findsOneWidget);
   });
 
-  group('flat modes keep the solid page', () {
+  group('High contrast keeps a restrained backdrop', () {
+    for (final variant in LabVariant.values) {
+      for (final (state, to) in const [('top', 0.0), ('collapsed', 900.0)]) {
+        testWidgets('${variant.label}, $state', (tester) async {
+          final (s, d) = _covers(variant);
+          await _pump(
+            tester,
+            standard: s,
+            deluxe: d,
+            spec: const SonusAppearanceSpec(highContrast: true),
+          );
+          await _scroll(tester, to);
+          expect(_key('sonus-artwork-environment-image'), findsOneWidget);
+          expect(_key('sonus-artwork-environment-light'), findsNothing);
+          final measured = measureTextsBeside(
+            _visibleTexts(tester),
+            (await captureLab(tester)).$1,
+          );
+          expect(measured.length, greaterThan(5));
+          expect([
+            for (final t in measured)
+              if (!t.passes) '${t.text}: ${t.worst.toStringAsFixed(2)}',
+          ], isEmpty);
+        });
+      }
+    }
+  });
+
+  group('Low effects and Decoration Off keep the solid page', () {
     for (final spec in const [
-      SonusAppearanceSpec(highContrast: true),
       SonusAppearanceSpec(lowEffects: true),
       SonusAppearanceSpec(decoration: SonusDecorationIntensity.off),
+      SonusAppearanceSpec(highContrast: true, lowEffects: true),
     ]) {
       testWidgets('$spec', (tester) async {
         final (s, d) = _covers(LabVariant.cool);
         await _pump(tester, standard: s, deluxe: d, spec: spec);
         expect(_key('sonus-artwork-environment-image'), findsNothing);
-        await _scroll(tester, 900);
-        expect(
-          tester.widget<ColoredBox>(_key('album-profile-toolbar-fill')).color.a,
-          closeTo(1, 0.01),
-          reason: 'opaque toolbar without effects',
-        );
       });
     }
   });

@@ -1,7 +1,7 @@
 import 'sonus_tokens.dart';
 
 /// How much of the artwork environment a profile page draws.
-enum SonusProfileBackdrop {
+enum SonusProfileBackdropMode {
   /// The full environment: tone-mapped artwork, light, frosted glass.
   full,
 
@@ -17,12 +17,14 @@ enum SonusProfileBackdrop {
 /// a restrained artwork identity (legibility comes from solid panels and
 /// strong text, not from removing the artwork); Low effects and Decoration
 /// Off remove it.
-SonusProfileBackdrop sonusProfileBackdrop(SonusDecorationTokens decoration) {
-  if (decoration.allowGradients) return SonusProfileBackdrop.full;
+SonusProfileBackdropMode sonusProfileBackdropMode(
+  SonusDecorationTokens decoration,
+) {
+  if (decoration.allowGradients) return SonusProfileBackdropMode.full;
   if (decoration.highContrast &&
       !decoration.lowEffects &&
       decoration.intensity != SonusDecorationIntensity.off) {
-    return SonusProfileBackdrop.restrained;
+    return SonusProfileBackdropMode.restrained;
   }
-  return SonusProfileBackdrop.none;
+  return SonusProfileBackdropMode.none;
 }

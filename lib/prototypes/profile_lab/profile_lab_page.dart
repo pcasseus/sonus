@@ -229,8 +229,8 @@ class _ProfileLabPageState extends State<ProfileLabPage>
               atmosphere: a,
               layers: layers,
               restrained:
-                  sonusProfileBackdrop(tokens.decoration) ==
-                  SonusProfileBackdrop.restrained,
+                  sonusProfileBackdropMode(tokens.decoration) ==
+                  SonusProfileBackdropMode.restrained,
             ),
           ),
           Positioned.fill(child: content),
@@ -1000,8 +1000,12 @@ class _SectionHeader extends StatelessWidget {
       ],
     );
     // Scrims also in High contrast, over its restrained backdrop.
-    final backdrop = sonusProfileBackdrop(SonusTheme.of(context).decoration);
-    if (!layers.scrims || backdrop == SonusProfileBackdrop.none) return header;
+    final backdrop = sonusProfileBackdropMode(
+      SonusTheme.of(context).decoration,
+    );
+    if (!layers.scrims || backdrop == SonusProfileBackdropMode.none) {
+      return header;
+    }
     // A soft local ground: darkest under the words, gone at the edges.
     return Stack(
       clipBehavior: Clip.none,

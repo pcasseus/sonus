@@ -29,7 +29,7 @@ class LabBackdrop extends StatelessWidget {
   });
 
   /// High contrast: a darker, less saturated artwork behind solid plates;
-  /// no light or wisps (SonusProfileBackdrop.restrained).
+  /// no light or wisps (SonusProfileBackdropMode.restrained).
   final bool restrained;
 
   final String? artworkPath;

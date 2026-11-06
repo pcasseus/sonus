@@ -267,8 +267,8 @@ class _AlbumLabPageState extends State<AlbumLabPage>
               atmosphere: a,
               layers: layers,
               restrained:
-                  sonusProfileBackdrop(tokens.decoration) ==
-                  SonusProfileBackdrop.restrained,
+                  sonusProfileBackdropMode(tokens.decoration) ==
+                  SonusProfileBackdropMode.restrained,
             ),
           ),
           Positioned.fill(child: content),
