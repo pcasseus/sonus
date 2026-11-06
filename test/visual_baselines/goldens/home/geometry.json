@@ -1,0 +1,500 @@
+{
+  "360x780_no_track_text_1.0": {
+    "popularHeading": [
+      0.0,
+      164.0,
+      360.0,
+      68.0
+    ],
+    "firstPopularTrack": [
+      20.0,
+      244.0,
+      150.0,
+      250.0
+    ],
+    "secondPopularTrack": [
+      184.0,
+      244.0,
+      150.0,
+      250.0
+    ],
+    "topArtistsHeading": [
+      0.0,
+      526.0,
+      360.0,
+      44.0
+    ],
+    "firstTopArtist": [
+      20.0,
+      582.0,
+      140.0,
+      290.67
+    ],
+    "secondTopArtist": [
+      174.0,
+      582.0,
+      140.0,
+      290.67
+    ],
+    "miniPlayer": null
+  },
+  "360x780_no_track_text_1.3": {
+    "popularHeading": [
+      0.0,
+      164.0,
+      360.0,
+      83.0
+    ],
+    "firstPopularTrack": [
+      20.0,
+      259.0,
+      150.0,
+      280.0
+    ],
+    "secondPopularTrack": [
+      184.0,
+      259.0,
+      150.0,
+      280.0
+    ],
+    "topArtistsHeading": [
+      0.0,
+      571.0,
+      360.0,
+      53.0
+    ],
+    "firstTopArtist": [
+      20.0,
+      636.0,
+      140.0,
+      321.87
+    ],
+    "secondTopArtist": [
+      174.0,
+      636.0,
+      140.0,
+      321.87
+    ],
+    "miniPlayer": null
+  },
+  "360x780_track_text_1.0": {
+    "popularHeading": [
+      0.0,
+      164.0,
+      360.0,
+      68.0
+    ],
+    "firstPopularTrack": [
+      20.0,
+      244.0,
+      150.0,
+      250.0
+    ],
+    "secondPopularTrack": [
+      184.0,
+      244.0,
+      150.0,
+      250.0
+    ],
+    "topArtistsHeading": [
+      0.0,
+      526.0,
+      360.0,
+      44.0
+    ],
+    "firstTopArtist": [
+      20.0,
+      582.0,
+      140.0,
+      290.67
+    ],
+    "secondTopArtist": [
+      174.0,
+      582.0,
+      140.0,
+      290.67
+    ],
+    "miniPlayer": [
+      0.0,
+      662.0,
+      360.0,
+      118.0
+    ]
+  },
+  "360x780_track_text_1.3": {
+    "popularHeading": [
+      0.0,
+      164.0,
+      360.0,
+      83.0
+    ],
+    "firstPopularTrack": [
+      20.0,
+      259.0,
+      150.0,
+      280.0
+    ],
+    "secondPopularTrack": [
+      184.0,
+      259.0,
+      150.0,
+      280.0
+    ],
+    "topArtistsHeading": [
+      0.0,
+      571.0,
+      360.0,
+      53.0
+    ],
+    "firstTopArtist": [
+      20.0,
+      636.0,
+      140.0,
+      321.87
+    ],
+    "secondTopArtist": [
+      174.0,
+      636.0,
+      140.0,
+      321.87
+    ],
+    "miniPlayer": [
+      0.0,
+      660.99,
+      360.0,
+      119.01
+    ]
+  },
+  "384x832_no_track_text_1.0": {
+    "popularHeading": [
+      0.0,
+      164.0,
+      384.0,
+      68.0
+    ],
+    "firstPopularTrack": [
+      20.0,
+      244.0,
+      157.14,
+      257.14
+    ],
+    "secondPopularTrack": [
+      191.14,
+      244.0,
+      157.14,
+      257.14
+    ],
+    "topArtistsHeading": [
+      0.0,
+      533.14,
+      384.0,
+      44.0
+    ],
+    "firstTopArtist": [
+      20.0,
+      589.14,
+      146.67,
+      299.56
+    ],
+    "secondTopArtist": [
+      180.67,
+      589.14,
+      146.67,
+      299.56
+    ],
+    "miniPlayer": null
+  },
+  "384x832_no_track_text_1.3": {
+    "popularHeading": [
+      0.0,
+      164.0,
+      384.0,
+      83.0
+    ],
+    "firstPopularTrack": [
+      20.0,
+      259.0,
+      157.14,
+      287.14
+    ],
+    "secondPopularTrack": [
+      191.14,
+      259.0,
+      157.14,
+      287.14
+    ],
+    "topArtistsHeading": [
+      0.0,
+      578.14,
+      384.0,
+      53.0
+    ],
+    "firstTopArtist": [
+      20.0,
+      643.14,
+      146.67,
+      330.76
+    ],
+    "secondTopArtist": [
+      180.67,
+      643.14,
+      146.67,
+      330.76
+    ],
+    "miniPlayer": null
+  },
+  "384x832_track_text_1.0": {
+    "popularHeading": [
+      0.0,
+      164.0,
+      384.0,
+      68.0
+    ],
+    "firstPopularTrack": [
+      20.0,
+      244.0,
+      157.14,
+      257.14
+    ],
+    "secondPopularTrack": [
+      191.14,
+      244.0,
+      157.14,
+      257.14
+    ],
+    "topArtistsHeading": [
+      0.0,
+      533.14,
+      384.0,
+      44.0
+    ],
+    "firstTopArtist": [
+      20.0,
+      589.14,
+      146.67,
+      299.56
+    ],
+    "secondTopArtist": [
+      180.67,
+      589.14,
+      146.67,
+      299.56
+    ],
+    "miniPlayer": [
+      0.0,
+      714.0,
+      384.0,
+      118.0
+    ]
+  },
+  "384x832_track_text_1.3": {
+    "popularHeading": [
+      0.0,
+      164.0,
+      384.0,
+      83.0
+    ],
+    "firstPopularTrack": [
+      20.0,
+      259.0,
+      157.14,
+      287.14
+    ],
+    "secondPopularTrack": [
+      191.14,
+      259.0,
+      157.14,
+      287.14
+    ],
+    "topArtistsHeading": [
+      0.0,
+      578.14,
+      384.0,
+      53.0
+    ],
+    "firstTopArtist": [
+      20.0,
+      643.14,
+      146.67,
+      330.76
+    ],
+    "secondTopArtist": [
+      180.67,
+      643.14,
+      146.67,
+      330.76
+    ],
+    "miniPlayer": [
+      0.0,
+      712.99,
+      384.0,
+      119.01
+    ]
+  },
+  "412x915_no_track_text_1.0": {
+    "popularHeading": [
+      0.0,
+      164.0,
+      412.0,
+      68.0
+    ],
+    "firstPopularTrack": [
+      20.0,
+      244.0,
+      170.48,
+      270.48
+    ],
+    "secondPopularTrack": [
+      204.48,
+      244.0,
+      170.48,
+      270.48
+    ],
+    "topArtistsHeading": [
+      0.0,
+      546.48,
+      412.0,
+      44.0
+    ],
+    "firstTopArtist": [
+      20.0,
+      602.48,
+      159.11,
+      316.15
+    ],
+    "secondTopArtist": [
+      193.11,
+      602.48,
+      159.11,
+      316.15
+    ],
+    "miniPlayer": null
+  },
+  "412x915_no_track_text_1.3": {
+    "popularHeading": [
+      0.0,
+      164.0,
+      412.0,
+      83.0
+    ],
+    "firstPopularTrack": [
+      20.0,
+      259.0,
+      170.48,
+      300.48
+    ],
+    "secondPopularTrack": [
+      204.48,
+      259.0,
+      170.48,
+      300.48
+    ],
+    "topArtistsHeading": [
+      0.0,
+      591.48,
+      412.0,
+      53.0
+    ],
+    "firstTopArtist": [
+      20.0,
+      656.48,
+      159.11,
+      347.35
+    ],
+    "secondTopArtist": [
+      193.11,
+      656.48,
+      159.11,
+      347.35
+    ],
+    "miniPlayer": null
+  },
+  "412x915_track_text_1.0": {
+    "popularHeading": [
+      0.0,
+      164.0,
+      412.0,
+      68.0
+    ],
+    "firstPopularTrack": [
+      20.0,
+      244.0,
+      170.48,
+      270.48
+    ],
+    "secondPopularTrack": [
+      204.48,
+      244.0,
+      170.48,
+      270.48
+    ],
+    "topArtistsHeading": [
+      0.0,
+      546.48,
+      412.0,
+      44.0
+    ],
+    "firstTopArtist": [
+      20.0,
+      602.48,
+      159.11,
+      316.15
+    ],
+    "secondTopArtist": [
+      193.11,
+      602.48,
+      159.11,
+      316.15
+    ],
+    "miniPlayer": [
+      0.0,
+      797.0,
+      412.0,
+      118.0
+    ]
+  },
+  "412x915_track_text_1.3": {
+    "popularHeading": [
+      0.0,
+      164.0,
+      412.0,
+      83.0
+    ],
+    "firstPopularTrack": [
+      20.0,
+      259.0,
+      170.48,
+      300.48
+    ],
+    "secondPopularTrack": [
+      204.48,
+      259.0,
+      170.48,
+      300.48
+    ],
+    "topArtistsHeading": [
+      0.0,
+      591.48,
+      412.0,
+      53.0
+    ],
+    "firstTopArtist": [
+      20.0,
+      656.48,
+      159.11,
+      347.35
+    ],
+    "secondTopArtist": [
+      193.11,
+      656.48,
+      159.11,
+      347.35
+    ],
+    "miniPlayer": [
+      0.0,
+      795.99,
+      412.0,
+      119.01
+    ]
+  }
+}

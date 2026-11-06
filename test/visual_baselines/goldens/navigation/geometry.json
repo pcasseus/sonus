@@ -1,0 +1,976 @@
+{
+  "360x780_no_track_text_1.0": {
+    "appMark": [
+      16.0,
+      53.0,
+      30.0,
+      30.0
+    ],
+    "appTitle": [
+      54.0,
+      53.0,
+      64.62,
+      30.0
+    ],
+    "searchButton": [
+      216.0,
+      44.0,
+      48.0,
+      48.0
+    ],
+    "importButton": [
+      264.0,
+      44.0,
+      48.0,
+      48.0
+    ],
+    "settingsButton": [
+      312.0,
+      44.0,
+      48.0,
+      48.0
+    ],
+    "homeTab": [
+      -78.11,
+      96.0,
+      38.01,
+      46.0
+    ],
+    "tracksTab": [
+      157.46,
+      96.0,
+      43.61,
+      46.0
+    ],
+    "pages": [
+      0.0,
+      144.0,
+      360.0,
+      588.0
+    ],
+    "miniPlayer": null,
+    "miniPlayerArtwork": null,
+    "miniPlayerTitle": null,
+    "miniPlayerPlayPause": null,
+    "miniPlayerNext": null,
+    "miniPlayerPrevious": null,
+    "miniPlayerQueue": null,
+    "miniPlayerProgress": null
+  },
+  "360x780_no_track_text_1.3": {
+    "appMark": [
+      16.0,
+      53.0,
+      30.0,
+      30.0
+    ],
+    "appTitle": [
+      54.0,
+      48.5,
+      84.31,
+      39.0
+    ],
+    "searchButton": [
+      216.0,
+      44.0,
+      48.0,
+      48.0
+    ],
+    "importButton": [
+      264.0,
+      44.0,
+      48.0,
+      48.0
+    ],
+    "settingsButton": [
+      312.0,
+      44.0,
+      48.0,
+      48.0
+    ],
+    "homeTab": [
+      -126.09,
+      96.0,
+      49.29,
+      46.0
+    ],
+    "tracksTab": [
+      150.78,
+      96.0,
+      56.52,
+      46.0
+    ],
+    "pages": [
+      0.0,
+      144.0,
+      360.0,
+      588.0
+    ],
+    "miniPlayer": null,
+    "miniPlayerArtwork": null,
+    "miniPlayerTitle": null,
+    "miniPlayerPlayPause": null,
+    "miniPlayerNext": null,
+    "miniPlayerPrevious": null,
+    "miniPlayerQueue": null,
+    "miniPlayerProgress": null
+  },
+  "360x780_track_text_1.0": {
+    "appMark": [
+      16.0,
+      53.0,
+      30.0,
+      30.0
+    ],
+    "appTitle": [
+      54.0,
+      53.0,
+      64.62,
+      30.0
+    ],
+    "searchButton": [
+      216.0,
+      44.0,
+      48.0,
+      48.0
+    ],
+    "importButton": [
+      264.0,
+      44.0,
+      48.0,
+      48.0
+    ],
+    "settingsButton": [
+      312.0,
+      44.0,
+      48.0,
+      48.0
+    ],
+    "homeTab": [
+      -78.11,
+      96.0,
+      38.01,
+      46.0
+    ],
+    "tracksTab": [
+      157.46,
+      96.0,
+      43.61,
+      46.0
+    ],
+    "pages": [
+      0.0,
+      144.0,
+      360.0,
+      518.0
+    ],
+    "miniPlayer": [
+      0.0,
+      662.0,
+      360.0,
+      118.0
+    ],
+    "miniPlayerArtwork": null,
+    "miniPlayerTitle": [
+      68.0,
+      682.0,
+      91.28,
+      20.0
+    ],
+    "miniPlayerPlayPause": [
+      252.0,
+      676.0,
+      48.0,
+      48.0
+    ],
+    "miniPlayerNext": [
+      300.0,
+      676.0,
+      48.0,
+      48.0
+    ],
+    "miniPlayerPrevious": [
+      204.0,
+      676.0,
+      48.0,
+      48.0
+    ],
+    "miniPlayerQueue": null,
+    "miniPlayerProgress": [
+      20.0,
+      730.0,
+      320.0,
+      2.0
+    ]
+  },
+  "360x780_track_text_1.3": {
+    "appMark": [
+      16.0,
+      53.0,
+      30.0,
+      30.0
+    ],
+    "appTitle": [
+      54.0,
+      48.5,
+      84.31,
+      39.0
+    ],
+    "searchButton": [
+      216.0,
+      44.0,
+      48.0,
+      48.0
+    ],
+    "importButton": [
+      264.0,
+      44.0,
+      48.0,
+      48.0
+    ],
+    "settingsButton": [
+      312.0,
+      44.0,
+      48.0,
+      48.0
+    ],
+    "homeTab": [
+      -126.09,
+      96.0,
+      49.29,
+      46.0
+    ],
+    "tracksTab": [
+      150.78,
+      96.0,
+      56.52,
+      46.0
+    ],
+    "pages": [
+      0.0,
+      144.0,
+      360.0,
+      516.99
+    ],
+    "miniPlayer": [
+      0.0,
+      660.99,
+      360.0,
+      119.01
+    ],
+    "miniPlayerArtwork": null,
+    "miniPlayerTitle": [
+      68.0,
+      676.0,
+      117.69,
+      26.0
+    ],
+    "miniPlayerPlayPause": [
+      252.0,
+      675.5,
+      48.0,
+      48.0
+    ],
+    "miniPlayerNext": [
+      300.0,
+      675.5,
+      48.0,
+      48.0
+    ],
+    "miniPlayerPrevious": [
+      204.0,
+      675.5,
+      48.0,
+      48.0
+    ],
+    "miniPlayerQueue": null,
+    "miniPlayerProgress": [
+      20.0,
+      730.0,
+      320.0,
+      2.0
+    ]
+  },
+  "384x832_no_track_text_1.0": {
+    "appMark": [
+      16.0,
+      53.0,
+      30.0,
+      30.0
+    ],
+    "appTitle": [
+      54.0,
+      53.0,
+      64.62,
+      30.0
+    ],
+    "searchButton": [
+      240.0,
+      44.0,
+      48.0,
+      48.0
+    ],
+    "importButton": [
+      288.0,
+      44.0,
+      48.0,
+      48.0
+    ],
+    "settingsButton": [
+      336.0,
+      44.0,
+      48.0,
+      48.0
+    ],
+    "homeTab": [
+      -66.11,
+      96.0,
+      38.01,
+      46.0
+    ],
+    "tracksTab": [
+      169.46,
+      96.0,
+      43.61,
+      46.0
+    ],
+    "pages": [
+      0.0,
+      144.0,
+      384.0,
+      640.0
+    ],
+    "miniPlayer": null,
+    "miniPlayerArtwork": null,
+    "miniPlayerTitle": null,
+    "miniPlayerPlayPause": null,
+    "miniPlayerNext": null,
+    "miniPlayerPrevious": null,
+    "miniPlayerQueue": null,
+    "miniPlayerProgress": null
+  },
+  "384x832_no_track_text_1.3": {
+    "appMark": [
+      16.0,
+      53.0,
+      30.0,
+      30.0
+    ],
+    "appTitle": [
+      54.0,
+      48.5,
+      84.31,
+      39.0
+    ],
+    "searchButton": [
+      240.0,
+      44.0,
+      48.0,
+      48.0
+    ],
+    "importButton": [
+      288.0,
+      44.0,
+      48.0,
+      48.0
+    ],
+    "settingsButton": [
+      336.0,
+      44.0,
+      48.0,
+      48.0
+    ],
+    "homeTab": [
+      -114.09,
+      96.0,
+      49.29,
+      46.0
+    ],
+    "tracksTab": [
+      162.78,
+      96.0,
+      56.52,
+      46.0
+    ],
+    "pages": [
+      0.0,
+      144.0,
+      384.0,
+      640.0
+    ],
+    "miniPlayer": null,
+    "miniPlayerArtwork": null,
+    "miniPlayerTitle": null,
+    "miniPlayerPlayPause": null,
+    "miniPlayerNext": null,
+    "miniPlayerPrevious": null,
+    "miniPlayerQueue": null,
+    "miniPlayerProgress": null
+  },
+  "384x832_track_text_1.0": {
+    "appMark": [
+      16.0,
+      53.0,
+      30.0,
+      30.0
+    ],
+    "appTitle": [
+      54.0,
+      53.0,
+      64.62,
+      30.0
+    ],
+    "searchButton": [
+      240.0,
+      44.0,
+      48.0,
+      48.0
+    ],
+    "importButton": [
+      288.0,
+      44.0,
+      48.0,
+      48.0
+    ],
+    "settingsButton": [
+      336.0,
+      44.0,
+      48.0,
+      48.0
+    ],
+    "homeTab": [
+      -66.11,
+      96.0,
+      38.01,
+      46.0
+    ],
+    "tracksTab": [
+      169.46,
+      96.0,
+      43.61,
+      46.0
+    ],
+    "pages": [
+      0.0,
+      144.0,
+      384.0,
+      570.0
+    ],
+    "miniPlayer": [
+      0.0,
+      714.0,
+      384.0,
+      118.0
+    ],
+    "miniPlayerArtwork": null,
+    "miniPlayerTitle": [
+      68.0,
+      734.0,
+      91.28,
+      20.0
+    ],
+    "miniPlayerPlayPause": [
+      276.0,
+      728.0,
+      48.0,
+      48.0
+    ],
+    "miniPlayerNext": [
+      324.0,
+      728.0,
+      48.0,
+      48.0
+    ],
+    "miniPlayerPrevious": [
+      228.0,
+      728.0,
+      48.0,
+      48.0
+    ],
+    "miniPlayerQueue": null,
+    "miniPlayerProgress": [
+      20.0,
+      782.0,
+      344.0,
+      2.0
+    ]
+  },
+  "384x832_track_text_1.3": {
+    "appMark": [
+      16.0,
+      53.0,
+      30.0,
+      30.0
+    ],
+    "appTitle": [
+      54.0,
+      48.5,
+      84.31,
+      39.0
+    ],
+    "searchButton": [
+      240.0,
+      44.0,
+      48.0,
+      48.0
+    ],
+    "importButton": [
+      288.0,
+      44.0,
+      48.0,
+      48.0
+    ],
+    "settingsButton": [
+      336.0,
+      44.0,
+      48.0,
+      48.0
+    ],
+    "homeTab": [
+      -114.09,
+      96.0,
+      49.29,
+      46.0
+    ],
+    "tracksTab": [
+      162.78,
+      96.0,
+      56.52,
+      46.0
+    ],
+    "pages": [
+      0.0,
+      144.0,
+      384.0,
+      568.99
+    ],
+    "miniPlayer": [
+      0.0,
+      712.99,
+      384.0,
+      119.01
+    ],
+    "miniPlayerArtwork": null,
+    "miniPlayerTitle": [
+      68.0,
+      728.0,
+      117.69,
+      26.0
+    ],
+    "miniPlayerPlayPause": [
+      276.0,
+      727.5,
+      48.0,
+      48.0
+    ],
+    "miniPlayerNext": [
+      324.0,
+      727.5,
+      48.0,
+      48.0
+    ],
+    "miniPlayerPrevious": [
+      228.0,
+      727.5,
+      48.0,
+      48.0
+    ],
+    "miniPlayerQueue": null,
+    "miniPlayerProgress": [
+      20.0,
+      782.0,
+      344.0,
+      2.0
+    ]
+  },
+  "384x832_track_text_2.0": {
+    "appMark": [
+      16.0,
+      53.0,
+      30.0,
+      30.0
+    ],
+    "appTitle": [
+      54.0,
+      48.0,
+      86.93,
+      40.0
+    ],
+    "searchButton": [
+      240.0,
+      44.0,
+      48.0,
+      48.0
+    ],
+    "importButton": [
+      288.0,
+      44.0,
+      48.0,
+      48.0
+    ],
+    "settingsButton": [
+      336.0,
+      44.0,
+      48.0,
+      48.0
+    ],
+    "homeTab": [
+      -226.03,
+      96.0,
+      75.62,
+      46.0
+    ],
+    "tracksTab": [
+      147.21,
+      96.0,
+      86.62,
+      46.0
+    ],
+    "pages": [
+      0.0,
+      144.0,
+      384.0,
+      542.6
+    ],
+    "miniPlayer": [
+      0.0,
+      686.6,
+      384.0,
+      145.4
+    ],
+    "miniPlayerArtwork": null,
+    "miniPlayerTitle": [
+      68.0,
+      702.3,
+      160.0,
+      40.0
+    ],
+    "miniPlayerPlayPause": [
+      276.0,
+      714.3,
+      48.0,
+      48.0
+    ],
+    "miniPlayerNext": [
+      324.0,
+      714.3,
+      48.0,
+      48.0
+    ],
+    "miniPlayerPrevious": [
+      228.0,
+      714.3,
+      48.0,
+      48.0
+    ],
+    "miniPlayerQueue": null,
+    "miniPlayerProgress": [
+      20.0,
+      782.0,
+      344.0,
+      2.0
+    ]
+  },
+  "412x915_no_track_text_1.0": {
+    "appMark": [
+      16.0,
+      53.0,
+      30.0,
+      30.0
+    ],
+    "appTitle": [
+      54.0,
+      53.0,
+      64.62,
+      30.0
+    ],
+    "searchButton": [
+      268.0,
+      44.0,
+      48.0,
+      48.0
+    ],
+    "importButton": [
+      316.0,
+      44.0,
+      48.0,
+      48.0
+    ],
+    "settingsButton": [
+      364.0,
+      44.0,
+      48.0,
+      48.0
+    ],
+    "homeTab": [
+      -52.11,
+      96.0,
+      38.01,
+      46.0
+    ],
+    "tracksTab": [
+      183.46,
+      96.0,
+      43.61,
+      46.0
+    ],
+    "pages": [
+      0.0,
+      144.0,
+      412.0,
+      723.0
+    ],
+    "miniPlayer": null,
+    "miniPlayerArtwork": null,
+    "miniPlayerTitle": null,
+    "miniPlayerPlayPause": null,
+    "miniPlayerNext": null,
+    "miniPlayerPrevious": null,
+    "miniPlayerQueue": null,
+    "miniPlayerProgress": null
+  },
+  "412x915_no_track_text_1.3": {
+    "appMark": [
+      16.0,
+      53.0,
+      30.0,
+      30.0
+    ],
+    "appTitle": [
+      54.0,
+      48.5,
+      84.31,
+      39.0
+    ],
+    "searchButton": [
+      268.0,
+      44.0,
+      48.0,
+      48.0
+    ],
+    "importButton": [
+      316.0,
+      44.0,
+      48.0,
+      48.0
+    ],
+    "settingsButton": [
+      364.0,
+      44.0,
+      48.0,
+      48.0
+    ],
+    "homeTab": [
+      -100.09,
+      96.0,
+      49.29,
+      46.0
+    ],
+    "tracksTab": [
+      176.78,
+      96.0,
+      56.52,
+      46.0
+    ],
+    "pages": [
+      0.0,
+      144.0,
+      412.0,
+      723.0
+    ],
+    "miniPlayer": null,
+    "miniPlayerArtwork": null,
+    "miniPlayerTitle": null,
+    "miniPlayerPlayPause": null,
+    "miniPlayerNext": null,
+    "miniPlayerPrevious": null,
+    "miniPlayerQueue": null,
+    "miniPlayerProgress": null
+  },
+  "412x915_track_text_1.0": {
+    "appMark": [
+      16.0,
+      53.0,
+      30.0,
+      30.0
+    ],
+    "appTitle": [
+      54.0,
+      53.0,
+      64.62,
+      30.0
+    ],
+    "searchButton": [
+      268.0,
+      44.0,
+      48.0,
+      48.0
+    ],
+    "importButton": [
+      316.0,
+      44.0,
+      48.0,
+      48.0
+    ],
+    "settingsButton": [
+      364.0,
+      44.0,
+      48.0,
+      48.0
+    ],
+    "homeTab": [
+      -52.11,
+      96.0,
+      38.01,
+      46.0
+    ],
+    "tracksTab": [
+      183.46,
+      96.0,
+      43.61,
+      46.0
+    ],
+    "pages": [
+      0.0,
+      144.0,
+      412.0,
+      653.0
+    ],
+    "miniPlayer": [
+      0.0,
+      797.0,
+      412.0,
+      118.0
+    ],
+    "miniPlayerArtwork": null,
+    "miniPlayerTitle": [
+      68.0,
+      817.0,
+      91.28,
+      20.0
+    ],
+    "miniPlayerPlayPause": [
+      256.0,
+      811.0,
+      48.0,
+      48.0
+    ],
+    "miniPlayerNext": [
+      304.0,
+      811.0,
+      48.0,
+      48.0
+    ],
+    "miniPlayerPrevious": [
+      208.0,
+      811.0,
+      48.0,
+      48.0
+    ],
+    "miniPlayerQueue": [
+      352.0,
+      811.0,
+      48.0,
+      48.0
+    ],
+    "miniPlayerProgress": [
+      20.0,
+      865.0,
+      372.0,
+      2.0
+    ]
+  },
+  "412x915_track_text_1.3": {
+    "appMark": [
+      16.0,
+      53.0,
+      30.0,
+      30.0
+    ],
+    "appTitle": [
+      54.0,
+      48.5,
+      84.31,
+      39.0
+    ],
+    "searchButton": [
+      268.0,
+      44.0,
+      48.0,
+      48.0
+    ],
+    "importButton": [
+      316.0,
+      44.0,
+      48.0,
+      48.0
+    ],
+    "settingsButton": [
+      364.0,
+      44.0,
+      48.0,
+      48.0
+    ],
+    "homeTab": [
+      -100.09,
+      96.0,
+      49.29,
+      46.0
+    ],
+    "tracksTab": [
+      176.78,
+      96.0,
+      56.52,
+      46.0
+    ],
+    "pages": [
+      0.0,
+      144.0,
+      412.0,
+      651.99
+    ],
+    "miniPlayer": [
+      0.0,
+      795.99,
+      412.0,
+      119.01
+    ],
+    "miniPlayerArtwork": null,
+    "miniPlayerTitle": [
+      68.0,
+      811.0,
+      117.69,
+      26.0
+    ],
+    "miniPlayerPlayPause": [
+      256.0,
+      810.5,
+      48.0,
+      48.0
+    ],
+    "miniPlayerNext": [
+      304.0,
+      810.5,
+      48.0,
+      48.0
+    ],
+    "miniPlayerPrevious": [
+      208.0,
+      810.5,
+      48.0,
+      48.0
+    ],
+    "miniPlayerQueue": [
+      352.0,
+      810.5,
+      48.0,
+      48.0
+    ],
+    "miniPlayerProgress": [
+      20.0,
+      865.0,
+      372.0,
+      2.0
+    ]
+  }
+}
