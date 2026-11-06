@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sonus_next/core/design/sonus_artwork_palette.dart';
 import 'package:sonus_next/core/design/sonus_profile_colors.dart';
 import 'package:sonus_next/core/design/sonus_theme_factory.dart';
+import 'package:sonus_next/core/design/widgets/sonus_frosted_glass.dart';
 import 'package:sonus_next/core/design/sonus_theme_id.dart';
 import 'package:sonus_next/core/design/sonus_tokens.dart';
 import 'package:sonus_next/features/analytics/domain/entities/playback_listening_segment.dart';
@@ -1045,9 +1046,9 @@ void main() {
           find
               .descendant(
                 of: section('artist-profile-top-tracks-glass'),
-                // V1: the profile's soft glass.
+                // The profile's frosted glass (Profile Lab), solid here.
                 matching: find.byKey(
-                  const ValueKey<String>('sonus-soft-glass-surface'),
+                  const ValueKey<String>('sonus-frosted-glass-surface'),
                 ),
               )
               .first,
@@ -1160,24 +1161,35 @@ void main() {
       expect(section('sonus-profile-light-high'), findsOneWidget);
     });
 
-    testWidgets('glass without a heavy outline', (tester) async {
+    // Profile Lab: frosted glass. Its rim is a painted gradient (lit at the
+    // top, almost gone at the bottom), its shadow is painted outside the
+    // plate only, and the plate is translucent. Its measured separation
+    // from the page and the contrast of the text on it are checked on real
+    // renders in test/visual_lab/artist_profile_render_test.dart.
+    testWidgets('frosted glass without a heavy outline', (tester) async {
       final (repository, plays) = catalogue({'a': 2, 'b': 1});
       await pump(tester, repository: repository, plays: plays);
 
-      final glass = tester.widget<DecoratedBox>(
-        find
-            .descendant(
-              of: section('artist-profile-top-tracks-glass'),
-              matching: section('sonus-soft-glass-surface'),
-            )
-            .first,
-      );
-      final box = glass.decoration as BoxDecoration;
-      final side = (box.border! as Border).top;
-      expect(side.width, lessThanOrEqualTo(1));
-      expect(side.color.a, lessThan(0.3), reason: 'barely there');
+      final plate = find
+          .descendant(
+            of: section('artist-profile-top-tracks-glass'),
+            matching: section('sonus-frosted-glass-surface'),
+          )
+          .first;
+      final box =
+          tester.widget<DecoratedBox>(plate).decoration as BoxDecoration;
+      expect(box.border, isNull, reason: 'no even outline');
       expect(box.boxShadow, isNull, reason: 'no shadow through the glass');
       expect(box.gradient, isNotNull, reason: 'translucent');
+      expect(SonusFrostedGlass.rimAlpha, lessThanOrEqualTo(0.1));
+      expect(
+        find.descendant(
+          of: section('artist-profile-top-tracks-glass'),
+          matching: find.byType(CustomPaint),
+        ),
+        findsWidgets,
+        reason: 'rim and outer shadow are painted',
+      );
     });
 
     testWidgets('the banner photo fades into the page, with no band', (

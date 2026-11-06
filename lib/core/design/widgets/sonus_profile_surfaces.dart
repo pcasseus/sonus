@@ -19,10 +19,15 @@ class SonusProfileBackdrop extends StatelessWidget {
     required this.profile,
     required this.child,
     this.baseKey,
+    this.environment,
   });
 
   final SonusProfileColors profile;
   final Widget child;
+
+  /// Drawn over the ground, under the light pools: for example the
+  /// artwork environment (SonusArtworkEnvironment). None by default.
+  final Widget? environment;
 
   /// A key for the base colour layer, for tests and screen captures.
   final Key? baseKey;
@@ -54,6 +59,7 @@ class SonusProfileBackdrop extends StatelessWidget {
               fit: StackFit.expand,
               children: [
                 base,
+                ?environment,
                 if (profile.isTinted) ...[
                   _Light(
                     key: const ValueKey<String>('sonus-profile-light-high'),

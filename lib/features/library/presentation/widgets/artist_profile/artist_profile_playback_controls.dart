@@ -20,7 +20,9 @@ class ArtistProfilePlaybackControls extends StatelessWidget {
   Widget build(BuildContext context) {
     final tokens = SonusTheme.of(context);
     final radius = BorderRadius.circular(tokens.metrics.controlRadius);
-    final tinted = atmosphere.isTinted && tokens.decoration.allowGradients;
+    // Glass whenever effects are on: over the artwork environment even
+    // untinted (neutral) artwork needs the plate under the icon.
+    final tinted = tokens.decoration.allowGradients;
 
     return Row(
       children: [

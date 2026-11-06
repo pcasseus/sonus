@@ -123,12 +123,14 @@ class ArtistProfileHeader extends StatelessWidget {
                           shaderCallback: (bounds) => const LinearGradient(
                             begin: Alignment.topCenter,
                             end: Alignment.bottomCenter,
+                            // Profile Lab: the photo at full strength over
+                            // most of its height, then a short fade.
                             colors: [
                               Color(0xFFFFFFFF),
-                              Color(0xCCFFFFFF),
+                              Color(0xFFFFFFFF),
                               Color(0x00FFFFFF),
                             ],
-                            stops: [0, 0.5, 1],
+                            stops: [0, 0.6, 1],
                           ).createShader(bounds),
                           child: photo,
                         )
@@ -150,6 +152,34 @@ class ArtistProfileHeader extends StatelessWidget {
                     // The photo fades itself over the backdrop: only the
                     // scrim under the bars remains.
                     scrimOnly: immersive,
+                  ),
+                ),
+              ),
+            // Profile Lab: a soft local ground under the name and the
+            // statistics only, so they read over any photo without darkening
+            // the whole picture.
+            if (immersive && hasBanner)
+              Positioned(
+                key: const ValueKey<String>('artist-profile-identity-scrim'),
+                left: 0,
+                right: 0,
+                bottom: -24,
+                height: _portraitSize + 96,
+                child: IgnorePointer(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          atmosphere.background.withValues(alpha: 0),
+                          atmosphere.background.withValues(alpha: 0.42),
+                          atmosphere.background.withValues(alpha: 0.5),
+                          atmosphere.background.withValues(alpha: 0),
+                        ],
+                        stops: const [0, 0.4, 0.75, 1],
+                      ),
+                    ),
                   ),
                 ),
               ),

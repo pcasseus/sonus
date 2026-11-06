@@ -118,6 +118,11 @@ ThemeData labTheme(SonusAppearanceSpec spec) {
   final base = SonusThemeFactory.build(spec);
   return base.copyWith(
     textTheme: base.textTheme.apply(fontFamily: realRobotoFamily),
+    appBarTheme: base.appBarTheme.copyWith(
+      titleTextStyle: base.appBarTheme.titleTextStyle?.copyWith(
+        fontFamily: realRobotoFamily,
+      ),
+    ),
   );
 }
 

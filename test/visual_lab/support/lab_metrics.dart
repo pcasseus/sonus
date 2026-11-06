@@ -235,7 +235,11 @@ class TextSample {
 /// Every fully shown text on the page as drawn now (with ink). Texts under
 /// the toolbar or the mini-player, which cover them, are skipped, except
 /// their own; so are texts partly off screen.
-List<TextSample> collectTexts(WidgetTester tester) {
+List<TextSample> collectTexts(WidgetTester tester) =>
+    collectTextsIn(tester, 'lab-page');
+
+/// [collectTexts] for any page, found by its key.
+List<TextSample> collectTextsIn(WidgetTester tester, String pageKey) {
   final screen =
       Offset.zero & tester.view.physicalSize / tester.view.devicePixelRatio;
   Rect? rectOf(String key) {
@@ -259,13 +263,16 @@ List<TextSample> collectTexts(WidgetTester tester) {
   final samples = <TextSample>[];
   for (final paragraph in tester.renderObjectList<RenderParagraph>(
     find.descendant(
-      of: find.byKey(const ValueKey('lab-page')),
+      of: find.byKey(ValueKey<String>(pageKey)),
       matching: find.byType(RichText),
     ),
   )) {
     final text = paragraph.text.toPlainText().trim();
     final colour = paragraph.text.style?.color;
     if (text.isEmpty || colour == null || colour.a == 0) continue;
+    // A disabled control (drawn translucent) is exempt from contrast
+    // requirements (WCAG 1.4.3 / 1.4.11: inactive components).
+    if (colour.a < 0.6) continue;
     final rect = paragraph.localToGlobal(Offset.zero) & paragraph.size;
     if (rect.isEmpty ||
         !screen.contains(rect.topLeft) ||
