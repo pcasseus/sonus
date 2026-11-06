@@ -68,11 +68,20 @@ class LabGlass extends StatelessWidget {
       const Color(0xFFFFFFFF),
       a.light,
       0.35,
-    )!.withValues(alpha: quiet ? 0.05 : 0.12);
+    )!.withValues(alpha: quiet ? 0.05 : 0.09);
     final rim = quiet
         ? a.glassRim.withValues(alpha: a.glassRim.a * 0.55)
         : a.glassRim;
     return CustomPaint(
+      // The shadow is painted outside the plate only: under a translucent
+      // plate a box shadow would show through and dull the glass.
+      painter: raised
+          ? _OuterShadowPainter(
+              colour: a.groundDeep.withValues(alpha: 0.38),
+              radius: radius,
+              circle: circle,
+            )
+          : null,
       foregroundPainter: _RimPainter(
         colour: rim,
         radius: radius,
@@ -105,21 +114,54 @@ class LabGlass extends StatelessWidget {
                     ],
                     stops: const [0, 0.45, 1],
                   ),
-            boxShadow: raised
-                ? [
-                    BoxShadow(
-                      color: a.groundDeep.withValues(alpha: 0.38),
-                      blurRadius: 24,
-                      offset: const Offset(0, 8),
-                    ),
-                  ]
-                : null,
           ),
           child: Padding(padding: padding, child: child),
         ),
       ),
     );
   }
+}
+
+class _OuterShadowPainter extends CustomPainter {
+  _OuterShadowPainter({
+    required this.colour,
+    required this.radius,
+    required this.circle,
+  });
+
+  final Color colour;
+  final double radius;
+  final bool circle;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final plate = Offset.zero & size;
+    final shape = circle
+        ? (Path()..addOval(plate))
+        : (Path()..addRRect(
+            RRect.fromRectAndRadius(plate, Radius.circular(radius)),
+          ));
+    canvas.save();
+    canvas.clipPath(
+      Path()
+        ..fillType = PathFillType.evenOdd
+        ..addRect(plate.inflate(60))
+        ..addPath(shape, Offset.zero),
+    );
+    canvas.drawPath(
+      shape.shift(const Offset(0, 8)),
+      Paint()
+        ..color = colour
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12),
+    );
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(_OuterShadowPainter oldDelegate) =>
+      oldDelegate.colour != colour ||
+      oldDelegate.radius != radius ||
+      oldDelegate.circle != circle;
 }
 
 class _RimPainter extends CustomPainter {

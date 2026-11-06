@@ -49,7 +49,7 @@ abstract final class LabGeometry {
   static const double trackArtwork = 44;
   static const double releaseCover = 112;
   static const double toolbarHeight = 56;
-  static const double sectionGap = 22;
+  static const double sectionGap = 18;
 
   /// The mini-player's own sizes (the production bar's, read, not copied),
   /// so clearance here is what the integrated page will need.
@@ -148,7 +148,7 @@ class _ProfileLabPageState extends State<ProfileLabPage>
             largeText: largeText,
           ),
         ),
-        _padded(_Controls(atmosphere: a, layers: layers), top: 14),
+        _padded(_Controls(atmosphere: a, layers: layers), top: 12),
         _padded(
           _Tabs(
             atmosphere: a,
@@ -156,7 +156,7 @@ class _ProfileLabPageState extends State<ProfileLabPage>
             selected: _tab,
             onSelected: (i) => setState(() => _tab = i),
           ),
-          top: 12,
+          top: 6,
         ),
         _padded(
           _SectionHeader(
@@ -716,83 +716,107 @@ class _Controls extends StatelessWidget {
       ),
     );
 
-    return Row(
-      key: const ValueKey<String>('lab-controls'),
-      children: [
-        round(Icons.shuffle_rounded, 'Shuffle', 'lab-shuffle'),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Semantics(
-            button: true,
-            label: 'Play all',
-            excludeSemantics: true,
-            child: Container(
-              key: const ValueKey<String>('lab-play'),
-              constraints: const BoxConstraints(
-                minHeight: LabGeometry.controlHeight,
-              ),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(28),
-                gradient: LinearGradient(
-                  begin: Alignment.topCenter,
-                  end: Alignment.bottomCenter,
-                  colors: [a.accentTop, a.accentBottom],
-                ),
-                border: a.effects
-                    ? Border.all(
-                        color: const Color(0xFFFFFFFF).withValues(alpha: 0.22),
-                      )
-                    : null,
-                boxShadow: a.effects
-                    ? [
-                        BoxShadow(
-                          color: a.accentTop.withValues(alpha: 0.42),
-                          blurRadius: 30,
-                          spreadRadius: -6,
-                          offset: const Offset(0, 10),
-                        ),
-                      ]
-                    : null,
-              ),
-              child: Material(
-                type: MaterialType.transparency,
-                borderRadius: BorderRadius.circular(28),
-                clipBehavior: Clip.antiAlias,
-                child: InkWell(
-                  onTap: () {},
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Icon(Icons.play_arrow_rounded, color: a.onAccent),
-                        const SizedBox(width: 6),
-                        Flexible(
-                          child: Text(
-                            'Play all',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: text.titleMedium?.copyWith(
-                              color: a.onAccent,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                        ),
-                      ],
+    final large =
+        MediaQuery.textScalerOf(context).scale(1) > sonusLargeTextScale;
+    final play = Semantics(
+      button: true,
+      label: 'Play all',
+      excludeSemantics: true,
+      child: Container(
+        key: const ValueKey<String>('lab-play'),
+        constraints: const BoxConstraints(minHeight: LabGeometry.controlHeight),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(28),
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [a.accentTop, a.accentBottom],
+          ),
+          border: a.effects
+              ? Border.all(
+                  color: const Color(0xFFFFFFFF).withValues(alpha: 0.22),
+                )
+              : null,
+          boxShadow: a.effects
+              ? [
+                  BoxShadow(
+                    color: a.accentTop.withValues(alpha: 0.42),
+                    blurRadius: 30,
+                    spreadRadius: -6,
+                    offset: const Offset(0, 10),
+                  ),
+                ]
+              : null,
+        ),
+        child: Material(
+          type: MaterialType.transparency,
+          borderRadius: BorderRadius.circular(28),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: () {},
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.play_arrow_rounded, color: a.onAccent),
+                  const SizedBox(width: 6),
+                  Flexible(
+                    child: Text(
+                      'Play all',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: text.titleMedium?.copyWith(
+                        color: a.onAccent,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
                   ),
-                ),
+                ],
               ),
             ),
           ),
         ),
+      ),
+    );
+    final shuffle = round(Icons.shuffle_rounded, 'Shuffle', 'lab-shuffle');
+    final favourite = round(
+      Icons.favorite_border_rounded,
+      'Favourite',
+      'lab-favourite',
+    );
+    // With large text Play all gets the full width and the round buttons
+    // move to their own row, so nothing is squeezed beside it.
+    if (large) {
+      return Column(
+        key: const ValueKey<String>('lab-controls'),
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          play,
+          const SizedBox(height: 10),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [shuffle, const SizedBox(width: 16), favourite],
+          ),
+        ],
+      );
+    }
+    return Row(
+      key: const ValueKey<String>('lab-controls'),
+      children: [
+        shuffle,
         const SizedBox(width: 12),
-        round(Icons.favorite_border_rounded, 'Favourite', 'lab-favourite'),
+        Expanded(child: play),
+        const SizedBox(width: 12),
+        favourite,
       ],
     );
   }
 }
 
+/// Secondary navigation, subordinate to Play all: text tabs on the page
+/// with an accent underline under the selected one and a hairline under
+/// the row. No filled pills. Scrolls sideways with large text.
 class _Tabs extends StatelessWidget {
   const _Tabs({
     required this.atmosphere,
@@ -812,66 +836,81 @@ class _Tabs extends StatelessWidget {
   Widget build(BuildContext context) {
     final a = atmosphere;
     final text = Theme.of(context).textTheme;
-    // With large text the labels keep their full width and the row scrolls
-    // sideways, rather than truncating to "Over…".
-    final large =
-        MediaQuery.textScalerOf(context).scale(1) > sonusLargeTextScale;
-    Widget tab(int i) => Semantics(
-      button: true,
-      selected: i == selected,
-      label: labels[i],
-      excludeSemantics: true,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(22),
-        onTap: () => onSelected(i),
-        child: Container(
-          constraints: const BoxConstraints(minHeight: 48),
-          alignment: Alignment.center,
-          padding: EdgeInsets.symmetric(horizontal: large ? 14 : 6),
-          decoration: i == selected
-              ? BoxDecoration(
-                  borderRadius: BorderRadius.circular(22),
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [a.accentTop, a.accentBottom],
+    Widget tab(int i) {
+      final on = i == selected;
+      return Semantics(
+        button: true,
+        selected: on,
+        label: labels[i],
+        excludeSemantics: true,
+        child: InkWell(
+          key: ValueKey<String>('lab-tab-$i'),
+          borderRadius: BorderRadius.circular(12),
+          onTap: () => onSelected(i),
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 48),
+            padding: EdgeInsets.fromLTRB(i == 0 ? 2 : 12, 0, 12, 0),
+            alignment: Alignment.center,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  labels[i],
+                  maxLines: 1,
+                  softWrap: false,
+                  overflow: TextOverflow.visible,
+                  style: text.titleSmall?.copyWith(
+                    color: on ? a.textPrimary : a.textSecondary,
+                    fontWeight: on ? FontWeight.w800 : FontWeight.w600,
                   ),
-                )
-              : null,
-          child: Text(
-            labels[i],
-            maxLines: 1,
-            overflow: large ? TextOverflow.visible : TextOverflow.ellipsis,
-            softWrap: false,
-            style: text.labelLarge?.copyWith(
-              color: i == selected ? a.onAccent : a.textPrimary,
-              fontWeight: i == selected ? FontWeight.w800 : FontWeight.w600,
+                ),
+                const SizedBox(height: 6),
+                AnimatedContainer(
+                  duration: SonusTheme.of(context).motion.short,
+                  height: 3,
+                  width: on ? 28 : 0,
+                  decoration: BoxDecoration(
+                    color: a.accentLine,
+                    borderRadius: BorderRadius.circular(2),
+                    boxShadow: on && a.effects
+                        ? [
+                            BoxShadow(
+                              color: a.accentLine.withValues(alpha: 0.55),
+                              blurRadius: 8,
+                            ),
+                          ]
+                        : null,
+                  ),
+                ),
+              ],
             ),
           ),
         ),
-      ),
+      );
+    }
+
+    // Left-aligned and always scrollable: at any text size the labels keep
+    // their full width, and a row that does not fit scrolls sideways.
+    final row = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [for (var i = 0; i < labels.length; i++) tab(i)],
     );
-    return LabGlass(
+    return Container(
       key: const ValueKey<String>('lab-tabs'),
-      atmosphere: a,
-      layers: layers,
-      radius: 26,
-      raised: false,
-      quiet: true,
-      padding: const EdgeInsets.all(4),
-      child: large
-          ? SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [for (var i = 0; i < labels.length; i++) tab(i)],
-              ),
-            )
-          : Row(
-              children: [
-                for (var i = 0; i < labels.length; i++)
-                  Expanded(flex: i == 2 ? 13 : 10, child: tab(i)),
-              ],
-            ),
+      decoration: BoxDecoration(
+        border: Border(
+          bottom: BorderSide(
+            color: a.border.withValues(alpha: a.border.a * 0.8),
+          ),
+        ),
+      ),
+      child: SingleChildScrollView(
+        key: const ValueKey<String>('lab-tabs-scroll'),
+        scrollDirection: Axis.horizontal,
+        // The first tab lines up with the page's text.
+        padding: const EdgeInsets.symmetric(horizontal: 0),
+        child: row,
+      ),
     );
   }
 }

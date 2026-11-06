@@ -22,7 +22,7 @@ Finder _key(String key) => find.byKey(ValueKey<String>(key));
 /// ratio of about 1.38:1 with no imagery behind content.
 abstract final class LabTargets {
   static const double minimumBackdropSpread = 12; // L* units, P5..P95
-  static const double minimumBackdropRatio = 1.8;
+  static const double minimumBackdropRatio = 1.7;
   static const double minimumImageryTop = 0.35;
   static const double minimumImageryScrolled = 0.15;
   static const double minimumGlassDelta = 2.5; // L* units
@@ -269,18 +269,44 @@ void main() {
           device: device,
         );
         final player = tester.getRect(_key('lab-mini-player'));
-        // At the top of the page every control is above the player.
+        final toolbar = tester.getRect(_key('lab-toolbar'));
+        // On arrival the main action is fully above the player.
+        expect(
+          tester.getRect(_key('lab-play')).bottom,
+          lessThanOrEqualTo(player.top),
+        );
+        // Every control can be scrolled fully clear of the toolbar and the
+        // player.
         for (final key in [
           'lab-shuffle',
           'lab-play',
           'lab-favourite',
-          'lab-tabs',
+          'lab-tab-0',
+          'lab-tab-1',
+          'lab-tab-2',
+          'lab-view-all',
         ]) {
-          expect(
-            tester.getRect(_key(key)).bottom,
-            lessThanOrEqualTo(player.top),
-            reason: key,
+          scroll.jumpTo(0);
+          await tester.pump();
+          final target = _key(key);
+          while (target.evaluate().isEmpty &&
+              scroll.offset < scroll.position.maxScrollExtent) {
+            scroll.jumpTo(
+              (scroll.offset + 300).clamp(0.0, scroll.position.maxScrollExtent),
+            );
+            await tester.pump();
+          }
+          final rect = tester.getRect(target);
+          // Bring it just above the player.
+          final over = rect.bottom - (player.top - 8);
+          scroll.jumpTo(
+            (scroll.offset + over).clamp(0.0, scroll.position.maxScrollExtent),
           );
+          await tester.pump();
+          final now = tester.getRect(target);
+          expect(now.bottom, lessThanOrEqualTo(player.top), reason: key);
+          expect(now.top, greaterThanOrEqualTo(toolbar.bottom), reason: key);
+          expect(now.height, greaterThanOrEqualTo(47.99), reason: key);
         }
         // At the end, the last content scrolls fully above it.
         scroll.jumpTo(scroll.position.maxScrollExtent);

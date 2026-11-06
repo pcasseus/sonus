@@ -183,13 +183,14 @@ class LabAtmosphere {
       // light (the reference's material), still dark enough for its text.
       // The plate's tint; LabGlass also lifts the backdrop under it.
       glass: tone(0.16, chromaScale: 0.55).withValues(alpha: 0.06),
-      glassRim: white.withValues(alpha: 0.13),
+      glassRim: white.withValues(alpha: 0.10),
       accentTop: accentTop,
       accentBottom: accentBottom,
       onAccent: onAccent,
       accentLine: tone(0.66, chromaScale: 1.0),
       textPrimary: const Color(0xFFF5F7FA),
-      textSecondary: HSLColor.fromAHSL(1, hue, 0.14, 0.80).toColor(),
+      // Over lifted glass too, so a little lighter than a plain grey.
+      textSecondary: HSLColor.fromAHSL(1, hue, 0.14, 0.84).toColor(),
       border: white.withValues(alpha: 0.14),
     );
   }
