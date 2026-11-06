@@ -36,7 +36,7 @@ import 'package:sonus_next/features/charts/domain/repositories/chart_repository.
 import 'package:sonus_next/features/charts/domain/models/chart_week.dart';
 import 'package:sonus_next/features/charts/domain/services/chart_week_resolver.dart';
 import 'package:sonus_next/features/charts/presentation/controllers/charts_controller.dart';
-import 'package:sonus_next/features/charts/presentation/news/moment_post_card.dart';
+import 'package:sonus_next/features/charts/presentation/news/moment_feed_cards.dart';
 import 'package:sonus_next/features/charts/presentation/editorial/moment_category.dart';
 import 'package:sonus_next/features/charts/presentation/editorial/moment_publisher.dart';
 import 'package:sonus_next/features/charts/presentation/pages/charts_page.dart';
@@ -1634,11 +1634,16 @@ void main() {
     expect(find.text(story.headline), findsOneWidget);
     expect(story.headline, contains('#3'));
     expect(story.headline, contains('"Song 1"'));
-    expect(find.text('WEEKLY SONUS HOT 100'), findsOneWidget);
+    // App Update 1.1: the masthead names the chart; the card leads with
+    // its kind and publisher.
+    expect(
+      find.byKey(const ValueKey<String>('charts-moments-eyebrow')),
+      findsOneWidget,
+    );
     expect(
       find.descendant(
-        of: find.byType(MomentPostCard),
-        matching: find.text(story.publisher.label),
+        of: find.byType(MomentFeedCard),
+        matching: find.textContaining(story.publisher.label),
       ),
       findsOneWidget,
     );
@@ -1735,16 +1740,27 @@ void main() {
     await tester.tap(find.text('Moments'));
     await tester.pump();
 
-    expect(_postPart('image-right'), findsOneWidget);
-    for (final link in ['song', 'album', 'artist']) {
-      expect(_postPart(link), findsOneWidget);
+    // App Update 1.1: the card opens the expanded story, whose Related
+    // section links to the song, the release and the artist.
+    await tester.tap(_postPart('open'));
+    await tester.pumpAndSettle();
+    for (final link in ['Song', 'Album', 'Artist']) {
+      expect(
+        find.byKey(ValueKey<String>('moment-story-related-$link')),
+        findsOneWidget,
+      );
     }
     // Sonus never invents engagement.
     expect(find.byIcon(Icons.favorite_border_rounded), findsNothing);
     expect(find.byIcon(Icons.repeat_rounded), findsNothing);
     expect(find.byIcon(Icons.chat_bubble_outline_rounded), findsNothing);
 
-    await tester.tap(_postPart('album'));
+    await tester.ensureVisible(
+      find.byKey(const ValueKey<String>('moment-story-related-Album')),
+    );
+    await tester.tap(
+      find.byKey(const ValueKey<String>('moment-story-related-Album')),
+    );
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
     expect(find.byType(AlbumProfilePage), findsOneWidget);
@@ -1777,14 +1793,14 @@ void main() {
     await tester.tap(find.text('Moments'));
     await tester.pump();
 
-    expect(_postPart('song'), findsNothing);
-    expect(_postPart('artist'), findsNothing);
-    // The artist has no portrait: a placeholder, never someone else's.
+    await tester.tap(_postPart('open'));
+    await tester.pumpAndSettle();
     expect(
-      find.descendant(
-        of: _postPart('image-right'),
-        matching: find.byType(Image),
-      ),
+      find.byKey(const ValueKey<String>('moment-story-related-Song')),
+      findsNothing,
+    );
+    expect(
+      find.byKey(const ValueKey<String>('moment-story-related-Artist')),
       findsNothing,
     );
   });
@@ -1821,7 +1837,7 @@ void main() {
     expect(find.text('SONUS HOT 100'), findsOneWidget);
     expect(find.text('#1'), findsOneWidget);
     expect(find.text('NUMBER ONE'), findsOneWidget);
-    expect(find.text('${story.publisher.handle} · 3h'), findsOneWidget);
+    expect(find.text('${story.publisher.label} · 3h'), findsOneWidget);
   });
 
   testWidgets('Moment posts fit a 320 px screen at large text', (tester) async {
@@ -1850,12 +1866,9 @@ void main() {
     await tester.pump();
 
     expect(tester.takeException(), isNull);
-    final card = tester.getRect(find.byType(MomentPostCard));
+    final card = tester.getRect(find.byType(MomentFeedCard));
     expect(card.right, lessThanOrEqualTo(320));
-    for (final link in ['song', 'album', 'artist']) {
-      final size = tester.getSize(_postPart(link));
-      expect(size.height, greaterThanOrEqualTo(44));
-    }
+    expect(tester.getSize(_postPart('open')).height, greaterThanOrEqualTo(44));
   });
 
   testWidgets('provisional live facts are not published as news', (
@@ -2189,7 +2202,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(
-      find.byKey(ValueKey<String>('moment-post-climb-${story.id}')),
+      find.byKey(ValueKey<String>('moment-post-badges-${story.id}')),
       findsOneWidget,
     );
     expect(find.bySemanticsLabel(RegExp('Up 12 places')), findsWidgets);
@@ -2587,21 +2600,18 @@ void main() {
         find.descendant(of: card, matching: find.byType(PositionedDirectional)),
         findsNothing,
       );
-      final image = find.byKey(
-        ValueKey<String>('moment-post-image-left-${story.id}'),
+      // App Update 1.1: the badges (rank, movement, status) sit beside or
+      // below the artwork, never over it.
+      final badges = find.byKey(
+        ValueKey<String>('moment-post-badges-${story.id}'),
       );
-      final status = find.byKey(
-        ValueKey<String>('moment-post-status-${story.id}'),
-      );
-      final kicker = find.byKey(
-        ValueKey<String>('moment-post-kicker-${story.id}'),
-      );
-      expect(status, findsOneWidget);
-      expect(kicker, findsOneWidget);
-      expect(
-        tester.getTopLeft(status).dy,
-        greaterThan(tester.getBottomLeft(image).dy),
-      );
+      expect(badges, findsOneWidget);
+      final artwork = find.descendant(of: card, matching: find.byType(Image));
+      if (artwork.evaluate().isNotEmpty) {
+        final art = tester.getRect(artwork.first);
+        final facts = tester.getRect(badges);
+        expect(art.overlaps(facts), isFalse);
+      }
       expect(find.text('#3'), findsOneWidget);
     });
 
@@ -3324,3 +3334,17 @@ class _FakeSongStatsLoader implements SongStatsLoader {
     );
   }
 }
+
+// App Update 1.1: the fakes, for the Moments render boards
+// (test/visual_lab/moments_render_test.dart).
+typedef ChartsTestMoments = _FakeChartMomentRepository;
+typedef ChartsTestAllTime = _FakeAllTimeChartService;
+typedef ChartsTestFinalization = _FakeChartFinalizationService;
+typedef ChartsTestChartRepository = _FakeChartRepository;
+typedef ChartsTestLibrary = _FakeLibraryQueryRepository;
+
+ChartSnapshot chartsTestSnapshot({
+  required String id,
+  required DateTime start,
+  ChartType chartType = ChartType.songs,
+}) => _snapshot(id: id, start: start, chartType: chartType);

@@ -19,7 +19,11 @@ import '../../application/models/chart_moment_feed_item.dart';
 import '../../domain/entities/chart_entry.dart';
 import '../../domain/models/chart_type.dart';
 import '../../domain/models/chart_view_size.dart';
-import '../news/moment_post_card.dart';
+import '../../application/services/moment_chart_journey_service.dart';
+import '../editorial/moment_visuals.dart';
+import '../news/moment_feed_cards.dart';
+import '../news/moment_story_format.dart';
+import 'moment_story_page.dart';
 import '../editorial/moment_category.dart';
 import '../editorial/moment_editorial_desk.dart';
 import '../editorial/moment_publisher.dart';
@@ -88,7 +92,7 @@ class ChartsPage extends StatelessWidget {
                 padding: const EdgeInsets.fromLTRB(20, 22, 20, 0),
                 sliver: SliverList.list(
                   children: [
-                    const _ChartsHeader(),
+                    _ChartsHeader(moments: controller.isShowingMoments),
                     const SizedBox(height: 18),
                     _ChartsPresentationSelector(controller: controller),
                     const SizedBox(height: 20),
@@ -271,12 +275,17 @@ class _ScrollToTopHostState extends State<_ScrollToTopHost> {
 }
 
 class _ChartsHeader extends StatelessWidget {
-  const _ChartsHeader();
+  const _ChartsHeader({this.moments = false});
+
+  /// App Update 1.1: the Moments masthead ("SONUS HOT 100 / Moments / Your
+  /// chart story, in real time.") while Moments is shown.
+  final bool moments;
 
   @override
   Widget build(BuildContext context) {
     final tokens = SonusTheme.of(context);
     final theme = Theme.of(context);
+    if (moments) return _MomentsMasthead(tokens: tokens, theme: theme);
 
     // The page's featured header carries the theme's texture and motif.
     return Stack(
@@ -311,6 +320,65 @@ class _ChartsHeader extends StatelessWidget {
               SizedBox(height: tokens.metrics.spaceSm),
               const SonusMotifMark(),
             ],
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+/// The Moments masthead (App Update 1.1, approved hybrid design): the
+/// chart's name as an eyebrow, "Moments" and the line under it.
+class _MomentsMasthead extends StatelessWidget {
+  const _MomentsMasthead({required this.tokens, required this.theme});
+
+  final SonusThemeData tokens;
+  final ThemeData theme;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = tokens.colors;
+    final palette = MomentEditorialPalette.of(colors, tokens.decoration);
+    return Stack(
+      children: [
+        const Positioned.fill(child: SonusSurfaceTexture()),
+        Column(
+          key: const ValueKey<String>('charts-header'),
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'SONUS HOT 100',
+              key: const ValueKey<String>('charts-moments-eyebrow'),
+              style: theme.textTheme.labelLarge?.copyWith(
+                letterSpacing: 2.2,
+                fontWeight: FontWeight.w800,
+                color: palette.purpleText,
+              ),
+            ),
+            const SizedBox(height: 3),
+            Semantics(
+              header: true,
+              child: Text(
+                'Moments',
+                key: const ValueKey<String>('charts-title'),
+                // The theme's page title (tokens.text.pageTitle is built
+                // from the same headlineMedium).
+                style: (theme.textTheme.headlineMedium ?? tokens.text.pageTitle)
+                    .copyWith(
+                      color: colors.textPrimary,
+                      fontWeight: FontWeight.w900,
+                      height: 1.05,
+                    ),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Your chart story, in real time.',
+              key: const ValueKey<String>('charts-moments-subtitle'),
+              style: theme.textTheme.bodyLarge?.copyWith(
+                color: colors.textSecondary,
+              ),
+            ),
           ],
         ),
       ],
@@ -952,28 +1020,73 @@ class _MomentPost extends StatelessWidget {
         track.isAvailable &&
         (track.filePath?.trim().isNotEmpty ?? false);
 
-    return MomentPostCard(
+    // App Update 1.1: the card opens the expanded story, where the song,
+    // release and artist links live (the approved hybrid design).
+    final release = controller.relatedReleaseForMoment(item);
+    final portrait = controller.artistPortraitPathForMoment(item);
+    final related = <MomentRelatedLink>[
+      if (playable && track.songId == item.entity.entityId)
+        MomentRelatedLink(
+          kind: 'Song',
+          title: track.title,
+          subtitle: 'Song • ${track.artistName}',
+          image: MomentImage(
+            kind: MomentImageKind.cover,
+            entityId: track.songId,
+            path: controller.momentLookups.currentSongCover(track.songId),
+          ),
+          onOpen: () =>
+              unawaited(_showChartTrackContext(context, track, [track])),
+        ),
+      if (album != null && release != null)
+        MomentRelatedLink(
+          kind: story.facts.releaseLabel,
+          title: release.title,
+          subtitle: '${story.facts.releaseLabel} • ${album.artistName}',
+          image: MomentImage(
+            kind: MomentImageKind.cover,
+            entityId: album.albumId,
+            path: release.cover,
+          ),
+          onOpen: () =>
+              unawaited(_openMomentRelease(context, controller, item)),
+        ),
+      if (artist != null)
+        MomentRelatedLink(
+          kind: 'Artist',
+          title: artist.name,
+          subtitle: 'Artist',
+          image: MomentImage(
+            kind: MomentImageKind.portrait,
+            entityId: artist.artistId,
+            path: portrait,
+          ),
+          onOpen: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => ArtistProfilePage(
+                artistId: artist.artistId,
+                initialArtistName: artist.name,
+              ),
+            ),
+          ),
+        ),
+    ];
+    final journey = context.read<MomentJourneyLoader?>();
+
+    return MomentFeedCard(
       key: ValueKey<String>('charts-moment-${item.id}'),
       story: story,
       now: now,
       credit: controller.creditForMoment(story),
-      releaseTitle: controller.releaseTitleForMoment(item),
-      onOpenSong: playable
-          ? () => unawaited(_showChartTrackContext(context, track, [track]))
-          : null,
-      onOpenAlbum: album == null
-          ? null
-          : () => unawaited(_openMomentRelease(context, controller, item)),
-      onOpenArtist: artist == null
-          ? null
-          : () => Navigator.of(context).push(
-              MaterialPageRoute<void>(
-                builder: (_) => ArtistProfilePage(
-                  artistId: artist.artistId,
-                  initialArtistName: artist.name,
-                ),
-              ),
-            ),
+      onOpen: () => unawaited(
+        openMomentStory(
+          context,
+          story: story,
+          now: now,
+          journey: journey,
+          related: related,
+        ),
+      ),
     );
   }
 }

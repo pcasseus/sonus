@@ -223,7 +223,17 @@ class AllTimeReplayResult {
     this.dayTotals = const {},
     this.dayStandings = const {},
     this.observedDays = 0,
+    this.trackedPeaks = const {},
+    this.trackedFirstCharted = const {},
+    this.trackedRanks = const {},
   });
+
+  /// For the replay's `collectDayStandings` entities: the best Top 200 rank
+  /// ever reached (at any play, not only at day closes), when it first
+  /// entered the Top 200, and its rank after the last play (null: outside).
+  final Map<String, int> trackedPeaks;
+  final Map<String, DateTime> trackedFirstCharted;
+  final Map<String, int?> trackedRanks;
 
   /// Per entity, its completed chart days (App Update 1.1).
   final Map<String, ChartDayTotals> dayTotals;
@@ -717,6 +727,7 @@ class AllTimeHistoryReplay {
         }
 
         state
+          ..firstInTopAt ??= at
           ..everInTop = true
           ..everTop100 = state.everTop100 || rank <= hot100
           ..everTop10 = state.everTop10 || rank <= 10
@@ -752,6 +763,19 @@ class AllTimeHistoryReplay {
       dayStandings: {
         for (final MapEntry(key: id, value: list) in standings.entries)
           id: List.unmodifiable(list),
+      },
+      trackedPeaks: {
+        for (final id in collectDayStandings)
+          id: ?states[id]?.bestRank,
+      },
+      trackedFirstCharted: {
+        for (final id in collectDayStandings)
+          id: ?states[id]?.firstInTopAt,
+      },
+      trackedRanks: {
+        for (final id in collectDayStandings)
+          if (states.containsKey(id))
+            id: states[id]!.inTop ? top.indexOf(states[id]!) + 1 : null,
       },
       observedDays: observedDays,
       achievements: List.unmodifiable(achievements),
@@ -918,6 +942,7 @@ class _State {
   bool everNumberOne = false;
   int? bestRank;
   DateTime? leftTopAt;
+  DateTime? firstInTopAt;
 }
 
 class _DayCount {

@@ -1026,6 +1026,33 @@ class ChartsController extends ChangeNotifier {
     );
   }
 
+  /// The release a Moment's Related card shows (App Update 1.1): for an
+  /// album story, the title and cover of the release's edition with the
+  /// most songs; for a song story, the edition the song first appeared on.
+  /// Presentation only; the story's words never change.
+  ({String title, String? cover})? relatedReleaseForMoment(
+    ChartMomentFeedItem item,
+  ) {
+    final album = albumForMoment(item);
+    if (album == null) return null;
+    switch (item.chartType) {
+      case ChartType.albums:
+        final presentation = _albumPresentations[album.albumId];
+        return (
+          title: presentation?.title ?? album.displayTitle,
+          cover: presentation == null
+              ? album.artworkPath
+              : presentation.artworkPath,
+        );
+      case ChartType.songs:
+        final songId = item.entity.entityId;
+        return (
+          title: momentSongEditionTitle(songId) ?? album.displayTitle,
+          cover: momentLookups.currentSongCover(songId),
+        );
+    }
+  }
+
   LibraryAlbum? albumForMoment(ChartMomentFeedItem item) =>
       switch (item.chartType) {
         ChartType.songs => _albumsById[trackForMoment(item)?.albumId],
