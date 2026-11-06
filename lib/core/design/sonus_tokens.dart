@@ -29,12 +29,9 @@ class SonusColors extends ThemeExtension<SonusColors> {
     required this.chartNew,
     required this.chartReentry,
     required this.chartSteady,
-    required this.storyFeatured,
-    required this.onStoryFeatured,
     required this.artworkPlaceholder,
     required this.onArtworkPlaceholder,
     required this.artworkFrame,
-    required this.artworkScrim,
     required this.onArtworkScrim,
     required this.playbackControl,
     required this.onPlaybackControl,
@@ -68,12 +65,9 @@ class SonusColors extends ThemeExtension<SonusColors> {
       chartNew: scheme.secondary,
       chartReentry: scheme.primary,
       chartSteady: scheme.onSurfaceVariant,
-      storyFeatured: scheme.secondaryContainer,
-      onStoryFeatured: scheme.onSecondaryContainer,
       artworkPlaceholder: scheme.surfaceContainerHighest,
       onArtworkPlaceholder: scheme.onSurfaceVariant,
       artworkFrame: scheme.outlineVariant,
-      artworkScrim: scheme.scrim.withValues(alpha: 0.6),
       onArtworkScrim: Colors.white,
       playbackControl: scheme.primary,
       onPlaybackControl: scheme.onPrimary,
@@ -113,14 +107,11 @@ class SonusColors extends ThemeExtension<SonusColors> {
   /// colour, though the words carry the meaning.
   final Color chartReentry;
   final Color chartSteady;
-  final Color storyFeatured;
-  final Color onStoryFeatured;
   final Color artworkPlaceholder;
   final Color onArtworkPlaceholder;
   final Color artworkFrame;
 
-  /// Overlay laid over artwork so text on it stays readable.
-  final Color artworkScrim;
+  /// Text and icons laid over artwork (each screen draws its own scrim).
   final Color onArtworkScrim;
   final Color playbackControl;
   final Color onPlaybackControl;
@@ -150,12 +141,9 @@ class SonusColors extends ThemeExtension<SonusColors> {
     Color? chartNew,
     Color? chartReentry,
     Color? chartSteady,
-    Color? storyFeatured,
-    Color? onStoryFeatured,
     Color? artworkPlaceholder,
     Color? onArtworkPlaceholder,
     Color? artworkFrame,
-    Color? artworkScrim,
     Color? onArtworkScrim,
     Color? playbackControl,
     Color? onPlaybackControl,
@@ -184,12 +172,9 @@ class SonusColors extends ThemeExtension<SonusColors> {
       chartNew: chartNew ?? this.chartNew,
       chartReentry: chartReentry ?? this.chartReentry,
       chartSteady: chartSteady ?? this.chartSteady,
-      storyFeatured: storyFeatured ?? this.storyFeatured,
-      onStoryFeatured: onStoryFeatured ?? this.onStoryFeatured,
       artworkPlaceholder: artworkPlaceholder ?? this.artworkPlaceholder,
       onArtworkPlaceholder: onArtworkPlaceholder ?? this.onArtworkPlaceholder,
       artworkFrame: artworkFrame ?? this.artworkFrame,
-      artworkScrim: artworkScrim ?? this.artworkScrim,
       onArtworkScrim: onArtworkScrim ?? this.onArtworkScrim,
       playbackControl: playbackControl ?? this.playbackControl,
       onPlaybackControl: onPlaybackControl ?? this.onPlaybackControl,
@@ -228,15 +213,12 @@ class SonusColors extends ThemeExtension<SonusColors> {
       chartNew: mix(chartNew, other.chartNew),
       chartReentry: mix(chartReentry, other.chartReentry),
       chartSteady: mix(chartSteady, other.chartSteady),
-      storyFeatured: mix(storyFeatured, other.storyFeatured),
-      onStoryFeatured: mix(onStoryFeatured, other.onStoryFeatured),
       artworkPlaceholder: mix(artworkPlaceholder, other.artworkPlaceholder),
       onArtworkPlaceholder: mix(
         onArtworkPlaceholder,
         other.onArtworkPlaceholder,
       ),
       artworkFrame: mix(artworkFrame, other.artworkFrame),
-      artworkScrim: mix(artworkScrim, other.artworkScrim),
       onArtworkScrim: mix(onArtworkScrim, other.onArtworkScrim),
       playbackControl: mix(playbackControl, other.playbackControl),
       onPlaybackControl: mix(onPlaybackControl, other.onPlaybackControl),
