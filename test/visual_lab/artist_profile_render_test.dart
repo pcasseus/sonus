@@ -431,6 +431,26 @@ void main() {
     }
   });
 
+  // Bold text strengthens type without removing the artwork atmosphere.
+  group('Bold text keeps the full atmosphere', () {
+    for (final device in [LabDevice.s26, LabDevice.small.withText(2.0)]) {
+      testWidgets(device.name, (tester) async {
+        final (banner, portrait, covers) = generated(LabVariant.cool);
+        await _pump(
+          tester,
+          banner: banner,
+          portrait: portrait,
+          covers: covers,
+          spec: const SonusAppearanceSpec(boldText: true),
+          device: device,
+        );
+        expect(tester.takeException(), isNull);
+        expect(_key('sonus-artwork-environment-image'), findsOneWidget);
+        expect(_key('sonus-artwork-environment-light'), findsOneWidget);
+      });
+    }
+  });
+
   testWidgets('boards: the real Artist Profile', skip: _out.isEmpty, (
     tester,
   ) async {
