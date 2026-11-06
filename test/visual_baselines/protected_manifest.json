@@ -291,21 +291,21 @@
     "lib/core/design/sonus_theme.dart": "eee8cad69797a4e7f0c9bee3522837d5bb143d69f250b599e25eb0186afa5c24",
     "lib/core/design/sonus_theme_catalog.dart": "1f6bb5e7ef038e8861f1af3d2ff22f2cfc866a9c0c286f3c8b13ff5fa3425e7e",
     "lib/core/design/sonus_theme_definition.dart": "6e210aa3074b7751bbc14025434625076628a18c905a8aa5b5a4ad59d1de06ef",
-    "lib/core/design/sonus_theme_factory.dart": "bdef85e74ae4087a13f0099d5b6ba10f589c202ed6247831eb25b8b028c616ae",
+    "lib/core/design/sonus_theme_factory.dart": "de427fbdb5c5269a66f582c77c5c645abf8e08086cd872b225cb67b0a1dfad7f",
     "lib/core/design/sonus_theme_id.dart": "874334a84326c52d4f893280a6401ef620cefe6008e30ae33b29ea0800f621f8",
-    "lib/core/design/sonus_tokens.dart": "5f94e30b3b8332535e5c6baeb9d2c3cf4997880916b7469f2198f2a49461343d",
+    "lib/core/design/sonus_tokens.dart": "7ea664bb8f3e5c20fad2f63370da76a641ce478bf48715feffa09dd8b46e40c3",
     "lib/core/design/sonus_typography.dart": "486cd2c5f2044d54af1d63b54a48a1f5bfb43a90f8d53bbaf7eb3acd98ab3020",
     "lib/core/design/widgets/playback/sonus_mini_player.dart": "6bc6e9818c1f47e714a85500202ac3095d0bf34c47667a34ed211885297cbd06",
     "lib/core/design/widgets/playback/sonus_now_playing_view.dart": "0afc10de4ceb5afe997532043d229bccdc99e9b5eecb7ecdd17888da519d8ad5",
     "lib/core/design/widgets/playback/sonus_playback_controls.dart": "24782519fe7ed9dc302b4a5a96c8954759ad9c29def285aebb29cd533408674b",
     "lib/core/design/widgets/playback/sonus_playback_progress.dart": "292d8bc6dc2ddfabde5f622694e87669502ca4139d5bf7122fe67643eb0b0098",
-    "lib/core/design/widgets/sonus_artwork_atmosphere_builder.dart": "94d455ce463de557023ae3fbd8e5003871d2fbd21cc92000c5cc56597bce9eec",
+    "lib/core/design/widgets/sonus_artwork_atmosphere_builder.dart": "9fb6f86a2cb4dafdffd117eb189172b6ede0c9292cb0f75212482f08cd8e5a66",
     "lib/core/design/widgets/sonus_artwork_backdrop.dart": "59cb158e7acf324a22fa8d355b627c5dbe954ec66a15fa9c4cab2719a1019120",
     "lib/core/design/widgets/sonus_artwork_colors_request.dart": "005be467320ec983301c58e3c6776f4b9fab2bc02b51153bb2034684638d0255",
     "lib/core/design/widgets/sonus_artwork_frame.dart": "0496af2fcb687d33709aa47d8a71cf2f8391be08c87c6bde73825acf2b6a0f4b",
     "lib/core/design/widgets/sonus_artwork_image.dart": "aae964e0178dcb501936db59ade888ab0529db43a7763d679d1affa0e3670e60",
     "lib/core/design/widgets/sonus_brand_mark.dart": "cd0ffc4d012ce2faf4aa1621edb7e0d3d834a77e31daa048c4e2b215562d98a1",
-    "lib/core/design/widgets/sonus_cinematic_atmosphere_builder.dart": "62acd12f383af11ca920326d9e2d5415bc2b504fe2d71ad9bb43a65377c08a85",
+    "lib/core/design/widgets/sonus_cinematic_atmosphere_builder.dart": "6498c6b5db412a9c5a23dd1ba7129a7781413b54e1fd790c855fa4fa6f432644",
     "lib/core/design/widgets/sonus_decorations.dart": "a73c415b6d3ee7c5afa8c89ee1cd58870973dd68e67d20ce670c8b2d22cfcf90",
     "lib/core/design/widgets/sonus_framed_artwork.dart": "736794a04b7872860fa790e8cda63079b0d77b65ce1f0cb3ef346ef457677038",
     "lib/core/design/widgets/sonus_glass_panel.dart": "a7a8ea60ba0ee9c730f516789924931a6abec60e73c1a60edf05f8c0f2138ae8",
@@ -339,6 +339,41 @@
       "approval": "Stage 1 protected visual baselines: initial record of the accepted UI at a678b95 (approved by the user 2026-11-05)",
       "protectedChanges": {},
       "sharedChanges": {},
+      "dependencyListChanges": []
+    },
+    {
+      "date": "2026-11-06",
+      "approval": "Approved SN-51 visual infrastructure cleanup (Groups A-E, 6baefb2..74543af; shared files changed in A 6baefb2 and B 35c6e58); 118 protected visual checks unchanged. Approved by the user 2026-11-05.",
+      "protectedChanges": {},
+      "sharedChanges": {
+        "roster": [
+          "lib/core/design/sonus_theme_factory.dart",
+          "lib/core/design/sonus_tokens.dart",
+          "lib/core/design/widgets/sonus_artwork_atmosphere_builder.dart",
+          "lib/core/design/widgets/sonus_cinematic_atmosphere_builder.dart"
+        ],
+        "film_reel": [
+          "lib/core/design/sonus_theme_factory.dart",
+          "lib/core/design/sonus_tokens.dart",
+          "lib/core/design/widgets/sonus_artwork_atmosphere_builder.dart",
+          "lib/core/design/widgets/sonus_cinematic_atmosphere_builder.dart"
+        ],
+        "home": [
+          "lib/core/design/sonus_theme_factory.dart",
+          "lib/core/design/sonus_tokens.dart",
+          "lib/core/design/widgets/sonus_artwork_atmosphere_builder.dart"
+        ],
+        "navigation": [
+          "lib/core/design/sonus_theme_factory.dart",
+          "lib/core/design/sonus_tokens.dart",
+          "lib/core/design/widgets/sonus_artwork_atmosphere_builder.dart"
+        ],
+        "now_playing": [
+          "lib/core/design/sonus_theme_factory.dart",
+          "lib/core/design/sonus_tokens.dart",
+          "lib/core/design/widgets/sonus_artwork_atmosphere_builder.dart"
+        ]
+      },
       "dependencyListChanges": []
     }
   ]
