@@ -149,15 +149,108 @@ class SqlitePermanentDeletionImpactRepository {
         }
     }
 
+    return _complete(
+      target: target,
+      targetName: targetName,
+      blockers: blockers,
+      songIds: songIds,
+      albumIds: albumIds,
+      editionIds: editionIds,
+      artistIds: artistIds,
+      shared: shared,
+      keptLosingListing: keptLosingListing,
+    );
+  }
+
+  /// App Update 1.2: the impact of deleting exactly these records, as
+  /// another device deleted them (its library_deletion record). Records
+  /// that cannot exist without a deleted one are included: songs and
+  /// editions of a deleted release, releases and songs of a deleted
+  /// artist (for example ones this device added later).
+  Future<PermanentDeletionImpact> planEntities({
+    required PermanentDeletionTarget target,
+    Set<String> songs = const {},
+    Set<String> albums = const {},
+    Set<String> editions = const {},
+    Set<String> artists = const {},
+    Set<String> sessions = const {},
+    Set<String> plays = const {},
+    Set<String> momentKeys = const {},
+  }) async {
+    Future<Set<String>> existing(String table, Set<String> ids) async => {
+      for (final row in await _selectIn('SELECT id FROM $table WHERE id', ids))
+        row['id']! as String,
+    };
+
+    final artistIds = await existing(DatabaseTables.artists, artists);
+    final albumIds = await existing(DatabaseTables.albums, albums);
+    for (final row in await _selectIn(
+      'SELECT id FROM ${DatabaseTables.albums} WHERE artist_id',
+      artistIds,
+    )) {
+      albumIds.add(row['id']! as String);
+    }
+    final editionIds = await existing(DatabaseTables.albumEditions, editions);
+    for (final row in await _selectIn(
+      'SELECT id FROM ${DatabaseTables.albumEditions} WHERE album_id',
+      albumIds,
+    )) {
+      editionIds.add(row['id']! as String);
+    }
+    // Songs of a deleted release or artist go with it. A deleted edition
+    // alone does not take songs with it: the record lists those that go,
+    // and the others stay (listed on another edition).
+    final songIds = await existing(DatabaseTables.songs, songs);
+    for (final (column, ids) in [
+      ('album_id', albumIds),
+      ('artist_id', artistIds),
+    ]) {
+      for (final row in await _selectIn(
+        'SELECT id FROM ${DatabaseTables.songs} WHERE $column',
+        ids,
+      )) {
+        songIds.add(row['id']! as String);
+      }
+    }
+
+    return _complete(
+      target: target,
+      targetName: null,
+      blockers: {},
+      songIds: songIds,
+      albumIds: albumIds,
+      editionIds: editionIds,
+      artistIds: artistIds,
+      shared: const {},
+      keptLosingListing: const {},
+      extraSessionIds: sessions,
+      extraPlayIds: plays,
+      extraMomentKeys: momentKeys,
+    );
+  }
+
+  Future<PermanentDeletionImpact> _complete({
+    required PermanentDeletionTarget target,
+    required String? targetName,
+    required Set<PermanentDeletionBlocker> blockers,
+    required Set<String> songIds,
+    required Set<String> albumIds,
+    required Set<String> editionIds,
+    required Set<String> artistIds,
+    required Set<String> shared,
+    required Set<String> keptLosingListing,
+    Set<String> extraSessionIds = const {},
+    Set<String> extraPlayIds = const {},
+    Set<String> extraMomentKeys = const {},
+  }) async {
     // Credits on songs that stay.
     final collaborationKept = <String>{};
     var creditLinksRemoved = 0;
     if (artistIds.isNotEmpty) {
-      final credits = await _db.query(
-        DatabaseTables.songArtistCredits,
-        columns: ['song_id'],
-        where: 'artist_id = ?',
-        whereArgs: [target.id],
+      final credits = await _selectIn(
+        'SELECT song_id FROM ${DatabaseTables.songArtistCredits} '
+        'WHERE artist_id',
+        artistIds,
       );
       for (final row in credits) {
         final songId = row['song_id'] as String;
@@ -177,6 +270,12 @@ class SqlitePermanentDeletionImpactRepository {
       ))
         row['id'] as String,
     };
+    for (final row in await _selectIn(
+      'SELECT id FROM ${DatabaseTables.playbackSessions} WHERE id',
+      extraSessionIds,
+    )) {
+      sessionIds.add(row['id'] as String);
+    }
     final orphanScopes = <String, Set<String>>{
       'album_id': albumIds,
       'artist_id': artistIds,
@@ -201,6 +300,11 @@ class SqlitePermanentDeletionImpactRepository {
         'SELECT id, qualified_at FROM ${DatabaseTables.qualifiedPlays} '
         'WHERE song_id',
         songIds,
+      ),
+      ...await _selectIn(
+        'SELECT id, qualified_at FROM ${DatabaseTables.qualifiedPlays} '
+        'WHERE id',
+        extraPlayIds,
       ),
     ];
     final playIds = {for (final r in playRows) r['id'] as String};
@@ -282,6 +386,13 @@ class SqlitePermanentDeletionImpactRepository {
       ))
         row['id'] as String,
     };
+    for (final row in await _selectIn(
+      'SELECT id FROM ${DatabaseTables.chartMomentEvents} '
+      'WHERE deduplication_key',
+      extraMomentKeys,
+    )) {
+      about.add(row['id'] as String);
+    }
     final mentioning = <String>{};
     final mentionQueries = <(String, Set<String>)>[
       ('related_entity_id', subjects),

@@ -38,6 +38,10 @@ class CloudArchiveState {
 abstract interface class CloudArchiveLocalStore {
   Future<List<CloudArchiveRecord>> collect();
 
+  /// Whether a history record (a listening session or an all-time Moment)
+  /// is missing because the user permanently deleted it here.
+  Future<bool> deletedHere(CloudArchiveKind kind, String key);
+
   Future<CloudArchiveApplyOutcome> apply(CloudArchiveRecord record);
 
   Future<void> duplicatePlaylist({
@@ -125,14 +129,19 @@ class CloudArchiveSyncService {
       return report;
     }
 
-    await _push(userId, report);
+    final deletionSupported = await _gateway.supportsPermanentDeletion();
+    await _push(userId, report, deletionSupported: deletionSupported);
     // Records left waiting by an earlier pass; the pull handles the rest.
     await _retryPending(userId, report);
     await _pull(userId, report);
     return report;
   }
 
-  Future<void> _push(String userId, CloudArchiveSyncReport report) async {
+  Future<void> _push(
+    String userId,
+    CloudArchiveSyncReport report, {
+    required bool deletionSupported,
+  }) async {
     final states = await _store.states(userId);
     final local = await _store.collect();
     final seen = <String>{};
@@ -140,6 +149,11 @@ class CloudArchiveSyncService {
     for (final record in local) {
       SyncCancellation.checkpoint();
       seen.add(record.recordId);
+      // A server without permanent deletion would refuse the kind.
+      if (record.kind == CloudArchiveKind.libraryDeletion &&
+          !deletionSupported) {
+        continue;
+      }
       final state = states[record.recordId];
       if (state != null && state.pendingApply) continue;
       if (state != null && state.fingerprint == record.fingerprint) continue;
@@ -172,8 +186,16 @@ class CloudArchiveSyncService {
       }
       final separator = recordId.indexOf(':');
       final kind = CloudArchiveKind.fromWire(recordId.substring(0, separator));
-      if (kind == null || !kind.mutable) continue;
+      if (kind == null || kind == CloudArchiveKind.libraryDeletion) continue;
       final key = recordId.substring(separator + 1);
+      // History (listening, Moments) leaves the cloud only when the user
+      // permanently deleted it here, and only on a server that keeps such
+      // tombstones final and empty (App Update 1.2).
+      final permanentlyDeleted =
+          !kind.mutable &&
+          deletionSupported &&
+          await _store.deletedHere(kind, key);
+      if (!kind.mutable && !permanentlyDeleted) continue;
 
       final cloud = (await _gateway.fetch(
         userId: userId,
@@ -188,7 +210,7 @@ class CloudArchiveSyncService {
       final removal = CloudArchiveRecord(
         kind: kind,
         key: key,
-        payload: cloud.payload,
+        payload: permanentlyDeleted ? const {} : cloud.payload,
         isDeleted: true,
         clientUpdatedAt: _now().toUtc(),
       );

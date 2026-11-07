@@ -578,7 +578,9 @@ void main() {
     final preview = await service.preview(
       const PermanentDeletionTarget.song('opening'),
     );
-    expect(preview.blockers, {PermanentDeletionBlocker.cloudSyncLinked});
+    expect(preview.blockers, {
+      PermanentDeletionBlocker.cloudDeletionUnavailable,
+    });
     await expectLater(service.delete(preview), throwsA(isA<DeletionBlocked>()));
     expect(await count(DatabaseTables.songs, "id = 'opening'"), 1);
   });

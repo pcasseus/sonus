@@ -49,6 +49,12 @@ class InMemoryCloudArchive implements CloudArchiveGateway {
   @override
   Future<bool> isAvailable() async => available;
 
+  /// Whether this fake server carries permanent deletion (20261108000001).
+  bool supportsDeletion = false;
+
+  @override
+  Future<bool> supportsPermanentDeletion() async => supportsDeletion;
+
   @override
   Future<List<CloudArchiveRecord>> readPage({
     required String userId,

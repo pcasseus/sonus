@@ -55,13 +55,17 @@ class DeletionBlocked implements Exception {
 /// - rehomes songs another edition still lists, then deletes the records;
 /// - writes the deletion ledger and journal, and records cloud deletes.
 ///
-/// While cloud sync is linked the deletion is blocked (D10, fail closed):
-/// the cloud archive cannot yet delete the listening history it holds.
+/// On a device linked to cloud sync the deletion is allowed only when the
+/// server carries permanent deletion ([cloudDeletionReady]); it then
+/// reaches every device through a library_deletion archive record, and
+/// deleted history leaves the cloud. Otherwise it is blocked (D10, fail
+/// closed).
 class PermanentDeletionService {
   PermanentDeletionService({
     required this.appDatabase,
     this.userId,
     Future<bool> Function(DatabaseExecutor db)? isCloudLinked,
+    this._cloudDeletionReady,
     DateTime Function()? now,
     String Function()? generateOutboxId,
     String Function()? generateOperationId,
@@ -81,6 +85,10 @@ class PermanentDeletionService {
   final Future<void> Function(Set<String> songIds)? onSongsDeleted;
 
   final Future<bool> Function(DatabaseExecutor db) _isCloudLinked;
+
+  /// Whether the cloud carries permanent deletion (the server capability
+  /// probe). Unknown means no: a linked device cannot delete.
+  final Future<bool> Function()? _cloudDeletionReady;
   final DateTime Function() _now;
   final String Function() _generateOutboxId;
   final String Function() _generateOperationId;
@@ -138,7 +146,17 @@ class PermanentDeletionService {
         !await _isCloudLinked(db)) {
       return impact;
     }
-    return impact.withBlocker(PermanentDeletionBlocker.cloudSyncLinked);
+    final ready = _cloudDeletionReady;
+    if (ready != null) {
+      try {
+        if (await ready()) return impact;
+      } catch (_) {
+        // An unreachable server is not a capable one.
+      }
+    }
+    return impact.withBlocker(
+      PermanentDeletionBlocker.cloudDeletionUnavailable,
+    );
   }
 
   static bool _sameScope(PermanentDeletionImpact a, PermanentDeletionImpact b) {
@@ -159,10 +177,25 @@ class PermanentDeletionService {
         same(a.artworkAssetIds, b.artworkAssetIds);
   }
 
-  Future<void> _execute(Transaction txn, PermanentDeletionImpact impact) async {
+  /// Applies, inside [txn], a deletion another device made (App Update
+  /// 1.2: its library_deletion record): the same operation id, no cloud
+  /// writes (that device sent them), and this device's pending writes for
+  /// the deleted records dropped.
+  Future<void> applyRemote(
+    Transaction txn,
+    PermanentDeletionImpact impact, {
+    required String operationId,
+  }) => _execute(txn, impact, operationId: operationId, sendToCloud: false);
+
+  Future<void> _execute(
+    Transaction txn,
+    PermanentDeletionImpact impact, {
+    String? operationId,
+    bool sendToCloud = true,
+  }) async {
     final timestamp = _now().toUtc();
     final stamp = timestamp.toIso8601String();
-    final operationId = _generateOperationId();
+    final operation = operationId ?? _generateOperationId();
     final ledger = SqliteLibraryDeletionLedger(txn);
     final sync = SqliteLocalSyncRepository(
       dao: LocalSyncDao(txn),
@@ -174,7 +207,7 @@ class PermanentDeletionService {
           entity,
           ids,
           reason: DeletionLedgerReason.userDeletion,
-          operationId: operationId,
+          operationId: operation,
           at: timestamp,
         );
 
@@ -442,7 +475,7 @@ class PermanentDeletionService {
           whereArgs: [entity.name, id],
           limit: 1,
         );
-        if (known.isNotEmpty) {
+        if (known.isNotEmpty && sendToCloud) {
           await sync.recordDelete(
             userId: userId,
             entityType: entity,
@@ -457,14 +490,17 @@ class PermanentDeletionService {
         }
       }
     }
-    for (final id in {...rehomedSongs, ...impact.collaborationSongIdsKept}) {
+    for (final id in {
+      if (sendToCloud) ...rehomedSongs,
+      if (sendToCloud) ...impact.collaborationSongIdsKept,
+    }) {
       await sync.recordUpsert(
         userId: userId,
         entityType: CloudDataEntity.song,
         entityId: id,
       );
     }
-    for (final id in updatedEditions) {
+    for (final id in sendToCloud ? updatedEditions : const <String>{}) {
       await sync.recordUpsert(
         userId: userId,
         entityType: CloudDataEntity.albumEdition,
@@ -474,12 +510,13 @@ class PermanentDeletionService {
 
     // 10. The journal: the Moments cutoff and the recalculated weeks.
     await txn.insert(DatabaseTables.libraryDeletionJournal, {
-      'id': operationId,
+      'id': operation,
       'operation': DeletionLedgerReason.userDeletion.name,
       'target_type': impact.target.kind.name,
       'target_id': impact.target.id,
       'rebuilt_weeks': jsonEncode(rebuiltWeeks),
       'summary': jsonEncode({
+        'remote': !sendToCloud,
         'songs': impact.songIds.length,
         'albums': impact.albumIds.length,
         'editions': impact.editionIds.length,

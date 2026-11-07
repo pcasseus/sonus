@@ -603,6 +603,10 @@ class _CancelAfterFirstWrite implements CloudArchiveGateway {
   Future<bool> isAvailable() => _inner.isAvailable();
 
   @override
+  Future<bool> supportsPermanentDeletion() =>
+      _inner.supportsPermanentDeletion();
+
+  @override
   Future<List<CloudArchiveRecord>> readPage({
     required String userId,
     CloudArchiveCursor? after,

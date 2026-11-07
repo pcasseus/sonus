@@ -18,6 +18,16 @@ class PermanentDeletionTarget {
   const PermanentDeletionTarget.artist(this.id)
     : kind = PermanentDeletionTargetKind.artist;
 
+  /// The target named in a stored record ([PermanentDeletionTargetKind]
+  /// name and id). An unknown kind reads as a song.
+  factory PermanentDeletionTarget.fromName(String kind, String id) =>
+      switch (kind) {
+        'album' => PermanentDeletionTarget.album(id),
+        'edition' => PermanentDeletionTarget.edition(id),
+        'artist' => PermanentDeletionTarget.artist(id),
+        _ => PermanentDeletionTarget.song(id),
+      };
+
   final PermanentDeletionTargetKind kind;
   final String id;
 }
@@ -49,10 +59,11 @@ enum PermanentDeletionBlocker {
   /// the device no longer has.
   pendingCloudWrite,
 
-  /// This device's library is linked to cloud sync. The cloud archive
-  /// cannot delete listening history it already holds yet, so another
-  /// device or a fresh install could bring it back (D10: fail closed).
-  cloudSyncLinked,
+  /// This device's library is linked to cloud sync, and the server does
+  /// not (yet) carry permanent deletion (migration 20261108000001). The
+  /// cloud would keep, and another device or a fresh install would bring
+  /// back, what was deleted here (D10: fail closed).
+  cloudDeletionUnavailable,
 }
 
 class PlaylistDeletionImpact {

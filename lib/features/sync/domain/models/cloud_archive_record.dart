@@ -11,7 +11,12 @@ enum CloudArchiveKind {
   artworkCrop('artwork_crop', mutable: true),
   releaseClassification('release_classification', mutable: true),
   projectAssignment('project_assignment', mutable: true),
-  allTimeMoment('all_time_moment', mutable: false);
+  allTimeMoment('all_time_moment', mutable: false),
+
+  /// App Update 1.2: one permanent deletion or duplicate merge (ids only).
+  /// Every device applies it, including one that connects later. Needs a
+  /// server with the permanent_deletion_v1 capability.
+  libraryDeletion('library_deletion', mutable: false);
 
   const CloudArchiveKind(this.wireName, {required this.mutable});
 

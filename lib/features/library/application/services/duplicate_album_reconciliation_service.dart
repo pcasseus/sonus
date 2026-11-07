@@ -105,7 +105,62 @@ class DuplicateAlbumReconciliationService {
     );
   }
 
-  Future<void> _apply(Transaction txn, DuplicateMerge merge) async {
+  /// Applies a merge another device made (App Update 1.2: its
+  /// library_deletion record). The same operation id, and no cloud writes:
+  /// that device already sent them. Pending local writes of the merged
+  /// duplicates are dropped.
+  Future<void> applyRemoteMerge(
+    Transaction txn,
+    DuplicateMerge merge, {
+    required String operationId,
+  }) => _apply(txn, merge, operationId: operationId, sendToCloud: false);
+
+  /// Remembers a merge another device made when this device never had the
+  /// duplicate, so a later download cannot bring it in.
+  Future<void> recordRemoteMerge(
+    Transaction txn, {
+    required String operationId,
+    required Map<String, String> songs,
+    required Map<String, String> editions,
+    required Map<String, String> albums,
+  }) async {
+    final timestamp = _now();
+    final ledger = SqliteLibraryDeletionLedger(txn);
+    for (final (entity, ids) in [
+      (DeletionLedgerEntity.song, songs.keys),
+      (DeletionLedgerEntity.albumEdition, editions.keys),
+      (DeletionLedgerEntity.album, albums.keys),
+    ]) {
+      await ledger.record(
+        entity,
+        ids,
+        reason: DeletionLedgerReason.duplicateMerge,
+        operationId: operationId,
+        at: timestamp,
+      );
+    }
+    await txn.insert(DatabaseTables.libraryDeletionJournal, {
+      'id': operationId,
+      'operation': DeletionLedgerReason.duplicateMerge.name,
+      'target_type': 'album',
+      'target_id': albums.keys.firstOrNull ?? '',
+      'summary': jsonEncode({
+        'songs': songs,
+        'editions': editions,
+        'albums': albums,
+        'movedPlays': 0,
+        'remote': true,
+      }),
+      'committed_at': timestamp.toUtc().toIso8601String(),
+    });
+  }
+
+  Future<void> _apply(
+    Transaction txn,
+    DuplicateMerge merge, {
+    String? operationId,
+    bool sendToCloud = true,
+  }) async {
     final timestamp = _now();
     final stamp = timestamp.toUtc().toIso8601String();
     final sync = SqliteLocalSyncRepository(
@@ -263,11 +318,13 @@ class DuplicateAlbumReconciliationService {
           where: 'id = ?',
           whereArgs: [pair.keptEditionId],
         );
-        await sync.recordUpsert(
-          userId: userId,
-          entityType: CloudDataEntity.albumEdition,
-          entityId: pair.keptEditionId,
-        );
+        if (sendToCloud) {
+          await sync.recordUpsert(
+            userId: userId,
+            entityType: CloudDataEntity.albumEdition,
+            entityId: pair.keptEditionId,
+          );
+        }
       }
 
       final keptCrop = await txn.query(
@@ -365,7 +422,7 @@ class DuplicateAlbumReconciliationService {
     // The ledger keeps the merged duplicates from coming back (stale cloud
     // copies, an older backup), and the journal remembers where they went,
     // so history in an older backup follows the kept records.
-    final operationId = _generateOperationId();
+    final operation = operationId ?? _generateOperationId();
     final ledger = SqliteLibraryDeletionLedger(txn);
     for (final (entity, ids) in [
       (DeletionLedgerEntity.song, duplicateSongIds),
@@ -376,12 +433,12 @@ class DuplicateAlbumReconciliationService {
         entity,
         ids,
         reason: DeletionLedgerReason.duplicateMerge,
-        operationId: operationId,
+        operationId: operation,
         at: timestamp,
       );
     }
     await txn.insert(DatabaseTables.libraryDeletionJournal, {
-      'id': operationId,
+      'id': operation,
       'operation': DeletionLedgerReason.duplicateMerge.name,
       'target_type': 'album',
       'target_id': merge.duplicateAlbumId,
@@ -412,7 +469,7 @@ class DuplicateAlbumReconciliationService {
           whereArgs: [entity.name, id],
           limit: 1,
         );
-        if (known.isNotEmpty) {
+        if (known.isNotEmpty && sendToCloud) {
           await sync.recordDelete(
             userId: userId,
             entityType: entity,

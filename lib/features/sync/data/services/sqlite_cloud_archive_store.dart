@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import '../../../library/application/services/remote_library_deletion_applier.dart';
 import '../../../library/data/repositories/sqlite_library_deletion_ledger.dart';
 import 'package:sqflite/sqflite.dart';
 
@@ -39,6 +42,7 @@ class SqliteCloudArchiveStore implements CloudArchiveLocalStore {
     return [
       ...await _playlists(db),
       ...await _sessions(db),
+      ...await _deletions(db),
       for (final row in await db.query(DatabaseTables.trackLyrics))
         _record(CloudArchiveKind.lyrics, row['song_id']! as String, row),
       for (final row in await db.query(DatabaseTables.artworkCrops))
@@ -350,8 +354,64 @@ class SqliteCloudArchiveStore implements CloudArchiveLocalStore {
           payload,
           ConflictAlgorithm.ignore,
         );
+
+      case CloudArchiveKind.libraryDeletion:
+        // App Update 1.2: a deletion or merge made on another device holds
+        // here too. Waits (changing nothing) for what it depends on.
+        final applied = await RemoteLibraryDeletionApplier(
+          appDatabase: appDatabase,
+          now: _now,
+        ).apply(txn, record.key, payload);
+        if (!applied) return CloudArchiveApplyOutcome.missingDependencies;
     }
     return CloudArchiveApplyOutcome.applied;
+  }
+
+  @override
+  Future<bool> deletedHere(CloudArchiveKind kind, String key) async {
+    final ledger = SqliteLibraryDeletionLedger(await appDatabase.database);
+    return switch (kind) {
+      CloudArchiveKind.listeningSession => ledger.deletedByUser(
+        DeletionLedgerEntity.playbackSession,
+        key,
+      ),
+      CloudArchiveKind.allTimeMoment => ledger.deletedByUser(
+        DeletionLedgerEntity.moment,
+        key,
+      ),
+      _ => Future.value(false),
+    };
+  }
+
+  /// Every deletion and merge this device knows (its own and other
+  /// devices'), as library_deletion records.
+  Future<List<CloudArchiveRecord>> _deletions(Database db) async {
+    final ledger = <String, List<Map<String, Object?>>>{};
+    for (final row in await db.query(
+      DatabaseTables.libraryDeletionLedger,
+      orderBy: 'entity_type, entity_id',
+    )) {
+      (ledger[row['operation_id']! as String] ??= []).add(row);
+    }
+    return [
+      for (final journal in await db.query(
+        DatabaseTables.libraryDeletionJournal,
+        orderBy: 'committed_at, id',
+      ))
+        CloudArchiveRecord(
+          kind: CloudArchiveKind.libraryDeletion,
+          key: journal['id']! as String,
+          payload: LibraryDeletionRecord.payload(
+            journal: journal,
+            ledger: ledger[journal['id']] ?? const [],
+            summary: (jsonDecode(journal['summary']! as String) as Map)
+                .cast<String, Object?>(),
+          ),
+          clientUpdatedAt:
+              DateTime.tryParse(journal['committed_at']! as String)?.toUtc() ??
+              _now().toUtc(),
+        ),
+    ];
   }
 
   static Future<bool> _exists(

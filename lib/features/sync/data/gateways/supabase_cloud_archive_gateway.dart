@@ -32,6 +32,25 @@ class SupabaseCloudArchiveGateway implements CloudArchiveGateway {
     }
   }
 
+  bool? _supportsDeletion;
+
+  @override
+  Future<bool> supportsPermanentDeletion() async {
+    final known = _supportsDeletion;
+    if (known != null) return known;
+    try {
+      final capabilities = await client.rpc<Object?>('sonus_capabilities');
+      final list = capabilities is List ? capabilities : const [];
+      return _supportsDeletion = list.contains('permanent_deletion_v1');
+    } on PostgrestException catch (error) {
+      // No such function: a server without the migration.
+      if (error.code == 'PGRST202' || error.code == '42883') {
+        return _supportsDeletion = false;
+      }
+      rethrow;
+    }
+  }
+
   /// Kinds added by a newer app version are left alone, not misread.
   PostgrestFilterBuilder<List<Map<String, dynamic>>> _owned(String userId) =>
       client

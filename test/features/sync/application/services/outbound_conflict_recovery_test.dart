@@ -66,6 +66,7 @@ void main() {
   OutboundSyncProcessor processor({
     PushArtistMutation? pushArtistMutation,
     EnsureArtistDependency? ensureArtistDependency,
+    Future<bool> Function(CloudDataEntity, String)? isPermanentlyDeleted,
   }) {
     return OutboundSyncProcessor(
       localSyncRepository: localSync,
@@ -106,6 +107,7 @@ void main() {
       },
       newArtworkVersion: () => 'dep-version',
       now: () => timestamp,
+      isPermanentlyDeleted: isPermanentlyDeleted,
     );
   }
 
@@ -486,6 +488,41 @@ void main() {
       expect(baselineOf(CloudDataEntity.album, 'album_1'), 3);
       expect(localSync.pending, hasLength(1));
       expect(conflicts.values.single.operation, SyncOutboxOperation.delete);
+    });
+
+    test('a permanent deletion wins over a newer edit elsewhere', () async {
+      baseline(CloudDataEntity.album, 'album_1', 3);
+      pendingDelete(CloudDataEntity.album, 'album_1');
+      gateway.results['conditionalDelete:album:album_1@3'] = const _Conflict(6);
+      cloud(localAlbumPayload(), 6, CloudDataEntity.album);
+
+      await processor(
+        isPermanentlyDeleted: (type, id) async =>
+            type == CloudDataEntity.album && id == 'album_1',
+      ).pushPending('user_1');
+
+      expect(gateway.calls, [
+        'conditionalDelete:album:album_1@3',
+        'conditionalDelete:album:album_1@6',
+      ]);
+      expect(baselineOf(CloudDataEntity.album, 'album_1'), 7);
+      expect(localSync.processedIds, ['outbox_delete']);
+      expect(conflicts.values, isEmpty);
+    });
+
+    test('other deletes still never overwrite a newer edit', () async {
+      baseline(CloudDataEntity.album, 'album_1', 3);
+      pendingDelete(CloudDataEntity.album, 'album_1');
+      gateway.results['conditionalDelete:album:album_1@3'] = const _Conflict(6);
+      cloud(localAlbumPayload(), 6, CloudDataEntity.album);
+
+      await expectLater(
+        processor(
+          isPermanentlyDeleted: (_, _) async => false,
+        ).pushPending('user_1'),
+        throwsA(isA<OutboundRecordWriteConflict>()),
+      );
+      expect(gateway.calls, ['conditionalDelete:album:album_1@3']);
     });
 
     test('lost delete response is satisfied by the tombstone', () async {

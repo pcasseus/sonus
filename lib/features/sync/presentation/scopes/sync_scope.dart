@@ -1,3 +1,5 @@
+import '../../application/services/cloud_deletion_readiness.dart';
+import '../../../library/data/repositories/sqlite_library_deletion_ledger.dart';
 import 'dart:async';
 
 import 'package:flutter/widgets.dart';
@@ -75,6 +77,7 @@ class SyncScope extends StatefulWidget {
 class _SyncScopeState extends State<SyncScope> {
   AppDatabase? _database;
   SyncController? _syncController;
+  CloudDeletionReadiness? _deletionReadiness;
   AutomaticSyncCoordinator? _automaticSyncCoordinator;
 
   bool _initializationStarted = false;
@@ -185,6 +188,19 @@ class _SyncScopeState extends State<SyncScope> {
       // the push at once, so the run pauses instead of retrying (DQA-01).
       isPermanentFailure: (error) =>
           classifySupabaseSyncFailure(error).isPermanent,
+      isPermanentlyDeleted: (entityType, entityId) async {
+        final ledgerEntity = switch (entityType) {
+          CloudDataEntity.artist => DeletionLedgerEntity.artist,
+          CloudDataEntity.album => DeletionLedgerEntity.album,
+          CloudDataEntity.albumEdition => DeletionLedgerEntity.albumEdition,
+          CloudDataEntity.song => DeletionLedgerEntity.song,
+          CloudDataEntity.artworkAsset => null,
+        };
+        return ledgerEntity != null &&
+            await SqliteLibraryDeletionLedger(
+              executor,
+            ).contains(ledgerEntity, entityId);
+      },
       cloudRevisionBaselineRepository: revisionBaselines,
       pushArtistMutation:
           receiptPipeline?.pushUpsert ?? artistWriteCoordinator.push,
@@ -220,8 +236,12 @@ class _SyncScopeState extends State<SyncScope> {
     );
 
     final consent = SharedPreferencesCloudLibraryConsentStore();
+    final archiveGateway = SupabaseCloudArchiveGateway(client: client);
+    _deletionReadiness = CloudDeletionReadiness(
+      archiveGateway.supportsPermanentDeletion,
+    );
     final archive = CloudArchiveSyncService(
-      gateway: SupabaseCloudArchiveGateway(client: client),
+      gateway: archiveGateway,
       store: SqliteCloudArchiveStore(appDatabase: database),
       queueArtworkUpload: ({required userId, required artworkId}) =>
           localSyncRepository.recordUpsert(
@@ -319,6 +339,7 @@ class _SyncScopeState extends State<SyncScope> {
         ChangeNotifierProvider<AutomaticSyncCoordinator>.value(
           value: automaticSyncCoordinator,
         ),
+        Provider<CloudDeletionReadiness?>.value(value: _deletionReadiness),
       ],
       child: AutomaticSyncLifecycleBridge(child: widget.child),
     );

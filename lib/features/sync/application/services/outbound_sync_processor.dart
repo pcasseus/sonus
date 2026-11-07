@@ -139,6 +139,7 @@ class OutboundSyncProcessor {
     this.albumEditionTrackRepository,
     this.songArtistCreditRepository,
     this.isPermanentFailure,
+    this.isPermanentlyDeleted,
     ArtworkVersionGenerator? newArtworkVersion,
     OutboundClock? now,
   }) : _newArtworkVersion = newArtworkVersion ?? const Uuid().v4,
@@ -149,6 +150,13 @@ class OutboundSyncProcessor {
   /// the push at once instead of being tried again for every later entry,
   /// so the run fails fast and sync pauses (DQA-01).
   final bool Function(Object error)? isPermanentFailure;
+
+  /// App Update 1.2: whether this device permanently deleted (or merged
+  /// away) the record. Its delete then wins over a newer cloud edit made
+  /// elsewhere: the user's confirmed deletion covers the record whatever
+  /// its version. Nothing else is overwritten this way.
+  final Future<bool> Function(CloudDataEntity entityType, String entityId)?
+  isPermanentlyDeleted;
 
   /// Dependencies that already failed in the current push run, by kind and
   /// id. A later entry that needs one fails with the same error instead of
@@ -668,6 +676,30 @@ class OutboundSyncProcessor {
       );
 
       return;
+    }
+
+    final deletedHere = isPermanentlyDeleted;
+    if (currentRevision != null &&
+        deletedHere != null &&
+        await deletedHere(entry.entityType, entry.entityId)) {
+      final retried = await cloudSyncGateway.markDeletedIfRevision(
+        userId: userId,
+        entityType: entry.entityType,
+        entityId: entry.entityId,
+        deletedAt: entry.updatedAt,
+        expectedServerRevision: currentRevision,
+      );
+      if (retried.outcome == CloudConditionalWriteOutcome.applied ||
+          retried.outcome == CloudConditionalWriteOutcome.replayed) {
+        await baselines.saveObservedRevision(
+          userId: userId,
+          entityType: entry.entityType,
+          entityId: entry.entityId,
+          serverRevision: retried.serverRevision ?? currentRevision + 1,
+        );
+        return;
+      }
+      // Changed again in between: the next sync tries again.
     }
 
     await _recordConflict(
