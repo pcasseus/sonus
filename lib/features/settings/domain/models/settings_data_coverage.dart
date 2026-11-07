@@ -67,7 +67,7 @@ abstract final class SettingsDataCoverage {
     DatabaseTables.importBatches: 'Import history and music folders',
     DatabaseTables.importSources: 'Import history and music folders',
     DatabaseTables.songImportReviews: 'Pending import reviews',
-    // App Update 1.2 (wording pending approval).
+    // App Update 1.2 (wording approved 2026-11-07).
     DatabaseTables.libraryDeletionLedger:
         'What you permanently deleted, so it never comes back',
     DatabaseTables.libraryDeletionJournal:
