@@ -36,6 +36,7 @@ class _Case {
     this.size = s26UltraSize,
     this.name = 'Zendaya',
     this.scrollTo,
+    this.finalStep = false,
   });
 
   final String caption;
@@ -47,6 +48,9 @@ class _Case {
   final Size size;
   final String name;
   final String? scrollTo;
+
+  /// Long names: tick the acknowledgement and go to the last step.
+  final bool finalStep;
 }
 
 void main() {
@@ -113,6 +117,15 @@ void main() {
     if (c.confirm) {
       await tester.tap(_key('permanent-deletion-continue'));
       await tester.pumpAndSettle();
+      if (c.name.length > permanentDeletionTypedNameLimit) {
+        if (c.finalStep) {
+          await tester.tap(_key('permanent-deletion-confirm-ack'));
+          await tester.pumpAndSettle();
+          await tester.tap(_key('permanent-deletion-confirm-next'));
+          await tester.pumpAndSettle();
+        }
+        return;
+      }
       await tester.enterText(_key('permanent-deletion-confirm-field'), c.name);
       await tester.pumpAndSettle();
       if (c.keyboard) {
@@ -181,6 +194,14 @@ void main() {
       confirm: true,
     ),
     _Case(
+      'Long name, last step',
+      afterHours,
+      album,
+      confirm: true,
+      finalStep: true,
+      name: _longName,
+    ),
+    _Case(
       'Long name, 1.3x, confirmation',
       const SonusAppearanceSpec(
         themeId: SonusThemeId.afterHours,
@@ -210,7 +231,12 @@ void main() {
         tester,
         '$_out/permanent_deletion_board_v2.png',
         'Permanent deletion: large text, narrow screens, keyboard',
-        [cells.sublist(0, 4), cells.sublist(4, 8), cells.sublist(8)],
+        [
+          cells.sublist(0, 4),
+          cells.sublist(4, 8),
+          cells.sublist(8, 11),
+          cells.sublist(11),
+        ],
       );
     }
   });

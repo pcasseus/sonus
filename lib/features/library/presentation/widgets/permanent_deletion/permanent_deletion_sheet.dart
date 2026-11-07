@@ -499,12 +499,22 @@ class _ImpactDetails extends StatelessWidget {
   }
 }
 
-/// Type the exact name to enable "Delete permanently".
+/// Names longer than this are confirmed with an acknowledgement and a
+/// separate final step instead of being typed out.
+const int permanentDeletionTypedNameLimit = 32;
+
+/// The last step before a permanent deletion.
 ///
-/// Fits any screen: the title, explanation and name field scroll together
-/// inside the space left by the keyboard, and the two actions stay below
-/// them, stacked full width at large text or on a narrow screen. Text is
-/// never shrunk below the user's setting.
+/// - A name up to [permanentDeletionTypedNameLimit] characters: type it
+///   exactly to enable "Delete permanently".
+/// - A longer name: the full name is shown (selectable, never cut), an
+///   "I understand" box must be ticked to continue, and a separate final
+///   step holds "Delete permanently". Three deliberate actions; nothing
+///   destructive is focused automatically.
+///
+/// Fits any screen: the content scrolls inside the space left by the
+/// keyboard, and the actions stay below it, stacked full width when they
+/// do not fit side by side. Text is never shrunk below the user's setting.
 class PermanentDeletionConfirmDialog extends StatefulWidget {
   const PermanentDeletionConfirmDialog({super.key, required this.name});
 
@@ -518,6 +528,11 @@ class PermanentDeletionConfirmDialog extends StatefulWidget {
 class _PermanentDeletionConfirmDialogState
     extends State<PermanentDeletionConfirmDialog> {
   final _controller = TextEditingController();
+  bool _acknowledged = false;
+  bool _finalStep = false;
+
+  bool get _long =>
+      widget.name.trim().runes.length > permanentDeletionTypedNameLimit;
 
   @override
   void dispose() {
@@ -531,6 +546,7 @@ class _PermanentDeletionConfirmDialogState
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final colors = SonusTheme.of(context).colors;
     final media = MediaQuery.of(context);
     final large = _largeLayout(context);
     final inset = large ? 8.0 : 24.0;
@@ -542,6 +558,140 @@ class _PermanentDeletionConfirmDialogState
         media.viewInsets.bottom -
         media.padding.vertical -
         inset * 2;
+
+    const explanation = Text(
+      'Its library entries, listening history, chart entries and stories '
+      'are removed from Sonus. This can\'t be undone. Your audio files are '
+      'not deleted.',
+    );
+
+    final destructiveStyle = FilledButton.styleFrom(
+      backgroundColor: scheme.error,
+      foregroundColor: scheme.onError,
+      // More room for the label on narrow, large-text screens.
+      padding: large ? const EdgeInsets.symmetric(horizontal: 12) : null,
+    );
+
+    final cancel = TextButton(
+      key: const ValueKey<String>('permanent-deletion-confirm-cancel'),
+      onPressed: () => Navigator.of(context).pop(false),
+      child: const Text('Cancel'),
+    );
+
+    final List<Widget> content;
+    final Widget destructive;
+    final String destructiveLabel;
+
+    if (!_long) {
+      content = [
+        Text(
+          'Delete ${widget.name} permanently?',
+          style: theme.textTheme.headlineSmall,
+        ),
+        const SizedBox(height: 16),
+        explanation,
+        const SizedBox(height: 16),
+        Text('Type ${widget.name} to confirm.'),
+        const SizedBox(height: 8),
+        TextField(
+          key: const ValueKey<String>('permanent-deletion-confirm-field'),
+          controller: _controller,
+          autofocus: true,
+          autocorrect: false,
+          enableSuggestions: false,
+          scrollPadding: const EdgeInsets.all(24),
+          onChanged: (_) => setState(() {}),
+          decoration: InputDecoration(
+            border: const OutlineInputBorder(),
+            hintText: widget.name,
+          ),
+        ),
+      ];
+      destructiveLabel = 'Delete permanently';
+      destructive = FilledButton(
+        key: const ValueKey<String>('permanent-deletion-confirm-delete'),
+        style: destructiveStyle,
+        onPressed: _matches ? () => Navigator.of(context).pop(true) : null,
+        child: Text(destructiveLabel),
+      );
+    } else {
+      final fullName = Container(
+        key: const ValueKey<String>('permanent-deletion-confirm-full-name'),
+        width: double.infinity,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          border: Border.all(color: colors.border),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Semantics(
+          label: 'Full name: ${widget.name}',
+          excludeSemantics: true,
+          child: SelectableText(
+            widget.name,
+            style: theme.textTheme.titleMedium,
+          ),
+        ),
+      );
+      if (!_finalStep) {
+        content = [
+          Text('Delete permanently?', style: theme.textTheme.headlineSmall),
+          const SizedBox(height: 12),
+          fullName,
+          const SizedBox(height: 16),
+          explanation,
+          const SizedBox(height: 8),
+          CheckboxListTile(
+            key: const ValueKey<String>('permanent-deletion-confirm-ack'),
+            contentPadding: EdgeInsets.zero,
+            controlAffinity: ListTileControlAffinity.leading,
+            value: _acknowledged,
+            onChanged: (value) =>
+                setState(() => _acknowledged = value ?? false),
+            title: const Text(
+              'I understand this permanently deletes it and its listening '
+              'history, and that it can\'t be undone.',
+            ),
+          ),
+        ];
+        destructiveLabel = 'Continue';
+        destructive = FilledButton(
+          key: const ValueKey<String>('permanent-deletion-confirm-next'),
+          style: destructiveStyle,
+          onPressed: _acknowledged
+              ? () => setState(() => _finalStep = true)
+              : null,
+          child: Text(destructiveLabel),
+        );
+      } else {
+        content = [
+          Text('Last step', style: theme.textTheme.headlineSmall),
+          const SizedBox(height: 12),
+          fullName,
+          const SizedBox(height: 16),
+          const Text(
+            'Delete this permanently? This can\'t be undone. Your audio '
+            'files are not deleted.',
+          ),
+          const SizedBox(height: 8),
+          Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: TextButton.icon(
+              key: const ValueKey<String>('permanent-deletion-confirm-back'),
+              onPressed: () => setState(() => _finalStep = false),
+              icon: const Icon(Icons.arrow_back),
+              label: const Text('Back'),
+            ),
+          ),
+        ];
+        destructiveLabel = 'Delete permanently';
+        destructive = FilledButton(
+          key: const ValueKey<String>('permanent-deletion-confirm-delete'),
+          style: destructiveStyle,
+          onPressed: () => Navigator.of(context).pop(true),
+          child: Text(destructiveLabel),
+        );
+      }
+    }
 
     return Dialog(
       key: const ValueKey<String>('permanent-deletion-confirm-dialog'),
@@ -560,36 +710,7 @@ class _PermanentDeletionConfirmDialogState
                 padding: EdgeInsets.fromLTRB(side, 24, side, 8),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Delete ${widget.name} permanently?',
-                      style: theme.textTheme.headlineSmall,
-                    ),
-                    const SizedBox(height: 16),
-                    const Text(
-                      'Its library entries, listening history, chart '
-                      'entries and stories are removed from Sonus. This '
-                      'can\'t be undone. Your audio files are not deleted.',
-                    ),
-                    const SizedBox(height: 16),
-                    Text('Type ${widget.name} to confirm.'),
-                    const SizedBox(height: 8),
-                    TextField(
-                      key: const ValueKey<String>(
-                        'permanent-deletion-confirm-field',
-                      ),
-                      controller: _controller,
-                      autofocus: true,
-                      autocorrect: false,
-                      enableSuggestions: false,
-                      scrollPadding: const EdgeInsets.all(24),
-                      onChanged: (_) => setState(() {}),
-                      decoration: InputDecoration(
-                        border: const OutlineInputBorder(),
-                        hintText: widget.name,
-                      ),
-                    ),
-                  ],
+                  children: content,
                 ),
               ),
             ),
@@ -598,31 +719,9 @@ class _PermanentDeletionConfirmDialogState
               child: _Actions(
                 stacked: large,
                 natural: true,
-                labels: const ['Cancel', 'Delete permanently'],
-                cancel: TextButton(
-                  key: const ValueKey<String>(
-                    'permanent-deletion-confirm-cancel',
-                  ),
-                  onPressed: () => Navigator.of(context).pop(false),
-                  child: const Text('Cancel'),
-                ),
-                destructive: FilledButton(
-                  key: const ValueKey<String>(
-                    'permanent-deletion-confirm-delete',
-                  ),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: scheme.error,
-                    foregroundColor: scheme.onError,
-                    // More room for the label on narrow, large-text screens.
-                    padding: large
-                        ? const EdgeInsets.symmetric(horizontal: 12)
-                        : null,
-                  ),
-                  onPressed: _matches
-                      ? () => Navigator.of(context).pop(true)
-                      : null,
-                  child: const Text('Delete permanently'),
-                ),
+                labels: ['Cancel', destructiveLabel],
+                cancel: cancel,
+                destructive: destructive,
               ),
             ),
           ],

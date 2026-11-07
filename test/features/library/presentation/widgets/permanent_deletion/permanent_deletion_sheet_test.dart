@@ -1,6 +1,7 @@
 // App Update 1.2: the permanent-deletion sheet and confirmation. Synthetic
 // impacts and a disposable database only.
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:sonus_next/core/design/sonus_theme_factory.dart';
@@ -394,6 +395,26 @@ void main() {
             expect(tester.takeException(), isNull);
             expect(_key('permanent-deletion-confirm-dialog'), findsOneWidget);
 
+            if (name == longName) {
+              // Acknowledge, continue, then the final step's button.
+              await tester.ensureVisible(
+                _key('permanent-deletion-confirm-ack'),
+              );
+              await tester.pumpAndSettle();
+              expectOnScreen(tester, _key('permanent-deletion-confirm-ack'));
+              expectOnScreen(tester, _key('permanent-deletion-confirm-cancel'));
+              await tester.tap(_key('permanent-deletion-confirm-ack'));
+              await tester.pumpAndSettle();
+              await tester.tap(_key('permanent-deletion-confirm-next'));
+              await tester.pumpAndSettle();
+              expect(tester.takeException(), isNull);
+              expectOnScreen(tester, _key('permanent-deletion-confirm-delete'));
+              expectOnScreen(tester, _key('permanent-deletion-confirm-cancel'));
+              await tester.tap(_key('permanent-deletion-confirm-delete'));
+              await tester.pumpAndSettle();
+              expect(deletions, hasLength(1));
+              return;
+            }
             await tester.ensureVisible(
               _key('permanent-deletion-confirm-field'),
             );
@@ -462,18 +483,32 @@ void main() {
             await tester.pumpAndSettle();
             expect(tester.takeException(), isNull);
 
-            await tester.ensureVisible(
-              _key('permanent-deletion-confirm-field'),
-            );
+            final focus = name == longName
+                ? 'permanent-deletion-confirm-ack'
+                : 'permanent-deletion-confirm-field';
+            await tester.ensureVisible(_key(focus));
             await tester.pumpAndSettle();
+            if (name == longName) {
+              // No text field on this path; the box only has to be
+              // reachable (it may be taller than the room left).
+              expect(
+                tester.getRect(_key(focus)).top,
+                lessThan(
+                  tester.view.physicalSize.height /
+                          tester.view.devicePixelRatio -
+                      keyboard,
+                ),
+              );
+            } else {
+              expectOnScreen(tester, _key(focus), keyboard: keyboard);
+            }
             expectOnScreen(
               tester,
-              _key('permanent-deletion-confirm-field'),
-              keyboard: keyboard,
-            );
-            expectOnScreen(
-              tester,
-              _key('permanent-deletion-confirm-delete'),
+              _key(
+                name == longName
+                    ? 'permanent-deletion-confirm-next'
+                    : 'permanent-deletion-confirm-delete',
+              ),
               keyboard: keyboard,
             );
             expectOnScreen(
@@ -548,5 +583,255 @@ void main() {
         );
       });
     }
+  });
+
+  group('long names', () {
+    setUpAll(loadRealRoboto);
+
+    const longTitle =
+        'The Cheetah Girls 2 (Original Soundtrack) [Deluxe Edition] - 2026 '
+        'Remaster featuring Every Bonus Track';
+
+    Future<void> openConfirmation(
+      WidgetTester tester, {
+      String name = longTitle,
+      double textScale = 1,
+      Size device = const Size(384, 832),
+    }) async {
+      await pumpSheet(
+        tester,
+        name: name,
+        textScale: textScale,
+        device: device,
+        realFont: true,
+      );
+      await tester.tap(_key('permanent-deletion-continue'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('up to the limit the name is typed; past it, acknowledged', (
+      tester,
+    ) async {
+      final atLimit = 'N' * permanentDeletionTypedNameLimit;
+      await openConfirmation(tester, name: atLimit);
+      expect(_key('permanent-deletion-confirm-field'), findsOneWidget);
+      expect(_key('permanent-deletion-confirm-ack'), findsNothing);
+      await tester.tap(_key('permanent-deletion-confirm-cancel'));
+      await tester.pumpAndSettle();
+      await tester.tap(_key('permanent-deletion-cancel'));
+      await tester.pumpAndSettle();
+
+      await openConfirmation(tester, name: '${atLimit}N');
+      expect(_key('permanent-deletion-confirm-field'), findsNothing);
+      expect(_key('permanent-deletion-confirm-ack'), findsOneWidget);
+    });
+
+    testWidgets('the full name is shown, uncut and selectable', (tester) async {
+      await openConfirmation(tester, textScale: 2);
+
+      // In the sheet behind, and in the confirmation.
+      final sheetName = tester.widget<Text>(_key('permanent-deletion-name'));
+      expect(sheetName.data, longTitle);
+      expect(sheetName.maxLines, isNull);
+      expect(sheetName.overflow, isNot(TextOverflow.ellipsis));
+      final selectable = tester.widget<SelectableText>(
+        find.descendant(
+          of: _key('permanent-deletion-confirm-full-name'),
+          matching: find.byType(SelectableText),
+        ),
+      );
+      expect(selectable.data, longTitle);
+      expect(selectable.maxLines, isNull);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('three deliberate actions; nothing deletes before them', (
+      tester,
+    ) async {
+      await openConfirmation(tester);
+
+      // Step 1: no delete button at all; Continue waits for the box.
+      expect(_key('permanent-deletion-confirm-delete'), findsNothing);
+      FilledButton next() =>
+          tester.widget<FilledButton>(_key('permanent-deletion-confirm-next'));
+      expect(next().onPressed, isNull);
+      await tester.tap(_key('permanent-deletion-confirm-ack'));
+      await tester.pumpAndSettle();
+      expect(next().onPressed, isNotNull);
+      expect(deletions, isEmpty);
+
+      // Step 2: a separate destructive step; Back returns.
+      await tester.tap(_key('permanent-deletion-confirm-next'));
+      await tester.pumpAndSettle();
+      expect(find.text('Last step'), findsOneWidget);
+      expect(_key('permanent-deletion-confirm-delete'), findsOneWidget);
+      expect(deletions, isEmpty);
+      await tester.tap(_key('permanent-deletion-confirm-back'));
+      await tester.pumpAndSettle();
+      expect(_key('permanent-deletion-confirm-delete'), findsNothing);
+
+      await tester.tap(_key('permanent-deletion-confirm-next'));
+      await tester.pumpAndSettle();
+      await tester.tap(_key('permanent-deletion-confirm-delete'));
+      await tester.pumpAndSettle();
+      expect(deletions, hasLength(1));
+      expect(result, isTrue);
+    });
+
+    for (final step in ['acknowledgement', 'final step']) {
+      testWidgets('cancelling at the $step deletes nothing', (tester) async {
+        await openConfirmation(tester);
+        if (step == 'final step') {
+          await tester.tap(_key('permanent-deletion-confirm-ack'));
+          await tester.pumpAndSettle();
+          await tester.tap(_key('permanent-deletion-confirm-next'));
+          await tester.pumpAndSettle();
+        }
+        await tester.tap(_key('permanent-deletion-confirm-cancel'));
+        await tester.pumpAndSettle();
+
+        expect(_key('permanent-deletion-confirm-dialog'), findsNothing);
+        expect(_key('permanent-deletion-sheet'), findsOneWidget);
+        expect(deletions, isEmpty);
+        expect(result, isNull);
+      });
+    }
+
+    testWidgets('screen readers hear the full name and the choice', (
+      tester,
+    ) async {
+      final semantics = tester.ensureSemantics();
+      await openConfirmation(tester);
+
+      expect(find.bySemanticsLabel('Full name: $longTitle'), findsOneWidget);
+      expect(
+        tester.getSemantics(_key('permanent-deletion-confirm-ack')),
+        isSemantics(
+          label:
+              'I understand this permanently deletes it and its listening '
+              'history, and that it can\'t be undone.',
+          hasCheckedState: true,
+          hasEnabledState: true,
+          isEnabled: true,
+          isFocusable: true,
+          hasTapAction: true,
+          hasFocusAction: true,
+        ),
+      );
+      await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
+      await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
+      semantics.dispose();
+    });
+
+    testWidgets('works with a keyboard alone; Enter never deletes by itself', (
+      tester,
+    ) async {
+      await openConfirmation(tester);
+
+      // Nothing destructive is focused: Enter does nothing.
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+      expect(find.text('Last step'), findsNothing);
+
+      Future<void> tabTo(String key) async {
+        for (var i = 0; i < 12; i++) {
+          await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+          await tester.pumpAndSettle();
+          final focused = FocusManager.instance.primaryFocus?.context;
+          if (focused != null &&
+              find
+                  .descendant(
+                    of: _key(key),
+                    matching: find.byWidget(focused.widget),
+                  )
+                  .evaluate()
+                  .isNotEmpty) {
+            return;
+          }
+          if (focused?.widget.key == ValueKey<String>(key)) return;
+        }
+        fail('Could not reach $key with Tab');
+      }
+
+      await tabTo('permanent-deletion-confirm-ack');
+      await tester.sendKeyEvent(LogicalKeyboardKey.space);
+      await tester.pumpAndSettle();
+      await tabTo('permanent-deletion-confirm-next');
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+      expect(find.text('Last step'), findsOneWidget);
+      expect(deletions, isEmpty);
+
+      // The final button is reached deliberately, then activated.
+      await tabTo('permanent-deletion-confirm-delete');
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pumpAndSettle();
+      expect(deletions, hasLength(1));
+    });
+
+    testWidgets(
+      '2x text with the keyboard open keeps every control on screen',
+      (tester) async {
+        await openConfirmation(
+          tester,
+          textScale: 2,
+          device: const Size(320, 640),
+        );
+        tester.view.viewInsets = const FakeViewPadding(bottom: 300 * 2.8125);
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+
+        final height =
+            tester.view.physicalSize.height / tester.view.devicePixelRatio;
+        await tester.ensureVisible(_key('permanent-deletion-confirm-ack'));
+        await tester.pumpAndSettle();
+        // The box can be scrolled to; the actions stay fully above.
+        expect(
+          tester.getRect(_key('permanent-deletion-confirm-ack')).top,
+          lessThan(height - 300),
+        );
+        for (final key in [
+          'permanent-deletion-confirm-next',
+          'permanent-deletion-confirm-cancel',
+        ]) {
+          expect(
+            tester.getRect(_key(key)).bottom,
+            lessThanOrEqualTo(height - 300 + 0.5),
+            reason: key,
+          );
+        }
+        // The user taps the box itself, scrolled into view.
+        final box = find.descendant(
+          of: _key('permanent-deletion-confirm-ack'),
+          matching: find.byType(Checkbox),
+        );
+        await tester.ensureVisible(box);
+        await tester.pumpAndSettle();
+        await tester.tap(box);
+        await tester.pumpAndSettle();
+        await tester.tap(_key('permanent-deletion-confirm-next'));
+        await tester.pumpAndSettle();
+        expect(
+          tester.getRect(_key('permanent-deletion-confirm-delete')).bottom,
+          lessThanOrEqualTo(height - 300 + 0.5),
+        );
+        // The delete label stays on one line, like Cancel.
+        final label = tester.getSize(
+          find.descendant(
+            of: _key('permanent-deletion-confirm-delete'),
+            matching: find.text('Delete permanently'),
+          ),
+        );
+        final line = tester
+            .getSize(
+              find.descendant(
+                of: _key('permanent-deletion-confirm-cancel'),
+                matching: find.text('Cancel'),
+              ),
+            )
+            .height;
+        expect(label.height, lessThanOrEqualTo(line * 2 + 0.5));
+      },
+    );
   });
 }
