@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 import '../../../../core/identity/entity_id.dart';
 import '../../../../core/identity/text_normalizer.dart';
 import '../../../../core/events/library_change_signal.dart';
@@ -29,6 +31,7 @@ class ImportWorkflowService {
     this.batchIdFactory = EntityId.importBatch,
     this.sourceIdFactory = EntityId.importSource,
     this.changes,
+    this.afterSourceScan,
   });
 
   final ImportCandidateDiscovery candidateDiscovery;
@@ -42,6 +45,11 @@ class ImportWorkflowService {
 
   /// Told when an import finishes; [LibraryChangeSignal.shared] if null.
   final LibraryChangeSignal? changes;
+
+  /// Runs after a full scan of a source has been imported and reconciled,
+  /// for example the verified duplicate reconciliation (App Update 1.2).
+  /// A failure here never fails the scan.
+  final Future<void> Function()? afterSourceScan;
 
   Future<ImportExecutionSummary> importSingleSong(
     String filePath, {
@@ -106,6 +114,7 @@ class ImportWorkflowService {
         discoveredAt: timestamp,
         scannedAt: completedAt ?? DateTime.now(),
       );
+      await _afterSourceScan();
     }
 
     return summary;
@@ -156,8 +165,27 @@ class ImportWorkflowService {
       discoveredAt: timestamp,
       scannedAt: completedAt ?? DateTime.now(),
     );
+    await _afterSourceScan();
 
     return summary;
+  }
+
+  Future<void> _afterSourceScan() async {
+    final hook = afterSourceScan;
+    if (hook == null) return;
+    try {
+      await hook();
+    } catch (error, stack) {
+      // The scan itself succeeded; the follow-up retries on the next scan.
+      FlutterError.reportError(
+        FlutterErrorDetails(
+          exception: error,
+          stack: stack,
+          library: 'import',
+          context: ErrorDescription('after a source scan'),
+        ),
+      );
+    }
   }
 
   Future<List<ImportSource>> getSources() {

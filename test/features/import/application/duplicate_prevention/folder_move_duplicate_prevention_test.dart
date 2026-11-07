@@ -31,6 +31,7 @@ import 'package:sonus_next/features/import/data/services/file_system_import_cand
 import 'package:sonus_next/features/import/domain/models/audio_metadata.dart';
 import 'package:sonus_next/features/import/domain/models/import_candidate.dart';
 import 'package:sonus_next/features/import/domain/services/audio_metadata_reader.dart';
+import 'package:sonus_next/features/library/application/services/duplicate_album_reconciliation_service.dart';
 
 /// Tags travel with the file: keyed by file name, whatever folder it is in.
 class _TagsByFileName implements AudioMetadataReader {
@@ -120,7 +121,7 @@ void main() {
 
   /// One scan of the source, through the app's real import workflow:
   /// discovery, the batch executor and the after-scan reconciliation.
-  Future<void> scan() async {
+  Future<void> scan({bool reconcileDuplicates = false}) async {
     final db = await appDatabase.database;
     final createdAt = base.add(Duration(hours: ++scanNumber));
     final bindings = SqliteMediaFileBindingRepository(MediaFileBindingDao(db));
@@ -145,6 +146,12 @@ void main() {
       batchIdFactory: () => 'batch_$scanNumber',
       sourceIdFactory: () => 'source_music',
       changes: LibraryChangeSignal(),
+      afterSourceScan: reconcileDuplicates
+          ? () => DuplicateAlbumReconciliationService(
+              appDatabase: appDatabase,
+              changes: LibraryChangeSignal(),
+            ).reconcile()
+          : null,
     );
     final completedAt = createdAt.add(const Duration(minutes: 1));
     if (sourceId == null) {
@@ -374,6 +381,97 @@ void main() {
       albumId: albumId,
       songIds: songIds,
       playableFrom: renamed,
+    );
+  });
+
+  test('duplicates left by an older version are merged after a scan', () async {
+    final artistFolder = Directory(p.join(root.path, 'Zendaya'));
+    writeAlbumFiles(artistFolder);
+    await scan();
+    final albumId = (await albumsNamed('Zendaya')).single['id']! as String;
+    final songIds = (await bindingsOf(albumId)).keys.toSet();
+    await curateAndPlay(albumId);
+
+    // What the old folder rule left behind: the files moved to a nested
+    // folder, and a second album owns them there.
+    final nested = Directory(p.join(artistFolder.path, 'Zendaya'));
+    nested.createSync();
+    for (final (title, _) in _albumTracks) {
+      File(
+        p.join(artistFolder.path, _fileName(title)),
+      ).renameSync(p.join(nested.path, _fileName(title)));
+    }
+    final db = await appDatabase.database;
+    await db.transaction((txn) async {
+      String copy(String id) => '${id}_legacy_copy';
+      final album = (await txn.query(
+        DatabaseTables.albums,
+        where: 'id = ?',
+        whereArgs: [albumId],
+      )).single;
+      await txn.insert(DatabaseTables.albums, {
+        ...album,
+        'id': copy(albumId),
+        'created_at': '2026-11-07T07:43:56.746952Z',
+      });
+      final edition = (await txn.query(
+        DatabaseTables.albumEditions,
+        where: 'album_id = ?',
+        whereArgs: [albumId],
+      )).single;
+      await txn.insert(DatabaseTables.albumEditions, {
+        ...edition,
+        'id': copy(edition['id']! as String),
+        'album_id': copy(albumId),
+        'artwork_id': null,
+        'release_date': '2013-01-01T05:00:00.000Z',
+        'release_date_precision': 'year',
+      });
+      for (final song in await txn.query(
+        DatabaseTables.songs,
+        where: 'album_id = ?',
+        whereArgs: [albumId],
+      )) {
+        final id = song['id']! as String;
+        await txn.insert(DatabaseTables.songs, {
+          ...song,
+          'id': copy(id),
+          'album_id': copy(albumId),
+          'album_edition_id': copy(edition['id']! as String),
+        });
+        final binding = (await txn.query(
+          DatabaseTables.mediaFileBindings,
+          where: 'song_id = ?',
+          whereArgs: [id],
+        )).single;
+        final newPath = p.join(
+          nested.path,
+          p.basename(binding['file_path']! as String),
+        );
+        await txn.update(
+          DatabaseTables.mediaFileBindings,
+          {'is_available': 0},
+          where: 'id = ?',
+          whereArgs: [binding['id']],
+        );
+        await txn.insert(DatabaseTables.mediaFileBindings, {
+          ...binding,
+          'id': copy(binding['id']! as String),
+          'song_id': copy(id),
+          'file_path': newPath,
+          'normalized_path': newPath.replaceAll(r'', '/').toLowerCase(),
+          'is_available': 1,
+        });
+      }
+    });
+    expect(await albumsNamed('Zendaya'), hasLength(2));
+
+    await scan(reconcileDuplicates: true);
+
+    await expectOneIntactAlbum(
+      albumId: albumId,
+      songIds: songIds,
+      playableFrom: nested,
     );
   });
 

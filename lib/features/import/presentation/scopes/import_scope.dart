@@ -54,6 +54,8 @@ import '../../data/services/path_fallback_metadata_reader.dart';
 import '../../data/services/possible_recording_store.dart';
 import '../../data/services/saf_import_candidate_discovery.dart';
 import '../services/file_picker_import_source_picker.dart';
+import '../../../library/application/services/duplicate_album_reconciliation_service.dart';
+import '../../../library/application/services/duplicate_reconciliation_policy.dart';
 
 typedef ImportMaintenanceLogger =
     void Function(String message, {required int level, StackTrace? stackTrace});
@@ -343,6 +345,12 @@ class _ImportScopeState extends State<ImportScope> {
       sourceReconciliationService: ImportSourceReconciliationService(
         appDatabase: database,
       ),
+      afterSourceScan: DuplicateReconciliationPolicy.automaticAfterScan
+          ? () => DuplicateAlbumReconciliationService(
+              appDatabase: database,
+              userId: userId,
+            ).reconcile()
+          : null,
     );
 
     if (!mounted || version != _initializationVersion) {
