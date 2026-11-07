@@ -42,7 +42,7 @@ class ImportBatchExecutor implements ImportBatchRunner {
     // folders are planned before any file is imported.
     final prepared = await libraryImportService.prepareFolders([
       for (final item in currentBatch.items) item.candidate,
-    ]);
+    ], scan: currentBatch.scan);
 
     for (var index = 0; index < currentBatch.items.length; index++) {
       final currentItem = currentBatch.items[index];
@@ -54,6 +54,7 @@ class ImportBatchExecutor implements ImportBatchRunner {
             prepared[TextNormalizer.normalizePath(
               currentItem.candidate.filePath,
             )],
+        scan: currentBatch.scan,
       );
 
       final updatedItems = List<ImportBatchItem>.of(currentBatch.items);

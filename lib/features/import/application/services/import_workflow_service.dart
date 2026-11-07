@@ -3,6 +3,7 @@ import '../../../../core/identity/text_normalizer.dart';
 import '../../../../core/events/library_change_signal.dart';
 import '../../domain/entities/import_source.dart';
 import '../../domain/models/import_candidate.dart';
+import '../../domain/models/import_scan_snapshot.dart';
 import '../../domain/repositories/import_source_repository.dart';
 import '../../domain/repositories/media_file_binding_repository.dart';
 import '../../domain/services/import_candidate_discovery.dart';
@@ -93,6 +94,9 @@ class ImportWorkflowService {
       startedAt: startedAt,
       completedAt: completedAt,
       onProgress: onProgress,
+      scan: source == null
+          ? null
+          : _scanSnapshot(source.id, candidates, discoveredAt: timestamp),
     );
 
     if (source != null) {
@@ -143,6 +147,7 @@ class ImportWorkflowService {
       startedAt: startedAt,
       completedAt: completedAt,
       onProgress: onProgress,
+      scan: _scanSnapshot(source.id, candidates, discoveredAt: timestamp),
     );
 
     await _reconcileSource(
@@ -196,6 +201,24 @@ class ImportWorkflowService {
 
     return source;
   }
+
+  /// The files a full scan of [sourceId] found, so a moved folder's old
+  /// paths are recognised during the scan (see ImportScanSnapshot). Both
+  /// the discovery's and the importer's path normalization are included.
+  static ImportScanSnapshot _scanSnapshot(
+    String sourceId,
+    List<ImportCandidate> candidates, {
+    required DateTime discoveredAt,
+  }) => ImportScanSnapshot(
+    sourceId: sourceId,
+    seenNormalizedPaths: {
+      for (final candidate in candidates) ...[
+        candidate.normalizedPath,
+        TextNormalizer.normalizePath(candidate.filePath),
+      ],
+    },
+    discoveredAt: discoveredAt,
+  );
 
   Future<void> _reconcileSource(
     ImportSource source,
@@ -280,6 +303,7 @@ class ImportWorkflowService {
     DateTime? startedAt,
     DateTime? completedAt,
     ImportBatchProgressCallback? onProgress,
+    ImportScanSnapshot? scan,
   }) async {
     final batch = ImportBatch(
       id: batchIdFactory(),
@@ -287,6 +311,7 @@ class ImportWorkflowService {
         candidates.map((candidate) => ImportBatchItem(candidate: candidate)),
       ),
       createdAt: createdAt,
+      scan: scan,
     );
 
     final summary = await batchRunner.execute(

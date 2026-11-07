@@ -5,10 +5,13 @@ import 'package:sonus_next/features/import/application/services/lyrics_ingestion
 import 'package:sonus_next/features/import/application/services/metadata_resolver.dart';
 import 'package:sonus_next/features/import/application/folders/folder_album_planner.dart';
 import 'package:sonus_next/features/import/application/folders/source_folder_key.dart';
+import 'package:sonus_next/features/import/application/identity/import_identity_metadata_normalizer.dart';
 import 'package:sonus_next/features/import/data/services/possible_recording_store.dart';
 import 'package:sonus_next/features/import/domain/models/audio_metadata.dart';
 import 'package:sonus_next/features/import/domain/models/import_candidate.dart';
 import 'package:sonus_next/features/import/domain/models/import_folder_placement.dart';
+import 'package:sonus_next/features/import/domain/models/import_scan_snapshot.dart';
+import 'package:sonus_next/features/import/application/metadata/track_title_version_interpreter.dart';
 import 'package:sonus_next/features/import/domain/models/resolved_metadata.dart';
 import 'package:sonus_next/features/import/domain/models/import_failure.dart';
 import 'package:sonus_next/features/import/domain/models/import_result.dart';
@@ -18,10 +21,19 @@ import 'package:sonus_next/features/import/domain/repositories/media_file_bindin
 /// What a batch pre-pass learned about one new file: its tags, and the
 /// folder album it belongs to (SN-45).
 class PreparedImport {
-  const PreparedImport({required this.metadata, this.placement});
+  const PreparedImport({
+    required this.metadata,
+    this.placement,
+    this.folderRecordings = const [],
+  });
 
   final ResolvedMetadata metadata;
   final ImportFolderPlacement? placement;
+
+  /// Every new file of the same folder in this batch, as evidence that the
+  /// folder holds the same recordings as an album already in the library
+  /// (App Update 1.2: a copied or moved folder is not a new album).
+  final List<FolderRecording> folderRecordings;
 }
 
 class LibraryImportService {
@@ -46,8 +58,9 @@ class LibraryImportService {
   /// in the library and unreadable files are left out; [importCandidate]
   /// handles them exactly as before.
   Future<Map<String, PreparedImport>> prepareFolders(
-    List<ImportCandidate> candidates,
-  ) async {
+    List<ImportCandidate> candidates, {
+    ImportScanSnapshot? scan,
+  }) async {
     final resolved = <String, (ImportCandidate, ResolvedMetadata)>{};
 
     for (final candidate in candidates) {
@@ -83,9 +96,40 @@ class LibraryImportService {
         ),
     ]);
 
+    // The same title reading as the importer's (feature credits, version
+    // qualifiers), so the evidence compares like with like.
+    const identityNormalizer = ImportIdentityMetadataNormalizer();
+    const titleInterpreter = TrackTitleVersionInterpreter();
+    final recordingsByFolder = <String, List<FolderRecording>>{};
+    for (final MapEntry(key: path, value: (candidate, resolvedMetadata))
+        in resolved.entries) {
+      final folderKey = placements[path]?.folderKey;
+      if (folderKey == null) continue;
+      final metadata = identityNormalizer.normalize(
+        candidate: candidate,
+        metadata: resolvedMetadata.metadata,
+      );
+      final title = titleInterpreter.interpret(metadata.title);
+      (recordingsByFolder[folderKey] ??= []).add(
+        FolderRecording(
+          canonicalTitle: TextNormalizer.canonicalize(title.title),
+          versionLabel: title.versionLabel,
+          discNumber: metadata.discNumber,
+          trackNumber: metadata.trackNumber,
+          durationSeconds: metadata.durationSeconds,
+        ),
+      );
+    }
+
     return {
       for (final MapEntry(key: path, value: (_, metadata)) in resolved.entries)
-        path: PreparedImport(metadata: metadata, placement: placements[path]),
+        path: PreparedImport(
+          metadata: metadata,
+          placement: placements[path],
+          folderRecordings: List.unmodifiable(
+            recordingsByFolder[placements[path]?.folderKey] ?? const [],
+          ),
+        ),
     };
   }
 
@@ -96,6 +140,7 @@ class LibraryImportService {
     DateTime? now,
     PreparedImport? prepared,
     String? separateFrom,
+    ImportScanSnapshot? scan,
   }) async {
     final timestamp = now ?? DateTime.now();
     final normalizedPath = TextNormalizer.normalizePath(candidate.filePath);
@@ -170,7 +215,9 @@ class LibraryImportService {
         metadataSource: resolvedMetadata.source,
         metadataOrigins: resolvedMetadata.origins,
         folderPlacement: prepared?.placement,
+        folderRecordings: prepared?.folderRecordings ?? const [],
         separateFrom: separateFrom,
+        scan: scan,
         now: timestamp,
       );
     } on LibraryMutationUnavailable {
