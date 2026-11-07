@@ -32,4 +32,7 @@ abstract final class DatabaseTables {
   static const String syncOutbox = 'sync_outbox';
   static const String localAccountBinding = 'local_account_binding';
   static const String cloudArchiveState = 'cloud_archive_state';
+
+  static const String libraryDeletionLedger = 'library_deletion_ledger';
+  static const String libraryDeletionJournal = 'library_deletion_journal';
 }

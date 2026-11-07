@@ -19,6 +19,7 @@ import '../../../library/data/repositories/sqlite_artist_reference_repository.da
 import '../../../library/data/repositories/sqlite_song_repository.dart';
 import '../../../library/data/repositories/sqlite_song_artist_credit_repository.dart';
 import '../../../library/data/repositories/sqlite_metadata_field_state_repository.dart';
+import '../../../library/data/repositories/sqlite_library_deletion_ledger.dart';
 import '../../../playlists/data/daos/playlist_dao.dart';
 import '../../../playlists/data/repositories/sqlite_playlist_repository.dart';
 import '../../application/services/sync_mutation_context.dart';
@@ -107,6 +108,7 @@ class SyncMutationTransactionRunner implements SyncMutationRunner {
           dao: OutboundConflictDao(transaction),
         ),
         playlistRepository: SqlitePlaylistRepository(PlaylistDao(transaction)),
+        deletionLedger: SqliteLibraryDeletionLedger(transaction),
       );
 
       return action(context);

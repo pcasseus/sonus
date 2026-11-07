@@ -24,6 +24,11 @@ enum ImportSkipReason {
   /// so the user can decide in Import Review, from a list kept on this
   /// device (PossibleRecordingStore).
   possibleAlternateRecording,
+
+  /// App Update 1.2: the user permanently deleted this file's song from the
+  /// library. The file stays on the device and is not imported again until
+  /// the user allows it.
+  deletedFromLibrary,
 }
 
 class ImportResult {

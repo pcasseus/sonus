@@ -1,9 +1,9 @@
 /// Permanent deletion: what a deletion would remove, computed before
 /// anything is touched.
 ///
-/// PROTOTYPE (design branch `permanent-deletion-design`). Read-only. Nothing
-/// in the app uses it yet, and no code path executes a deletion. See
-/// `_internal/SONUS_PERMANENT_DELETION_DESIGN.md`.
+/// Computed read-only by SqlitePermanentDeletionImpactRepository and
+/// executed by PermanentDeletionService. See
+/// `_internal/APP_UPDATE_1_2_LIBRARY_DELETION_DESIGN.md`.
 library;
 
 enum PermanentDeletionTargetKind { song, album, edition, artist }
@@ -48,6 +48,11 @@ enum PermanentDeletionBlocker {
   /// Deleting now would let the cloud keep (and later restore) a version
   /// the device no longer has.
   pendingCloudWrite,
+
+  /// This device's library is linked to cloud sync. The cloud archive
+  /// cannot delete listening history it already holds yet, so another
+  /// device or a fresh install could bring it back (D10: fail closed).
+  cloudSyncLinked,
 }
 
 class PlaylistDeletionImpact {

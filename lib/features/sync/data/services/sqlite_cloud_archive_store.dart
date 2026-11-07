@@ -1,3 +1,4 @@
+import '../../../library/data/repositories/sqlite_library_deletion_ledger.dart';
 import 'package:sqflite/sqflite.dart';
 
 import '../../../../core/database/app_database.dart';
@@ -181,10 +182,32 @@ class SqliteCloudArchiveStore implements CloudArchiveLocalStore {
     final payload = record.payload;
     switch (record.kind) {
       case CloudArchiveKind.playlist:
-        final items = [
-          for (final item in (payload['items'] as List? ?? const []))
-            Map<String, Object?>.from(item as Map),
-        ];
+        // Entries for songs the user permanently deleted here are dropped
+        // instead of holding the whole playlist back (App Update 1.2).
+        final playlistLedger = SqliteLibraryDeletionLedger(txn);
+        final items = <Map<String, Object?>>[];
+        var dropped = false;
+        for (final raw in (payload['items'] as List? ?? const [])) {
+          final item = Map<String, Object?>.from(raw as Map);
+          if (await playlistLedger.deletedByUser(
+            DeletionLedgerEntity.song,
+            item['song_id'] as String?,
+          )) {
+            dropped = true;
+            continue;
+          }
+          items.add(item);
+        }
+        if (dropped) {
+          items.sort(
+            (a, b) => ((a['position'] as int?) ?? 0).compareTo(
+              (b['position'] as int?) ?? 0,
+            ),
+          );
+          for (final (index, item) in items.indexed) {
+            item['position'] = index;
+          }
+        }
         for (final item in items) {
           if (!await _exists(
             txn,
@@ -214,6 +237,19 @@ class SqliteCloudArchiveStore implements CloudArchiveLocalStore {
 
       case CloudArchiveKind.listeningSession:
         final session = Map<String, Object?>.from(payload['session'] as Map);
+        // App Update 1.2: listening the user permanently deleted here, or
+        // of a song they deleted, never comes back from the archive.
+        final ledger = SqliteLibraryDeletionLedger(txn);
+        if (await ledger.contains(
+              DeletionLedgerEntity.playbackSession,
+              session['id'] as String?,
+            ) ||
+            await ledger.deletedByUser(
+              DeletionLedgerEntity.song,
+              session['song_id'] as String?,
+            )) {
+          return CloudArchiveApplyOutcome.applied;
+        }
         await _insert(
           txn,
           DatabaseTables.playbackSessions,
@@ -291,6 +327,23 @@ class SqliteCloudArchiveStore implements CloudArchiveLocalStore {
         await _upsert(txn, _tables[record.kind]!, payload, ['artist_id']);
 
       case CloudArchiveKind.allTimeMoment:
+        // Stories deleted with their subject never come back either.
+        final ledger = SqliteLibraryDeletionLedger(txn);
+        if (await ledger.contains(DeletionLedgerEntity.moment, record.key)) {
+          return CloudArchiveApplyOutcome.applied;
+        }
+        for (final (entity, column) in [
+          (DeletionLedgerEntity.song, 'entity_id'),
+          (DeletionLedgerEntity.album, 'entity_id'),
+          (DeletionLedgerEntity.artist, 'entity_id'),
+          (DeletionLedgerEntity.song, 'related_entity_id'),
+          (DeletionLedgerEntity.album, 'related_entity_id'),
+          (DeletionLedgerEntity.artist, 'entity_artist_id'),
+        ]) {
+          if (await ledger.deletedByUser(entity, payload[column] as String?)) {
+            return CloudArchiveApplyOutcome.applied;
+          }
+        }
         await _insert(
           txn,
           _tables[record.kind]!,

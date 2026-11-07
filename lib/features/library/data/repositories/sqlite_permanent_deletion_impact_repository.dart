@@ -5,10 +5,10 @@ import '../../domain/deletion/permanent_deletion_impact.dart';
 
 /// Computes [PermanentDeletionImpact] for a song, edition, album or artist.
 ///
-/// PROTOTYPE, read-only: it only runs SELECT statements, so it is safe to
-/// run against any database, including a read-only copy. The executor that
-/// would act on the result does not exist yet (design gate). See
-/// `_internal/SONUS_PERMANENT_DELETION_DESIGN.md`.
+/// Read-only: it only runs SELECT statements, so it is safe to run against
+/// any database, including a read-only copy. PermanentDeletionService runs
+/// it again inside its transaction and acts on the result. See
+/// `_internal/APP_UPDATE_1_2_LIBRARY_DELETION_DESIGN.md`.
 ///
 /// Pass a transaction when the result feeds an executor in the same
 /// transaction, so the preview and the deletion see the same rows.

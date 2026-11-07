@@ -1,3 +1,4 @@
+import '../../../library/data/repositories/sqlite_deletion_journal_reader.dart';
 import 'dart:async';
 
 import 'package:flutter/widgets.dart';
@@ -182,6 +183,9 @@ class _ChartsScopeState extends State<ChartsScope> {
       playbackSessions: playbackSessions,
       releaseEligibility: releaseEligibility,
     );
+    final deletionJournal = SqliteDeletionJournalReader(
+      () async => database.database,
+    );
     final finalization = ChartFinalizationService(
       builder: builder,
       charts: charts,
@@ -194,6 +198,7 @@ class _ChartsScopeState extends State<ChartsScope> {
       artistAttribution: () => _entityArtists(library, attribution),
       // Snapshot and Moments in one transaction (SN-50 F6).
       weekFinalizer: charts,
+      isRecalculatedWeek: deletionJournal.isRecalculatedWeek,
     );
 
     final allTimeMoments = AllTimeMomentService(
@@ -206,6 +211,7 @@ class _ChartsScopeState extends State<ChartsScope> {
       restoreGeneration: () => database.mutationCoordinator.restoreGeneration,
       releaseEligibility: releaseEligibility,
       artistAttribution: attribution,
+      momentsCutoff: deletionJournal.momentsCutoff,
     );
 
     final controller = ChartsController(

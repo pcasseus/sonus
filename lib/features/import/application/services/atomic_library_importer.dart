@@ -47,6 +47,7 @@ import 'package:sonus_next/features/library/data/repositories/sqlite_album_editi
 import 'package:sonus_next/features/library/data/repositories/sqlite_album_repository.dart';
 import 'package:sonus_next/features/library/data/repositories/sqlite_artist_repository.dart';
 import 'package:sonus_next/features/library/data/repositories/sqlite_song_repository.dart';
+import 'package:sonus_next/features/library/data/repositories/sqlite_library_deletion_ledger.dart';
 import 'package:sonus_next/features/library/domain/entities/entity_factory.dart';
 import 'package:sonus_next/features/sync/data/daos/local_sync_dao.dart';
 import 'package:sonus_next/features/sync/data/repositories/sqlite_local_sync_repository.dart';
@@ -164,6 +165,16 @@ class AtomicLibraryImporter {
         );
 
         final normalizedPath = TextNormalizer.normalizePath(candidate.filePath);
+
+        if (await SqliteLibraryDeletionLedger(
+          transaction,
+        ).contains(DeletionLedgerEntity.mediaFile, normalizedPath)) {
+          return ImportResult(
+            status: ImportResultStatus.skipped,
+            filePath: candidate.filePath,
+            skipReason: ImportSkipReason.deletedFromLibrary,
+          );
+        }
 
         final existingPathBinding = await bindingRepository.getByNormalizedPath(
           normalizedPath,

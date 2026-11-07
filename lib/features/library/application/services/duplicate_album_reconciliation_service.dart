@@ -8,6 +8,7 @@ import '../../../../core/events/library_change_signal.dart';
 import '../../../../core/identity/entity_id.dart';
 import '../../../../core/identity/text_normalizer.dart';
 import '../../../import/application/identity/recording_evidence.dart';
+import '../../data/repositories/sqlite_library_deletion_ledger.dart';
 import '../../../sync/data/daos/local_sync_dao.dart';
 import '../../../sync/data/repositories/sqlite_local_sync_repository.dart';
 import '../../../sync/domain/models/sync_data_contract.dart';
@@ -44,9 +45,11 @@ class DuplicateAlbumReconciliationService {
     this.userId,
     DateTime Function()? now,
     String Function()? generateOutboxId,
+    String Function()? generateOperationId,
     LibraryChangeSignal? changes,
   }) : _now = now ?? DateTime.now,
        _generateOutboxId = generateOutboxId ?? EntityId.syncOutbox,
+       _generateOperationId = generateOperationId ?? EntityId.deletionOperation,
        _changes = changes ?? LibraryChangeSignal.shared;
 
   final AppDatabase appDatabase;
@@ -56,6 +59,7 @@ class DuplicateAlbumReconciliationService {
 
   final DateTime Function() _now;
   final String Function() _generateOutboxId;
+  final String Function() _generateOperationId;
   final LibraryChangeSignal _changes;
 
   /// What a reconciliation would do now. Read-only.
@@ -357,6 +361,41 @@ class DuplicateAlbumReconciliationService {
       where: 'id = ?',
       whereArgs: [merge.duplicateAlbumId],
     );
+
+    // The ledger keeps the merged duplicates from coming back (stale cloud
+    // copies, an older backup), and the journal remembers where they went,
+    // so history in an older backup follows the kept records.
+    final operationId = _generateOperationId();
+    final ledger = SqliteLibraryDeletionLedger(txn);
+    for (final (entity, ids) in [
+      (DeletionLedgerEntity.song, duplicateSongIds),
+      (DeletionLedgerEntity.albumEdition, duplicateEditionIds),
+      (DeletionLedgerEntity.album, [merge.duplicateAlbumId]),
+    ]) {
+      await ledger.record(
+        entity,
+        ids,
+        reason: DeletionLedgerReason.duplicateMerge,
+        operationId: operationId,
+        at: timestamp,
+      );
+    }
+    await txn.insert(DatabaseTables.libraryDeletionJournal, {
+      'id': operationId,
+      'operation': DeletionLedgerReason.duplicateMerge.name,
+      'target_type': 'album',
+      'target_id': merge.duplicateAlbumId,
+      'summary': jsonEncode({
+        'songs': merge.songIdRemap,
+        'editions': {
+          for (final p in merge.editionPairs)
+            p.duplicateEditionId: p.keptEditionId,
+        },
+        'albums': {merge.duplicateAlbumId: merge.keptAlbumId},
+        'movedPlays': merge.movedPlayCount,
+      }),
+      'committed_at': stamp,
+    });
 
     // Cloud: a record the cloud has seen gets a delete; one it never saw
     // simply stops waiting to be sent.

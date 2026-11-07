@@ -58,6 +58,7 @@ class AllTimeMomentService {
     ChartRestoreGeneration? restoreGeneration,
     ReleaseChartEligibility? releaseEligibility,
     ListeningArtistAttribution? artistAttribution,
+    Future<DateTime?> Function()? momentsCutoff,
   }) : _qualifiedPlays = qualifiedPlays,
        _library = library,
        _moments = moments,
@@ -68,7 +69,12 @@ class AllTimeMomentService {
        _now = now ?? DateTime.now,
        _restoreGeneration = restoreGeneration,
        _releaseEligibility = releaseEligibility,
-       _artistAttribution = artistAttribution;
+       _artistAttribution = artistAttribution,
+       _momentsCutoff = momentsCutoff;
+
+  /// App Update 1.2 (D5): no play before the latest permanent deletion (or
+  /// a merge that moved plays) may create a story.
+  final Future<DateTime?> Function()? _momentsCutoff;
 
   final QualifiedPlayRepository _qualifiedPlays;
   final LibraryQueryRepository _library;
@@ -135,10 +141,9 @@ class AllTimeMomentService {
     final (:entities, :blockedSongIds) = await _entities(attributor);
     final singles = await excludedReleaseIds(_releaseEligibility);
     entities[ChartType.albums]!.removeWhere((id, _) => singles.contains(id));
-    final from = _storiesFrom(referenceLocal);
     final createdAt = _now().toUtc();
 
-    final events = <ChartMomentEvent>[
+    Future<List<ChartMomentEvent>> eventsFrom(DateTime from) async => [
       ...await _eventsFor(
         ChartType.songs,
         plays: plays,
@@ -171,6 +176,18 @@ class AllTimeMomentService {
         createdAt: createdAt,
       ),
     ];
+
+    final storiesFrom = _storiesFrom(referenceLocal);
+    var events = await eventsFrom(storiesFrom);
+    // App Update 1.2 (D5): no play before the latest permanent deletion may
+    // create a story. The journal is read only when there is something to
+    // tell, and the stories are recomputed only just after a deletion.
+    if (events.isNotEmpty) {
+      final cutoff = await _momentsCutoff?.call();
+      if (cutoff != null && cutoff.isAfter(storiesFrom)) {
+        events = await eventsFrom(cutoff);
+      }
+    }
 
     if (events.isEmpty) return const [];
 
@@ -354,10 +371,7 @@ class AllTimeMomentService {
       ),
       // A daily #1 hold is stored with an existing type (rankSame, #1 to
       // #1, a `day:` source): Sonus 1.0 reads it and tells nothing.
-      AllTimeAchievementType.numberOneDay => (
-        ChartMomentEventType.rankSame,
-        1,
-      ),
+      AllTimeAchievementType.numberOneDay => (ChartMomentEventType.rankSame, 1),
       AllTimeAchievementType.streamMilestone => (
         ChartMomentEventType.lifetimeStreamMilestone,
         null,
