@@ -226,7 +226,7 @@ class _PermanentDeletionSheetState extends State<PermanentDeletionSheet> {
     return SafeArea(
       child: DraggableScrollableSheet(
         expand: false,
-        initialChildSize: 0.85,
+        initialChildSize: _largeLayout(context) ? 0.95 : 0.85,
         minChildSize: 0.4,
         maxChildSize: 0.95,
         builder: (context, scrollController) => Column(
@@ -237,11 +237,23 @@ class _PermanentDeletionSheetState extends State<PermanentDeletionSheet> {
                 controller: scrollController,
                 padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
                 children: [
-                  Row(
+                  Flex(
+                    mainAxisSize: MainAxisSize.min,
+                    direction: _largeLayout(context)
+                        ? Axis.vertical
+                        : Axis.horizontal,
+                    crossAxisAlignment: _largeLayout(context)
+                        ? CrossAxisAlignment.start
+                        : CrossAxisAlignment.center,
                     children: [
                       _Artwork(path: widget.artworkPath),
-                      const SizedBox(width: 14),
-                      Expanded(
+                      const SizedBox(width: 14, height: 12),
+                      Flexible(
+                        // Stacked: laid out at its own height.
+                        flex: _largeLayout(context) ? 0 : 1,
+                        fit: _largeLayout(context)
+                            ? FlexFit.loose
+                            : FlexFit.tight,
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
@@ -283,45 +295,39 @@ class _PermanentDeletionSheetState extends State<PermanentDeletionSheet> {
                 ],
               ),
             ),
-            // Always visible, whatever the text size.
+            // Always visible, whatever the text size; stacked full width
+            // at large text or on narrow screens.
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      key: const ValueKey<String>('permanent-deletion-cancel'),
-                      onPressed: _busy
-                          ? null
-                          : () => Navigator.of(context).pop(false),
-                      child: const Text('Cancel'),
-                    ),
+              child: _Actions(
+                stacked: _largeLayout(context),
+                labels: const ['Cancel', 'Continue'],
+                cancel: OutlinedButton(
+                  key: const ValueKey<String>('permanent-deletion-cancel'),
+                  onPressed: _busy
+                      ? null
+                      : () => Navigator.of(context).pop(false),
+                  child: const Text('Cancel'),
+                ),
+                destructive: FilledButton(
+                  key: const ValueKey<String>('permanent-deletion-continue'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: theme.colorScheme.error,
+                    foregroundColor: theme.colorScheme.onError,
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: FilledButton(
-                      key: const ValueKey<String>(
-                        'permanent-deletion-continue',
-                      ),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: theme.colorScheme.error,
-                        foregroundColor: theme.colorScheme.onError,
-                      ),
-                      onPressed: canContinue
-                          ? () => _confirmAndDelete(impact)
-                          : null,
-                      child: _busy
-                          ? SizedBox.square(
-                              dimension: 18,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: theme.colorScheme.onError,
-                              ),
-                            )
-                          : const Text('Continue'),
-                    ),
-                  ),
-                ],
+                  onPressed: canContinue
+                      ? () => _confirmAndDelete(impact)
+                      : null,
+                  child: _busy
+                      ? SizedBox.square(
+                          dimension: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: theme.colorScheme.onError,
+                          ),
+                        )
+                      : const Text('Continue'),
+                ),
               ),
             ),
           ],
@@ -432,11 +438,15 @@ class _ImpactDetails extends StatelessWidget {
           const SizedBox(height: 16),
           _Notice(
             key: const ValueKey<String>('permanent-deletion-shared'),
-            text:
-                '${_plural(i.sharedRecordingIds.length, 'recording')} on this '
-                'artist\'s releases are by other artists, or this artist\'s '
-                'songs are on other artists\' releases. Choose whether they '
-                'are deleted too.',
+            text: i.sharedRecordingIds.length == 1
+                ? 'One recording is shared with another artist: it is on '
+                      'this artist\'s release but by someone else, or by '
+                      'this artist on someone else\'s release. Choose '
+                      'whether it is deleted too.'
+                : '${i.sharedRecordingIds.length} recordings are shared '
+                      'with other artists: on this artist\'s releases but by '
+                      'someone else, or by this artist on someone else\'s '
+                      'releases. Choose whether they are deleted too.',
           ),
           CheckboxListTile(
             key: const ValueKey<String>('permanent-deletion-include-shared'),
@@ -446,7 +456,10 @@ class _ImpactDetails extends StatelessWidget {
                 ? null
                 : (value) => onIncludeShared!(value ?? false),
             title: Text(
-              'Also delete these ${i.sharedRecordingIds.length} recordings',
+              i.sharedRecordingIds.length == 1
+                  ? 'Also delete this recording'
+                  : 'Also delete these '
+                        '${i.sharedRecordingIds.length} recordings',
             ),
           ),
         ],
@@ -457,9 +470,10 @@ class _ImpactDetails extends StatelessWidget {
           const _Notice(
             key: ValueKey<String>('permanent-deletion-cloud-unavailable'),
             text:
-                'Not available yet. Your cloud library can\'t keep this '
-                'deletion on your other devices, so they would bring it '
-                'back. Nothing will be deleted.',
+                'Permanent deletion isn\'t available yet. Sonus can\'t '
+                'remove this from your cloud library and your other '
+                'devices until cloud support for deletion is ready. '
+                'Nothing has been changed.',
             error: true,
           ),
         ],
@@ -486,6 +500,11 @@ class _ImpactDetails extends StatelessWidget {
 }
 
 /// Type the exact name to enable "Delete permanently".
+///
+/// Fits any screen: the title, explanation and name field scroll together
+/// inside the space left by the keyboard, and the two actions stay below
+/// them, stacked full width at large text or on a narrow screen. Text is
+/// never shrunk below the user's setting.
 class PermanentDeletionConfirmDialog extends StatefulWidget {
   const PermanentDeletionConfirmDialog({super.key, required this.name});
 
@@ -510,54 +529,192 @@ class _PermanentDeletionConfirmDialogState
 
   @override
   Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    return AlertDialog(
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final media = MediaQuery.of(context);
+    final large = _largeLayout(context);
+    final inset = large ? 8.0 : 24.0;
+    final side = large ? 12.0 : 24.0;
+    // The room the dialog may use: the screen less the keyboard, the
+    // system bars and the dialog's own margins.
+    final maxHeight =
+        media.size.height -
+        media.viewInsets.bottom -
+        media.padding.vertical -
+        inset * 2;
+
+    return Dialog(
       key: const ValueKey<String>('permanent-deletion-confirm-dialog'),
-      title: Text('Delete ${widget.name} permanently?'),
-      content: SingleChildScrollView(
+      insetPadding: EdgeInsets.symmetric(horizontal: inset, vertical: inset),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: maxHeight, maxWidth: 560),
         child: Column(
           mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Text(
-              'Its library entries, listening history, chart entries and '
-              'stories are removed from Sonus. This can\'t be undone. Your '
-              'audio files are not deleted.',
+            Flexible(
+              child: SingleChildScrollView(
+                key: const ValueKey<String>(
+                  'permanent-deletion-confirm-scroll',
+                ),
+                padding: EdgeInsets.fromLTRB(side, 24, side, 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Delete ${widget.name} permanently?',
+                      style: theme.textTheme.headlineSmall,
+                    ),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Its library entries, listening history, chart '
+                      'entries and stories are removed from Sonus. This '
+                      'can\'t be undone. Your audio files are not deleted.',
+                    ),
+                    const SizedBox(height: 16),
+                    Text('Type ${widget.name} to confirm.'),
+                    const SizedBox(height: 8),
+                    TextField(
+                      key: const ValueKey<String>(
+                        'permanent-deletion-confirm-field',
+                      ),
+                      controller: _controller,
+                      autofocus: true,
+                      autocorrect: false,
+                      enableSuggestions: false,
+                      scrollPadding: const EdgeInsets.all(24),
+                      onChanged: (_) => setState(() {}),
+                      decoration: InputDecoration(
+                        border: const OutlineInputBorder(),
+                        hintText: widget.name,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
-            const SizedBox(height: 16),
-            Text('Type ${widget.name} to confirm.'),
-            const SizedBox(height: 8),
-            TextField(
-              key: const ValueKey<String>('permanent-deletion-confirm-field'),
-              controller: _controller,
-              autofocus: true,
-              autocorrect: false,
-              enableSuggestions: false,
-              onChanged: (_) => setState(() {}),
-              decoration: InputDecoration(
-                border: const OutlineInputBorder(),
-                hintText: widget.name,
+            Padding(
+              padding: EdgeInsets.fromLTRB(side, 8, side, 20),
+              child: _Actions(
+                stacked: large,
+                natural: true,
+                labels: const ['Cancel', 'Delete permanently'],
+                cancel: TextButton(
+                  key: const ValueKey<String>(
+                    'permanent-deletion-confirm-cancel',
+                  ),
+                  onPressed: () => Navigator.of(context).pop(false),
+                  child: const Text('Cancel'),
+                ),
+                destructive: FilledButton(
+                  key: const ValueKey<String>(
+                    'permanent-deletion-confirm-delete',
+                  ),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: scheme.error,
+                    foregroundColor: scheme.onError,
+                    // More room for the label on narrow, large-text screens.
+                    padding: large
+                        ? const EdgeInsets.symmetric(horizontal: 12)
+                        : null,
+                  ),
+                  onPressed: _matches
+                      ? () => Navigator.of(context).pop(true)
+                      : null,
+                  child: const Text('Delete permanently'),
+                ),
               ),
             ),
           ],
         ),
       ),
-      actions: [
-        TextButton(
-          key: const ValueKey<String>('permanent-deletion-confirm-cancel'),
-          onPressed: () => Navigator.of(context).pop(false),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          key: const ValueKey<String>('permanent-deletion-confirm-delete'),
-          style: FilledButton.styleFrom(
-            backgroundColor: scheme.error,
-            foregroundColor: scheme.onError,
-          ),
-          onPressed: _matches ? () => Navigator.of(context).pop(true) : null,
-          child: const Text('Delete permanently'),
-        ),
-      ],
+    );
+  }
+}
+
+/// Large text, or a screen too narrow for two actions side by side.
+bool _largeLayout(BuildContext context) =>
+    MediaQuery.textScalerOf(context).scale(1) > sonusLargeTextScale ||
+    MediaQuery.sizeOf(context).width < 360;
+
+/// Cancel and the destructive action: side by side when both labels fit
+/// on one line each, otherwise stacked full width (destructive first,
+/// Cancel last and nearest the thumb). Labels are measured with the real
+/// text style and the user's text scale, so a label never wraps.
+class _Actions extends StatelessWidget {
+  const _Actions({
+    required this.stacked,
+    required this.cancel,
+    required this.destructive,
+    required this.labels,
+    this.natural = false,
+  });
+
+  /// Side by side at natural width, aligned to the end (a dialog), instead
+  /// of two equal halves (the sheet).
+  final bool natural;
+
+  /// Stack whatever the measurement (large text, narrow screen).
+  final bool stacked;
+  final Widget cancel;
+  final Widget destructive;
+
+  /// The two button labels, for the measurement.
+  final List<String> labels;
+
+  @override
+  Widget build(BuildContext context) {
+    final style = Theme.of(context).textTheme.labelLarge;
+    final scaler = MediaQuery.textScalerOf(context);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const gap = 12.0;
+        // Button padding and a little slack.
+        const chrome = 56.0;
+        final half = (constraints.maxWidth - gap) / 2;
+        final widths = [
+          for (final (index, label) in labels.indexed)
+            () {
+              final painter = TextPainter(
+                text: TextSpan(text: label, style: style),
+                textDirection: TextDirection.ltr,
+                textScaler: scaler,
+                maxLines: 1,
+              )..layout();
+              final width = painter.width;
+              painter.dispose();
+              // A dialog's Cancel is a text button with slimmer padding.
+              return width + (natural && index == 0 ? 32 : chrome);
+            }(),
+        ];
+        final fits = natural
+            ? widths.fold<double>(0, (a, b) => a + b) + gap <=
+                  constraints.maxWidth
+            : widths.every((width) => width <= half);
+        if (stacked || !fits) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [destructive, const SizedBox(height: 8), cancel],
+          );
+        }
+        if (natural) {
+          return Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              cancel,
+              const SizedBox(width: gap),
+              destructive,
+            ],
+          );
+        }
+        return Row(
+          children: [
+            Expanded(child: cancel),
+            const SizedBox(width: gap),
+            Expanded(child: destructive),
+          ],
+        );
+      },
     );
   }
 }
