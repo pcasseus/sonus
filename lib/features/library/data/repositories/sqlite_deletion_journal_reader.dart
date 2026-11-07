@@ -33,6 +33,19 @@ class SqliteDeletionJournalReader {
     return latest;
   }
 
+  /// Every recalculated week, as `chartType:weekStartUtc`.
+  Future<Set<String>> recalculatedWeeks() async {
+    final db = await _db();
+    return {
+      for (final row in await db.query(
+        DatabaseTables.libraryDeletionJournal,
+        columns: ['rebuilt_weeks'],
+        where: "operation = 'userDeletion'",
+      ))
+        ...(jsonDecode(row['rebuilt_weeks']! as String) as List).cast<String>(),
+    };
+  }
+
   /// Whether the [chartType] week starting at [weekStartUtc] was
   /// recalculated after a deletion (so it publishes no new Moments).
   Future<bool> isRecalculatedWeek(

@@ -1256,6 +1256,20 @@ class _WeekNavigator extends StatelessWidget {
               ),
               const SizedBox(height: 6),
               _ChartStatusBadge(status: status),
+              // App Update 1.2 (D4): told apart from the week as first
+              // published.
+              if (snapshot != null &&
+                  controller.isSelectedWeekRecalculated) ...[
+                const SizedBox(height: 6),
+                Text(
+                  'Recalculated after a permanent deletion.',
+                  key: const ValueKey<String>('charts-recalculated-note'),
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: SonusTheme.of(context).colors.textSecondary,
+                  ),
+                ),
+              ],
               if (thisWeek != null) ...[
                 const SizedBox(height: 6),
                 Text(

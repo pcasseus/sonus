@@ -215,6 +215,7 @@ class _ChartsScopeState extends State<ChartsScope> {
     );
 
     final controller = ChartsController(
+      recalculatedWeeks: deletionJournal.recalculatedWeeks,
       allTimeCharts: allTimeCharts,
       finalization: finalization,
       charts: charts,
