@@ -96,6 +96,8 @@ class PermanentDeletionImpact {
     required this.artworkCropCount,
     required this.otherArtistsLosingProjectGrouping,
     required this.pendingCloudWriteCount,
+    this.artworkAssetIds = const {},
+    this.targetArtworkId,
   });
 
   final PermanentDeletionTarget target;
@@ -165,7 +167,48 @@ class PermanentDeletionImpact {
 
   final int pendingCloudWriteCount;
 
+  /// Artwork used only by the deleted records. Its library entries are
+  /// removed with them; nothing else loses its picture.
+  final Set<String> artworkAssetIds;
+
+  /// The target's own artwork, for the preview.
+  final String? targetArtworkId;
+
   bool get canProceed => blockers.isEmpty;
+
+  /// The same impact with [blocker] added.
+  PermanentDeletionImpact withBlocker(PermanentDeletionBlocker blocker) =>
+      PermanentDeletionImpact(
+        target: target,
+        targetName: targetName,
+        blockers: {...blockers, blocker},
+        songIds: songIds,
+        albumIds: albumIds,
+        editionIds: editionIds,
+        artistIds: artistIds,
+        sharedRecordingIds: sharedRecordingIds,
+        songsKeptLosingListing: songsKeptLosingListing,
+        collaborationSongIdsKept: collaborationSongIdsKept,
+        creditLinksRemoved: creditLinksRemoved,
+        playbackSessionIds: playbackSessionIds,
+        qualifiedPlayIds: qualifiedPlayIds,
+        listeningSegmentCount: listeningSegmentCount,
+        listenedMs: listenedMs,
+        historyRowsRepointed: historyRowsRepointed,
+        chartEntryIds: chartEntryIds,
+        affectedChartWeeks: affectedChartWeeks,
+        momentIdsAboutTarget: momentIdsAboutTarget,
+        momentIdsMentioningTarget: momentIdsMentioningTarget,
+        playlists: playlists,
+        mediaFileBindingCount: mediaFileBindingCount,
+        lyricsCount: lyricsCount,
+        metadataFieldStateCount: metadataFieldStateCount,
+        artworkCropCount: artworkCropCount,
+        otherArtistsLosingProjectGrouping: otherArtistsLosingProjectGrouping,
+        pendingCloudWriteCount: pendingCloudWriteCount,
+        artworkAssetIds: artworkAssetIds,
+        targetArtworkId: targetArtworkId,
+      );
 
   int get qualifiedStreamCount => qualifiedPlayIds.length;
 

@@ -380,6 +380,92 @@ class SqlitePermanentDeletionImpactRepository {
       artistIds,
     );
 
+    // Artwork only the deleted records use (exact: every other reference
+    // is checked).
+    final artworkCandidates = <String>{};
+    void addArtwork(Object? id) {
+      if (id is String && id.isNotEmpty) artworkCandidates.add(id);
+    }
+
+    for (final row in await _selectIn(
+      'SELECT artwork_id FROM ${DatabaseTables.songs} WHERE id',
+      songIds,
+    )) {
+      addArtwork(row['artwork_id']);
+    }
+    for (final row in await _selectIn(
+      'SELECT artwork_id FROM ${DatabaseTables.albumEditions} WHERE id',
+      editionIds,
+    )) {
+      addArtwork(row['artwork_id']);
+    }
+    for (final row in await _selectIn(
+      'SELECT header_artwork_id, top_artists_artwork_id '
+      'FROM ${DatabaseTables.artists} WHERE id',
+      artistIds,
+    )) {
+      addArtwork(row['header_artwork_id']);
+      addArtwork(row['top_artists_artwork_id']);
+    }
+    final deletedCropTargets = {...editionIds, ...artistIds};
+    for (final row in await _selectIn(
+      'SELECT source_artwork_id, output_artwork_id '
+      'FROM ${DatabaseTables.artworkCrops} WHERE target_id',
+      deletedCropTargets,
+    )) {
+      addArtwork(row['source_artwork_id']);
+      addArtwork(row['output_artwork_id']);
+    }
+    final artworkAssetIds = <String>{};
+    for (final artworkId in artworkCandidates) {
+      final stillUsed =
+          (await _db.rawQuery(
+            'SELECT id FROM ${DatabaseTables.songs} WHERE artwork_id = ?',
+            [artworkId],
+          )).any((r) => !songIds.contains(r['id'])) ||
+          (await _db.rawQuery(
+            'SELECT id FROM ${DatabaseTables.albumEditions} '
+            'WHERE artwork_id = ?',
+            [artworkId],
+          )).any((r) => !editionIds.contains(r['id'])) ||
+          (await _db.rawQuery(
+            'SELECT id FROM ${DatabaseTables.artists} '
+            'WHERE header_artwork_id = ? OR top_artists_artwork_id = ?',
+            [artworkId, artworkId],
+          )).any((r) => !artistIds.contains(r['id'])) ||
+          (await _db.rawQuery(
+            'SELECT target_id FROM ${DatabaseTables.artworkCrops} '
+            'WHERE source_artwork_id = ? OR output_artwork_id = ?',
+            [artworkId, artworkId],
+          )).any((r) => !deletedCropTargets.contains(r['target_id']));
+      if (!stillUsed) artworkAssetIds.add(artworkId);
+    }
+
+    final targetArtworkId = switch (target.kind) {
+      PermanentDeletionTargetKind.song => await _firstString(
+        'SELECT COALESCE(s.artwork_id, e.artwork_id) AS a '
+        'FROM ${DatabaseTables.songs} s '
+        'JOIN ${DatabaseTables.albumEditions} e ON e.id = s.album_edition_id '
+        'WHERE s.id = ?',
+        target.id,
+      ),
+      PermanentDeletionTargetKind.edition => await _firstString(
+        'SELECT artwork_id AS a FROM ${DatabaseTables.albumEditions} '
+        'WHERE id = ?',
+        target.id,
+      ),
+      PermanentDeletionTargetKind.album => await _firstString(
+        'SELECT artwork_id AS a FROM ${DatabaseTables.albumEditions} '
+        'WHERE album_id = ? ORDER BY is_primary DESC, created_at LIMIT 1',
+        target.id,
+      ),
+      PermanentDeletionTargetKind.artist => await _firstString(
+        'SELECT header_artwork_id AS a FROM ${DatabaseTables.artists} '
+        'WHERE id = ?',
+        target.id,
+      ),
+    };
+
     final losingGrouping = <String>{
       for (final row in await _selectIn(
         'SELECT artist_id FROM ${DatabaseTables.artistProjectAssignments} '
@@ -417,7 +503,14 @@ class SqlitePermanentDeletionImpactRepository {
       artworkCropCount: crops,
       otherArtistsLosingProjectGrouping: losingGrouping,
       pendingCloudWriteCount: pendingWrites,
+      artworkAssetIds: artworkAssetIds,
+      targetArtworkId: targetArtworkId,
     );
+  }
+
+  Future<String?> _firstString(String sql, String arg) async {
+    final rows = await _db.rawQuery(sql, [arg]);
+    return rows.isEmpty ? null : rows.first['a'] as String?;
   }
 
   Future<void> _collectAlbum(

@@ -693,4 +693,142 @@ void main() {
       reason: 'a recalculated week publishes no new story',
     );
   });
+
+  Future<void> moment(
+    String id, {
+    required String entity,
+    required String artistId,
+    String chartType = 'songs',
+    String? related,
+    String? relatedArtistId,
+  }) => db.insert(DatabaseTables.chartMomentEvents, {
+    'id': id,
+    'deduplication_key': id,
+    'chart_type': chartType,
+    'scope': 'allTime',
+    'event_type': 'debut',
+    'entity_id': entity,
+    'entity_title': entity,
+    'entity_artist_id': artistId,
+    'entity_artist_name': artistId,
+    'related_entity_id': related,
+    'related_entity_title': related,
+    'related_entity_artist_id': relatedArtistId,
+    'related_entity_artist_name': related == null ? null : relatedArtistId,
+    'week_start_utc': '2026-10-04T04:00:00.000Z',
+    'week_end_utc': '2026-10-11T04:00:00.000Z',
+    'occurred_at': stamp,
+    'created_at': stamp,
+  });
+
+  test('artwork only the deleted records use goes; shared art stays', () async {
+    await seedWorld();
+    for (final id in ['art_own', 'art_shared']) {
+      await db.insert(DatabaseTables.artworkAssets, {
+        'id': id,
+        'file_path': '/art/$id.jpg',
+        'normalized_path': '/art/$id.jpg',
+        'created_at': stamp,
+        'updated_at': stamp,
+      });
+    }
+    await db.update(DatabaseTables.albumEditions, {
+      'artwork_id': 'art_own',
+    }, where: "album_id = 'nova_album'");
+    await db.update(DatabaseTables.songs, {
+      'artwork_id': 'art_shared',
+    }, where: "id IN ('opening', 'echo')");
+
+    final preview = await service.preview(
+      const PermanentDeletionTarget.album('nova_album'),
+    );
+    expect(preview.artworkAssetIds, {'art_own'});
+    expect(preview.targetArtworkId, 'art_own');
+    await service.delete(preview);
+
+    expect(await count(DatabaseTables.artworkAssets, "id = 'art_own'"), 0);
+    expect(await count(DatabaseTables.artworkAssets, "id = 'art_shared'"), 1);
+    final echo = (await db.query(
+      DatabaseTables.songs,
+      where: "id = 'echo'",
+    )).single;
+    expect(echo['artwork_id'], 'art_shared');
+  });
+
+  test('deleting the same thing twice changes nothing more', () async {
+    await seedWorld();
+    final preview = await service.preview(
+      const PermanentDeletionTarget.song('opening'),
+    );
+    await service.delete(preview);
+    final ledger = await count(DatabaseTables.libraryDeletionLedger);
+    final journal = await count(DatabaseTables.libraryDeletionJournal);
+
+    await expectLater(
+      service.delete(preview),
+      throwsA(isA<StaleDeletionPreview>()),
+    );
+    final again = await service.preview(
+      const PermanentDeletionTarget.song('opening'),
+    );
+    expect(again.blockers, {PermanentDeletionBlocker.notFound});
+    await expectLater(service.delete(again), throwsA(isA<DeletionBlocked>()));
+    expect(await count(DatabaseTables.libraryDeletionLedger), ledger);
+    expect(await count(DatabaseTables.libraryDeletionJournal), journal);
+  });
+
+  test(
+    'an artist: their stories go, others naming them go, the rest stay',
+    () async {
+      await seedWorld();
+      await moment('m_opening', entity: 'opening', artistId: 'nova');
+      await moment(
+        'm_album',
+        entity: 'nova_album',
+        artistId: 'nova',
+        chartType: 'albums',
+      );
+      await moment(
+        'm_glow_passes_nova',
+        entity: 'glow',
+        artistId: 'lumen',
+        related: 'opening',
+        relatedArtistId: 'nova',
+      );
+      await moment('m_echo', entity: 'echo', artistId: 'echo');
+
+      final preview = await service.preview(
+        const PermanentDeletionTarget.artist('nova'),
+      );
+      expect(preview.momentIdsAboutTarget, {'m_opening', 'm_album'});
+      expect(preview.momentIdsMentioningTarget, {'m_glow_passes_nova'});
+      await service.delete(preview);
+
+      final left = await db.query(DatabaseTables.chartMomentEvents);
+      expect(left.map((m) => m['id']), ['m_echo']);
+      // Lumen's song and its own listening are untouched.
+      expect(await count(DatabaseTables.songs, "id = 'glow'"), 1);
+    },
+  );
+
+  test("a release: its stories and its songs' stories go", () async {
+    await seedWorld();
+    await moment('m_bonus', entity: 'bonus', artistId: 'nova');
+    await moment(
+      'm_album',
+      entity: 'nova_album',
+      artistId: 'nova',
+      chartType: 'albums',
+    );
+    await moment('m_glow', entity: 'glow', artistId: 'lumen');
+
+    final preview = await service.preview(
+      const PermanentDeletionTarget.album('nova_album'),
+    );
+    await service.delete(preview);
+
+    final left = await db.query(DatabaseTables.chartMomentEvents);
+    expect(left.map((m) => m['id']), ['m_glow']);
+    expect(await count(DatabaseTables.artists, "id = 'nova'"), 1);
+  });
 }

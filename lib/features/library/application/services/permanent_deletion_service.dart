@@ -138,36 +138,7 @@ class PermanentDeletionService {
         !await _isCloudLinked(db)) {
       return impact;
     }
-    return PermanentDeletionImpact(
-      target: impact.target,
-      targetName: impact.targetName,
-      blockers: {...impact.blockers, PermanentDeletionBlocker.cloudSyncLinked},
-      songIds: impact.songIds,
-      albumIds: impact.albumIds,
-      editionIds: impact.editionIds,
-      artistIds: impact.artistIds,
-      sharedRecordingIds: impact.sharedRecordingIds,
-      songsKeptLosingListing: impact.songsKeptLosingListing,
-      collaborationSongIdsKept: impact.collaborationSongIdsKept,
-      creditLinksRemoved: impact.creditLinksRemoved,
-      playbackSessionIds: impact.playbackSessionIds,
-      qualifiedPlayIds: impact.qualifiedPlayIds,
-      listeningSegmentCount: impact.listeningSegmentCount,
-      listenedMs: impact.listenedMs,
-      historyRowsRepointed: impact.historyRowsRepointed,
-      chartEntryIds: impact.chartEntryIds,
-      affectedChartWeeks: impact.affectedChartWeeks,
-      momentIdsAboutTarget: impact.momentIdsAboutTarget,
-      momentIdsMentioningTarget: impact.momentIdsMentioningTarget,
-      playlists: impact.playlists,
-      mediaFileBindingCount: impact.mediaFileBindingCount,
-      lyricsCount: impact.lyricsCount,
-      metadataFieldStateCount: impact.metadataFieldStateCount,
-      artworkCropCount: impact.artworkCropCount,
-      otherArtistsLosingProjectGrouping:
-          impact.otherArtistsLosingProjectGrouping,
-      pendingCloudWriteCount: impact.pendingCloudWriteCount,
-    );
+    return impact.withBlocker(PermanentDeletionBlocker.cloudSyncLinked);
   }
 
   static bool _sameScope(PermanentDeletionImpact a, PermanentDeletionImpact b) {
@@ -184,7 +155,8 @@ class PermanentDeletionService {
         same(a.qualifiedPlayIds, b.qualifiedPlayIds) &&
         same(a.chartEntryIds, b.chartEntryIds) &&
         same(a.allMomentIds, b.allMomentIds) &&
-        same(a.affectedChartWeeks, b.affectedChartWeeks);
+        same(a.affectedChartWeeks, b.affectedChartWeeks) &&
+        same(a.artworkAssetIds, b.artworkAssetIds);
   }
 
   Future<void> _execute(Transaction txn, PermanentDeletionImpact impact) async {
@@ -439,6 +411,14 @@ class PermanentDeletionService {
     await _deleteIn(txn, DatabaseTables.albumEditions, 'id', impact.editionIds);
     await _deleteIn(txn, DatabaseTables.albums, 'id', impact.albumIds);
     await _deleteIn(txn, DatabaseTables.artists, 'id', impact.artistIds);
+    // Artwork nothing else uses (the image files themselves are app cache,
+    // not the user's music).
+    await _deleteIn(
+      txn,
+      DatabaseTables.artworkAssets,
+      'id',
+      impact.artworkAssetIds,
+    );
 
     await ledgerAll(DeletionLedgerEntity.song, impact.songIds);
     await ledgerAll(DeletionLedgerEntity.albumEdition, impact.editionIds);
@@ -452,6 +432,7 @@ class PermanentDeletionService {
       (CloudDataEntity.albumEdition, impact.editionIds),
       (CloudDataEntity.album, impact.albumIds),
       (CloudDataEntity.artist, impact.artistIds),
+      (CloudDataEntity.artworkAsset, impact.artworkAssetIds),
     ]) {
       for (final id in ids) {
         final known = await txn.query(
