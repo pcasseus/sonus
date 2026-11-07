@@ -28,6 +28,7 @@ class ArtistProfileTracksList extends StatelessWidget {
     required this.onClearArtwork,
     required this.onSetBlocked,
     required this.onGoToAlbum,
+    this.onDeletePermanently,
     this.selection,
     this.keyPrefix = 'artist-track',
     this.streamCounts,
@@ -67,6 +68,9 @@ class ArtistProfileTracksList extends StatelessWidget {
   final Future<void> Function(LibraryTrack track) onChangeArtwork;
   final Future<void> Function(LibraryTrack track) onClearArtwork;
   final Future<void> Function(LibraryTrack track, bool isBlocked) onSetBlocked;
+
+  /// App Update 1.2: "Delete song permanently…". Absent: not offered.
+  final Future<void> Function(LibraryTrack track)? onDeletePermanently;
   final void Function(LibraryTrack track) onGoToAlbum;
 
   /// The page's multi-select, when its rows can be selected.
@@ -172,6 +176,9 @@ class ArtistProfileTracksList extends StatelessWidget {
       onChangeArtwork: () => onChangeArtwork(track),
       onClearArtwork: () => onClearArtwork(track),
       onSetBlocked: (isBlocked) => onSetBlocked(track, isBlocked),
+      onDeletePermanently: onDeletePermanently == null
+          ? null
+          : () => onDeletePermanently!(track),
       onGoToAlbum: () => onGoToAlbum(track),
       selected: selection != null && selection.isActive
           ? selection.isSelected(track.songId)
@@ -207,6 +214,7 @@ class _TrackTile extends StatelessWidget {
     required this.onClearArtwork,
     required this.onSetBlocked,
     required this.onGoToAlbum,
+    this.onDeletePermanently,
     required this.selected,
     required this.onSelect,
     required this.onToggleSelected,
@@ -235,6 +243,7 @@ class _TrackTile extends StatelessWidget {
   final Future<void> Function() onChangeArtwork;
   final Future<void> Function() onClearArtwork;
   final Future<void> Function(bool isBlocked) onSetBlocked;
+  final Future<void> Function()? onDeletePermanently;
   final VoidCallback onGoToAlbum;
 
   /// Null outside selection mode.
@@ -371,6 +380,8 @@ class _TrackTile extends StatelessWidget {
                       unawaited(onEditTrack());
                     case _TrackMenuAction.toggleBlocked:
                       unawaited(onSetBlocked(!track.isSongBlocked));
+                    case _TrackMenuAction.deletePermanently:
+                      unawaited(onDeletePermanently?.call());
                   }
                 },
                 itemBuilder: (context) => [
@@ -448,6 +459,21 @@ class _TrackTile extends StatelessWidget {
                       contentPadding: EdgeInsets.zero,
                     ),
                   ),
+                  if (onDeletePermanently != null)
+                    PopupMenuItem(
+                      key: ValueKey<String>(
+                        'artist-track-delete-permanently-${track.songId}',
+                      ),
+                      value: _TrackMenuAction.deletePermanently,
+                      child: ListTile(
+                        leading: Icon(
+                          Icons.delete_forever_outlined,
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                        title: const Text('Delete song permanently…'),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                    ),
                 ],
               ),
           ],
@@ -553,6 +579,7 @@ enum _TrackMenuAction {
   select,
   trackStudio,
   toggleBlocked,
+  deletePermanently,
 }
 
 /// One release's collaborations (SN-51 C1): a header with the release's

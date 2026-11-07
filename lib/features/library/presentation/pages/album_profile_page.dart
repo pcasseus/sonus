@@ -56,6 +56,8 @@ import '../controllers/album_profile_controller.dart';
 import '../controllers/track_selection_controller.dart';
 import '../models/song_credit_summary.dart';
 import '../models/track_profile_edit_draft.dart';
+import '../widgets/permanent_deletion/permanent_deletion_sheet.dart';
+import '../../domain/deletion/permanent_deletion_impact.dart';
 import '../widgets/track_selection_bar.dart';
 import '../widgets/track_studio_launcher.dart';
 import 'artist_profile_page.dart';
@@ -450,6 +452,12 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
                         userId,
                         isBlocked,
                       ),
+                      onDeletePermanently: (track) => _deletePermanently(
+                        PermanentDeletionTarget.song(track.songId),
+                        track.displayTitle,
+                        artworkPath: track.artworkPath,
+                        leaveProfile: false,
+                      ),
                     ),
                   ),
                 ),
@@ -540,7 +548,8 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
             enabled:
                 controller.canEditArtwork ||
                 controller.canEditAlbumProfile(userId) ||
-                controller.canEditAlbumStudio(userId),
+                controller.canEditAlbumStudio(userId) ||
+                controller.album != null,
             tooltip: 'Release actions',
             onSelected: (action) {
               unawaited(_handleAlbumAction(controller, action, userId));
@@ -555,6 +564,23 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
                 child: const ListTile(
                   leading: Icon(Icons.tune_rounded),
                   title: Text('Edit Release'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+              // App Update 1.2: deletes the release and its history.
+              const PopupMenuDivider(),
+              PopupMenuItem(
+                key: const ValueKey<String>(
+                  'album-profile-delete-permanently-menu-item',
+                ),
+                value: _AlbumMenuAction.deletePermanently,
+                enabled: controller.album != null,
+                child: ListTile(
+                  leading: Icon(
+                    Icons.delete_forever_outlined,
+                    color: Theme.of(context).colorScheme.error,
+                  ),
+                  title: const Text('Delete release permanently…'),
                   contentPadding: EdgeInsets.zero,
                 ),
               ),
@@ -585,7 +611,44 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
       return;
     }
 
+    if (action == _AlbumMenuAction.deletePermanently) {
+      final album = controller.album;
+      await _deletePermanently(
+        PermanentDeletionTarget.album(widget.albumId),
+        album?.title,
+        artworkPath: album?.artworkPath,
+        leaveProfile: true,
+      );
+      return;
+    }
+
     await _handleArtworkAction(controller, action);
+  }
+
+  /// App Update 1.2: the permanent-deletion flow; leaves the profile when
+  /// the release itself is gone.
+  Future<void> _deletePermanently(
+    PermanentDeletionTarget target,
+    String? name, {
+    String? artworkPath,
+    required bool leaveProfile,
+  }) async {
+    if (name == null) return;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final deleted = await showPermanentDeletion(
+      context,
+      target: target,
+      name: name,
+      artworkPath: artworkPath,
+    );
+    if (!deleted || !mounted) return;
+    if (leaveProfile) Navigator.of(context).maybePop();
+    messenger?.showSnackBar(
+      SnackBar(
+        key: const ValueKey<String>('permanent-deletion-done'),
+        content: Text('$name was permanently deleted.'),
+      ),
+    );
   }
 
   Future<void> _openAlbumStudio(
@@ -653,7 +716,7 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
   ) async {
     try {
       final changed = switch (action) {
-        _AlbumMenuAction.studio => false,
+        _AlbumMenuAction.studio || _AlbumMenuAction.deletePermanently => false,
         _AlbumMenuAction.changeArtwork =>
           controller.canCropArtwork
               ? await _pickAndCropArtwork(controller)
@@ -670,7 +733,7 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
           ? controller.selectedEdition?.title
           : null;
       final message = switch (action) {
-        _AlbumMenuAction.studio => '',
+        _AlbumMenuAction.studio || _AlbumMenuAction.deletePermanently => '',
         _AlbumMenuAction.changeArtwork =>
           edition == null
               ? 'Album artwork updated.'
@@ -1787,6 +1850,7 @@ class _TracksList extends StatelessWidget {
     required this.onChangeArtwork,
     required this.onClearArtwork,
     required this.onSetBlocked,
+    this.onDeletePermanently,
   });
 
   final AlbumProfileController controller;
@@ -1802,6 +1866,9 @@ class _TracksList extends StatelessWidget {
   final Future<void> Function(LibraryTrack track) onChangeArtwork;
   final Future<void> Function(LibraryTrack track) onClearArtwork;
   final Future<void> Function(LibraryTrack track, bool isBlocked) onSetBlocked;
+
+  /// App Update 1.2: "Delete song permanently...".
+  final Future<void> Function(LibraryTrack track)? onDeletePermanently;
 
   @override
   Widget build(BuildContext context) {
@@ -1885,6 +1952,9 @@ class _TracksList extends StatelessWidget {
             onChangeArtwork: () => onChangeArtwork(track),
             onClearArtwork: () => onClearArtwork(track),
             onSetBlocked: (isBlocked) => onSetBlocked(track, isBlocked),
+            onDeletePermanently: onDeletePermanently == null
+                ? null
+                : () => onDeletePermanently!(track),
           ),
         ],
       ],
@@ -1947,6 +2017,7 @@ class _TrackTile extends StatelessWidget {
     required this.onChangeArtwork,
     required this.onClearArtwork,
     required this.onSetBlocked,
+    this.onDeletePermanently,
   });
 
   final LibraryTrack track;
@@ -1979,6 +2050,7 @@ class _TrackTile extends StatelessWidget {
   final Future<void> Function() onChangeArtwork;
   final Future<void> Function() onClearArtwork;
   final Future<void> Function(bool isBlocked) onSetBlocked;
+  final Future<void> Function()? onDeletePermanently;
 
   @override
   Widget build(BuildContext context) {
@@ -2111,6 +2183,8 @@ class _TrackTile extends StatelessWidget {
                     unawaited(onEditTrack());
                   case _TrackMenuAction.toggleBlocked:
                     unawaited(onSetBlocked(!track.isSongBlocked));
+                  case _TrackMenuAction.deletePermanently:
+                    unawaited(onDeletePermanently?.call());
                 }
               },
               itemBuilder: (context) => [
@@ -2187,6 +2261,21 @@ class _TrackTile extends StatelessWidget {
                     contentPadding: EdgeInsets.zero,
                   ),
                 ),
+                if (onDeletePermanently != null)
+                  PopupMenuItem(
+                    key: ValueKey<String>(
+                      'album-track-delete-permanently-${track.songId}',
+                    ),
+                    value: _TrackMenuAction.deletePermanently,
+                    child: ListTile(
+                      leading: Icon(
+                        Icons.delete_forever_outlined,
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                      title: const Text('Delete song permanently…'),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
               ],
             ),
         ],
@@ -2368,7 +2457,7 @@ class _CollapsibleCreditsState extends State<_CollapsibleCredits> {
   }
 }
 
-enum _AlbumMenuAction { studio, changeArtwork, clearArtwork }
+enum _AlbumMenuAction { studio, changeArtwork, clearArtwork, deletePermanently }
 
 enum _TrackMenuAction {
   playNext,
@@ -2379,6 +2468,7 @@ enum _TrackMenuAction {
   select,
   trackStudio,
   toggleBlocked,
+  deletePermanently,
 }
 
 class _EmptySection extends StatelessWidget {

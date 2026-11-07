@@ -44,6 +44,8 @@ import '../controllers/track_selection_controller.dart';
 import '../models/artist_profile_sections.dart';
 import '../models/artist_removal_message.dart';
 import '../models/track_profile_edit_draft.dart';
+import '../widgets/permanent_deletion/permanent_deletion_sheet.dart';
+import '../../domain/deletion/permanent_deletion_impact.dart';
 import '../widgets/artist_profile/artist_profile_albums_grid.dart';
 import '../widgets/artist_profile/artist_profile_collaborators.dart';
 import '../widgets/artist_profile/artist_profile_header.dart';
@@ -436,6 +438,23 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
                       child: const ListTile(
                         leading: Icon(Icons.delete_outline),
                         title: Text('Remove artist from library'),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                    ),
+                    // App Update 1.2: distinct from removing an empty
+                    // entry; deletes the artist and their history.
+                    PopupMenuItem(
+                      key: const ValueKey<String>(
+                        'artist-profile-delete-permanently-menu-item',
+                      ),
+                      value: _ArtistMenuAction.deletePermanently,
+                      enabled: controller.artist != null,
+                      child: ListTile(
+                        leading: Icon(
+                          Icons.delete_forever_outlined,
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                        title: const Text('Delete artist permanently…'),
                         contentPadding: EdgeInsets.zero,
                       ),
                     ),
@@ -1167,6 +1186,12 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
       onClearArtwork: (track) => _clearTrackArtwork(controller, track),
       onSetBlocked: (track, isBlocked) =>
           _setTrackBlocked(controller, track, userId, isBlocked),
+      onDeletePermanently: (track) => _deletePermanently(
+        PermanentDeletionTarget.song(track.songId),
+        track.displayTitle,
+        artworkPath: track.artworkPath,
+        leaveProfile: false,
+      ),
       onGoToAlbum: (track) => unawaited(
         _pushAndRefresh(
           AlbumProfilePage(
@@ -1206,6 +1231,16 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
 
     if (action == _ArtistMenuAction.removeArtist) {
       await _removeArtist(controller, userId);
+      return;
+    }
+
+    if (action == _ArtistMenuAction.deletePermanently) {
+      await _deletePermanently(
+        PermanentDeletionTarget.artist(controller.artistId),
+        controller.artist?.name,
+        artworkPath: controller.portraitPath ?? controller.headerArtworkPath,
+        leaveProfile: true,
+      );
       return;
     }
 
@@ -1283,6 +1318,32 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
           artistId: result.targetArtistId,
           initialArtistName: result.targetArtistName,
         ),
+      ),
+    );
+  }
+
+  /// App Update 1.2: the permanent-deletion flow; leaves the profile when
+  /// the artist itself is gone.
+  Future<void> _deletePermanently(
+    PermanentDeletionTarget target,
+    String? name, {
+    String? artworkPath,
+    required bool leaveProfile,
+  }) async {
+    if (name == null) return;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final deleted = await showPermanentDeletion(
+      context,
+      target: target,
+      name: name,
+      artworkPath: artworkPath,
+    );
+    if (!deleted || !mounted) return;
+    if (leaveProfile) Navigator.of(context).maybePop();
+    messenger?.showSnackBar(
+      SnackBar(
+        key: const ValueKey<String>('permanent-deletion-done'),
+        content: Text('$name was permanently deleted.'),
       ),
     );
   }
@@ -1411,7 +1472,8 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
         _ArtistMenuAction.studio => false,
         _ArtistMenuAction.libraryPlacement => false,
         _ArtistMenuAction.editName => false,
-        _ArtistMenuAction.removeArtist => false,
+        _ArtistMenuAction.removeArtist ||
+        _ArtistMenuAction.deletePermanently => false,
         _ArtistMenuAction.repositionBanner ||
         _ArtistMenuAction.repositionPortrait => false,
         _ArtistMenuAction.changeHeader =>
@@ -1445,7 +1507,8 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
         _ArtistMenuAction.studio => '',
         _ArtistMenuAction.libraryPlacement => '',
         _ArtistMenuAction.editName => '',
-        _ArtistMenuAction.removeArtist => '',
+        _ArtistMenuAction.removeArtist ||
+        _ArtistMenuAction.deletePermanently => '',
         _ArtistMenuAction.repositionBanner ||
         _ArtistMenuAction.repositionPortrait => '',
         _ArtistMenuAction.changeHeader => 'Banner photo updated.',
@@ -1887,6 +1950,7 @@ enum _ArtistMenuAction {
   repositionPortrait,
   clearTopArtists,
   removeArtist,
+  deletePermanently,
 }
 
 class _ArtistProfileLoadError extends StatelessWidget {
