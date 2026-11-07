@@ -449,6 +449,27 @@ void main() {
       expect(localSync.processedIds, ['outbox_delete']);
     });
 
+    // App Update 1.2: permanent deletion and duplicate merging record song
+    // and edition deletes; they take the same conditional path.
+    for (final (type, id) in [
+      (CloudDataEntity.song, 'song_1'),
+      (CloudDataEntity.albumEdition, 'edition_1'),
+    ]) {
+      test(
+        'a ${type.name} delete from a verified revision is acknowledged',
+        () async {
+          baseline(type, id, 2);
+          pendingDelete(type, id);
+
+          await processor().pushPending('user_1');
+
+          expect(gateway.calls, ['conditionalDelete:${type.name}:$id@2']);
+          expect(baselineOf(type, id), 3);
+          expect(localSync.processedIds, ['outbox_delete']);
+        },
+      );
+    }
+
     test('stale delete never removes a newer cloud row', () async {
       baseline(CloudDataEntity.album, 'album_1', 3);
       pendingDelete(CloudDataEntity.album, 'album_1');

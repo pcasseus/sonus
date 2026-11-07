@@ -8,6 +8,9 @@ import 'package:sonus_next/core/database/app_database.dart';
 import 'package:sonus_next/core/database/database_tables.dart';
 import 'package:sonus_next/core/events/library_change_signal.dart';
 import 'package:sonus_next/features/library/application/services/duplicate_album_reconciliation_service.dart';
+import 'package:sonus_next/features/sync/application/services/inbound_cloud_record_applier.dart';
+import 'package:sonus_next/features/sync/data/repositories/sync_mutation_transaction_runner.dart';
+import 'package:sonus_next/features/sync/domain/models/cloud_records.dart';
 
 const _tracks = [
   ('Replay', 215),
@@ -380,6 +383,54 @@ void main() {
       ...List.filled(2, 'albumEdition'),
       ...List.filled(22, 'song'),
     ]);
+  });
+
+  test('stale cloud copies of the merged duplicates are not applied', () async {
+    await seedZendayaState();
+    await service.reconcile();
+
+    final runner = SyncMutationTransactionRunner(
+      appDatabase: appDatabase,
+      changes: LibraryChangeSignal(),
+    );
+    const applier = InboundCloudRecordApplier();
+    for (final record in <CloudOwnedRecord>[
+      CloudAlbumRecord(
+        id: _playableCopy,
+        userId: 'user_1',
+        artistId: _artist,
+        title: 'Zendaya',
+        canonicalTitle: 'zendaya',
+        createdAt: now,
+        updatedAt: now,
+      ),
+      CloudSongRecord(
+        id: 'song_${_playableCopy}_1',
+        userId: 'user_1',
+        artistId: _artist,
+        albumId: _playableCopy,
+        albumEditionId: 'edition_$_playableCopy',
+        title: 'Replay',
+        canonicalTitle: 'replay',
+        trackNumber: 1,
+        durationSeconds: 215,
+        isSingle: false,
+        featuredArtists: const [],
+        createdAt: now,
+        updatedAt: now,
+      ),
+    ]) {
+      final result = await runner.run(
+        (context) => applier.apply(record: record, context: context),
+      );
+      expect(result.isDeferred, isFalse);
+    }
+
+    expect(await count(DatabaseTables.albums, 'id = ?', [_playableCopy]), 0);
+    expect(
+      await count(DatabaseTables.songs, 'album_id = ?', [_playableCopy]),
+      0,
+    );
   });
 
   test('reconciling again changes nothing', () async {
