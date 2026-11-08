@@ -6,11 +6,12 @@ import 'package:flutter/foundation.dart';
 
 import '../../../library/application/models/library_track.dart';
 import '../../../player/application/controllers/playback_coordinator.dart';
+import '../../../player/presentation/controllers/playback_shuffle_mode.dart';
 import '../../application/models/playlist_detail.dart';
 import '../../application/models/playlist_track.dart';
 import '../../application/services/playlist_service.dart';
 
-class PlaylistDetailController extends ChangeNotifier {
+class PlaylistDetailController extends ChangeNotifier with PlaybackShuffleMode {
   PlaylistDetailController({
     required PlaylistService service,
     required String playlistId,
@@ -19,7 +20,9 @@ class PlaylistDetailController extends ChangeNotifier {
   }) : _service = service,
        _playlistId = playlistId.trim(),
        _playbackCoordinator = playbackCoordinator,
-       _random = random ?? Random();
+       _random = random ?? Random() {
+    watchPlaybackShuffle();
+  }
 
   final PlaylistService _service;
   final String _playlistId;
@@ -30,7 +33,6 @@ class PlaylistDetailController extends ChangeNotifier {
 
   bool _isLoading = false;
   bool _isMutating = false;
-  bool _isShuffleEnabled = false;
   Object? _error;
 
   int _requestGeneration = 0;
@@ -47,7 +49,8 @@ class PlaylistDetailController extends ChangeNotifier {
 
   bool get isBusy => _isLoading || _isMutating;
 
-  bool get isShuffleEnabled => _isShuffleEnabled;
+  @override
+  PlaybackCoordinator? get shufflePlayback => _playbackCoordinator;
 
   Object? get error => _error;
 
@@ -321,32 +324,11 @@ class PlaylistDetailController extends ChangeNotifier {
       return;
     }
 
-    final startIndex = _isShuffleEnabled
+    final startIndex = isShuffleEnabled
         ? playableIndexes[_random.nextInt(playableIndexes.length)]
         : playableIndexes.first;
 
     await playback.playTracks(libraryTracks, startIndex: startIndex);
-  }
-
-  Future<void> setShuffleEnabled(bool enabled) async {
-    if (_isShuffleEnabled == enabled) {
-      return;
-    }
-
-    final playback = _playbackCoordinator;
-
-    if (playback == null) {
-      return;
-    }
-
-    await playback.setShuffleEnabled(enabled);
-
-    _isShuffleEnabled = enabled;
-    notifyListeners();
-  }
-
-  Future<void> toggleShuffle() {
-    return setShuffleEnabled(!_isShuffleEnabled);
   }
 
   Future<void> playNext(LibraryTrack track) async {

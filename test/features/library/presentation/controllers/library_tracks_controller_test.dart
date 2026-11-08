@@ -179,7 +179,8 @@ class FakePlaybackEngine implements PlaybackEngine {
   Stream<PlaybackState> get states => _statesController.stream;
 
   @override
-  PlaybackState get currentState => const PlaybackState();
+  PlaybackState get currentState =>
+      PlaybackState(shuffleEnabled: lastShuffleEnabled ?? false);
   @override
   Future<void> loadQueue(
     List<PlaybackTrack> tracks, {
