@@ -1,3 +1,4 @@
+import 'restore_ledger_filter.dart';
 import 'package:sqflite/sqflite.dart';
 
 import '../../../../core/database/app_database.dart';
@@ -86,7 +87,16 @@ class SqliteRestoreExecutor {
   }) async {
     _assertCoverage();
 
-    final tables = _withLaterColumns(backup.payload.tables);
+    // App Update 1.2: what this device deleted or merged stays gone.
+    final ledgerFilter = await RestoreLedgerFilter.load(transaction);
+    final filtered = ledgerFilter.apply(
+      _withLaterColumns(backup.payload.tables),
+    );
+    final tables = filtered.tables;
+    final expectedCounts = {
+      for (final MapEntry(:key, :value) in backup.manifest.rowCounts.entries)
+        key: value - (filtered.removed[key] ?? 0),
+    };
     final keys = <String, List<String>>{
       for (final coverage in BackupCoverageContract.portableTables)
         coverage.table: await RestorePlanner.primaryKeyColumns(
@@ -174,7 +184,7 @@ class SqliteRestoreExecutor {
     await ReleaseDatePrecisionBackfill.run(transaction);
 
     // 6. Verify before the transaction may commit.
-    await _verify(transaction, backup, artworkRows);
+    await _verify(transaction, expectedCounts, artworkRows);
     await afterPhase?.call(RestorePhase.verifyIntegrity);
   }
 
@@ -308,10 +318,10 @@ class SqliteRestoreExecutor {
 
   Future<void> _verify(
     Transaction transaction,
-    DecodedBackup backup,
+    Map<String, int> expectedCounts,
     List<Map<String, Object?>> artworkRows,
   ) async {
-    for (final entry in backup.manifest.rowCounts.entries) {
+    for (final entry in expectedCounts.entries) {
       final rows = await transaction.rawQuery(
         'SELECT COUNT(*) AS c FROM "${entry.key}"',
       );

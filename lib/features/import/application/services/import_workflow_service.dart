@@ -1,8 +1,11 @@
+import 'package:flutter/foundation.dart';
+
 import '../../../../core/identity/entity_id.dart';
 import '../../../../core/identity/text_normalizer.dart';
 import '../../../../core/events/library_change_signal.dart';
 import '../../domain/entities/import_source.dart';
 import '../../domain/models/import_candidate.dart';
+import '../../domain/models/import_scan_snapshot.dart';
 import '../../domain/repositories/import_source_repository.dart';
 import '../../domain/repositories/media_file_binding_repository.dart';
 import '../../domain/services/import_candidate_discovery.dart';
@@ -28,6 +31,7 @@ class ImportWorkflowService {
     this.batchIdFactory = EntityId.importBatch,
     this.sourceIdFactory = EntityId.importSource,
     this.changes,
+    this.afterSourceScan,
   });
 
   final ImportCandidateDiscovery candidateDiscovery;
@@ -41,6 +45,11 @@ class ImportWorkflowService {
 
   /// Told when an import finishes; [LibraryChangeSignal.shared] if null.
   final LibraryChangeSignal? changes;
+
+  /// Runs after a full scan of a source has been imported and reconciled,
+  /// for example the verified duplicate reconciliation (App Update 1.2).
+  /// A failure here never fails the scan.
+  final Future<void> Function()? afterSourceScan;
 
   Future<ImportExecutionSummary> importSingleSong(
     String filePath, {
@@ -93,6 +102,9 @@ class ImportWorkflowService {
       startedAt: startedAt,
       completedAt: completedAt,
       onProgress: onProgress,
+      scan: source == null
+          ? null
+          : _scanSnapshot(source.id, candidates, discoveredAt: timestamp),
     );
 
     if (source != null) {
@@ -102,6 +114,7 @@ class ImportWorkflowService {
         discoveredAt: timestamp,
         scannedAt: completedAt ?? DateTime.now(),
       );
+      await _afterSourceScan();
     }
 
     return summary;
@@ -143,6 +156,7 @@ class ImportWorkflowService {
       startedAt: startedAt,
       completedAt: completedAt,
       onProgress: onProgress,
+      scan: _scanSnapshot(source.id, candidates, discoveredAt: timestamp),
     );
 
     await _reconcileSource(
@@ -151,8 +165,27 @@ class ImportWorkflowService {
       discoveredAt: timestamp,
       scannedAt: completedAt ?? DateTime.now(),
     );
+    await _afterSourceScan();
 
     return summary;
+  }
+
+  Future<void> _afterSourceScan() async {
+    final hook = afterSourceScan;
+    if (hook == null) return;
+    try {
+      await hook();
+    } catch (error, stack) {
+      // The scan itself succeeded; the follow-up retries on the next scan.
+      FlutterError.reportError(
+        FlutterErrorDetails(
+          exception: error,
+          stack: stack,
+          library: 'import',
+          context: ErrorDescription('after a source scan'),
+        ),
+      );
+    }
   }
 
   Future<List<ImportSource>> getSources() {
@@ -196,6 +229,24 @@ class ImportWorkflowService {
 
     return source;
   }
+
+  /// The files a full scan of [sourceId] found, so a moved folder's old
+  /// paths are recognised during the scan (see ImportScanSnapshot). Both
+  /// the discovery's and the importer's path normalization are included.
+  static ImportScanSnapshot _scanSnapshot(
+    String sourceId,
+    List<ImportCandidate> candidates, {
+    required DateTime discoveredAt,
+  }) => ImportScanSnapshot(
+    sourceId: sourceId,
+    seenNormalizedPaths: {
+      for (final candidate in candidates) ...[
+        candidate.normalizedPath,
+        TextNormalizer.normalizePath(candidate.filePath),
+      ],
+    },
+    discoveredAt: discoveredAt,
+  );
 
   Future<void> _reconcileSource(
     ImportSource source,
@@ -280,6 +331,7 @@ class ImportWorkflowService {
     DateTime? startedAt,
     DateTime? completedAt,
     ImportBatchProgressCallback? onProgress,
+    ImportScanSnapshot? scan,
   }) async {
     final batch = ImportBatch(
       id: batchIdFactory(),
@@ -287,6 +339,7 @@ class ImportWorkflowService {
         candidates.map((candidate) => ImportBatchItem(candidate: candidate)),
       ),
       createdAt: createdAt,
+      scan: scan,
     );
 
     final summary = await batchRunner.execute(

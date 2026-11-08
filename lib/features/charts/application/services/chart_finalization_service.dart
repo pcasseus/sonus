@@ -50,6 +50,8 @@ class ChartFinalizationService {
     ReleaseChartEligibility? releaseEligibility,
     ChartArtistAttribution? artistAttribution,
     ChartWeekFinalizer? weekFinalizer,
+    Future<bool> Function(String chartType, DateTime weekStartUtc)?
+    isRecalculatedWeek,
   }) : _builder = builder,
        _charts = charts,
        _qualifiedPlays = qualifiedPlays,
@@ -67,7 +69,13 @@ class ChartFinalizationService {
        _restoreGeneration = restoreGeneration,
        _releaseEligibility = releaseEligibility,
        _artistAttribution = artistAttribution,
-       _weekFinalizer = weekFinalizer;
+       _weekFinalizer = weekFinalizer,
+       _isRecalculatedWeek = isRecalculatedWeek;
+
+  /// App Update 1.2 (D5): a week recalculated after a permanent deletion
+  /// publishes no new Moments; its surviving stories stay as they were.
+  final Future<bool> Function(String chartType, DateTime weekStartUtc)?
+  _isRecalculatedWeek;
 
   /// Writes a week's snapshot and Moments in one transaction (SN-50 F6).
   /// The app always provides it; without one (test doubles that cannot
@@ -296,6 +304,15 @@ class ChartFinalizationService {
     final activationWeekStartUtc = _momentsActivationWeekStartUtc;
 
     if (moments == null || activationWeekStartUtc == null) {
+      return null;
+    }
+
+    final recalculated = _isRecalculatedWeek;
+    if (recalculated != null &&
+        await recalculated(
+          snapshot.chartType.name,
+          snapshot.weekStartUtc.toUtc(),
+        )) {
       return null;
     }
 

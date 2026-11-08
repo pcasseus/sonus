@@ -84,6 +84,35 @@ void main() {
     expect(bTakesTop.sourceId, plays.all.last.id);
   });
 
+  test('no play before a permanent deletion creates a story (D5)', () async {
+    // After a deletion, "b" overtakes what is left; those plays came before
+    // the deletion, so nothing is told. A later play still is.
+    library.add('b');
+    library.add('c');
+    plays.add('c', _today.subtract(const Duration(hours: 3)));
+    plays.add('b', _today.subtract(const Duration(hours: 2)));
+    plays.add('b', _today.subtract(const Duration(hours: 2, minutes: -5)));
+    final deletedAt = _today.subtract(const Duration(hours: 1));
+
+    AllTimeMomentService withCutoff() => AllTimeMomentService(
+      qualifiedPlays: plays,
+      library: library,
+      moments: moments,
+      activationUtc: DateTime.utc(2026, 1, 1),
+      now: () => _today,
+      momentsCutoff: () async => deletedAt,
+    );
+
+    expect(await withCutoff().record(referenceLocal: _today), isEmpty);
+    expect(await saved(), isEmpty);
+
+    plays.add('c', _today.subtract(const Duration(minutes: 20)));
+    plays.add('c', _today.subtract(const Duration(minutes: 10)));
+    final told = await withCutoff().record(referenceLocal: _today);
+    expect(told, isNotEmpty);
+    expect(told.every((e) => !e.occurredAt.isBefore(deletedAt)), isTrue);
+  });
+
   test('both all-time charts are covered', () async {
     library.add('a');
     plays.add('a', _today.subtract(const Duration(hours: 1)));

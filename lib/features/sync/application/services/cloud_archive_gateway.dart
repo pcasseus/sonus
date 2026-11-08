@@ -24,6 +24,12 @@ abstract interface class CloudArchiveGateway {
   /// skips the archive and behaves as before.
   Future<bool> isAvailable();
 
+  /// True when the server carries permanent deletion (migration
+  /// 20261108000001: the library_deletion kind, final tombstones, empty
+  /// deleted history). Until then deletions are neither sent nor allowed
+  /// on a linked device.
+  Future<bool> supportsPermanentDeletion();
+
   /// Records changed after [after], oldest first.
   Future<List<CloudArchiveRecord>> readPage({
     required String userId,

@@ -1127,11 +1127,26 @@ void main() {
 
       await tester.pumpAndSettle();
 
-      final menu = tester.widget<PopupMenuButton>(
+      // App Update 1.2: the menu also offers permanent deletion, so it
+      // opens; editing itself stays unavailable.
+      await tester.tap(
         find.byKey(const ValueKey<String>('album-profile-artwork-menu')),
       );
+      await tester.pumpAndSettle();
 
-      expect(menu.enabled, isFalse);
+      final edit = tester.widget<PopupMenuItem<Object?>>(
+        find.ancestor(
+          of: find.text('Edit Release'),
+          matching: find.byWidgetPredicate((w) => w is PopupMenuItem),
+        ),
+      );
+      expect(edit.enabled, isFalse);
+      expect(
+        find.byKey(
+          const ValueKey<String>('album-profile-delete-permanently-menu-item'),
+        ),
+        findsOneWidget,
+      );
     });
     testWidgets('play button plays album tracks', (tester) async {
       final repository = FakeLibraryQueryRepository(

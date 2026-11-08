@@ -1,4 +1,5 @@
 import '../../domain/models/import_result.dart';
+import '../../domain/models/import_scan_snapshot.dart';
 import 'import_batch_item.dart';
 
 enum ImportBatchStatus { pending, running, completed }
@@ -11,6 +12,7 @@ class ImportBatch {
     this.startedAt,
     this.completedAt,
     this.status = ImportBatchStatus.pending,
+    this.scan,
   });
 
   final String id;
@@ -19,6 +21,10 @@ class ImportBatch {
   final DateTime? startedAt;
   final DateTime? completedAt;
   final ImportBatchStatus status;
+
+  /// Set when the batch is a scan of an import source: the files the scan
+  /// found. See ImportScanSnapshot.
+  final ImportScanSnapshot? scan;
 
   int get totalCount => items.length;
 
@@ -68,6 +74,7 @@ class ImportBatch {
       startedAt: timestamp,
       completedAt: completedAt,
       status: ImportBatchStatus.running,
+      scan: scan,
     );
   }
 
@@ -79,6 +86,7 @@ class ImportBatch {
       startedAt: startedAt,
       completedAt: completedAt,
       status: status,
+      scan: scan,
     );
   }
 
@@ -90,6 +98,7 @@ class ImportBatch {
       startedAt: startedAt,
       completedAt: timestamp,
       status: ImportBatchStatus.completed,
+      scan: scan,
     );
   }
 }

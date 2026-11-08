@@ -3,6 +3,8 @@ import 'package:sonus_next/core/database/app_database.dart';
 import 'package:sonus_next/core/database/database_tables.dart';
 import 'package:sonus_next/features/import/application/folders/source_folder_key.dart';
 import 'package:sonus_next/features/import/domain/models/import_folder_placement.dart';
+import 'package:sonus_next/features/import/domain/models/import_scan_snapshot.dart';
+import 'package:sonus_next/features/import/application/identity/recording_evidence.dart';
 import 'package:sonus_next/core/database/library_mutation_coordinator.dart';
 import 'package:sonus_next/core/identity/entity_id.dart';
 import 'package:sonus_next/core/identity/text_normalizer.dart';
@@ -45,6 +47,7 @@ import 'package:sonus_next/features/library/data/repositories/sqlite_album_editi
 import 'package:sonus_next/features/library/data/repositories/sqlite_album_repository.dart';
 import 'package:sonus_next/features/library/data/repositories/sqlite_artist_repository.dart';
 import 'package:sonus_next/features/library/data/repositories/sqlite_song_repository.dart';
+import 'package:sonus_next/features/library/data/repositories/sqlite_library_deletion_ledger.dart';
 import 'package:sonus_next/features/library/domain/entities/entity_factory.dart';
 import 'package:sonus_next/features/sync/data/daos/local_sync_dao.dart';
 import 'package:sonus_next/features/sync/data/repositories/sqlite_local_sync_repository.dart';
@@ -87,7 +90,9 @@ class AtomicLibraryImporter {
     MetadataSource metadataSource = MetadataSource.embedded,
     ImportMetadataOrigins? metadataOrigins,
     ImportFolderPlacement? folderPlacement,
+    List<FolderRecording> folderRecordings = const [],
     String? separateFrom,
+    ImportScanSnapshot? scan,
     DateTime? now,
   }) {
     // Relinking after a restore only attaches files to the songs they
@@ -105,7 +110,9 @@ class AtomicLibraryImporter {
       metadataSource: metadataSource,
       metadataOrigins: metadataOrigins,
       folderKey: placement?.folderKey,
+      folderRecordings: folderRecordings,
       separateFrom: relinkOnly ? null : separateFrom,
+      scan: scan,
       now: now,
     );
   }
@@ -116,7 +123,9 @@ class AtomicLibraryImporter {
     required MetadataSource metadataSource,
     required ImportMetadataOrigins? metadataOrigins,
     required String? folderKey,
+    required List<FolderRecording> folderRecordings,
     required String? separateFrom,
+    required ImportScanSnapshot? scan,
     required DateTime? now,
   }) async {
     final timestamp = now ?? DateTime.now();
@@ -156,6 +165,16 @@ class AtomicLibraryImporter {
         );
 
         final normalizedPath = TextNormalizer.normalizePath(candidate.filePath);
+
+        if (await SqliteLibraryDeletionLedger(
+          transaction,
+        ).contains(DeletionLedgerEntity.mediaFile, normalizedPath)) {
+          return ImportResult(
+            status: ImportResultStatus.skipped,
+            filePath: candidate.filePath,
+            skipReason: ImportSkipReason.deletedFromLibrary,
+          );
+        }
 
         final existingPathBinding = await bindingRepository.getByNormalizedPath(
           normalizedPath,
@@ -254,6 +273,8 @@ class AtomicLibraryImporter {
                 editionRepository: editionRepository,
                 metadata: effectiveMetadata,
                 interpretedTitle: interpretedTitle,
+                folderRecordings: folderRecordings,
+                scan: scan,
               );
 
         var match = await resolver.resolve(
@@ -835,8 +856,11 @@ class AtomicLibraryImporter {
           song.id,
         );
 
+        // A file this scan no longer finds where it was has moved away: it
+        // no longer plays the song, so the song is relinked to this file
+        // instead of the file being skipped as a copy (App Update 1.2).
         final availableBindings = existingSongBindings
-            .where((binding) => binding.isAvailable)
+            .where((binding) => ImportScanSnapshot.isLive(binding, scan))
             .toList(growable: false);
 
         if (availableBindings.isNotEmpty) {
@@ -855,7 +879,7 @@ class AtomicLibraryImporter {
         }
 
         final unavailableBindings = existingSongBindings
-            .where((binding) => !binding.isAvailable)
+            .where((binding) => !ImportScanSnapshot.isLive(binding, scan))
             .toList(growable: false);
 
         if (unavailableBindings.length > 1) {
@@ -980,6 +1004,8 @@ class AtomicLibraryImporter {
     required SqliteAlbumEditionRepository editionRepository,
     required AudioMetadata metadata,
     required InterpretedTrackTitle interpretedTitle,
+    required List<FolderRecording> folderRecordings,
+    required ImportScanSnapshot? scan,
   }) async {
     final inFolder = await _songsInFolder(
       executor,
@@ -1032,13 +1058,81 @@ class AtomicLibraryImporter {
       return AlbumPlacement.automatic;
     }
 
-    final albumFolders = await _foldersOfAlbum(executor, album.id);
+    // App Update 1.2: only folders where the album still plays count. A
+    // moved or renamed folder leaves its old paths behind: they are
+    // unavailable, or this scan no longer finds them. The album then has
+    // no other live folder, and the files rejoin it (and relink).
+    final albumFolders = await _liveFoldersOfAlbum(executor, album.id, scan);
 
-    if (albumFolders.isNotEmpty && !albumFolders.contains(folderKey)) {
-      return AlbumPlacement.separate;
+    if (albumFolders.isEmpty || albumFolders.contains(folderKey)) {
+      return AlbumPlacement.automatic;
     }
 
-    return AlbumPlacement.automatic;
+    // The album still plays from another folder. The same recordings in
+    // this folder are a copy of the same release, not a new project.
+    if (await _holdsSameRecordings(executor, album.id, folderRecordings)) {
+      return AlbumPlacement.automatic;
+    }
+
+    return AlbumPlacement.separate;
+  }
+
+  /// True when every file of the folder is verifiably one of [albumId]'s
+  /// songs: a copy (or partial copy) of the same release. Each pair
+  /// needs the same title, version, disc and track number, and known
+  /// durations within RecordingEvidence's tolerance. Titles alone never
+  /// verify anything: an unknown duration or number does not match.
+  Future<bool> _holdsSameRecordings(
+    DatabaseExecutor executor,
+    String albumId,
+    List<FolderRecording> folderRecordings,
+  ) async {
+    if (folderRecordings.isEmpty) return false;
+
+    final rows = await executor.query(
+      DatabaseTables.songs,
+      columns: [
+        'canonical_title',
+        'version_label',
+        'disc_number',
+        'track_number',
+        'duration_seconds',
+      ],
+      where: 'album_id = ?',
+      whereArgs: [albumId],
+    );
+    if (rows.isEmpty) return false;
+
+    bool pairs(Map<String, Object?> row, FolderRecording recording) {
+      final songDuration = row['duration_seconds'] as int;
+      final trackNumber = row['track_number'] as int;
+      return row['canonical_title'] == recording.canonicalTitle &&
+          TextNormalizer.canonicalize(row['version_label'] as String? ?? '') ==
+              TextNormalizer.canonicalize(recording.versionLabel ?? '') &&
+          row['disc_number'] == recording.discNumber &&
+          trackNumber > 0 &&
+          trackNumber == recording.trackNumber &&
+          songDuration > 0 &&
+          recording.durationSeconds > 0 &&
+          !RecordingEvidence.durationsDiffer(
+            songDuration,
+            recording.durationSeconds,
+          );
+    }
+
+    final unmatchedRows = [...rows];
+    var matched = 0;
+    for (final recording in folderRecordings) {
+      final index = unmatchedRows.indexWhere((row) => pairs(row, recording));
+      if (index < 0) continue;
+      unmatchedRows.removeAt(index);
+      matched++;
+    }
+
+    // The folder must be contained in the album. An album contained in a
+    // larger folder (a one-song release inside a longer same-titled one)
+    // is not verified as the same release.
+    return matched == folderRecordings.length;
   }
 
   /// Songs whose files are in [folderKey], found through a path-prefix
@@ -1076,14 +1170,20 @@ class AtomicLibraryImporter {
     ];
   }
 
-  /// The known folders of [albumId]'s songs.
-  Future<Set<String>> _foldersOfAlbum(
+  /// The folders where [albumId]'s songs still play: available files that
+  /// [scan] has not seen move away.
+  Future<Set<String>> _liveFoldersOfAlbum(
     DatabaseExecutor executor,
     String albumId,
+    ImportScanSnapshot? scan,
   ) async {
     final rows = await executor.rawQuery(
       '''
-      SELECT mb.file_path AS file_path
+      SELECT mb.file_path AS file_path,
+             mb.normalized_path AS normalized_path,
+             mb.source_id AS source_id,
+             mb.is_available AS is_available,
+             mb.updated_at AS updated_at
       FROM ${DatabaseTables.mediaFileBindings} mb
       JOIN ${DatabaseTables.songs} s ON s.id = mb.song_id
       WHERE s.album_id = ?
@@ -1092,7 +1192,9 @@ class AtomicLibraryImporter {
     );
 
     return {
-      for (final row in rows) ?SourceFolderKey.of(row['file_path']! as String),
+      for (final row in rows)
+        if (ImportScanSnapshot.isLiveRow(row, scan))
+          ?SourceFolderKey.of(row['file_path']! as String),
     };
   }
 

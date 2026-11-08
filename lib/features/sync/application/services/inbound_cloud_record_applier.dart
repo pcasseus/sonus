@@ -1,3 +1,4 @@
+import '../../../library/data/repositories/sqlite_library_deletion_ledger.dart';
 import '../../../library/domain/entities/album.dart';
 import '../../../library/domain/entities/album_edition.dart';
 import '../../../library/domain/repositories/album_edition_track_repository.dart';
@@ -40,6 +41,14 @@ class InboundCloudRecordApplier {
               InboundDeferralReason.tombstoneRequiresLocalDeletion,
             )
           : const InboundApplyResult.applied();
+    }
+
+    // App Update 1.2: a record this device deleted (or merged into another)
+    // on purpose is never recreated by an older or concurrent cloud copy,
+    // nor is a child of one. The local deletion wins; its own cloud delete
+    // is sent by the outbox.
+    if (await _deletedHere(record, context)) {
+      return const InboundApplyResult.applied();
     }
 
     if (record is CloudArtworkAssetRecord) {
@@ -89,6 +98,38 @@ class InboundCloudRecordApplier {
     }
 
     return const InboundApplyResult.applied();
+  }
+
+  Future<bool> _deletedHere(
+    CloudOwnedRecord record,
+    SyncMutationContext context,
+  ) async {
+    final ledger = context.deletionLedger;
+    if (ledger == null) return false;
+
+    final names = switch (record) {
+      CloudArtistRecord() => [(DeletionLedgerEntity.artist, record.id)],
+      CloudAlbumRecord() => [
+        (DeletionLedgerEntity.album, record.id),
+        (DeletionLedgerEntity.artist, record.artistId),
+      ],
+      CloudAlbumEditionRecord() => [
+        (DeletionLedgerEntity.albumEdition, record.id),
+        (DeletionLedgerEntity.album, record.albumId),
+      ],
+      CloudSongRecord() => [
+        (DeletionLedgerEntity.song, record.id),
+        (DeletionLedgerEntity.album, record.albumId),
+        (DeletionLedgerEntity.albumEdition, record.albumEditionId),
+        (DeletionLedgerEntity.artist, record.artistId),
+      ],
+      _ => const <(DeletionLedgerEntity, String)>[],
+    };
+
+    for (final (entity, id) in names) {
+      if (await ledger.contains(entity, id)) return true;
+    }
+    return false;
   }
 
   Future<bool> _existsLocally(

@@ -26,6 +26,9 @@ class RecordingEvidence {
         !_sameFeatures(song.featuredArtists, metadata.featuredArtists);
   }
 
+  /// True when both durations are known and differ beyond the tolerance.
+  static bool durationsDiffer(int a, int b) => _durationsDiffer(a, b);
+
   static bool _durationsDiffer(int a, int b) {
     if (a <= 0 || b <= 0) {
       return false;

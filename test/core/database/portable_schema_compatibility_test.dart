@@ -81,8 +81,9 @@ void main() {
       39,
       40,
       41,
+      42,
     });
-    expect(AppDatabase.databaseVersion, 41);
+    expect(AppDatabase.databaseVersion, 42);
   });
 
   test('the fixture is a real version 31 database', () async {
@@ -110,9 +111,10 @@ void main() {
     final v38 = await migrateTo(await copyOfV31('v38.db'), 38);
     final v39 = await migrateTo(await copyOfV31('v39.db'), 39);
     final v40 = await migrateTo(await copyOfV31('v40.db'), 40);
-    final v41 = AppDatabase(
+    final v41 = await migrateTo(await copyOfV31('v41.db'), 41);
+    final v42 = AppDatabase(
       databaseFactory: databaseFactoryFfi,
-      databasePath: await copyOfV31('v41.db'),
+      databasePath: await copyOfV31('v42.db'),
     );
     final fresh = AppDatabase(
       databaseFactory: databaseFactoryFfi,
@@ -131,7 +133,8 @@ void main() {
       expect(await userVersion(v38), 38);
       expect(await userVersion(v39), 39);
       expect(await userVersion(v40), 40);
-      expect(await userVersion(await v41.database), 41);
+      expect(await userVersion(v41), 41);
+      expect(await userVersion(await v42.database), 42);
       // Required tables are identical everywhere; an optional table is
       // identical wherever the version has it, apart from nullable columns
       // added later, which older backups may lack.
@@ -159,7 +162,9 @@ void main() {
       expectCompatible(await _portableSchema(v38));
       expectCompatible(await _portableSchema(v39));
       expectCompatible(await _portableSchema(v40));
-      expect(await _portableSchema(await v41.database), reference);
+      // 42 only added device-local tables: portable tables are identical.
+      expect(await _portableSchema(v41), reference);
+      expect(await _portableSchema(await v42.database), reference);
     } finally {
       await v31.close();
       await v32.close();
@@ -172,6 +177,7 @@ void main() {
       await v39.close();
       await v40.close();
       await v41.close();
+      await v42.close();
       await fresh.close();
     }
   });
@@ -196,7 +202,9 @@ void main() {
       final db = await upgraded.database;
       final rowsAfter = await _allRows(db);
 
-      expect(await userVersion(db), 41);
+      expect(await userVersion(db), 42);
+      expect(rowsAfter[DatabaseTables.libraryDeletionLedger], isEmpty);
+      expect(rowsAfter[DatabaseTables.libraryDeletionJournal], isEmpty);
       expect(
         rowsAfter[DatabaseTables.artworkCrops],
         isEmpty,
@@ -225,7 +233,9 @@ void main() {
         ..remove(SyncSchema.outboundConflictsTable)
         ..remove(DatabaseTables.albumReleaseClassifications)
         ..remove(DatabaseTables.artistProjectAssignments)
-        ..remove(DatabaseTables.artworkCrops);
+        ..remove(DatabaseTables.artworkCrops)
+        ..remove(DatabaseTables.libraryDeletionLedger)
+        ..remove(DatabaseTables.libraryDeletionJournal);
       // Migration 39 adds each edition's date precision; the fixture's
       // editions have no date, so it stays null.
       rowsAfter[DatabaseTables.albumEditions] = [

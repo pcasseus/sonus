@@ -1,3 +1,4 @@
+import '../../../library/data/repositories/sqlite_library_deletion_ledger.dart';
 import '../../../artwork/domain/repositories/artwork_asset_repository.dart';
 import '../../../library/domain/repositories/album_edition_repository.dart';
 import '../../../library/domain/repositories/album_edition_track_repository.dart';
@@ -35,6 +36,7 @@ class SyncMutationContext {
     this.inboundDeferredRecordRepository,
     this.outboundConflictRepository,
     this.playlistRepository,
+    this.deletionLedger,
   });
 
   final ArtistRepository artistRepository;
@@ -57,4 +59,8 @@ class SyncMutationContext {
   final InboundDeferredRecordRepository? inboundDeferredRecordRepository;
   final OutboundConflictRepository? outboundConflictRepository;
   final PlaylistRepository? playlistRepository;
+
+  /// App Update 1.2: records this device deleted on purpose. Inbound cloud
+  /// records never recreate them. Null in contexts that predate it.
+  final SqliteLibraryDeletionLedger? deletionLedger;
 }

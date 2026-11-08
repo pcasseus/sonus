@@ -110,7 +110,9 @@ class ChartsController extends ChangeNotifier {
     PlayEditionLoader? playEdition,
     MomentRulesLoader? momentRules,
     int momentPageSize = ChartMomentFeedPager.defaultPageSize,
+    Future<Set<String>> Function()? recalculatedWeeks,
   }) : _allTimeCharts = allTimeCharts,
+       _loadRecalculatedWeeks = recalculatedWeeks,
        _finalization = finalization,
        _charts = charts,
        _library = library,
@@ -190,6 +192,23 @@ class ChartsController extends ChangeNotifier {
 
   /// Without it, or until it is read, Moments follow the earlier rules.
   final MomentRulesLoader? _loadMomentRules;
+
+  /// App Update 1.2 (D4): weeks recalculated after a permanent deletion,
+  /// as `chartType:weekStartUtc`.
+  final Future<Set<String>> Function()? _loadRecalculatedWeeks;
+  Set<String> _recalculatedWeeks = const {};
+
+  /// Whether the finalized week shown was recalculated from the remaining
+  /// listening after a permanent deletion.
+  bool get isSelectedWeekRecalculated {
+    final selected = selectedHistoricalSnapshot;
+    if (selected == null) return false;
+    return _recalculatedWeeks.contains(
+      '${selected.chartType.name}:'
+      '${selected.weekStartUtc.toUtc().toIso8601String()}',
+    );
+  }
+
   ChartMomentRules _momentRules = ChartMomentRules.legacy;
 
   ChartType _chartType = ChartType.songs;
@@ -1394,6 +1413,11 @@ class ChartsController extends ChangeNotifier {
       }
 
       final history = await _charts.getHistory(_chartType);
+      // Read only when there is a finalized week to label.
+      final loadRecalculated = _loadRecalculatedWeeks;
+      final recalculatedWeeks = history.isEmpty || loadRecalculated == null
+          ? const <String>{}
+          : await loadRecalculated();
 
       // Once per load, after completed weeks are finalized, so its movement
       // compares with the latest finalized week.
@@ -1436,6 +1460,7 @@ class ChartsController extends ChangeNotifier {
 
       _allTimeChart = allTime;
       _history = List<ChartSnapshot>.unmodifiable(history);
+      _recalculatedWeeks = recalculatedWeeks;
       _thisWeek = thisWeek;
       if (thisWeek == null) {
         _isViewingThisWeek = false;

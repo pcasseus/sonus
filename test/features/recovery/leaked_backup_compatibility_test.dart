@@ -182,9 +182,9 @@ void main() {
     });
   }
 
-  test('a version 41 backup keeps a release marked as leaked', () async {
+  test('a current-version backup keeps a release marked as leaked', () async {
     final backup = await currentBackup();
-    expect(backup.backup.manifest.databaseVersion, 41);
+    expect(backup.backup.manifest.databaseVersion, AppDatabase.databaseVersion);
 
     await restore(backup);
 

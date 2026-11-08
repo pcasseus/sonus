@@ -15,7 +15,9 @@ abstract final class BackupCompatibility {
   /// marked again from their provenance), 40 only added nullable Live
   /// columns to the optional classification table (older rows restore as
   /// not stated) and 41 only added the nullable Leaked column to the same
-  /// table (older rows restore as not leaked), so backups from 31 onward
+  /// table (older rows restore as not leaked), 42 only added the
+  /// device-local deletion ledger and the internal deletion journal (never
+  /// in a backup), so backups from 31 onward
   /// restore unchanged. Each entry must be proven by a migration test
   /// before it is added; the schema validator still checks every payload
   /// against the local columns. Listed explicitly so a schema bump fails
@@ -32,6 +34,7 @@ abstract final class BackupCompatibility {
     39,
     40,
     41,
+    42,
   };
 
   static bool canRestore(BackupManifest manifest) =>

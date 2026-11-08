@@ -7,6 +7,7 @@ import '../identity/text_normalizer.dart';
 import 'database_tables.dart';
 import 'schema/artwork_crop_schema.dart';
 import 'schema/cloud_archive_schema.dart';
+import 'schema/deletion_schema.dart';
 import 'schema/account_schema.dart';
 import 'schema/analytics_schema.dart';
 import 'schema/chart_schema.dart';
@@ -494,6 +495,12 @@ abstract final class DatabaseMigrations {
         // SN-50: Leaked, set only by the user, beside the other release
         // facts. Every classification row is kept as it was.
         await OrganizationSchema.addLeakedClassification(db);
+        return;
+
+      case 42:
+        // App Update 1.2: the deletion ledger and journal. Two new tables;
+        // every existing row is untouched.
+        await DeletionSchema.create(db);
         return;
 
       default:

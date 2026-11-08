@@ -12,6 +12,12 @@ enum CloudArchiveApplyOutcome {
   /// Something the record refers to (a song, album, artist or artwork) is
   /// not on this device yet; it is applied on a later sync.
   missingDependencies,
+
+  /// App Update 1.2: history (a listening session or an all-time Moment) of
+  /// something the user permanently deleted, such as a play recorded by an
+  /// older version of Sonus after the deletion. Not applied here, and
+  /// removed from the cloud.
+  deletedHere,
 }
 
 /// What this device last agreed with the cloud about one record.
@@ -37,6 +43,10 @@ class CloudArchiveState {
 
 abstract interface class CloudArchiveLocalStore {
   Future<List<CloudArchiveRecord>> collect();
+
+  /// Whether a history record (a listening session or an all-time Moment)
+  /// is missing because the user permanently deleted it here.
+  Future<bool> deletedHere(CloudArchiveKind kind, String key);
 
   Future<CloudArchiveApplyOutcome> apply(CloudArchiveRecord record);
 
@@ -69,6 +79,9 @@ class CloudArchiveSyncReport {
   int waitingForDependencies = 0;
   int conflictsKeptBoth = 0;
   int conflictsNewerWon = 0;
+
+  /// History of something permanently deleted, removed from the cloud.
+  int deletedHistoryRemoved = 0;
   bool skippedUnavailable = false;
 }
 
@@ -113,6 +126,9 @@ class CloudArchiveSyncService {
   final DateTime Function() _now;
   final int pageSize;
 
+  /// Whether this pass's server keeps history tombstones final and empty.
+  bool _deletionSupported = false;
+
   Future<CloudArchiveSyncReport> synchronize(String userId) async {
     final report = CloudArchiveSyncReport();
 
@@ -125,14 +141,20 @@ class CloudArchiveSyncService {
       return report;
     }
 
-    await _push(userId, report);
+    final deletionSupported = await _gateway.supportsPermanentDeletion();
+    _deletionSupported = deletionSupported;
+    await _push(userId, report, deletionSupported: deletionSupported);
     // Records left waiting by an earlier pass; the pull handles the rest.
     await _retryPending(userId, report);
     await _pull(userId, report);
     return report;
   }
 
-  Future<void> _push(String userId, CloudArchiveSyncReport report) async {
+  Future<void> _push(
+    String userId,
+    CloudArchiveSyncReport report, {
+    required bool deletionSupported,
+  }) async {
     final states = await _store.states(userId);
     final local = await _store.collect();
     final seen = <String>{};
@@ -140,6 +162,11 @@ class CloudArchiveSyncService {
     for (final record in local) {
       SyncCancellation.checkpoint();
       seen.add(record.recordId);
+      // A server without permanent deletion would refuse the kind.
+      if (record.kind == CloudArchiveKind.libraryDeletion &&
+          !deletionSupported) {
+        continue;
+      }
       final state = states[record.recordId];
       if (state != null && state.pendingApply) continue;
       if (state != null && state.fingerprint == record.fingerprint) continue;
@@ -172,8 +199,16 @@ class CloudArchiveSyncService {
       }
       final separator = recordId.indexOf(':');
       final kind = CloudArchiveKind.fromWire(recordId.substring(0, separator));
-      if (kind == null || !kind.mutable) continue;
+      if (kind == null || kind == CloudArchiveKind.libraryDeletion) continue;
       final key = recordId.substring(separator + 1);
+      // History (listening, Moments) leaves the cloud only when the user
+      // permanently deleted it here, and only on a server that keeps such
+      // tombstones final and empty (App Update 1.2).
+      final permanentlyDeleted =
+          !kind.mutable &&
+          deletionSupported &&
+          await _store.deletedHere(kind, key);
+      if (!kind.mutable && !permanentlyDeleted) continue;
 
       final cloud = (await _gateway.fetch(
         userId: userId,
@@ -188,7 +223,7 @@ class CloudArchiveSyncService {
       final removal = CloudArchiveRecord(
         kind: kind,
         key: key,
-        payload: cloud.payload,
+        payload: permanentlyDeleted ? const {} : cloud.payload,
         isDeleted: true,
         clientUpdatedAt: _now().toUtc(),
       );
@@ -374,6 +409,47 @@ class CloudArchiveSyncService {
   }
 
   /// Applies a cloud copy here. A removal never removes anything here.
+  /// A live copy of history the user permanently deleted (for example a
+  /// play an older version of Sonus recorded afterwards): it is removed from
+  /// the cloud, emptied, so no device can receive it. On a server without
+  /// permanent deletion it is only left unapplied here.
+  Future<void> _removeDeletedHistory(
+    String userId,
+    CloudArchiveRecord cloud,
+    CloudArchiveSyncReport report,
+  ) async {
+    var serverRevision = cloud.serverRevision!;
+    var removed = false;
+    if (_deletionSupported) {
+      final result = await _gateway.updateIfRevision(
+        userId: userId,
+        record: CloudArchiveRecord(
+          kind: cloud.kind,
+          key: cloud.key,
+          payload: const {},
+          isDeleted: true,
+          clientUpdatedAt: _now().toUtc(),
+        ),
+        expectedServerRevision: serverRevision,
+      );
+      if (result.outcome == CloudArchiveWriteOutcome.applied) {
+        serverRevision = result.serverRevision!;
+        removed = true;
+        report.deletedHistoryRemoved++;
+      }
+    }
+    await _store.saveState(
+      userId,
+      cloud.kind,
+      cloud.key,
+      CloudArchiveState(
+        fingerprint: cloud.fingerprint,
+        serverRevision: serverRevision,
+        cloudDeleted: removed,
+      ),
+    );
+  }
+
   Future<void> _download(
     String userId,
     CloudArchiveRecord cloud,
@@ -398,6 +474,10 @@ class CloudArchiveSyncService {
     }
 
     final outcome = await _store.apply(cloud);
+    if (outcome == CloudArchiveApplyOutcome.deletedHere) {
+      await _removeDeletedHistory(userId, cloud, report);
+      return;
+    }
     final waiting = outcome == CloudArchiveApplyOutcome.missingDependencies;
     await _store.saveState(
       userId,

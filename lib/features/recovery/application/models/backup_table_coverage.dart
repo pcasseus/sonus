@@ -189,6 +189,18 @@ abstract final class BackupCoverageContract {
       table: SyncSchema.outboundConflictsTable,
       policy: BackupTablePolicy.internalState,
     ),
+
+    // App Update 1.2. The ledger and journal stay on the device through a
+    // restore, so an older backup cannot bring back what was deleted here,
+    // and recalculated chart weeks never publish new stories.
+    BackupTableCoverage(
+      table: DatabaseTables.libraryDeletionLedger,
+      policy: BackupTablePolicy.deviceLocal,
+    ),
+    BackupTableCoverage(
+      table: DatabaseTables.libraryDeletionJournal,
+      policy: BackupTablePolicy.deviceLocal,
+    ),
   ];
 
   static List<BackupTableCoverage> get portableTables =>
