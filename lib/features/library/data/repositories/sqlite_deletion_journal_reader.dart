@@ -47,7 +47,9 @@ class SqliteDeletionJournalReader {
   }
 
   /// Whether the [chartType] week starting at [weekStartUtc] was
-  /// recalculated after a deletion (so it publishes no new Moments).
+  /// recalculated after a deletion, or after a merge from another device
+  /// that met this device's stored charts (BUG-00B), so it publishes no
+  /// new Moments.
   Future<bool> isRecalculatedWeek(
     String chartType,
     DateTime weekStartUtc,
@@ -57,7 +59,6 @@ class SqliteDeletionJournalReader {
     for (final row in await db.query(
       DatabaseTables.libraryDeletionJournal,
       columns: ['rebuilt_weeks'],
-      where: "operation = 'userDeletion'",
     )) {
       final weeks = (jsonDecode(row['rebuilt_weeks']! as String) as List)
           .cast<String>();

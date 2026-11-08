@@ -3,6 +3,7 @@ import 'package:sqflite/sqflite.dart';
 import '../../../../core/database/app_database.dart';
 import '../../../../core/database/database_tables.dart';
 import '../../../../core/events/library_change_signal.dart';
+import '../../data/repositories/merge_history_remap.dart';
 import '../../data/repositories/sqlite_library_deletion_ledger.dart';
 import '../../data/repositories/sqlite_permanent_deletion_impact_repository.dart';
 import '../../domain/deletion/permanent_deletion_impact.dart';
@@ -153,7 +154,6 @@ class RemoteLibraryDeletionApplier {
     final albums = mapOf('albums');
     if (albums.length != 1) return true;
     final duplicateAlbumId = albums.keys.single;
-    final keptAlbumId = albums.values.single;
 
     Future<bool> exists(String table, String id) async => (await txn.query(
       table,
@@ -168,6 +168,30 @@ class RemoteLibraryDeletionApplier {
       changes: LibraryChangeSignal(),
     );
 
+    // BUG-00C: a record the other device kept may have been merged again
+    // here since (B into C), so the merge goes to the end of that chain. A
+    // merge that would close a loop (C already merged into the duplicate)
+    // is never recorded: it waits, changing nothing.
+    final chains = (await MergeHistoryRemap.load(txn)).chains;
+    List<String>? chainOf(String kind, String duplicate, String kept) {
+      try {
+        final path = chains.path(kind, kept);
+        return path.contains(duplicate) ? null : path;
+      } on MergeChainException {
+        return null;
+      }
+    }
+
+    for (final (kind, map) in [
+      ('songs', songs),
+      ('editions', editions),
+      ('albums', albums),
+    ]) {
+      for (final MapEntry(key: duplicate, value: kept) in map.entries) {
+        if (chainOf(kind, duplicate, kept) == null) return false;
+      }
+    }
+
     if (!await exists(DatabaseTables.albums, duplicateAlbumId)) {
       // Nothing of the duplicate here: only remember the merge.
       await service.recordRemoteMerge(
@@ -180,11 +204,17 @@ class RemoteLibraryDeletionApplier {
       return true;
     }
     // The kept release has not arrived here yet: wait for it.
+    final keptAlbumId = chainOf(
+      'albums',
+      duplicateAlbumId,
+      albums.values.single,
+    )!.last;
     if (!await exists(DatabaseTables.albums, keptAlbumId)) return false;
 
     final pairs = <DuplicateSongPair>[];
-    for (final MapEntry(key: duplicate, value: kept) in songs.entries) {
+    for (final MapEntry(key: duplicate, value: merged) in songs.entries) {
       if (!await exists(DatabaseTables.songs, duplicate)) continue;
+      final kept = chainOf('songs', duplicate, merged)!.last;
       final keptRow = await txn.query(
         DatabaseTables.songs,
         columns: ['album_edition_id'],
@@ -211,8 +241,9 @@ class RemoteLibraryDeletionApplier {
     if (extra.any((row) => !songs.containsKey(row['id']))) return false;
 
     final editionPairs = <DuplicateEditionPair>[];
-    for (final MapEntry(key: duplicate, value: kept) in editions.entries) {
+    for (final MapEntry(key: duplicate, value: merged) in editions.entries) {
       if (!await exists(DatabaseTables.albumEditions, duplicate)) continue;
+      final kept = chainOf('editions', duplicate, merged)!.last;
       if (!await exists(DatabaseTables.albumEditions, kept)) return false;
       editionPairs.add(
         DuplicateEditionPair(

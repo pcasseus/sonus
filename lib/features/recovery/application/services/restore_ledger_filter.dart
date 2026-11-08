@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:sqflite/sqflite.dart';
 
 import '../../../../core/database/database_tables.dart';
+import '../../../library/data/repositories/merge_history_remap.dart';
 
 /// App Update 1.2: a restore never brings back what this device deleted
 /// or merged on purpose (the deletion ledger and journal stay on the device
@@ -15,16 +16,23 @@ import '../../../../core/database/database_tables.dart';
 ///   other dependants;
 /// - records merged into another are dropped, and history that belonged to
 ///   them follows the record that stayed.
+///
+/// Merges are followed along their whole chain (A merged into B, later B
+/// into C, resolves A to C), and a record counts as deleted when any record
+/// on its chain was deleted by the user: history of a duplicate merged into
+/// a song that was deleted later stays deleted. A chain that loops cannot
+/// be resolved: [MergeChainException] is thrown and the restore, which runs
+/// in one transaction, changes nothing.
 class RestoreLedgerFilter {
-  RestoreLedgerFilter._(this._ledger, this._remap, this._chartsFrom);
+  RestoreLedgerFilter._(this._ledger, this._chains, this._chartsFrom);
 
   /// entity type → ids, for every ledger row.
   final Map<String, Set<String>> _ledger;
 
-  /// entity type ('songs', 'albums', 'editions') → merged id → kept id.
-  final Map<String, Map<String, String>> _remap;
+  /// Every merge this device knows.
+  final MergeChains _chains;
 
-  /// The earliest chart week a user deletion recalculated, if any.
+  /// The earliest chart week a deletion or merge recalculated, if any.
   final String? _chartsFrom;
 
   static Future<RestoreLedgerFilter> load(DatabaseExecutor db) async {
@@ -36,46 +44,52 @@ class RestoreLedgerFilter {
       (ledger[type] ??= {}).add(id);
       if (row['reason'] == 'userDeletion') (userDeleted[type] ??= {}).add(id);
     }
-    final remap = <String, Map<String, String>>{};
     String? chartsFrom;
     for (final row in await db.query(DatabaseTables.libraryDeletionJournal)) {
-      if (row['operation'] == 'duplicateMerge') {
-        final summary =
-            jsonDecode(row['summary']! as String) as Map<String, Object?>;
-        for (final key in ['songs', 'editions', 'albums']) {
-          final map = (summary[key] as Map?)?.cast<String, String>() ?? {};
-          (remap[key] ??= {}).addAll(map);
-        }
-      } else {
-        for (final week
-            in (jsonDecode(row['rebuilt_weeks']! as String) as List)
-                .cast<String>()) {
-          final start = week.contains(':')
-              ? week.substring(week.indexOf(':') + 1)
-              : week;
-          if (chartsFrom == null || start.compareTo(chartsFrom) < 0) {
-            chartsFrom = start;
-          }
+      // Deletions and merges from another device that met stored charts
+      // both list the weeks they recalculated.
+      for (final week
+          in (jsonDecode(row['rebuilt_weeks']! as String) as List)
+              .cast<String>()) {
+        final start = week.contains(':')
+            ? week.substring(week.indexOf(':') + 1)
+            : week;
+        if (chartsFrom == null || start.compareTo(chartsFrom) < 0) {
+          chartsFrom = start;
         }
       }
     }
-    final filter = RestoreLedgerFilter._(ledger, remap, chartsFrom);
+    final merges = await MergeHistoryRemap.load(db);
+    final filter = RestoreLedgerFilter._(ledger, merges.chains, chartsFrom);
     filter._userDeleted.addAll(userDeleted);
     return filter;
   }
 
   final Map<String, Set<String>> _userDeleted = {};
 
-  bool get isEmpty => _ledger.isEmpty && _remap.isEmpty;
+  bool get isEmpty => _ledger.isEmpty && _chains.isEmpty;
 
   bool _in(String type, Object? id) =>
       id is String && _ledger[type]?.contains(id) == true;
 
-  bool _deletedByUser(String type, Object? id) =>
-      id is String && _userDeleted[type]?.contains(id) == true;
+  /// Ledger entity type → merge chain kind.
+  static const _chainKinds = {
+    'song': 'songs',
+    'album': 'albums',
+    'albumEdition': 'editions',
+  };
 
-  String? _follow(String key, Object? id) =>
-      id is String ? (_remap[key]?[id] ?? id) : null;
+  /// Whether [id], or a record it was merged into, was deleted by the user.
+  bool _deletedByUser(String type, Object? id) {
+    final deleted = _userDeleted[type];
+    if (id is! String || deleted == null) return false;
+    final kind = _chainKinds[type];
+    return kind == null
+        ? deleted.contains(id)
+        : _chains.chainHitsAny(kind, id, deleted);
+  }
+
+  String? _follow(String key, Object? id) => _chains.resolveValue(key, id);
 
   /// The filtered tables, and how many rows each lost (for the restore's
   /// row-count verification).
@@ -201,12 +215,33 @@ class RestoreLedgerFilter {
     });
 
     // Charts from the first recalculated week on are rebuilt from the
-    // remaining plays after the restore, never restored with ghosts.
+    // remaining plays after the restore, never restored with ghosts. A
+    // backup week that still ranks a merged duplicate is rebuilt too (D3),
+    // so no chart row points at a record that no longer exists (BUG-00B).
+    var from = _chartsFrom;
+    if (!_chains.isEmpty) {
+      final weekOf = {
+        for (final row in tables[DatabaseTables.chartSnapshots] ?? const [])
+          row['id']: row['week_start_utc']! as String,
+      };
+      for (final row in tables[DatabaseTables.chartEntries] ?? const []) {
+        final id = row['entity_id'];
+        if (id is! String ||
+            !(_chains.isMerged('songs', id) ||
+                _chains.isMerged('albums', id))) {
+          continue;
+        }
+        final week = weekOf[row['chart_snapshot_id']];
+        if (week != null && (from == null || week.compareTo(from) < 0)) {
+          from = week;
+        }
+      }
+    }
+    final chartsFrom = from;
     final droppedSnapshots = <String>{};
     keep(DatabaseTables.chartSnapshots, (row) {
-      final from = _chartsFrom;
-      if (from == null ||
-          (row['week_start_utc']! as String).compareTo(from) < 0) {
+      if (chartsFrom == null ||
+          (row['week_start_utc']! as String).compareTo(chartsFrom) < 0) {
         return row;
       }
       droppedSnapshots.add(row['id']! as String);
@@ -229,7 +264,15 @@ class RestoreLedgerFilter {
       for (final column in ['entity_artist_id', 'related_entity_artist_id']) {
         if (_deletedByUser('artist', row[column])) return null;
       }
-      return row;
+      // A story about a merged duplicate is about the record that stayed.
+      if (_chains.isEmpty) return row;
+      final kind = row['chart_type'] == 'albums' ? 'albums' : 'songs';
+      return {
+        ...row,
+        'entity_id': _follow(kind, row['entity_id']),
+        if (row['related_entity_id'] != null)
+          'related_entity_id': _follow(kind, row['related_entity_id']),
+      };
     });
 
     // Playlists keep their place; deleted songs leave, merged ones follow.

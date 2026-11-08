@@ -3,67 +3,70 @@ import 'dart:convert';
 import 'package:sqflite/sqflite.dart';
 
 import '../../../../core/database/database_tables.dart';
+import '../../domain/deletion/merge_chain.dart';
+
+export '../../domain/deletion/merge_chain.dart'
+    show MergeChainException, MergeChains;
 
 /// App Update 1.2: listening that belonged to a merged duplicate follows the
 /// record that stayed, wherever it comes from: this device's history when a
 /// merge arrives from another device, or a listening session downloaded
 /// from the cloud archive after the merge.
 class MergeHistoryRemap {
-  MergeHistoryRemap._(this._songs, this._editions, this._albums);
+  MergeHistoryRemap._(this.chains);
 
-  final Map<String, String> _songs;
-  final Map<String, String> _editions;
-  final Map<String, String> _albums;
+  /// Every merge this device knows, each resolved to the end of its chain
+  /// (A merged into B, later B into C, resolves A to C).
+  final MergeChains chains;
 
-  /// Every merge this device knows (its own and other devices').
+  /// Every merge this device knows (its own and other devices'), oldest
+  /// first, so a later merge of the same id wins deterministically.
   static Future<MergeHistoryRemap> load(DatabaseExecutor db) async {
-    final songs = <String, String>{};
-    final editions = <String, String>{};
-    final albums = <String, String>{};
+    final maps = {
+      for (final kind in MergeChains.kinds) kind: <String, String>{},
+    };
     for (final row in await db.query(
       DatabaseTables.libraryDeletionJournal,
       columns: ['summary'],
       where: 'operation = ?',
       whereArgs: ['duplicateMerge'],
+      orderBy: 'committed_at, id',
     )) {
       final summary = jsonDecode(row['summary']! as String) as Map;
-      for (final (key, into) in [
-        ('songs', songs),
-        ('editions', editions),
-        ('albums', albums),
-      ]) {
-        into.addAll((summary[key] as Map? ?? const {}).cast<String, String>());
+      for (final kind in MergeChains.kinds) {
+        maps[kind]!.addAll(
+          (summary[kind] as Map? ?? const {}).cast<String, String>(),
+        );
       }
     }
-    return MergeHistoryRemap._(songs, editions, albums);
+    return MergeHistoryRemap._(
+      MergeChains(
+        songs: maps['songs']!,
+        editions: maps['editions']!,
+        albums: maps['albums']!,
+      ),
+    );
   }
 
-  bool get isEmpty => _songs.isEmpty && _editions.isEmpty && _albums.isEmpty;
-
-  /// A merged id's kept id, following a chain of merges.
-  static String? _follow(Map<String, String> map, Object? id) {
-    if (id is! String) return null;
-    var current = id;
-    for (var i = 0; i < 8; i++) {
-      final next = map[current];
-      if (next == null || next == current) return current;
-      current = next;
-    }
-    return current;
-  }
+  bool get isEmpty => chains.isEmpty;
 
   /// [row] (a playback session or qualified play) with its song, release and
-  /// edition following any merge.
+  /// edition following every merge to the record that stayed.
+  ///
+  /// Throws [MergeChainException] when a chain loops.
   Map<String, Object?> follow(Map<String, Object?> row) {
     if (isEmpty) return row;
     return {
       ...row,
       if (row.containsKey('song_id'))
-        'song_id': _follow(_songs, row['song_id']),
+        'song_id': chains.resolveValue('songs', row['song_id']),
       if (row.containsKey('album_id'))
-        'album_id': _follow(_albums, row['album_id']),
+        'album_id': chains.resolveValue('albums', row['album_id']),
       if (row.containsKey('album_edition_id'))
-        'album_edition_id': _follow(_editions, row['album_edition_id']),
+        'album_edition_id': chains.resolveValue(
+          'editions',
+          row['album_edition_id'],
+        ),
     };
   }
 
