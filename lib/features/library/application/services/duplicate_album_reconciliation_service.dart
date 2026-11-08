@@ -8,6 +8,7 @@ import '../../../../core/events/library_change_signal.dart';
 import '../../../../core/identity/entity_id.dart';
 import '../../../../core/identity/text_normalizer.dart';
 import '../../../import/application/identity/recording_evidence.dart';
+import '../../data/repositories/merge_history_remap.dart';
 import '../../data/repositories/sqlite_library_deletion_ledger.dart';
 import '../../../sync/data/daos/local_sync_dao.dart';
 import '../../../sync/data/repositories/sqlite_local_sync_repository.dart';
@@ -139,6 +140,14 @@ class DuplicateAlbumReconciliationService {
         at: timestamp,
       );
     }
+    // Listening downloaded here before the merge arrived still names the
+    // duplicate: it follows the record that stayed.
+    await MergeHistoryRemap.repointHistory(
+      txn,
+      songs: songs,
+      editions: editions,
+      albums: albums,
+    );
     await txn.insert(DatabaseTables.libraryDeletionJournal, {
       'id': operationId,
       'operation': DeletionLedgerReason.duplicateMerge.name,

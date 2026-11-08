@@ -3,6 +3,7 @@ import 'package:sqflite/sqflite.dart';
 import '../../../../core/database/app_database.dart';
 import '../../../../core/database/database_tables.dart';
 import '../../../../core/events/library_change_signal.dart';
+import '../../data/repositories/sqlite_library_deletion_ledger.dart';
 import '../../data/repositories/sqlite_permanent_deletion_impact_repository.dart';
 import '../../domain/deletion/permanent_deletion_impact.dart';
 import 'duplicate_album_reconciliation_service.dart';
@@ -117,6 +118,24 @@ class RemoteLibraryDeletionApplier {
       now: _now,
       changes: LibraryChangeSignal(),
     ).applyRemote(txn, impact, operationId: operationId);
+
+    // Everything the operation names is remembered here, including records
+    // this device never had (a device that connects later), so no stale
+    // copy, archive download or restored backup brings them back.
+    final ledger = SqliteLibraryDeletionLedger(txn);
+    for (final MapEntry(key: type, value: ids) in entries.entries) {
+      final entity = DeletionLedgerEntity.values
+          .where((e) => e.name == type && e != DeletionLedgerEntity.mediaFile)
+          .firstOrNull;
+      if (entity == null) continue;
+      await ledger.record(
+        entity,
+        ids,
+        reason: DeletionLedgerReason.userDeletion,
+        operationId: operationId,
+        at: _now(),
+      );
+    }
     return true;
   }
 

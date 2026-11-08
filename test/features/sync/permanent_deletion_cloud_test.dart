@@ -504,4 +504,193 @@ void main() {
     expect(await b.count(DatabaseTables.songs, "id = 'bonus'"), 0);
     expect(await b.count(DatabaseTables.songs, "id = 'opening'"), 1);
   });
+
+  // Found by the isolated staging run (2026-11-08).
+
+  test(
+    'a device that never had the deleted records still remembers them',
+    () async {
+      final service = a.deletion();
+      await service.delete(
+        await service.preview(const PermanentDeletionTarget.song('opening')),
+      );
+      await a.sync();
+
+      // A new device with no library yet: the song, its listening and its
+      // story never reach it, and it still remembers all of them, so no
+      // stale copy, download or restored backup can bring them back later.
+      final c = _Device('c', dir, cloud);
+      addTearDown(c.close);
+      await c.sync();
+      Future<int> ledgered(String type, String id) => c.count(
+        DatabaseTables.libraryDeletionLedger,
+        "entity_type = '$type' AND entity_id = '$id' "
+        "AND reason = 'userDeletion'",
+      );
+      expect(await c.count(DatabaseTables.songs), 0);
+      expect(await ledgered('song', 'opening'), 1);
+      expect(await ledgered('playbackSession', 'session_a1'), 1);
+      expect(await ledgered('moment', 'debut_opening'), 1);
+      expect(await c.count(DatabaseTables.libraryDeletionJournal), 1);
+    },
+  );
+
+  Future<void> addDuplicate(_Device device) async {
+    final d = await device.db;
+    await d.insert(DatabaseTables.albums, {
+      'id': 'nova_dup',
+      'artist_id': 'nova',
+      'title': 'nova_album',
+      'canonical_title': 'nova_album',
+      'created_at': '2026-11-02T00:00:00Z',
+      'updated_at': '2026-11-02T00:00:00Z',
+    });
+    await d.insert(DatabaseTables.albumEditions, {
+      'id': 'nova_dup_std',
+      'album_id': 'nova_dup',
+      'title': 'nova_album',
+      'type': 'standard',
+      'is_primary': 1,
+      'created_at': _stamp,
+      'updated_at': _stamp,
+    });
+    for (final (index, song) in ['opening', 'second'].indexed) {
+      await d.insert(DatabaseTables.songs, {
+        'id': '${song}_dup',
+        'artist_id': 'nova',
+        'album_id': 'nova_dup',
+        'album_edition_id': 'nova_dup_std',
+        'title': song,
+        'canonical_title': song,
+        'track_number': index + 1,
+        'duration_seconds': 200,
+        'created_at': _stamp,
+        'updated_at': _stamp,
+      });
+    }
+  }
+
+  test('listening of a merged duplicate follows the kept release, whichever '
+      'arrives first', () async {
+    for (final device in [a, b]) {
+      await addDuplicate(device);
+    }
+    // B plays the duplicate and uploads it before anyone merges.
+    await b.play('second_dup', 'b_dup');
+    await b.sync();
+    final report = await DuplicateAlbumReconciliationService(
+      appDatabase: a.database,
+      changes: LibraryChangeSignal(),
+    ).reconcile();
+    expect(report.merged.single.duplicateAlbumId, 'nova_dup');
+    await a.sync();
+
+    Future<Map<String, Object?>> play(_Device device) async =>
+        (await (await device.db).query(
+          DatabaseTables.qualifiedPlays,
+          where: "id = 'play_b_dup'",
+        )).single;
+    Future<Map<String, Object?>> session(_Device device) async =>
+        (await (await device.db).query(
+          DatabaseTables.playbackSessions,
+          where: "id = 'session_b_dup'",
+        )).single;
+
+    // A received B's play after merging: it follows the merge.
+    for (final row in [await play(a), await session(a)]) {
+      expect(row['song_id'], 'second');
+      expect(row['album_id'], 'nova_album');
+      expect(row['album_edition_id'], 'nova_album_std');
+    }
+
+    // A device that never had the duplicate gets B's play first (it is
+    // older), then the merge: the play is moved when the merge arrives.
+    final c = _Device('c', dir, cloud);
+    addTearDown(c.close);
+    await c.seedLibrary();
+    await c.sync();
+    for (final row in [await play(c), await session(c)]) {
+      expect(row['song_id'], 'second');
+      expect(row['album_id'], 'nova_album');
+    }
+    expect(
+      await c.count(
+        DatabaseTables.playbackSessions,
+        'song_id NOT IN (SELECT id FROM ${DatabaseTables.songs})',
+      ),
+      0,
+    );
+  });
+
+  CloudArchiveRecord oldClientPlay(String key) => CloudArchiveRecord(
+    kind: CloudArchiveKind.listeningSession,
+    key: key,
+    payload: {
+      'session': {
+        'id': key,
+        'song_id': 'opening',
+        'artist_id': 'nova',
+        'album_id': 'nova_album',
+        'album_edition_id': 'nova_album_std',
+        'song_title': 'opening',
+        'artist_name': 'nova',
+        'album_title': 'nova_album',
+        'album_edition_title': 'nova_album_std',
+        'started_at': _stamp,
+        'ended_at': _stamp,
+        'listened_duration_ms': 200000,
+        'track_duration_ms': 200000,
+        'created_at': _stamp,
+        'updated_at': _stamp,
+      },
+      'segments': const <Object>[],
+      'qualified_play': null,
+    },
+    clientUpdatedAt: DateTime.utc(2026, 11, 5),
+  );
+
+  test('a play of a deleted song recorded later by an older version is '
+      'removed from the cloud', () async {
+    final service = a.deletion();
+    await service.delete(
+      await service.preview(const PermanentDeletionTarget.song('opening')),
+    );
+    await a.sync();
+    await b.sync();
+
+    // An App Update 1.1 device that never learned of the deletion keeps
+    // playing its copy and uploads the play.
+    await cloud.insertIfAbsent(userId: _user, record: oldClientPlay('late'));
+
+    await b.sync();
+    final row = rows()['listening_session:late']!;
+    expect(row.isDeleted, isTrue);
+    expect(row.payload, isEmpty);
+    expect(await b.count(DatabaseTables.playbackSessions, "id = 'late'"), 0);
+
+    // Done once: later syncs leave it alone.
+    final writes = cloud.writes;
+    await b.sync();
+    await a.sync();
+    expect(cloud.writes, writes);
+    expect(await a.count(DatabaseTables.playbackSessions, "id = 'late'"), 0);
+  });
+
+  test(
+    'without the server capability such a play is only left unapplied',
+    () async {
+      final service = a.deletion();
+      await service.delete(
+        await service.preview(const PermanentDeletionTarget.song('opening')),
+      );
+      await a.sync();
+      await cloud.insertIfAbsent(userId: _user, record: oldClientPlay('late'));
+      cloud.supportsDeletion = false;
+
+      await a.sync();
+      final row = rows()['listening_session:late']!;
+      expect(row.isDeleted, isFalse);
+      expect(await a.count(DatabaseTables.playbackSessions, "id = 'late'"), 0);
+    },
+  );
 }

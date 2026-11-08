@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import '../../../library/data/repositories/merge_history_remap.dart';
 import '../../../library/application/services/remote_library_deletion_applier.dart';
 import '../../../library/data/repositories/sqlite_library_deletion_ledger.dart';
 import 'package:sqflite/sqflite.dart';
@@ -252,12 +253,14 @@ class SqliteCloudArchiveStore implements CloudArchiveLocalStore {
               DeletionLedgerEntity.song,
               session['song_id'] as String?,
             )) {
-          return CloudArchiveApplyOutcome.applied;
+          return CloudArchiveApplyOutcome.deletedHere;
         }
+        // Listening of a release merged here follows the one that stayed.
+        final merges = await MergeHistoryRemap.load(txn);
         await _insert(
           txn,
           DatabaseTables.playbackSessions,
-          session,
+          merges.follow(session),
           ConflictAlgorithm.ignore,
         );
         for (final segment in (payload['segments'] as List? ?? const [])) {
@@ -273,7 +276,7 @@ class SqliteCloudArchiveStore implements CloudArchiveLocalStore {
           await _insert(
             txn,
             DatabaseTables.qualifiedPlays,
-            Map<String, Object?>.from(play),
+            merges.follow(Map<String, Object?>.from(play)),
             ConflictAlgorithm.ignore,
           );
         }
@@ -334,7 +337,7 @@ class SqliteCloudArchiveStore implements CloudArchiveLocalStore {
         // Stories deleted with their subject never come back either.
         final ledger = SqliteLibraryDeletionLedger(txn);
         if (await ledger.contains(DeletionLedgerEntity.moment, record.key)) {
-          return CloudArchiveApplyOutcome.applied;
+          return CloudArchiveApplyOutcome.deletedHere;
         }
         for (final (entity, column) in [
           (DeletionLedgerEntity.song, 'entity_id'),
@@ -345,7 +348,7 @@ class SqliteCloudArchiveStore implements CloudArchiveLocalStore {
           (DeletionLedgerEntity.artist, 'entity_artist_id'),
         ]) {
           if (await ledger.deletedByUser(entity, payload[column] as String?)) {
-            return CloudArchiveApplyOutcome.applied;
+            return CloudArchiveApplyOutcome.deletedHere;
           }
         }
         await _insert(
