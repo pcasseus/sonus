@@ -1,9 +1,10 @@
 -- App Update 1.2 (migration 20261108000001), as the app roles through RLS
 -- and grants. Throwaway database only; the test user is fake.
 \set ON_ERROR_STOP on
--- Run as the app roles, through RLS and grants.
-insert into auth.users (id) values ('11111111-1111-1111-1111-111111111111');
+-- Run as the app roles, through RLS and grants. The fake user exists only
+-- inside the transaction, so the test can run again on the same database.
 begin;
+insert into auth.users (id) values ('11111111-1111-1111-1111-111111111111');
 set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"11111111-1111-1111-1111-111111111111","role":"authenticated"}', true);
 select set_config('request.jwt.claim.sub', '11111111-1111-1111-1111-111111111111', true);
