@@ -211,17 +211,33 @@ class _ArtistRosterState extends State<ArtistRoster> {
   /// The grid shows [page]: after Next, Previous or a swipe, its first
   /// artist is featured (App Update 1.1); after the Roster moved there to
   /// show the featured artist, that artist stays.
+  ///
+  /// App Update 1.2 (BUG-01): the featured artist changes once the page
+  /// has settled ([_pagesSettled]), not halfway through the slide, where
+  /// rebuilding the large portrait above the grid made the turn stutter.
   void _pageChanged(int page) {
     setState(() => _page = page);
     if (_followPage == page) {
       _followPage = null;
+      _featureOnSettle = false;
       return;
     }
     _followPage = null;
-    final onPage = _rosterView.page(page, _perPage);
-    if (onPage.isEmpty) return;
-    if (onPage.any((artist) => artist.artistId == _previewId)) return;
+    _featureOnSettle = true;
+  }
+
+  /// A page change waiting for the grid to settle before it features the
+  /// first artist of the page.
+  bool _featureOnSettle = false;
+
+  bool _pagesSettled(ScrollEndNotification notification) {
+    if (notification.depth != 0 || !_featureOnSettle) return false;
+    _featureOnSettle = false;
+    final onPage = _rosterView.page(_page, _perPage);
+    if (onPage.isEmpty) return false;
+    if (onPage.any((artist) => artist.artistId == _previewId)) return false;
     _previewArtist(onPage.first);
+    return false;
   }
 
   void _goToPage(int page) {
@@ -235,12 +251,15 @@ class _ArtistRosterState extends State<ArtistRoster> {
     if (_reduceMotion) {
       pages.jumpToPage(target);
     } else {
+      // App Update 1.2 (BUG-01): a quick turn on a curve that never
+      // overshoots. The theme's curve could bounce past the page (Back
+      // curves) or start slowly (in-out curves).
       final tokens = SonusTheme.of(context);
       unawaited(
         pages.animateToPage(
           target,
-          duration: tokens.motion.baseMedium,
-          curve: tokens.motion.curve,
+          duration: tokens.motion.baseShort,
+          curve: Curves.easeOutCubic,
         ),
       );
     }
@@ -552,58 +571,61 @@ class _ArtistRosterState extends State<ArtistRoster> {
                 onPressed: _page > 0 ? () => _goToPage(_page - 1) : null,
               ),
               Expanded(
-                child: PageView.builder(
-                  key: const ValueKey<String>('roster-pages'),
-                  controller: pages,
-                  itemCount: count,
-                  onPageChanged: _pageChanged,
-                  itemBuilder: (context, page) {
-                    final artists = view.page(page, perPage);
-                    return Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          for (var row = 0; row < rows; row++) ...[
-                            if (row > 0) SizedBox(height: gap),
-                            SizedBox(
-                              height: tileHeight,
-                              child: Row(
-                                children: [
-                                  for (var col = 0; col < columns; col++) ...[
-                                    if (col > 0) SizedBox(width: gap),
-                                    Expanded(
-                                      child: () {
-                                        final i = row * columns + col;
-                                        if (i >= artists.length) {
-                                          return const SizedBox.shrink();
-                                        }
-                                        final artist = artists[i];
-                                        return _RosterTile(
-                                          key: ValueKey<String>(
-                                            'roster-tile-${artist.artistId}',
-                                          ),
-                                          artist: artist,
-                                          stats: widget
-                                              .statistics[artist.artistId],
-                                          loaded: widget.statisticsLoaded,
-                                          selected:
-                                              artist.artistId == _previewId,
-                                          colors: colors,
-                                          width: tileWidth,
-                                          onTap: () => _previewArtist(artist),
-                                        );
-                                      }(),
-                                    ),
+                child: NotificationListener<ScrollEndNotification>(
+                  onNotification: _pagesSettled,
+                  child: PageView.builder(
+                    key: const ValueKey<String>('roster-pages'),
+                    controller: pages,
+                    itemCount: count,
+                    onPageChanged: _pageChanged,
+                    itemBuilder: (context, page) {
+                      final artists = view.page(page, perPage);
+                      return Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 4),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            for (var row = 0; row < rows; row++) ...[
+                              if (row > 0) SizedBox(height: gap),
+                              SizedBox(
+                                height: tileHeight,
+                                child: Row(
+                                  children: [
+                                    for (var col = 0; col < columns; col++) ...[
+                                      if (col > 0) SizedBox(width: gap),
+                                      Expanded(
+                                        child: () {
+                                          final i = row * columns + col;
+                                          if (i >= artists.length) {
+                                            return const SizedBox.shrink();
+                                          }
+                                          final artist = artists[i];
+                                          return _RosterTile(
+                                            key: ValueKey<String>(
+                                              'roster-tile-${artist.artistId}',
+                                            ),
+                                            artist: artist,
+                                            stats: widget
+                                                .statistics[artist.artistId],
+                                            loaded: widget.statisticsLoaded,
+                                            selected:
+                                                artist.artistId == _previewId,
+                                            colors: colors,
+                                            width: tileWidth,
+                                            onTap: () => _previewArtist(artist),
+                                          );
+                                        }(),
+                                      ),
+                                    ],
                                   ],
-                                ],
+                                ),
                               ),
-                            ),
+                            ],
                           ],
-                        ],
-                      ),
-                    );
-                  },
+                        ),
+                      );
+                    },
+                  ),
                 ),
               ),
               _PageArrow(

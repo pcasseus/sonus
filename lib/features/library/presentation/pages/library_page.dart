@@ -70,9 +70,14 @@ class _LibraryPageState extends State<LibraryPage> {
         widget.navigationMemory ??
         _optional<LibraryNavigationMemory>(context) ??
         LibraryNavigationMemory();
+    // App Update 1.2 (BUG-01): this page is built when the Library
+    // destination is entered (a tab or a swipe), so the Roster starts on
+    // Page 1 with the first artist. Returning from an Artist Profile never
+    // rebuilds it: the Roster stays where it was.
+    _memory.startOver();
     _restore();
-    // Sending the app to the background leaves the Roster too; coming back
-    // after the window starts it again on Page 1.
+    // Sending the app to the background leaves the Roster; coming back
+    // within the window keeps its place, after it starts it on Page 1.
     _lifecycle = AppLifecycleListener(
       onHide: _memory.leave,
       onShow: () {

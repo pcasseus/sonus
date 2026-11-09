@@ -7,9 +7,12 @@ typedef LibraryNavigationClock = DateTime Function();
 /// Roster's page follows from them, since the featured artist is always on
 /// the visible page.
 ///
-/// - Leaving the Library tab (or sending the app to the background) starts
-///   a [window] of 15 minutes.
-/// - Coming back within it restores the artist and sort, if the artist is
+/// - Entering the Library destination again (a tab or a swipe) starts the
+///   Roster on Page 1 with the first artist featured ([startOver], App
+///   Update 1.2, BUG-01). An Artist Profile opened from the Roster never
+///   leaves the Library, so going back to the Roster keeps its place.
+/// - Sending the app to the background starts a [window] of 15 minutes.
+///   Coming back within it restores the artist and sort, if the artist is
 ///   still listed; after it, the Roster starts again on Page 1 with the
 ///   first artist featured.
 /// - Nothing is written to the database, preferences or the cloud, so a
@@ -40,6 +43,13 @@ class LibraryNavigationMemory {
 
   /// The Roster is left: the window starts now.
   void leave() => _leftAt ??= _clock();
+
+  /// The Library destination is entered: whatever was kept is forgotten,
+  /// so the Roster starts on Page 1 with the first artist.
+  void startOver() {
+    _leftAt = null;
+    _forget();
+  }
 
   /// The Roster is entered (again). Returns what to restore, or null to
   /// start on Page 1 with the first artist (nothing remembered, or the

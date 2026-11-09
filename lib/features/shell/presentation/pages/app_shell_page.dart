@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -72,6 +74,7 @@ class _AppShellPageState extends State<AppShellPage>
       return;
     }
 
+    _animatingTo = destination.index;
     _pageController.animateToPage(
       destination.index,
       duration: motion.medium,
@@ -81,12 +84,86 @@ class _AppShellPageState extends State<AppShellPage>
     );
   }
 
+  /// App Update 1.2 (BUG-02): the destination a tab tap is sliding to.
+  /// The slide passes the pages in between, which report themselves as it
+  /// goes; they must not make the current destination pass back through
+  /// them (each one briefly became "current"). Cleared on arrival, or when
+  /// the listener takes over with a drag.
+  int? _animatingTo;
+
   void _handlePageChanged(int index) {
+    final target = _animatingTo;
+    if (target != null) {
+      if (index != target) {
+        // The tab indicator still follows the pages it passes, exactly as
+        // the approved Navigation baselines record it (see BUG-02 notes:
+        // stopping it changes where the tab bar settles, which needs a
+        // visual approval). Only the current destination stays put.
+        if (_tabController.index != index) {
+          _tabController.animateTo(index);
+        }
+        return;
+      }
+      _animatingTo = null;
+    }
+
     _shellController.selectIndex(index);
 
     if (_tabController.index != index) {
       _tabController.animateTo(index);
     }
+  }
+
+  /// App Update 1.2 (BUG-02): a horizontal list or pager inside a
+  /// destination (the Artist Roster's pages, a Home rail) holds the swipe,
+  /// so at its first or last item the swipe went nowhere and the next
+  /// destination could not be reached from there. Its overscroll now moves
+  /// the destinations on, and when the drag ends they settle on the
+  /// nearest one, as a swipe anywhere else does.
+  bool _handOff = false;
+
+  bool _handleNestedScroll(ScrollNotification notification) {
+    if (notification.metrics.axis != Axis.horizontal) return false;
+
+    if (notification.depth == 0) {
+      // The destinations themselves: a drag takes over from a tab slide.
+      if (notification is ScrollStartNotification &&
+          notification.dragDetails != null) {
+        _animatingTo = null;
+      }
+      return false;
+    }
+
+    if (!_pageController.hasClients) return false;
+    final position = _pageController.position;
+
+    if (notification is OverscrollNotification &&
+        notification.dragDetails != null) {
+      _animatingTo = null;
+      _handOff = true;
+      position.jumpTo(
+        (position.pixels + notification.overscroll).clamp(
+          position.minScrollExtent,
+          position.maxScrollExtent,
+        ),
+      );
+    } else if (_handOff && notification is ScrollEndNotification) {
+      _handOff = false;
+      final page = (_pageController.page ?? 0).round();
+      final motion = SonusTheme.of(context).motion;
+      if (motion.reduced) {
+        _pageController.jumpToPage(page);
+      } else {
+        unawaited(
+          _pageController.animateToPage(
+            page,
+            duration: motion.short,
+            curve: Curves.easeOutCubic,
+          ),
+        );
+      }
+    }
+    return false;
   }
 
   void _openSearch() {
@@ -172,13 +249,16 @@ class _AppShellPageState extends State<AppShellPage>
             },
           ),
         ),
-        body: PageView(
-          controller: _pageController,
-          onPageChanged: _handlePageChanged,
-          children: [
-            for (final destination in AppDestination.values)
-              _buildDestinationPage(destination),
-          ],
+        body: NotificationListener<ScrollNotification>(
+          onNotification: _handleNestedScroll,
+          child: PageView(
+            controller: _pageController,
+            onPageChanged: _handlePageChanged,
+            children: [
+              for (final destination in AppDestination.values)
+                _buildDestinationPage(destination),
+            ],
+          ),
         ),
       ),
     );
