@@ -36,51 +36,69 @@ class BatchSongDeletion {
     return BatchSongDeletionPlan(impacts);
   }
 
+  /// Deletes the planned songs in order. Songs already deleted stay
+  /// deleted when a later one stops the batch: each deletion is permanent
+  /// on its own, and nothing is rolled back. The outcome names exactly
+  /// which songs were deleted and which were kept.
   Future<BatchSongDeletionOutcome> run(BatchSongDeletionPlan plan) async {
+    final songIds = [for (final impact in plan.impacts) impact.target.id];
     if (!plan.canProceed) {
       return BatchSongDeletionOutcome(
-        deleted: 0,
-        total: plan.songCount,
+        deletedSongIds: const [],
+        keptSongIds: songIds,
         stopped: BatchSongDeletionStop.blocked,
       );
     }
-    var deleted = 0;
+    final deleted = <String>[];
+    BatchSongDeletionOutcome stop(BatchSongDeletionStop reason) =>
+        BatchSongDeletionOutcome(
+          deletedSongIds: deleted,
+          keptSongIds: songIds.skip(deleted.length).toList(),
+          stopped: reason,
+        );
+
     for (final confirmed in plan.impacts) {
       final PermanentDeletionImpact current;
       try {
         current = await preview(confirmed.target);
       } catch (_) {
-        return _stopped(deleted, plan, BatchSongDeletionStop.failed);
+        return stop(BatchSongDeletionStop.failed);
       }
-      if (!current.canProceed) {
-        return _stopped(deleted, plan, BatchSongDeletionStop.blocked);
-      }
+      if (!current.canProceed) return stop(BatchSongDeletionStop.blocked);
       if (!_sameSongs(current, confirmed)) {
-        return _stopped(deleted, plan, BatchSongDeletionStop.changed);
+        return stop(BatchSongDeletionStop.changed);
       }
       try {
         await delete(current);
       } on StaleDeletionPreview {
-        return _stopped(deleted, plan, BatchSongDeletionStop.changed);
+        return stop(BatchSongDeletionStop.changed);
       } on DeletionBlocked {
-        return _stopped(deleted, plan, BatchSongDeletionStop.blocked);
+        return stop(BatchSongDeletionStop.blocked);
       } catch (_) {
-        return _stopped(deleted, plan, BatchSongDeletionStop.failed);
+        // The deletion commits first and then takes the song off the play
+        // queue; an error after the commit must not hide a deletion that
+        // happened. Whether the song is gone decides how it is counted.
+        if (await _isGone(confirmed.target)) {
+          deleted.add(confirmed.target.id);
+        }
+        return stop(BatchSongDeletionStop.failed);
       }
-      deleted++;
+      deleted.add(confirmed.target.id);
     }
-    return BatchSongDeletionOutcome(deleted: deleted, total: plan.songCount);
+    return BatchSongDeletionOutcome(
+      deletedSongIds: deleted,
+      keptSongIds: const [],
+    );
   }
 
-  static BatchSongDeletionOutcome _stopped(
-    int deleted,
-    BatchSongDeletionPlan plan,
-    BatchSongDeletionStop reason,
-  ) => BatchSongDeletionOutcome(
-    deleted: deleted,
-    total: plan.songCount,
-    stopped: reason,
-  );
+  Future<bool> _isGone(PermanentDeletionTarget target) async {
+    try {
+      final now = await preview(target);
+      return now.blockers.contains(PermanentDeletionBlocker.notFound);
+    } catch (_) {
+      return false;
+    }
+  }
 
   /// The song still is what the listener confirmed (a song deletion
   /// removes only that song).
@@ -137,27 +155,36 @@ enum BatchSongDeletionStop { blocked, changed, failed }
 
 class BatchSongDeletionOutcome {
   const BatchSongDeletionOutcome({
-    required this.deleted,
-    required this.total,
+    required this.deletedSongIds,
+    required this.keptSongIds,
     this.stopped,
   });
 
-  final int deleted;
-  final int total;
+  /// Permanently deleted, in order. Never undone by a later stop.
+  final List<String> deletedSongIds;
+
+  /// Still in the library: the song the batch stopped at and every one
+  /// after it.
+  final List<String> keptSongIds;
 
   /// Why the deletion stopped early, or null when every song was deleted.
   final BatchSongDeletionStop? stopped;
 
-  bool get isComplete => stopped == null && deleted == total;
+  int get deleted => deletedSongIds.length;
+  int get kept => keptSongIds.length;
+  int get total => deleted + kept;
+
+  bool get isComplete => stopped == null && keptSongIds.isEmpty;
 }
 
 /// Asks to delete [tracks] from the library and, once the listener has
-/// confirmed, deletes them. Resolves to how many songs were deleted.
-Future<int> showBatchSongDeletion(
+/// confirmed, deletes them. Resolves to what happened, or null when the
+/// listener cancelled or nothing could be checked.
+Future<BatchSongDeletionOutcome?> showBatchSongDeletion(
   BuildContext context,
   List<LibraryTrack> tracks,
 ) async {
-  if (tracks.isEmpty) return 0;
+  if (tracks.isEmpty) return null;
   final service = permanentDeletionServiceOf(context);
   final batch = BatchSongDeletion(
     preview: service.preview,
@@ -172,26 +199,42 @@ Future<int> showBatchSongDeletion(
       songIds: [for (final track in tracks) track.songId],
     ),
   );
-  if (outcome == null) return 0;
+  if (outcome == null) return null;
   messenger
     ..hideCurrentSnackBar()
-    ..showSnackBar(SnackBar(content: Text(batchDeletionMessage(outcome))));
-  return outcome.deleted;
+    ..showSnackBar(
+      SnackBar(
+        // A partial result takes longer to read.
+        duration: outcome.isComplete
+            ? const Duration(seconds: 4)
+            : const Duration(seconds: 10),
+        content: Text(batchDeletionMessage(outcome)),
+      ),
+    );
+  return outcome;
 }
 
-/// The confirmation after a batch deletion.
+/// The confirmation after a batch deletion. A partial one gives both
+/// counts, says the deletions made are permanent (nothing was undone),
+/// and that the songs kept stay selected.
 String batchDeletionMessage(BatchSongDeletionOutcome outcome) {
   String songs(int n) => n == 1 ? '1 song' : '$n songs';
   if (outcome.isComplete) {
     return 'Deleted ${songs(outcome.deleted)} from your library.';
   }
   final why = switch (outcome.stopped) {
-    BatchSongDeletionStop.blocked => 'The rest cannot be deleted right now.',
-    BatchSongDeletionStop.changed =>
-      'The rest changed meanwhile and were kept.',
-    _ => 'The rest could not be deleted.',
+    BatchSongDeletionStop.blocked => 'They cannot be deleted right now.',
+    BatchSongDeletionStop.changed => 'They changed after you confirmed.',
+    _ => 'Something went wrong while deleting them.',
   };
-  return 'Deleted ${songs(outcome.deleted)} of ${outcome.total}. $why';
+  final kept = outcome.kept == 1
+      ? '1 song was not deleted and is still selected.'
+      : '${outcome.kept} songs were not deleted and are still selected.';
+  if (outcome.deleted == 0) {
+    return 'No songs were deleted. $why';
+  }
+  return 'Deleted ${outcome.deleted} of ${songs(outcome.total)}. '
+      'Those deletions are permanent and were not undone. $kept $why';
 }
 
 String _blockerText(PermanentDeletionBlocker blocker) => switch (blocker) {

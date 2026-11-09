@@ -349,9 +349,12 @@ class _TracksPageState extends State<TracksPage> {
 
   /// App Update 1.2 (BUG-03): deletes the selected songs from the library
   /// after the batch confirmation; their files on the device are kept.
+  /// Selection ends only when every song was deleted: after a partial
+  /// result the songs kept stay selected (the deleted ones leave the
+  /// list), as the message says.
   Future<void> _deleteSelected(List<LibraryTrack> tracks) async {
-    final deleted = await showBatchSongDeletion(context, tracks);
-    if (deleted > 0 && mounted) _selection.exit();
+    final outcome = await showBatchSongDeletion(context, tracks);
+    if (outcome != null && outcome.isComplete && mounted) _selection.exit();
   }
 
   void _openAlbum(LibraryTrack track) {

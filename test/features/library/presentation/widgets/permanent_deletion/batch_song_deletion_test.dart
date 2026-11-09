@@ -183,9 +183,61 @@ void main() {
     expect(outcome.deleted, 1);
     expect(outcome.stopped, BatchSongDeletionStop.blocked);
     expect(await count(DatabaseTables.songs, "id = 'three'"), 1);
+    expect(outcome.deletedSongIds, ['one']);
+    expect(outcome.keptSongIds, ['two', 'three']);
     expect(
       batchDeletionMessage(outcome),
-      'Deleted 1 song of 3. The rest cannot be deleted right now.',
+      'Deleted 1 of 3 songs. Those deletions are permanent and were not '
+      'undone. 2 songs were not deleted and are still selected. They cannot '
+      'be deleted right now.',
+    );
+  });
+
+  test('an error after a song was deleted (taking it off the queue) still '
+      'counts that song as deleted, and stops the batch', () async {
+    final s = service();
+    final b = BatchSongDeletion(
+      preview: s.preview,
+      delete: (impact) async {
+        await s.delete(impact);
+        if (impact.target.id == 'two') throw StateError('queue unavailable');
+        return impact;
+      },
+    );
+
+    final outcome = await b.run(await b.plan(['one', 'two', 'three']));
+
+    expect(outcome.deletedSongIds, ['one', 'two']);
+    expect(outcome.keptSongIds, ['three']);
+    expect(outcome.stopped, BatchSongDeletionStop.failed);
+    expect(await count(DatabaseTables.songs), 1);
+    expect(
+      batchDeletionMessage(outcome),
+      'Deleted 2 of 3 songs. Those deletions are permanent and were not '
+      'undone. 1 song was not deleted and is still selected. Something went '
+      'wrong while deleting them.',
+    );
+  });
+
+  test('a failure before any deletion says none were deleted', () {
+    expect(
+      batchDeletionMessage(
+        const BatchSongDeletionOutcome(
+          deletedSongIds: [],
+          keptSongIds: ['a', 'b'],
+          stopped: BatchSongDeletionStop.changed,
+        ),
+      ),
+      'No songs were deleted. They changed after you confirmed.',
+    );
+    expect(
+      batchDeletionMessage(
+        const BatchSongDeletionOutcome(
+          deletedSongIds: ['a', 'b'],
+          keptSongIds: [],
+        ),
+      ),
+      'Deleted 2 songs from your library.',
     );
   });
 
