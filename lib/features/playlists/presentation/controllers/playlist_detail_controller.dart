@@ -153,6 +153,38 @@ class PlaylistDetailController extends ChangeNotifier with PlaybackShuffleMode {
     }
   }
 
+  /// App Update 1.2 (BUG-03): removes [songIds] from this playlist in one
+  /// change (the songs stay in the library). Returns how many entries
+  /// were removed, or null when it failed or another change was running.
+  Future<int?> removeSongs(Iterable<String> songIds) async {
+    if (_isMutating) {
+      return null;
+    }
+
+    _isMutating = true;
+    _error = null;
+    notifyListeners();
+
+    try {
+      final removed = await _service.removeSongs(
+        playlistId: _playlistId,
+        songIds: songIds,
+      );
+
+      if (removed > 0) {
+        await _reloadAfterMutation();
+      }
+
+      return removed;
+    } catch (error) {
+      _error = error;
+      return null;
+    } finally {
+      _isMutating = false;
+      notifyListeners();
+    }
+  }
+
   Future<bool> reorder({required int oldIndex, required int newIndex}) async {
     if (_isMutating) {
       return false;

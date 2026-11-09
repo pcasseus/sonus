@@ -117,6 +117,62 @@ class _PlaylistDetailPageState extends State<PlaylistDetailPage> {
     unawaited(controller.load());
   }
 
+  /// App Update 1.2 (BUG-03): removes the selected songs from this playlist
+  /// after a confirmation. Only the playlist's entries go: the songs, their
+  /// files and their listening history stay in the library.
+  Future<void> _removeSelected(
+    PlaylistDetailController controller,
+    List<LibraryTrack> tracks,
+  ) async {
+    if (tracks.isEmpty) return;
+    final name = controller.detail?.playlist.name ?? widget.initialName;
+    final count = tracks.length == 1 ? '1 song' : '${tracks.length} songs';
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        key: const ValueKey<String>('playlist-remove-selected-dialog'),
+        title: Text('Remove $count from $name?'),
+        content: const Text(
+          'Only this playlist changes. The songs stay in your library, with '
+          'their files and listening history.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            key: const ValueKey<String>('playlist-remove-selected-confirm'),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    final removed = await controller.removeSongs(
+      tracks.map((track) => track.songId),
+    );
+    if (!mounted) return;
+    if (removed == null) {
+      _showError('Could not remove the songs from the playlist.');
+      return;
+    }
+    _selection.exit();
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            removed == 1
+                ? 'Removed 1 song from $name.'
+                : 'Removed $removed songs from $name.',
+          ),
+        ),
+      );
+  }
+
   /// The library the song picker lists, when the app provides one.
   LibraryQueryRepository? get _library {
     try {
@@ -319,6 +375,7 @@ class _PlaylistDetailPageState extends State<PlaylistDetailPage> {
     return TrackSelectionScope(
       controller: _selection,
       visibleTracks: [for (final entry in visibleTracks) entry.track],
+      onRemoveFromPlaylist: (tracks) => _removeSelected(controller, tracks),
       child: RefreshIndicator(
         onRefresh: controller.refresh,
         child: ReorderableListView.builder(

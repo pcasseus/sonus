@@ -10,6 +10,9 @@ import '../../../playlists/presentation/widgets/add_to_playlist_sheet.dart';
 import '../../application/models/library_track.dart';
 import '../controllers/track_selection_controller.dart';
 
+/// A bulk action on the selected songs, in list order.
+typedef SelectedTracksAction = Future<void> Function(List<LibraryTrack> tracks);
+
 /// Wraps a song list that supports multi-select. While [controller] is in
 /// selection mode a bar above [child] shows the count, Select all, Clear
 /// and the bulk actions; Escape or Back leaves selection mode.
@@ -19,9 +22,19 @@ class TrackSelectionScope extends StatefulWidget {
     required this.controller,
     required this.visibleTracks,
     required this.child,
+    this.onRemoveFromPlaylist,
+    this.onDeleteFromLibrary,
   });
 
   final TrackSelectionController controller;
+
+  /// App Update 1.2 (BUG-03): offers "Remove from playlist" for the
+  /// selected songs (only the playlist's entries; the songs stay).
+  final SelectedTracksAction? onRemoveFromPlaylist;
+
+  /// App Update 1.2 (BUG-03): offers "Delete from library" for the selected
+  /// songs (the page confirms and runs the permanent deletion).
+  final SelectedTracksAction? onDeleteFromLibrary;
 
   /// The songs on screen, in display order: Select all picks these and
   /// bulk actions follow this order.
@@ -83,6 +96,8 @@ class _TrackSelectionScopeState extends State<TrackSelectionScope> {
                 TrackSelectionBar(
                   controller: controller,
                   visibleTracks: widget.visibleTracks,
+                  onRemoveFromPlaylist: widget.onRemoveFromPlaylist,
+                  onDeleteFromLibrary: widget.onDeleteFromLibrary,
                 ),
               Expanded(
                 key: const ValueKey<String>('track-selection-content'),
@@ -108,10 +123,14 @@ class TrackSelectionBar extends StatelessWidget {
     super.key,
     required this.controller,
     required this.visibleTracks,
+    this.onRemoveFromPlaylist,
+    this.onDeleteFromLibrary,
   });
 
   final TrackSelectionController controller;
   final List<LibraryTrack> visibleTracks;
+  final SelectedTracksAction? onRemoveFromPlaylist;
+  final SelectedTracksAction? onDeleteFromLibrary;
 
   @override
   Widget build(BuildContext context) {
@@ -189,6 +208,31 @@ class TrackSelectionBar extends StatelessWidget {
                     icon: const Icon(Icons.playlist_add_rounded),
                     label: const Text('Add to playlist'),
                   ),
+                  if (onRemoveFromPlaylist case final remove?)
+                    TextButton.icon(
+                      key: const ValueKey<String>(
+                        'track-selection-remove-playlist',
+                      ),
+                      onPressed: hasSelection
+                          ? () => unawaited(remove(selected))
+                          : null,
+                      icon: const Icon(Icons.playlist_remove_rounded),
+                      label: const Text('Remove from playlist'),
+                    ),
+                  if (onDeleteFromLibrary case final delete?)
+                    TextButton.icon(
+                      key: const ValueKey<String>(
+                        'track-selection-delete-library',
+                      ),
+                      style: TextButton.styleFrom(
+                        foregroundColor: theme.colorScheme.error,
+                      ),
+                      onPressed: hasSelection
+                          ? () => unawaited(delete(selected))
+                          : null,
+                      icon: const Icon(Icons.delete_forever_outlined),
+                      label: const Text('Delete from library'),
+                    ),
                 ],
               ),
             ],

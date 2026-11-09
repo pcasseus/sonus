@@ -5,6 +5,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../../core/database/app_database.dart';
 import '../../../../core/design/sonus_theme.dart';
 import '../../../../core/design/widgets/sonus_page_header.dart';
 import '../../../../core/design/widgets/sonus_state_view.dart';
@@ -32,6 +33,7 @@ import '../../domain/repositories/song_artist_credit_repository.dart';
 import '../controllers/library_tracks_controller.dart';
 import '../controllers/track_selection_controller.dart';
 import '../models/track_profile_edit_draft.dart';
+import '../widgets/permanent_deletion/batch_song_deletion.dart';
 import '../widgets/track_selection_bar.dart';
 import '../widgets/track_studio_launcher.dart';
 import 'album_profile_page.dart';
@@ -56,6 +58,7 @@ class _TracksPageState extends State<TracksPage> {
   LibraryQueryRepository? _repository;
 
   final ScrollController _scroll = ScrollController();
+  bool _canDeleteFromLibrary = false;
   final TrackSelectionController _selection = TrackSelectionController();
   final GlobalKey _listStartKey = GlobalKey();
   final GlobalKey _jumpTargetKey = GlobalKey();
@@ -74,6 +77,15 @@ class _TracksPageState extends State<TracksPage> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+
+    // Deleting from the library needs the app database (App Update 1.2,
+    // BUG-03); pages hosted without one only offer the other actions.
+    try {
+      context.read<AppDatabase>();
+      _canDeleteFromLibrary = true;
+    } on ProviderNotFoundException {
+      _canDeleteFromLibrary = false;
+    }
 
     final repository = context.watch<LibraryQueryRepository?>();
 
@@ -307,6 +319,7 @@ class _TracksPageState extends State<TracksPage> {
           return TrackSelectionScope(
             controller: _selection,
             visibleTracks: visibleTracks,
+            onDeleteFromLibrary: _canDeleteFromLibrary ? _deleteSelected : null,
             child: alphabet == null
                 ? list
                 : Stack(
@@ -332,6 +345,13 @@ class _TracksPageState extends State<TracksPage> {
         },
       ),
     );
+  }
+
+  /// App Update 1.2 (BUG-03): deletes the selected songs from the library
+  /// after the batch confirmation; their files on the device are kept.
+  Future<void> _deleteSelected(List<LibraryTrack> tracks) async {
+    final deleted = await showBatchSongDeletion(context, tracks);
+    if (deleted > 0 && mounted) _selection.exit();
   }
 
   void _openAlbum(LibraryTrack track) {
