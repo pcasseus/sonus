@@ -12,6 +12,7 @@ import '../../../../core/design/widgets/sonus_state_view.dart';
 import '../../../../core/design/widgets/sonus_track_tile.dart';
 
 import '../../../library/application/models/library_track.dart';
+import '../../../library/application/repositories/library_query_repository.dart';
 import '../../../library/presentation/controllers/track_selection_controller.dart';
 import '../../../library/presentation/pages/album_profile_page.dart';
 import '../../../library/presentation/pages/artist_profile_page.dart';
@@ -22,6 +23,7 @@ import '../../../player/application/controllers/playback_coordinator.dart';
 import '../../application/models/playlist_track.dart';
 import '../../application/services/playlist_service.dart';
 import '../controllers/playlist_detail_controller.dart';
+import 'playlist_song_picker_page.dart';
 import '../widgets/add_to_playlist_sheet.dart';
 import '../widgets/playlist_cover.dart';
 import '../../../song_stats/presentation/song_stats_navigation.dart';
@@ -115,6 +117,48 @@ class _PlaylistDetailPageState extends State<PlaylistDetailPage> {
     unawaited(controller.load());
   }
 
+  /// The library the song picker lists, when the app provides one.
+  LibraryQueryRepository? get _library {
+    try {
+      return context.read<LibraryQueryRepository?>();
+    } on ProviderNotFoundException {
+      return null;
+    }
+  }
+
+  bool get _canAddSongs => _service != null && _library != null;
+
+  /// App Update 1.2 (BUG-07): picks songs from the library and adds them
+  /// at the end, in the order chosen, through the playlist service.
+  Future<void> _openSongPicker(PlaylistDetailController controller) async {
+    final service = _service;
+    final library = _library;
+    final detail = controller.detail;
+    if (service == null || library == null || detail == null) return;
+    final messenger = ScaffoldMessenger.of(context);
+
+    final picked = await PlaylistSongPickerPage.open(
+      context,
+      playlistName: detail.playlist.name,
+      songIdsInPlaylist: {
+        for (final entry in controller.tracks) entry.track.songId,
+      },
+      loadTracks: library.getTracks,
+      add: (songIds) =>
+          service.addSongs(playlistId: widget.playlistId, songIds: songIds),
+    );
+    if (!mounted || picked == null) return;
+
+    await controller.refresh();
+    messenger
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(addToPlaylistMessage(picked.result, picked.tracks)),
+        ),
+      );
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = _controller;
@@ -146,6 +190,13 @@ class _PlaylistDetailPageState extends State<PlaylistDetailPage> {
           },
         ),
         actions: [
+          if (controller != null && _canAddSongs)
+            IconButton(
+              key: const ValueKey<String>('playlist-add-songs'),
+              tooltip: 'Add songs',
+              icon: const Icon(Icons.playlist_add_rounded),
+              onPressed: () => unawaited(_openSongPicker(controller)),
+            ),
           if (controller != null)
             AnimatedBuilder(
               animation: controller,
@@ -249,9 +300,13 @@ class _PlaylistDetailPageState extends State<PlaylistDetailPage> {
           physics: const AlwaysScrollableScrollPhysics(),
           slivers: [
             SliverToBoxAdapter(child: header),
-            const SliverFillRemaining(
+            SliverFillRemaining(
               hasScrollBody: false,
-              child: _EmptyPlaylistDetail(),
+              child: _EmptyPlaylistDetail(
+                onAddSongs: _canAddSongs
+                    ? () => unawaited(_openSongPicker(controller))
+                    : null,
+              ),
             ),
           ],
         ),
@@ -842,14 +897,26 @@ class _PlaylistTrackTile extends StatelessWidget {
 }
 
 class _EmptyPlaylistDetail extends StatelessWidget {
-  const _EmptyPlaylistDetail();
+  const _EmptyPlaylistDetail({this.onAddSongs});
+
+  /// Opens the song picker (App Update 1.2, BUG-07); null without one.
+  final VoidCallback? onAddSongs;
 
   @override
   Widget build(BuildContext context) {
-    return const SonusStateView(
+    final onAdd = onAddSongs;
+    return SonusStateView(
       icon: Icons.playlist_add_rounded,
       title: 'This playlist is empty',
       message: 'Add songs from Sonus track menus.',
+      action: onAdd == null
+          ? null
+          : FilledButton.tonalIcon(
+              key: const ValueKey<String>('playlist-empty-add-songs'),
+              onPressed: onAdd,
+              icon: const Icon(Icons.playlist_add_rounded),
+              label: const Text('Add songs'),
+            ),
     );
   }
 }
