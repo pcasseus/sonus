@@ -240,8 +240,12 @@ String batchDeletionMessage(BatchSongDeletionOutcome outcome) {
 String _blockerText(PermanentDeletionBlocker blocker) => switch (blocker) {
   PermanentDeletionBlocker.notFound =>
     'Some of these songs are no longer in your library.',
+  // Raised only when a whole artist is deleted (never for single songs):
+  // the artist's releases hold another artist's songs, or the artist has
+  // songs on another artist's release, and those were not confirmed.
   PermanentDeletionBlocker.sharedRecordingsNotConfirmed =>
-    'Some of these songs are shared with another artist.',
+    'Deleting this artist would also delete songs shared with another '
+        'artist. Confirm those songs on the artist\'s profile first.',
   PermanentDeletionBlocker.pendingCloudWrite =>
     'Some changes to these songs have not reached the cloud yet. Sync, '
         'then try again.',
@@ -331,9 +335,13 @@ class _BatchSongDeletionDialogState extends State<BatchSongDeletionDialog> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'These songs leave your library for good, with everything '
-            'recorded about them:',
+          const Text(
+            'Deleting these songs is permanent. Their listening history '
+            '(every stream and the time listened) is erased, Moments about '
+            'them are deleted, they are taken out of every playlist they '
+            'are in, and the chart weeks they reached are recalculated '
+            'without them. For these songs that means:',
+            key: ValueKey<String>('batch-delete-intro'),
           ),
           const SizedBox(height: 8),
           Text(

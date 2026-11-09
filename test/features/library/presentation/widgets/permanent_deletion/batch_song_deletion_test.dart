@@ -277,6 +277,19 @@ void main() {
     }
 
     expect(find.text('Delete 2 songs from your library?'), findsOneWidget);
+    final intro = tester
+        .widget<Text>(find.byKey(const ValueKey<String>('batch-delete-intro')))
+        .data!;
+    for (final consequence in [
+      'permanent',
+      'listening history',
+      'Moments',
+      'playlist',
+      'chart weeks',
+      'recalculated',
+    ]) {
+      expect(intro, contains(consequence));
+    }
     expect(
       find.byKey(const ValueKey<String>('batch-delete-files-kept')),
       findsOneWidget,
