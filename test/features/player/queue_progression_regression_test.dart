@@ -2,7 +2,6 @@
 // and the player's sources never drift apart, so playback keeps advancing
 // through every remaining entry and the playing song keeps its identity.
 // These drive the real engine over the simulated just_audio player.
-import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:just_audio/just_audio.dart';
@@ -181,6 +180,7 @@ void main() {
       expect(seen.toSet(), {'s2'}, reason: 'only the playing song, s2');
       expect(causes, isEmpty);
       expect(queued(), ['s1', 's2', 's3']);
+      await sub.cancel();
     });
 
     test('Play after a finished queue continues with songs added since, '
