@@ -266,7 +266,7 @@
     "lib/features/settings/presentation/scopes/appearance_scope.dart": "f39d676979c07c14c3c918a4aab4b7be417b8c0d0e28532d735e5cda66bdbf04",
     "lib/features/shell/application/controllers/app_shell_controller.dart": "c337f5b8b9367c58ced794a575bafe46bc9f898b0ba1e524c963aae651af92f4",
     "lib/features/shell/domain/models/app_destination.dart": "7577c6f325de8bcc9f42d2bcf6c501b4b3c6d2be46079be7886fb61213d8a5ba",
-    "lib/features/shell/presentation/pages/app_shell_page.dart": "49847ed024a50a39cf5f087931df6a20e58454b94d3c77dfe06bb3bb192a0724",
+    "lib/features/shell/presentation/pages/app_shell_page.dart": "a277d792e163063fbcfb3532c80bb18659eb449e02411975d883766e80945558",
     "lib/features/shell/presentation/widgets/keyboard_inset_guard.dart": "05357b9e0339409243f597dc33da73fb41918f5c9cd5ec5c77f0dbbde6d6a346",
     "lib/features/shell/presentation/widgets/playback_host.dart": "58767d4e69fa73c2f248bf6660fa67812bbcd77e85282920396cbb7a77a805ac",
     "lib/features/shell/presentation/widgets/shell_playback_slot.dart": "32a1edeff6d2eabea7f33fd5e2a4f5b3c6de5b18082f57f64dd781fcbde1a517",
@@ -444,6 +444,24 @@
         "roster": [
           "lib/features/library/presentation/widgets/roster/artist_roster.dart"
         ],
+        "navigation": [
+          "lib/features/shell/presentation/pages/app_shell_page.dart"
+        ]
+      },
+      "sharedChanges": {
+        "roster": [
+          "lib/features/shell/presentation/pages/app_shell_page.dart"
+        ],
+        "home": [
+          "lib/features/shell/presentation/pages/app_shell_page.dart"
+        ]
+      },
+      "dependencyListChanges": []
+    },
+    {
+      "date": "2026-11-09",
+      "approval": "NAVIGATION + ROSTER, App Update 1.2 BUG-02 visual change, approved by the user 2026-11-09 after reviewing BUG-02_navigation_review_sheet_before_after.png and BUG-02_roster_review_sheet_before_after.png (C:\\dev\\sonus\\reviews\\app-update-1.2\\bug-02): the tab indicator no longer passes the tabs in between, and the selected tab settles on its actual centre (tab strip about 1 px / 0.73-1.48 dp further along). Re-recorded: 9 Navigation and 7 Roster goldens (changes confined to the tab-strip rows) and Navigation geometry (homeTab/tracksTab left edges only); Roster geometry unchanged; no other baseline touched.",
+      "protectedChanges": {
         "navigation": [
           "lib/features/shell/presentation/pages/app_shell_page.dart"
         ]

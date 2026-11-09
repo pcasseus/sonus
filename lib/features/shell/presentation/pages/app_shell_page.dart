@@ -49,6 +49,7 @@ class _AppShellPageState extends State<AppShellPage>
       vsync: this,
       initialIndex: _shellController.currentIndex,
     );
+    _tabController.addListener(_handleTabChange);
   }
 
   void _selectDestination(AppDestination destination) {
@@ -91,19 +92,44 @@ class _AppShellPageState extends State<AppShellPage>
   /// the listener takes over with a drag.
   int? _animatingTo;
 
+  /// Each tab's label, to centre the selected tab once it has settled.
+  final Map<AppDestination, GlobalKey> _tabLabels = {
+    for (final destination in AppDestination.values) destination: GlobalKey(),
+  };
+
+  /// App Update 1.2 (BUG-02): the tab bar centres the selected tab when
+  /// the index changes, while the selected label is still turning bold
+  /// and the others back to regular, so tab widths are still changing and
+  /// it settles off centre (by about 0.6 to 0.7 dp, either way, depending
+  /// on how the change was made). Once the change is complete and the
+  /// final labels are laid out, the selected tab is centred on its real
+  /// width (or as near as the bar's ends allow).
+  void _handleTabChange() {
+    if (_tabController.indexIsChanging) return;
+    final label = _tabLabels[AppDestination.values[_tabController.index]]!;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final context = label.currentContext;
+      if (!mounted || context == null || _tabController.indexIsChanging) {
+        return;
+      }
+      final motion = SonusTheme.of(this.context).motion;
+      unawaited(
+        Scrollable.ensureVisible(
+          context,
+          alignment: 0.5,
+          duration: motion.short,
+          curve: Curves.easeOutCubic,
+        ),
+      );
+    });
+  }
+
   void _handlePageChanged(int index) {
     final target = _animatingTo;
     if (target != null) {
-      if (index != target) {
-        // The tab indicator still follows the pages it passes, exactly as
-        // the approved Navigation baselines record it (see BUG-02 notes:
-        // stopping it changes where the tab bar settles, which needs a
-        // visual approval). Only the current destination stays put.
-        if (_tabController.index != index) {
-          _tabController.animateTo(index);
-        }
-        return;
-      }
+      // Neither the current destination nor the tab indicator follows the
+      // pages the slide passes: the tab already went to the target.
+      if (index != target) return;
       _animatingTo = null;
     }
 
@@ -241,7 +267,15 @@ class _AppShellPageState extends State<AppShellPage>
               for (final destination in AppDestination.values)
                 Tab(
                   key: ValueKey<String>('app-tab-${destination.name}'),
-                  text: destination.label,
+                  // As Tab(text:) builds it, keyed so it can be centred.
+                  child: KeyedSubtree(
+                    key: _tabLabels[destination],
+                    child: Text(
+                      destination.label,
+                      softWrap: false,
+                      overflow: TextOverflow.fade,
+                    ),
+                  ),
                 ),
             ],
             onTap: (index) {

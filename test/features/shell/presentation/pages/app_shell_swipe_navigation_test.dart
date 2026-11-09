@@ -70,16 +70,19 @@ void main() {
     await tester.tap(tab);
   }
 
-  // The tab indicator still passes the tabs in between, as the approved
-  // Navigation baselines record; changing that awaits a visual approval.
-  testWidgets('a tab several destinations away: the current destination '
-      'goes straight there, never through the ones between', (tester) async {
+  testWidgets('a tab several destinations away: neither the tab indicator nor '
+      'the current destination passes through the ones between', (
+    tester,
+  ) async {
     await pumpShell(tester);
+    final tabIndexes = <int>{};
 
     await tapTab(tester, AppDestination.playlists);
     for (var i = 0; i < 30; i++) {
       await tester.pump(const Duration(milliseconds: 16));
+      tabIndexes.add(tabs(tester).index);
     }
+    expect(tabIndexes, {AppDestination.playlists.index});
     await tester.pumpAndSettle();
 
     expect(seen, [AppDestination.home, AppDestination.playlists]);
