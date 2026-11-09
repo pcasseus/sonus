@@ -12,7 +12,11 @@ import '../../data/engines/simulated_just_audio_player.dart';
 class _Page extends ChangeNotifier with PlaybackShuffleMode {
   _Page(this.shufflePlayback) {
     watchPlaybackShuffle();
+    // As its page does.
+    addListener(_heard);
   }
+
+  static void _heard() {}
 
   @override
   final PlaybackCoordinator? shufflePlayback;

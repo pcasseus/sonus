@@ -15,7 +15,9 @@ import '../../domain/models/playback_state.dart';
 /// nothing, or turned on a shuffle that was already on, dealing the songs
 /// already played back into the cycle.
 ///
-/// Call [watchPlaybackShuffle] once, from the constructor.
+/// Call [watchPlaybackShuffle] once, from the constructor. The player is
+/// followed only once something listens to the controller (its page): a
+/// controller that is merely built never touches the player, as before.
 mixin PlaybackShuffleMode on ChangeNotifier {
   /// The player whose mode the page shows; null when the page has none.
   PlaybackCoordinator? get shufflePlayback;
@@ -23,11 +25,23 @@ mixin PlaybackShuffleMode on ChangeNotifier {
   StreamSubscription<PlaybackState>? _shuffleWatch;
   bool? _shownShuffle;
   bool _shuffleDisposed = false;
+  bool _shuffleWatchWanted = false;
 
-  /// Follows the player's mode, notifying when it changes elsewhere.
-  void watchPlaybackShuffle() {
+  /// Follows the player's mode, notifying listeners when it changes
+  /// elsewhere, from the first listener on.
+  void watchPlaybackShuffle() => _shuffleWatchWanted = true;
+
+  @override
+  void addListener(VoidCallback listener) {
+    super.addListener(listener);
+    if (_shuffleWatchWanted) _startShuffleWatch();
+  }
+
+  void _startShuffleWatch() {
     final playback = shufflePlayback;
-    if (playback == null || _shuffleWatch != null) return;
+    if (playback == null || _shuffleWatch != null || _shuffleDisposed) {
+      return;
+    }
     _shownShuffle = playback.currentState.shuffleEnabled;
     _shuffleWatch = playback.states.listen((state) {
       if (_shuffleDisposed || state.shuffleEnabled == _shownShuffle) return;
