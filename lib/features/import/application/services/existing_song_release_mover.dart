@@ -1,6 +1,7 @@
 import 'package:sqflite/sqflite.dart';
 
 import '../../../../core/database/app_database.dart';
+import '../../../../core/database/database_tables.dart';
 import '../../../../core/identity/text_normalizer.dart';
 import '../../../library/application/services/track_profile_editing_service.dart';
 import '../../../library/data/daos/album_dao.dart';
@@ -25,12 +26,46 @@ import '../../data/daos/song_import_review_dao.dart';
 import '../../data/repositories/sqlite_song_import_review_repository.dart';
 import '../../domain/entities/song_import_review.dart';
 import '../../domain/models/import_candidate.dart';
+import '../../domain/models/import_scan_snapshot.dart';
 import '../../domain/models/resolved_metadata.dart';
+import '../folders/source_folder_key.dart';
 import '../identity/import_identity_metadata_normalizer.dart';
 import '../identity/library_identity_resolver.dart';
 import '../metadata/track_title_version_interpreter.dart';
 
 /// What came of a file's new artist, album or edition tags.
+/// What a file's tags ask for its song (see ExistingSongReleaseMover).
+class ReleaseMoveIntent {
+  const ReleaseMoveIntent._({
+    required this.song,
+    required this.filePath,
+    required this.artistId,
+    required this.albumId,
+    required this.editionId,
+    required this.authority,
+  }) : needsReview = false;
+
+  ReleaseMoveIntent.review(this.song, this.filePath)
+    : needsReview = true,
+      artistId = song.artistId,
+      albumId = song.albumId,
+      editionId = song.albumEditionId,
+      authority = MetadataAuthority.imported;
+
+  final Song song;
+
+  /// The file the tags were read from; its folder groups the release.
+  final String filePath;
+
+  /// Ambiguous, not in the library, or set or confirmed in Sonus.
+  final bool needsReview;
+
+  final String artistId;
+  final String albumId;
+  final String editionId;
+  final MetadataAuthority authority;
+}
+
 enum ReleaseMoveOutcome {
   /// The tags name the song's own artist, album and edition.
   unchanged,
@@ -68,15 +103,33 @@ class ExistingSongReleaseMover {
   final AppDatabase appDatabase;
   final String? userId;
 
+  /// One file's tags, settled on their own (a decision in Import Review).
   Future<ReleaseMoveOutcome> apply({
     required String songId,
     required ResolvedMetadata metadata,
     required ImportCandidate candidate,
     required DateTime now,
   }) async {
+    final intent = await evaluate(
+      songId: songId,
+      metadata: metadata,
+      candidate: candidate,
+    );
+    if (intent == null) return ReleaseMoveOutcome.unchanged;
+    final outcomes = await settle([intent], now: now);
+    return outcomes[songId] ?? ReleaseMoveOutcome.unchanged;
+  }
+
+  /// What [candidate]'s tags ask for [songId]: nothing (null), Import
+  /// Review, or a move to releases already in the library. Writes nothing.
+  Future<ReleaseMoveIntent?> evaluate({
+    required String songId,
+    required ResolvedMetadata metadata,
+    required ImportCandidate candidate,
+  }) async {
     final db = await appDatabase.database;
     final song = await SqliteSongRepository(SongDao(db)).getById(songId);
-    if (song == null) return ReleaseMoveOutcome.unchanged;
+    if (song == null) return null;
 
     const normalizer = ImportIdentityMetadataNormalizer();
     var tags = normalizer.normalize(
@@ -103,7 +156,7 @@ class ExistingSongReleaseMover {
       tags.artistName,
       tags.albumTitle,
     )) {
-      return ReleaseMoveOutcome.unchanged;
+      return null;
     }
 
     final title = const TrackTitleVersionInterpreter().interpret(tags.title);
@@ -129,9 +182,10 @@ class ExistingSongReleaseMover {
     if (artist?.id == song.artistId &&
         album?.id == song.albumId &&
         edition?.id == song.albumEditionId) {
-      return ReleaseMoveOutcome.unchanged;
+      return null;
     }
 
+    final review = ReleaseMoveIntent.review(song, candidate.filePath);
     if (match.artistAmbiguous ||
         match.albumArtistAmbiguous ||
         match.albumAmbiguous ||
@@ -139,7 +193,7 @@ class ExistingSongReleaseMover {
         artist == null ||
         album == null ||
         edition == null) {
-      return _review(db, song, now);
+      return review;
     }
 
     final origins = metadata.origins;
@@ -164,45 +218,132 @@ class ExistingSongReleaseMover {
         ),
         incomingAuthority: _authority(origin, metadata.source),
       );
-      if (!allowed) return _review(db, song, now);
+      if (!allowed) return review;
     }
 
+    return ReleaseMoveIntent._(
+      song: song,
+      filePath: candidate.filePath,
+      artistId: artist.id,
+      albumId: album.id,
+      editionId: edition.id,
+      authority: _authority(null, metadata.source),
+    );
+  }
+
+  /// Settles a scan's intents together, so a release is never split
+  /// silently (SN-45: a folder's songs stay together as one album).
+  ///
+  /// A move to another album or edition happens only when every playable
+  /// song filed in the same folder on the same album (or edition) moves to
+  /// the same place in this batch: the whole release was retagged. When one
+  /// song of a folder is retagged on its own, or songs of one folder are
+  /// retagged to different releases, the songs wait in Import Review and
+  /// nothing moves. A change of track artist alone is not a split.
+  Future<Map<String, ReleaseMoveOutcome>> settle(
+    List<ReleaseMoveIntent> intents, {
+    ImportScanSnapshot? scan,
+    required DateTime now,
+  }) async {
+    final db = await appDatabase.database;
+    final outcomes = <String, ReleaseMoveOutcome>{};
+    final bySong = {for (final i in intents) i.song.id: i};
+
+    for (final intent in intents) {
+      if (intent.needsReview ||
+          await _wouldSplitRelease(db, intent, bySong, scan)) {
+        outcomes[intent.song.id] = await _review(db, intent.song, now);
+      }
+    }
+    for (final intent in intents) {
+      if (outcomes.containsKey(intent.song.id)) continue;
+      await _move(intent, now);
+      outcomes[intent.song.id] = ReleaseMoveOutcome.moved;
+    }
+    return outcomes;
+  }
+
+  /// Whether moving [intent]'s song would leave another playable song of
+  /// its folder behind on the release it is leaving.
+  Future<bool> _wouldSplitRelease(
+    DatabaseExecutor db,
+    ReleaseMoveIntent intent,
+    Map<String, ReleaseMoveIntent> bySong,
+    ImportScanSnapshot? scan,
+  ) async {
+    final song = intent.song;
+    final leavesAlbum = intent.albumId != song.albumId;
+    final leavesEdition = intent.editionId != song.albumEditionId;
+    if (!leavesAlbum && !leavesEdition) return false;
+
+    final folder = SourceFolderKey.of(intent.filePath);
+    if (folder == null) return false; // no reliable folder: nothing grouped
+
+    final rows = await db.rawQuery(
+      'SELECT m.song_id, m.file_path, m.normalized_path, m.is_available, '
+      'm.source_id, m.updated_at, s.album_edition_id '
+      'FROM ${DatabaseTables.mediaFileBindings} m '
+      'JOIN ${DatabaseTables.songs} s ON s.id = m.song_id '
+      'WHERE s.album_id = ? AND m.song_id <> ?',
+      [song.albumId, song.id],
+    );
+    for (final row in rows) {
+      if (!ImportScanSnapshot.isLiveRow(row, scan)) continue;
+      if (SourceFolderKey.of(row['file_path']! as String) != folder) continue;
+      if (!leavesAlbum && row['album_edition_id'] != song.albumEditionId) {
+        continue;
+      }
+      final sibling = bySong[row['song_id']! as String];
+      if (sibling == null ||
+          sibling.needsReview ||
+          sibling.albumId != intent.albumId ||
+          sibling.editionId != intent.editionId) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  Future<void> _move(ReleaseMoveIntent intent, DateTime now) async {
+    final song = intent.song;
+    final db = await appDatabase.database;
     final previousEditionListing =
         (await SqliteAlbumEditionTrackRepository(
-          AlbumEditionTrackDao(db),
-        ).getBySongId(songId)).where(
-          (m) => m.albumEditionId == song.albumEditionId,
-        );
+              AlbumEditionTrackDao(db),
+            ).getBySongId(song.id))
+            .where((m) => m.albumEditionId == song.albumEditionId)
+            .toList();
 
-    final authority = _authority(null, metadata.source);
     await TrackProfileEditingService(
           mutationRunner: SyncMutationTransactionRunner(
             appDatabase: appDatabase,
           ),
         )
         .withMetadataProvenance(
-          authority: authority,
-          source: authority == MetadataAuthority.imported
+          authority: intent.authority,
+          source: intent.authority == MetadataAuthority.imported
               ? MetadataProvenanceSource.embeddedTag
               : MetadataProvenanceSource.filename,
         )
         .updateTrack(
           userId: userId,
-          songId: songId,
+          songId: song.id,
           title: song.title,
           trackNumber: song.trackNumber,
           discNumber: song.discNumber,
           featuredArtists: song.featuredArtists,
           isSingle: song.isSingle,
-          artistId: artist.id,
-          albumId: album.id,
-          albumEditionId: edition.id,
+          artistId: intent.artistId,
+          albumId: intent.albumId,
+          albumEditionId: intent.editionId,
           now: now,
         );
 
     // Within one album the editor keeps the old edition's listing; one that
     // came from tags is the file's old place, so it does not stay behind.
-    if (album.id == song.albumId && edition.id != song.albumEditionId) {
+    // Removed only once the move has succeeded.
+    if (intent.albumId == song.albumId &&
+        intent.editionId != song.albumEditionId) {
       for (final listing in previousEditionListing) {
         if (listing.numberingAuthority != AlbumEditionTrackAuthority.inferred ||
             listing.orderingAuthority != AlbumEditionTrackAuthority.inferred) {
@@ -211,11 +352,10 @@ class ExistingSongReleaseMover {
         await appDatabase.transaction(
           (txn) => SqliteAlbumEditionTrackRepository(
             AlbumEditionTrackDao(txn),
-          ).delete(editionId: listing.albumEditionId, songId: songId),
+          ).delete(editionId: listing.albumEditionId, songId: song.id),
         );
       }
     }
-    return ReleaseMoveOutcome.moved;
   }
 
   /// Whether [artistName] is the song's artist and [albumTitle] its album's

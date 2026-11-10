@@ -158,13 +158,14 @@ class FileIdentityService {
     final results = <String, ImportResult>{};
     final readings = <String, FileIdentityReading>{};
     final claimed = <String>{};
+    final releases = <ReleaseMoveIntent>[];
 
     for (final candidate in candidates) {
       final path = TextNormalizer.normalizePath(candidate.filePath);
       try {
         final known = byPath[path];
         if (known != null) {
-          await _checkKnownFile(candidate, known, now: now);
+          await _checkKnownFile(candidate, known, now: now, batch: releases);
           continue;
         }
 
@@ -181,6 +182,7 @@ class FileIdentityService {
                 scan: scan,
                 metadata: preparedMetadata[path],
                 now: now,
+                batch: releases,
               );
         if (outcome != null) {
           results[path] = outcome;
@@ -209,6 +211,7 @@ class FileIdentityService {
       }
     }
 
+    await _settleReleases(releases, scan: scan, now: now);
     return FileIdentityPlan(results: results, readings: readings);
   }
 
@@ -367,27 +370,56 @@ class FileIdentityService {
   }
 
   /// Refinement A: the song follows its tags to another artist, album or
-  /// edition where that is safe; otherwise it waits in Import Review. A
+  /// edition where that is safe; otherwise it waits in Import Review. During
+  /// a scan the wish is only collected into [batch] and settled with the
+  /// rest of the scan (see [_settleReleases]), so a release retagged as a
+  /// whole moves together and a single retagged song never splits one. A
   /// failure never undoes the identity work already committed.
   Future<void> _moveRelease(
     String songId,
     ResolvedMetadata metadata,
     ImportCandidate candidate,
-    DateTime now,
-  ) async {
+    DateTime now, {
+    List<ReleaseMoveIntent>? batch,
+  }) async {
     final mover = releaseMover;
     if (mover == null) return;
     try {
-      await mover.apply(
+      if (batch == null) {
+        await mover.apply(
+          songId: songId,
+          metadata: metadata,
+          candidate: candidate,
+          now: now,
+        );
+        return;
+      }
+      final intent = await mover.evaluate(
         songId: songId,
         metadata: metadata,
         candidate: candidate,
-        now: now,
       );
+      if (intent != null) batch.add(intent);
     } on LibraryMutationUnavailable {
       rethrow;
     } catch (error, stackTrace) {
       _log('moving a song to its tagged release', error, stackTrace);
+    }
+  }
+
+  Future<void> _settleReleases(
+    List<ReleaseMoveIntent> batch, {
+    required ImportScanSnapshot? scan,
+    required DateTime now,
+  }) async {
+    final mover = releaseMover;
+    if (mover == null || batch.isEmpty) return;
+    try {
+      await mover.settle(batch, scan: scan, now: now);
+    } on LibraryMutationUnavailable {
+      rethrow;
+    } catch (error, stackTrace) {
+      _log('moving songs to their tagged releases', error, stackTrace);
     }
   }
 
@@ -421,6 +453,7 @@ class FileIdentityService {
     ImportCandidate candidate,
     MediaFileBinding binding, {
     required DateTime now,
+    required List<ReleaseMoveIntent> batch,
   }) async {
     final stat = await _stat(candidate);
     final hasBaseline =
@@ -468,7 +501,13 @@ class FileIdentityService {
           now: now,
         );
       });
-      await _moveRelease(binding.songId, metadata, candidate, now);
+      await _moveRelease(
+        binding.songId,
+        metadata,
+        candidate,
+        now,
+        batch: batch,
+      );
       return;
     }
 
@@ -497,6 +536,7 @@ class FileIdentityService {
     required ImportScanSnapshot? scan,
     required ResolvedMetadata? metadata,
     required DateTime now,
+    required List<ReleaseMoveIntent> batch,
   }) async {
     final identity = reading.identity!;
     final path = TextNormalizer.normalizePath(candidate.filePath);
@@ -584,7 +624,7 @@ class FileIdentityService {
         now: now,
       );
     });
-    await _moveRelease(binding.songId, tags, candidate, now);
+    await _moveRelease(binding.songId, tags, candidate, now, batch: batch);
 
     return ImportResult(
       status: ImportResultStatus.relinked,

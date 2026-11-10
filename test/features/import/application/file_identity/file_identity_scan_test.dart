@@ -1336,6 +1336,280 @@ void main() {
     });
   });
 
+  group('folder grouping: a release is never split silently', () {
+    Directory folder(String artist, String albumName) =>
+        Directory(p.join(sandbox.path, 'Music', artist, albumName))
+          ..createSync(recursive: true);
+
+    var editCount = 0;
+
+    /// The Purpose folder: three songs, then Believe and Purpose (Deluxe)
+    /// elsewhere, so moves have existing targets.
+    Future<Map<String, String>> library() async {
+      writeSong('ill show you.mp3', _tags('Ill Show You', track: 3), seed: 1);
+      writeSong('sorry.mp3', _tags('Sorry', track: 5, duration: 198), seed: 2);
+      writeSong(
+        'company.mp3',
+        _tags('Company', track: 7, duration: 207),
+        seed: 3,
+      );
+      writeSong(
+        'boyfriend.mp3',
+        _tags('Boyfriend', album: 'Believe', duration: 171),
+        seed: 4,
+        folder: folder('Justin Bieber', 'Believe'),
+      );
+      writeSong(
+        'the feeling.mp3',
+        _tags('The Feeling', album: 'Purpose (Deluxe)', duration: 243),
+        seed: 5,
+        folder: folder('Justin Bieber', 'Purpose (Deluxe)'),
+      );
+      await scan();
+      return {
+        for (final s in await songs())
+          s['title']! as String: s['id']! as String,
+      };
+    }
+
+    /// Retags one Purpose file in place (same audio, later time).
+    void retag(String file, AudioMetadata metadata, int seed) {
+      writeSong(
+        file,
+        metadata,
+        seed: seed,
+        modified: base.add(Duration(days: 1, minutes: ++editCount)),
+      );
+    }
+
+    Future<Map<String, Object?>> row(String id) async =>
+        (await (await appDatabase.database).query(
+          DatabaseTables.songs,
+          where: 'id = ?',
+          whereArgs: [id],
+        )).single;
+
+    Future<String> albumOf(String id) async {
+      final rows = await (await appDatabase.database).rawQuery(
+        'SELECT a.title FROM ${DatabaseTables.songs} s '
+        'JOIN ${DatabaseTables.albums} a ON a.id = s.album_id WHERE s.id = ?',
+        [id],
+      );
+      return rows.single['title']! as String;
+    }
+
+    Future<List<String>> editionsOf(String id) async => [
+      for (final r in await (await appDatabase.database).rawQuery(
+        'SELECT ae.title FROM ${DatabaseTables.albumEditionTracks} aet '
+        'JOIN ${DatabaseTables.albumEditions} ae '
+        'ON ae.id = aet.album_edition_id WHERE aet.song_id = ? '
+        'ORDER BY ae.title',
+        [id],
+      ))
+        r['title']! as String,
+    ];
+
+    Future<bool> inReview(String id) async =>
+        (await (await appDatabase.database).query(
+          DatabaseTables.songImportReviews,
+          where:
+              "song_id = ? AND resolved_at IS NULL "
+              "AND review_reasons LIKE '%tagsNameAnotherRelease%'",
+          whereArgs: [id],
+        )).isNotEmpty;
+
+    test('one song of a folder retagged to another album waits for review; '
+        'nothing moves', () async {
+      final ids = await library();
+
+      retag(
+        'sorry.mp3',
+        _tags('Sorry', track: 5, duration: 198, album: 'Believe'),
+        2,
+      );
+      await scan();
+
+      expect(await albumOf(ids['Sorry']!), 'Purpose');
+      expect(await editionsOf(ids['Sorry']!), ['Purpose']);
+      expect(await inReview(ids['Sorry']!), isTrue);
+      expect(await albumOf(ids['Company']!), 'Purpose');
+      expect(await songs(), hasLength(5), reason: 'no new song');
+    });
+
+    test('the whole folder retagged to another album moves together, with '
+        'the same Song IDs and no listing left behind', () async {
+      final ids = await library();
+
+      retag(
+        'ill show you.mp3',
+        _tags('Ill Show You', track: 3, album: 'Believe'),
+        1,
+      );
+      retag(
+        'sorry.mp3',
+        _tags('Sorry', track: 5, duration: 198, album: 'Believe'),
+        2,
+      );
+      retag(
+        'company.mp3',
+        _tags('Company', track: 7, duration: 207, album: 'Believe'),
+        3,
+      );
+      await scan();
+
+      for (final title in ['Ill Show You', 'Sorry', 'Company']) {
+        expect(await albumOf(ids[title]!), 'Believe', reason: title);
+        expect(await editionsOf(ids[title]!), ['Believe'], reason: title);
+        expect(await inReview(ids[title]!), isFalse, reason: title);
+      }
+      expect(
+        {for (final s in await songs()) s['id']},
+        ids.values.toSet(),
+        reason: 'the same five Song IDs',
+      );
+
+      // Repeat scans change nothing more.
+      final moved = await libraryState();
+      await scan();
+      await scan();
+      final after = await libraryState();
+      for (final table in [
+        DatabaseTables.songs,
+        DatabaseTables.albumEditionTracks,
+        'sync_outbox',
+      ]) {
+        expect(after[table], moved[table], reason: table);
+      }
+    });
+
+    test('the whole folder retagged to another edition of the album moves '
+        'together', () async {
+      final ids = await library();
+
+      for (final (file, title, track, duration, seed) in [
+        ('ill show you.mp3', 'Ill Show You', 3, 197, 1),
+        ('sorry.mp3', 'Sorry', 5, 198, 2),
+        ('company.mp3', 'Company', 7, 207, 3),
+      ]) {
+        retag(
+          file,
+          _tags(
+            title,
+            track: track,
+            duration: duration,
+            album: 'Purpose (Deluxe)',
+          ),
+          seed,
+        );
+      }
+      await scan();
+
+      for (final title in ['Ill Show You', 'Sorry', 'Company']) {
+        expect(await editionsOf(ids[title]!), [
+          'Purpose (Deluxe)',
+        ], reason: title);
+      }
+    });
+
+    test('a whole-folder retag that one curated song cannot follow splits '
+        'nothing: all wait for review', () async {
+      final ids = await library();
+      await (await appDatabase.database).update(
+        DatabaseTables.metadataFieldStates,
+        {'authority': 'manual', 'source': 'user'},
+        where: "entity_id = ? AND field_name IN ('albumId', 'albumEditionId')",
+        whereArgs: [ids['Company']],
+      );
+
+      retag(
+        'ill show you.mp3',
+        _tags('Ill Show You', track: 3, album: 'Believe'),
+        1,
+      );
+      retag(
+        'sorry.mp3',
+        _tags('Sorry', track: 5, duration: 198, album: 'Believe'),
+        2,
+      );
+      retag(
+        'company.mp3',
+        _tags('Company', track: 7, duration: 207, album: 'Believe'),
+        3,
+      );
+      await scan();
+
+      for (final title in ['Ill Show You', 'Sorry', 'Company']) {
+        expect(await albumOf(ids[title]!), 'Purpose', reason: title);
+        expect(await inReview(ids[title]!), isTrue, reason: title);
+      }
+    });
+
+    test(
+      'songs of one folder retagged to different albums split nothing',
+      () async {
+        final ids = await library();
+
+        retag(
+          'ill show you.mp3',
+          _tags('Ill Show You', track: 3, album: 'Believe'),
+          1,
+        );
+        retag(
+          'sorry.mp3',
+          _tags('Sorry', track: 5, duration: 198, album: 'Purpose (Deluxe)'),
+          2,
+        );
+        retag(
+          'company.mp3',
+          _tags('Company', track: 7, duration: 207, album: 'Believe'),
+          3,
+        );
+        await scan();
+
+        for (final title in ['Ill Show You', 'Sorry', 'Company']) {
+          expect(await albumOf(ids[title]!), 'Purpose', reason: title);
+          expect(await editionsOf(ids[title]!), ['Purpose'], reason: title);
+        }
+      },
+    );
+
+    test(
+      'a new track artist alone is no split: that song follows its tags',
+      () async {
+        final ids = await library();
+        writeSong(
+          'without me.mp3',
+          _tags('Without Me', artist: 'Halsey', album: 'Manic', duration: 201),
+          seed: 6,
+          folder: folder('Halsey', 'Manic'),
+        );
+        await scan();
+
+        retag(
+          'sorry.mp3',
+          _tags(
+            'Sorry',
+            track: 5,
+            duration: 198,
+            artist: 'Halsey',
+            albumArtist: 'Justin Bieber',
+          ),
+          2,
+        );
+        await scan();
+
+        final sorry = await row(ids['Sorry']!);
+        final halsey = (await (await appDatabase.database).query(
+          DatabaseTables.artists,
+          where: "canonical_name = 'halsey'",
+        )).single['id'];
+        expect(sorry['artist_id'], halsey);
+        expect(await albumOf(ids['Sorry']!), 'Purpose');
+        expect(await inReview(ids['Sorry']!), isFalse);
+      },
+    );
+  });
+
   group('sync and restore', () {
     test(
       'a rename with new tags sends only an update of the same song',
