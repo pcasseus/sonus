@@ -17,8 +17,16 @@ void main() {
 
   test('Android shows "Sonus" with launcher, round, adaptive and themed '
       'icons', () {
+    // The label comes from each flavor (App Update 1.2 device QA): the
+    // manifest reads the placeholder, and production sets it to "Sonus".
     final manifest = read('android/app/src/main/AndroidManifest.xml');
-    expect(manifest, contains('android:label="Sonus"'));
+    expect(manifest, contains(r'android:label="${appLabel}"'));
+    final flavors = androidFlavors(read('android/app/build.gradle.kts'));
+    expect(
+      flavors['prod'],
+      contains('manifestPlaceholders["appLabel"] = "Sonus"'),
+    );
+    expect(flavors['prod'], isNot(contains('applicationIdSuffix')));
     expect(manifest, contains('android:icon="@mipmap/ic_launcher"'));
     expect(manifest, contains('android:roundIcon="@mipmap/ic_launcher_round"'));
 
@@ -36,6 +44,16 @@ void main() {
     final adaptive = read('$res/mipmap-anydpi-v26/ic_launcher.xml');
     expect(adaptive, contains('@mipmap/ic_launcher_monochrome'));
     expect(read('$res/values/ic_launcher_background.xml'), contains('#17191D'));
+  });
+
+  test('the QA install is "Sonus QA", beside the real app', () {
+    final flavors = androidFlavors(read('android/app/build.gradle.kts'));
+    expect(flavors.keys, unorderedEquals(['prod', 'qa']));
+    expect(
+      flavors['qa'],
+      contains('manifestPlaceholders["appLabel"] = "Sonus QA"'),
+    );
+    expect(flavors['qa'], contains('applicationIdSuffix = ".qa"'));
   });
 
   test('the package, playback service and notification icon are kept', () {
@@ -101,3 +119,9 @@ void main() {
     );
   });
 }
+
+/// Each Android product flavor's block in `build.gradle.kts`, by name.
+Map<String, String> androidFlavors(String gradle) => {
+  for (final m in RegExp(r'create\("(\w+)"\)\s*\{([^}]*)\}').allMatches(gradle))
+    m.group(1)!: m.group(2)!,
+};
