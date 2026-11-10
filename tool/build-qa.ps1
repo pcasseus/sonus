@@ -60,8 +60,12 @@ try {
             $reader = New-Object System.IO.StreamReader($entry.Open(), [System.Text.Encoding]::GetEncoding(28591))
             $text = $reader.ReadToEnd()
             $reader.Close()
-            foreach ($marker in '.supabase.co', 'sb_publishable_', '.apps.googleusercontent.com') {
-                if ($text.Contains($marker)) { throw "The QA build contains account settings ($marker in $($entry.FullName))." }
+            # A Supabase project URL, a Google client ID, or an actual
+            # publishable key. The bare prefix 'sb_publishable_' is in the
+            # Supabase library's own code, so a key needs characters after it.
+            $patterns = '\.supabase\.co', '\.apps\.googleusercontent\.com', 'sb_publishable_[A-Za-z0-9_-]{20,}'
+            foreach ($pattern in $patterns) {
+                if ($text -match $pattern) { throw "The QA build contains account settings ($pattern in $($entry.FullName))." }
             }
         }
     }
