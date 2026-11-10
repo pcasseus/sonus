@@ -57,8 +57,10 @@ Flutter · Dart · SQLite · Android
 
 ```
 flutter pub get
-flutter run
+flutter run --flavor prod
 ```
+
+The app has two Android flavors: `prod` is Sonus itself (`com.sonus.sonus_next`), and `qa` is a separate "Sonus QA" install (`com.sonus.sonus_next.qa`) with its own data and no cloud, for testing on a phone beside the real app. Release builds use `tool/build-release.ps1`; QA builds use `tool/build-qa.ps1`.
 
 Sonus runs fully without an account. Sign-in and cloud sync are turned off unless the build is given its own account configuration. An example file for that configuration is in `config/`.
 

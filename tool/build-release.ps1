@@ -53,10 +53,12 @@ try {
     $buildTime = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
     $buildDefines += "--dart-define=SONUS_BUILD_TIME=$buildTime"
 
-    flutter build apk --release "--dart-define-from-file=$Config" @buildDefines @FlutterArgs
+    # The real app is the prod flavor (com.sonus.sonus_next); the QA
+    # install has its own script, tool\build-qa.ps1.
+    flutter build apk --release --flavor prod "--dart-define-from-file=$Config" @buildDefines @FlutterArgs
     if ($LASTEXITCODE -ne 0) { throw "flutter build failed ($LASTEXITCODE)" }
 
-    $apk = 'build\app\outputs\flutter-apk\app-release.apk'
+    $apk = 'build\app\outputs\flutter-apk\app-prod-release.apk'
     $hash = (Get-FileHash $apk -Algorithm SHA256).Hash.ToLowerInvariant()
     Write-Output "Built $apk"
     Write-Output "SHA-256 $hash"

@@ -24,6 +24,7 @@ Push-Location (Join-Path $PSScriptRoot '..')
 
 try {
     flutter run `
+        --flavor prod `
         --dart-define-from-file="$config" `
         @FlutterArgs
 }

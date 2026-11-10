@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:audio_service/audio_service.dart' as media;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sonus_next/core/build/sonus_app_identity.dart';
 import 'package:sonus_next/features/player/application/services/media_session/artwork_content_uris.dart';
 import 'package:sonus_next/features/player/application/services/media_session/media_session_bootstrap.dart';
 
@@ -64,10 +65,16 @@ void main() {
     );
 
     test('authority', () {
+      // Both follow the installed package, so the QA install beside the
+      // real app has its own provider (App Update 1.2 device QA).
       expect(
         manifest,
-        contains('android:authorities="${ArtworkContentUris.authority}"'),
+        contains(r'android:authorities="${applicationId}.artwork"'),
       );
+      expect(ArtworkContentUris.authority, '$sonusApplicationId.artwork');
+      final gradle = File('android/app/build.gradle.kts').readAsStringSync();
+      expect(gradle, contains('applicationId = "$sonusApplicationId"'));
+      expect(gradle, contains('applicationIdSuffix = ".qa"'));
     });
 
     test('file-name rule', () {

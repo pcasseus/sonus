@@ -39,7 +39,7 @@ function Stop-SonusDriver {
     "process_stopped=verified"
 }
 
-flutter build apk --debug -t integration_test/sn42_restart_driver.dart 2>&1 | Select-Object -Last 1
+flutter build apk --debug --flavor prod -t integration_test/sn42_restart_driver.dart 2>&1 | Select-Object -Last 1
 if ($LASTEXITCODE -ne 0) { throw "driver build failed ($LASTEXITCODE)" }
 
 & $adb -s $serial install -r build\app\outputs\flutter-apk\app-debug.apk | Select-Object -Last 1
