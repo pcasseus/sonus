@@ -35,12 +35,12 @@ android {
     productFlavors {
         create("prod") {
             dimension = "distribution"
-            resValue("string", "app_name", "Sonus")
+            manifestPlaceholders["appLabel"] = "Sonus"
         }
         create("qa") {
             dimension = "distribution"
             applicationIdSuffix = ".qa"
-            resValue("string", "app_name", "Sonus QA")
+            manifestPlaceholders["appLabel"] = "Sonus QA"
         }
     }
 
