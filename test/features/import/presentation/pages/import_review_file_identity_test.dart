@@ -190,16 +190,19 @@ void main() {
     expect(find.text('Possible replaced files'), findsOneWidget);
     expect(
       find.text(
-        '“i\'ll show you.mp3” appeared where “Ill Show You” '
-        "used to be. If it's the same song, Sonus will use the new file and "
-        "keep the song's history, playlists and charts.",
+        "Sonus couldn't confirm that “i'll show you.mp3” is the same "
+        'recording as “Ill Show You”.\n\n'
+        "Use as same song keeps the existing song's identity, listening "
+        'history, playlists, charts, and Moments, but associates them with '
+        'this file.\n\n'
+        'If this is a different recording, choose Add as separate song.',
       ),
       findsOneWidget,
     );
-    expect(find.text('Different song – add separately'), findsOneWidget);
+    expect(find.text('Add as separate song'), findsOneWidget);
     expect(find.text('Decide later'), findsOneWidget);
 
-    await tapVisible(tester, find.text('Same song – use this file'));
+    await tapVisible(tester, find.text('Use as same song'));
 
     expect(fake.usedFor, [(renamedPath, ill.id)]);
     expect(
@@ -229,12 +232,12 @@ void main() {
       ),
     ]);
 
-    expect(find.text('Same as “Ill Show You”'), findsOneWidget);
-    await tapVisible(tester, find.text('Same as “Ill Show You (twin)”'));
+    expect(find.text('Use as “Ill Show You”'), findsOneWidget);
+    await tapVisible(tester, find.text('Use as “Ill Show You (twin)”'));
     expect(fake.usedFor, [(renamedPath, twin.id)]);
   });
 
-  testWidgets('"Different song" adds it separately', (tester) async {
+  testWidgets('"Add as separate song" adds it separately', (tester) async {
     final replaced = entry(
       renamedPath,
       "I'll Show You",
@@ -245,7 +248,7 @@ void main() {
       PossibleRecordingItem(entry: replaced, candidate: ill, candidates: [ill]),
     ]);
 
-    await tapVisible(tester, find.text('Different song – add separately'));
+    await tapVisible(tester, find.text('Add as separate song'));
     expect(fake.separated, [renamedPath]);
   });
 

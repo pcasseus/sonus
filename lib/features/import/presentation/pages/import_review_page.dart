@@ -1005,17 +1005,27 @@ class _PossibleRecordingCard extends StatelessWidget {
 
   List<Widget> _replaced(TextTheme textTheme, String fileName, String key) {
     final songs = item.candidates;
+    // Approved wording (App Update 1.2, BUG-09): choosing a song moves its
+    // identity and history onto this file, so the card says so.
     return [
       Text(
         songs.isEmpty
             ? 'The matching song is no longer in your library.'
             : songs.length == 1
-            ? "\u201c$fileName\u201d appeared where \u201c${songs.single.title}\u201d "
-                  "used to be. If it's the same song, Sonus will use the new "
-                  "file and keep the song's history, playlists and charts."
-            : "\u201c$fileName\u201d appeared where one of these songs used to be. "
-                  "If it's one of them, Sonus will use the new file and keep "
-                  "that song's history, playlists and charts.",
+            ? "Sonus couldn't confirm that \u201c$fileName\u201d is the same "
+                  'recording as \u201c${songs.single.title}\u201d.\n\n'
+                  "Use as same song keeps the existing song's identity, "
+                  'listening history, playlists, charts, and Moments, but '
+                  'associates them with this file.\n\n'
+                  'If this is a different recording, choose Add as separate '
+                  'song.'
+            : "Sonus couldn't confirm that \u201c$fileName\u201d is the same "
+                  'recording as any of these songs.\n\n'
+                  "Using it as one of them keeps that song's identity, "
+                  'listening history, playlists, charts, and Moments, but '
+                  'associates them with this file.\n\n'
+                  'If this is a different recording, choose Add as separate '
+                  'song.',
         style: textTheme.bodyMedium,
       ),
       const SizedBox(height: 16),
@@ -1029,14 +1039,14 @@ class _PossibleRecordingCard extends StatelessWidget {
               onPressed: isBusy ? null : () => onUseForSong(song.id),
               child: Text(
                 songs.length == 1
-                    ? 'Same song \u2013 use this file'
-                    : 'Same as \u201c${song.title}\u201d',
+                    ? 'Use as same song'
+                    : 'Use as \u201c${song.title}\u201d',
               ),
             ),
           OutlinedButton(
             key: ValueKey<String>('replaced-file-separate-$key'),
             onPressed: isBusy ? null : onImportSeparately,
-            child: const Text('Different song \u2013 add separately'),
+            child: const Text('Add as separate song'),
           ),
           TextButton(
             key: ValueKey<String>('possible-recording-later-$key'),
