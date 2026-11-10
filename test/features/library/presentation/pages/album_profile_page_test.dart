@@ -615,7 +615,19 @@ void main() {
           ),
           findsOneWidget,
         );
+        // Purpose repair: from here such a song can be deleted.
+        expect(
+          find.descendant(
+            of: row,
+            matching: find.byKey(ValueKey<String>('album-studio-delete-$id')),
+          ),
+          findsOneWidget,
+        );
       }
+      expect(
+        find.byKey(const ValueKey<String>('album-studio-delete-here')),
+        findsNothing,
+      );
       final here = find.byKey(
         const ValueKey<String>('album-studio-track-here'),
       );

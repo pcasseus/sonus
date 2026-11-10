@@ -25,6 +25,7 @@ import '../../application/services/external_metadata_proposal_service.dart';
 import '../../application/services/library_organization_service.dart';
 import '../../application/services/metadata_provider.dart';
 import '../../data/services/edition_follow_up_dismissals.dart';
+import '../../domain/deletion/permanent_deletion_impact.dart';
 import '../../domain/entities/album_edition.dart';
 import '../../domain/entities/release_date.dart';
 import '../../domain/services/album_edition_track_order.dart';
@@ -38,6 +39,7 @@ import '../widgets/album_studio/release_studio_live.dart';
 import '../widgets/cover_art_album_search_dialog.dart';
 import '../widgets/cover_art_image_selection_dialog.dart';
 import '../widgets/musicbrainz_search_dialog.dart';
+import '../widgets/permanent_deletion/permanent_deletion_sheet.dart';
 
 /// Release Studio (SN-45, SN-50 A-Q6A/B): one screen to edit a release.
 ///
@@ -269,6 +271,7 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
               });
             },
             onEditPlacement: _editPlacement,
+            onDeletePermanently: _deleteUnavailableSong,
           ),
         SliverPadding(padding: EdgeInsets.only(bottom: _bottomPadding)),
       ],
@@ -1196,6 +1199,50 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
     }
   }
 
+  /// Deletes a song whose file is unavailable, through the same
+  /// permanent-deletion sheet and service as everywhere else (preview,
+  /// typed confirmation, ledger, sync and every safeguard). The file is
+  /// never touched. Just before deleting, the song is checked again: one
+  /// whose file came back, or that left this release, is not deleted.
+  Future<void> _deleteUnavailableSong(LibraryTrack track) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final deleted = await showPermanentDeletion(
+      context,
+      target: PermanentDeletionTarget.song(track.songId),
+      name: track.displayTitle,
+      artworkPath: track.artworkPath,
+      beforeDelete: () => _stillUnavailable(track.songId),
+    );
+    if (!mounted) return;
+    // The tracklist shows what is there now, deleted or not.
+    await controller.refresh();
+    if (!deleted || !mounted) return;
+    messenger.showSnackBar(
+      SnackBar(
+        key: const ValueKey<String>('album-studio-delete-done'),
+        content: Text('${track.displayTitle} was permanently deleted.'),
+      ),
+    );
+  }
+
+  /// Null while [songId] is still on this edition with its file
+  /// unavailable; otherwise why it must not be deleted from here.
+  Future<String?> _stillUnavailable(String songId) async {
+    await controller.refresh();
+    LibraryTrack? current;
+    for (final track in controller.tracks) {
+      if (track.songId == songId) current = track;
+    }
+    if (current == null) {
+      return 'This song is no longer on this edition.';
+    }
+    if (current.hasAvailableFile) {
+      return 'Its music file is available again, so it stays in your '
+          'library.';
+    }
+    return null;
+  }
+
   Future<void> _editPlacement(LibraryTrack track) async {
     final multiDisc = _usesMultipleDiscs(controller.tracks);
 
@@ -1645,11 +1692,13 @@ class _StudioTrackList extends StatelessWidget {
     required this.onReorderStarted,
     required this.onReorderFinished,
     required this.onEditPlacement,
+    this.onDeletePermanently,
     this.bonusSongIds = const {},
   });
 
   final AlbumProfileController controller;
   final List<LibraryTrack> tracks;
+  final Future<void> Function(LibraryTrack track)? onDeletePermanently;
 
   /// Songs this edition adds to the primary edition.
   final Set<String> bonusSongIds;
@@ -1700,6 +1749,7 @@ class _StudioTrackList extends StatelessWidget {
             isBusy: isBusy,
             isBonus: bonusSongIds.contains(track.songId),
             onEditPlacement: onEditPlacement,
+            onDeletePermanently: onDeletePermanently,
           ),
         );
       },
@@ -1749,6 +1799,7 @@ class _StudioTrackRow extends StatelessWidget {
     required this.multiDisc,
     required this.isBusy,
     required this.onEditPlacement,
+    this.onDeletePermanently,
     this.isBonus = false,
   });
 
@@ -1760,6 +1811,11 @@ class _StudioTrackRow extends StatelessWidget {
   /// Not on the primary edition: a bonus track of this edition.
   final bool isBonus;
   final Future<void> Function(LibraryTrack track) onEditPlacement;
+
+  /// "Delete song permanently…", offered only while the song's file is
+  /// unavailable: Release Studio is the one place such a song is listed
+  /// (App Update 1.2, Purpose repair). Null: not offered.
+  final Future<void> Function(LibraryTrack track)? onDeletePermanently;
 
   // Above sonusLargeTextScale the number column and placement button give
   // their width to the title; tapping the row still edits the placement.
@@ -1845,6 +1901,14 @@ class _StudioTrackRow extends StatelessWidget {
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
+            // Kept at large text too: there is no other way to reach it.
+            if (!track.hasAvailableFile && onDeletePermanently != null)
+              IconButton(
+                key: ValueKey<String>('album-studio-delete-${track.songId}'),
+                tooltip: 'Delete song permanently…',
+                onPressed: isBusy ? null : () => onDeletePermanently!(track),
+                icon: const Icon(Icons.delete_forever_outlined),
+              ),
             if (!largeText)
               IconButton(
                 key: ValueKey<String>(
