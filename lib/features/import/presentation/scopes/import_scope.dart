@@ -56,6 +56,7 @@ import '../../data/services/saf_import_candidate_discovery.dart';
 import '../services/file_picker_import_source_picker.dart';
 import '../../../library/application/services/duplicate_album_reconciliation_service.dart';
 import '../../../library/application/services/duplicate_reconciliation_policy.dart';
+import '../../application/services/existing_song_release_mover.dart';
 import '../../application/services/existing_song_tag_updater.dart';
 import '../../application/services/file_identity_service.dart';
 import '../../data/services/audio_byte_sources.dart';
@@ -308,6 +309,10 @@ class _ImportScopeState extends State<ImportScope> {
       metadataResolver: metadataResolver,
       tagUpdater: ExistingSongTagUpdater(userId: userId),
       reviewStore: possibleRecordingStore,
+      releaseMover: ExistingSongReleaseMover(
+        appDatabase: database,
+        userId: userId,
+      ),
     );
 
     final libraryImportService = LibraryImportService(

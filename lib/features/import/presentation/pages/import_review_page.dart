@@ -740,6 +740,8 @@ class _ImportReviewPageState extends State<ImportReviewPage> {
         return 'Artist credit needs confirmation';
       case ImportReviewReason.alternateRecording:
         return 'Possibly a different recording of an existing song';
+      case ImportReviewReason.tagsNameAnotherRelease:
+        return "The file's tags now name another artist or release";
     }
   }
 

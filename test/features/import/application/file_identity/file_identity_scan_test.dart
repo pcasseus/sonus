@@ -11,6 +11,7 @@ import 'package:sonus_next/core/database/app_database.dart';
 import 'package:sonus_next/core/database/database_tables.dart';
 import 'package:sonus_next/core/events/library_change_signal.dart';
 import 'package:sonus_next/features/import/application/services/atomic_library_importer.dart';
+import 'package:sonus_next/features/import/application/services/existing_song_release_mover.dart';
 import 'package:sonus_next/features/import/application/services/existing_song_tag_updater.dart';
 import 'package:sonus_next/features/import/application/services/file_identity_service.dart';
 import 'package:sonus_next/features/import/application/services/import_batch_executor.dart';
@@ -55,17 +56,24 @@ class _TagsByFileName implements AudioMetadataReader {
   }
 }
 
-AudioMetadata _tags(String title, {int track = 1, int duration = 197}) =>
-    AudioMetadata(
-      title: title,
-      artistName: 'Justin Bieber',
-      albumTitle: 'Purpose',
-      durationSeconds: duration,
-      trackNumber: track,
-      discNumber: 1,
-      isSingle: false,
-      featuredArtists: const [],
-    );
+AudioMetadata _tags(
+  String title, {
+  int track = 1,
+  int duration = 197,
+  String artist = 'Justin Bieber',
+  String album = 'Purpose',
+  String? albumArtist,
+}) => AudioMetadata(
+  title: title,
+  artistName: artist,
+  albumTitle: album,
+  albumArtistName: albumArtist,
+  durationSeconds: duration,
+  trackNumber: track,
+  discNumber: 1,
+  isSingle: false,
+  featuredArtists: const [],
+);
 
 const _userId = 'user_1';
 
@@ -116,6 +124,10 @@ void main() {
     metadataResolver: resolver(),
     tagUpdater: const ExistingSongTagUpdater(userId: _userId),
     reviewStore: store,
+    releaseMover: ExistingSongReleaseMover(
+      appDatabase: appDatabase,
+      userId: _userId,
+    ),
   );
 
   LibraryImportService importService(Database db) => LibraryImportService(
@@ -811,6 +823,261 @@ void main() {
         ),
         isEmpty,
       );
+    });
+  });
+
+  group('Refinement A: artist, album and edition follow the tags', () {
+    Directory folder(String artist, String albumName) =>
+        Directory(p.join(sandbox.path, 'Music', artist, albumName))
+          ..createSync(recursive: true);
+
+    var retagCount = 0;
+
+    /// Retags the Purpose file in place: same audio, new tags, later time.
+    Future<Map<String, ImportResult>> retag(AudioMetadata metadata) {
+      writeSong(
+        'ill show you.mp3',
+        metadata,
+        seed: 1,
+        modified: base.add(Duration(days: 1, minutes: ++retagCount)),
+      );
+      return scan();
+    }
+
+    Future<Map<String, Object?>> songRow(String id) async =>
+        (await (await appDatabase.database).query(
+          DatabaseTables.songs,
+          where: 'id = ?',
+          whereArgs: [id],
+        )).single;
+
+    Future<List<Map<String, Object?>>> listings(String songId) async =>
+        (await appDatabase.database).rawQuery(
+          'SELECT ae.title AS edition, a.title AS album '
+          'FROM ${DatabaseTables.albumEditionTracks} aet '
+          'JOIN ${DatabaseTables.albumEditions} ae '
+          'ON ae.id = aet.album_edition_id '
+          'JOIN ${DatabaseTables.albums} a ON a.id = ae.album_id '
+          'WHERE aet.song_id = ? ORDER BY ae.title',
+          [songId],
+        );
+
+    Future<String?> idOf(String table, String column, String value) async {
+      final rows = await (await appDatabase.database).query(
+        table,
+        where: '$column = ?',
+        whereArgs: [value],
+      );
+      return rows.isEmpty ? null : rows.first['id'] as String?;
+    }
+
+    Future<List<String>> reviewReasons(String songId) async {
+      final rows = await (await appDatabase.database).query(
+        DatabaseTables.songImportReviews,
+        where: 'song_id = ? AND resolved_at IS NULL',
+        whereArgs: [songId],
+      );
+      return [for (final row in rows) row['review_reasons']! as String];
+    }
+
+    Future<void> addBelieve() async {
+      writeSong(
+        'boyfriend.mp3',
+        _tags('Boyfriend', album: 'Believe', duration: 171),
+        seed: 4,
+        folder: folder('Justin Bieber', 'Believe'),
+      );
+      await scan();
+    }
+
+    test('a new track artist already in the library: the same song moves '
+        'to that artist', () async {
+      final songId = await importOne();
+      writeSong(
+        'without me.mp3',
+        _tags('Without Me', artist: 'Halsey', album: 'Manic', duration: 201),
+        seed: 3,
+        folder: folder('Halsey', 'Manic'),
+      );
+      await scan();
+      final halsey = await idOf(
+        DatabaseTables.artists,
+        'canonical_name',
+        'halsey',
+      );
+
+      await retag(
+        _tags(
+          'Ill Show You',
+          track: 3,
+          artist: 'Halsey',
+          albumArtist: 'Justin Bieber',
+        ),
+      );
+
+      expect((await songRow(songId))['artist_id'], halsey);
+      expect(await songs(), hasLength(2), reason: 'no new song');
+      expect(await listings(songId), [
+        {'edition': 'Purpose', 'album': 'Purpose'},
+      ]);
+      expect(await reviewReasons(songId), isEmpty);
+    });
+
+    test('a new album already in the library: the same song moves, and its '
+        'old listing does not stay behind', () async {
+      final songId = await importOne();
+      await addBelieve();
+      final believe = await idOf(
+        DatabaseTables.albums,
+        'canonical_title',
+        'believe',
+      );
+
+      await retag(_tags('Ill Show You', track: 9, album: 'Believe'));
+
+      final song = await songRow(songId);
+      expect(song['id'], songId);
+      expect(song['album_id'], believe);
+      expect(await listings(songId), [
+        {'edition': 'Believe', 'album': 'Believe'},
+      ]);
+      expect(await songs(), hasLength(2));
+    });
+
+    test('another edition of the same album: the song moves there, and the '
+        'tag-made listing on the old edition goes', () async {
+      final songId = await importOne();
+      writeSong(
+        'the feeling.mp3',
+        _tags('The Feeling', album: 'Purpose (Deluxe)', duration: 243),
+        seed: 5,
+        folder: folder('Justin Bieber', 'Purpose (Deluxe)'),
+      );
+      await scan();
+
+      await retag(_tags('Ill Show You', track: 3, album: 'Purpose (Deluxe)'));
+
+      expect(await listings(songId), [
+        {'edition': 'Purpose (Deluxe)', 'album': 'Purpose'},
+      ]);
+      expect(await songs(), hasLength(2));
+    });
+
+    test('an album set by hand in Sonus is kept; the song waits in Import '
+        'Review', () async {
+      final songId = await importOne();
+      await addBelieve();
+      await (await appDatabase.database).update(
+        DatabaseTables.metadataFieldStates,
+        {'authority': 'manual', 'source': 'user'},
+        where: "entity_id = ? AND field_name IN ('albumId', 'albumEditionId')",
+        whereArgs: [songId],
+      );
+      final before = await songRow(songId);
+
+      await retag(_tags('Ill Show You', track: 3, album: 'Believe'));
+
+      expect((await songRow(songId))['album_id'], before['album_id']);
+      expect(
+        (await reviewReasons(songId)).single,
+        contains('tagsNameAnotherRelease'),
+      );
+    });
+
+    test('an ambiguous release is never guessed', () async {
+      final songId = await importOne();
+      await addBelieve();
+      final db = await appDatabase.database;
+      final believe = (await db.query(
+        DatabaseTables.albums,
+        where: "canonical_title = 'believe'",
+      )).single;
+      await db.insert(DatabaseTables.albums, {...believe, 'id': 'album_twin'});
+      final before = await songRow(songId);
+
+      await retag(_tags('Ill Show You', track: 3, album: 'Believe'));
+
+      expect((await songRow(songId))['album_id'], before['album_id']);
+      expect(
+        (await reviewReasons(songId)).single,
+        contains('tagsNameAnotherRelease'),
+      );
+    });
+
+    test('a release not in the library yet waits for review (it may be a '
+        'renamed release)', () async {
+      final songId = await importOne();
+      final before = await songRow(songId);
+
+      await retag(_tags('Ill Show You', track: 3, album: 'Journals'));
+
+      expect((await songRow(songId))['album_id'], before['album_id']);
+      expect(
+        await idOf(DatabaseTables.albums, 'canonical_title', 'journals'),
+        isNull,
+      );
+      expect(
+        (await reviewReasons(songId)).single,
+        contains('tagsNameAnotherRelease'),
+      );
+    });
+
+    test('after a move, repeated scans write nothing more', () async {
+      final songId = await importOne();
+      await addBelieve();
+      await retag(_tags('Ill Show You', track: 9, album: 'Believe'));
+      final moved = await libraryState();
+
+      for (var pass = 0; pass < 3; pass++) {
+        await scan();
+      }
+      final after = await libraryState();
+      for (final table in [
+        DatabaseTables.songs,
+        DatabaseTables.albumEditionTracks,
+        DatabaseTables.metadataFieldStates,
+        'sync_outbox',
+      ]) {
+        expect(after[table], moved[table], reason: table);
+      }
+      expect((await songRow(songId))['id'], songId);
+    });
+
+    test('a move sends only an update of the same song, and the moved song '
+        'stays protected by permanent deletion', () async {
+      final songId = await importOne();
+      await addBelieve();
+      final db = await appDatabase.database;
+      final outboxBefore = await db.query('sync_outbox');
+
+      await retag(_tags('Ill Show You', track: 9, album: 'Believe'));
+
+      final outboxAfter = await db.query('sync_outbox');
+      Set<(Object?, Object?)> ids(List<Map<String, Object?>> rows) => {
+        for (final row in rows) (row['entity_type'], row['entity_id']),
+      };
+      expect(ids(outboxAfter), ids(outboxBefore));
+
+      await db.delete('sync_outbox');
+      final deletion = PermanentDeletionService(
+        appDatabase: appDatabase,
+        userId: _userId,
+        isCloudLinked: (_) async => false,
+        now: () => base.add(const Duration(days: 4)),
+        generateOutboxId: () =>
+            'outbox_${DateTime.now().microsecondsSinceEpoch}',
+        generateOperationId: () => 'operation_move',
+        changes: LibraryChangeSignal(),
+      );
+      await deletion.delete(
+        await deletion.preview(PermanentDeletionTarget.song(songId)),
+      );
+      File(
+        p.join(album.path, 'ill show you.mp3'),
+      ).renameSync(p.join(album.path, 'moved again.mp3'));
+      tags['moved again.mp3'] = _tags('Ill Show You', album: 'Believe');
+      final result = (await scan())['moved again.mp3']!;
+      expect(result.skipReason, ImportSkipReason.deletedFromLibrary);
     });
   });
 

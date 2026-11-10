@@ -19,6 +19,7 @@ import '../../domain/services/audio_byte_source.dart';
 import '../folders/source_folder_key.dart';
 import '../identity/audio_identity/audio_identity_reader.dart';
 import '../identity/recording_evidence.dart';
+import 'existing_song_release_mover.dart';
 import 'existing_song_tag_updater.dart';
 import 'metadata_resolver.dart';
 
@@ -105,8 +106,13 @@ class FileIdentityService {
     required this.metadataResolver,
     required this.tagUpdater,
     this.reviewStore,
+    this.releaseMover,
     this.reader = const AudioIdentityReader(),
   });
+
+  /// Moves a song to the artist, album and edition its changed tags name
+  /// (Refinement A); without one, those stay as they are.
+  final ExistingSongReleaseMover? releaseMover;
 
   final AppDatabase appDatabase;
   final AudioByteSourceOpener openSource;
@@ -225,7 +231,7 @@ class FileIdentityService {
     }
     final metadata = await _metadataOrNull(candidate);
 
-    return appDatabase.transaction((txn) async {
+    final outcome = await appDatabase.transaction((txn) async {
       if ((await txn.query(
         DatabaseTables.songs,
         columns: ['id'],
@@ -305,6 +311,10 @@ class FileIdentityService {
       }
       return FileReviewDecisionOutcome.done;
     });
+    if (outcome == FileReviewDecisionOutcome.done && metadata != null) {
+      await _moveRelease(songId, metadata, candidate, now);
+    }
+    return outcome;
   }
 
   /// The user said a known file whose audio changed is still its song: the
@@ -340,7 +350,35 @@ class FileIdentityService {
         );
       }
     });
+    if (metadata != null) {
+      await _moveRelease(binding.songId, metadata, candidate, now);
+    }
     return FileReviewDecisionOutcome.done;
+  }
+
+  /// Refinement A: the song follows its tags to another artist, album or
+  /// edition where that is safe; otherwise it waits in Import Review. A
+  /// failure never undoes the identity work already committed.
+  Future<void> _moveRelease(
+    String songId,
+    ResolvedMetadata metadata,
+    ImportCandidate candidate,
+    DateTime now,
+  ) async {
+    final mover = releaseMover;
+    if (mover == null) return;
+    try {
+      await mover.apply(
+        songId: songId,
+        metadata: metadata,
+        candidate: candidate,
+        now: now,
+      );
+    } on LibraryMutationUnavailable {
+      rethrow;
+    } catch (error, stackTrace) {
+      _log('moving a song to its tagged release', error, stackTrace);
+    }
   }
 
   // R1-R3.
@@ -393,6 +431,7 @@ class FileIdentityService {
           now: now,
         );
       });
+      await _moveRelease(binding.songId, metadata, candidate, now);
       return;
     }
 
@@ -508,6 +547,7 @@ class FileIdentityService {
         now: now,
       );
     });
+    await _moveRelease(binding.songId, tags, candidate, now);
 
     return ImportResult(
       status: ImportResultStatus.relinked,
