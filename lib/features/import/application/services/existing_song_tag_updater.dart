@@ -36,7 +36,8 @@ import '../metadata/track_title_version_interpreter.dart';
 class ExistingSongTagUpdater {
   const ExistingSongTagUpdater({this.userId});
 
-  /// The account the change is recorded for in sync, if any.
+  /// The account the change is recorded for in sync; null when signed out,
+  /// which queues it unowned for the account the library is bound to.
   final String? userId;
 
   /// Applies [metadata] to [songId]; whether anything changed. Writing the
@@ -170,18 +171,19 @@ class ExistingSongTagUpdater {
       }
     }
 
-    final syncUser = userId?.trim();
-    if (syncUser != null && syncUser.isNotEmpty) {
-      await SqliteLocalSyncRepository(
-        dao: LocalSyncDao(txn),
-        generateId: EntityId.syncOutbox,
-        now: () => now,
-      ).recordUpsert(
-        userId: syncUser,
-        entityType: CloudDataEntity.song,
-        entityId: songId,
-      );
-    }
+    // Queued like any other edit, signed in or not (as the track editor
+    // does): a change made while signed out waits, unowned, for the account
+    // this library is bound to, and nothing is sent before the person's
+    // first sync (CloudLibraryFirstLinkGuard).
+    await SqliteLocalSyncRepository(
+      dao: LocalSyncDao(txn),
+      generateId: EntityId.syncOutbox,
+      now: () => now,
+    ).recordUpsert(
+      userId: userId,
+      entityType: CloudDataEntity.song,
+      entityId: songId,
+    );
     return true;
   }
 

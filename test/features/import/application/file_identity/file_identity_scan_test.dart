@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import 'package:sonus_next/app/account_sync_ownership_attachment_service.dart';
 import 'package:sonus_next/core/database/app_database.dart';
 import 'package:sonus_next/core/database/database_tables.dart';
 import 'package:sonus_next/core/events/library_change_signal.dart';
@@ -34,6 +35,7 @@ import 'package:sonus_next/features/import/domain/models/import_candidate.dart';
 import 'package:sonus_next/features/import/domain/models/import_result.dart';
 import 'package:sonus_next/features/import/domain/models/pending_possible_recording.dart';
 import 'package:sonus_next/features/import/domain/services/audio_metadata_reader.dart';
+import 'package:sonus_next/features/account/application/repositories/local_account_binding_repository.dart';
 import 'package:sonus_next/features/library/application/services/permanent_deletion_service.dart';
 import 'package:sonus_next/features/library/data/daos/song_dao.dart';
 import 'package:sonus_next/features/library/data/repositories/sqlite_song_repository.dart';
@@ -118,17 +120,18 @@ void main() {
     fallbackReader: _TagsByFileName(tags),
   );
 
-  FileIdentityService identityService() => FileIdentityService(
-    appDatabase: appDatabase,
-    openSource: audioByteSourceOpener(),
-    metadataResolver: resolver(),
-    tagUpdater: const ExistingSongTagUpdater(userId: _userId),
-    reviewStore: store,
-    releaseMover: ExistingSongReleaseMover(
-      appDatabase: appDatabase,
-      userId: _userId,
-    ),
-  );
+  FileIdentityService identityService({String? userId = _userId}) =>
+      FileIdentityService(
+        appDatabase: appDatabase,
+        openSource: audioByteSourceOpener(),
+        metadataResolver: resolver(),
+        tagUpdater: ExistingSongTagUpdater(userId: userId),
+        reviewStore: store,
+        releaseMover: ExistingSongReleaseMover(
+          appDatabase: appDatabase,
+          userId: userId,
+        ),
+      );
 
   LibraryImportService importService(Database db) => LibraryImportService(
     metadataResolver: resolver(),
@@ -145,7 +148,10 @@ void main() {
 
   /// One scan of the source through the real workflow. Returns each file's
   /// result by file name.
-  Future<Map<String, ImportResult>> scan({bool withIdentity = true}) async {
+  Future<Map<String, ImportResult>> scan({
+    bool withIdentity = true,
+    String? userId = _userId,
+  }) async {
     final db = await appDatabase.database;
     final createdAt = base.add(Duration(hours: ++scanNumber));
     final bindings = SqliteMediaFileBindingRepository(MediaFileBindingDao(db));
@@ -156,11 +162,13 @@ void main() {
           metadataResolver: resolver(),
           atomicImporter: AtomicLibraryImporter(
             appDatabase: appDatabase,
-            userId: _userId,
+            userId: userId,
           ),
           mediaFileBindingRepository: bindings,
           possibleRecordingStore: store,
-          fileIdentityService: withIdentity ? identityService() : null,
+          fileIdentityService: withIdentity
+              ? identityService(userId: userId)
+              : null,
         ),
         batchRepository: SqliteImportBatchRepository(ImportBatchDao(db)),
       ),
@@ -1274,6 +1282,58 @@ void main() {
         expect((await songs()).single['id'], songId);
       },
     );
+  });
+
+  group('signed out: tag changes wait for the bound account', () {
+    Future<List<Map<String, Object?>>> outbox() async =>
+        (await appDatabase.database).query('sync_outbox', orderBy: 'id');
+
+    test('a signed-out tag edit is queued unowned, claimed only by the bound '
+        'account, and not queued again by unchanged scans', () async {
+      writeSong('ill show you.mp3', _tags('Ill Show You', track: 3), seed: 1);
+      final songId = (await scan(userId: null))['ill show you.mp3']!.songId!;
+
+      writeSong(
+        'ill show you.mp3',
+        _tags("I'll Show You", track: 2),
+        seed: 1,
+        modified: base.add(const Duration(days: 1)),
+      );
+      await scan(userId: null);
+
+      final queued = [
+        for (final row in await outbox())
+          if (row['entity_type'] == 'song' && row['entity_id'] == songId) row,
+      ];
+      expect(queued, hasLength(1));
+      expect(queued.single['user_id'], isNull, reason: 'unowned while out');
+      expect(queued.single['operation'], 'upsert');
+
+      // Unchanged scans add nothing and bump nothing.
+      final settled = await outbox();
+      await scan(userId: null);
+      await scan(userId: null);
+      expect(await outbox(), settled);
+
+      // The account this library binds to claims it; another never can.
+      final attach = AccountSyncOwnershipAttachmentService(
+        appDatabase: appDatabase,
+      );
+      await attach.attachUnownedToUser('user_a');
+      final claimed = (await outbox()).singleWhere(
+        (row) => row['entity_type'] == 'song' && row['entity_id'] == songId,
+      );
+      expect(claimed['user_id'], 'user_a');
+      expect(claimed['operation'], 'upsert');
+      await expectLater(
+        attach.attachUnownedToUser('user_b'),
+        throwsA(isA<LocalAccountBindingConflict>()),
+      );
+      expect(
+        (await outbox()).where((row) => row['user_id'] == 'user_b'),
+        isEmpty,
+      );
+    });
   });
 
   group('sync and restore', () {
