@@ -11,6 +11,8 @@ import 'package:sonus_next/app/account_sync_ownership_attachment_service.dart';
 import 'package:sonus_next/core/database/app_database.dart';
 import 'package:sonus_next/core/database/database_tables.dart';
 import 'package:sonus_next/core/events/library_change_signal.dart';
+import 'package:sonus_next/features/import/domain/services/audio_byte_source.dart';
+import 'package:sonus_next/features/import/application/identity/audio_identity/tag_fingerprint_reader.dart';
 import 'package:sonus_next/features/import/application/services/atomic_library_importer.dart';
 import 'package:sonus_next/features/import/application/services/existing_song_release_mover.dart';
 import 'package:sonus_next/features/import/application/services/existing_song_tag_updater.dart';
@@ -79,6 +81,23 @@ AudioMetadata _tags(
 
 const _userId = 'user_1';
 
+/// A tag reader whose reads fail when [fails] says so, as a read through
+/// a document that is briefly unavailable does: no fingerprint, no throw.
+class _FlakyTagReader extends TagFingerprintReader {
+  /// Whether the read with this number (counted from 1 since [reads] was
+  /// last reset) fails.
+  bool Function(int read) fails = (_) => false;
+  int reads = 0;
+
+  set failing(bool value) => fails = (_) => value;
+
+  @override
+  Future<TagFingerprint?> read(AudioByteSource source) async {
+    if (fails(++reads)) return null;
+    return super.read(source);
+  }
+}
+
 void main() {
   sqfliteFfiInit();
 
@@ -90,6 +109,7 @@ void main() {
   late PossibleRecordingStore store;
   var scanNumber = 0;
   String? sourceId;
+  late _FlakyTagReader tagReader;
   final base = DateTime.utc(2026, 11, 9, 12);
 
   setUp(() async {
@@ -108,6 +128,7 @@ void main() {
     );
     scanNumber = 0;
     sourceId = null;
+    tagReader = _FlakyTagReader();
   });
 
   tearDown(() async {
@@ -124,6 +145,7 @@ void main() {
       FileIdentityService(
         appDatabase: appDatabase,
         openSource: audioByteSourceOpener(),
+        tagReader: tagReader,
         metadataResolver: resolver(),
         tagUpdater: ExistingSongTagUpdater(userId: userId),
         reviewStore: store,
@@ -1096,8 +1118,9 @@ void main() {
       required String tagTitle,
       String tagTrack = '3',
       List<int>? artwork,
+      String name = 'ill show you.mp3',
     }) {
-      final file = File(p.join(album.path, 'ill show you.mp3'));
+      final file = File(p.join(album.path, name));
       file.writeAsBytesSync(
         syntheticMp3(
           syntheticAudio(frames: 80, seed: 1),
@@ -1282,6 +1305,153 @@ void main() {
         expect((await songs()).single['id'], songId);
       },
     );
+
+    group('a fingerprint that cannot be read for a moment', () {
+      Future<String?> fingerprintOf(String songId) async =>
+          (await bindingOf(songId))['tag_fingerprint'] as String?;
+
+      test('an unchanged file keeps its trusted fingerprint, and nothing '
+          'changes', () async {
+        final songId = await importTagged();
+        final trusted = await fingerprintOf(songId);
+        final before = await libraryState();
+
+        tagReader.failing = true;
+        await scan();
+
+        expect(await fingerprintOf(songId), trusted);
+        final after = await libraryState();
+        for (final table in [
+          DatabaseTables.songs,
+          DatabaseTables.albumEditionTracks,
+          'sync_outbox',
+        ]) {
+          expect(after[table], before[table], reason: table);
+        }
+      });
+
+      test('reading the identity again keeps it while the file is the same, '
+          'and access that recovers changes nothing', () async {
+        final songId = await importTagged();
+        final trusted = await fingerprintOf(songId);
+        // The audio identity is read again (as after a change to its rules);
+        // the tags cannot be read at that moment.
+        await (await appDatabase.database).update(
+          DatabaseTables.mediaFileBindings,
+          {'audio_signature': null},
+          where: 'song_id = ?',
+          whereArgs: [songId],
+        );
+
+        tagReader.failing = true;
+        await scan();
+        expect(
+          (await bindingOf(songId))['audio_signature'],
+          isNotNull,
+          reason: 'the identity was written',
+        );
+        expect(await fingerprintOf(songId), trusted);
+
+        tagReader.failing = false;
+        final before = await libraryState();
+        await scan();
+        expect(await fingerprintOf(songId), trusted);
+        expect(
+          (await libraryState())[DatabaseTables.songs],
+          before[DatabaseTables.songs],
+        );
+      });
+
+      test('a renamed file keeps it, so a later same-size edit is still '
+          'noticed', () async {
+        final songId = await importTagged();
+        final trusted = await fingerprintOf(songId);
+
+        tagReader.failing = true;
+        File(
+          p.join(album.path, 'ill show you.mp3'),
+        ).renameSync(p.join(album.path, "i'll show you.mp3"));
+        tags["i'll show you.mp3"] = _tags('Ill Show You', track: 3);
+        await scan();
+        expect((await songs()).single['id'], songId, reason: 'relinked');
+        expect(await fingerprintOf(songId), trusted);
+
+        // Access recovers; then the tags are edited in place, at the same
+        // size and time.
+        tagReader.failing = false;
+        final size = File(p.join(album.path, "i'll show you.mp3")).lengthSync();
+        final edited = writeTagged(
+          tagTitle: 'Ill Show Yoo',
+          name: "i'll show you.mp3",
+        );
+        expect(edited.lengthSync(), size);
+        tags["i'll show you.mp3"] = _tags('Ill Show Yoo', track: 3);
+        await scan();
+
+        final all = await songs();
+        expect(all, hasLength(1));
+        expect(all.single['id'], songId);
+        expect(all.single['title'], 'Ill Show Yoo');
+      });
+
+      test('an edit noticed in place records the new fingerprint even when '
+          'the second read of the tags fails', () async {
+        final songId = await importTagged();
+        final old = await fingerprintOf(songId);
+
+        writeTagged(tagTitle: 'Ill Show Yoo');
+        tags['ill show you.mp3'] = _tags('Ill Show Yoo', track: 3);
+        // Read 1 notices the edit; read 2 (with the audio) fails.
+        tagReader
+          ..reads = 0
+          ..fails = (read) => read == 2;
+        await scan();
+
+        expect((await songs()).single['title'], 'Ill Show Yoo');
+        final recorded = await fingerprintOf(songId);
+        expect(recorded, isNot(old));
+        expect(recorded, startsWith('t1:'));
+
+        tagReader.failing = false;
+        final before = await libraryState();
+        await scan();
+        expect(await fingerprintOf(songId), recorded);
+        final after = await libraryState();
+        for (final table in [
+          DatabaseTables.songs,
+          DatabaseTables.metadataFieldStates,
+          'sync_outbox',
+        ]) {
+          expect(after[table], before[table], reason: table);
+        }
+      });
+
+      test('a file that changed clears the stale one, and the next readable '
+          'scan records the new one', () async {
+        final songId = await importTagged();
+        final old = await fingerprintOf(songId);
+
+        final file = writeTagged(tagTitle: 'I Will Show You Tonight');
+        file.setLastModifiedSync(base.add(const Duration(days: 1)));
+        tags['ill show you.mp3'] = _tags('I Will Show You Tonight', track: 3);
+        tagReader.failing = true;
+        await scan();
+
+        expect((await songs()).single['title'], 'I Will Show You Tonight');
+        expect(await fingerprintOf(songId), isNull, reason: 'stale, cleared');
+
+        tagReader.failing = false;
+        final before = await libraryState();
+        await scan();
+        final recorded = await fingerprintOf(songId);
+        expect(recorded, startsWith('t1:'));
+        expect(recorded, isNot(old));
+        expect(
+          (await libraryState())[DatabaseTables.songs],
+          before[DatabaseTables.songs],
+        );
+      });
+    });
   });
 
   group('signed out: tag changes wait for the bound account', () {

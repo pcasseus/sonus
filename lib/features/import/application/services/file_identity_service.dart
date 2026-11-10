@@ -39,6 +39,15 @@ class FileIdentityReading {
   /// walked with confidence.
   final TagFingerprint? tagFingerprint;
 
+  FileIdentityReading withTagFingerprint(TagFingerprint fingerprint) =>
+      FileIdentityReading(
+        identity: identity,
+        fileSizeBytes: fileSizeBytes,
+        modifiedAt: modifiedAt,
+        failure: failure,
+        tagFingerprint: fingerprint,
+      );
+
   /// Null when the audio could not be read with confidence. Always holds a
   /// full hash when set.
   final AudioIdentity? identity;
@@ -221,12 +230,20 @@ class FileIdentityService {
     final identity = reading.identity;
     if (identity == null) return;
     await appDatabase.transaction((txn) async {
-      await txn.update(
+      final rows = await txn.query(
         DatabaseTables.mediaFileBindings,
-        _identityColumns(reading),
         where: 'normalized_path = ?',
         whereArgs: [normalizedPath],
       );
+      for (final row in rows) {
+        final stored = MediaFileBindingRowMapper.fromRow(row);
+        await txn.update(
+          DatabaseTables.mediaFileBindings,
+          _identityColumns(reading, stored: stored),
+          where: 'id = ?',
+          whereArgs: [stored.id],
+        );
+      }
     });
   }
 
@@ -292,7 +309,11 @@ class FileIdentityService {
         'is_available': 1,
         'last_seen_at': stamp,
         'updated_at': stamp,
-        if (reading.identity != null) ..._identityColumns(reading),
+        if (reading.identity != null)
+          ..._identityColumns(
+            reading,
+            stored: songBindings.isEmpty ? null : songBindings.first,
+          ),
       };
       if (songBindings.isEmpty) {
         await txn.insert(DatabaseTables.mediaFileBindings, {
@@ -353,7 +374,7 @@ class FileIdentityService {
     final metadata = await _metadataOrNull(candidate);
 
     await appDatabase.transaction((txn) async {
-      await _writeIdentityIn(txn, binding.id, reading);
+      await _writeIdentityIn(txn, binding, reading);
       if (metadata != null) {
         await tagUpdater.apply(
           txn,
@@ -424,18 +445,20 @@ class FileIdentityService {
     }
   }
 
-  /// Whether a file with unchanged size and time has new tags. The first
-  /// fingerprint of a file is only kept (nothing says its tags changed),
-  /// and so is one that differs only in its embedded pictures: Sonus does
-  /// not use embedded artwork, so there is nothing to update.
-  Future<bool> _tagsChangedInPlace(
+  /// The new tags' fingerprint when a file with unchanged size and time has
+  /// new tags, otherwise null. The first fingerprint of a file is only kept
+  /// (nothing says its tags changed), and so is one that differs only in
+  /// its embedded pictures: Sonus does not use embedded artwork, so there
+  /// is nothing to update. One that cannot be read now keeps the stored
+  /// one untouched.
+  Future<TagFingerprint?> _tagsEditedInPlace(
     ImportCandidate candidate,
     MediaFileBinding binding,
   ) async {
     final current = await _fingerprintOf(candidate);
-    if (current == null) return false;
+    if (current == null) return null;
     final stored = TagFingerprint.tryParse(binding.tagFingerprint);
-    if (stored != null && stored.text != current.text) return true;
+    if (stored != null && stored.text != current.text) return current;
     if (stored == null || stored.pictures != current.pictures) {
       await appDatabase.transaction(
         (txn) => txn.update(
@@ -446,7 +469,7 @@ class FileIdentityService {
         ),
       );
     }
-    return false;
+    return null;
   }
 
   // R1-R3.
@@ -460,16 +483,23 @@ class FileIdentityService {
     final hasBaseline =
         binding.audioSignature != null &&
         binding.signatureVersion == AudioIdentity.currentVersion;
+    TagFingerprint? editedTags;
     if (hasBaseline &&
         stat.$1 != null &&
         binding.fileSizeBytes == stat.$1 &&
         binding.modifiedAt?.toUtc() == stat.$2?.toUtc()) {
       // R1, unless the tags changed while size and time did not
       // (Refinement B): their fingerprint costs a few small reads.
-      if (!await _tagsChangedInPlace(candidate, binding)) return;
+      editedTags = await _tagsEditedInPlace(candidate, binding);
+      if (editedTags == null) return;
     }
 
-    final reading = await _read(candidate);
+    var reading = await _read(candidate);
+    // The edited tags were just read; a failure to read them again now
+    // must not leave the old fingerprint to report the same edit again.
+    if (reading.tagFingerprint == null && editedTags != null) {
+      reading = reading.withTagFingerprint(editedTags);
+    }
     final identity = reading.identity;
 
     // Not readable right now (no access, a device read failure): this says
@@ -479,7 +509,7 @@ class FileIdentityService {
     if (!hasBaseline) {
       // First sight since version 43: the file as it is now becomes the
       // reference. Its tags are not re-applied: nothing says they changed.
-      if (identity != null) await _writeIdentity(binding.id, reading);
+      if (identity != null) await _writeIdentity(binding, reading);
       return;
     }
 
@@ -493,7 +523,7 @@ class FileIdentityService {
       // R2: only the tags changed.
       final metadata = await metadataResolver.resolve(candidate);
       await appDatabase.transaction((txn) async {
-        await _writeIdentityIn(txn, binding.id, reading);
+        await _writeIdentityIn(txn, binding, reading);
         await tagUpdater.apply(
           txn,
           songId: binding.songId,
@@ -612,7 +642,7 @@ class FileIdentityService {
           'is_available': 1,
           'last_seen_at': now.toUtc().toIso8601String(),
           'updated_at': now.toUtc().toIso8601String(),
-          ..._identityColumns(reading),
+          ..._identityColumns(reading, stored: binding),
         },
         where: 'id = ?',
         whereArgs: [binding.id],
@@ -811,32 +841,70 @@ class FileIdentityService {
     }
   }
 
-  Future<void> _writeIdentity(String bindingId, FileIdentityReading reading) =>
-      appDatabase.transaction(
-        (txn) => _writeIdentityIn(txn, bindingId, reading),
-      );
+  Future<void> _writeIdentity(
+    MediaFileBinding binding,
+    FileIdentityReading reading,
+  ) =>
+      appDatabase.transaction((txn) => _writeIdentityIn(txn, binding, reading));
 
   Future<void> _writeIdentityIn(
     DatabaseExecutor txn,
-    String bindingId,
+    MediaFileBinding binding,
     FileIdentityReading reading,
   ) => txn.update(
     DatabaseTables.mediaFileBindings,
-    _identityColumns(reading),
+    _identityColumns(reading, stored: binding),
     where: 'id = ?',
-    whereArgs: [bindingId],
+    whereArgs: [binding.id],
   );
 
-  static Map<String, Object?> _identityColumns(FileIdentityReading reading) {
+  /// The identity columns of [reading], to write over [stored] (the
+  /// binding's row before this write, if it has one).
+  ///
+  /// A tag fingerprint that could not be read this time (a temporary access
+  /// error, or tags that cannot be walked) proves nothing about the tags,
+  /// so the last trusted one is kept while the file is evidently the one it
+  /// was taken from: the same size, time and audio. It is cleared only when
+  /// the file itself changed, which proves it stale.
+  static Map<String, Object?> _identityColumns(
+    FileIdentityReading reading, {
+    required MediaFileBinding? stored,
+  }) {
     final identity = reading.identity!;
+    final keepStoredFingerprint =
+        reading.tagFingerprint == null &&
+        stored?.tagFingerprint != null &&
+        _sameFile(stored!, reading);
     return {
       'audio_signature': identity.signature,
       'audio_full_hash': identity.fullHash,
       'signature_version': identity.version,
       'file_size_bytes': reading.fileSizeBytes,
       'modified_at': reading.modifiedAt?.toUtc().toIso8601String(),
-      'tag_fingerprint': reading.tagFingerprint?.value,
+      if (!keepStoredFingerprint)
+        'tag_fingerprint': reading.tagFingerprint?.value,
     };
+  }
+
+  /// [reading] is of the very file [stored] describes: its size and time
+  /// are unchanged and, where an audio identity of the same rules is
+  /// stored, so is its audio. Without one, size and time are the evidence,
+  /// as for an unchanged file (R1).
+  static bool _sameFile(MediaFileBinding stored, FileIdentityReading reading) {
+    final identity = reading.identity!;
+    final sameSizeAndTime =
+        stored.fileSizeBytes != null &&
+        stored.fileSizeBytes == reading.fileSizeBytes &&
+        stored.modifiedAt != null &&
+        stored.modifiedAt!.toUtc() == reading.modifiedAt?.toUtc();
+    if (!sameSizeAndTime) return false;
+    final comparable =
+        stored.audioSignature != null &&
+        stored.signatureVersion == identity.version;
+    if (!comparable) return true;
+    return stored.audioSignature == identity.signature &&
+        (stored.audioFullHash == null ||
+            stored.audioFullHash == identity.fullHash);
   }
 
   /// The tags' fingerprint alone: a few small reads, never the audio.
