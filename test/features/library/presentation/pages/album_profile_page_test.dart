@@ -51,6 +51,7 @@ import 'package:sonus_next/features/player/domain/models/playback_state.dart';
 import 'package:sonus_next/features/player/domain/models/playback_track.dart';
 import 'package:sonus_next/features/player/domain/services/playback_engine.dart';
 import 'package:sonus_next/features/song_stats/presentation/song_stats_page.dart';
+import '../../../../support/release_date_editor_driver.dart';
 
 void main() {
   group('AlbumProfilePage', () {
@@ -832,13 +833,18 @@ void main() {
         await tester.pumpAndSettle();
         await tester.tap(target);
         await tester.pumpAndSettle();
-        await tester.enterText(
-          find.byKey(ValueKey<String>('release-studio-$field-field')),
-          value,
-        );
-        await tester.tap(
-          find.byKey(ValueKey<String>('release-studio-save-$field')),
-        );
+        if (field == 'date') {
+          await enterReleaseDate(tester, value);
+        } else {
+          await tester.enterText(
+            find.byKey(ValueKey<String>('release-studio-$field-field')),
+            value,
+          );
+        }
+        final save = find.byKey(ValueKey<String>('release-studio-save-$field'));
+        await tester.ensureVisible(save);
+        await tester.pumpAndSettle();
+        await tester.tap(save);
         await tester.pumpAndSettle();
       }
 
@@ -1097,19 +1103,23 @@ void main() {
         find.byKey(const ValueKey<String>('release-studio-date')),
       );
       await tester.pumpAndSettle();
+      // BUG-10: only real dates can be entered, and a year is required.
       await tester.enterText(
-        find.byKey(const ValueKey<String>('release-studio-date-field')),
-        '2026-02-31',
-      );
-      await tester.tap(
-        find.byKey(const ValueKey<String>('release-studio-save-date')),
+        find.byKey(const ValueKey<String>('release-date-year-field')),
+        '1850',
       );
       await tester.pump();
       expect(
-        find.text(
-          'Use 2026, 2026-04 or 2026-04-17, with a real month and day.',
-        ),
+        find.text('Use a year from 1900 to ${DateTime.now().year + 5}.'),
         findsOneWidget,
+      );
+      expect(
+        tester
+            .widget<FilledButton>(
+              find.byKey(const ValueKey<String>('release-studio-save-date')),
+            )
+            .onPressed,
+        isNull,
       );
 
       expect(editingService.updateCallCount, 0);
@@ -1149,13 +1159,21 @@ void main() {
         await tester.pumpAndSettle();
         await tester.tap(target);
         await tester.pumpAndSettle();
-        await tester.enterText(
-          find.byKey(ValueKey<String>('release-studio-$field-field')),
-          '',
-        );
-        await tester.tap(
-          find.byKey(ValueKey<String>('release-studio-save-$field')),
-        );
+        if (field == 'date') {
+          await tester.tap(
+            find.byKey(const ValueKey<String>('release-date-remove')),
+          );
+          await tester.pump();
+        } else {
+          await tester.enterText(
+            find.byKey(ValueKey<String>('release-studio-$field-field')),
+            '',
+          );
+        }
+        final save = find.byKey(ValueKey<String>('release-studio-save-$field'));
+        await tester.ensureVisible(save);
+        await tester.pumpAndSettle();
+        await tester.tap(save);
         await tester.pumpAndSettle();
         if (field == 'date') {
           expect(editingService.lastReleaseDate, isNull);

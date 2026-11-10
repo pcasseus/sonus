@@ -5,6 +5,7 @@ import '../../application/models/library_artist.dart';
 import '../../application/models/release_display_title.dart';
 import '../../domain/entities/album_edition.dart';
 import '../../domain/entities/release_date.dart';
+import 'album_studio/release_date_editor.dart';
 
 class AlbumProfileEditDraft {
   const AlbumProfileEditDraft({
@@ -47,7 +48,7 @@ class _AlbumProfileEditDialogState extends State<AlbumProfileEditDialog> {
 
   late final TextEditingController _titleController;
   late final TextEditingController _editionTitleController;
-  late final TextEditingController _releaseDateController;
+  late ReleaseDate? _releaseDate = widget.album.releaseDateValue;
   late final TextEditingController _genreController;
 
   late String _artistId;
@@ -67,10 +68,6 @@ class _AlbumProfileEditDialogState extends State<AlbumProfileEditDialog> {
           : editionTitle,
     );
 
-    _releaseDateController = TextEditingController(
-      text: widget.album.releaseDateValue?.iso ?? '',
-    );
-
     _genreController = TextEditingController(text: widget.album.genre ?? '');
 
     _artistId = widget.album.artistId;
@@ -82,7 +79,6 @@ class _AlbumProfileEditDialogState extends State<AlbumProfileEditDialog> {
   void dispose() {
     _titleController.dispose();
     _editionTitleController.dispose();
-    _releaseDateController.dispose();
     _genreController.dispose();
 
     super.dispose();
@@ -180,29 +176,8 @@ class _AlbumProfileEditDialogState extends State<AlbumProfileEditDialog> {
                 },
               ),
               const SizedBox(height: 12),
-              TextFormField(
-                key: const ValueKey<String>('album-release-date-field'),
-                controller: _releaseDateController,
-                keyboardType: TextInputType.datetime,
-                textInputAction: TextInputAction.next,
-                decoration: const InputDecoration(
-                  labelText: 'Release date',
-                  hintText: 'YYYY, YYYY-MM or YYYY-MM-DD',
-                ),
-                validator: (value) {
-                  final trimmed = value?.trim() ?? '';
-
-                  if (trimmed.isEmpty) {
-                    return null;
-                  }
-
-                  if (ReleaseDate.tryParse(trimmed) == null) {
-                    return 'Use YYYY, YYYY-MM or YYYY-MM-DD.';
-                  }
-
-                  return null;
-                },
-              ),
+              // BUG-10: the same release date editor as Edit Release.
+              _ReleaseDateField(date: _releaseDate, onTap: _editReleaseDate),
               const SizedBox(height: 12),
               TextFormField(
                 key: const ValueKey<String>('album-genre-field'),
@@ -235,7 +210,7 @@ class _AlbumProfileEditDialogState extends State<AlbumProfileEditDialog> {
     }
 
     final genre = _genreController.text.trim();
-    final releaseDate = ReleaseDate.tryParse(_releaseDateController.text);
+    final releaseDate = _releaseDate;
 
     Navigator.of(context).pop(
       AlbumProfileEditDraft(
@@ -251,4 +226,42 @@ class _AlbumProfileEditDialogState extends State<AlbumProfileEditDialog> {
   }
 
   String _editionTypeLabel(AlbumEditionType type) => editionTypeLabel(type);
+
+  Future<void> _editReleaseDate() async {
+    final edit = await showReleaseDateEditor(context, current: _releaseDate);
+    if (edit == null || !mounted) return;
+    setState(() {
+      _releaseDate = switch (edit) {
+        ReleaseDateSet(:final date) => date,
+        ReleaseDateCleared() => null,
+      };
+    });
+  }
+}
+
+/// The release date as a field that opens the release date editor.
+class _ReleaseDateField extends StatelessWidget {
+  const _ReleaseDateField({required this.date, required this.onTap});
+
+  final ReleaseDate? date;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final date = this.date;
+    return Semantics(
+      button: true,
+      child: InkWell(
+        key: const ValueKey<String>('album-release-date-field'),
+        onTap: onTap,
+        child: InputDecorator(
+          decoration: const InputDecoration(
+            labelText: 'Release date',
+            suffixIcon: Icon(Icons.edit_calendar_rounded),
+          ),
+          child: Text(date == null ? 'Not set' : date.label),
+        ),
+      ),
+    );
+  }
 }

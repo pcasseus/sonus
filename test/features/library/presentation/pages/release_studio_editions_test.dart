@@ -21,6 +21,7 @@ import 'package:sonus_next/features/library/presentation/pages/release_studio_pa
 import 'package:sonus_next/features/sync/application/services/sync_mutation_runner.dart';
 
 import 'album_profile_page_test.dart' as base;
+import '../../../../support/release_date_editor_driver.dart';
 
 // Album Studio edition management, wired to AlbumEditionManagementService.
 void main() {
@@ -947,7 +948,9 @@ void main() {
       await tester.ensureVisible(key('release-studio-date'));
       await tester.tap(key('release-studio-date'));
       await tester.pumpAndSettle();
-      await tester.enterText(key('release-studio-date-field'), '2024-11');
+      await enterReleaseDate(tester, '2024-11');
+      await tester.ensureVisible(key('release-studio-save-date'));
+      await tester.pumpAndSettle();
       await tester.tap(key('release-studio-save-date'));
       await tester.pumpAndSettle();
 

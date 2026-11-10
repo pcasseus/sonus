@@ -433,15 +433,9 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
                 ? 'Release date of ${_editionDisplayLabel(edition)}'
                 : 'Release date',
             value: releaseDate == null ? 'Not set' : releaseDate.label,
+            // BUG-10: one editor for every precision; its own calendar
+            // fills the year, month and day.
             onEdit: canEditDate ? _editReleaseDate : null,
-            action: canEditDate
-                ? IconButton(
-                    key: const ValueKey<String>('release-studio-date-calendar'),
-                    tooltip: 'Choose the release day on a calendar',
-                    icon: const Icon(Icons.calendar_month_rounded),
-                    onPressed: _pickReleaseDay,
-                  )
-                : null,
           ),
         ],
       ),
@@ -647,31 +641,6 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
       case ReleaseDateSet(:final date):
         await _saveReleaseDate(date, 'Release date saved: ${date.label}.');
     }
-  }
-
-  /// The calendar beside the release date: opens at the saved date.
-  Future<void> _pickReleaseDay() async {
-    final current = _shownReleaseDate;
-    final now = DateTime.now();
-    final last = DateTime(now.year + 5, 12, 31);
-    var start = current == null
-        ? now
-        : DateTime(current.year, current.month ?? 1, current.day ?? 1);
-    if (start.isAfter(last)) start = last;
-
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: start,
-      firstDate: DateTime(1900),
-      lastDate: last,
-      initialDatePickerMode: current?.day == null
-          ? DatePickerMode.year
-          : DatePickerMode.day,
-      helpText: 'Release day',
-    );
-    if (picked == null || !mounted) return;
-    final date = ReleaseDate.of(picked.year, picked.month, picked.day)!;
-    await _saveReleaseDate(date, 'Release date saved: ${date.label}.');
   }
 
   Future<void> _changeOwner() async {
@@ -2091,15 +2060,11 @@ class _DetailRow extends StatelessWidget {
     required this.label,
     required this.value,
     required this.onEdit,
-    this.action,
   });
 
   final String label;
   final String value;
   final VoidCallback? onEdit;
-
-  /// A second action beside the edit icon, such as a calendar.
-  final Widget? action;
 
   @override
   Widget build(BuildContext context) {
@@ -2127,18 +2092,7 @@ class _DetailRow extends StatelessWidget {
       ),
       trailing: onEdit == null
           ? null
-          : action == null
-          ? Icon(Icons.edit_outlined, color: colors.textSecondary)
-          : Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                IconTheme.merge(
-                  data: IconThemeData(color: colors.textSecondary),
-                  child: action!,
-                ),
-                Icon(Icons.edit_outlined, color: colors.textSecondary),
-              ],
-            ),
+          : Icon(Icons.edit_outlined, color: colors.textSecondary),
     );
   }
 }
