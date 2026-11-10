@@ -1,5 +1,20 @@
 import 'resolved_metadata.dart';
 
+/// Why a file waits in Import Review (App Update 1.2, BUG-09).
+enum PendingFileReviewKind {
+  /// Same title as a song, at another track position: maybe another
+  /// recording (SN-50 §4).
+  possibleDifferentRecording,
+
+  /// A new file appeared where a song's file used to be, and its audio could
+  /// not be proven to be that song's: maybe the same song, renamed, moved or
+  /// rewritten.
+  possibleReplacedFile,
+
+  /// A known file's audio itself changed at the same location.
+  audioChanged,
+}
+
 /// A file kept out of the library as a possible different recording of an
 /// existing song, waiting on this device for the user's decision.
 class PendingPossibleRecording {
@@ -17,6 +32,8 @@ class PendingPossibleRecording {
     this.metadataFallbackPath,
     this.sourceId,
     this.metadataSource,
+    this.kind = PendingFileReviewKind.possibleDifferentRecording,
+    this.otherCandidateSongIds = const [],
   });
 
   final String normalizedPath;
@@ -43,6 +60,19 @@ class PendingPossibleRecording {
   /// SN-50 §4, which were all read from tags.
   final MetadataSource? metadataSource;
 
+  /// Why the file waits for the user.
+  final PendingFileReviewKind kind;
+
+  /// Further songs it may be, when its audio matches more than one missing
+  /// file; [candidateSongId] is the first.
+  final List<String> otherCandidateSongIds;
+
+  /// Every song the file may be, [candidateSongId] first.
+  List<String> get candidateSongIds => [
+    candidateSongId,
+    ...otherCandidateSongIds,
+  ];
+
   /// Whether the entry was recorded from the path alone, not from tags.
   bool get recordedFromPath => metadataSource == MetadataSource.fallback;
 
@@ -67,6 +97,8 @@ class PendingPossibleRecording {
       metadataFallbackPath: metadataFallbackPath,
       sourceId: sourceId,
       metadataSource: metadataSource,
+      kind: kind,
+      otherCandidateSongIds: otherCandidateSongIds,
     );
   }
 
@@ -84,6 +116,9 @@ class PendingPossibleRecording {
     'metadataFallbackPath': metadataFallbackPath,
     'sourceId': sourceId,
     if (metadataSource case final source?) 'metadataSource': source.name,
+    'kind': kind.name,
+    if (otherCandidateSongIds.isNotEmpty)
+      'otherCandidateSongIds': otherCandidateSongIds,
   };
 
   /// Null when [json] is not a complete entry.
@@ -137,6 +172,16 @@ class PendingPossibleRecording {
       metadataSource: MetadataSource.values
           .where((source) => source.name == json['metadataSource'])
           .firstOrNull,
+      // Entries saved before App Update 1.2 were all of the first kind.
+      kind:
+          PendingFileReviewKind.values
+              .where((kind) => kind.name == json['kind'])
+              .firstOrNull ??
+          PendingFileReviewKind.possibleDifferentRecording,
+      otherCandidateSongIds: [
+        for (final id in json['otherCandidateSongIds'] as List? ?? const [])
+          if (id is String && id.isNotEmpty) id,
+      ],
     );
   }
 }

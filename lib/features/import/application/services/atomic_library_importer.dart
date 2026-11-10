@@ -310,13 +310,18 @@ class AtomicLibraryImporter {
             separateSong != null &&
             separateEdition != null &&
             separateSong.id == separateFrom &&
-            await _isPossibleAlternate(
-              song: separateSong,
-              edition: separateEdition,
-              metadata: metadata,
-              albumEditionTrackRepository: albumEditionTrackRepository,
-              bindingRepository: bindingRepository,
-            )) {
+            (await _isPossibleAlternate(
+                  song: separateSong,
+                  edition: separateEdition,
+                  metadata: metadata,
+                  albumEditionTrackRepository: albumEditionTrackRepository,
+                  bindingRepository: bindingRepository,
+                ) ||
+                // BUG-09: the user said a possible replacement of a song
+                // whose file is missing is a different song after all.
+                !(await bindingRepository.getBySongId(separateSong.id)).any(
+                  (binding) => ImportScanSnapshot.isLive(binding, scan),
+                ))) {
           match = LibraryIdentityMatch(
             artist: match.artist,
             albumArtist: match.albumArtist,
@@ -892,6 +897,20 @@ class AtomicLibraryImporter {
               message:
                   'Multiple unavailable file bindings exist for this song.',
             ),
+          );
+        }
+
+        if (unavailableBindings.length == 1 && !relinkOnly) {
+          // App Update 1.2, BUG-09: this file matches a song whose own file
+          // is gone only by its tags (title, artist, album, length, track).
+          // That is not proof it is the same audio, so it is not relinked
+          // automatically: it waits in Import Review. A file proven by its
+          // audio was relinked before the import (FileIdentityService).
+          return ImportResult(
+            status: ImportResultStatus.skipped,
+            filePath: candidate.filePath,
+            songId: song.id,
+            skipReason: ImportSkipReason.awaitingFileReview,
           );
         }
 

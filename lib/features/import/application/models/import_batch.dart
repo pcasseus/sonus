@@ -55,6 +55,16 @@ class ImportBatch {
       )
       .length;
 
+  /// Skipped files that may be an existing song's file, waiting in Import
+  /// Review (BUG-09). They are also counted in [skippedCount].
+  int get awaitingFileReviewCount => items
+      .where(
+        (item) =>
+            item.status == ImportBatchItemStatus.skipped &&
+            item.result?.skipReason == ImportSkipReason.awaitingFileReview,
+      )
+      .length;
+
   int get failedCount =>
       items.where((item) => item.status == ImportBatchItemStatus.failed).length;
 

@@ -492,7 +492,8 @@ void main() {
       expect(bindingsAfter.single.sourceId, isNull);
     },
   );
-  test('moved file relinks without changing permanent song identity', () async {
+  test('BUG-09: a moved file known only by its tags waits for review, '
+      'keeping the song as it was', () async {
     final service = await buildService(
       primaryReader: CallbackAudioMetadataReader((_) async => metadata()),
       fallbackReader: CallbackAudioMetadataReader(
@@ -528,18 +529,18 @@ void main() {
       now: now.add(const Duration(minutes: 2)),
     );
 
-    expect(moved.status, ImportResultStatus.relinked);
+    expect(moved.status, ImportResultStatus.skipped);
+    expect(moved.skipReason, ImportSkipReason.awaitingFileReview);
     expect(moved.songId, songId);
 
     final updatedBindings = await MediaFileBindingDao(db).findBySongId(songId);
 
     expect(updatedBindings, hasLength(1));
     expect(updatedBindings.single.id, originalBinding.id);
-    expect(updatedBindings.single.songId, songId);
-    expect(updatedBindings.single.isAvailable, isTrue);
+    expect(updatedBindings.single.isAvailable, isFalse);
     expect(
       updatedBindings.single.normalizedPath,
-      'd:/reorganized music/artist name/album name/01 song name.mp3',
+      originalBinding.normalizedPath,
     );
   });
 }

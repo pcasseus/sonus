@@ -44,6 +44,15 @@ class ImportBatchExecutor implements ImportBatchRunner {
       for (final item in currentBatch.items) item.candidate,
     ], scan: currentBatch.scan);
 
+    // BUG-09: files already in the library, renamed, moved, rewritten or
+    // retagged, are recognised by their audio first.
+    final identityPlan = await libraryImportService.planIdentities(
+      [for (final item in currentBatch.items) item.candidate],
+      prepared: prepared,
+      scan: currentBatch.scan,
+      now: executionStartedAt,
+    );
+
     for (var index = 0; index < currentBatch.items.length; index++) {
       final currentItem = currentBatch.items[index];
 
@@ -55,6 +64,7 @@ class ImportBatchExecutor implements ImportBatchRunner {
               currentItem.candidate.filePath,
             )],
         scan: currentBatch.scan,
+        identityPlan: identityPlan,
       );
 
       final updatedItems = List<ImportBatchItem>.of(currentBatch.items);

@@ -8,6 +8,9 @@ abstract interface class AudioByteSource {
   /// The file's size in bytes.
   Future<int> length();
 
+  /// When the file last changed, if the system says.
+  Future<DateTime?> modifiedAt();
+
   /// Up to [count] bytes from [offset]; fewer only at the end of the file.
   Future<Uint8List> read(int offset, int count);
 

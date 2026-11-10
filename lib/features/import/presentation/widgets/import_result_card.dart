@@ -65,6 +65,12 @@ class ImportResultCard extends StatelessWidget {
             label: 'Possible different recordings (not imported)',
             value: summary.possibleAlternateRecordingCount,
           ),
+        if (summary.awaitingFileReviewCount > 0)
+          _ResultRow(
+            key: const ValueKey<String>('import-awaiting-file-review-row'),
+            label: 'Possible replaced files (waiting in Import Review)',
+            value: summary.awaitingFileReviewCount,
+          ),
         _ResultRow(label: 'Failed', value: summary.failedCount),
         if (reviewCount > 0)
           _ResultRow(label: 'Needs review', value: reviewCount),

@@ -13,6 +13,7 @@ import '../../../artwork/application/services/artwork_assignment_service.dart';
 import '../../../artwork/application/services/artwork_file_picker.dart';
 
 import '../../../library/application/services/album_profile_editing_service.dart';
+import '../../../library/domain/entities/song.dart';
 import '../../../library/presentation/widgets/album_profile_edit_dialog.dart';
 import '../../../library/presentation/models/track_profile_edit_draft.dart';
 import '../../../library/presentation/widgets/track_profile_edit_dialog.dart';
@@ -348,29 +349,42 @@ class _ImportReviewPageState extends State<ImportReviewPage> {
                   ),
                 ],
               ],
-              if (possibleRecordings.isNotEmpty) ...[
-                if (item != null) const SizedBox(height: 28),
-                _PossibleRecordingsSection(
-                  items: possibleRecordings,
-                  isBusy: _controller.isBusy,
-                  onImportSeparately: (entry) {
-                    unawaited(_importRecordingSeparately(entry));
-                  },
-                  onSameRecording: (entry) {
-                    unawaited(_keepAsSameRecording(entry));
-                  },
-                  onNotNow: (entry) {
-                    _controller.deferRecording(entry);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text(
-                          'Left for later. It stays in Import Review.',
+              for (final kind in PendingFileReviewKind.values)
+                if (possibleRecordings.any((i) => i.entry.kind == kind)) ...[
+                  if (item != null ||
+                      kind != PendingFileReviewKind.values.first)
+                    const SizedBox(height: 28),
+                  _PossibleRecordingsSection(
+                    kind: kind,
+                    items: [
+                      for (final i in possibleRecordings)
+                        if (i.entry.kind == kind) i,
+                    ],
+                    isBusy: _controller.isBusy,
+                    onImportSeparately: (entry) {
+                      unawaited(_importRecordingSeparately(entry));
+                    },
+                    onSameRecording: (entry) {
+                      unawaited(_keepAsSameRecording(entry));
+                    },
+                    onUseForSong: (entry, songId) {
+                      unawaited(_useFileForSong(entry, songId));
+                    },
+                    onKeepChangedAudio: (entry) {
+                      unawaited(_keepChangedAudio(entry));
+                    },
+                    onNotNow: (entry) {
+                      _controller.deferRecording(entry);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'Left for later. It stays in Import Review.',
+                          ),
                         ),
-                      ),
-                    );
-                  },
-                ),
-              ],
+                      );
+                    },
+                  ),
+                ],
             ],
           );
         },
@@ -411,6 +425,12 @@ class _ImportReviewPageState extends State<ImportReviewPage> {
         'The matching song is no longer in your library, so this file was '
             'removed from the list. Use Scan for changes in Imports to import '
             'it.',
+      PossibleRecordingOutcome.usedForSong ||
+      PossibleRecordingOutcome.audioKept ||
+      PossibleRecordingOutcome.songHasFile ||
+      PossibleRecordingOutcome.deletedRecording => _fileDecisionMessage(
+        result!.outcome,
+      ),
       PossibleRecordingOutcome.failed ||
       null => 'Could not import this file. It stays in this list.',
     };
@@ -419,6 +439,52 @@ class _ImportReviewPageState extends State<ImportReviewPage> {
       context,
     ).showSnackBar(SnackBar(content: Text(message)));
   }
+
+  Future<void> _useFileForSong(
+    PendingPossibleRecording entry,
+    String songId,
+  ) async {
+    final result = await _controller.useFileForSong(entry, songId);
+    if (!mounted) return;
+    _showFileDecision(result?.outcome);
+  }
+
+  Future<void> _keepChangedAudio(PendingPossibleRecording entry) async {
+    final result = await _controller.keepChangedAudio(entry);
+    if (!mounted) return;
+    _showFileDecision(result?.outcome);
+  }
+
+  void _showFileDecision(PossibleRecordingOutcome? outcome) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(_fileDecisionMessage(outcome))));
+  }
+
+  /// BUG-09: what came of a decision on a replaced file or changed audio.
+  static String _fileDecisionMessage(PossibleRecordingOutcome? outcome) =>
+      switch (outcome) {
+        PossibleRecordingOutcome.usedForSong =>
+          'The song now plays this file. Its history, playlists and charts '
+              'are unchanged.',
+        PossibleRecordingOutcome.audioKept => 'Kept as the same song.',
+        PossibleRecordingOutcome.songHasFile =>
+          'That song already plays another file, so nothing changed.',
+        PossibleRecordingOutcome.deletedRecording =>
+          'You permanently deleted this recording, so it was not added back.',
+        PossibleRecordingOutcome.fileUnavailable =>
+          'This file could not be found, so it was removed from the review '
+              'list. Nothing changed.',
+        PossibleRecordingOutcome.permissionLost =>
+          "Sonus can't read this folder any more. Reconnect it in Imports.",
+        PossibleRecordingOutcome.candidateMissing =>
+          'That song is no longer in your library, so this file was removed '
+              'from the list.',
+        PossibleRecordingOutcome.alreadyImported =>
+          'This file is no longer the one in your library, so it was removed '
+              'from the list.',
+        _ => 'Could not check this file. It stays in this list. Try again.',
+      };
 
   Future<void> _keepAsSameRecording(PendingPossibleRecording entry) async {
     final saved = await _controller.keepAsSameRecording(entry);
@@ -736,17 +802,24 @@ class _ReviewNavigation extends StatelessWidget {
 /// of a song already in it, each with the user's three choices.
 class _PossibleRecordingsSection extends StatelessWidget {
   const _PossibleRecordingsSection({
+    required this.kind,
     required this.items,
     required this.isBusy,
     required this.onImportSeparately,
     required this.onSameRecording,
+    required this.onUseForSong,
+    required this.onKeepChangedAudio,
     required this.onNotNow,
   });
 
+  final PendingFileReviewKind kind;
   final List<PossibleRecordingItem> items;
   final bool isBusy;
   final ValueChanged<PendingPossibleRecording> onImportSeparately;
   final ValueChanged<PendingPossibleRecording> onSameRecording;
+  final void Function(PendingPossibleRecording entry, String songId)
+  onUseForSong;
+  final ValueChanged<PendingPossibleRecording> onKeepChangedAudio;
   final ValueChanged<PendingPossibleRecording> onNotNow;
 
   @override
@@ -754,19 +827,43 @@ class _PossibleRecordingsSection extends StatelessWidget {
     final textTheme = Theme.of(context).textTheme;
     final secondary = SonusTheme.of(context).colors.textSecondary;
 
+    final (key, title, description) = switch (kind) {
+      PendingFileReviewKind.possibleDifferentRecording => (
+        'import-review-possible-recordings',
+        'Possible different recordings',
+        'These files share a title with a song in your library but are at '
+            "a different track position, so they weren't imported. Choose "
+            'what each one is.',
+      ),
+      PendingFileReviewKind.possibleReplacedFile => (
+        'import-review-replaced-files',
+        'Possible replaced files',
+        'These files appeared where songs in your library used to be, but '
+            "Sonus couldn't prove they're the same audio. Choose what each "
+            'one is.',
+      ),
+      PendingFileReviewKind.audioChanged => (
+        'import-review-changed-audio',
+        'Changed audio',
+        'The music in these files changed since they were imported. Each '
+            'still plays its song until you decide.',
+      ),
+    };
+
     return Column(
-      key: const ValueKey<String>('import-review-possible-recordings'),
+      key: ValueKey<String>(key),
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(
-          'Possible different recordings',
-          style: textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+        Semantics(
+          header: true,
+          child: Text(
+            title,
+            style: textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
+          ),
         ),
         const SizedBox(height: 8),
         Text(
-          'These files share a title with a song in your library but are at '
-          "a different track position, so they weren't imported. Choose what "
-          'each one is.',
+          description,
           style: textTheme.bodyLarge?.copyWith(color: secondary),
         ),
         for (final item in items) ...[
@@ -776,6 +873,8 @@ class _PossibleRecordingsSection extends StatelessWidget {
             isBusy: isBusy,
             onImportSeparately: () => onImportSeparately(item.entry),
             onSameRecording: () => onSameRecording(item.entry),
+            onUseForSong: (songId) => onUseForSong(item.entry, songId),
+            onKeepChangedAudio: () => onKeepChangedAudio(item.entry),
             onNotNow: () => onNotNow(item.entry),
           ),
         ],
@@ -790,6 +889,8 @@ class _PossibleRecordingCard extends StatelessWidget {
     required this.isBusy,
     required this.onImportSeparately,
     required this.onSameRecording,
+    required this.onUseForSong,
+    required this.onKeepChangedAudio,
     required this.onNotNow,
   });
 
@@ -797,6 +898,8 @@ class _PossibleRecordingCard extends StatelessWidget {
   final bool isBusy;
   final VoidCallback onImportSeparately;
   final VoidCallback onSameRecording;
+  final ValueChanged<String> onUseForSong;
+  final VoidCallback onKeepChangedAudio;
   final VoidCallback onNotNow;
 
   @override
@@ -806,6 +909,7 @@ class _PossibleRecordingCard extends StatelessWidget {
     final entry = item.entry;
     final candidate = item.candidate;
     final key = entry.normalizedPath;
+    final fileName = entry.displayPath.split('/').last;
 
     return SonusSurfaceCard(
       key: ValueKey<String>('possible-recording-$key'),
@@ -814,14 +918,19 @@ class _PossibleRecordingCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            entry.title,
+            entry.title.isEmpty ? fileName : entry.title,
             style: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
           ),
-          const SizedBox(height: 4),
-          Text(
-            '${entry.artistName} · ${entry.albumTitle}',
-            style: textTheme.bodyLarge,
-          ),
+          if (entry.artistName.isNotEmpty || entry.albumTitle.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(
+              [
+                entry.artistName,
+                entry.albumTitle,
+              ].where((part) => part.isNotEmpty).join(' · '),
+              style: textTheme.bodyLarge,
+            ),
+          ],
           const SizedBox(height: 2),
           Text(
             _position(
@@ -837,39 +946,137 @@ class _PossibleRecordingCard extends StatelessWidget {
             style: textTheme.bodySmall?.copyWith(color: secondary),
           ),
           const SizedBox(height: 12),
-          Text(
-            candidate == null
-                ? 'The matching song is no longer in your library.'
-                : 'May be the same as "${candidate.title}" '
-                      '(${_position(candidate.discNumber, candidate.trackNumber, candidate.durationSeconds)})',
-            style: textTheme.bodyMedium,
-          ),
-          const SizedBox(height: 16),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              FilledButton(
-                key: ValueKey<String>('possible-recording-import-$key'),
-                onPressed: isBusy ? null : onImportSeparately,
-                child: const Text('Import separately'),
-              ),
-              OutlinedButton(
-                key: ValueKey<String>('possible-recording-same-$key'),
-                onPressed: isBusy ? null : onSameRecording,
-                child: const Text('Same recording'),
-              ),
-              TextButton(
-                key: ValueKey<String>('possible-recording-later-$key'),
-                onPressed: isBusy ? null : onNotNow,
-                child: const Text('Not now'),
-              ),
-            ],
-          ),
+          ...switch (entry.kind) {
+            PendingFileReviewKind.possibleDifferentRecording => _different(
+              textTheme,
+              candidate,
+              key,
+            ),
+            PendingFileReviewKind.possibleReplacedFile => _replaced(
+              textTheme,
+              fileName,
+              key,
+            ),
+            PendingFileReviewKind.audioChanged => _changed(
+              textTheme,
+              fileName,
+              candidate,
+              key,
+            ),
+          },
         ],
       ),
     );
   }
+
+  List<Widget> _different(TextTheme textTheme, Song? candidate, String key) => [
+    Text(
+      candidate == null
+          ? 'The matching song is no longer in your library.'
+          : 'May be the same as "${candidate.title}" '
+                '(${_position(candidate.discNumber, candidate.trackNumber, candidate.durationSeconds)})',
+      style: textTheme.bodyMedium,
+    ),
+    const SizedBox(height: 16),
+    Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        FilledButton(
+          key: ValueKey<String>('possible-recording-import-$key'),
+          onPressed: isBusy ? null : onImportSeparately,
+          child: const Text('Import separately'),
+        ),
+        OutlinedButton(
+          key: ValueKey<String>('possible-recording-same-$key'),
+          onPressed: isBusy ? null : onSameRecording,
+          child: const Text('Same recording'),
+        ),
+        TextButton(
+          key: ValueKey<String>('possible-recording-later-$key'),
+          onPressed: isBusy ? null : onNotNow,
+          child: const Text('Not now'),
+        ),
+      ],
+    ),
+  ];
+
+  List<Widget> _replaced(TextTheme textTheme, String fileName, String key) {
+    final songs = item.candidates;
+    return [
+      Text(
+        songs.isEmpty
+            ? 'The matching song is no longer in your library.'
+            : songs.length == 1
+            ? "\u201c$fileName\u201d appeared where \u201c${songs.single.title}\u201d "
+                  "used to be. If it's the same song, Sonus will use the new "
+                  "file and keep the song's history, playlists and charts."
+            : "\u201c$fileName\u201d appeared where one of these songs used to be. "
+                  "If it's one of them, Sonus will use the new file and keep "
+                  "that song's history, playlists and charts.",
+        style: textTheme.bodyMedium,
+      ),
+      const SizedBox(height: 16),
+      Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          for (final song in songs)
+            FilledButton(
+              key: ValueKey<String>('replaced-file-use-$key-${song.id}'),
+              onPressed: isBusy ? null : () => onUseForSong(song.id),
+              child: Text(
+                songs.length == 1
+                    ? 'Same song \u2013 use this file'
+                    : 'Same as \u201c${song.title}\u201d',
+              ),
+            ),
+          OutlinedButton(
+            key: ValueKey<String>('replaced-file-separate-$key'),
+            onPressed: isBusy ? null : onImportSeparately,
+            child: const Text('Different song \u2013 add separately'),
+          ),
+          TextButton(
+            key: ValueKey<String>('possible-recording-later-$key'),
+            onPressed: isBusy ? null : onNotNow,
+            child: const Text('Decide later'),
+          ),
+        ],
+      ),
+    ];
+  }
+
+  List<Widget> _changed(
+    TextTheme textTheme,
+    String fileName,
+    Song? candidate,
+    String key,
+  ) => [
+    Text(
+      candidate == null
+          ? 'The matching song is no longer in your library.'
+          : 'The music in \u201c$fileName\u201d changed. It still plays '
+                '\u201c${candidate.title}\u201d.',
+      style: textTheme.bodyMedium,
+    ),
+    const SizedBox(height: 16),
+    Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        FilledButton(
+          key: ValueKey<String>('changed-audio-keep-$key'),
+          onPressed: isBusy || candidate == null ? null : onKeepChangedAudio,
+          child: const Text('Keep as this song'),
+        ),
+        TextButton(
+          key: ValueKey<String>('possible-recording-later-$key'),
+          onPressed: isBusy ? null : onNotNow,
+          child: const Text('Decide later'),
+        ),
+      ],
+    ),
+  ];
 
   static String _position(int disc, int track, int durationSeconds) {
     return [

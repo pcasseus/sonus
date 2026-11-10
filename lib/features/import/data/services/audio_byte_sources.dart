@@ -7,14 +7,15 @@ import '../../domain/services/audio_byte_source.dart';
 
 /// Reads a file on the device's file system in ranges, read-only.
 class FileAudioByteSource implements AudioByteSource {
-  FileAudioByteSource._(this._file);
+  FileAudioByteSource._(this._path, this._file);
 
+  final String _path;
   final RandomAccessFile _file;
 
   /// Null when the file cannot be opened for reading.
   static Future<AudioByteSource?> open(String path) async {
     try {
-      return FileAudioByteSource._(await File(path).open());
+      return FileAudioByteSource._(path, await File(path).open());
     } on FileSystemException {
       return null;
     }
@@ -22,6 +23,10 @@ class FileAudioByteSource implements AudioByteSource {
 
   @override
   Future<int> length() => _file.length();
+
+  @override
+  Future<DateTime?> modifiedAt() async =>
+      (await File(_path).lastModified()).toUtc();
 
   @override
   Future<Uint8List> read(int offset, int count) async {
@@ -42,16 +47,30 @@ class SafAudioByteSource implements AudioByteSource {
   final Saf _saf;
   final String _uri;
   int? _length;
+  DateTime? _modifiedAt;
 
-  @override
-  Future<int> length() async {
-    final known = _length;
-    if (known != null) return known;
+  Future<void> _stat() async {
     final stat = await _saf.stat(_uri);
     if (stat == null) {
       throw const FileSystemException('The document no longer exists.');
     }
-    return _length = stat.length;
+    _length = stat.length;
+    _modifiedAt = DateTime.fromMillisecondsSinceEpoch(
+      stat.lastModified,
+      isUtc: true,
+    );
+  }
+
+  @override
+  Future<int> length() async {
+    if (_length == null) await _stat();
+    return _length!;
+  }
+
+  @override
+  Future<DateTime?> modifiedAt() async {
+    if (_modifiedAt == null) await _stat();
+    return _modifiedAt;
   }
 
   @override

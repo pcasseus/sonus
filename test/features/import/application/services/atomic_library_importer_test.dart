@@ -573,68 +573,61 @@ void main() {
       expect(await SongImportReviewDao(db).countUnresolved(), 0);
     },
   );
-  test(
-    'relinks an existing song when its old binding is unavailable',
-    () async {
-      final firstResult = await importer.import(
-        candidate: candidate(),
-        metadata: metadata(),
-        now: now,
-      );
+  test('BUG-09: a file that matches a song whose file is missing only by its '
+      'tags waits for review; nothing is relinked or created', () async {
+    final firstResult = await importer.import(
+      candidate: candidate(),
+      metadata: metadata(),
+      now: now,
+    );
 
-      expect(firstResult.status, ImportResultStatus.imported);
+    expect(firstResult.status, ImportResultStatus.imported);
 
-      final originalSongId = firstResult.songId!;
-      final db = await appDatabase.database;
+    final originalSongId = firstResult.songId!;
+    final db = await appDatabase.database;
 
-      final bindings = await MediaFileBindingDao(
-        db,
-      ).findBySongId(originalSongId);
+    final bindings = await MediaFileBindingDao(db).findBySongId(originalSongId);
 
-      expect(bindings, hasLength(1));
+    expect(bindings, hasLength(1));
 
-      final originalBinding = bindings.single;
+    final originalBinding = bindings.single;
 
-      await MediaFileBindingDao(db).update(
-        originalBinding.copyWith(
-          isAvailable: false,
-          updatedAt: now.add(const Duration(minutes: 1)),
-        ),
-      );
+    await MediaFileBindingDao(db).update(
+      originalBinding.copyWith(
+        isAvailable: false,
+        updatedAt: now.add(const Duration(minutes: 1)),
+      ),
+    );
 
-      final movedCandidate = candidate(
-        filePath: r'C:\Moved Music\Artist Name\Album Name\01 Song Name.mp3',
-      );
+    final movedCandidate = candidate(
+      filePath: r'C:\Moved Music\Artist Name\Album Name\01 Song Name.mp3',
+    );
 
-      final result = await importer.import(
-        candidate: movedCandidate,
-        metadata: metadata(),
-        now: now.add(const Duration(minutes: 2)),
-      );
+    final result = await importer.import(
+      candidate: movedCandidate,
+      metadata: metadata(),
+      now: now.add(const Duration(minutes: 2)),
+    );
 
-      expect(result.status, ImportResultStatus.relinked);
-      expect(result.songId, originalSongId);
+    expect(result.status, ImportResultStatus.skipped);
+    expect(result.skipReason, ImportSkipReason.awaitingFileReview);
+    expect(result.songId, originalSongId);
 
-      final updatedBindings = await MediaFileBindingDao(
-        db,
-      ).findBySongId(originalSongId);
+    final updatedBindings = await MediaFileBindingDao(
+      db,
+    ).findBySongId(originalSongId);
 
-      expect(updatedBindings, hasLength(1));
-
-      final updatedBinding = updatedBindings.single;
-
-      expect(updatedBinding.id, originalBinding.id);
-
-      expect(updatedBinding.songId, originalSongId);
-
-      expect(
-        updatedBinding.normalizedPath,
-        'c:/moved music/artist name/album name/01 song name.mp3',
-      );
-
-      expect(updatedBinding.isAvailable, isTrue);
-    },
-  );
+    // The song's own link is untouched and no other song was made.
+    expect(updatedBindings, hasLength(1));
+    expect(updatedBindings.single.id, originalBinding.id);
+    expect(
+      updatedBindings.single.normalizedPath,
+      originalBinding.normalizedPath,
+    );
+    expect(updatedBindings.single.isAvailable, isFalse);
+    expect(await db.query(DatabaseTables.songs), hasLength(1));
+    expect(await db.query(DatabaseTables.mediaFileBindings), hasLength(1));
+  });
 
   test('reactivates unavailable binding discovered at the same path', () async {
     final firstResult = await importer.import(

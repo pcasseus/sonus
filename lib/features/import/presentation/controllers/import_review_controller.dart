@@ -234,6 +234,19 @@ class ImportReviewController extends ChangeNotifier {
     return result != null;
   }
 
+  /// BUG-09: the file is [songId]'s file; the song keeps its history.
+  Future<PossibleRecordingActionResult?> useFileForSong(
+    PendingPossibleRecording entry,
+    String songId,
+  ) => _handleRecording(
+    (service) => service.useFileForSong(entry, songId: songId),
+  );
+
+  /// BUG-09: the file's changed audio is still the same song.
+  Future<PossibleRecordingActionResult?> keepChangedAudio(
+    PendingPossibleRecording entry,
+  ) => _handleRecording((service) => service.keepChangedAudio(entry));
+
   /// Leaves the file for later; it stays listed for the next visit.
   void deferRecording(PendingPossibleRecording entry) {
     if (isBusy) return;

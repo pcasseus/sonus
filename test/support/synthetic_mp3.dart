@@ -159,6 +159,12 @@ class MemoryAudioByteSource implements AudioByteSource {
   @override
   Future<int> length() async => bytes.length;
 
+  /// Set by a test; when the file last changed.
+  DateTime? lastModified;
+
+  @override
+  Future<DateTime?> modifiedAt() async => lastModified;
+
   @override
   Future<Uint8List> read(int offset, int count) async {
     if (offset < 0 || offset > bytes.length) {

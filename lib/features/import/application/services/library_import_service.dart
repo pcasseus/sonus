@@ -1,6 +1,9 @@
+import 'dart:developer' as developer;
+
 import 'package:sonus_next/core/database/library_mutation_coordinator.dart';
 import 'package:sonus_next/core/identity/text_normalizer.dart';
 import 'package:sonus_next/features/import/application/services/atomic_library_importer.dart';
+import 'package:sonus_next/features/import/application/services/file_identity_service.dart';
 import 'package:sonus_next/features/import/application/services/lyrics_ingestion_service.dart';
 import 'package:sonus_next/features/import/application/services/metadata_resolver.dart';
 import 'package:sonus_next/features/import/application/folders/folder_album_planner.dart';
@@ -43,6 +46,7 @@ class LibraryImportService {
     this.mediaFileBindingRepository,
     this.lyricsIngestionService,
     this.possibleRecordingStore,
+    this.fileIdentityService,
   });
 
   final MetadataResolver metadataResolver;
@@ -52,6 +56,32 @@ class LibraryImportService {
 
   /// Where possible different recordings wait for the user's decision.
   final PossibleRecordingStore? possibleRecordingStore;
+
+  /// Recognises renamed, moved, rewritten and retagged files by their audio
+  /// (BUG-09). Without one, files are matched by location and tags only.
+  final FileIdentityService? fileIdentityService;
+
+  /// BUG-09: settles, before the batch imports, every file known by its
+  /// audio (see FileIdentityService). Never fails the batch: a file whose
+  /// check fails imports as before.
+  Future<FileIdentityPlan> planIdentities(
+    List<ImportCandidate> candidates, {
+    required Map<String, PreparedImport> prepared,
+    ImportScanSnapshot? scan,
+    DateTime? now,
+  }) async {
+    final service = fileIdentityService;
+    if (service == null) return FileIdentityPlan.empty;
+    return service.plan(
+      candidates,
+      scan: scan,
+      preparedMetadata: {
+        for (final MapEntry(:key, :value) in prepared.entries)
+          key: value.metadata,
+      },
+      now: now ?? DateTime.now(),
+    );
+  }
 
   /// SN-45 pre-pass: reads the tags of the batch's new files once and
   /// decides one album per folder (see FolderAlbumPlanner). Files already
@@ -141,10 +171,59 @@ class LibraryImportService {
     PreparedImport? prepared,
     String? separateFrom,
     ImportScanSnapshot? scan,
+    FileIdentityPlan identityPlan = FileIdentityPlan.empty,
   }) async {
     final timestamp = now ?? DateTime.now();
     final normalizedPath = TextNormalizer.normalizePath(candidate.filePath);
 
+    // Settled by its audio before the batch: relinked, a copy, a deleted
+    // recording, or waiting in Import Review.
+    final settled = identityPlan.results[normalizedPath];
+    if (settled != null) {
+      return _ingestLyrics(candidate, settled);
+    }
+
+    final result = await _importCandidate(
+      candidate,
+      timestamp: timestamp,
+      normalizedPath: normalizedPath,
+      prepared: prepared,
+      separateFrom: separateFrom,
+      scan: scan,
+    );
+
+    // The audio identity read for this file stays with its binding, so the
+    // file is recognised wherever it goes next.
+    final reading = identityPlan.readings[normalizedPath];
+    final service = fileIdentityService;
+    if (reading != null &&
+        service != null &&
+        (result.succeeded || result.skipReason == ImportSkipReason.knownFile)) {
+      try {
+        await service.keep(normalizedPath, reading);
+      } on LibraryMutationUnavailable {
+        rethrow;
+      } catch (error, stackTrace) {
+        developer.log(
+          'Audio identity could not be kept (${error.runtimeType})',
+          name: 'sonus.import.file_identity',
+          level: 900,
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }
+    }
+    return result;
+  }
+
+  Future<ImportResult> _importCandidate(
+    ImportCandidate candidate, {
+    required DateTime timestamp,
+    required String normalizedPath,
+    required PreparedImport? prepared,
+    required String? separateFrom,
+    required ImportScanSnapshot? scan,
+  }) async {
     final bindingRepository = mediaFileBindingRepository;
 
     // A restore rejection is an interruption, never an item failure: it
@@ -269,6 +348,23 @@ class LibraryImportService {
         return result;
       }
 
+      if (result.skipReason == ImportSkipReason.awaitingFileReview &&
+          songId != null) {
+        // BUG-09: matches a song whose file is gone by its tags alone.
+        await store.upsert(
+          _pending(
+            candidate,
+            normalizedPath: normalizedPath,
+            songId: songId,
+            metadata: metadata,
+            metadataSource: metadataSource,
+            timestamp: timestamp,
+            kind: PendingFileReviewKind.possibleReplacedFile,
+          ),
+        );
+        return result;
+      }
+
       if (result.skipReason != ImportSkipReason.possibleAlternateRecording ||
           songId == null) {
         return result;
@@ -288,20 +384,13 @@ class LibraryImportService {
       }
 
       await store.upsert(
-        PendingPossibleRecording(
+        _pending(
+          candidate,
           normalizedPath: normalizedPath,
-          filePath: candidate.filePath.trim(),
-          candidateSongId: songId,
-          title: metadata.title,
-          artistName: metadata.artistName,
-          albumTitle: metadata.albumTitle,
-          discNumber: metadata.discNumber,
-          trackNumber: metadata.trackNumber,
-          durationSeconds: metadata.durationSeconds,
-          firstSeenAt: timestamp.toUtc(),
-          metadataFallbackPath: candidate.metadataFallbackPath,
-          sourceId: candidate.sourceId,
+          songId: songId,
+          metadata: metadata,
           metadataSource: metadataSource,
+          timestamp: timestamp,
         ),
       );
     } catch (_) {
@@ -311,6 +400,32 @@ class LibraryImportService {
 
     return result;
   }
+
+  static PendingPossibleRecording _pending(
+    ImportCandidate candidate, {
+    required String normalizedPath,
+    required String songId,
+    required AudioMetadata metadata,
+    required MetadataSource metadataSource,
+    required DateTime timestamp,
+    PendingFileReviewKind kind =
+        PendingFileReviewKind.possibleDifferentRecording,
+  }) => PendingPossibleRecording(
+    normalizedPath: normalizedPath,
+    filePath: candidate.filePath.trim(),
+    candidateSongId: songId,
+    title: metadata.title,
+    artistName: metadata.artistName,
+    albumTitle: metadata.albumTitle,
+    discNumber: metadata.discNumber,
+    trackNumber: metadata.trackNumber,
+    durationSeconds: metadata.durationSeconds,
+    firstSeenAt: timestamp.toUtc(),
+    metadataFallbackPath: candidate.metadataFallbackPath,
+    sourceId: candidate.sourceId,
+    metadataSource: metadataSource,
+    kind: kind,
+  );
 
   Future<ImportResult> _ingestLyrics(
     ImportCandidate candidate,
@@ -331,7 +446,9 @@ class LibraryImportService {
         // recording that was kept out of the library.
         result.skipReason == ImportSkipReason.duplicateRecording ||
         result.skipReason == ImportSkipReason.sharedWithEdition ||
-        result.skipReason == ImportSkipReason.possibleAlternateRecording) {
+        result.skipReason == ImportSkipReason.possibleAlternateRecording ||
+        result.skipReason == ImportSkipReason.awaitingFileReview ||
+        result.skipReason == ImportSkipReason.deletedFromLibrary) {
       return result;
     }
 
