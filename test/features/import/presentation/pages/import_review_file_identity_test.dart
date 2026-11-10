@@ -274,7 +274,7 @@ void main() {
       ),
       findsOneWidget,
     );
-    await tapVisible(tester, find.text('Keep as this song'));
+    await tapVisible(tester, find.text('Keep this recording as the same song'));
     expect(fake.kept, [changedPath]);
     expect(find.text('Kept as the same song.'), findsOneWidget);
   });

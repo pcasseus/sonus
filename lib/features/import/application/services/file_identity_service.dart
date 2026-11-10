@@ -396,8 +396,12 @@ class FileIdentityService {
       return;
     }
 
-    // R3: the audio changed, or can no longer be read. Nothing is written;
-    // the user decides.
+    // Audio that can no longer be read with confidence is not a verified
+    // change: the song keeps the file as it was known, and nothing is said.
+    if (identity == null) return;
+
+    // R3: the audio itself changed, verified from its bytes. Nothing is
+    // written; the user decides.
     await _queue(
       candidate,
       kind: PendingFileReviewKind.audioChanged,

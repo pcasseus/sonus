@@ -163,7 +163,7 @@ void main() {
     );
     expect(find.text('Import separately'), findsOneWidget);
     expect(find.text('Same recording'), findsOneWidget);
-    expect(find.text('Not now'), findsOneWidget);
+    expect(find.text('Decide later'), findsOneWidget);
     expect(
       find.byKey(const ValueKey<String>('import-review-complete')),
       findsNothing,
@@ -249,7 +249,7 @@ void main() {
     expect(find.byKey(sameKey), findsNothing);
   });
 
-  testWidgets('Not now leaves the file for later without a decision', (
+  testWidgets('Decide later leaves the file for later without a decision', (
     tester,
   ) async {
     final fake = await pumpPage(tester);

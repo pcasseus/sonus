@@ -995,7 +995,7 @@ class _PossibleRecordingCard extends StatelessWidget {
         TextButton(
           key: ValueKey<String>('possible-recording-later-$key'),
           onPressed: isBusy ? null : onNotNow,
-          child: const Text('Not now'),
+          child: const Text('Decide later'),
         ),
       ],
     ),
@@ -1067,7 +1067,7 @@ class _PossibleRecordingCard extends StatelessWidget {
         FilledButton(
           key: ValueKey<String>('changed-audio-keep-$key'),
           onPressed: isBusy || candidate == null ? null : onKeepChangedAudio,
-          child: const Text('Keep as this song'),
+          child: const Text('Keep this recording as the same song'),
         ),
         TextButton(
           key: ValueKey<String>('possible-recording-later-$key'),

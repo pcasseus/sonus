@@ -551,6 +551,23 @@ void main() {
       );
     });
 
+    test('a known file whose audio can no longer be read with confidence is '
+        'not reported as changed audio', () async {
+      final songId = await importOne();
+      final before = await bindingOf(songId);
+      File(p.join(album.path, 'ill show you.mp3'))
+        ..writeAsBytesSync(List<int>.filled(4000, 7))
+        ..setLastModifiedSync(base.add(const Duration(days: 1)));
+
+      await scan();
+
+      expect(await store.getPending(), isEmpty);
+      expect(
+        (await bindingOf(songId))['audio_full_hash'],
+        before['audio_full_hash'],
+      );
+    });
+
     test('a known file that cannot be read now is left as it is', () async {
       final songId = await importOne();
       final before = await bindingOf(songId);

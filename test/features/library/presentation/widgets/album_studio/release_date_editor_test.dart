@@ -199,6 +199,19 @@ void main() {
     expect((result! as ReleaseDateSet).date, ReleaseDate.of(2019));
   });
 
+  testWidgets('going from a month to a year says the month is removed', (
+    tester,
+  ) async {
+    await open(tester, ReleaseDate.of(2019, 3));
+    await chooseReleaseDateMonth(tester, null);
+    await tapSave(tester);
+
+    expect(
+      find.text('The saved date is March 2019. Saving 2019 removes the month.'),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('Remove date clears it; Cancel returns nothing', (tester) async {
     await open(tester, ReleaseDate.of(2019, 3));
     await tester.tap(find.byKey(const ValueKey('release-date-remove')));
