@@ -1808,6 +1808,8 @@ class _StudioTrackRow extends StatelessWidget {
         ? 'Disc ${track.discNumber} • Track ${track.trackNumber}'
         : 'Track ${track.trackNumber}';
     final details = [
+      // BUG-09: a member whose file is gone is listed, and says so.
+      if (!track.hasAvailableFile) 'File unavailable',
       if (isBonus) 'Bonus track',
       _formatDuration(track.durationSeconds),
       if (track.releaseCreditLine.isNotEmpty) track.releaseCreditLine,

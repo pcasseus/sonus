@@ -432,6 +432,12 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
                   child: _TracksSection(
                     profile: profile,
                     count: controller.tracks.where(_hasAvailableMedia).length,
+                    unavailableCount: controller.tracks
+                        .where((track) => !_hasAvailableMedia(track))
+                        .length,
+                    onReviewUnavailable: controller.canEditAlbumStudio(userId)
+                        ? () => _openAlbumStudio(controller, userId)
+                        : null,
                     child: _TracksList(
                       controller: controller,
                       selection: _selection,
@@ -1048,11 +1054,7 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
   }
 }
 
-bool _hasAvailableMedia(LibraryTrack track) {
-  return track.isAvailable &&
-      track.filePath != null &&
-      track.filePath!.trim().isNotEmpty;
-}
+bool _hasAvailableMedia(LibraryTrack track) => track.hasAvailableFile;
 
 /// Artwork, title, artist, edition and release details, on a background
 /// that flows from the artwork's tint into the page.
@@ -1760,11 +1762,22 @@ class _TracksSection extends StatelessWidget {
   const _TracksSection({
     required this.profile,
     required this.count,
+    this.unavailableCount = 0,
+    this.onReviewUnavailable,
     required this.child,
   });
 
   final SonusProfileColors profile;
   final int count;
+
+  /// Songs on this edition whose file is unavailable, which the list does
+  /// not show (BUG-09): said in words so the gap is never silent.
+  final int unavailableCount;
+
+  /// Opens Edit Release, where those songs are listed; null when the user
+  /// cannot edit the release.
+  final VoidCallback? onReviewUnavailable;
+
   final Widget child;
 
   @override
@@ -1828,6 +1841,11 @@ class _TracksSection extends StatelessWidget {
                 ],
               ),
             ),
+            if (unavailableCount > 0)
+              _UnavailableTracksNotice(
+                count: unavailableCount,
+                onReview: onReviewUnavailable,
+              ),
             const SizedBox(height: 6),
             child,
           ],
@@ -1836,6 +1854,52 @@ class _TracksSection extends StatelessWidget {
     );
   }
 }
+
+/// "2 tracks aren't shown because their files are unavailable." (BUG-09)
+class _UnavailableTracksNotice extends StatelessWidget {
+  const _UnavailableTracksNotice({required this.count, this.onReview});
+
+  final int count;
+  final VoidCallback? onReview;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = SonusTheme.of(context).colors;
+    final theme = Theme.of(context);
+
+    return Padding(
+      key: const ValueKey<String>('album-profile-unavailable-notice'),
+      padding: const EdgeInsets.fromLTRB(26, 6, 16, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            unavailableTracksNotice(count),
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: colors.textSecondary,
+            ),
+          ),
+          if (onReview != null)
+            TextButton(
+              key: const ValueKey<String>('album-profile-review-unavailable'),
+              style: TextButton.styleFrom(
+                minimumSize: const Size(44, 44),
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+              ),
+              onPressed: onReview,
+              child: const Text('Review in Edit Release'),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The notice for [count] songs whose files are unavailable.
+@visibleForTesting
+String unavailableTracksNotice(int count) => count == 1
+    ? "1 track isn't shown because its file is unavailable."
+    : "$count tracks aren't shown because their files are unavailable.";
 
 class _TracksList extends StatelessWidget {
   const _TracksList({
@@ -1873,12 +1937,7 @@ class _TracksList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tracks = controller.tracks
-        .where(
-          (track) =>
-              track.isAvailable &&
-              track.filePath != null &&
-              track.filePath!.trim().isNotEmpty,
-        )
+        .where(_hasAvailableMedia)
         .toList(growable: false);
 
     if (tracks.isEmpty) {

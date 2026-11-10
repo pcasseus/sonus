@@ -509,13 +509,124 @@ void main() {
       await tester.pumpWidget(buildSubject(repository: repository));
       await tester.pumpAndSettle();
 
+      // App Update 1.2 BUG-09 (supersedes the SN-35 silent gap): the hidden
+      // song is said in words; without editing rights there is no action.
       expect(
-        find.byKey(const ValueKey<String>('album-profile-availability-notice')),
+        find.text("1 track isn't shown because its file is unavailable."),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey<String>('album-profile-review-unavailable')),
         findsNothing,
       );
 
-      expect(find.textContaining('1 track'), findsWidgets);
+      expect(find.textContaining('1 track •'), findsWidgets);
       expect(find.textContaining('2 tracks'), findsNothing);
+    });
+
+    testWidgets('BUG-09: no notice when every track has its file', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        buildSubject(
+          repository: FakeLibraryQueryRepository(
+            album: createAlbum(),
+            tracks: [
+              createTrack(songId: 'a'),
+              createTrack(songId: 'b'),
+            ],
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey<String>('album-profile-unavailable-notice')),
+        findsNothing,
+      );
+    });
+
+    testWidgets('BUG-09: hidden tracks lead to Edit Release, which lists and '
+        'marks them', (tester) async {
+      LibraryTrack track(String id, String title, {bool available = true}) =>
+          createTrack(
+            songId: id,
+            title: title,
+            albumEditionId: 'edition-standard',
+            albumEditionTitle: 'Standard',
+            filePath: available ? '/music/$id.mp3' : '',
+            isAvailable: available,
+          );
+      final repository = FakeEditionAwareLibraryQueryRepository(
+        album: createAlbum(
+          primaryEditionId: 'edition-standard',
+          primaryEditionTitle: 'Standard',
+        ),
+        editions: [
+          createLibraryEdition(
+            editionId: 'edition-standard',
+            title: 'Standard',
+            type: AlbumEditionType.standard,
+            isPrimary: true,
+          ),
+        ],
+        editionTracks: {
+          'edition-standard': [
+            track('here', 'Here'),
+            track('gone-1', 'Gone One', available: false),
+            track('gone-2', 'Gone Two', available: false),
+          ],
+        },
+      );
+
+      await tester.pumpWidget(
+        buildSubject(
+          repository: repository,
+          albumEditionTrackOrderingService:
+              FakeAlbumEditionTrackOrderingService(),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text("2 tracks aren't shown because their files are unavailable."),
+        findsOneWidget,
+      );
+      expect(find.text('Gone One'), findsNothing);
+
+      final review = find.byKey(
+        const ValueKey<String>('album-profile-review-unavailable'),
+      );
+      await tester.ensureVisible(review);
+      await tester.pumpAndSettle();
+      await tester.tap(review);
+      await tester.pumpAndSettle();
+      await openStudioSection(tester, 'tracklist');
+
+      for (final id in ['gone-1', 'gone-2']) {
+        final row = find.byKey(ValueKey<String>('album-studio-track-$id'));
+        await tester.ensureVisible(row);
+        await tester.pumpAndSettle();
+        expect(
+          find.descendant(
+            of: row,
+            matching: find.textContaining('File unavailable'),
+          ),
+          findsOneWidget,
+        );
+      }
+      final here = find.byKey(
+        const ValueKey<String>('album-studio-track-here'),
+      );
+      await tester.ensureVisible(here);
+      await tester.pumpAndSettle();
+      expect(
+        find.descendant(
+          of: here,
+          matching: find.textContaining('File unavailable'),
+        ),
+        findsNothing,
+      );
     });
 
     testWidgets('SN-50 C-Q10A: long-press selects tracks; Back leaves', (
