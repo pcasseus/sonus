@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 
 import 'package:flutter/material.dart';
 
@@ -21,12 +22,20 @@ import 'permanent_deletion_sheet.dart';
 ///
 /// Music files on the device are never deleted: Sonus only forgets them.
 class BatchSongDeletion {
-  BatchSongDeletion({required this.preview, required this.delete});
+  BatchSongDeletion({
+    required this.preview,
+    required this.delete,
+    this.reportFailure = logBatchDeletionFailure,
+  });
 
   final Future<PermanentDeletionImpact> Function(PermanentDeletionTarget)
   preview;
   final Future<PermanentDeletionImpact> Function(PermanentDeletionImpact)
   delete;
+
+  /// Where an unexpected error is recorded before the batch stops. The
+  /// outcome the listener sees does not depend on it.
+  final BatchDeletionFailureReporter reportFailure;
 
   Future<BatchSongDeletionPlan> plan(Iterable<String> songIds) async {
     final impacts = <PermanentDeletionImpact>[];
@@ -57,11 +66,18 @@ class BatchSongDeletion {
           stopped: reason,
         );
 
-    for (final confirmed in plan.impacts) {
+    for (final (index, confirmed) in plan.impacts.indexed) {
+      final position = (index: index, of: songIds.length);
       final PermanentDeletionImpact current;
       try {
         current = await preview(confirmed.target);
-      } catch (_) {
+      } catch (error, stackTrace) {
+        reportFailure(
+          BatchDeletionStep.recheck,
+          error,
+          stackTrace,
+          position: position,
+        );
         return stop(BatchSongDeletionStop.failed);
       }
       if (!current.canProceed) return stop(BatchSongDeletionStop.blocked);
@@ -74,11 +90,17 @@ class BatchSongDeletion {
         return stop(BatchSongDeletionStop.changed);
       } on DeletionBlocked {
         return stop(BatchSongDeletionStop.blocked);
-      } catch (_) {
+      } catch (error, stackTrace) {
+        reportFailure(
+          BatchDeletionStep.delete,
+          error,
+          stackTrace,
+          position: position,
+        );
         // The deletion commits first and then takes the song off the play
         // queue; an error after the commit must not hide a deletion that
         // happened. Whether the song is gone decides how it is counted.
-        if (await _isGone(confirmed.target)) {
+        if (await _isGone(confirmed.target, position)) {
           deleted.add(confirmed.target.id);
         }
         return stop(BatchSongDeletionStop.failed);
@@ -91,11 +113,21 @@ class BatchSongDeletion {
     );
   }
 
-  Future<bool> _isGone(PermanentDeletionTarget target) async {
+  Future<bool> _isGone(
+    PermanentDeletionTarget target,
+    BatchDeletionPosition position,
+  ) async {
     try {
       final now = await preview(target);
       return now.blockers.contains(PermanentDeletionBlocker.notFound);
-    } catch (_) {
+    } catch (error, stackTrace) {
+      // Not known to be gone, so it is counted as kept, as before.
+      reportFailure(
+        BatchDeletionStep.confirmGone,
+        error,
+        stackTrace,
+        position: position,
+      );
       return false;
     }
   }
@@ -106,6 +138,61 @@ class BatchSongDeletion {
     PermanentDeletionImpact a,
     PermanentDeletionImpact b,
   ) => a.songIds.length == b.songIds.length && a.songIds.containsAll(b.songIds);
+}
+
+/// Which part of a batch deletion an unexpected error interrupted.
+enum BatchDeletionStep {
+  /// Previewing the selected songs before the listener confirms.
+  plan,
+
+  /// Checking a song again just before deleting it.
+  recheck,
+
+  /// Deleting a song.
+  delete,
+
+  /// Checking whether a song whose deletion failed was deleted anyway.
+  confirmGone,
+}
+
+/// A song's place in the batch (0-based [index] of [of] songs).
+typedef BatchDeletionPosition = ({int index, int of});
+
+typedef BatchDeletionFailureReporter =
+    void Function(
+      BatchDeletionStep step,
+      Object error,
+      StackTrace stackTrace, {
+      BatchDeletionPosition? position,
+    });
+
+/// Records an unexpected batch-deletion error for diagnosis: the step, the
+/// song's place in the batch and the error's type, with the stack trace.
+/// Never the error's message, which can carry song titles, file paths or
+/// query values, and never song IDs or account details.
+void logBatchDeletionFailure(
+  BatchDeletionStep step,
+  Object error,
+  StackTrace stackTrace, {
+  BatchDeletionPosition? position,
+}) => developer.log(
+  batchDeletionFailureSummary(step, error, position: position),
+  name: 'sonus.library.batch_deletion',
+  level: 900,
+  stackTrace: stackTrace,
+);
+
+@visibleForTesting
+String batchDeletionFailureSummary(
+  BatchDeletionStep step,
+  Object error, {
+  BatchDeletionPosition? position,
+}) {
+  final where = position == null
+      ? ''
+      : ' (song ${position.index + 1} of ${position.of})';
+  return 'Batch song deletion failed at ${step.name}$where: '
+      '${error.runtimeType}';
 }
 
 /// What deleting the selected songs removes, added up from each song's
@@ -190,14 +277,26 @@ Future<BatchSongDeletionOutcome?> showBatchSongDeletion(
     preview: service.preview,
     delete: service.delete,
   );
+  return showBatchSongDeletionDialog(context, batch, [
+    for (final track in tracks) track.songId,
+  ]);
+}
+
+/// [showBatchSongDeletion] with its deletion given: the dialog, then the
+/// confirmation of what happened.
+@visibleForTesting
+Future<BatchSongDeletionOutcome?> showBatchSongDeletionDialog(
+  BuildContext context,
+  BatchSongDeletion batch,
+  List<String> songIds,
+) async {
   final messenger = ScaffoldMessenger.of(context);
+  // Neither a tap outside nor Back closes it while songs are being deleted
+  // (see the dialog), so the outcome is always shown.
   final outcome = await showDialog<BatchSongDeletionOutcome>(
     context: context,
     barrierDismissible: false,
-    builder: (_) => BatchSongDeletionDialog(
-      batch: batch,
-      songIds: [for (final track in tracks) track.songId],
-    ),
+    builder: (_) => BatchSongDeletionDialog(batch: batch, songIds: songIds),
   );
   if (outcome == null) return null;
   messenger
@@ -287,7 +386,8 @@ class _BatchSongDeletionDialogState extends State<BatchSongDeletionDialog> {
     try {
       final plan = await widget.batch.plan(widget.songIds);
       if (mounted) setState(() => _plan = plan);
-    } catch (error) {
+    } catch (error, stackTrace) {
+      widget.batch.reportFailure(BatchDeletionStep.plan, error, stackTrace);
       if (mounted) setState(() => _error = error);
     }
   }
@@ -386,27 +486,33 @@ class _BatchSongDeletionDialogState extends State<BatchSongDeletionDialog> {
       );
     }
 
-    return AlertDialog(
-      key: const ValueKey<String>('batch-delete-dialog'),
-      title: Text('Delete $songs from your library?'),
-      content: SingleChildScrollView(child: content),
-      actions: [
-        TextButton(
-          key: const ValueKey<String>('batch-delete-cancel'),
-          onPressed: _deleting ? null : () => Navigator.of(context).pop(),
-          child: Text(plan != null && !plan.canProceed ? 'Close' : 'Cancel'),
-        ),
-        if (plan != null && plan.canProceed)
-          FilledButton(
-            key: const ValueKey<String>('batch-delete-confirm'),
-            style: FilledButton.styleFrom(
-              backgroundColor: theme.colorScheme.error,
-              foregroundColor: theme.colorScheme.onError,
-            ),
-            onPressed: canDelete ? () => unawaited(_delete(plan)) : null,
-            child: Text('Delete $songs'),
+    // Back closes the dialog, deleting nothing, until the deletion starts.
+    // From then on it waits, so the dialog closes only with the outcome and
+    // the listener is told exactly what was deleted.
+    return PopScope(
+      canPop: !_deleting,
+      child: AlertDialog(
+        key: const ValueKey<String>('batch-delete-dialog'),
+        title: Text('Delete $songs from your library?'),
+        content: SingleChildScrollView(child: content),
+        actions: [
+          TextButton(
+            key: const ValueKey<String>('batch-delete-cancel'),
+            onPressed: _deleting ? null : () => Navigator.of(context).pop(),
+            child: Text(plan != null && !plan.canProceed ? 'Close' : 'Cancel'),
           ),
-      ],
+          if (plan != null && plan.canProceed)
+            FilledButton(
+              key: const ValueKey<String>('batch-delete-confirm'),
+              style: FilledButton.styleFrom(
+                backgroundColor: theme.colorScheme.error,
+                foregroundColor: theme.colorScheme.onError,
+              ),
+              onPressed: canDelete ? () => unawaited(_delete(plan)) : null,
+              child: Text('Delete $songs'),
+            ),
+        ],
+      ),
     );
   }
 }

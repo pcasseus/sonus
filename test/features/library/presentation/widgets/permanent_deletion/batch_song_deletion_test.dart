@@ -1,6 +1,7 @@
 // App Update 1.2 patches, Checkpoint 4 (BUG-03): deleting several songs
 // from the library at once, through the unchanged single-song permanent
 // deletion. Disposable databases and fictional fixtures only.
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -330,5 +331,280 @@ void main() {
     }
     expect(tester.takeException(), isNull);
     expect(await tester.runAsync(() => count(DatabaseTables.songs)), 3);
+  });
+
+  group('Android Back while deleting (App Update 1.2 release review)', () {
+    final dialog = find.byKey(const ValueKey<String>('batch-delete-dialog'));
+    final confirm = find.byKey(const ValueKey<String>('batch-delete-confirm'));
+
+    /// Lets the real database work run until [done] (or a bound).
+    Future<void> settle(WidgetTester tester, bool Function() done) async {
+      for (var i = 0; i < 80 && !done(); i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+        await tester.pump();
+      }
+    }
+
+    /// Opens the batch dialog the way the Tracks page does, through
+    /// [showBatchSongDeletionDialog], so its confirmation is shown too.
+    Future<
+      ({bool Function() closed, BatchSongDeletionOutcome? Function() outcome})
+    >
+    open(WidgetTester tester, BatchSongDeletion b, List<String> ids) async {
+      var closed = false;
+      BatchSongDeletionOutcome? outcome;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: Center(
+                child: FilledButton(
+                  onPressed: () async {
+                    outcome = await showBatchSongDeletionDialog(
+                      context,
+                      b,
+                      ids,
+                    );
+                    closed = true;
+                  },
+                  child: const Text('open'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await settle(tester, () => confirm.evaluate().isNotEmpty);
+      return (closed: () => closed, outcome: () => outcome);
+    }
+
+    Future<void> acknowledgeAndDelete(WidgetTester tester) async {
+      await tester.tap(
+        find.byKey(const ValueKey<String>('batch-delete-acknowledge')),
+      );
+      await tester.pump();
+      await tester.tap(confirm);
+      await tester.pump();
+    }
+
+    /// Back, as Android sends it, while the first song is still being
+    /// deleted: the dialog stays open.
+    Future<void> backWhileDeleting(
+      WidgetTester tester,
+      Completer<void> firstSong,
+    ) async {
+      await tester.binding.handlePopRoute();
+      await tester.pump();
+      expect(dialog, findsOneWidget, reason: 'Back is held while deleting');
+      firstSong.complete();
+    }
+
+    testWidgets('before deletion begins, Back still cancels and deletes '
+        'nothing', (tester) async {
+      final opened = await open(tester, batch(service()), const ['one', 'two']);
+
+      await tester.binding.handlePopRoute();
+      await settle(tester, opened.closed);
+
+      expect(opened.closed(), isTrue);
+      expect(opened.outcome(), isNull);
+      expect(dialog, findsNothing);
+      expect(find.byType(SnackBar), findsNothing);
+      expect(await tester.runAsync(() => count(DatabaseTables.songs)), 3);
+    });
+
+    testWidgets('success: Back during deletion waits, then the full result '
+        'is shown', (tester) async {
+      final s = service();
+      final firstSong = Completer<void>();
+      final b = BatchSongDeletion(
+        preview: s.preview,
+        delete: (impact) async {
+          if (impact.target.id == 'one') await firstSong.future;
+          return s.delete(impact);
+        },
+      );
+      final opened = await open(tester, b, const ['one', 'two']);
+
+      await acknowledgeAndDelete(tester);
+      await backWhileDeleting(tester, firstSong);
+      await settle(tester, opened.closed);
+
+      expect(opened.outcome()?.isComplete, isTrue);
+      expect(opened.outcome()?.deletedSongIds, ['one', 'two']);
+      expect(find.text('Deleted 2 songs from your library.'), findsOneWidget);
+      expect(await tester.runAsync(() => count(DatabaseTables.songs)), 1);
+    });
+
+    testWidgets('failure: Back during deletion waits, then says nothing was '
+        'deleted', (tester) async {
+      final s = service();
+      final firstSong = Completer<void>();
+      final reports = <(BatchDeletionStep, Type, BatchDeletionPosition?)>[];
+      final b = BatchSongDeletion(
+        preview: s.preview,
+        delete: (impact) async {
+          await firstSong.future;
+          throw StateError('database unavailable');
+        },
+        reportFailure: (step, error, _, {position}) =>
+            reports.add((step, error.runtimeType, position)),
+      );
+      final opened = await open(tester, b, const ['one', 'two']);
+
+      await acknowledgeAndDelete(tester);
+      await backWhileDeleting(tester, firstSong);
+      await settle(tester, opened.closed);
+
+      expect(opened.outcome()?.deleted, 0);
+      expect(opened.outcome()?.stopped, BatchSongDeletionStop.failed);
+      expect(
+        find.text(
+          'No songs were deleted. Something went wrong while deleting them.',
+        ),
+        findsOneWidget,
+      );
+      expect(reports, [
+        (BatchDeletionStep.delete, StateError, (index: 0, of: 2)),
+      ]);
+      expect(await tester.runAsync(() => count(DatabaseTables.songs)), 3);
+    });
+
+    testWidgets('partial completion: Back during deletion waits, then names '
+        'what was deleted and what was kept', (tester) async {
+      final s = service();
+      final firstSong = Completer<void>();
+      final b = BatchSongDeletion(
+        preview: s.preview,
+        delete: (impact) async {
+          if (impact.target.id == 'one') await firstSong.future;
+          if (impact.target.id == 'three') throw StateError('unavailable');
+          return s.delete(impact);
+        },
+        reportFailure: (_, _, _, {position}) {},
+      );
+      final opened = await open(tester, b, const ['one', 'two', 'three']);
+
+      await acknowledgeAndDelete(tester);
+      await backWhileDeleting(tester, firstSong);
+      await settle(tester, opened.closed);
+
+      expect(opened.outcome()?.deletedSongIds, ['one', 'two']);
+      expect(opened.outcome()?.keptSongIds, ['three']);
+      expect(
+        find.text(
+          'Deleted 2 of 3 songs. Those deletions are permanent and were not '
+          'undone. 1 song was not deleted and is still selected. Something '
+          'went wrong while deleting them.',
+        ),
+        findsOneWidget,
+      );
+      expect(await tester.runAsync(() => count(DatabaseTables.songs)), 1);
+    });
+  });
+
+  group('diagnostics', () {
+    test('a failure is recorded with its step, place and type only, never '
+        'its message', () {
+      final summary = batchDeletionFailureSummary(
+        BatchDeletionStep.delete,
+        StateError(
+          'Nova – First Light – one: /storage/emulated/0/Music/one.mp3',
+        ),
+        position: (index: 1, of: 3),
+      );
+      expect(
+        summary,
+        'Batch song deletion failed at delete (song 2 of 3): StateError',
+      );
+      for (final secret in ['Nova', 'First Light', 'storage', '.mp3']) {
+        expect(summary, isNot(contains(secret)));
+      }
+    });
+
+    test(
+      'every failing step is reported, and the outcome is unchanged',
+      () async {
+        final s = service();
+        final reports = <(BatchDeletionStep, BatchDeletionPosition?)>[];
+        void report(
+          BatchDeletionStep step,
+          Object error,
+          StackTrace stackTrace, {
+          BatchDeletionPosition? position,
+        }) => reports.add((step, position));
+
+        // The re-check before deleting fails.
+        var previews = 0;
+        final recheck = BatchSongDeletion(
+          preview: (target) {
+            if (++previews > 2) throw StateError('closed');
+            return s.preview(target);
+          },
+          delete: s.delete,
+          reportFailure: report,
+        );
+        final stopped = await recheck.run(await recheck.plan(['one', 'two']));
+        expect(stopped.deleted, 0);
+        expect(stopped.stopped, BatchSongDeletionStop.failed);
+
+        // The deletion fails, and so does the check whether it happened.
+        var failing = false;
+        final gone = BatchSongDeletion(
+          preview: (target) {
+            if (failing) throw StateError('closed');
+            return s.preview(target);
+          },
+          delete: (impact) {
+            failing = true;
+            throw StateError('closed');
+          },
+          reportFailure: report,
+        );
+        final kept = await gone.run(await gone.plan(['three']));
+        expect(kept.keptSongIds, ['three']);
+        expect(kept.stopped, BatchSongDeletionStop.failed);
+
+        expect(reports, [
+          (BatchDeletionStep.recheck, (index: 0, of: 2)),
+          (BatchDeletionStep.delete, (index: 0, of: 1)),
+          (BatchDeletionStep.confirmGone, (index: 0, of: 1)),
+        ]);
+        expect(await count(DatabaseTables.songs), 3);
+      },
+    );
+
+    testWidgets('a plan that cannot be checked is reported and still says so', (
+      tester,
+    ) async {
+      final reports = <BatchDeletionStep>[];
+      final b = BatchSongDeletion(
+        preview: (_) async => throw StateError('closed'),
+        delete: (impact) async => impact,
+        reportFailure: (step, _, _, {position}) => reports.add(step),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: BatchSongDeletionDialog(batch: b, songIds: const ['one']),
+          ),
+        ),
+      );
+      for (var i = 0; i < 20 && reports.isEmpty; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)),
+        );
+        await tester.pump();
+      }
+      await tester.pump();
+      expect(reports, [BatchDeletionStep.plan]);
+      expect(
+        find.text('Could not check what would be deleted.'),
+        findsOneWidget,
+      );
+    });
   });
 }
