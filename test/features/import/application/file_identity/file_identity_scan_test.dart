@@ -1081,6 +1081,201 @@ void main() {
     });
   });
 
+  group('Refinement B: edits that keep the size and the time', () {
+    /// The Purpose file with real ID3 frames (and optional artwork), always
+    /// with the same modification time, so only its bytes tell.
+    File writeTagged({
+      required String tagTitle,
+      String tagTrack = '3',
+      List<int>? artwork,
+    }) {
+      final file = File(p.join(album.path, 'ill show you.mp3'));
+      file.writeAsBytesSync(
+        syntheticMp3(
+          syntheticAudio(frames: 80, seed: 1),
+          leading: [
+            id3v2TagWithFrames([
+              id3v2Frame('TIT2', id3v2Text(tagTitle)),
+              id3v2Frame('TRCK', id3v2Text(tagTrack)),
+              if (artwork != null) id3v2Frame('APIC', id3v2Picture(artwork)),
+            ]),
+          ],
+        ),
+      );
+      file.setLastModifiedSync(base);
+      return file;
+    }
+
+    Future<String> importTagged({List<int>? artwork}) async {
+      final file = writeTagged(tagTitle: 'Ill Show You', artwork: artwork);
+      tags['ill show you.mp3'] = _tags('Ill Show You', track: 3);
+      final songId = (await scan())['ill show you.mp3']!.songId!;
+      expect(file.lengthSync(), greaterThan(0));
+      return songId;
+    }
+
+    test(
+      'a same-size title edit at the same time updates the same song',
+      () async {
+        final songId = await importTagged();
+        final size = File(p.join(album.path, 'ill show you.mp3')).lengthSync();
+
+        final edited = writeTagged(tagTitle: 'Ill Show Yoo');
+        expect(edited.lengthSync(), size);
+        tags['ill show you.mp3'] = _tags('Ill Show Yoo', track: 3);
+        final result = (await scan())['ill show you.mp3']!;
+
+        expect(result.skipReason, ImportSkipReason.knownFile);
+        final all = await songs();
+        expect(all, hasLength(1));
+        expect(all.single['id'], songId);
+        expect(all.single['title'], 'Ill Show Yoo');
+      },
+    );
+
+    test(
+      'a same-size track number edit moves the song on its edition',
+      () async {
+        final songId = await importTagged();
+
+        writeTagged(tagTitle: 'Ill Show You', tagTrack: '2');
+        tags['ill show you.mp3'] = _tags('Ill Show You', track: 2);
+        await scan();
+
+        final listing = (await (await appDatabase.database).query(
+          DatabaseTables.albumEditionTracks,
+          where: 'song_id = ?',
+          whereArgs: [songId],
+        )).single;
+        expect(listing['track_number'], 2);
+      },
+    );
+
+    test('a title set in Sonus survives a same-size edit', () async {
+      final songId = await importTagged();
+      final db = await appDatabase.database;
+      await db.update(
+        DatabaseTables.songs,
+        {'title': 'My Own Title'},
+        where: 'id = ?',
+        whereArgs: [songId],
+      );
+      await db.update(
+        DatabaseTables.metadataFieldStates,
+        {'authority': 'manual', 'source': 'user'},
+        where: "entity_id = ? AND field_name = 'title'",
+        whereArgs: [songId],
+      );
+
+      writeTagged(tagTitle: 'Ill Show Yoo');
+      tags['ill show you.mp3'] = _tags('Ill Show Yoo', track: 3);
+      await scan();
+
+      expect((await songs()).single['title'], 'My Own Title');
+    });
+
+    test('a same-size artwork replacement is noticed and recorded, and '
+        'changes nothing else', () async {
+      final songId = await importTagged(artwork: syntheticImage(20000));
+      final before = await libraryState();
+      final fingerprintBefore =
+          (await bindingOf(songId))['tag_fingerprint']! as String;
+
+      writeTagged(
+        tagTitle: 'Ill Show You',
+        artwork: syntheticImage(20000, seed: 2),
+      );
+      await scan();
+
+      final fingerprintAfter =
+          (await bindingOf(songId))['tag_fingerprint']! as String;
+      expect(fingerprintAfter, isNot(fingerprintBefore));
+      expect(
+        fingerprintAfter.split(':')[1],
+        fingerprintBefore.split(':')[1],
+        reason: 'the text part is unchanged',
+      );
+      final after = await libraryState();
+      for (final table in [
+        DatabaseTables.songs,
+        DatabaseTables.albumEditionTracks,
+        DatabaseTables.metadataFieldStates,
+        'sync_outbox',
+      ]) {
+        expect(after[table], before[table], reason: table);
+      }
+      expect(await store.getPending(), isEmpty);
+    });
+
+    test('nothing changed: repeated scans write nothing', () async {
+      await importTagged(artwork: syntheticImage(20000));
+      final first = await libraryState();
+      for (var pass = 0; pass < 3; pass++) {
+        await scan();
+      }
+      final after = await libraryState();
+      expect(after[DatabaseTables.songs], first[DatabaseTables.songs]);
+      expect(
+        [
+          for (final b in after[DatabaseTables.mediaFileBindings]!)
+            {...b}
+              ..remove('last_seen_at')
+              ..remove('updated_at'),
+        ],
+        [
+          for (final b in first[DatabaseTables.mediaFileBindings]!)
+            {...b}
+              ..remove('last_seen_at')
+              ..remove('updated_at'),
+        ],
+      );
+      expect(after['sync_outbox'], first['sync_outbox']);
+    });
+
+    test('a binding from version 43 (no fingerprint yet) gets one and '
+        'nothing else changes', () async {
+      final songId = await importTagged();
+      final db = await appDatabase.database;
+      await db.update(
+        DatabaseTables.mediaFileBindings,
+        {'tag_fingerprint': null},
+        where: 'song_id = ?',
+        whereArgs: [songId],
+      );
+      final before = await libraryState();
+
+      await scan();
+
+      expect((await bindingOf(songId))['tag_fingerprint'], startsWith('t1:'));
+      final after = await libraryState();
+      expect(after[DatabaseTables.songs], before[DatabaseTables.songs]);
+      expect(after['sync_outbox'], before['sync_outbox']);
+    });
+
+    test(
+      'a file whose tags cannot be walked falls back to size and time',
+      () async {
+        final songId = await importTagged();
+        final file = File(p.join(album.path, 'ill show you.mp3'));
+        final bytes = file.readAsBytesSync();
+        bytes[5] |= 0x80; // now marked unsynchronised: not walked
+        file
+          ..writeAsBytesSync(bytes)
+          ..setLastModifiedSync(base);
+        final before = await libraryState();
+
+        await scan();
+
+        expect(
+          (await libraryState())[DatabaseTables.songs],
+          before[DatabaseTables.songs],
+        );
+        expect(await store.getPending(), isEmpty);
+        expect((await songs()).single['id'], songId);
+      },
+    );
+  });
+
   group('sync and restore', () {
     test(
       'a rename with new tags sends only an update of the same song',

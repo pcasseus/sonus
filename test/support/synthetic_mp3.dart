@@ -178,3 +178,68 @@ class MemoryAudioByteSource implements AudioByteSource {
   @override
   Future<void> close() async => closed = true;
 }
+
+/// One ID3v2 frame of [major] version: `[id]` with [body].
+List<int> id3v2Frame(String id, List<int> body, {int major = 3}) {
+  final size = body.length;
+  return switch (major) {
+    2 => [
+      ..._text(id),
+      (size >> 16) & 0xFF,
+      (size >> 8) & 0xFF,
+      size & 0xFF,
+      ...body,
+    ],
+    3 => [
+      ..._text(id),
+      (size >> 24) & 0xFF,
+      (size >> 16) & 0xFF,
+      (size >> 8) & 0xFF,
+      size & 0xFF,
+      0,
+      0,
+      ...body,
+    ],
+    _ => [..._text(id), ..._syncsafe(size), 0, 0, ...body],
+  };
+}
+
+/// A text frame body: Latin-1 encoding, then [value].
+List<int> id3v2Text(String value) => [0, ...value.codeUnits];
+
+/// A picture frame body (APIC, 2.3/2.4) holding [image] bytes.
+List<int> id3v2Picture(List<int> image) => [
+  0,
+  ..._text('image/jpeg'),
+  0,
+  3,
+  0,
+  ...image,
+];
+
+/// [length] bytes of a fake image whose bytes come from [seed].
+List<int> syntheticImage(int length, {int seed = 1}) {
+  final random = Random(seed);
+  return List<int>.generate(length, (_) => random.nextInt(256));
+}
+
+/// An ID3v2 tag of [major] version holding [frames] and [padding] zeros.
+List<int> id3v2TagWithFrames(
+  List<List<int>> frames, {
+  int major = 3,
+  int padding = 256,
+  bool unsynchronised = false,
+}) {
+  final body = [
+    for (final frame in frames) ...frame,
+    ...List<int>.filled(padding, 0),
+  ];
+  return [
+    ..._text('ID3'),
+    major,
+    0,
+    unsynchronised ? 0x80 : 0,
+    ..._syncsafe(body.length),
+    ...body,
+  ];
+}

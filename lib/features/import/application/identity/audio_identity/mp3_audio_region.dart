@@ -114,6 +114,15 @@ abstract final class Mp3AudioRegionLocator {
     return Mp3RegionResult.found(Mp3AudioRegion(start: start, end: end));
   }
 
+  /// Where the tags at the end of a [length]-byte file begin, stepping
+  /// back no further than [audioStart]: [length] when there are none, null
+  /// when one is malformed. A few small reads.
+  static Future<int?> trailingTagsStart(
+    AudioByteSource source, {
+    required int length,
+    required int audioStart,
+  }) => _trailingEnd(source, length, audioStart);
+
   /// Steps back over every tag at the end; null when one is malformed.
   static Future<int?> _trailingEnd(
     AudioByteSource source,

@@ -18,6 +18,7 @@ import '../../domain/models/resolved_metadata.dart';
 import '../../domain/services/audio_byte_source.dart';
 import '../folders/source_folder_key.dart';
 import '../identity/audio_identity/audio_identity_reader.dart';
+import '../identity/audio_identity/tag_fingerprint_reader.dart';
 import '../identity/recording_evidence.dart';
 import 'existing_song_release_mover.dart';
 import 'existing_song_tag_updater.dart';
@@ -30,7 +31,12 @@ class FileIdentityReading {
     required this.fileSizeBytes,
     required this.modifiedAt,
     this.failure,
+    this.tagFingerprint,
   });
+
+  /// The tags' fingerprint (Refinement B); null when the tags could not be
+  /// walked with confidence.
+  final TagFingerprint? tagFingerprint;
 
   /// Null when the audio could not be read with confidence. Always holds a
   /// full hash when set.
@@ -108,7 +114,11 @@ class FileIdentityService {
     this.reviewStore,
     this.releaseMover,
     this.reader = const AudioIdentityReader(),
+    this.tagReader = const TagFingerprintReader(),
   });
+
+  /// Reads the tags' fingerprint (Refinement B).
+  final TagFingerprintReader tagReader;
 
   /// Moves a song to the artist, album and edition its changed tags name
   /// (Refinement A); without one, those stay as they are.
@@ -381,6 +391,31 @@ class FileIdentityService {
     }
   }
 
+  /// Whether a file with unchanged size and time has new tags. The first
+  /// fingerprint of a file is only kept (nothing says its tags changed),
+  /// and so is one that differs only in its embedded pictures: Sonus does
+  /// not use embedded artwork, so there is nothing to update.
+  Future<bool> _tagsChangedInPlace(
+    ImportCandidate candidate,
+    MediaFileBinding binding,
+  ) async {
+    final current = await _fingerprintOf(candidate);
+    if (current == null) return false;
+    final stored = TagFingerprint.tryParse(binding.tagFingerprint);
+    if (stored != null && stored.text != current.text) return true;
+    if (stored == null || stored.pictures != current.pictures) {
+      await appDatabase.transaction(
+        (txn) => txn.update(
+          DatabaseTables.mediaFileBindings,
+          {'tag_fingerprint': current.value},
+          where: 'id = ?',
+          whereArgs: [binding.id],
+        ),
+      );
+    }
+    return false;
+  }
+
   // R1-R3.
   Future<void> _checkKnownFile(
     ImportCandidate candidate,
@@ -395,7 +430,9 @@ class FileIdentityService {
         stat.$1 != null &&
         binding.fileSizeBytes == stat.$1 &&
         binding.modifiedAt?.toUtc() == stat.$2?.toUtc()) {
-      return; // R1
+      // R1, unless the tags changed while size and time did not
+      // (Refinement B): their fingerprint costs a few small reads.
+      if (!await _tagsChangedInPlace(candidate, binding)) return;
     }
 
     final reading = await _read(candidate);
@@ -711,6 +748,7 @@ class FileIdentityService {
             (hash == null ? AudioIdentityFailure.unreadable : null),
         fileSizeBytes: size,
         modifiedAt: modifiedAt,
+        tagFingerprint: await tagReader.read(source),
       );
     } finally {
       await source.close();
@@ -754,7 +792,20 @@ class FileIdentityService {
       'signature_version': identity.version,
       'file_size_bytes': reading.fileSizeBytes,
       'modified_at': reading.modifiedAt?.toUtc().toIso8601String(),
+      'tag_fingerprint': reading.tagFingerprint?.value,
     };
+  }
+
+  /// The tags' fingerprint alone: a few small reads, never the audio.
+  /// Null when the file cannot be opened or its tags not walked.
+  Future<TagFingerprint?> _fingerprintOf(ImportCandidate candidate) async {
+    final source = await openSource(candidate.filePath);
+    if (source == null) return null;
+    try {
+      return await tagReader.read(source);
+    } finally {
+      await source.close();
+    }
   }
 
   /// Logs the failure's type only: never a path or a title.
