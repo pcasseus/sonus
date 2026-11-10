@@ -16,6 +16,7 @@ class MediaFileBinding {
     this.audioSignature,
     this.audioFullHash,
     this.signatureVersion,
+    this.tagFingerprint,
   });
 
   final String id;
@@ -39,6 +40,10 @@ class MediaFileBinding {
   /// The rules that produced [audioSignature] and [audioFullHash].
   final int? signatureVersion;
 
+  /// A fingerprint of the file's tags (version 44), so an edit that keeps
+  /// the file's size and time is still noticed.
+  final String? tagFingerprint;
+
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -55,6 +60,7 @@ class MediaFileBinding {
     Object? audioSignature = _unset,
     Object? audioFullHash = _unset,
     Object? signatureVersion = _unset,
+    Object? tagFingerprint = _unset,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -85,6 +91,9 @@ class MediaFileBinding {
       signatureVersion: identical(signatureVersion, _unset)
           ? this.signatureVersion
           : signatureVersion as int?,
+      tagFingerprint: identical(tagFingerprint, _unset)
+          ? this.tagFingerprint
+          : tagFingerprint as String?,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );

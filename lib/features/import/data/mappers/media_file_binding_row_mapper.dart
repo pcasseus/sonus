@@ -15,6 +15,7 @@ abstract final class MediaFileBindingRowMapper {
       'audio_signature': binding.audioSignature,
       'audio_full_hash': binding.audioFullHash,
       'signature_version': binding.signatureVersion,
+      'tag_fingerprint': binding.tagFingerprint,
       'created_at': binding.createdAt.toUtc().toIso8601String(),
       'updated_at': binding.updatedAt.toUtc().toIso8601String(),
     };
@@ -38,6 +39,7 @@ abstract final class MediaFileBindingRowMapper {
       audioSignature: row['audio_signature'] as String?,
       audioFullHash: row['audio_full_hash'] as String?,
       signatureVersion: row['signature_version'] as int?,
+      tagFingerprint: row['tag_fingerprint'] as String?,
       createdAt: DateTime.parse(row['created_at'] as String),
       updatedAt: DateTime.parse(row['updated_at'] as String),
     );

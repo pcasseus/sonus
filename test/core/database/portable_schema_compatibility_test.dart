@@ -83,8 +83,9 @@ void main() {
       41,
       42,
       43,
+      44,
     });
-    expect(AppDatabase.databaseVersion, 43);
+    expect(AppDatabase.databaseVersion, 44);
   });
 
   test('the fixture is a real version 31 database', () async {
@@ -114,9 +115,10 @@ void main() {
     final v40 = await migrateTo(await copyOfV31('v40.db'), 40);
     final v41 = await migrateTo(await copyOfV31('v41.db'), 41);
     final v42 = await migrateTo(await copyOfV31('v42.db'), 42);
-    final v43 = AppDatabase(
+    final v43 = await migrateTo(await copyOfV31('v43.db'), 43);
+    final v44 = AppDatabase(
       databaseFactory: databaseFactoryFfi,
-      databasePath: await copyOfV31('v43.db'),
+      databasePath: await copyOfV31('v44.db'),
     );
     final fresh = AppDatabase(
       databaseFactory: databaseFactoryFfi,
@@ -137,7 +139,8 @@ void main() {
       expect(await userVersion(v40), 40);
       expect(await userVersion(v41), 41);
       expect(await userVersion(v42), 42);
-      expect(await userVersion(await v43.database), 43);
+      expect(await userVersion(v43), 43);
+      expect(await userVersion(await v44.database), 44);
       // Required tables are identical everywhere; an optional table is
       // identical wherever the version has it, apart from nullable columns
       // added later, which older backups may lack.
@@ -165,11 +168,12 @@ void main() {
       expectCompatible(await _portableSchema(v38));
       expectCompatible(await _portableSchema(v39));
       expectCompatible(await _portableSchema(v40));
-      // 42 and 43 only changed device-local tables: portable tables are
-      // identical.
+      // 42, 43 and 44 only changed device-local tables: portable tables
+      // are identical.
       expect(await _portableSchema(v41), reference);
       expect(await _portableSchema(v42), reference);
-      expect(await _portableSchema(await v43.database), reference);
+      expect(await _portableSchema(v43), reference);
+      expect(await _portableSchema(await v44.database), reference);
     } finally {
       await v31.close();
       await v32.close();
@@ -184,6 +188,7 @@ void main() {
       await v41.close();
       await v42.close();
       await v43.close();
+      await v44.close();
       await fresh.close();
     }
   });
@@ -208,7 +213,7 @@ void main() {
       final db = await upgraded.database;
       final rowsAfter = await _allRows(db);
 
-      expect(await userVersion(db), 43);
+      expect(await userVersion(db), 44);
       expect(rowsAfter[DatabaseTables.libraryDeletionLedger], isEmpty);
       expect(rowsAfter[DatabaseTables.deletedAudioSignatures], isEmpty);
       expect(rowsAfter[DatabaseTables.libraryDeletionJournal], isEmpty);
@@ -250,13 +255,15 @@ void main() {
         expect(row['audio_signature'], isNull);
         expect(row['audio_full_hash'], isNull);
         expect(row['signature_version'], isNull);
+        expect(row['tag_fingerprint'], isNull);
       }
       rowsAfter[DatabaseTables.mediaFileBindings] = [
         for (final row in rowsAfter[DatabaseTables.mediaFileBindings]!)
           {...row}
             ..remove('audio_signature')
             ..remove('audio_full_hash')
-            ..remove('signature_version'),
+            ..remove('signature_version')
+            ..remove('tag_fingerprint'),
       ];
       // Migration 39 adds each edition's date precision; the fixture's
       // editions have no date, so it stays null.

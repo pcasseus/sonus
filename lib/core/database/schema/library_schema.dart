@@ -321,6 +321,8 @@ abstract final class LibrarySchema {
         -- App Update 1.2 (version 43): the audio's identity, read from the
         -- file's bytes, so a renamed, moved or retagged file is still known.
         ${MediaFileSignatureColumns.definitions},
+        -- Version 44: the tags' fingerprint (BUG-09 Refinement B).
+        ${MediaFileTagFingerprintColumn.name} ${MediaFileTagFingerprintColumn.definition},
 
         UNIQUE(normalized_path),
 

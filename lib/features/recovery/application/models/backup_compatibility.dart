@@ -19,7 +19,8 @@ abstract final class BackupCompatibility {
   /// device-local deletion ledger and the internal deletion journal (never
   /// in a backup), and 43 only added audio identity columns to the
   /// device-local file bindings and the device-local table of deleted
-  /// audio (neither in a backup), so backups from 31 onward
+  /// audio (neither in a backup), and 44 only added the tags' fingerprint
+  /// to the same device-local bindings, so backups from 31 onward
   /// restore unchanged. Each entry must be proven by a migration test
   /// before it is added; the schema validator still checks every payload
   /// against the local columns. Listed explicitly so a schema bump fails
@@ -38,6 +39,7 @@ abstract final class BackupCompatibility {
     41,
     42,
     43,
+    44,
   };
 
   static bool canRestore(BackupManifest manifest) =>

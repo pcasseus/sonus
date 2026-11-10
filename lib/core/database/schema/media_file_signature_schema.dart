@@ -49,6 +49,20 @@ abstract final class MediaFileSignatureColumns {
   ''');
 }
 
+/// App Update 1.2 (version 44), BUG-09 Refinement B: a fingerprint of a
+/// file's tags, so an edit that keeps the file's size and modification time
+/// is still noticed.
+///
+/// `t1:<SHA-256 of the text tags>:<SHA-256 of the embedded pictures>`: the
+/// two parts tell a change of title, artist, album or numbers from a change
+/// of embedded artwork. Read in a few small ranges, never the audio. Null
+/// until a scan reads the file, and for a file whose tags cannot be read
+/// with confidence. Device-local, like the rest of the binding.
+abstract final class MediaFileTagFingerprintColumn {
+  static const String name = 'tag_fingerprint';
+  static const String definition = 'TEXT';
+}
+
 /// App Update 1.2 (version 43), BUG-09: the audio of every file this device
 /// permanently deleted, so a renamed or moved copy of a deleted song is not
 /// imported again.

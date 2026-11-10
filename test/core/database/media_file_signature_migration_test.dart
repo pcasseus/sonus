@@ -67,7 +67,9 @@ void main() {
                   r'OR signature_version >= 1\),\s*',
                 ),
                 '',
-              ),
+              )
+              // Version 44's column, so this is a true version 42 table.
+              .replaceFirst(RegExp(r'tag_fingerprint TEXT,\s*'), ''),
         );
         continue;
       }
@@ -96,6 +98,12 @@ void main() {
     await DatabaseMigrations.migrate(upgraded, oldVersion: 42, newVersion: 43);
     // An interrupted upgrade that runs again is harmless.
     await DatabaseMigrations.migrate(upgraded, oldVersion: 42, newVersion: 43);
+    // Then on to the current version, which a fresh database is created at.
+    await DatabaseMigrations.migrate(
+      upgraded,
+      oldVersion: 43,
+      newVersion: AppDatabase.databaseVersion,
+    );
 
     expect(await objectsOf(upgraded), await objectsOf(freshDb));
     expect((await objectsOf(upgraded)).difference(before), {
@@ -179,7 +187,7 @@ void main() {
     addTearDown(app.close);
     expect(
       (await opened.rawQuery('PRAGMA user_version')).single['user_version'],
-      43,
+      AppDatabase.databaseVersion,
     );
     expect(await opened.query(DatabaseTables.songs), hasLength(1));
     expect(await opened.query(DatabaseTables.mediaFileBindings), hasLength(1));

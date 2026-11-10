@@ -521,6 +521,19 @@ abstract final class DatabaseMigrations {
         await MediaFileSignatureColumns.createIndex(db);
         return;
 
+      case 44:
+        // App Update 1.2, BUG-09 Refinement B: a fingerprint of each file's
+        // tags (one nullable column, filled by later scans), so an edit that
+        // keeps the size and time is noticed. Device-local; no row changes.
+        if (!await _tableExists(db, DatabaseTables.mediaFileBindings)) return;
+        await _addColumnIfMissing(
+          db,
+          table: DatabaseTables.mediaFileBindings,
+          columnName: MediaFileTagFingerprintColumn.name,
+          definition: MediaFileTagFingerprintColumn.definition,
+        );
+        return;
+
       default:
         throw UnsupportedError(
           'No Sonus database migration exists for version $targetVersion.',
