@@ -16,6 +16,7 @@ import '../../domain/models/import_scan_snapshot.dart';
 import '../../domain/models/pending_possible_recording.dart';
 import '../../domain/models/resolved_metadata.dart';
 import '../../domain/services/audio_byte_source.dart';
+import '../../domain/services/range_cached_audio_byte_source.dart';
 import '../folders/source_folder_key.dart';
 import '../identity/audio_identity/audio_identity_reader.dart';
 import '../identity/audio_identity/tag_fingerprint_reader.dart';
@@ -788,7 +789,9 @@ class FileIdentityService {
             (hash == null ? AudioIdentityFailure.unreadable : null),
         fileSizeBytes: size,
         modifiedAt: modifiedAt,
-        tagFingerprint: await tagReader.read(source),
+        tagFingerprint: await tagReader.read(
+          RangeCachedAudioByteSource(source, knownLength: size),
+        ),
       );
     } finally {
       await source.close();
@@ -842,7 +845,14 @@ class FileIdentityService {
     final source = await openSource(candidate.filePath);
     if (source == null) return null;
     try {
-      return await tagReader.read(source);
+      // A few small reads at each end: served from one read each, which on
+      // the phone is most of a scan's cost (BUG-09 profiling).
+      return await tagReader.read(
+        RangeCachedAudioByteSource(
+          source,
+          knownLength: candidate.fileSizeBytes,
+        ),
+      );
     } finally {
       await source.close();
     }
