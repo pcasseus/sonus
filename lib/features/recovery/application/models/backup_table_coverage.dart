@@ -201,6 +201,11 @@ abstract final class BackupCoverageContract {
       table: DatabaseTables.libraryDeletionJournal,
       policy: BackupTablePolicy.deviceLocal,
     ),
+    // The audio of permanently deleted files (database version 43).
+    BackupTableCoverage(
+      table: DatabaseTables.deletedAudioSignatures,
+      policy: BackupTablePolicy.deviceLocal,
+    ),
   ];
 
   static List<BackupTableCoverage> get portableTables =>

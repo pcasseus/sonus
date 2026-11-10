@@ -12,6 +12,9 @@ abstract final class MediaFileBindingRowMapper {
       'last_seen_at': binding.lastSeenAt?.toUtc().toIso8601String(),
       'file_size_bytes': binding.fileSizeBytes,
       'modified_at': binding.modifiedAt?.toUtc().toIso8601String(),
+      'audio_signature': binding.audioSignature,
+      'audio_full_hash': binding.audioFullHash,
+      'signature_version': binding.signatureVersion,
       'created_at': binding.createdAt.toUtc().toIso8601String(),
       'updated_at': binding.updatedAt.toUtc().toIso8601String(),
     };
@@ -32,6 +35,9 @@ abstract final class MediaFileBindingRowMapper {
       modifiedAt: row['modified_at'] == null
           ? null
           : DateTime.parse(row['modified_at'] as String),
+      audioSignature: row['audio_signature'] as String?,
+      audioFullHash: row['audio_full_hash'] as String?,
+      signatureVersion: row['signature_version'] as int?,
       createdAt: DateTime.parse(row['created_at'] as String),
       updatedAt: DateTime.parse(row['updated_at'] as String),
     );

@@ -13,6 +13,9 @@ class MediaFileBinding {
     this.lastSeenAt,
     this.fileSizeBytes,
     this.modifiedAt,
+    this.audioSignature,
+    this.audioFullHash,
+    this.signatureVersion,
   });
 
   final String id;
@@ -24,6 +27,18 @@ class MediaFileBinding {
   final DateTime? lastSeenAt;
   final int? fileSizeBytes;
   final DateTime? modifiedAt;
+
+  /// The sampled audio identity, read from the file's bytes (BUG-09); null
+  /// until read, or when the audio could not be read with confidence.
+  final String? audioSignature;
+
+  /// SHA-256 of all of the file's audio bytes: the proof needed before the
+  /// file is rebound automatically.
+  final String? audioFullHash;
+
+  /// The rules that produced [audioSignature] and [audioFullHash].
+  final int? signatureVersion;
+
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -37,6 +52,9 @@ class MediaFileBinding {
     Object? lastSeenAt = _unset,
     Object? fileSizeBytes = _unset,
     Object? modifiedAt = _unset,
+    Object? audioSignature = _unset,
+    Object? audioFullHash = _unset,
+    Object? signatureVersion = _unset,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -58,6 +76,15 @@ class MediaFileBinding {
       modifiedAt: identical(modifiedAt, _unset)
           ? this.modifiedAt
           : modifiedAt as DateTime?,
+      audioSignature: identical(audioSignature, _unset)
+          ? this.audioSignature
+          : audioSignature as String?,
+      audioFullHash: identical(audioFullHash, _unset)
+          ? this.audioFullHash
+          : audioFullHash as String?,
+      signatureVersion: identical(signatureVersion, _unset)
+          ? this.signatureVersion
+          : signatureVersion as int?,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );

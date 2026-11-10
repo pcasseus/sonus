@@ -9,7 +9,7 @@ void main() {
     final tables = BackupCoverageContract.tables;
     final names = tables.map((entry) => entry.table).toSet();
 
-    expect(tables.length, 35);
+    expect(tables.length, 36);
     expect(names.length, tables.length);
     expect(names.every((name) => name.trim().isNotEmpty), isTrue);
   });
@@ -99,6 +99,7 @@ void main() {
       DatabaseTables.songImportReviews,
       DatabaseTables.libraryDeletionLedger,
       DatabaseTables.libraryDeletionJournal,
+      DatabaseTables.deletedAudioSignatures,
     });
   });
 

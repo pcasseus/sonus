@@ -1,6 +1,7 @@
 import 'package:sqflite/sqflite.dart';
 
 import '../database_tables.dart';
+import 'media_file_signature_schema.dart';
 
 abstract final class LibrarySchema {
   static Future<void> create(DatabaseExecutor db) async {
@@ -317,6 +318,9 @@ abstract final class LibrarySchema {
         modified_at TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
+        -- App Update 1.2 (version 43): the audio's identity, read from the
+        -- file's bytes, so a renamed, moved or retagged file is still known.
+        ${MediaFileSignatureColumns.definitions},
 
         UNIQUE(normalized_path),
 
@@ -407,6 +411,8 @@ abstract final class LibrarySchema {
       CREATE INDEX idx_media_file_bindings_source_id
       ON ${DatabaseTables.mediaFileBindings}(source_id)
     ''');
+
+    await MediaFileSignatureColumns.createIndex(db);
 
     await db.execute('''
       CREATE INDEX idx_artists_header_artwork_id

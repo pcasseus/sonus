@@ -35,4 +35,5 @@ abstract final class DatabaseTables {
 
   static const String libraryDeletionLedger = 'library_deletion_ledger';
   static const String libraryDeletionJournal = 'library_deletion_journal';
+  static const String deletedAudioSignatures = 'deleted_audio_signatures';
 }

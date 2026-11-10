@@ -18,6 +18,7 @@ import 'schema/playlist_schema.dart';
 import 'schema/sync_schema.dart';
 import 'schema/organization_schema.dart';
 import 'schema/release_date_precision_backfill.dart';
+import 'schema/media_file_signature_schema.dart';
 
 abstract final class DatabaseMigrations {
   static Future<void> migrate(
@@ -501,6 +502,23 @@ abstract final class DatabaseMigrations {
         // App Update 1.2: the deletion ledger and journal. Two new tables;
         // every existing row is untouched.
         await DeletionSchema.create(db);
+        return;
+
+      case 43:
+        // App Update 1.2, BUG-09: the audio identity of each file binding
+        // (three nullable columns, filled by later scans) and the audio of
+        // deleted files. Device-local; every existing row is untouched.
+        await DeletedAudioSignatureSchema.create(db);
+        if (!await _tableExists(db, DatabaseTables.mediaFileBindings)) return;
+        for (final (name, definition) in MediaFileSignatureColumns.columns) {
+          await _addColumnIfMissing(
+            db,
+            table: DatabaseTables.mediaFileBindings,
+            columnName: name,
+            definition: definition,
+          );
+        }
+        await MediaFileSignatureColumns.createIndex(db);
         return;
 
       default:

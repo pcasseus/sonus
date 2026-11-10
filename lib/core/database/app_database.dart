@@ -15,6 +15,7 @@ import 'schema/lyrics_schema.dart';
 import 'schema/organization_schema.dart';
 import 'schema/playlist_schema.dart';
 import 'schema/sync_schema.dart';
+import 'schema/media_file_signature_schema.dart';
 
 class AppDatabase {
   AppDatabase({
@@ -27,7 +28,7 @@ class AppDatabase {
        _databasePathOverride = databasePath;
 
   static const String databaseName = 'sonus_next.db';
-  static const int databaseVersion = 42;
+  static const int databaseVersion = 43;
 
   /// Coordinates normal database transactions with recovery.
   final LibraryMutationCoordinator mutationCoordinator;
@@ -99,6 +100,7 @@ class AppDatabase {
     await ArtworkCropSchema.create(db);
     await CloudArchiveSchema.create(db);
     await DeletionSchema.create(db);
+    await DeletedAudioSignatureSchema.create(db);
   }
 
   Future<void> _onUpgrade(
