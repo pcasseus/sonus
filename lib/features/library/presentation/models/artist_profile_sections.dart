@@ -279,6 +279,28 @@ abstract final class ArtistProfileSections {
     };
   }
 
+  /// The artist's own songs marked as a single that no Single release on
+  /// the profile already shows (App Update 1.2, REF-16): a single that
+  /// lives on an album. Each appears once, with its own Song ID; no release
+  /// is created for it. Only songs whose file is available.
+  static List<LibraryTrack> singleSongs({
+    required Iterable<LibraryTrack> tracks,
+    required String artistId,
+    required Set<String> singleReleaseAlbumIds,
+    required bool Function(LibraryTrack track) isAvailable,
+  }) {
+    final seen = <String>{};
+    return [
+      for (final track in tracks)
+        if (track.isSingle &&
+            track.artistId == artistId &&
+            !singleReleaseAlbumIds.contains(track.albumId) &&
+            isAvailable(track) &&
+            seen.add(track.songId))
+          track,
+    ];
+  }
+
   /// Releases newest first by release date; undated releases last. A
   /// partial date sorts by its start (`2026` with `2026-01-01`), the less
   /// exact one after. Ties fall back to title, then ID, so the order never

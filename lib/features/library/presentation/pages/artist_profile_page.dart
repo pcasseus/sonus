@@ -533,6 +533,30 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
                     isUnavailable: (album) =>
                         !playableAlbumIds.contains(album.albumId),
                   );
+                  // REF-16: songs marked as singles that live on an album
+                  // join the Singles section, once each, as themselves.
+                  final singleSongs = ArtistProfileSections.singleSongs(
+                    tracks: controller.allTracks,
+                    artistId: controller.artistId,
+                    singleReleaseAlbumIds: {
+                      for (final card
+                          in shelves[ArtistReleaseShelf.singles] ?? const [])
+                        card.album.albumId,
+                    },
+                    isAvailable: _hasAvailableMedia,
+                  );
+                  if (singleSongs.isNotEmpty &&
+                      !shelves.containsKey(ArtistReleaseShelf.singles)) {
+                    final withSingles = {
+                      for (final shelf in ArtistReleaseShelf.values)
+                        if (shelves.containsKey(shelf) ||
+                            shelf == ArtistReleaseShelf.singles)
+                          shelf: shelves[shelf] ?? const <ArtistReleaseCard>[],
+                    };
+                    shelves
+                      ..clear()
+                      ..addAll(withSingles);
+                  }
                   final collaborators = [
                     for (final collaborator in controller.collaborators)
                       if (collaborator.displaySongCount > 0) collaborator,
@@ -727,23 +751,41 @@ class _ArtistProfilePageState extends State<ArtistProfilePage> {
                                           ? 'Choose Single, EP or Album in '
                                                 'Edit Release'
                                           : null,
-                                      count: cards.length,
+                                      count:
+                                          cards.length +
+                                          (shelf == ArtistReleaseShelf.singles
+                                              ? singleSongs.length
+                                              : 0),
                                     ),
                                     const SizedBox(height: 12),
-                                    ArtistProfileAlbumsGrid(
-                                      cards: cards,
-                                      onAlbumTap: (album) {
-                                        unawaited(
-                                          _pushAndRefresh(
-                                            AlbumProfilePage(
-                                              albumId: album.albumId,
-                                              initialAlbumTitle:
-                                                  album.displayTitle,
+                                    if (cards.isNotEmpty)
+                                      ArtistProfileAlbumsGrid(
+                                        cards: cards,
+                                        onAlbumTap: (album) {
+                                          unawaited(
+                                            _pushAndRefresh(
+                                              AlbumProfilePage(
+                                                albumId: album.albumId,
+                                                initialAlbumTitle:
+                                                    album.displayTitle,
+                                              ),
                                             ),
-                                          ),
-                                        );
-                                      },
-                                    ),
+                                          );
+                                        },
+                                      ),
+                                    if (shelf == ArtistReleaseShelf.singles &&
+                                        singleSongs.isNotEmpty) ...[
+                                      if (cards.isNotEmpty)
+                                        const SizedBox(height: 12),
+                                      _tracksList(
+                                        context,
+                                        controller,
+                                        userId,
+                                        atmosphere,
+                                        tracks: singleSongs,
+                                        keyPrefix: 'artist-single-song',
+                                      ),
+                                    ],
                                   ],
                                 ),
                               ),

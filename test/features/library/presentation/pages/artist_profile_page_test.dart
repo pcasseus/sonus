@@ -1288,6 +1288,7 @@ LibraryTrack createTrack({
   List<String> coPrimaryArtists = const [],
   List<String> guestArtists = const [],
   bool isLeak = false,
+  bool isSingle = false,
 }) {
   return LibraryTrack(
     songId: songId,
@@ -1301,7 +1302,7 @@ LibraryTrack createTrack({
     albumEditionType: AlbumEditionType.values.first,
     trackNumber: 1,
     durationSeconds: 180,
-    isSingle: false,
+    isSingle: isSingle,
     featuredArtists: featuredArtists,
     coPrimaryArtists: coPrimaryArtists,
     guestArtists: guestArtists,
