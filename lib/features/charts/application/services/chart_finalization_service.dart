@@ -56,6 +56,7 @@ class ChartFinalizationService {
     ChartWeekFinalizer? weekFinalizer,
     Future<bool> Function(String chartType, DateTime weekStartUtc)?
     isRecalculatedWeek,
+    Future<DateTime?> Function()? chartHistoryOriginUtc,
   }) : _builder = builder,
        _charts = charts,
        _qualifiedPlays = qualifiedPlays,
@@ -76,7 +77,15 @@ class ChartFinalizationService {
        _releaseEligibility = releaseEligibility,
        _artistAttribution = artistAttribution,
        _weekFinalizer = weekFinalizer,
-       _isRecalculatedWeek = isRecalculatedWeek;
+       _isRecalculatedWeek = isRecalculatedWeek,
+       _chartHistoryOriginUtc = chartHistoryOriginUtc;
+
+  /// When this database's chart history began (local version 46): its
+  /// creation, upgrade or latest restore. Each week is finalized as
+  /// [ChartSnapshotProvenance.original] only when it began at or after it
+  /// and was not recalculated; otherwise as unverified. Without it, weeks
+  /// are stored with their provenance unknown.
+  final Future<DateTime?> Function()? _chartHistoryOriginUtc;
 
   /// App Update 1.2 (D5): a week recalculated after a permanent deletion
   /// publishes no new Moments; its surviving stories stay as they were.
@@ -270,7 +279,7 @@ class ChartFinalizationService {
       return existing;
     }
 
-    final candidate = await _builder.build(
+    final built = await _builder.build(
       chartType: chartType,
       weekStartUtc: week.startUtc,
       weekEndUtc: week.endUtc,
@@ -279,6 +288,9 @@ class ChartFinalizationService {
       excludedAlbumIds: chartType == ChartType.albums
           ? await excludedReleaseIds(_releaseEligibility)
           : const {},
+    );
+    final candidate = built.withProvenance(
+      await _provenanceOf(chartType, week),
     );
 
     final events = await _detectFinalizedMoments(candidate);
@@ -307,6 +319,27 @@ class ChartFinalizationService {
     await _charts.replaceSnapshot(candidate);
 
     return candidate;
+  }
+
+  /// How [week] is being finalized now (REF-19). Unknown without a history
+  /// origin reader; unverified when the origin is missing, the week began
+  /// before it, or a deletion or merge recalculated the week.
+  Future<ChartSnapshotProvenance?> _provenanceOf(
+    ChartType chartType,
+    ChartWeek week,
+  ) async {
+    final originReader = _chartHistoryOriginUtc;
+    if (originReader == null) return null;
+    final origin = await originReader();
+    if (origin == null || week.startUtc.toUtc().isBefore(origin.toUtc())) {
+      return ChartSnapshotProvenance.unverified;
+    }
+    final recalculated = _isRecalculatedWeek;
+    if (recalculated != null &&
+        await recalculated(chartType.name, week.startUtc.toUtc())) {
+      return ChartSnapshotProvenance.unverified;
+    }
+    return ChartSnapshotProvenance.original;
   }
 
   /// The week's finalized Moments, or null when Moments are off or the

@@ -671,11 +671,17 @@ void main() {
         editions.map((row) => row['release_date_precision']),
         everyElement(isNull),
       );
+      // A version 31 week's provenance (version 46) is unknown.
+      final weeks = rows[DatabaseTables.chartSnapshots]!;
+      expect(weeks.map((row) => row['provenance']), everyElement(isNull));
       return {
         ...rows,
         DatabaseTables.albumEditions: [
           for (final row in editions)
             {...row}..remove('release_date_precision'),
+        ],
+        DatabaseTables.chartSnapshots: [
+          for (final row in weeks) {...row}..remove('provenance'),
         ],
       };
     }

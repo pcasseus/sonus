@@ -61,21 +61,30 @@ void main() {
     'updated_at': '2026-11-12T00:00:00.000Z',
   };
 
-  test('a fresh database has the table, empty, at version 45', () async {
-    final db = await (await fresh('fresh.db')).database;
-    expect(
-      (await db.rawQuery('PRAGMA user_version')).single['user_version'],
-      45,
-    );
-    expect(await db.query(table), isEmpty);
-    expect(
-      [
-        for (final c in await db.rawQuery('PRAGMA table_info($table)'))
-          c['name'],
-      ],
-      ['album_edition_id', 'disc_number', 'label', 'created_at', 'updated_at'],
-    );
-  });
+  test(
+    'a fresh database has the table, empty, at the current version',
+    () async {
+      final db = await (await fresh('fresh.db')).database;
+      expect(
+        (await db.rawQuery('PRAGMA user_version')).single['user_version'],
+        46,
+      );
+      expect(await db.query(table), isEmpty);
+      expect(
+        [
+          for (final c in await db.rawQuery('PRAGMA table_info($table)'))
+            c['name'],
+        ],
+        [
+          'album_edition_id',
+          'disc_number',
+          'label',
+          'created_at',
+          'updated_at',
+        ],
+      );
+    },
+  );
 
   test('44 to 45 adds only the table and keeps every row', () async {
     final db = await version44('upgrade.db');

@@ -43,6 +43,7 @@ abstract final class BackupCompatibility {
     43,
     44,
     45,
+    46,
   };
 
   static bool canRestore(BackupManifest manifest) =>

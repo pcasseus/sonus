@@ -118,7 +118,7 @@ void main() {
     final db = await freshDatabase();
     expect(
       (await db.rawQuery('PRAGMA user_version')).single['user_version'],
-      45,
+      46,
     );
     expect(
       (await columnsOf(
@@ -188,7 +188,7 @@ void main() {
 
     expect(
       (await opened.rawQuery('PRAGMA user_version')).single['user_version'],
-      45,
+      46,
     );
     expect(await objectsOf(opened), await objectsOf(fresh));
     expect(

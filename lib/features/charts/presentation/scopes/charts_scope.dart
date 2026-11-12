@@ -212,6 +212,7 @@ class _ChartsScopeState extends State<ChartsScope> {
       // Snapshot and Moments in one transaction (SN-50 F6).
       weekFinalizer: charts,
       isRecalculatedWeek: deletionJournal.isRecalculatedWeek,
+      chartHistoryOriginUtc: charts.chartHistoryOriginUtc,
       dominanceFromUtc: (widget.momentRulesActivation ?? _deviceRulesActivation)
           .dominanceFrom,
     );

@@ -34,6 +34,19 @@ class SqliteChartRepository
 
   final AppDatabase database;
 
+  /// When this database's chart history began (local version 46); null
+  /// when it was never recorded.
+  Future<DateTime?> chartHistoryOriginUtc() async {
+    final db = await database.database;
+    final rows = await db.query(
+      DatabaseTables.chartHistoryOrigin,
+      columns: ['origin_utc'],
+      where: 'id = 1',
+    );
+    if (rows.isEmpty) return null;
+    return DateTime.tryParse(rows.single['origin_utc']! as String)?.toUtc();
+  }
+
   @override
   Future<void> replaceSnapshot(ChartSnapshot snapshot) {
     return database.transaction(

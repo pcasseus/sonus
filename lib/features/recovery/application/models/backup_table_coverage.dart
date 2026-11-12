@@ -86,6 +86,9 @@ abstract final class BackupCoverageContract {
     BackupTableCoverage(
       table: DatabaseTables.chartSnapshots,
       policy: BackupTablePolicy.portableData,
+      // Where each week came from (database version 46); weeks in older
+      // backups restore as unknown.
+      columnsAddedLater: {'provenance'},
     ),
     BackupTableCoverage(
       table: DatabaseTables.chartEntries,
@@ -212,6 +215,14 @@ abstract final class BackupCoverageContract {
     BackupTableCoverage(
       table: DatabaseTables.deletedAudioSignatures,
       policy: BackupTablePolicy.deviceLocal,
+    ),
+    // When this database's chart history began (version 46): internal
+    // bookkeeping, never described to users and never taken from a backup
+    // (a restore starts it again at the restore). Not sync state, so it is
+    // not in RecoveryFingerprintService.syncStateTables.
+    BackupTableCoverage(
+      table: DatabaseTables.chartHistoryOrigin,
+      policy: BackupTablePolicy.internalState,
     ),
   ];
 

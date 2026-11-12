@@ -3,6 +3,7 @@ import 'package:sqflite/sqflite.dart';
 
 import '../../../../core/database/app_database.dart';
 import '../../../../core/database/database_tables.dart';
+import '../../../../core/database/schema/chart_schema.dart';
 import '../../../../core/database/schema/release_date_precision_backfill.dart';
 import '../../../../core/identity/text_normalizer.dart';
 import '../models/backup_table_coverage.dart';
@@ -40,7 +41,8 @@ class RestoreIntegrityFailure implements Exception {
 ///   preserves every identity and value.
 /// * Device-local and sync tables are never written, except removing the
 ///   audio bindings of songs that are not in the backup (required by the
-///   RESTRICT foreign key).
+///   RESTRICT foreign key), and moving the chart history origin to the
+///   restore.
 class SqliteRestoreExecutor {
   const SqliteRestoreExecutor({this.afterPhase});
 
@@ -184,6 +186,11 @@ class SqliteRestoreExecutor {
     // Dates restored from a backup made before their precision was
     // recorded are marked year-only where their provenance shows it.
     await ReleaseDatePrecisionBackfill.run(transaction);
+
+    // App Update 1.2 (REF-19): the chart history now continues from the
+    // backup, so weeks this device finalizes for time before the restore
+    // are built from restored plays and never count as original.
+    await ChartSchema.resetChartHistoryOrigin(transaction, DateTime.now());
 
     // 6. Verify before the transaction may commit.
     await _verify(transaction, expectedCounts, artworkRows);

@@ -125,6 +125,33 @@ void main() {
     expect(restored.entries[1].movement, ChartMovement.up);
   });
 
+  test('REF-19: a week keeps its provenance; unknown stays unknown', () async {
+    for (final provenance in [...ChartSnapshotProvenance.values, null]) {
+      final snapshot = createSnapshot(
+        id: 'week-${provenance?.name ?? 'unknown'}',
+      ).withProvenance(provenance);
+      await database.transaction(
+        (txn) => txn.delete(DatabaseTables.chartSnapshots),
+      );
+      await repository.replaceSnapshot(snapshot);
+
+      expect((await repository.getById(snapshot.id))!.provenance, provenance);
+      final history = await repository.getHistory(ChartType.songs);
+      expect(history.single.provenance, provenance);
+    }
+  });
+
+  test('REF-19: the chart history origin reads back, or null', () async {
+    final origin = await repository.chartHistoryOriginUtc();
+    expect(origin, isNotNull);
+    expect(origin!.isUtc, isTrue);
+
+    await database.transaction(
+      (txn) => txn.delete(DatabaseTables.chartHistoryOrigin),
+    );
+    expect(await repository.chartHistoryOriginUtc(), isNull);
+  });
+
   test('loads snapshot by chart type and week', () async {
     final snapshot = createSnapshot();
 

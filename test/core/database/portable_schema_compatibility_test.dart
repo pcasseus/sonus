@@ -85,8 +85,9 @@ void main() {
       43,
       44,
       45,
+      46,
     });
-    expect(AppDatabase.databaseVersion, 45);
+    expect(AppDatabase.databaseVersion, 46);
   });
 
   test('the fixture is a real version 31 database', () async {
@@ -118,9 +119,10 @@ void main() {
     final v42 = await migrateTo(await copyOfV31('v42.db'), 42);
     final v43 = await migrateTo(await copyOfV31('v43.db'), 43);
     final v44 = await migrateTo(await copyOfV31('v44.db'), 44);
-    final v45 = AppDatabase(
+    final v45 = await migrateTo(await copyOfV31('v45.db'), 45);
+    final v46 = AppDatabase(
       databaseFactory: databaseFactoryFfi,
-      databasePath: await copyOfV31('v45.db'),
+      databasePath: await copyOfV31('v46.db'),
     );
     final fresh = AppDatabase(
       databaseFactory: databaseFactoryFfi,
@@ -143,7 +145,8 @@ void main() {
       expect(await userVersion(v42), 42);
       expect(await userVersion(v43), 43);
       expect(await userVersion(v44), 44);
-      expect(await userVersion(await v45.database), 45);
+      expect(await userVersion(v45), 45);
+      expect(await userVersion(await v46.database), 46);
       // Required tables are identical everywhere; an optional table is
       // identical wherever the version has it, apart from nullable columns
       // added later, which older backups may lack.
@@ -171,14 +174,16 @@ void main() {
       expectCompatible(await _portableSchema(v38));
       expectCompatible(await _portableSchema(v39));
       expectCompatible(await _portableSchema(v40));
-      // 42, 43 and 44 only changed device-local tables, and 45 added the
-      // optional disc names table: the older ones are compatible, and the
-      // current version is identical.
+      // 42, 43 and 44 only changed device-local tables, 45 added the
+      // optional disc names table and 46 the nullable chart provenance
+      // column: the older ones are compatible, and the current version is
+      // identical.
       expectCompatible(await _portableSchema(v41));
       expectCompatible(await _portableSchema(v42));
       expectCompatible(await _portableSchema(v43));
       expectCompatible(await _portableSchema(v44));
-      expect(await _portableSchema(await v45.database), reference);
+      expectCompatible(await _portableSchema(v45));
+      expect(await _portableSchema(await v46.database), reference);
     } finally {
       await v31.close();
       await v32.close();
@@ -195,6 +200,7 @@ void main() {
       await v43.close();
       await v44.close();
       await v45.close();
+      await v46.close();
       await fresh.close();
     }
   });
@@ -219,8 +225,18 @@ void main() {
       final db = await upgraded.database;
       final rowsAfter = await _allRows(db);
 
-      expect(await userVersion(db), 45);
+      expect(await userVersion(db), 46);
       expect(rowsAfter[DatabaseTables.albumEditionDiscLabels], isEmpty);
+      // Migration 46 starts the chart history at the upgrade, and leaves
+      // every stored week's provenance unknown.
+      expect(rowsAfter[DatabaseTables.chartHistoryOrigin], hasLength(1));
+      for (final row in rowsAfter[DatabaseTables.chartSnapshots]!) {
+        expect(row['provenance'], isNull);
+      }
+      rowsAfter[DatabaseTables.chartSnapshots] = [
+        for (final row in rowsAfter[DatabaseTables.chartSnapshots]!)
+          {...row}..remove('provenance'),
+      ];
       expect(rowsAfter[DatabaseTables.libraryDeletionLedger], isEmpty);
       expect(rowsAfter[DatabaseTables.deletedAudioSignatures], isEmpty);
       expect(rowsAfter[DatabaseTables.libraryDeletionJournal], isEmpty);
@@ -254,6 +270,7 @@ void main() {
         ..remove(DatabaseTables.artistProjectAssignments)
         ..remove(DatabaseTables.artworkCrops)
         ..remove(DatabaseTables.albumEditionDiscLabels)
+        ..remove(DatabaseTables.chartHistoryOrigin)
         ..remove(DatabaseTables.libraryDeletionLedger)
         ..remove(DatabaseTables.libraryDeletionJournal)
         ..remove(DatabaseTables.deletedAudioSignatures);

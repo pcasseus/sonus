@@ -86,6 +86,9 @@ void main() {
     ReleaseChartEligibility? releaseEligibility,
     ChartArtistAttribution? artistAttribution,
     Future<DateTime?> Function()? dominanceFromUtc,
+    Future<DateTime?> Function()? chartHistoryOriginUtc,
+    Future<bool> Function(String chartType, DateTime weekStartUtc)?
+    isRecalculatedWeek,
     List<String> extraAlbums = const [],
   }) {
     final library = _FakeLibraryQueryRepository(
@@ -119,6 +122,8 @@ void main() {
       releaseEligibility: releaseEligibility,
       artistAttribution: artistAttribution,
       dominanceFromUtc: dominanceFromUtc,
+      chartHistoryOriginUtc: chartHistoryOriginUtc,
+      isRecalculatedWeek: isRecalculatedWeek,
     );
   }
 
@@ -214,6 +219,79 @@ void main() {
       {for (final event in artistEvents) event.entity.artistId},
       {'owner'},
     );
+  });
+
+  group('REF-19: each finalized week records where it came from', () {
+    final week = ChartWeek(
+      startUtc: DateTime.utc(2026, 9, 27),
+      endUtc: DateTime.utc(2026, 10, 4),
+    );
+
+    Future<Set<ChartSnapshotProvenance?>> finalize({
+      Future<DateTime?> Function()? origin,
+      bool recalculated = false,
+    }) async {
+      final charts = _RecordingChartRepository();
+      await createService(
+        qualifiedPlays: _MutableQualifiedPlayRepository([
+          play(
+            id: '1',
+            songId: 'song-a',
+            albumId: 'album-a',
+            qualifiedAt: DateTime.utc(2026, 9, 28, 10),
+          ),
+        ]),
+        charts: charts,
+        chartHistoryOriginUtc: origin,
+        isRecalculatedWeek: (_, _) async => recalculated,
+      ).reconcileCompletedWeek(week);
+      return {
+        for (final type in ChartType.values)
+          (await charts.getForWeek(
+            chartType: type,
+            weekStartUtc: week.startUtc,
+          ))!.provenance,
+      };
+    }
+
+    test('a week that began after the history did is original', () async {
+      expect(await finalize(origin: () async => DateTime.utc(2026, 9, 1)), {
+        ChartSnapshotProvenance.original,
+      });
+      expect(await finalize(origin: () async => week.startUtc), {
+        ChartSnapshotProvenance.original,
+      });
+    });
+
+    test('a week already under way when the history began is unverified, '
+        'never original', () async {
+      expect(await finalize(origin: () async => DateTime.utc(2026, 9, 28)), {
+        ChartSnapshotProvenance.unverified,
+      });
+    });
+
+    test(
+      'a week recalculated after a deletion or merge is unverified',
+      () async {
+        expect(
+          await finalize(
+            origin: () async => DateTime.utc(2026, 9, 1),
+            recalculated: true,
+          ),
+          {ChartSnapshotProvenance.unverified},
+        );
+      },
+    );
+
+    test('an origin that was never recorded is unverified', () async {
+      expect(await finalize(origin: () async => null), {
+        ChartSnapshotProvenance.unverified,
+      });
+    });
+
+    test('without an origin reader the provenance stays unknown', () async {
+      expect(await finalize(), {null});
+    });
   });
 
   group('SN-45: Singles on the release chart', () {

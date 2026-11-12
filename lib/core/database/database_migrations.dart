@@ -541,6 +541,22 @@ abstract final class DatabaseMigrations {
         await AlbumEditionDiscLabelSchema.create(db);
         return;
 
+      case 46:
+        // App Update 1.2, REF-19: where each finalized chart week came from,
+        // so historical claims rest only on weeks known to be original.
+        // Every stored week keeps its values and is left unknown (null);
+        // the chart history starts now.
+        if (await _tableExists(db, DatabaseTables.chartSnapshots)) {
+          await _addColumnIfMissing(
+            db,
+            table: DatabaseTables.chartSnapshots,
+            columnName: ChartSchema.provenanceColumn,
+            definition: ChartSchema.provenanceDefinition,
+          );
+        }
+        await ChartSchema.createChartHistoryOrigin(db);
+        return;
+
       default:
         throw UnsupportedError(
           'No Sonus database migration exists for version $targetVersion.',
