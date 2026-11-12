@@ -1,4 +1,5 @@
 param(
+    [string] $Ledger,
     [Parameter(ValueFromRemainingArguments = $true)]
     [string[]] $FlutterArgs
 )
@@ -12,30 +13,38 @@ param(
 #   never reach the cloud. The build is refused if any are found in it.
 #
 # It never builds, installs or touches the real app (the prod flavor).
+#
+# Like the real app, every build gets a new, higher versionCode from the
+# shared build ledger (tool\sonus-build-identity.ps1).
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'sonus-build-identity.ps1')
+if (-not $Ledger) { $Ledger = $SonusDefaultLedger }
 
 $expectedPackage = 'com.sonus.sonus_next.qa'
 $expectedAuthority = "$expectedPackage.artwork"
 
-$buildTools = Get-ChildItem (Join-Path $env:LOCALAPPDATA 'Android\Sdk\build-tools') -Directory |
-    Sort-Object { [version]$_.Name } | Select-Object -Last 1
-$aapt = Join-Path $buildTools.FullName 'aapt.exe'
-if (-not (Test-Path $aapt)) { throw "aapt not found in $($buildTools.FullName)." }
+$tools = Find-SonusBuildTools
+$aapt = $tools.Aapt
 
 Push-Location (Join-Path $PSScriptRoot '..')
 try {
     $buildDefines = @()
-    $commit = "$(git rev-parse --short HEAD 2>$null)".Trim()
-    if ($LASTEXITCODE -eq 0 -and $commit) {
+    $commit = 'unrecorded'
+    $head = "$(git rev-parse --short HEAD 2>$null)".Trim()
+    if ($LASTEXITCODE -eq 0 -and $head) {
+        $commit = $head
         if ("$(git status --porcelain 2>$null)".Trim()) { $commit = "$commit-dirty" }
         $buildDefines += "--dart-define=SONUS_BUILD_COMMIT=$commit"
         Write-Output "Build commit $commit"
     }
     $buildDefines += "--dart-define=SONUS_BUILD_TIME=$((Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ'))"
 
+    $versionCode = New-SonusVersionCode -Flavor qa -Commit $commit -Ledger $Ledger
+    Write-Output "versionCode $versionCode (reserved in $Ledger)"
+
     # Deliberately no --dart-define-from-file: no account settings.
-    flutter build apk --profile --flavor qa @buildDefines @FlutterArgs
+    flutter build apk --profile --flavor qa "--build-number=$versionCode" @buildDefines @FlutterArgs
     if ($LASTEXITCODE -ne 0) { throw "flutter build failed ($LASTEXITCODE)" }
 
     $apk = 'build\app\outputs\flutter-apk\app-qa-profile.apk'
@@ -73,10 +82,12 @@ try {
         $zip.Dispose()
     }
 
-    $hash = (Get-FileHash $apk -Algorithm SHA256).Hash.ToLowerInvariant()
+    $identity = Get-SonusApkIdentity -Apk $apk -Aapt $tools.Aapt -Apksigner $tools.Apksigner
+    Assert-SonusApkIdentity -Identity $identity -Package $expectedPackage -VersionCode $versionCode
+    Add-SonusBuildRecord -VersionCode $versionCode -Flavor qa -Sha256 $identity.Sha256 -Ledger $Ledger
     Write-Output "Built $apk"
-    Write-Output "Package $package; artwork provider $expectedAuthority; no account settings"
-    Write-Output "SHA-256 $hash"
+    Write-Output "Package $package; versionCode $versionCode; artwork provider $expectedAuthority; no account settings"
+    Write-Output "SHA-256 $($identity.Sha256)"
 }
 finally {
     Pop-Location
