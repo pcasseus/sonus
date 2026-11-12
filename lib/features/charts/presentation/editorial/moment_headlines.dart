@@ -78,6 +78,16 @@ abstract final class MomentHeadlines {
   static List<HeadlineVariant> legacyOf(MomentFamily family) =>
       _library[family] ?? const [];
 
+  /// Whether artist-dominance Moments (REF-19) may start: only once every
+  /// one of their families is approved. Until then they are not recorded
+  /// at all and their start is not set, so the first week counted is the
+  /// first one finalized after a build with approved lines is installed.
+  static bool artistDominanceApproved([
+    Set<MomentFamily> approved = approvedFamilies,
+  ]) => MomentFamily.values
+      .where((family) => family.isArtistDominance)
+      .every(approved.contains);
+
   /// The families whose headlines are approved for publication (SN-50
   /// release safety). Fail-closed: a family is publishable only when it is
   /// listed here, so a new family stays held until its lines are approved.

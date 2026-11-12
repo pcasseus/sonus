@@ -22,6 +22,8 @@ import '../../data/repositories/sqlite_chart_repository.dart';
 import '../../data/services/shared_preferences_moment_rules_activation_store.dart';
 import '../../data/services/shared_preferences_moments_last_seen_store.dart';
 import '../controllers/charts_controller.dart';
+import '../editorial/moment_family.dart';
+import '../editorial/moment_headlines.dart';
 import '../../../library/application/services/library_organization_service.dart';
 import '../../application/services/library_release_chart_eligibility.dart';
 import '../../../analytics/presentation/scopes/listening_artist_attribution_lookup.dart';
@@ -60,6 +62,21 @@ class ChartsScope extends StatefulWidget {
   State<ChartsScope> createState() => _ChartsScopeState();
 }
 
+/// The device's Moments activation. Artist-dominance Moments get a start
+/// (and so are recorded) only once their lines are approved (REF-19).
+@visibleForTesting
+MomentRulesActivation deviceMomentRulesActivation(
+  SharedPreferencesMomentRulesActivationStore store, {
+  Set<MomentFamily> approved = MomentHeadlines.approvedFamilies,
+}) {
+  return MomentRulesActivation(
+    store: store,
+    devicePolish: store,
+    chronicle: store,
+    dominance: MomentHeadlines.artistDominanceApproved(approved) ? store : null,
+  );
+}
+
 class _ChartsScopeState extends State<ChartsScope> {
   AppDatabase? _database;
   LibraryQueryRepository? _library;
@@ -73,15 +90,10 @@ class _ChartsScopeState extends State<ChartsScope> {
 
   /// One per process, so its instant is recorded once however often
   /// scopes and controllers are recreated.
-  static final MomentRulesActivation _deviceRulesActivation = () {
-    final store = SharedPreferencesMomentRulesActivationStore();
-    return MomentRulesActivation(
-      store: store,
-      devicePolish: store,
-      chronicle: store,
-      dominance: store,
-    );
-  }();
+  static final MomentRulesActivation _deviceRulesActivation =
+      deviceMomentRulesActivation(
+        SharedPreferencesMomentRulesActivationStore(),
+      );
 
   @override
   void didChangeDependencies() {
