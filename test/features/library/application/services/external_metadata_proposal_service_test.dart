@@ -555,4 +555,71 @@ void main() {
       expect(field.status, ExternalMetadataProposalFieldStatus.notProposed);
     });
   });
+
+  group('REF-17 genre', () {
+    ExternalMetadataCandidate genred(List<(String, int)> votes) =>
+        ExternalMetadataCandidate(
+          provider: ExternalMetadataProviderKind.musicBrainz,
+          entityKind: ExternalMetadataEntityKind.album,
+          providerEntityId: 'mb-album-1',
+          displayName: 'Old Album',
+          genres: [
+            for (final (name, count) in votes)
+              ExternalMetadataGenre(name: name, count: count),
+          ],
+        );
+
+    Future<Iterable<ExternalMetadataProposalField>> genreFields(
+      ExternalMetadataCandidate candidate,
+    ) async => (await service.previewAlbum(
+      albumId: 'album_1',
+      candidate: candidate,
+    )).fields.where((field) => field.fieldName == MetadataFields.editionGenre);
+
+    test(
+      "an album without a genre is offered MusicBrainz's category",
+      () async {
+        final field = (await genreFields(
+          genred([('hip hop', 7), ('pop', 2)]),
+        )).single;
+
+        expect(field.status, ExternalMetadataProposalFieldStatus.valueChange);
+        expect(field.currentValue, isNull);
+        expect(field.proposedValue, 'Hip-Hop/Rap');
+        expect(
+          field.note,
+          'The genre most MusicBrainz editors give this album (hip hop, pop), '
+          'for the "Standard" edition. Only an empty genre is filled; you can '
+          'change it in Genre.',
+        );
+      },
+    );
+
+    test('a genre already set is never offered a replacement', () async {
+      final db = await database.database;
+      final edition = await AlbumEditionDao(db).findById('edition_1');
+      await AlbumEditionDao(db).update(edition!.copyWith(genre: 'Neo Soul'));
+
+      expect(await genreFields(genred([('hip hop', 7)])), isEmpty);
+    });
+
+    test('ambiguous or uncategorised genres, or none, offer nothing', () async {
+      expect(await genreFields(genred([('pop', 4), ('rock', 4)])), isEmpty);
+      expect(await genreFields(genred([('pop rock', 9)])), isEmpty);
+      expect(await genreFields(genred(const [])), isEmpty);
+    });
+
+    test('a genre the listener cleared stays protected', () async {
+      await seedState(
+        entityType: MetadataEntityType.albumEdition,
+        entityId: 'edition_1',
+        fieldName: MetadataFields.editionGenre,
+        authority: MetadataAuthority.manual,
+        source: MetadataProvenanceSource.user,
+      );
+
+      final field = (await genreFields(genred([('hip hop', 7)]))).single;
+      expect(field.status, ExternalMetadataProposalFieldStatus.protected);
+    });
+  });
 }

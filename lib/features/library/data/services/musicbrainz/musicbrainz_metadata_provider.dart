@@ -57,7 +57,7 @@ class MusicBrainzMetadataProvider implements MetadataProvider {
         final json = await client.lookup(
           entity: MusicBrainzEntity.releaseGroup,
           id: normalizedId,
-          includes: const ['artist-credits', 'releases'],
+          includes: const ['artist-credits', 'releases', 'genres'],
         );
 
         return _mapReleaseGroup(json);
@@ -223,7 +223,23 @@ class MusicBrainzMetadataProvider implements MetadataProvider {
       secondaryTypes: _strings(json['secondary-types']),
       externalIds: externalIds,
       releaseOptions: options,
+      genres: _genres(json['genres']),
     );
+  }
+
+  /// Named genres with their votes, most votes first, then by name.
+  static List<ExternalMetadataGenre> _genres(Object? raw) {
+    final genres = [
+      for (final genre in _maps(raw))
+        if (_string(genre['name']) case final name?)
+          ExternalMetadataGenre(name: name, count: _int(genre['count']) ?? 0),
+    ];
+    genres.sort(
+      (a, b) => b.count != a.count
+          ? b.count.compareTo(a.count)
+          : a.name.compareTo(b.name),
+    );
+    return List.unmodifiable(genres);
   }
 
   ExternalMetadataCandidate? _mapRecording(Map<String, dynamic> json) {

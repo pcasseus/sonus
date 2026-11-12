@@ -72,6 +72,28 @@ void main() {
     expect(GenreCatalog.display('Pop'), 'Pop');
   });
 
+  test('REF-17: an online genre is suggested only when its votes name one '
+      'category', () {
+    expect(GenreCatalog.fromVotes([('hip hop', 7), ('pop', 2)]), 'Hip-Hop/Rap');
+    expect(
+      GenreCatalog.fromVotes([('hip hop', 5), ('rap', 5), ('pop', 1)]),
+      'Hip-Hop/Rap',
+      reason: 'tied, but the same category',
+    );
+    expect(
+      GenreCatalog.fromVotes([('pop', 4), ('rock', 4)]),
+      isNull,
+      reason: 'tied between categories: ambiguous',
+    );
+    expect(
+      GenreCatalog.fromVotes([('pop rock', 9), ('pop', 3)]),
+      isNull,
+      reason: 'the most-voted genre is not a category; never guessed',
+    );
+    expect(GenreCatalog.fromVotes(const []), isNull);
+    expect(GenreCatalog.fromVotes([(' ', 3)]), isNull);
+  });
+
   test('suggestions put the exact category first, then matches', () {
     expect(GenreCatalog.suggestionsFor('rnb').first, 'R&B/Soul');
     expect(GenreCatalog.suggestionsFor('hip').first, 'Hip-Hop/Rap');

@@ -94,8 +94,51 @@ class ExternalMetadataProposalService {
       fields: List.unmodifiable([
         field,
         if (edition != null) await _previewReleaseDate(edition, candidate),
+        if (edition != null) ?await _previewGenre(edition, candidate),
       ]),
     );
+  }
+
+  /// MusicBrainz's genre, only for a primary edition without one
+  /// (App Update 1.2, REF-17). A genre already set is never replaced from
+  /// here, and nothing is shown when MusicBrainz's genres are ambiguous.
+  Future<ExternalMetadataProposalField?> _previewGenre(
+    AlbumEdition edition,
+    ExternalMetadataCandidate candidate,
+  ) async {
+    final proposed = candidate.suggestedGenre;
+    if (proposed == null || (edition.genre?.trim().isNotEmpty ?? false)) {
+      return null;
+    }
+    final field = await _previewField(
+      entityType: MetadataEntityType.albumEdition,
+      entityId: edition.id,
+      fieldName: MetadataFields.editionGenre,
+      currentValue: null,
+      proposedValue: proposed,
+      currentValuePresent: false,
+      proposedValuePresent: true,
+      sourceReference: candidate.sourceReference,
+    );
+    return ExternalMetadataProposalField(
+      fieldName: field.fieldName,
+      currentValue: field.currentValue,
+      proposedValue: field.proposedValue,
+      status: field.status,
+      existingState: field.existingState,
+      note: genreNote(candidate, editionTitle: edition.title),
+    );
+  }
+
+  /// Where the proposed genre comes from.
+  static String genreNote(
+    ExternalMetadataCandidate candidate, {
+    required String editionTitle,
+  }) {
+    final names = [for (final genre in candidate.genres.take(3)) genre.name];
+    return 'The genre most MusicBrainz editors give this album '
+        '(${names.join(', ')}), for the "$editionTitle" edition. Only an '
+        'empty genre is filled; you can change it in Genre.';
   }
 
   /// The primary edition's release date. A less exact form of the saved

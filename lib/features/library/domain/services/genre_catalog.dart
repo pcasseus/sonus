@@ -107,6 +107,24 @@ abstract final class GenreCatalog {
     return canonicalOf(trimmed) ?? trimmed;
   }
 
+  /// The category to suggest from an online source's genres, each with
+  /// its votes (App Update 1.2, REF-17): the most-voted genre's category,
+  /// only when it is an exact alias of one and every genre tied with it
+  /// means the same category. Otherwise null; nothing is guessed.
+  static String? fromVotes(Iterable<(String, int)> votes) {
+    final counted = [
+      for (final (name, count) in votes)
+        if (name.trim().isNotEmpty) (name, count),
+    ];
+    if (counted.isEmpty) return null;
+    final top = counted.map((vote) => vote.$2).reduce((a, b) => a > b ? a : b);
+    final categories = {
+      for (final (name, count) in counted)
+        if (count == top) canonicalOf(name),
+    };
+    return categories.length == 1 ? categories.single : null;
+  }
+
   /// Suggestions for what the listener is typing: the category it is an
   /// alias of first, then categories and [known] genres containing it.
   /// Everything when [query] is blank.

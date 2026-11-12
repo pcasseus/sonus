@@ -20,6 +20,7 @@ import '../../application/services/artist_creation_service.dart';
 import '../../application/services/external_metadata_application_service.dart';
 import '../../application/services/external_metadata_proposal_service.dart';
 import '../../application/services/library_organization_service.dart';
+import '../../application/models/external_metadata_candidate.dart';
 import '../../application/services/metadata_provider.dart';
 import '../../data/services/edition_follow_up_dismissals.dart';
 import '../../domain/deletion/permanent_deletion_impact.dart';
@@ -945,6 +946,32 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
     }
   }
 
+  /// The chosen album looked up by its identity, which also gives its
+  /// genres (REF-17). If that fails, the search result is used and simply
+  /// suggests no genre.
+  Future<ExternalMetadataCandidate> _inFull(
+    MetadataProvider provider,
+    ExternalMetadataCandidate candidate,
+  ) async {
+    try {
+      return await provider.lookup(
+            entityKind: ExternalMetadataEntityKind.album,
+            providerEntityId: candidate.providerEntityId,
+          ) ??
+          candidate;
+    } catch (error, stackTrace) {
+      developer.log(
+        'MusicBrainz album lookup failed (${error.runtimeType}); '
+        'previewing the search result',
+        name: 'sonus.library.release_studio',
+        level: 900,
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return candidate;
+    }
+  }
+
   Future<void> _searchMusicBrainz() async {
     final album = controller.album;
     final provider = widget.metadataProvider;
@@ -974,10 +1001,10 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
               title: album.title,
               artistName: album.artistName,
             ),
-            previewer: (candidate) {
+            previewer: (candidate) async {
               return proposalService.previewAlbum(
                 albumId: album.albumId,
-                candidate: candidate,
+                candidate: await _inFull(provider, candidate),
               );
             },
             applier: (candidate) {

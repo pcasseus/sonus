@@ -2183,6 +2183,108 @@ void main() {
         expect(find.text('Matched Album'), findsWidgets);
       },
     );
+    group('REF-17: the chosen match is looked up in full', () {
+      const searched = ExternalMetadataCandidate(
+        provider: ExternalMetadataProviderKind.musicBrainz,
+        entityKind: ExternalMetadataEntityKind.album,
+        providerEntityId: 'release-group-123',
+        displayName: 'Matched Album',
+      );
+      const full = ExternalMetadataCandidate(
+        provider: ExternalMetadataProviderKind.musicBrainz,
+        entityKind: ExternalMetadataEntityKind.album,
+        providerEntityId: 'release-group-123',
+        displayName: 'Matched Album',
+        genres: [ExternalMetadataGenre(name: 'hip hop', count: 4)],
+      );
+
+      Future<
+        (
+          FakeAlbumMetadataProposalService,
+          FakeAlbumExternalMetadataApplicationService,
+        )
+      >
+      chooseMatch(
+        WidgetTester tester,
+        FakeAlbumMetadataProvider provider,
+      ) async {
+        final proposalService = FakeAlbumMetadataProposalService();
+        final applicationService = FakeAlbumExternalMetadataApplicationService(
+          onApply:
+              ({
+                required String? userId,
+                required String albumId,
+                required ExternalMetadataCandidate candidate,
+              }) async => const ExternalMetadataApplicationResult(
+                changedFields: {'genre'},
+              ),
+        );
+        await tester.pumpWidget(
+          buildSubject(
+            repository: FakeEditionAwareLibraryQueryRepository(
+              album: createAlbum(primaryEditionId: 'edition-standard'),
+              editions: [
+                createLibraryEdition(
+                  editionId: 'edition-standard',
+                  title: 'Standard',
+                  type: AlbumEditionType.standard,
+                  isPrimary: true,
+                ),
+              ],
+              editionTracks: const {'edition-standard': []},
+            ),
+            albumProfileEditingService: FakeAlbumProfileEditingService(),
+            metadataProvider: provider,
+            externalMetadataApplicationService: applicationService,
+            externalMetadataProposalService: proposalService,
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const ValueKey<String>('album-profile-artwork-menu')),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Edit Release'));
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const ValueKey<String>('album-studio-search-musicbrainz')),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Matched Album'));
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const ValueKey<String>('musicbrainz-proposal-apply')),
+        );
+        await tester.pumpAndSettle();
+        return (proposalService, applicationService);
+      }
+
+      testWidgets('its genres are previewed and applied', (tester) async {
+        final provider = FakeAlbumMetadataProvider(
+          results: const [searched],
+          lookedUp: full,
+        );
+        final (proposals, applications) = await chooseMatch(tester, provider);
+
+        expect(provider.lookups, ['album:release-group-123']);
+        expect(proposals.lastCandidate, same(full));
+        expect(applications.lastCandidate, same(full));
+      });
+
+      testWidgets('if the lookup fails, the search result is previewed and '
+          'applied, suggesting no genre', (tester) async {
+        final provider = FakeAlbumMetadataProvider(
+          results: const [searched],
+          lookupFailure: StateError('offline'),
+        );
+        final (proposals, applications) = await chooseMatch(tester, provider);
+
+        expect(provider.lookups, ['album:release-group-123']);
+        expect(proposals.lastCandidate, same(searched));
+        expect(applications.lastCandidate, same(searched));
+      });
+    });
+
     testWidgets('Album Studio edition selector swaps the editable track list', (
       tester,
     ) async {
@@ -3119,9 +3221,16 @@ class _UnusedCoverArtTransport implements MusicBrainzHttpTransport {
 }
 
 class FakeAlbumMetadataProvider implements MetadataProvider {
-  FakeAlbumMetadataProvider({required this.results});
+  FakeAlbumMetadataProvider({
+    required this.results,
+    this.lookedUp,
+    this.lookupFailure,
+  });
 
   final List<ExternalMetadataCandidate> results;
+  final ExternalMetadataCandidate? lookedUp;
+  final Object? lookupFailure;
+  final List<String> lookups = [];
   int searchCallCount = 0;
   ExternalMetadataSearchQuery? lastQuery;
 
@@ -3143,7 +3252,9 @@ class FakeAlbumMetadataProvider implements MetadataProvider {
     required ExternalMetadataEntityKind entityKind,
     required String providerEntityId,
   }) async {
-    return null;
+    lookups.add('${entityKind.name}:$providerEntityId');
+    if (lookupFailure != null) throw lookupFailure!;
+    return lookedUp;
   }
 }
 

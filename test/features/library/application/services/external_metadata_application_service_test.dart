@@ -1300,4 +1300,117 @@ void main() {
       },
     );
   });
+
+  group('REF-17 genre from MusicBrainz', () {
+    ExternalMetadataCandidate genred(List<(String, int)> votes) =>
+        ExternalMetadataCandidate(
+          provider: ExternalMetadataProviderKind.musicBrainz,
+          entityKind: ExternalMetadataEntityKind.album,
+          providerEntityId: 'release-group-mbid',
+          displayName: 'Old Album',
+          genres: [
+            for (final (name, count) in votes)
+              ExternalMetadataGenre(name: name, count: count),
+          ],
+        );
+
+    Future<ExternalMetadataApplicationResult> apply(
+      ExternalMetadataCandidate candidate,
+    ) => service.applyAlbumCandidate(
+      userId: 'user_1',
+      albumId: 'album_1',
+      candidate: candidate,
+      now: mutationTime,
+    );
+
+    Future<String?> storedGenre() async {
+      final db = await appDatabase.database;
+      return (await AlbumEditionDao(db).findById('edition_1'))!.genre;
+    }
+
+    test('an empty genre takes the category, as MusicBrainz metadata, and '
+        'syncs', () async {
+      await createGraph();
+
+      final result = await apply(genred([('hip hop', 7), ('pop', 2)]));
+
+      expect(result.changedFields, contains(MetadataFields.editionGenre));
+      expect(await storedGenre(), 'Hip-Hop/Rap');
+      final db = await appDatabase.database;
+      final state = await MetadataFieldStateDao(db).find(
+        entityType: MetadataEntityType.albumEdition,
+        entityId: 'edition_1',
+        fieldName: MetadataFields.editionGenre,
+      );
+      expect(state!.authority, MetadataAuthority.external);
+      expect(state.source, MetadataProvenanceSource.musicBrainz);
+      expect(
+        state.sourceReference,
+        'musicbrainz:release-group:release-group-mbid',
+      );
+      final pending = await LocalSyncDao(db).findPending('user_1');
+      expect(
+        pending.where(
+          (entry) =>
+              entry.entityType == CloudDataEntity.albumEdition &&
+              entry.entityId == 'edition_1',
+        ),
+        isNotEmpty,
+      );
+    });
+
+    test('a genre already set is kept, even one from a file tag', () async {
+      final graph = await createGraph();
+      final db = await appDatabase.database;
+      await AlbumEditionDao(
+        db,
+      ).update(graph.edition.copyWith(genre: 'Neo Soul'));
+      await seedState(
+        entityType: MetadataEntityType.albumEdition,
+        entityId: 'edition_1',
+        fieldName: MetadataFields.editionGenre,
+        authority: MetadataAuthority.imported,
+      );
+
+      final result = await apply(genred([('hip hop', 7)]));
+
+      expect(
+        result.changedFields,
+        isNot(contains(MetadataFields.editionGenre)),
+      );
+      expect(await storedGenre(), 'Neo Soul');
+    });
+
+    test('a genre the listener cleared stays empty', () async {
+      await createGraph();
+      await seedState(
+        entityType: MetadataEntityType.albumEdition,
+        entityId: 'edition_1',
+        fieldName: MetadataFields.editionGenre,
+        authority: MetadataAuthority.manual,
+      );
+
+      final result = await apply(genred([('hip hop', 7)]));
+
+      expect(result.protectedFields, contains(MetadataFields.editionGenre));
+      expect(await storedGenre(), isNull);
+    });
+
+    test('ambiguous or uncategorised genres write nothing', () async {
+      await createGraph();
+
+      for (final votes in [
+        [('pop', 4), ('rock', 4)],
+        [('pop rock', 9)],
+        <(String, int)>[],
+      ]) {
+        final result = await apply(genred(votes));
+        expect(
+          result.changedFields,
+          isNot(contains(MetadataFields.editionGenre)),
+        );
+        expect(await storedGenre(), isNull);
+      }
+    });
+  });
 }

@@ -329,6 +329,68 @@ void main() {
     expect(applyCount, 1);
   });
 
+  testWidgets('REF-17: what was previewed is what is applied, such as an '
+      'album looked up in full with its genres', (tester) async {
+    const searched = ExternalMetadataCandidate(
+      provider: ExternalMetadataProviderKind.musicBrainz,
+      entityKind: ExternalMetadataEntityKind.artist,
+      providerEntityId: 'previewed',
+      displayName: 'Beyonce',
+    );
+    const looked = ExternalMetadataCandidate(
+      provider: ExternalMetadataProviderKind.musicBrainz,
+      entityKind: ExternalMetadataEntityKind.artist,
+      providerEntityId: 'previewed',
+      displayName: 'Beyonce',
+      genres: [ExternalMetadataGenre(name: 'pop', count: 3)],
+    );
+    ExternalMetadataCandidate? applied;
+    MusicBrainzSearchSelection? selection;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => TextButton(
+            onPressed: () async {
+              selection = await showDialog<MusicBrainzSearchSelection>(
+                context: context,
+                builder: (_) => MusicBrainzSearchDialog(
+                  provider: const _FakeMetadataProvider(results: [searched]),
+                  query: const ExternalMetadataSearchQuery(
+                    entityKind: ExternalMetadataEntityKind.artist,
+                    artistName: 'Beyonce',
+                  ),
+                  previewer: (_) async => _artistProposal(looked),
+                  applier: (candidate) async {
+                    applied = candidate;
+                    return const ExternalMetadataApplicationResult(
+                      changedFields: {'name'},
+                    );
+                  },
+                ),
+              );
+            },
+            child: const Text('open'),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.byKey(const ValueKey<String>('musicbrainz-result-previewed')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey<String>('musicbrainz-proposal-apply')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(applied, same(looked));
+    expect(selection?.candidate, same(looked));
+  });
+
   testWidgets('preview failure never invokes applier', (tester) async {
     var applyCount = 0;
 

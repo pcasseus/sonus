@@ -371,7 +371,7 @@ void main() {
       expect(transport.requestedUri!.path, '/ws/2/artist/artist-mbid');
     });
 
-    test('album lookup requests artist credits and releases', () async {
+    test('album lookup requests artist credits, releases and genres', () async {
       transport.responseBody = '''
 {
   "id": "release-group-mbid",
@@ -392,9 +392,42 @@ void main() {
 
       expect(
         transport.requestedUri!.queryParameters['inc'],
-        'artist-credits+releases',
+        'artist-credits+releases+genres',
       );
+      expect(result.genres, isEmpty);
     });
+
+    test(
+      "REF-17: an album's genres come most votes first, named ones only",
+      () async {
+        transport.responseBody = '''
+{
+  "id": "release-group-mbid",
+  "title": "First Light",
+  "artist-credit": [],
+  "releases": [],
+  "genres": [
+    {"name": "pop", "count": 2},
+    {"name": "hip hop", "count": 7},
+    {"count": 9},
+    {"name": "  ", "count": 9},
+    {"name": "contemporary r&b", "count": 2}
+  ]
+}
+''';
+
+        final result = await provider.lookup(
+          entityKind: ExternalMetadataEntityKind.album,
+          providerEntityId: 'release-group-mbid',
+        );
+
+        expect(
+          [for (final genre in result!.genres) (genre.name, genre.count)],
+          [('hip hop', 7), ('contemporary r&b', 2), ('pop', 2)],
+        );
+        expect(result.suggestedGenre, 'Hip-Hop/Rap');
+      },
+    );
 
     test('track lookup requests artist credits and releases', () async {
       transport.responseBody = '''

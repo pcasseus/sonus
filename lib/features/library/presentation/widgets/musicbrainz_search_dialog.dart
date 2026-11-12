@@ -143,6 +143,7 @@ class _MusicBrainzSearchDialogState extends State<MusicBrainzSearchDialog> {
 
     try {
       ExternalMetadataApplicationResult result;
+      var applied = candidate;
 
       if (widget.previewer == null) {
         final confirmed = await _confirmLegacy(candidate);
@@ -153,16 +154,19 @@ class _MusicBrainzSearchDialogState extends State<MusicBrainzSearchDialog> {
 
         result = await widget.applier(candidate);
       } else {
-        final decision = await _confirmProposal(candidate);
+        final (proposal, decision) = await _confirmProposal(candidate);
 
         if (!mounted || decision == null) {
           return;
         }
+        // What was previewed is what is applied: the previewer may have
+        // looked the candidate up in full (REF-17 genres).
+        applied = proposal.candidate;
 
         var automaticResult = const ExternalMetadataApplicationResult();
 
         if (decision.applyEligibleChanges) {
-          automaticResult = await widget.applier(candidate);
+          automaticResult = await widget.applier(applied);
         }
 
         var reviewedResult = const ExternalMetadataApplicationResult();
@@ -177,7 +181,7 @@ class _MusicBrainzSearchDialogState extends State<MusicBrainzSearchDialog> {
           }
 
           reviewedResult = await reviewedApplier(
-            candidate,
+            applied,
             decision.confirmedReviewFields,
           );
         }
@@ -195,7 +199,7 @@ class _MusicBrainzSearchDialogState extends State<MusicBrainzSearchDialog> {
 
       Navigator.of(
         context,
-      ).pop(MusicBrainzSearchSelection(candidate: candidate, result: result));
+      ).pop(MusicBrainzSearchSelection(candidate: applied, result: result));
     } catch (_) {
       if (!mounted) {
         return;
@@ -216,22 +220,22 @@ class _MusicBrainzSearchDialogState extends State<MusicBrainzSearchDialog> {
     }
   }
 
-  Future<MusicBrainzProposalReviewDecision?> _confirmProposal(
-    ExternalMetadataCandidate candidate,
-  ) async {
+  Future<(ExternalMetadataProposal, MusicBrainzProposalReviewDecision?)>
+  _confirmProposal(ExternalMetadataCandidate candidate) async {
     final proposal = await widget.previewer!(candidate);
 
     if (!mounted) {
-      return null;
+      return (proposal, null);
     }
 
-    return showDialog<MusicBrainzProposalReviewDecision>(
+    final decision = await showDialog<MusicBrainzProposalReviewDecision>(
       context: context,
       builder: (_) => MusicBrainzProposalReviewDialog(
         proposal: proposal,
         canConfirmReview: widget.reviewedApplier != null,
       ),
     );
+    return (proposal, decision);
   }
 
   ExternalMetadataApplicationResult _mergeResults(
