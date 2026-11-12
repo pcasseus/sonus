@@ -128,6 +128,46 @@ void main() {
     );
   });
 
+  test("REF-19: joint control rows of the pair go when either artist's "
+      'song is deleted; other pairs stay', () async {
+    Future<void> joint(String id, String artistId, String partner) =>
+        db.insert(DatabaseTables.chartMomentEvents, {
+          'id': id,
+          'deduplication_key': id,
+          'source_id': 'joint:4:$partner:snapshot_songs',
+          'chart_type': 'songs',
+          'scope': 'finalized',
+          'event_type': 'artistSimultaneousThresholdSongs',
+          'entity_id': 'song_second',
+          'entity_title': 'Second',
+          'entity_artist_id': artistId,
+          'entity_artist_name': artistId,
+          'week_start_utc': week1,
+          'week_end_utc': week1End,
+          'occurred_at': now,
+          'created_at': now,
+          'threshold': 4,
+          'milestone_value': 2,
+        });
+    await joint('moment_nova_joint', 'artist_nova', 'artist_juno');
+    await joint('moment_juno_joint', 'artist_juno', 'artist_nova');
+    await joint('moment_echo_joint', 'artist_echo', 'artist_lyra');
+
+    final impact = await plan(
+      const PermanentDeletionTarget.song('song_opening'),
+    );
+
+    expect(
+      impact.momentIdsMentioningTarget,
+      containsAll(['moment_nova_joint', 'moment_juno_joint']),
+      reason: "Opening is Nova's; Juno's row stands for the same pair",
+    );
+    expect(
+      impact.momentIdsMentioningTarget,
+      isNot(contains('moment_echo_joint')),
+    );
+  });
+
   test('edition: only songs no other edition lists are deleted', () async {
     final impact = await plan(
       const PermanentDeletionTarget.edition('edition_nova_deluxe'),

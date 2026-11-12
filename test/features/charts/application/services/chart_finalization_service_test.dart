@@ -9,6 +9,7 @@ import 'package:sonus_next/features/analytics/domain/repositories/qualified_play
 import 'package:sonus_next/features/charts/application/services/chart_finalization_service.dart';
 import 'package:sonus_next/features/charts/application/services/chart_snapshot_builder_service.dart';
 import 'package:sonus_next/features/charts/domain/entities/chart_snapshot.dart';
+import 'package:sonus_next/features/charts/domain/moments/chart_moment_artist_joint_control.dart';
 import 'package:sonus_next/features/charts/domain/models/chart_type.dart';
 import 'package:sonus_next/features/charts/domain/models/chart_week.dart';
 import 'package:sonus_next/features/charts/domain/moments/chart_moment_event.dart';
@@ -89,6 +90,8 @@ void main() {
     Future<DateTime?> Function()? chartHistoryOriginUtc,
     Future<bool> Function(String chartType, DateTime weekStartUtc)?
     isRecalculatedWeek,
+    Future<DateTime?> Function()? jointControlFromUtc,
+    ChartSongCreditLookup? songCredits,
     List<String> extraAlbums = const [],
   }) {
     final library = _FakeLibraryQueryRepository(
@@ -124,6 +127,8 @@ void main() {
       dominanceFromUtc: dominanceFromUtc,
       chartHistoryOriginUtc: chartHistoryOriginUtc,
       isRecalculatedWeek: isRecalculatedWeek,
+      jointControlFromUtc: jointControlFromUtc,
+      songCredits: songCredits,
     );
   }
 
@@ -283,6 +288,89 @@ void main() {
         await secondWeekSources(DateTime.utc(2026, 9, 30)),
         isEmpty,
         reason: 'the first week was already under way at the origin',
+      );
+    });
+  });
+
+  group('REF-19: joint control needs its own start and known credits', () {
+    final week = ChartWeek(
+      startUtc: DateTime.utc(2026, 9, 27),
+      endUtc: DateTime.utc(2026, 10, 4),
+    );
+
+    /// Nova at #1 and #3, Juno at #2 and #4.
+    Future<List<String?>> joint({
+      DateTime? from,
+      ChartSongCreditLookup? credits,
+    }) async {
+      final moments = _RecordingMomentRepository();
+      const songs = ['song-a', 'song-b', 'song-album-c', 'song-album-d'];
+      const albums = ['album-a', 'album-b', 'album-c', 'album-d'];
+      await createService(
+        qualifiedPlays: _MutableQualifiedPlayRepository([
+          for (final (i, song) in songs.indexed)
+            for (var n = 0; n < 4 - i; n++)
+              play(
+                id: '$song-$n',
+                songId: song,
+                albumId: albums[i],
+                qualifiedAt: DateTime.utc(2026, 9, 28, 10, n),
+              ),
+        ]),
+        charts: _RecordingChartRepository(),
+        moments: moments,
+        momentsActivationWeekStartUtc: DateTime.utc(2026, 9, 1),
+        artistAttribution: () async => {
+          'song-a': 'nova',
+          'song-b': 'juno',
+          'song-album-c': 'nova',
+          'song-album-d': 'juno',
+        },
+        jointControlFromUtc: () async => from,
+        songCredits: credits,
+        extraAlbums: const ['album-c', 'album-d'],
+      ).reconcileCompletedWeek(week);
+      return [
+        for (final publication in moments.publications)
+          for (final event in publication.events)
+            if (event.sourceId?.startsWith('joint:') ?? false) event.sourceId,
+      ];
+    }
+
+    Future<Map<String, ChartSongCredits>> solo(Set<String> ids) async => {
+      for (final id in ids)
+        id: ChartSongCredits(artistIds: {'artist-$id'}, complete: true),
+    };
+
+    test('started while the week ran, with clear credits: one row per '
+        'artist', () async {
+      // Juno's row names its partner Nova, and Nova's names Juno.
+      expect(await joint(from: DateTime.utc(2026, 9, 1), credits: solo), [
+        startsWith('joint:4:nova:'),
+        startsWith('joint:4:juno:'),
+      ]);
+    });
+
+    test('no start, a start after the week, or no credits: none', () async {
+      expect(await joint(credits: solo), isEmpty);
+      expect(
+        await joint(from: DateTime.utc(2026, 10, 4), credits: solo),
+        isEmpty,
+      );
+      expect(await joint(from: DateTime.utc(2026, 9, 1)), isEmpty);
+    });
+
+    test('a collaboration between the pair: none', () async {
+      Future<Map<String, ChartSongCredits>> shared(Set<String> ids) async => {
+        ...await solo(ids),
+        'song-a': const ChartSongCredits(
+          artistIds: {'artist-album-a', 'artist-album-b'},
+          complete: true,
+        ),
+      };
+      expect(
+        await joint(from: DateTime.utc(2026, 9, 1), credits: shared),
+        isEmpty,
       );
     });
   });

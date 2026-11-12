@@ -492,6 +492,7 @@ class MomentEditorialDesk {
         MomentFamily.artistChartSweep ||
         MomentFamily.artistTop10Presence ||
         MomentFamily.artistHot100Presence ||
+        MomentFamily.artistJointControl ||
         MomentFamily.artistStreamMilestone => null,
         _ => facts.rank,
       },
@@ -729,6 +730,8 @@ class MomentEditorialDesk {
     MomentFamily.artistChartSweep => 'CHART SWEEP',
     MomentFamily.artistTop10Presence ||
     MomentFamily.artistHot100Presence => 'RECORD',
+    // Draft (REF-19): shown only once joint control lines are approved.
+    MomentFamily.artistJointControl => 'JOINT CONTROL',
     MomentFamily.songBubblingUnderFall => 'FALL',
     MomentFamily.songHot100Exit => 'HOT 100 EXIT',
     // App Update 1.1: MomentChronicle writes these stories' status.
@@ -781,6 +784,7 @@ class MomentEditorialDesk {
     MomentFamily.artistChartSweep ||
     MomentFamily.artistTop10Presence ||
     MomentFamily.artistHot100Presence ||
+    MomentFamily.artistJointControl ||
     MomentFamily.songHot100ClimbRun ||
     MomentFamily.songBubblingUnderFall ||
     MomentFamily.songHot100Exit ||

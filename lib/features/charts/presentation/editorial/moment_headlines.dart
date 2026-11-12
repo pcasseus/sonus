@@ -88,6 +88,13 @@ abstract final class MomentHeadlines {
       .where((family) => family.isArtistDominance)
       .every(approved.contains);
 
+  /// Whether joint chart control Moments (REF-19) may start: only once
+  /// their own lines are approved. Until then none are recorded and their
+  /// start is not set.
+  static bool artistJointControlApproved([
+    Set<MomentFamily> approved = approvedFamilies,
+  ]) => approved.contains(MomentFamily.artistJointControl);
+
   /// The families whose headlines are approved for publication (SN-50
   /// release safety). Fail-closed: a family is publishable only when it is
   /// listed here, so a new family stays held until its lines are approved.

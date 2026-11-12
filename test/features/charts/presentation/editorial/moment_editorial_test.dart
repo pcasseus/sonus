@@ -178,6 +178,7 @@ const stillDraftFamilies = <MomentFamily>{
   MomentFamily.artistChartSweep,
   MomentFamily.artistTop10Presence,
   MomentFamily.artistHot100Presence,
+  MomentFamily.artistJointControl,
 };
 
 /// SN-50 chart-jump families, approved line by line (CJ-001 to CJ-031).
@@ -201,6 +202,7 @@ const refinedOnlyFamilies = {
   MomentFamily.artistChartSweep,
   MomentFamily.artistTop10Presence,
   MomentFamily.artistHot100Presence,
+  MomentFamily.artistJointControl,
 };
 
 /// Every fact a family can use, so every headline renders.

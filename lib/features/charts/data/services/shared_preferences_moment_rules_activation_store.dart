@@ -14,7 +14,8 @@ class SharedPreferencesMomentRulesActivationStore
         MomentRulesActivationStore,
         MomentDevicePolishStore,
         MomentChronicleStore,
-        MomentDominanceStore {
+        MomentDominanceStore,
+        MomentJointControlStore {
   SharedPreferencesMomentRulesActivationStore([
     SharedPreferencesAsync? preferences,
   ]) : _preferences = preferences;
@@ -33,6 +34,10 @@ class SharedPreferencesMomentRulesActivationStore
 
   /// Where App Update 1.2 artist-dominance Moments started (REF-19).
   static const String dominanceKey = 'charts.moments.dominance_1_2_from_utc';
+
+  /// Where App Update 1.2 joint chart control Moments started (REF-19).
+  static const String jointControlKey =
+      'charts.moments.joint_control_1_2_from_utc';
 
   SharedPreferencesAsync? _preferences;
 
@@ -75,4 +80,12 @@ class SharedPreferencesMomentRulesActivationStore
   @override
   Future<void> writeDominanceStart(String fromUtc) =>
       _platform.setString(dominanceKey, fromUtc);
+
+  @override
+  Future<String?> readJointControlStart() =>
+      _platform.getString(jointControlKey);
+
+  @override
+  Future<void> writeJointControlStart(String fromUtc) =>
+      _platform.setString(jointControlKey, fromUtc);
 }

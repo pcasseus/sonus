@@ -120,7 +120,11 @@ enum MomentFamily {
   artistTop10Presence,
 
   /// One artist has 5, 10, 15 or 20 songs on the Hot 100.
-  artistHot100Presence;
+  artistHot100Presence,
+
+  /// Two artists hold every position from #1 to #N (N at least 4) between
+  /// them (App Update 1.2, REF-19).
+  artistJointControl;
 
   /// The App Update 1.2 artist-dominance families.
   bool get isArtistDominance => switch (this) {
@@ -169,6 +173,7 @@ enum MomentFamily {
     artistSimultaneousReleases ||
     artistTop10Presence ||
     artistHot100Presence ||
+    artistJointControl ||
     songHot100ClimbRun => MomentTier.notable,
     // Capped like other minor stories; an exit after a verified Top 40
     // peak is planned as mandatory (uncapped) instead.

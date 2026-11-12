@@ -4,6 +4,7 @@ import '../../application/services/chart_moment_feed_aggregator.dart';
 import '../../domain/models/chart_entity_snapshot.dart';
 import '../../domain/models/chart_type.dart';
 import '../../domain/moments/chart_moment_artist_dominance.dart';
+import '../../domain/moments/chart_moment_artist_joint_control.dart';
 import '../../domain/moments/chart_moment_event.dart';
 import '../../domain/moments/chart_moment_event_type.dart';
 import '../../domain/moments/chart_moment_scope.dart';
@@ -168,33 +169,53 @@ class MomentStoryPlanner {
   /// BU-001 wording, which names the Bubbling Under rank.
   static const Set<String> misleadingArrivalVariants = {};
 
-  /// The artist-dominance story of an artist's chart week (REF-19): its
-  /// most notable recorded dominance (a sweep, then the Top 10, then the
-  /// Hot 100), told on its own as the week's one artist story. Null when
-  /// the week has none, or while that family's lines await approval: the
-  /// artist roundup is then told exactly as before.
+  /// The artist-dominance story of an artist's chart week (REF-19), told
+  /// on its own as the week's one artist story:
+  /// 1. a solo sweep of the Top 3 or more;
+  /// 2. joint control, told once, from the artist holding #1;
+  /// 3. otherwise the most notable recorded dominance (a Top 2 sweep, then
+  ///    the Top 10, then the Hot 100).
+  /// Every recorded fact stays stored; only the story is chosen. Families
+  /// whose lines await approval are passed over; with none left the artist
+  /// roundup is told exactly as before.
   static (MomentFamily, ChartMomentEvent)? dominanceStory(
     ChartMomentFeedItem item, {
     Set<MomentFamily> approved = MomentHeadlines.approvedFamilies,
   }) {
     ChartMomentEvent? lead;
     ArtistDominance? leadFact;
+    ChartMomentEvent? joint;
     for (final event in item.events) {
       final fact = ArtistDominance.of(event);
-      if (fact == null) continue;
-      if (leadFact == null || fact.kind.index < leadFact.kind.index) {
-        lead = event;
-        leadFact = fact;
+      if (fact != null) {
+        if (!approved.contains(familyOf(fact.kind))) continue;
+        if (leadFact == null || fact.kind.index < leadFact.kind.index) {
+          lead = event;
+          leadFact = fact;
+        }
+      } else if (ArtistJointControl.of(event) != null &&
+          event.currentRank == 1 &&
+          approved.contains(MomentFamily.artistJointControl)) {
+        joint = event;
       }
     }
+    if (lead != null &&
+        leadFact != null &&
+        leadFact.kind == ArtistDominanceKind.sweep &&
+        leadFact.tier >= 3) {
+      return (MomentFamily.artistChartSweep, lead);
+    }
+    if (joint != null) return (MomentFamily.artistJointControl, joint);
     if (lead == null || leadFact == null) return null;
-    final family = switch (leadFact.kind) {
-      ArtistDominanceKind.sweep => MomentFamily.artistChartSweep,
-      ArtistDominanceKind.top10 => MomentFamily.artistTop10Presence,
-      ArtistDominanceKind.hot100 => MomentFamily.artistHot100Presence,
-    };
-    return approved.contains(family) ? (family, lead) : null;
+    return (familyOf(leadFact.kind), lead);
   }
+
+  /// The family a recorded dominance kind is told in.
+  static MomentFamily familyOf(ArtistDominanceKind kind) => switch (kind) {
+    ArtistDominanceKind.sweep => MomentFamily.artistChartSweep,
+    ArtistDominanceKind.top10 => MomentFamily.artistTop10Presence,
+    ArtistDominanceKind.hot100 => MomentFamily.artistHot100Presence,
+  };
 
   List<PlannedMoment> plan(ChartMomentFeedItem item) {
     if (item.scope == ChartMomentScope.live) return const [];

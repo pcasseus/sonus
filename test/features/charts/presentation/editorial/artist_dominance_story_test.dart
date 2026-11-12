@@ -7,6 +7,7 @@ import 'package:sonus_next/features/charts/application/services/chart_moment_fee
 import 'package:sonus_next/features/charts/domain/models/chart_entity_snapshot.dart';
 import 'package:sonus_next/features/charts/domain/models/chart_type.dart';
 import 'package:sonus_next/features/charts/domain/moments/chart_moment_artist_dominance.dart';
+import 'package:sonus_next/features/charts/domain/moments/chart_moment_artist_joint_control.dart';
 import 'package:sonus_next/features/charts/domain/moments/chart_moment_event.dart';
 import 'package:sonus_next/features/charts/domain/moments/chart_moment_event_type.dart';
 import 'package:sonus_next/features/charts/domain/moments/chart_moment_scope.dart';
@@ -73,6 +74,38 @@ ChartMomentEvent _dominance(ArtistDominanceKind kind, int tier, int count) =>
       ),
     );
 
+/// A joint control row for Mira, holding #1 ([lead]) or not.
+ChartMomentEvent _joint(int positions, int count, {bool lead = true}) {
+  final source = ArtistJointControl.sourceIdFor(positions, 'juno', 'week');
+  return ChartMomentEvent(
+    id: 'joint:$positions:$lead',
+    deduplicationKey: 'joint:$positions:$lead',
+    sourceId: source,
+    chartType: ChartType.songs,
+    scope: ChartMomentScope.finalized,
+    eventType: ChartMomentEventType.artistSimultaneousThresholdSongs,
+    entity: const ChartEntitySnapshot(
+      entityId: 'song-1',
+      title: 'Paper Moon',
+      artistId: 'mira',
+      artistName: 'Mira Vale',
+    ),
+    relatedEntity: const ChartEntitySnapshot(
+      entityId: 'song-9',
+      title: 'Low Tide',
+      artistId: 'juno',
+      artistName: 'Juno Hart',
+    ),
+    weekStartUtc: _weekStart,
+    weekEndUtc: _weekEnd,
+    occurredAt: _weekEnd,
+    createdAt: _weekEnd,
+    currentRank: lead ? 1 : 2,
+    threshold: positions,
+    milestoneValue: count,
+  );
+}
+
 MomentFacts _facts({required int threshold, required int count}) => MomentFacts(
   chartType: ChartType.songs,
   weekly: true,
@@ -101,6 +134,76 @@ void main() {
       ]);
       expect(items, hasLength(1), reason: 'one artist story for the week');
       expect(items.single.events.first, same(legacy));
+    });
+  });
+
+  group('joint control and solo sweeps: one primary story, every fact '
+      'kept', () {
+    const all = {
+      MomentFamily.artistChartSweep,
+      MomentFamily.artistTop10Presence,
+      MomentFamily.artistHot100Presence,
+      MomentFamily.artistJointControl,
+    };
+    (MomentFamily, ChartMomentEvent)? story(
+      List<ChartMomentEvent> events, {
+      Set<MomentFamily> approved = all,
+    }) => MomentStoryPlanner.dominanceStory(
+      const ChartMomentFeedAggregator().aggregate(events).single,
+      approved: approved,
+    );
+
+    test('a solo sweep of the Top 3 or more leads', () {
+      final told = story([
+        _dominance(ArtistDominanceKind.sweep, 3, 3),
+        _joint(5, 3),
+      ]);
+      expect(told?.$1, MomentFamily.artistChartSweep);
+    });
+
+    test('joint control leads a Top 2 sweep and presence', () {
+      expect(
+        story([_dominance(ArtistDominanceKind.sweep, 2, 2), _joint(6, 3)])?.$1,
+        MomentFamily.artistJointControl,
+      );
+      expect(
+        story([_dominance(ArtistDominanceKind.top10, 3, 3), _joint(4, 2)])?.$1,
+        MomentFamily.artistJointControl,
+      );
+    });
+
+    test('told once, by the artist at #1; the partner tells its own '
+        'facts', () {
+      expect(
+        story([
+          _dominance(ArtistDominanceKind.top10, 3, 3),
+          _joint(4, 2, lead: false),
+        ])?.$1,
+        MomentFamily.artistTop10Presence,
+      );
+      expect(story([_joint(4, 2, lead: false)]), isNull);
+    });
+
+    test('until joint control lines are approved, it is passed over', () {
+      final without = {...all}..remove(MomentFamily.artistJointControl);
+      expect(story([_joint(5, 3)], approved: without), isNull);
+      expect(
+        story([
+          _dominance(ArtistDominanceKind.sweep, 2, 2),
+          _joint(5, 3),
+        ], approved: without)?.$1,
+        MomentFamily.artistChartSweep,
+      );
+    });
+
+    test('a joint row never leads the feed item over the row recorded '
+        'beside it', () {
+      final legacy = _simultaneous(threshold: 5, count: 3);
+      final item = const ChartMomentFeedAggregator().aggregate([
+        _joint(5, 3),
+        legacy,
+      ]).single;
+      expect(item.events.first, same(legacy));
     });
   });
 

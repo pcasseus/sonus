@@ -10,6 +10,7 @@ import '../../domain/models/chart_week.dart';
 import '../../domain/moments/chart_moment_artist_achievement_detector.dart';
 import '../../domain/moments/chart_history_evidence.dart';
 import '../../domain/moments/chart_moment_artist_dominance.dart';
+import '../../domain/moments/chart_moment_artist_joint_control.dart';
 import '../../domain/moments/chart_moment_finalized_detector.dart';
 import '../../domain/moments/chart_moment_lifetime_stream_service.dart';
 import '../../domain/moments/chart_moment_longevity_calculator.dart';
@@ -30,6 +31,10 @@ typedef ChartArtistAttribution = Future<Map<String, String>> Function();
 
 typedef ChartRestoreGeneration = int Function();
 
+/// The credits of each song, for joint chart control (REF-19).
+typedef ChartSongCreditLookup =
+    Future<Map<String, ChartSongCredits>> Function(Set<String> songIds);
+
 class ChartFinalizationService {
   ChartFinalizationService({
     required ChartSnapshotBuilderService builder,
@@ -43,6 +48,10 @@ class ChartFinalizationService {
     ChartMomentArtistDominanceDetector dominanceDetector =
         const ChartMomentArtistDominanceDetector(),
     Future<DateTime?> Function()? dominanceFromUtc,
+    ChartMomentArtistJointControlDetector jointControlDetector =
+        const ChartMomentArtistJointControlDetector(),
+    Future<DateTime?> Function()? jointControlFromUtc,
+    ChartSongCreditLookup? songCredits,
     ChartMomentLongevityCalculator longevityCalculator =
         const ChartMomentLongevityCalculator(),
     ChartMomentMilestoneDetector milestoneDetector =
@@ -66,6 +75,9 @@ class ChartFinalizationService {
        _artistAchievementDetector = artistAchievementDetector,
        _dominanceDetector = dominanceDetector,
        _dominanceFromUtc = dominanceFromUtc,
+       _jointControlDetector = jointControlDetector,
+       _jointControlFromUtc = jointControlFromUtc,
+       _songCredits = songCredits,
        _longevityCalculator = longevityCalculator,
        _milestoneDetector = milestoneDetector,
        _lifetimeStreamService =
@@ -123,6 +135,17 @@ class ChartFinalizationService {
   /// is never given them, even when it is finalized afterwards, so nothing
   /// is backfilled. Null (or unreadable): none this pass.
   final Future<DateTime?> Function()? _dominanceFromUtc;
+
+  final ChartMomentArtistJointControlDetector _jointControlDetector;
+
+  /// Where joint chart control Moments start (REF-19), like
+  /// [_dominanceFromUtc] but their own: null until their lines are
+  /// approved, so none are recorded before.
+  final Future<DateTime?> Function()? _jointControlFromUtc;
+
+  /// Without credits, joint control cannot be told from a collaboration,
+  /// so none is recorded.
+  final ChartSongCreditLookup? _songCredits;
   final ChartMomentLongevityCalculator _longevityCalculator;
   final ChartMomentMilestoneDetector _milestoneDetector;
   final ChartMomentLifetimeStreamService _lifetimeStreamService;
@@ -399,6 +422,25 @@ class ChartFinalizationService {
       );
     }
 
+    final songCredits = _songCredits;
+    if (songCredits != null &&
+        await _startsBefore(_jointControlFromUtc, snapshot)) {
+      events.addAll(
+        _jointControlDetector.detect(
+          snapshot: attributed,
+          history: attributedHistory,
+          createdAt: createdAt,
+          credits: await songCredits({
+            for (final entry in snapshot.entries) entry.entity.entityId,
+          }),
+          chartArtists: {
+            for (final entry in snapshot.entries)
+              entry.entity.entityId: entry.entity.artistId,
+          },
+        ),
+      );
+    }
+
     final previousSnapshot =
         _immediatePreviousSnapshot(snapshot: snapshot, history: history) ??
         _emptyPreviousWeek(snapshot);
@@ -476,11 +518,19 @@ class ChartFinalizationService {
     );
   }
 
-  Future<bool> _dominanceApplies(ChartSnapshot snapshot) async {
-    final from = await _dominanceFromUtc?.call();
-    return from != null &&
+  Future<bool> _dominanceApplies(ChartSnapshot snapshot) =>
+      _startsBefore(_dominanceFromUtc, snapshot);
+
+  /// Whether a start [from] exists and the songs [snapshot] was still
+  /// running at it, or began after it: nothing is ever backfilled.
+  static Future<bool> _startsBefore(
+    Future<DateTime?> Function()? from,
+    ChartSnapshot snapshot,
+  ) async {
+    final start = await from?.call();
+    return start != null &&
         snapshot.chartType == ChartType.songs &&
-        snapshot.weekEndUtc.toUtc().isAfter(from.toUtc());
+        snapshot.weekEndUtc.toUtc().isAfter(start.toUtc());
   }
 
   static ChartSnapshot? _immediatePreviousSnapshot({

@@ -70,6 +70,7 @@ enum MomentCategory {
     MomentFamily.artistSimultaneousReleases ||
     MomentFamily.artistChartSweep ||
     MomentFamily.artistTop10Presence ||
-    MomentFamily.artistHot100Presence => artists,
+    MomentFamily.artistHot100Presence ||
+    MomentFamily.artistJointControl => artists,
   };
 }

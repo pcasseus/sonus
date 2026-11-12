@@ -81,4 +81,40 @@ void main() {
       start!.toIso8601String(),
     );
   });
+
+  group('joint chart control waits for its own lines', () {
+    test('not approved: never recorded, no start set', () async {
+      final preferences = _Preferences();
+      final activation = deviceMomentRulesActivation(
+        SharedPreferencesMomentRulesActivationStore(preferences),
+        approved: {...MomentHeadlines.approvedFamilies, ..._dominance},
+      );
+
+      expect(MomentHeadlines.artistJointControlApproved(), isFalse);
+      expect(await activation.jointControlFrom(), isNull);
+      expect(
+        preferences.values,
+        isNot(
+          contains(SharedPreferencesMomentRulesActivationStore.jointControlKey),
+        ),
+      );
+    });
+
+    test('approved: its start is set on the first run', () async {
+      final preferences = _Preferences();
+      final activation = deviceMomentRulesActivation(
+        SharedPreferencesMomentRulesActivationStore(preferences),
+        approved: {MomentFamily.artistJointControl},
+      );
+
+      final start = await activation.jointControlFrom();
+      expect(start, isNotNull);
+      expect(
+        preferences.values[SharedPreferencesMomentRulesActivationStore
+            .jointControlKey],
+        start!.toIso8601String(),
+      );
+      expect(await activation.dominanceFrom(), isNull);
+    });
+  });
 }

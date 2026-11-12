@@ -2,6 +2,7 @@ import 'package:sqflite/sqflite.dart';
 
 import '../../../../core/database/database_tables.dart';
 import '../../../charts/domain/moments/chart_moment_artist_dominance.dart';
+import '../../../charts/domain/moments/chart_moment_artist_joint_control.dart';
 import '../../domain/deletion/permanent_deletion_impact.dart';
 
 /// Computes [PermanentDeletionImpact] for a song, edition, album or artist.
@@ -660,21 +661,43 @@ class SqlitePermanentDeletionImpactRepository {
           });
     }
     if (artistsByWeek.isEmpty) return const {};
-    final dominance = await _db.query(
-      DatabaseTables.chartMomentEvents,
-      columns: ['id', 'week_start_utc', 'entity_artist_id'],
-      where: "chart_type = 'songs' AND source_id LIKE ?",
-      whereArgs: ['${ArtistDominance.sourcePrefix}%'],
-    );
-    return {
-      for (final row in dominance)
-        if (artistsByWeek[DateTime.parse(
-                  row['week_start_utc']! as String,
-                ).toUtc()]
-                ?.contains(row['entity_artist_id']) ??
-            false)
-          row['id']! as String,
-    };
+    final counting = <String>{};
+    for (final prefix in [
+      ArtistDominance.sourcePrefix,
+      ArtistJointControl.sourcePrefix,
+    ]) {
+      for (final row in await _db.query(
+        DatabaseTables.chartMomentEvents,
+        columns: ['id', 'week_start_utc', 'entity_artist_id', 'source_id'],
+        where: "chart_type = 'songs' AND source_id LIKE ?",
+        whereArgs: ['$prefix%'],
+      )) {
+        final artists =
+            artistsByWeek[DateTime.parse(
+              row['week_start_utc']! as String,
+            ).toUtc()];
+        if (artists == null) continue;
+        // A joint control row stands for both artists' songs: a deleted
+        // song of either takes both rows of the pair.
+        final partner = prefix == ArtistJointControl.sourcePrefix
+            ? _jointPartner(row['source_id']! as String)
+            : null;
+        if (artists.contains(row['entity_artist_id']) ||
+            (partner != null && artists.contains(partner))) {
+          counting.add(row['id']! as String);
+        }
+      }
+    }
+    return counting;
+  }
+
+  /// The partner named in a joint control `source_id`
+  /// (`joint:<N>:<partner>:<snapshot>`), or null when malformed.
+  static String? _jointPartner(String sourceId) {
+    final parts = sourceId
+        .substring(ArtistJointControl.sourcePrefix.length)
+        .split(':');
+    return parts.length == 3 && parts[1].isNotEmpty ? parts[1] : null;
   }
 
   Future<String?> _firstString(String sql, String arg) async {

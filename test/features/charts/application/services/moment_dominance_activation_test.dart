@@ -3,7 +3,13 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sonus_next/features/charts/application/services/moment_rules_activation.dart';
 
-class _Stores implements MomentRulesActivationStore, MomentDominanceStore {
+class _Stores
+    implements
+        MomentRulesActivationStore,
+        MomentDominanceStore,
+        MomentJointControlStore {
+  String? joint;
+
   String? dominance;
   var writes = 0;
   bool failReads = false;
@@ -31,6 +37,18 @@ class _Stores implements MomentRulesActivationStore, MomentDominanceStore {
   Future<void> writeDominanceStart(String fromUtc) async {
     writes++;
     if (!dropWrites) dominance = fromUtc;
+  }
+
+  @override
+  Future<String?> readJointControlStart() async {
+    if (failReads) throw StateError('unreadable');
+    return joint;
+  }
+
+  @override
+  Future<void> writeJointControlStart(String fromUtc) async {
+    writes++;
+    if (!dropWrites) joint = fromUtc;
   }
 }
 
@@ -85,5 +103,43 @@ void main() {
       await MomentRulesActivation(store: _Stores()).dominanceFrom(),
       isNull,
     );
+  });
+
+  group('joint chart control has its own start', () {
+    test('recorded once, independently of the dominance start', () async {
+      final stores = _Stores()..dominance = '2026-11-12T09:00:00.000Z';
+      var now = DateTime.utc(2027, 2, 1);
+      Future<DateTime?> start() => MomentRulesActivation(
+        store: stores,
+        dominance: stores,
+        jointControl: stores,
+        now: () => now,
+      ).jointControlFrom();
+
+      expect(await start(), DateTime.utc(2027, 2, 1));
+      now = DateTime.utc(2027, 3, 1);
+      expect(await start(), DateTime.utc(2027, 2, 1));
+      expect(stores.dominance, '2026-11-12T09:00:00.000Z');
+      expect(stores.writes, 1);
+    });
+
+    test('unreadable or unsaved: none this run; no store: none', () async {
+      for (final stores in [
+        _Stores()..failReads = true,
+        _Stores()..dropWrites = true,
+      ]) {
+        expect(
+          await MomentRulesActivation(
+            store: stores,
+            jointControl: stores,
+          ).jointControlFrom(),
+          isNull,
+        );
+      }
+      expect(
+        await MomentRulesActivation(store: _Stores()).jointControlFrom(),
+        isNull,
+      );
+    });
   });
 }

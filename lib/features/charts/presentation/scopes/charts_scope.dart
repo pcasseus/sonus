@@ -20,6 +20,7 @@ import '../../application/services/moments_last_seen_store.dart';
 import '../../data/repositories/sqlite_chart_moment_repository.dart';
 import '../../data/repositories/sqlite_chart_repository.dart';
 import '../../data/services/shared_preferences_moment_rules_activation_store.dart';
+import '../../data/services/sqlite_chart_song_credit_reader.dart';
 import '../../data/services/shared_preferences_moments_last_seen_store.dart';
 import '../controllers/charts_controller.dart';
 import '../editorial/moment_family.dart';
@@ -74,6 +75,9 @@ MomentRulesActivation deviceMomentRulesActivation(
     devicePolish: store,
     chronicle: store,
     dominance: MomentHeadlines.artistDominanceApproved(approved) ? store : null,
+    jointControl: MomentHeadlines.artistJointControlApproved(approved)
+        ? store
+        : null,
   );
 }
 
@@ -215,6 +219,10 @@ class _ChartsScopeState extends State<ChartsScope> {
       chartHistoryOriginUtc: charts.chartHistoryOriginUtc,
       dominanceFromUtc: (widget.momentRulesActivation ?? _deviceRulesActivation)
           .dominanceFrom,
+      jointControlFromUtc:
+          (widget.momentRulesActivation ?? _deviceRulesActivation)
+              .jointControlFrom,
+      songCredits: SqliteChartSongCreditReader(database).creditsFor,
     );
 
     final allTimeMoments = AllTimeMomentService(

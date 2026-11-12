@@ -107,7 +107,8 @@ abstract final class MomentVisuals {
           MomentFamily.artistSimultaneousReleases ||
           MomentFamily.artistChartSweep ||
           MomentFamily.artistTop10Presence ||
-          MomentFamily.artistHot100Presence:
+          MomentFamily.artistHot100Presence ||
+          MomentFamily.artistJointControl:
         final artistId = entity.artistId;
         return artistId == null
             ? MomentVisual(
