@@ -74,6 +74,60 @@ void main() {
     expect(impact.lyricsCount, 1);
   });
 
+  test("REF-19: a deleted song's artist-dominance Moment in a week it "
+      'charted goes with it; other artists and weeks stay', () async {
+    Future<void> dominance(
+      String id,
+      String artistId,
+      String week, [
+      String weekEnd = week1End,
+    ]) => db.insert(DatabaseTables.chartMomentEvents, {
+      'id': id,
+      'deduplication_key': id,
+      'source_id': 'dominance:hot100:5:snapshot_songs',
+      'chart_type': 'songs',
+      'scope': 'finalized',
+      'event_type': 'artistSimultaneousThresholdSongs',
+      // It names another song: only the count includes Opening.
+      'entity_id': 'song_second',
+      'entity_title': 'Second',
+      'entity_artist_id': artistId,
+      'entity_artist_name': artistId,
+      'week_start_utc': week,
+      'week_end_utc': weekEnd,
+      'occurred_at': now,
+      'created_at': now,
+      'threshold': 100,
+      'milestone_value': 5,
+    });
+    await dominance('moment_nova_dominance', 'artist_nova', week1);
+    await dominance('moment_echo_dominance', 'artist_echo', week1);
+    await dominance(
+      'moment_nova_dominance_later',
+      'artist_nova',
+      week1End,
+      '2026-10-18T00:00:00.000Z',
+    );
+
+    final impact = await plan(
+      const PermanentDeletionTarget.song('song_opening'),
+    );
+
+    expect(impact.momentIdsMentioningTarget, contains('moment_nova_dominance'));
+    expect(
+      impact.momentIdsMentioningTarget,
+      isNot(contains('moment_echo_dominance')),
+    );
+    expect(
+      impact.momentIdsMentioningTarget,
+      isNot(contains('moment_nova_dominance_later')),
+    );
+    expect(
+      impact.momentIdsAboutTarget,
+      isNot(contains('moment_nova_dominance')),
+    );
+  });
+
   test('edition: only songs no other edition lists are deleted', () async {
     final impact = await plan(
       const PermanentDeletionTarget.edition('edition_nova_deluxe'),

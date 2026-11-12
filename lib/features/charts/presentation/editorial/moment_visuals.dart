@@ -104,14 +104,17 @@ abstract final class MomentVisuals {
           left: portrait(entity.entityId),
         );
       case MomentFamily.artistSimultaneous ||
-          MomentFamily.artistSimultaneousReleases:
+          MomentFamily.artistSimultaneousReleases ||
+          MomentFamily.artistChartSweep ||
+          MomentFamily.artistTop10Presence ||
+          MomentFamily.artistHot100Presence:
         final artistId = entity.artistId;
         return artistId == null
             ? MomentVisual(
                 layout: MomentVisualLayout.singleCover,
                 left: cover(
                   entity.entityId,
-                  song: family == MomentFamily.artistSimultaneous,
+                  song: family != MomentFamily.artistSimultaneousReleases,
                 ),
               )
             : MomentVisual(

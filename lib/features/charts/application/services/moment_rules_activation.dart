@@ -36,6 +36,14 @@ abstract interface class MomentChronicleStore {
   Future<void> writeChronicleStart(String fromUtc);
 }
 
+/// Where artist-dominance Moments start (App Update 1.2, REF-19).
+abstract interface class MomentDominanceStore {
+  /// Null until a build carrying them has recorded one.
+  Future<String?> readDominanceStart();
+
+  Future<void> writeDominanceStart(String fromUtc);
+}
+
 /// Decides which Moments rules this run uses (SN-50 R2).
 ///
 /// Only a build compiled with
@@ -57,9 +65,11 @@ class MomentRulesActivation {
     int catalogVersion = ChartMomentRules.currentCatalogVersion,
     MomentDevicePolishStore? devicePolish,
     MomentChronicleStore? chronicle,
+    MomentDominanceStore? dominance,
     MomentRulesActivationNow? now,
   }) : _store = store,
        _chronicle = chronicle,
+       _dominance = dominance,
        _approved = approved,
        _catalogVersion = catalogVersion,
        _devicePolish = devicePolish,
@@ -82,6 +92,10 @@ class MomentRulesActivation {
   /// recorded or told.
   final MomentChronicleStore? _chronicle;
   DateTime? _chronicleStart;
+
+  /// Where artist-dominance Moments start; without it, none are recorded.
+  final MomentDominanceStore? _dominance;
+  DateTime? _dominanceStart;
   final MomentRulesActivationNow _now;
 
   Future<ChartMomentRules>? _resolved;
@@ -120,6 +134,39 @@ class MomentRulesActivation {
       developer.log(
         'The Moments chronicle start could not be read or saved '
         '(${error.runtimeType}); no chronicle stories this run',
+        name: 'sonus.charts',
+        level: 900,
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return null;
+    }
+  }
+
+  /// Where artist-dominance Moments start on this install (REF-19):
+  /// recorded once, on the first run of a build that carries them, and
+  /// never moved. Weekly charts that ended before it never get them, so
+  /// nothing is backfilled. Unreadable or unsaved: none this run, and a
+  /// later run tries again.
+  Future<DateTime?> dominanceFrom() async {
+    final known = _dominanceStart;
+    if (known != null) return known;
+    final store = _dominance;
+    if (store == null) return null;
+    try {
+      var stored = await store.readDominanceStart();
+      if (stored == null) {
+        await store.writeDominanceStart(_now().toUtc().toIso8601String());
+        stored = await store.readDominanceStart();
+        if (stored == null) {
+          throw StateError('The artist-dominance start was not saved.');
+        }
+      }
+      return _dominanceStart = _instant(stored);
+    } catch (error, stackTrace) {
+      developer.log(
+        'The artist-dominance Moments start could not be read or saved '
+        '(${error.runtimeType}); none are recorded this run',
         name: 'sonus.charts',
         level: 900,
         error: error,

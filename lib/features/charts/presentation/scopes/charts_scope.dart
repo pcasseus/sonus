@@ -79,6 +79,7 @@ class _ChartsScopeState extends State<ChartsScope> {
       store: store,
       devicePolish: store,
       chronicle: store,
+      dominance: store,
     );
   }();
 
@@ -199,6 +200,8 @@ class _ChartsScopeState extends State<ChartsScope> {
       // Snapshot and Moments in one transaction (SN-50 F6).
       weekFinalizer: charts,
       isRecalculatedWeek: deletionJournal.isRecalculatedWeek,
+      dominanceFromUtc: (widget.momentRulesActivation ?? _deviceRulesActivation)
+          .dominanceFrom,
     );
 
     final allTimeMoments = AllTimeMomentService(

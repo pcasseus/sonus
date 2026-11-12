@@ -173,7 +173,12 @@ const sn50Families = {
 
 /// The SN-50 draft families still held by the approved-family guard; each
 /// editorial batch that approves a family removes it here.
-const stillDraftFamilies = <MomentFamily>{};
+/// App Update 1.2 (REF-19): artist dominance, drafts awaiting approval.
+const stillDraftFamilies = <MomentFamily>{
+  MomentFamily.artistChartSweep,
+  MomentFamily.artistTop10Presence,
+  MomentFamily.artistHot100Presence,
+};
 
 /// SN-50 chart-jump families, approved line by line (CJ-001 to CJ-031).
 const chartJumpFamilies = {
@@ -192,6 +197,10 @@ const devicePolishFamilies = {MomentFamily.releaseClimb};
 const refinedOnlyFamilies = {
   MomentFamily.songBubblingUnderFall,
   MomentFamily.songHot100Exit,
+  // App Update 1.2 (REF-19): artist dominance.
+  MomentFamily.artistChartSweep,
+  MomentFamily.artistTop10Presence,
+  MomentFamily.artistHot100Presence,
 };
 
 /// Every fact a family can use, so every headline renders.

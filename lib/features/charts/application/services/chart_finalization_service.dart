@@ -8,6 +8,7 @@ import '../../domain/models/chart_entity_snapshot.dart';
 import '../../domain/models/chart_type.dart';
 import '../../domain/models/chart_week.dart';
 import '../../domain/moments/chart_moment_artist_achievement_detector.dart';
+import '../../domain/moments/chart_moment_artist_dominance.dart';
 import '../../domain/moments/chart_moment_finalized_detector.dart';
 import '../../domain/moments/chart_moment_lifetime_stream_service.dart';
 import '../../domain/moments/chart_moment_longevity_calculator.dart';
@@ -38,6 +39,9 @@ class ChartFinalizationService {
         const ChartMomentFinalizedDetector(),
     ChartMomentArtistAchievementDetector artistAchievementDetector =
         const ChartMomentArtistAchievementDetector(),
+    ChartMomentArtistDominanceDetector dominanceDetector =
+        const ChartMomentArtistDominanceDetector(),
+    Future<DateTime?> Function()? dominanceFromUtc,
     ChartMomentLongevityCalculator longevityCalculator =
         const ChartMomentLongevityCalculator(),
     ChartMomentMilestoneDetector milestoneDetector =
@@ -58,6 +62,8 @@ class ChartFinalizationService {
        _moments = moments,
        _finalizedMomentDetector = finalizedMomentDetector,
        _artistAchievementDetector = artistAchievementDetector,
+       _dominanceDetector = dominanceDetector,
+       _dominanceFromUtc = dominanceFromUtc,
        _longevityCalculator = longevityCalculator,
        _milestoneDetector = milestoneDetector,
        _lifetimeStreamService =
@@ -99,6 +105,14 @@ class ChartFinalizationService {
   final ChartMomentRepository? _moments;
   final ChartMomentFinalizedDetector _finalizedMomentDetector;
   final ChartMomentArtistAchievementDetector _artistAchievementDetector;
+  final ChartMomentArtistDominanceDetector _dominanceDetector;
+
+  /// Where artist-dominance Moments start on this install (REF-19): the
+  /// first run of a build that carries them, recorded once. Only weeks
+  /// still running then, or later, get them; a week that had already ended
+  /// is never given them, even when it is finalized afterwards, so nothing
+  /// is backfilled. Null (or unreadable): none this pass.
+  final Future<DateTime?> Function()? _dominanceFromUtc;
   final ChartMomentLongevityCalculator _longevityCalculator;
   final ChartMomentMilestoneDetector _milestoneDetector;
   final ChartMomentLifetimeStreamService _lifetimeStreamService;
@@ -328,13 +342,26 @@ class ChartFinalizationService {
         .toList();
 
     final artists = await _artistAttribution?.call() ?? const {};
+    final attributed = _attributed(snapshot, artists);
+    final attributedHistory = [
+      for (final week in history) _attributed(week, artists),
+    ];
     events.addAll(
       _artistAchievementDetector.detect(
-        snapshot: _attributed(snapshot, artists),
-        history: [for (final week in history) _attributed(week, artists)],
+        snapshot: attributed,
+        history: attributedHistory,
         createdAt: createdAt,
       ),
     );
+    if (await _dominanceApplies(snapshot)) {
+      events.addAll(
+        _dominanceDetector.detect(
+          snapshot: attributed,
+          history: attributedHistory,
+          createdAt: createdAt,
+        ),
+      );
+    }
 
     final previousSnapshot =
         _immediatePreviousSnapshot(snapshot: snapshot, history: history) ??
@@ -378,6 +405,13 @@ class ChartFinalizationService {
     }
 
     return events;
+  }
+
+  Future<bool> _dominanceApplies(ChartSnapshot snapshot) async {
+    final from = await _dominanceFromUtc?.call();
+    return from != null &&
+        snapshot.chartType == ChartType.songs &&
+        snapshot.weekEndUtc.toUtc().isAfter(from.toUtc());
   }
 
   static ChartSnapshot? _immediatePreviousSnapshot({

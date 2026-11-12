@@ -1,4 +1,5 @@
 import '../models/chart_moment_feed_item.dart';
+import '../../domain/moments/chart_moment_artist_dominance.dart';
 import '../../domain/moments/chart_moment_event.dart';
 import '../../domain/moments/chart_moment_event_type.dart';
 import '../../domain/moments/chart_moment_scope.dart';
@@ -148,6 +149,16 @@ class ChartMomentFeedAggregator {
 
     if (threshold != 0) {
       return threshold;
+    }
+
+    // App Update 1.2 (REF-19): an artist-dominance row repeats the same
+    // "N songs in the Top T" as the row recorded beside it; that row
+    // leads, so stories told without dominance keep their facts and words.
+    final dominance = (ArtistDominance.of(a) != null ? 1 : 0).compareTo(
+      ArtistDominance.of(b) != null ? 1 : 0,
+    );
+    if (dominance != 0) {
+      return dominance;
     }
 
     return a.id.compareTo(b.id);

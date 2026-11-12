@@ -67,6 +67,9 @@ enum MomentCategory {
     MomentFamily.artistNthTop10 ||
     MomentFamily.artistTopArtist ||
     MomentFamily.artistSimultaneous ||
-    MomentFamily.artistSimultaneousReleases => artists,
+    MomentFamily.artistSimultaneousReleases ||
+    MomentFamily.artistChartSweep ||
+    MomentFamily.artistTop10Presence ||
+    MomentFamily.artistHot100Presence => artists,
   };
 }

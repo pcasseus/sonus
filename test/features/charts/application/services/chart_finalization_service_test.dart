@@ -85,13 +85,20 @@ void main() {
     ChartRestoreGeneration? restoreGeneration,
     ReleaseChartEligibility? releaseEligibility,
     ChartArtistAttribution? artistAttribution,
+    Future<DateTime?> Function()? dominanceFromUtc,
+    List<String> extraAlbums = const [],
   }) {
     final library = _FakeLibraryQueryRepository(
       tracks: [
         track(songId: 'song-a', albumId: 'album-a'),
         track(songId: 'song-b', albumId: 'album-b'),
+        for (final id in extraAlbums) track(songId: 'song-$id', albumId: id),
       ],
-      albums: [album('album-a'), album('album-b')],
+      albums: [
+        album('album-a'),
+        album('album-b'),
+        for (final id in extraAlbums) album(id),
+      ],
     );
 
     final builder = ChartSnapshotBuilderService(
@@ -111,8 +118,67 @@ void main() {
       restoreGeneration: restoreGeneration,
       releaseEligibility: releaseEligibility,
       artistAttribution: artistAttribution,
+      dominanceFromUtc: dominanceFromUtc,
     );
   }
+
+  group('REF-19: artist dominance starts with the week running at '
+      'activation, never earlier', () {
+    final week = ChartWeek(
+      startUtc: DateTime.utc(2026, 9, 27),
+      endUtc: DateTime.utc(2026, 10, 4),
+    );
+
+    /// Three songs, all counting for "nova": a #1–3 sweep.
+    Future<List<ChartMomentEvent>> dominance(DateTime? from) async {
+      final moments = _RecordingMomentRepository();
+      await createService(
+        qualifiedPlays: _MutableQualifiedPlayRepository([
+          for (final (i, id) in ['album-a', 'album-b', 'album-c'].indexed)
+            for (var n = 0; n <= 2 - i; n++)
+              play(
+                id: '$id-$n',
+                songId: id == 'album-c' ? 'song-album-c' : 'song-${id[6]}',
+                albumId: id,
+                qualifiedAt: DateTime.utc(2026, 9, 28, 10, n),
+              ),
+        ]),
+        charts: _RecordingChartRepository(),
+        moments: moments,
+        momentsActivationWeekStartUtc: DateTime.utc(2026, 9, 1),
+        artistAttribution: () async => {
+          'song-a': 'nova',
+          'song-b': 'nova',
+          'song-album-c': 'nova',
+        },
+        dominanceFromUtc: () async => from,
+        extraAlbums: const ['album-c'],
+      ).reconcileCompletedWeek(week);
+      return [
+        for (final publication in moments.publications)
+          for (final event in publication.events)
+            if (event.sourceId?.startsWith('dominance:') ?? false) event,
+      ];
+    }
+
+    test('activated while the week runs: its sweep is recorded', () async {
+      final events = await dominance(DateTime.utc(2026, 10, 1));
+      expect(events, hasLength(1));
+      expect(events.single.chartType, ChartType.songs);
+      expect(events.single.sourceId, startsWith('dominance:sweep:3:'));
+      expect(events.single.entity.artistId, 'nova');
+    });
+
+    test('a week that had ended before activation never gets one, even '
+        'when it is finalized afterwards', () async {
+      expect(await dominance(DateTime.utc(2026, 10, 4)), isEmpty);
+      expect(await dominance(DateTime.utc(2026, 10, 9)), isEmpty);
+    });
+
+    test('no recorded start: none', () async {
+      expect(await dominance(null), isEmpty);
+    });
+  });
 
   test('SN-45: weekly artist achievements count for the artist each song '
       'belongs to, never for a contributor', () async {

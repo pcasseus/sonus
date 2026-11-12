@@ -13,7 +13,8 @@ class SharedPreferencesMomentRulesActivationStore
     implements
         MomentRulesActivationStore,
         MomentDevicePolishStore,
-        MomentChronicleStore {
+        MomentChronicleStore,
+        MomentDominanceStore {
   SharedPreferencesMomentRulesActivationStore([
     SharedPreferencesAsync? preferences,
   ]) : _preferences = preferences;
@@ -29,6 +30,9 @@ class SharedPreferencesMomentRulesActivationStore
 
   /// Where the App Update 1.1 Moments chronicle started.
   static const String chronicleKey = 'charts.moments.chronicle_1_1_from_utc';
+
+  /// Where App Update 1.2 artist-dominance Moments started (REF-19).
+  static const String dominanceKey = 'charts.moments.dominance_1_2_from_utc';
 
   SharedPreferencesAsync? _preferences;
 
@@ -64,4 +68,11 @@ class SharedPreferencesMomentRulesActivationStore
   @override
   Future<void> writeChronicleStart(String fromUtc) =>
       _platform.setString(chronicleKey, fromUtc);
+
+  @override
+  Future<String?> readDominanceStart() => _platform.getString(dominanceKey);
+
+  @override
+  Future<void> writeDominanceStart(String fromUtc) =>
+      _platform.setString(dominanceKey, fromUtc);
 }
