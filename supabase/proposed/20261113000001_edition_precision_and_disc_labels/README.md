@@ -72,12 +72,41 @@ These follow the SN-45 song-extension pattern (`SupabaseCloudSyncGateway` probes
   - A device restored from the cloud alone loses its precision and disc names.
 - **Timing:** roll back before shipping the app changes if possible. Older apps are unaffected either way.
 
-## Staging runbook (when approved)
+## Local test (approved; not yet run)
 
-1. Back up staging; record `verify.sql` counts.
-2. Apply `migration.sql`; run `verify.sql` (columns, checks, function present; no values yet; counts unchanged).
-3. Run `test.sql` against an isolated local Supabase (it rolls itself back).
-4. Rehearse `rollback.sql` inside a transaction; confirm counts unchanged.
-5. Only then decide on production. Use the pinned CLI, take a pre-deploy backup, and follow the same verify steps.
+The test runs on its own local stack, `sonus_p12_local`: database only, on ports 556xx, with the 18 migrations from `supabase/migrations`. It never uses another local stack, staging or production.
 
-`test.sql` has not been run yet: no local Supabase instance was used in this session.
+```
+cd /c/dev/sonus/staging/p12-local
+../tools/node_modules/.bin/supabase db start      # pinned CLI 2.121.0
+./run_p12_local_tests.sh                          # logs: test_runs/au12/p12_local/<time>
+../tools/node_modules/.bin/supabase stop --no-backup
+```
+
+The runner, in order:
+1. Seeds an edition the way today's apps write it.
+2. Applies `migration.sql` twice; it must be idempotent.
+3. Runs `verify.sql`.
+4. Checks the seeded row is unchanged and still NULL in both new columns.
+5. Runs `test.sql`, which rolls itself back.
+6. Rehearses `rollback.sql` inside a transaction.
+7. Rolls back for real, checks the seeded row again, and applies the migration once more.
+
+**Status (2026-11-12): blocked on memory, not on SQL.** Starting Docker Desktop also restarts an older local stack (`supabase_*_sonus_next`, restart policy `unless-stopped`). That left about 0.6–0.9 GB free on this PC, too little for a second stack. Docker Desktop was shut down again and nothing was applied. To run the test, either stop that older stack first (`docker stop`, which keeps its data), or free memory.
+
+## Staging rehearsal (after the local test passes)
+
+Sonus has no hosted staging project. Earlier rehearsals (permanent deletion, 11-08) used an isolated local stack with the Flutter staging harness (`test/integration/staging`), and this one follows the same pattern.
+
+1. Take a fresh local stack, loaded from a schema-only dump of production (or from `supabase/migrations`) plus seeded data. Record `verify.sql` counts.
+2. Apply `migration.sql`, then run `verify.sql`: the columns, checks and function are present, no row has a value yet, and counts are unchanged.
+3. Mixed clients. With the app changes above built behind the probe, run the staging harness twice:
+   - an app without the columns (today's), which must leave both columns untouched;
+   - an app with them, which writes a year-only date and disc names, then has today's app change the date.
+
+   Expected results are in the mixed-client table.
+4. Backup and restore: export a local backup from the new app, restore it onto a fresh device database, and sign in. Precision and names come back from the local backup; cloud restore brings them back only on new apps.
+5. Rehearse `rollback.sql` inside a transaction, then for real. Confirm the other columns and the counts are unchanged, and that today's app still syncs.
+6. Only then decide on production. Use the pinned CLI, take a pre-deploy backup and repeat the verify steps. It needs its own approval; nothing here touches production or any account.
+
+Steps 1, 2, 5 and 6 need nothing new. Step 3 needs the app changes listed above, which are not made.
