@@ -1,7 +1,8 @@
-// App Update 1.2, REF-19: artist-dominance Moments stay off until their
-// lines are approved. A build with draft lines records none and sets no
-// start, so the first week counted is the first one finalized after a build
-// with approved lines is installed.
+// App Update 1.2, REF-19: artist-dominance Moments start only with a build
+// whose lines are approved (approved 2026-11-12). A build with draft lines
+// records none and sets no start, so the first week counted is the first
+// one finalized after a build with approved lines is installed. Joint
+// chart control waits for its own lines.
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sonus_next/features/charts/data/services/shared_preferences_moment_rules_activation_store.dart';
@@ -31,11 +32,9 @@ const _dominance = {
 };
 
 void main() {
-  test('the dominance lines are not approved yet', () {
-    expect(MomentHeadlines.artistDominanceApproved(), isFalse);
-    for (final family in _dominance) {
-      expect(MomentHeadlines.approvedFamilies, isNot(contains(family)));
-    }
+  test('this build carries the approved dominance lines', () {
+    expect(MomentHeadlines.artistDominanceApproved(), isTrue);
+    expect(MomentHeadlines.approvedFamilies, containsAll(_dominance));
   });
 
   test('all three families must be approved', () {
@@ -55,6 +54,7 @@ void main() {
     final preferences = _Preferences();
     final activation = deviceMomentRulesActivation(
       SharedPreferencesMomentRulesActivationStore(preferences),
+      approved: MomentHeadlines.approvedFamilies.difference(_dominance),
     );
 
     expect(await activation.dominanceFrom(), isNull);

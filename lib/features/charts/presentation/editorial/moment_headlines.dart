@@ -98,10 +98,9 @@ abstract final class MomentHeadlines {
   /// The families whose headlines are approved for publication (SN-50
   /// release safety). Fail-closed: a family is publishable only when it is
   /// listed here, so a new family stays held until its lines are approved.
-  /// Not listed (drafts awaiting approval): songSelfReplacement,
-  /// releaseSelfReplacement, songFirstThreshold, releaseFirstThreshold,
-  /// songThresholds, releaseThresholds, artistRepeatNumberOne,
-  /// artistRepeatNumberOneRelease and artistSimultaneousReleases.
+  /// Not listed (a draft awaiting approval): artistJointControl (App
+  /// Update 1.2). The SN-50 drafts once named here were approved in
+  /// Batches 6 to 9.
   static const Set<MomentFamily> approvedFamilies = {
     MomentFamily.songDebutNumberOne,
     MomentFamily.songDebutTop10,
@@ -155,6 +154,12 @@ abstract final class MomentHeadlines {
     // Batch 6 (contract §6.2): songFirstThreshold, releaseFirstThreshold.
     MomentFamily.songFirstThreshold,
     MomentFamily.releaseFirstThreshold,
+    // App Update 1.2 (REF-19 final editorial approval, 2026-11-12): artist
+    // sweeps of the Top 2 to 10, Top 10 and Hot 100 presence. Joint chart
+    // control (artistJointControl) stays a draft.
+    MomentFamily.artistChartSweep,
+    MomentFamily.artistTop10Presence,
+    MomentFamily.artistHot100Presence,
   };
 
   static Iterable<MomentFamily> get families => _library.keys;
