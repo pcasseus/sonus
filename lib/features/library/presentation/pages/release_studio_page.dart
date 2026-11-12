@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:developer' as developer;
 import 'dart:io';
+import 'dart:math' show max;
 
 import 'package:flutter/material.dart';
 
@@ -26,6 +27,7 @@ import '../../application/services/library_organization_service.dart';
 import '../../application/services/metadata_provider.dart';
 import '../../data/services/edition_follow_up_dismissals.dart';
 import '../../domain/deletion/permanent_deletion_impact.dart';
+import '../../domain/entities/album_edition_disc_label.dart';
 import '../../domain/entities/album_edition.dart';
 import '../../domain/entities/release_date.dart';
 import '../../domain/services/album_edition_track_order.dart';
@@ -117,8 +119,11 @@ class ReleaseStudioPage extends StatefulWidget {
 enum ReleaseStudioSection { details, artwork, editions, tracklist }
 
 class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
-  bool _autoRenumber = false;
   bool _isSavingOrder = false;
+
+  /// Discs added with "Add disc" that have no songs yet, per edition
+  /// (REF-13). A disc exists in the library once a song is moved onto it.
+  final Map<String, Set<int>> _addedDiscs = {};
   bool _isApplyingMusicBrainz = false;
   bool _isSearchingCoverArt = false;
   bool _isSorting = false;
@@ -250,26 +255,13 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
         ),
         if (tracksOpen && edition != null)
           _StudioTrackList(
-            controller: controller,
             tracks: controller.tracks,
-            autoRenumber: _autoRenumber,
+            extraDiscs: _addedDiscs[edition.editionId] ?? const {},
+            discLabels: controller.discLabels,
             isBusy: _isSavingOrder,
-            userId: widget.userId,
             bonusSongIds: _bonusSongIds(),
-            onReorderStarted: () {
-              setState(() {
-                _isSavingOrder = true;
-              });
-            },
-            onReorderFinished: () {
-              if (!mounted) {
-                return;
-              }
-
-              setState(() {
-                _isSavingOrder = false;
-              });
-            },
+            onArrange: _arrange,
+            onRenameDisc: _renameDisc,
             onEditPlacement: _editPlacement,
             onDeletePermanently: _deleteUnavailableSong,
           ),
@@ -898,16 +890,11 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
           ],
           _TrackOrderSection(
             count: tracks.length,
-            autoRenumber: _autoRenumber,
             isSaving: _isSavingOrder || _isSorting,
             onSortByDiscAndTrack: tracks.length < 2
                 ? null
                 : _sortByDiscAndTrack,
-            onAutoRenumberChanged: (value) {
-              setState(() {
-                _autoRenumber = value;
-              });
-            },
+            onAddDisc: tracks.isEmpty ? null : () => _addDisc(edition),
           ),
         ],
       ),
@@ -1241,6 +1228,87 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
           'library.';
     }
     return null;
+  }
+
+  /// Adds the next disc as an empty section to move songs onto (REF-13).
+  void _addDisc(LibraryAlbumEdition edition) {
+    final added = _addedDiscs[edition.editionId] ?? const <int>{};
+    final discs = {
+      for (final track in controller.tracks) shownDisc(track.discNumber),
+      ...added,
+    };
+    final next = (discs.isEmpty ? 1 : discs.reduce(max)) + 1;
+    setState(() {
+      _addedDiscs[edition.editionId] = {...added, next};
+    });
+  }
+
+  /// Saves the edition laid out as [placements]: order, discs and
+  /// automatic numbering (REF-13). Numbers someone set by hand are only
+  /// changed with their agreement (SN-50 A-Q7A).
+  Future<void> _arrange(List<EditionPlacement> placements) async {
+    final edition = controller.selectedEdition;
+    if (edition == null || _isSavingOrder) return;
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _isSavingOrder = true);
+    try {
+      final result = await controller.arrangeSelectedEdition(
+        userId: widget.userId,
+        placements: placements,
+      );
+      if (!mounted) return;
+      // A disc that now has songs no longer needs to be remembered here.
+      final used = {for (final p in placements) p.discNumber};
+      final added = _addedDiscs[edition.editionId];
+      if (added != null) {
+        setState(() => added.removeWhere(used.contains));
+      }
+      if (result != null && result.manualNumbersKept > 0) {
+        await _offerManualRenumber(edition, result.manualNumbersKept);
+      }
+    } catch (error, stackTrace) {
+      developer.log(
+        'Tracks could not be arranged (${error.runtimeType})',
+        name: 'sonus.library.release_studio',
+        level: 900,
+        error: error,
+        stackTrace: stackTrace,
+      );
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Could not reorder tracks. Nothing was changed.'),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isSavingOrder = false);
+    }
+  }
+
+  /// Names a disc, or clears its name when left empty (REF-13c).
+  Future<void> _renameDisc(int disc) async {
+    final text = await _askForText(
+      title: 'Name Disc $disc',
+      label: 'Name (leave empty for none)',
+      initial: controller.discLabels[disc] ?? '',
+      fieldKey: 'album-studio-disc-name-field',
+      saveKey: 'album-studio-disc-name-save',
+    );
+    if (text == null || !mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await controller.setSelectedEditionDiscLabel(disc: disc, label: text);
+    } catch (error, stackTrace) {
+      developer.log(
+        'A disc name could not be saved (${error.runtimeType})',
+        name: 'sonus.library.release_studio',
+        level: 900,
+        error: error,
+        stackTrace: stackTrace,
+      );
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Could not save the disc name.')),
+      );
+    }
   }
 
   Future<void> _editPlacement(LibraryTrack track) async {
@@ -1607,17 +1675,15 @@ class _EditionTabs extends StatelessWidget {
 class _TrackOrderSection extends StatelessWidget {
   const _TrackOrderSection({
     required this.count,
-    required this.autoRenumber,
     required this.isSaving,
-    required this.onAutoRenumberChanged,
     required this.onSortByDiscAndTrack,
+    required this.onAddDisc,
   });
 
   final int count;
-  final bool autoRenumber;
   final bool isSaving;
-  final ValueChanged<bool> onAutoRenumberChanged;
   final Future<void> Function()? onSortByDiscAndTrack;
+  final VoidCallback? onAddDisc;
 
   @override
   Widget build(BuildContext context) {
@@ -1650,68 +1716,153 @@ class _TrackOrderSection extends StatelessWidget {
             ),
           ],
         ),
-        const SizedBox(height: 6),
-        Align(
-          alignment: AlignmentDirectional.centerStart,
-          child: OutlinedButton.icon(
-            key: const ValueKey<String>('album-studio-sort-disc-track'),
-            onPressed: isSaving || onSortByDiscAndTrack == null
-                ? null
-                : () {
-                    unawaited(onSortByDiscAndTrack!());
-                  },
-            icon: const Icon(Icons.sort_rounded),
-            label: const Text('Sort by disc & track'),
+        const SizedBox(height: 4),
+        // REF-13: no Auto-renumber switch; every arrangement numbers each
+        // disc 1, 2, 3 by itself.
+        Text(
+          'Drag songs, or use Move, to change their order or disc. Tracks '
+          'are numbered automatically on each disc.',
+          key: const ValueKey<String>('album-studio-order-help'),
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: colors.textSecondary,
           ),
         ),
-        SwitchListTile(
-          key: const ValueKey<String>('album-studio-auto-renumber'),
-          contentPadding: EdgeInsets.zero,
-          dense: true,
-          title: const Text('Auto-renumber after reorder'),
-          subtitle: const Text('Renumbers tracks within their disc.'),
-          value: autoRenumber,
-          onChanged: isSaving ? null : onAutoRenumberChanged,
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            OutlinedButton.icon(
+              key: const ValueKey<String>('album-studio-add-disc'),
+              onPressed: isSaving ? null : onAddDisc,
+              icon: const Icon(Icons.album_outlined),
+              label: const Text('Add disc'),
+            ),
+            OutlinedButton.icon(
+              key: const ValueKey<String>('album-studio-sort-disc-track'),
+              onPressed: isSaving || onSortByDiscAndTrack == null
+                  ? null
+                  : () {
+                      unawaited(onSortByDiscAndTrack!());
+                    },
+              icon: const Icon(Icons.sort_rounded),
+              label: const Text('Sort by disc & track'),
+            ),
+          ],
         ),
         if (isSaving)
-          const LinearProgressIndicator(
-            key: ValueKey<String>('album-studio-reorder-progress'),
+          const Padding(
+            padding: EdgeInsets.only(top: 8),
+            child: LinearProgressIndicator(
+              key: ValueKey<String>('album-studio-reorder-progress'),
+            ),
           ),
       ],
     );
   }
 }
 
+/// One row of the Release Studio tracklist: a disc's heading, or a song.
+sealed class _StudioEntry {
+  const _StudioEntry();
+}
+
+class _DiscEntry extends _StudioEntry {
+  const _DiscEntry(this.disc, {required this.isEmpty});
+
+  final int disc;
+  final bool isEmpty;
+}
+
+class _SongEntry extends _StudioEntry {
+  const _SongEntry(this.track);
+
+  final LibraryTrack track;
+}
+
+/// The edition's songs in its order, with a heading for each disc when it
+/// has (or is given) more than one (REF-13). Dragging a song below another
+/// disc's heading moves it to that disc; one disc stays implicit.
+List<_StudioEntry> _studioEntries(
+  List<LibraryTrack> tracks, {
+  Set<int> extraDiscs = const {},
+}) {
+  final discs = {
+    for (final track in tracks) shownDisc(track.discNumber),
+    ...extraDiscs,
+  }.toList()..sort();
+  if (discs.length <= 1) {
+    return [for (final track in tracks) _SongEntry(track)];
+  }
+  final grouped = groupedByDisc(tracks, (track) => track.discNumber);
+  return [
+    for (final disc in discs) ...[
+      _DiscEntry(
+        disc,
+        isEmpty: !grouped.any((t) => shownDisc(t.discNumber) == disc),
+      ),
+      for (final track in grouped)
+        if (shownDisc(track.discNumber) == disc) _SongEntry(track),
+    ],
+  ];
+}
+
+/// Every song of [entries], in order, on the disc of the heading above it
+/// (the first disc when it is above every heading). Without headings each
+/// song keeps its own disc.
+List<EditionPlacement> _placementsOf(List<_StudioEntry> entries) {
+  // Songs above every heading go on the first disc.
+  int? disc = entries.whereType<_DiscEntry>().firstOrNull?.disc;
+  final placements = <EditionPlacement>[];
+  for (final entry in entries) {
+    switch (entry) {
+      case _DiscEntry():
+        disc = entry.disc;
+      case _SongEntry(:final track):
+        placements.add(
+          EditionPlacement(
+            songId: track.songId,
+            discNumber: disc ?? shownDisc(track.discNumber),
+          ),
+        );
+    }
+  }
+  return placements;
+}
+
 class _StudioTrackList extends StatelessWidget {
   const _StudioTrackList({
-    required this.controller,
     required this.tracks,
-    required this.autoRenumber,
+    required this.extraDiscs,
+    required this.discLabels,
     required this.isBusy,
-    required this.userId,
-    required this.onReorderStarted,
-    required this.onReorderFinished,
+    required this.onArrange,
+    required this.onRenameDisc,
     required this.onEditPlacement,
     this.onDeletePermanently,
     this.bonusSongIds = const {},
   });
 
-  final AlbumProfileController controller;
   final List<LibraryTrack> tracks;
+  final Set<int> extraDiscs;
+  final Map<int, String> discLabels;
   final Future<void> Function(LibraryTrack track)? onDeletePermanently;
 
   /// Songs this edition adds to the primary edition.
   final Set<String> bonusSongIds;
-  final bool autoRenumber;
   final bool isBusy;
-  final String? userId;
-  final VoidCallback onReorderStarted;
-  final VoidCallback onReorderFinished;
+  final Future<void> Function(List<EditionPlacement> placements) onArrange;
+  final Future<void> Function(int disc) onRenameDisc;
   final Future<void> Function(LibraryTrack track) onEditPlacement;
 
   @override
   Widget build(BuildContext context) {
-    final multiDisc = _usesMultipleDiscs(tracks);
+    final entries = _studioEntries(tracks, extraDiscs: extraDiscs);
+    final multiDisc = entries.any((e) => e is _DiscEntry);
+    final discs = [
+      for (final e in entries)
+        if (e is _DiscEntry) e.disc,
+    ];
     final gutter = SonusTheme.of(context).metrics.pageGutter;
 
     if (tracks.isEmpty) {
@@ -1728,16 +1879,37 @@ class _StudioTrackList extends StatelessWidget {
     // edge scrolls the whole page and nothing scrolls inside it.
     return SliverReorderableList(
       key: const ValueKey<String>('album-studio-track-list'),
-      itemCount: tracks.length,
+      itemCount: entries.length,
       onReorderItem: isBusy
           ? (_, _) {}
           : (oldIndex, newIndex) {
-              unawaited(
-                _reorder(context, oldIndex: oldIndex, newIndex: newIndex),
-              );
+              if (oldIndex == newIndex || entries[oldIndex] is _DiscEntry) {
+                return;
+              }
+              final moved = [...entries];
+              moved.insert(newIndex, moved.removeAt(oldIndex));
+              unawaited(onArrange(_placementsOf(moved)));
             },
       itemBuilder: (context, index) {
-        final track = tracks[index];
+        final entry = entries[index];
+        if (entry is _DiscEntry) {
+          return Padding(
+            key: ValueKey<String>('album-studio-disc-${entry.disc}'),
+            padding: EdgeInsets.fromLTRB(
+              gutter,
+              index == 0 ? 4 : 14,
+              gutter,
+              2,
+            ),
+            child: _StudioDiscHeading(
+              disc: entry.disc,
+              label: discLabels[entry.disc],
+              isEmpty: entry.isEmpty,
+              onRename: isBusy ? null : () => onRenameDisc(entry.disc),
+            ),
+          );
+        }
+        final track = (entry as _SongEntry).track;
 
         return Padding(
           key: ValueKey<String>('album-studio-track-${track.songId}'),
@@ -1748,6 +1920,7 @@ class _StudioTrackList extends StatelessWidget {
             multiDisc: multiDisc,
             isBusy: isBusy,
             isBonus: bonusSongIds.contains(track.songId),
+            moves: _movesFor(entries, index, discs),
             onEditPlacement: onEditPlacement,
             onDeletePermanently: onDeletePermanently,
           ),
@@ -1756,39 +1929,112 @@ class _StudioTrackList extends StatelessWidget {
     );
   }
 
-  Future<void> _reorder(
-    BuildContext context, {
-    required int oldIndex,
-    required int newIndex,
-  }) async {
-    final targetIndex = newIndex;
-
-    if (targetIndex == oldIndex) {
-      return;
+  /// The keyboard and screen-reader alternatives to dragging the song at
+  /// [index] (REF-13): up, down, to another disc, or to a new disc.
+  List<(String, VoidCallback)> _movesFor(
+    List<_StudioEntry> entries,
+    int index,
+    List<int> discs,
+  ) {
+    void moveTo(int target) {
+      final moved = [...entries];
+      moved.insert(target, moved.removeAt(index));
+      unawaited(onArrange(_placementsOf(moved)));
     }
 
-    final orderedIds = [for (final track in tracks) track.songId];
+    final track = (entries[index] as _SongEntry).track;
+    final disc = shownDisc(track.discNumber);
+    final above = index - 1;
+    final below = index + 1;
+    final canGoUp = above >= 0 && !(above == 0 && entries[0] is _DiscEntry);
+    final canGoDown = below < entries.length;
 
-    final moved = orderedIds.removeAt(oldIndex);
-    orderedIds.insert(targetIndex, moved);
-
-    onReorderStarted();
-
-    try {
-      await controller.reorderSelectedEdition(
-        userId: userId,
-        orderedSongIds: orderedIds,
-        autoRenumber: autoRenumber,
-      );
-    } catch (_) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Could not reorder tracks.')),
-        );
+    void toDisc(int target) {
+      final placements = [
+        for (final p in _placementsOf(entries))
+          if (p.songId != track.songId) p,
+      ];
+      // After the disc's last song; on an empty disc, where it begins.
+      var at = placements.lastIndexWhere((p) => p.discNumber == target) + 1;
+      if (at == 0) {
+        final later = placements.indexWhere((p) => p.discNumber > target);
+        at = later < 0 ? placements.length : later;
       }
-    } finally {
-      onReorderFinished();
+      placements.insert(
+        at,
+        EditionPlacement(songId: track.songId, discNumber: target),
+      );
+      unawaited(onArrange(placements));
     }
+
+    final allDiscs = {...discs, disc}.toList()..sort();
+    final newDisc = (allDiscs.isEmpty ? 1 : allDiscs.last) + 1;
+    return [
+      if (canGoUp) ('Move up', () => moveTo(above)),
+      if (canGoDown) ('Move down', () => moveTo(below)),
+      for (final other in allDiscs)
+        if (other != disc) ('Move to Disc $other', () => toDisc(other)),
+      ('Move to a new disc ($newDisc)', () => toDisc(newDisc)),
+    ];
+  }
+}
+
+/// A disc's heading in Release Studio: its number and name, and a button
+/// to name it (REF-13c). Not draggable.
+class _StudioDiscHeading extends StatelessWidget {
+  const _StudioDiscHeading({
+    required this.disc,
+    required this.label,
+    required this.isEmpty,
+    required this.onRename,
+  });
+
+  final int disc;
+  final String? label;
+  final bool isEmpty;
+  final VoidCallback? onRename;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = SonusTheme.of(context).colors;
+    final theme = Theme.of(context);
+    final named = label?.trim().isNotEmpty ?? false;
+
+    return Row(
+      children: [
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Semantics(
+                header: true,
+                child: Text(
+                  discTitle(disc, label: label),
+                  key: ValueKey<String>('album-studio-disc-title-$disc'),
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    color: colors.textPrimary,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+              if (isEmpty)
+                Text(
+                  'No songs yet. Drag songs here, or use Move.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: colors.textSecondary,
+                  ),
+                ),
+            ],
+          ),
+        ),
+        IconButton(
+          key: ValueKey<String>('album-studio-disc-name-$disc'),
+          tooltip: named ? 'Rename Disc $disc' : 'Name Disc $disc',
+          onPressed: onRename,
+          icon: const Icon(Icons.edit_outlined),
+        ),
+      ],
+    );
   }
 }
 
@@ -1800,8 +2046,13 @@ class _StudioTrackRow extends StatelessWidget {
     required this.isBusy,
     required this.onEditPlacement,
     this.onDeletePermanently,
+    this.moves = const [],
     this.isBonus = false,
   });
+
+  /// Where the song can be moved without dragging (REF-13): each a label
+  /// and its action. Shown as a Move menu and as screen-reader actions.
+  final List<(String, VoidCallback)> moves;
 
   final LibraryTrack track;
   final int index;
@@ -1844,7 +2095,7 @@ class _StudioTrackRow extends StatelessWidget {
       fontFeatures: tabular,
     );
 
-    return Material(
+    final row = Material(
       color: colors.surface,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(tokens.metrics.cardRadius),
@@ -1909,6 +2160,24 @@ class _StudioTrackRow extends StatelessWidget {
                 onPressed: isBusy ? null : () => onDeletePermanently!(track),
                 icon: const Icon(Icons.delete_forever_outlined),
               ),
+            if (moves.isNotEmpty)
+              PopupMenuButton<int>(
+                key: ValueKey<String>('album-studio-move-${track.songId}'),
+                tooltip: 'Move',
+                enabled: !isBusy,
+                icon: const Icon(Icons.swap_vert_rounded),
+                onSelected: (choice) => moves[choice].$2(),
+                itemBuilder: (context) => [
+                  for (final (index, (label, _)) in moves.indexed)
+                    PopupMenuItem<int>(
+                      key: ValueKey<String>(
+                        'album-studio-move-${track.songId}-$index',
+                      ),
+                      value: index,
+                      child: Text(label),
+                    ),
+                ],
+              ),
             if (!largeText)
               IconButton(
                 key: ValueKey<String>(
@@ -1918,23 +2187,33 @@ class _StudioTrackRow extends StatelessWidget {
                 onPressed: isBusy ? null : () => onEditPlacement(track),
                 icon: const Icon(Icons.numbers_rounded),
               ),
-            ReorderableDragStartListener(
-              index: index,
-              enabled: !isBusy,
-              child: Tooltip(
-                message: 'Drag to reorder',
-                child: Padding(
-                  key: ValueKey<String>('album-studio-drag-${track.songId}'),
-                  // A 48px target around the 24px handle.
-                  padding: const EdgeInsets.all(12),
-                  child: const Icon(Icons.drag_handle_rounded),
+            // At large text the Move menu takes the handle's place and the
+            // whole row drags on a long press, so the title keeps its room.
+            if (!largeText)
+              ReorderableDragStartListener(
+                index: index,
+                enabled: !isBusy,
+                child: Tooltip(
+                  message: 'Drag to reorder',
+                  child: Padding(
+                    key: ValueKey<String>('album-studio-drag-${track.songId}'),
+                    // A 48px target around the 24px handle.
+                    padding: const EdgeInsets.all(12),
+                    child: const Icon(Icons.drag_handle_rounded),
+                  ),
                 ),
               ),
-            ),
           ],
         ),
       ),
     );
+    return largeText
+        ? ReorderableDelayedDragStartListener(
+            index: index,
+            enabled: !isBusy,
+            child: row,
+          )
+        : row;
   }
 
   static String _formatDuration(int seconds) {

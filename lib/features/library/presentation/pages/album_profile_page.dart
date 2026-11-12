@@ -1,4 +1,6 @@
 import 'dart:ui' show ImageFilter;
+import '../../domain/entities/album_edition_disc_label.dart';
+import '../../domain/repositories/album_edition_disc_label_repository.dart';
 import '../../../../core/design/context/sonus_context_theme.dart';
 import '../../../../core/design/widgets/playback/sonus_playing_indicator.dart';
 import '../../../player/presentation/models/now_playing_mark.dart';
@@ -154,6 +156,7 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
       artworkAssignmentService: context.read<ArtworkAssignmentService?>(),
       artworkFilePicker: context.read<ArtworkFilePicker?>(),
       artworkCropService: context.read<ArtworkCropService?>(),
+      discLabelRepository: _optionalDiscLabels(context),
     );
 
     // The artwork can change without this State rebuilding: when the album
@@ -1936,7 +1939,7 @@ class _TracksList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final tracks = controller.tracks
+    var tracks = controller.tracks
         .where(_hasAvailableMedia)
         .toList(growable: false);
 
@@ -1944,11 +1947,15 @@ class _TracksList extends StatelessWidget {
       return const _EmptySection(message: 'No tracks yet');
     }
 
-    // Disc headings only when the edition really spans several discs. They
-    // follow the list's existing order; nothing is re-sorted here.
+    // Disc headings only when the edition really spans several discs. Each
+    // disc is then shown once, in disc order, keeping the edition's order
+    // within it (REF-13): a hand-made order can no longer split a disc.
     final multiDisc = spansMultipleDiscs(
       tracks.map((track) => track.discNumber),
     );
+    if (multiDisc) {
+      tracks = groupedByDisc(tracks, (track) => track.discNumber);
+    }
     final coordinator = context.read<PlaybackCoordinator?>();
 
     return StreamBuilder<NowPlayingMark>(
@@ -1975,8 +1982,14 @@ class _TracksList extends StatelessWidget {
       children: [
         for (final (index, track) in tracks.indexed) ...[
           if (multiDisc &&
-              (index == 0 || tracks[index - 1].discNumber != track.discNumber))
-            _DiscHeading(disc: track.discNumber, index: index)
+              (index == 0 ||
+                  shownDisc(tracks[index - 1].discNumber) !=
+                      shownDisc(track.discNumber)))
+            _DiscHeading(
+              disc: shownDisc(track.discNumber),
+              label: controller.discLabels[shownDisc(track.discNumber)],
+              index: index,
+            )
           else if (index > 0)
             // A hairline between rows, in the glass's rim colour.
             Divider(
@@ -2022,9 +2035,12 @@ class _TracksList extends StatelessWidget {
 }
 
 class _DiscHeading extends StatelessWidget {
-  const _DiscHeading({required this.disc, required this.index});
+  const _DiscHeading({required this.disc, required this.index, this.label});
 
   final int disc;
+
+  /// The disc's name, if it has one (REF-13c).
+  final String? label;
 
   /// Position in the list, so a disc that appears twice keeps unique keys.
   final int index;
@@ -2038,7 +2054,7 @@ class _DiscHeading extends StatelessWidget {
       child: Semantics(
         header: true,
         child: Text(
-          'Disc $disc',
+          discTitle(disc, label: label),
           key: ValueKey<String>('album-profile-disc-heading-$index'),
           style: Theme.of(context).textTheme.labelLarge?.copyWith(
             color: colors.textSecondary,
@@ -2611,5 +2627,15 @@ class _AlbumNotFound extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+/// Disc names, where the app provides them (REF-13c); pages built without
+/// them show discs by number.
+AlbumEditionDiscLabelRepository? _optionalDiscLabels(BuildContext context) {
+  try {
+    return context.read<AlbumEditionDiscLabelRepository?>();
+  } on ProviderNotFoundException {
+    return null;
   }
 }

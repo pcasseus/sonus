@@ -14,6 +14,7 @@ import '../../application/models/library_track.dart';
 import '../../application/repositories/library_query_repository.dart';
 import '../../application/services/album_profile_editing_service.dart';
 import '../../application/services/album_edition_track_ordering_service.dart';
+import '../../domain/repositories/album_edition_disc_label_repository.dart';
 import '../../application/services/song_block_service.dart';
 import '../../application/services/song_artist_credit_service.dart';
 import '../../application/services/track_profile_editing_service.dart';
@@ -37,6 +38,7 @@ class AlbumProfileController extends ChangeNotifier with PlaybackShuffleMode {
     ArtworkAssignmentService? artworkAssignmentService,
     ArtworkFilePicker? artworkFilePicker,
     ArtworkCropService? artworkCropService,
+    AlbumEditionDiscLabelRepository? discLabelRepository,
     Random? random,
   }) : this._(
          repository,
@@ -52,6 +54,7 @@ class AlbumProfileController extends ChangeNotifier with PlaybackShuffleMode {
          artworkCropService,
          random ?? Random(),
          initialEditionId,
+         discLabelRepository,
        );
 
   AlbumProfileController._(
@@ -68,6 +71,7 @@ class AlbumProfileController extends ChangeNotifier with PlaybackShuffleMode {
     this._artworkCropService,
     this._random,
     this._initialEditionId,
+    this._discLabelRepository,
   ) {
     watchPlaybackShuffle();
   }
@@ -89,10 +93,17 @@ class AlbumProfileController extends ChangeNotifier with PlaybackShuffleMode {
   /// not one of this album's editions, the primary edition opens instead.
   final String? _initialEditionId;
 
+  /// Disc names (REF-13c); without it discs are shown by number only.
+  final AlbumEditionDiscLabelRepository? _discLabelRepository;
+
   LibraryAlbum? _album;
   List<LibraryAlbumEdition> _editions = const [];
   LibraryAlbumEdition? _selectedEdition;
   List<LibraryTrack> _tracks = const [];
+  Map<int, String> _discLabels = const {};
+
+  /// The selected edition's disc names, by disc number (REF-13c).
+  Map<int, String> get discLabels => _discLabels;
 
   bool _isLoading = false;
   Object? _error;
@@ -805,6 +816,7 @@ class AlbumProfileController extends ChangeNotifier with PlaybackShuffleMode {
           _editions = editions;
           _selectedEdition = selectedEdition;
           _tracks = tracks;
+          _discLabels = await _labelsOf(selectedEdition.editionId);
           return;
         }
       }
@@ -825,6 +837,65 @@ class AlbumProfileController extends ChangeNotifier with PlaybackShuffleMode {
 
   Future<void> refresh() {
     return load();
+  }
+
+  /// [editionId]'s disc names. They are an extra: one that cannot be read
+  /// leaves the discs shown by number.
+  Future<Map<int, String>> _labelsOf(String editionId) async {
+    final labels = _discLabelRepository;
+    if (labels == null) return const {};
+    try {
+      return {
+        for (final label in await labels.getByEditionId(editionId))
+          label.discNumber: label.label,
+      };
+    } on Object {
+      return const {};
+    }
+  }
+
+  /// Lays out the selected edition as [placements] says: its order, each
+  /// song's disc and automatic numbering (REF-13). Null when nothing
+  /// changed or editing is unavailable.
+  Future<AlbumEditionArrangeResult?> arrangeSelectedEdition({
+    String? userId,
+    required List<EditionPlacement> placements,
+  }) async {
+    final service = _albumEditionTrackOrderingService;
+    final selectedEdition = _selectedEdition;
+    if (service == null ||
+        selectedEdition == null ||
+        _repository is! AlbumEditionQueryRepository) {
+      return null;
+    }
+
+    final result = await service.arrangeEdition(
+      albumEditionId: selectedEdition.editionId,
+      placements: placements,
+      userId: userId,
+    );
+    await refresh();
+    return result.changed ? result : null;
+  }
+
+  /// Names [disc] of the selected edition, or clears its name when [label]
+  /// is blank (REF-13c).
+  Future<bool> setSelectedEditionDiscLabel({
+    required int disc,
+    required String? label,
+  }) async {
+    final service = _albumEditionTrackOrderingService;
+    final selectedEdition = _selectedEdition;
+    if (service == null || selectedEdition == null) return false;
+
+    await service.setDiscLabel(
+      albumEditionId: selectedEdition.editionId,
+      discNumber: disc,
+      label: label,
+    );
+    _discLabels = await _labelsOf(selectedEdition.editionId);
+    notifyListeners();
+    return true;
   }
 
   Future<bool> selectEdition(String editionId) async {
@@ -864,6 +935,7 @@ class AlbumProfileController extends ChangeNotifier with PlaybackShuffleMode {
 
       _selectedEdition = edition;
       _tracks = tracks;
+      _discLabels = await _labelsOf(edition.editionId);
       notifyListeners();
 
       return true;

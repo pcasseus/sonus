@@ -442,7 +442,7 @@ void main() {
       await gesture.up();
       await tester.pumpAndSettle();
 
-      expect(ordering.reorderCallCount, 1);
+      expect(ordering.arrangeCallCount, 1);
       expect(ordering.lastOrderedSongIds!.first, isNot('s1'));
       expect(ordering.lastOrderedSongIds, contains('s1'));
     });

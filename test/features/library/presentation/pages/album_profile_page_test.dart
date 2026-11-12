@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sonus_next/core/design/sonus_artwork_palette.dart';
+import 'package:sonus_next/features/library/domain/entities/album_edition_disc_label.dart';
+import 'package:sonus_next/features/library/domain/repositories/album_edition_disc_label_repository.dart';
 import 'package:sonus_next/features/library/domain/services/metadata_authority_policy.dart';
 import 'package:sonus_next/features/artwork/data/services/cover_art_archive/cover_art_cancellation.dart';
 import 'package:sonus_next/features/artwork/application/services/cover_art_album_edition_assignment_service.dart';
@@ -640,6 +642,70 @@ void main() {
         ),
         findsNothing,
       );
+    });
+
+    testWidgets('REF-13: a multi-disc release shows each disc once, in '
+        'order, with its name', (tester) async {
+      LibraryTrack track(String id, int disc, int number) => createTrack(
+        songId: id,
+        title: 'Song $id',
+        albumEditionId: 'edition-standard',
+        albumEditionTitle: 'Standard',
+        discNumber: disc,
+        trackNumber: number,
+      );
+      final repository = FakeEditionAwareLibraryQueryRepository(
+        album: createAlbum(
+          primaryEditionId: 'edition-standard',
+          primaryEditionTitle: 'Standard',
+        ),
+        editions: [
+          createLibraryEdition(
+            editionId: 'edition-standard',
+            title: 'Standard',
+            type: AlbumEditionType.standard,
+            isPrimary: true,
+          ),
+        ],
+        // A hand-made order that put a Disc 1 song after Disc 2.
+        editionTracks: {
+          'edition-standard': [
+            track('one', 1, 1),
+            track('bonus', 2, 1),
+            track('two', 1, 2),
+          ],
+        },
+      );
+
+      await tester.pumpWidget(
+        Provider<AlbumEditionDiscLabelRepository?>.value(
+          value: _MemoryDiscLabels({2: 'Bonus Tracks'}),
+          child: buildSubject(repository: repository),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final headings = [
+        for (final element
+            in find
+                .byWidgetPredicate(
+                  (widget) =>
+                      widget is Text &&
+                      widget.key is ValueKey<String> &&
+                      (widget.key! as ValueKey<String>).value.startsWith(
+                        'album-profile-disc-heading-',
+                      ),
+                )
+                .evaluate())
+          (element.widget as Text).data,
+      ];
+      expect(headings, ['Disc 1', 'Disc 2 — Bonus Tracks']);
+
+      // Disc 1's songs stay together, above Disc 2.
+      double top(String id) =>
+          tester.getTopLeft(find.byKey(ValueKey<String>('album-track-$id'))).dy;
+      expect(top('one'), lessThan(top('two')));
+      expect(top('two'), lessThan(top('bonus')));
     });
 
     testWidgets('SN-50 C-Q10A: long-press selects tracks; Back leaves', (
@@ -3266,7 +3332,8 @@ void main() {
     });
 
     testWidgets(
-      'Album Studio reorder forwards visual order and auto-renumber',
+      'Album Studio reorder forwards the visual order as one arrangement '
+      '(REF-13: numbering is automatic, no switch)',
       (tester) async {
         final repository = FakeEditionAwareLibraryQueryRepository(
           album: createAlbum(
@@ -3323,14 +3390,10 @@ void main() {
         await tester.pumpAndSettle();
         await openStudioSection(tester, 'tracklist');
 
-        final autoRenumberFinder = find.byKey(
-          const ValueKey<String>('album-studio-auto-renumber'),
+        expect(
+          find.byKey(const ValueKey<String>('album-studio-auto-renumber')),
+          findsNothing,
         );
-
-        await tester.tap(autoRenumberFinder);
-        await tester.pump();
-
-        expect(tester.widget<SwitchListTile>(autoRenumberFinder).value, isTrue);
 
         final listFinder = find.byKey(
           const ValueKey<String>('album-studio-track-list'),
@@ -3341,10 +3404,11 @@ void main() {
         list.onReorderItem!(0, 2);
         await tester.pumpAndSettle();
 
-        expect(service.reorderCallCount, 1);
+        expect(service.arrangeCallCount, 1);
+        expect(service.reorderCallCount, 0);
         expect(service.lastEditionId, 'edition-standard');
-        expect(service.lastAutoRenumber, isTrue);
         expect(service.lastOrderedSongIds, ['song-b', 'song-c', 'song-a']);
+        expect(service.lastPlacements!.map((p) => p.discNumber).toSet(), {1});
       },
     );
 
@@ -3785,6 +3849,30 @@ class FakeAlbumEditionTrackOrderingService
     lastAutoRenumber = autoRenumber;
 
     return const AlbumEditionReorderResult(memberships: [], changed: true);
+  }
+
+  /// REF-13: Release Studio lays out an edition in one call.
+  int arrangeCallCount = 0;
+  List<EditionPlacement>? lastPlacements;
+
+  @override
+  Future<AlbumEditionArrangeResult> arrangeEdition({
+    required String albumEditionId,
+    required List<EditionPlacement> placements,
+    String? userId,
+    DateTime? now,
+  }) async {
+    arrangeCallCount++;
+    lastUserId = userId;
+    lastEditionId = albumEditionId;
+    lastPlacements = List<EditionPlacement>.from(placements);
+    lastOrderedSongIds = [for (final p in placements) p.songId];
+
+    return const AlbumEditionArrangeResult(
+      memberships: [],
+      changed: true,
+      manualNumbersKept: 0,
+    );
   }
 
   @override
@@ -4283,4 +4371,40 @@ class _FakeArtistCreationService implements ArtistCreationService {
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+/// Disc names kept in memory (REF-13c).
+class _MemoryDiscLabels implements AlbumEditionDiscLabelRepository {
+  _MemoryDiscLabels(this.labels);
+
+  final Map<int, String> labels;
+
+  @override
+  Future<List<AlbumEditionDiscLabel>> getByEditionId(String editionId) async =>
+      [
+        for (final MapEntry(:key, :value) in labels.entries)
+          AlbumEditionDiscLabel(
+            albumEditionId: editionId,
+            discNumber: key,
+            label: value,
+            createdAt: DateTime.utc(2026),
+            updatedAt: DateTime.utc(2026),
+          ),
+      ];
+
+  @override
+  Future<void> save(AlbumEditionDiscLabel label) async =>
+      labels[label.discNumber] = label.label;
+
+  @override
+  Future<void> delete({
+    required String editionId,
+    required int discNumber,
+  }) async => labels.remove(discNumber);
+
+  @override
+  Future<void> keepOnly({
+    required String editionId,
+    required Set<int> discs,
+  }) async => labels.removeWhere((disc, _) => !discs.contains(disc));
 }

@@ -29,6 +29,8 @@ import '../models/library_navigation_memory.dart';
 import '../../application/repositories/library_query_repository.dart';
 import '../../application/services/album_edition_management_service.dart';
 import '../../application/services/album_edition_track_ordering_service.dart';
+import '../../data/repositories/sqlite_album_edition_disc_label_repository.dart';
+import '../../domain/repositories/album_edition_disc_label_repository.dart';
 import '../../application/services/album_profile_editing_service.dart';
 import '../../application/services/artist_creation_service.dart';
 import '../../application/services/artist_merge_service.dart';
@@ -82,6 +84,7 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
   ArtworkCropService? _artworkCropService;
   AlbumProfileEditingService? _albumProfileEditingService;
   AlbumEditionTrackOrderingService? _albumEditionTrackOrderingService;
+  AlbumEditionDiscLabelRepository? _discLabelRepository;
   AlbumEditionManagementService? _albumEditionManagementService;
   LibraryOrganizationService? _libraryOrganizationService;
   ListeningArtistAttribution? _libraryArtistAttribution;
@@ -262,6 +265,7 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
       _artworkCropService = artworkCropService;
       _albumProfileEditingService = albumProfileEditingService;
       _albumEditionTrackOrderingService = albumEditionTrackOrderingService;
+      _discLabelRepository = SqliteAlbumEditionDiscLabelRepository(database);
       _albumEditionManagementService = albumEditionManagementService;
       _libraryOrganizationService = libraryOrganizationService;
       _libraryArtistAttribution = OrganizationArtistAttribution(
@@ -314,6 +318,9 @@ class _LibraryQueryScopeState extends State<LibraryQueryScope> {
         ),
         Provider<AlbumEditionTrackOrderingService?>.value(
           value: _albumEditionTrackOrderingService,
+        ),
+        Provider<AlbumEditionDiscLabelRepository?>.value(
+          value: _discLabelRepository,
         ),
         Provider<AlbumEditionManagementService?>.value(
           value: _albumEditionManagementService,
