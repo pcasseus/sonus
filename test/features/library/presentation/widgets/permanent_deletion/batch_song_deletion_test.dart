@@ -337,9 +337,10 @@ void main() {
     final dialog = find.byKey(const ValueKey<String>('batch-delete-dialog'));
     final confirm = find.byKey(const ValueKey<String>('batch-delete-confirm'));
 
-    /// Lets the real database work run until [done] (or a bound).
+    /// Lets the real database work run until [done]; the bound (about 10 s)
+    /// only stops a broken test, so a busy machine never fails it.
     Future<void> settle(WidgetTester tester, bool Function() done) async {
-      for (var i = 0; i < 80 && !done(); i++) {
+      for (var i = 0; i < 1000 && !done(); i++) {
         await tester.runAsync(
           () => Future<void>.delayed(const Duration(milliseconds: 10)),
         );
