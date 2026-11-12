@@ -34,10 +34,9 @@ void main() {
   test('derives primary keys from the live schema', () async {
     final db = await target.database;
 
-    expect(
-      await RestorePlanner.primaryKeyColumns(db, DatabaseTables.songs),
-      ['id'],
-    );
+    expect(await RestorePlanner.primaryKeyColumns(db, DatabaseTables.songs), [
+      'id',
+    ]);
     expect(
       await RestorePlanner.primaryKeyColumns(
         db,
@@ -116,46 +115,49 @@ void main() {
     expect(plan.deviceImpact.songsWithoutAudio, 0);
   });
 
-  test('overlapping library: added, updated, removed, and device impact', () async {
-    final db = await target.database;
+  test(
+    'overlapping library: added, updated, removed, and device impact',
+    () async {
+      final db = await target.database;
 
-    // Local: song "a" with a different title, plus local-only "c".
-    await seedConnectedLibrary(db, key: 'a', songTitle: 'Local Title');
-    await seedConnectedLibrary(db, key: 'c', week: 2);
-    await seedMediaBinding(db, key: 'a');
-    await seedMediaBinding(db, key: 'c');
-    await seedImportReview(db, key: 'a');
-    await seedImportReview(db, key: 'c');
+      // Local: song "a" with a different title, plus local-only "c".
+      await seedConnectedLibrary(db, key: 'a', songTitle: 'Local Title');
+      await seedConnectedLibrary(db, key: 'c', week: 2);
+      await seedMediaBinding(db, key: 'a');
+      await seedMediaBinding(db, key: 'c');
+      await seedImportReview(db, key: 'a');
+      await seedImportReview(db, key: 'c');
 
-    // Backup: song "a" with the original title, plus backup-only "b".
-    final contents = await verifiedFixtureContents(
-      directory: root,
-      seed: (db) async {
-        await seedConnectedLibrary(db, key: 'a');
-        await seedConnectedLibrary(db, key: 'b', week: 1);
-      },
-    );
+      // Backup: song "a" with the original title, plus backup-only "b".
+      final contents = await verifiedFixtureContents(
+        directory: root,
+        seed: (db) async {
+          await seedConnectedLibrary(db, key: 'a');
+          await seedConnectedLibrary(db, key: 'b', week: 1);
+        },
+      );
 
-    final plan = await planner.plan(contents);
-    final songs = plan.table(DatabaseTables.songs);
+      final plan = await planner.plan(contents);
+      final songs = plan.table(DatabaseTables.songs);
 
-    expect(songs.added, 1);
-    expect(songs.updated, 1);
-    expect(songs.unchanged, 0);
-    expect(songs.removed, 1);
+      expect(songs.added, 1);
+      expect(songs.updated, 1);
+      expect(songs.unchanged, 0);
+      expect(songs.removed, 1);
 
-    final artists = plan.table(DatabaseTables.artists);
-    expect(artists.added, 1);
-    expect(artists.unchanged, 1);
-    expect(artists.removed, 1);
+      final artists = plan.table(DatabaseTables.artists);
+      expect(artists.added, 1);
+      expect(artists.unchanged, 1);
+      expect(artists.removed, 1);
 
-    expect(plan.deviceImpact.mediaBindingsKept, 1);
-    expect(plan.deviceImpact.mediaBindingsRemoved, 1);
-    expect(plan.deviceImpact.importReviewsKept, 1);
-    expect(plan.deviceImpact.importReviewsRemoved, 1);
-    expect(plan.deviceImpact.songsWithoutAudio, 1);
-    expect(plan.requiresSafetyBackup, isTrue);
-  });
+      expect(plan.deviceImpact.mediaBindingsKept, 1);
+      expect(plan.deviceImpact.mediaBindingsRemoved, 1);
+      expect(plan.deviceImpact.importReviewsKept, 1);
+      expect(plan.deviceImpact.importReviewsRemoved, 1);
+      expect(plan.deviceImpact.songsWithoutAudio, 1);
+      expect(plan.requiresSafetyBackup, isTrue);
+    },
+  );
 
   test('unavailable audio still counts as missing after restore', () async {
     final db = await target.database;

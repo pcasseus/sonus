@@ -105,7 +105,8 @@ abstract final class RecoveryMessages {
                 'confirm every file was cleaned up, so cloud sync stays '
                 'paused.';
 
-      final detail = cause is BackupException &&
+      final detail =
+          cause is BackupException &&
               cause.code == BackupFailureCode.missingArtwork
           ? ' ${missingArtwork(cause.artworkIds.length)}'
           : '';

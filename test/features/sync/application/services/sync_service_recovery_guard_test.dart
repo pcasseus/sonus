@@ -72,23 +72,26 @@ void main() {
     expect(calls, ['bind', 'claim', 'pending', 'push', 'pull', 'pending']);
   });
 
-  test('controller reports a recovery hold without scheduling a retry', () async {
-    final controller = SyncController.forTesting(
-      synchronize: service(
-        guard: const _RejectingGuard(SyncHoldReason.restoreInProgress),
-      ).synchronize,
-    );
-    addTearDown(controller.dispose);
+  test(
+    'controller reports a recovery hold without scheduling a retry',
+    () async {
+      final controller = SyncController.forTesting(
+        synchronize: service(
+          guard: const _RejectingGuard(SyncHoldReason.restoreInProgress),
+        ).synchronize,
+      );
+      addTearDown(controller.dispose);
 
-    final synced = await controller.synchronize('user-1');
+      final synced = await controller.synchronize('user-1');
 
-    expect(synced, isFalse);
-    expect(controller.status, SyncStatus.recoveryHold);
-    expect(controller.isRecoveryHeld, isTrue);
-    expect(controller.hasError, isFalse);
-    expect(controller.retryPending, isFalse);
-    expect(controller.recoveryHoldReason, SyncHoldReason.restoreInProgress);
-    expect(controller.lastSuccessfulSync, isNull);
-    expect(calls, isEmpty);
-  });
+      expect(synced, isFalse);
+      expect(controller.status, SyncStatus.recoveryHold);
+      expect(controller.isRecoveryHeld, isTrue);
+      expect(controller.hasError, isFalse);
+      expect(controller.retryPending, isFalse);
+      expect(controller.recoveryHoldReason, SyncHoldReason.restoreInProgress);
+      expect(controller.lastSuccessfulSync, isNull);
+      expect(calls, isEmpty);
+    },
+  );
 }

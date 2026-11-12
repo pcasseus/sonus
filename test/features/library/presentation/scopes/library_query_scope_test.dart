@@ -19,24 +19,24 @@ void main() {
     SharedPreferences.setMockInitialValues({});
   });
 
-  testWidgets('registers CAA discovery alongside MusicBrainz', (tester) async {
+  AppDatabase openDatabase() {
     final database = AppDatabase(
       databaseFactory: databaseFactoryFfiNoIsolate,
       databasePath: inMemoryDatabasePath,
     );
-
     addTearDown(database.close);
+    return database;
+  }
 
-    CoverArtCandidateDiscoveryService? discovery;
+  testWidgets('registers MusicBrainz when online lookup is on', (tester) async {
     MetadataProvider? metadata;
 
     await tester.pumpWidget(
       MaterialApp(
         home: LibraryQueryScope(
-          database: database,
+          database: openDatabase(),
           child: Builder(
             builder: (context) {
-              discovery = context.watch<CoverArtCandidateDiscoveryService?>();
               metadata = context.watch<MetadataProvider?>();
               return const Scaffold(body: Text('Scope ready'));
             },
@@ -44,116 +44,53 @@ void main() {
         ),
       ),
     );
-
     await tester.pumpAndSettle();
 
-    expect(discovery, isNotNull);
     expect(metadata, isNotNull);
-    expect(discovery!.client.transport, isNotNull);
-    expect(discovery!.client.userAgent, isNotEmpty);
   });
 
-  testWidgets('disables MusicBrainz and CAA when online lookup is disabled', (
-    tester,
-  ) async {
-    SharedPreferences.setMockInitialValues({
-      MetadataIntelligenceSettingsController.onlineMetadataLookupKey: false,
-      MetadataIntelligenceSettingsController.coverArtSuggestionsKey: true,
-    });
-
-    final database = AppDatabase(
-      databaseFactory: databaseFactoryFfiNoIsolate,
-      databasePath: inMemoryDatabasePath,
-    );
-
-    addTearDown(database.close);
-
-    CoverArtCandidateDiscoveryService? discovery;
-    MetadataProvider? metadata;
-
-    await tester.pumpWidget(
-      MaterialApp(
-        home: LibraryQueryScope(
-          database: database,
-          child: Builder(
-            builder: (context) {
-              discovery = context.watch<CoverArtCandidateDiscoveryService?>();
-              metadata = context.watch<MetadataProvider?>();
-              return const Scaffold(body: Text('Scope ready'));
-            },
-          ),
-        ),
-      ),
-    );
-
-    await tester.pumpAndSettle();
-
-    expect(metadata, isNull);
-    expect(discovery, isNull);
-  });
-
-  testWidgets('disables only CAA when artwork suggestions are disabled', (
-    tester,
-  ) async {
+  testWidgets('REF-18: no Cover Art Archive search is provided, even with a '
+      'saved "on" choice', (tester) async {
     SharedPreferences.setMockInitialValues({
       MetadataIntelligenceSettingsController.onlineMetadataLookupKey: true,
-      MetadataIntelligenceSettingsController.coverArtSuggestionsKey: false,
+      MetadataIntelligenceSettingsController.coverArtSuggestionsKey: true,
     });
-
-    final database = AppDatabase(
-      databaseFactory: databaseFactoryFfiNoIsolate,
-      databasePath: inMemoryDatabasePath,
-    );
-
-    addTearDown(database.close);
-
+    var built = false;
     CoverArtCandidateDiscoveryService? discovery;
-    MetadataProvider? metadata;
 
     await tester.pumpWidget(
       MaterialApp(
         home: LibraryQueryScope(
-          database: database,
+          database: openDatabase(),
           child: Builder(
             builder: (context) {
+              built = true;
+              // Nullable and not provided: provider gives null.
               discovery = context.watch<CoverArtCandidateDiscoveryService?>();
-              metadata = context.watch<MetadataProvider?>();
               return const Scaffold(body: Text('Scope ready'));
             },
           ),
         ),
       ),
     );
-
     await tester.pumpAndSettle();
 
-    expect(metadata, isNotNull);
+    expect(built, isTrue);
     expect(discovery, isNull);
   });
 
-  testWidgets('updates provider availability when settings change', (
-    tester,
-  ) async {
-    final database = AppDatabase(
-      databaseFactory: databaseFactoryFfiNoIsolate,
-      databasePath: inMemoryDatabasePath,
-    );
-
-    addTearDown(database.close);
-
-    CoverArtCandidateDiscoveryService? discovery;
+  testWidgets('MusicBrainz follows the online lookup setting', (tester) async {
     MetadataProvider? metadata;
     MetadataIntelligenceSettingsController? settings;
 
     await tester.pumpWidget(
       MaterialApp(
         home: LibraryQueryScope(
-          database: database,
+          database: openDatabase(),
           child: Builder(
             builder: (context) {
               settings = context
                   .watch<MetadataIntelligenceSettingsController>();
-              discovery = context.watch<CoverArtCandidateDiscoveryService?>();
               metadata = context.watch<MetadataProvider?>();
               return const Scaffold(body: Text('Scope ready'));
             },
@@ -161,23 +98,15 @@ void main() {
         ),
       ),
     );
-
     await tester.pumpAndSettle();
-
     expect(metadata, isNotNull);
-    expect(discovery, isNotNull);
 
     await settings!.setOnlineMetadataLookupEnabled(false);
     await tester.pump();
-
     expect(metadata, isNull);
-    expect(discovery, isNull);
 
     await settings!.setOnlineMetadataLookupEnabled(true);
-    await settings!.setCoverArtSuggestionsEnabled(false);
     await tester.pump();
-
     expect(metadata, isNotNull);
-    expect(discovery, isNull);
   });
 }

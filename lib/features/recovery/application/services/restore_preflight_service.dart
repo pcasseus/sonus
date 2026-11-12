@@ -97,9 +97,7 @@ class RestorePreflightService {
 
     if (localVersion != AppDatabase.databaseVersion) {
       blockers.add(RestoreBlocker.incompatibleLocalDatabase);
-    } else if (!blockers.contains(
-      RestoreBlocker.incompatibleBackupVersion,
-    )) {
+    } else if (!blockers.contains(RestoreBlocker.incompatibleBackupVersion)) {
       try {
         await schemaValidator.validate(
           database: transaction,

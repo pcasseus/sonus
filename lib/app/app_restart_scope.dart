@@ -22,9 +22,6 @@ class _AppRestartScopeState extends State<AppRestartScope> {
 
   @override
   Widget build(BuildContext context) {
-    return KeyedSubtree(
-      key: ValueKey<int>(_generation),
-      child: widget.child,
-    );
+    return KeyedSubtree(key: ValueKey<int>(_generation), child: widget.child);
   }
 }

@@ -89,9 +89,7 @@ abstract final class MomentChronicle {
       mandatory: true,
     );
 
-    final hold = find(
-      (e) => e.isDailyNumberOneHold,
-    );
+    final hold = find((e) => e.isDailyNumberOneHold);
     if (hold != null) {
       return [
         story(

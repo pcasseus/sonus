@@ -1,4 +1,4 @@
-﻿import 'package:sqflite/sqflite.dart';
+import 'package:sqflite/sqflite.dart';
 
 import '../../../../core/database/database_tables.dart';
 import '../../domain/entities/song_import_review.dart';
@@ -52,19 +52,15 @@ class SongImportReviewDao {
       orderBy: 'created_at ASC, song_id ASC',
     );
 
-    return rows
-        .map(SongImportReviewRowMapper.fromRow)
-        .toList(growable: false);
+    return rows.map(SongImportReviewRowMapper.fromRow).toList(growable: false);
   }
 
   Future<int> countUnresolved() async {
-    final rows = await db.rawQuery(
-      '''
+    final rows = await db.rawQuery('''
       SELECT COUNT(*) AS review_count
       FROM ${DatabaseTables.songImportReviews}
       WHERE resolved_at IS NULL
-      ''',
-    );
+      ''');
 
     return Sqflite.firstIntValue(rows) ?? 0;
   }

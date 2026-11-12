@@ -78,14 +78,18 @@ void main() {
       });
 
       await expectLater(
-        const PlatformStorageSpaceProbe(isAndroid: _android).availableBytes('/x'),
+        const PlatformStorageSpaceProbe(
+          isAndroid: _android,
+        ).availableBytes('/x'),
         throwsA(isA<StorageSpaceUnavailable>()),
       );
     });
 
     test('a missing native handler on Android fails closed', () async {
       await expectLater(
-        const PlatformStorageSpaceProbe(isAndroid: _android).availableBytes('/x'),
+        const PlatformStorageSpaceProbe(
+          isAndroid: _android,
+        ).availableBytes('/x'),
         throwsA(isA<StorageSpaceUnavailable>()),
       );
     });

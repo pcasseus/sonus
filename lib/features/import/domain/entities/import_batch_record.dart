@@ -1,8 +1,4 @@
-enum ImportBatchRecordStatus {
-  pending,
-  running,
-  completed,
-}
+enum ImportBatchRecordStatus { pending, running, completed }
 
 class ImportBatchRecord {
   const ImportBatchRecord({

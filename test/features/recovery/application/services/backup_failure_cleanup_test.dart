@@ -145,7 +145,10 @@ void main() {
     final stages = <BackupStage>[];
 
     await expectLater(
-      orchestrator.createBackup(destination: destination, onProgress: stages.add),
+      orchestrator.createBackup(
+        destination: destination,
+        onProgress: stages.add,
+      ),
       throwsA(isA<_InjectedFailure>().having((e) => e.stage, 'stage', stage)),
     );
 

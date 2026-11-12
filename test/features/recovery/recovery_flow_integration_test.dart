@@ -98,7 +98,11 @@ void main() {
   });
 
   /// A fresh gate and service model one app launch.
-  ({RecoverySyncGate gate, BackupRestoreController controller, List<int> resumes})
+  ({
+    RecoverySyncGate gate,
+    BackupRestoreController controller,
+    List<int> resumes,
+  })
   launch() {
     final gate = RecoverySyncGate(
       holdStore: RecoverySyncHoldStore(directory: () async => recovery),
@@ -184,7 +188,12 @@ void main() {
       ),
     );
     final orphan = File(
-      path.join(support.path, 'sonus', 'artwork', 'artwork_restorekilledn0.jpg'),
+      path.join(
+        support.path,
+        'sonus',
+        'artwork',
+        'artwork_restorekilledn0.jpg',
+      ),
     );
     await orphan.create(recursive: true);
     await RestoreJournalStore(directory: () async => recovery).write(
@@ -208,98 +217,114 @@ void main() {
     expect(app.resumes, [1]);
   });
 
-  test('back up, save off-device, restore on a cloud-linked device, stay held', () async {
-    final db = await database.database;
-    await seedConnectedLibrary(db, key: 'a', userId: 'user-1', songTitle: 'Original');
-    await bindCloudAccount();
+  test(
+    'back up, save off-device, restore on a cloud-linked device, stay held',
+    () async {
+      final db = await database.database;
+      await seedConnectedLibrary(
+        db,
+        key: 'a',
+        userId: 'user-1',
+        songTitle: 'Original',
+      );
+      await bindCloudAccount();
 
-    var app = launch();
-    await app.controller.initialize();
+      var app = launch();
+      await app.controller.initialize();
 
-    // Back up and save to "Downloads", verified by read-back.
-    await app.controller.createBackup();
-    final created = app.controller.backupResult!;
-    expect(created.export.outcome, BackupExportOutcome.verified);
-    expect(created.privateCopy, isNull);
-    expect(app.controller.overview!.history.lastBackup!.exportVerified, isTrue);
+      // Back up and save to "Downloads", verified by read-back.
+      await app.controller.createBackup();
+      final created = app.controller.backupResult!;
+      expect(created.export.outcome, BackupExportOutcome.verified);
+      expect(created.privateCopy, isNull);
+      expect(
+        app.controller.overview!.history.lastBackup!.exportVerified,
+        isTrue,
+      );
 
-    final saved = (await downloads.list().toList()).whereType<File>().single;
+      final saved = (await downloads.list().toList()).whereType<File>().single;
 
-    // Library changes after the backup.
-    await db.update(
-      DatabaseTables.songs,
-      {'title': 'Edited later'},
-      where: 'id = ?',
-      whereArgs: ['song-a'],
-    );
+      // Library changes after the backup.
+      await db.update(
+        DatabaseTables.songs,
+        {'title': 'Edited later'},
+        where: 'id = ?',
+        whereArgs: ['song-a'],
+      );
 
-    // Choose the saved file, preview, then cancel: nothing changes.
-    picker.backup = saved;
-    await app.controller.chooseBackupToRestore();
-    expect(app.controller.preview!.canRestore, isTrue);
-    final beforeCancel = await snapshotDatabase(db);
-    app.controller.cancelRestore();
-    expect(await snapshotDatabase(db), beforeCancel);
+      // Choose the saved file, preview, then cancel: nothing changes.
+      picker.backup = saved;
+      await app.controller.chooseBackupToRestore();
+      expect(app.controller.preview!.canRestore, isTrue);
+      final beforeCancel = await snapshotDatabase(db);
+      app.controller.cancelRestore();
+      expect(await snapshotDatabase(db), beforeCancel);
 
-    // Preview again and confirm.
-    await app.controller.chooseBackupToRestore();
-    await app.controller.confirmRestore(acknowledged: true);
+      // Preview again and confirm.
+      await app.controller.chooseBackupToRestore();
+      await app.controller.confirmRestore(acknowledged: true);
 
-    final result = app.controller.restoreResult!;
-    expect(result.safetyBackup, isNotNull);
-    expect(
-      (await db.query(DatabaseTables.songs)).single['title'],
-      'Original',
-    );
+      final result = app.controller.restoreResult!;
+      expect(result.safetyBackup, isNotNull);
+      expect(
+        (await db.query(DatabaseTables.songs)).single['title'],
+        'Original',
+      );
 
-    // The library differs from what the cloud baseline was built for.
-    expect(result.syncHeld, isTrue);
-    expect(await syncAllowed(app.gate), isFalse);
+      // The library differs from what the cloud baseline was built for.
+      expect(result.syncHeld, isTrue);
+      expect(await syncAllowed(app.gate), isFalse);
 
-    // Relaunch: the hold persists and is explained; the safety backup is
-    // listed as a private, on-device backup.
-    app = launch();
-    await app.controller.initialize();
+      // Relaunch: the hold persists and is explained; the safety backup is
+      // listed as a private, on-device backup.
+      app = launch();
+      await app.controller.initialize();
 
-    final overview = app.controller.overview!;
-    expect(overview.hold.active, isTrue);
-    expect(
-      overview.hold.findings,
-      contains(RecoverySyncFinding.cloudLibraryDiverged),
-    );
-    expect(overview.history.lastRestore!.syncHeld, isTrue);
-    expect(
-      overview.privateBackups.map((b) => b.kind),
-      contains(PrivateBackupKind.safetyBackup),
-    );
-    expect(await syncAllowed(app.gate), isFalse);
-    expect(app.resumes, isEmpty);
+      final overview = app.controller.overview!;
+      expect(overview.hold.active, isTrue);
+      expect(
+        overview.hold.findings,
+        contains(RecoverySyncFinding.cloudLibraryDiverged),
+      );
+      expect(overview.history.lastRestore!.syncHeld, isTrue);
+      expect(
+        overview.privateBackups.map((b) => b.kind),
+        contains(PrivateBackupKind.safetyBackup),
+      );
+      expect(await syncAllowed(app.gate), isFalse);
+      expect(app.resumes, isEmpty);
 
-    // Re-checking cannot release an inconclusive hold.
-    await app.controller.recheckSyncHold();
-    expect(await syncAllowed(app.gate), isFalse);
-    expect(app.resumes, isEmpty);
+      // Re-checking cannot release an inconclusive hold.
+      await app.controller.recheckSyncHold();
+      expect(await syncAllowed(app.gate), isFalse);
+      expect(app.resumes, isEmpty);
 
-    // Offline features keep working: the library is readable.
-    final audio = await RecoveryAudioStatusService(appDatabase: database).status();
-    expect(audio.totalSongs, 1);
-  });
+      // Offline features keep working: the library is readable.
+      final audio = await RecoveryAudioStatusService(
+        appDatabase: database,
+      ).status();
+      expect(audio.totalSongs, 1);
+    },
+  );
 
-  test('an unverifiable export keeps a private copy and is not success', () async {
-    documents.refuseReads = true;
-    await seedConnectedLibrary(await database.database, key: 'a');
+  test(
+    'an unverifiable export keeps a private copy and is not success',
+    () async {
+      documents.refuseReads = true;
+      await seedConnectedLibrary(await database.database, key: 'a');
 
-    final app = launch();
-    await app.controller.initialize();
-    await app.controller.createBackup();
+      final app = launch();
+      await app.controller.initialize();
+      await app.controller.createBackup();
 
-    final created = app.controller.backupResult!;
-    expect(created.export.outcome, BackupExportOutcome.writtenUnverified);
-    expect(await created.privateCopy!.exists(), isTrue);
-    expect(app.controller.overview!.history.lastBackup, isNull);
-    expect(
-      app.controller.overview!.privateBackups.single.kind,
-      PrivateBackupKind.unverifiedExportCopy,
-    );
-  });
+      final created = app.controller.backupResult!;
+      expect(created.export.outcome, BackupExportOutcome.writtenUnverified);
+      expect(await created.privateCopy!.exists(), isTrue);
+      expect(app.controller.overview!.history.lastBackup, isNull);
+      expect(
+        app.controller.overview!.privateBackups.single.kind,
+        PrivateBackupKind.unverifiedExportCopy,
+      );
+    },
+  );
 }

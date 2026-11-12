@@ -7,7 +7,8 @@ import 'backup_publication.dart';
 
 typedef _RenameAt2Native =
     Int32 Function(Int32, Pointer<Uint8>, Int32, Pointer<Uint8>, Uint32);
-typedef _RenameAt2 = int Function(int, Pointer<Uint8>, int, Pointer<Uint8>, int);
+typedef _RenameAt2 =
+    int Function(int, Pointer<Uint8>, int, Pointer<Uint8>, int);
 typedef _MallocNative = Pointer<Uint8> Function(IntPtr);
 typedef _Malloc = Pointer<Uint8> Function(int);
 typedef _FreeNative = Void Function(Pointer<Uint8>);

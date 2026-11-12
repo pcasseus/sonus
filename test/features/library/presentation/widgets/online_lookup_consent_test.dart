@@ -12,7 +12,6 @@ import 'package:sonus_next/features/library/application/models/external_metadata
 import 'package:sonus_next/features/library/application/models/external_metadata_search_query.dart';
 import 'package:sonus_next/features/library/application/services/external_metadata_application_service.dart';
 import 'package:sonus_next/features/library/application/services/metadata_provider.dart';
-import 'package:sonus_next/features/library/presentation/widgets/cover_art_album_search_dialog.dart';
 import 'package:sonus_next/features/library/presentation/widgets/musicbrainz_search_dialog.dart';
 import 'package:sonus_next/features/settings/application/controllers/metadata_intelligence_settings_controller.dart';
 
@@ -50,10 +49,6 @@ void main() {
     entityKind: ExternalMetadataEntityKind.track,
     title: 'Song',
   );
-  const albumQuery = ExternalMetadataSearchQuery(
-    entityKind: ExternalMetadataEntityKind.album,
-    albumTitle: 'Album',
-  );
 
   Future<void> pump(WidgetTester tester, _Consent consent, Widget dialog) {
     return tester.pumpWidget(
@@ -70,8 +65,6 @@ void main() {
       query: trackQuery,
       applier: (_) async => const ExternalMetadataApplicationResult(),
     ),
-    'cover art search': (provider) =>
-        CoverArtAlbumSearchDialog(provider: provider, query: albumQuery),
   };
 
   for (final MapEntry(key: name, value: build) in dialogs.entries) {
@@ -87,6 +80,10 @@ void main() {
           find.byKey(const ValueKey<String>('online-lookup-disclosure')),
           findsOneWidget,
         );
+        // REF-18: Sonus no longer offers Cover Art Archive search, so the
+        // disclosure names only MusicBrainz.
+        expect(find.text(onlineLookupDisclosure), findsOneWidget);
+        expect(find.textContaining('Cover Art Archive'), findsNothing);
         expect(provider.searches, 0, reason: 'nothing sent before consent');
 
         await tester.tap(

@@ -195,28 +195,31 @@ void main() {
     await expectNoCandidates();
   });
 
-  test('publisher preserves a destination created during publication', () async {
-    final destination = File(path.join(root.path, 'raced.sonusbackup'));
+  test(
+    'publisher preserves a destination created during publication',
+    () async {
+      final destination = File(path.join(root.path, 'raced.sonusbackup'));
 
-    messenger.setMockMethodCallHandler(channel, (call) async {
-      // Another writer claims the name after verification completes.
-      await destination.writeAsBytes([7, 7, 7]);
-      return linkLikeHandler(call);
-    });
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        // Another writer claims the name after verification completes.
+        await destination.writeAsBytes([7, 7, 7]);
+        return linkLikeHandler(call);
+      });
 
-    await expectLater(
-      const VerifiedBackupPublisher(
-        publication: HardLinkChannelPublication(isAndroid: _android),
-      ).publish(
-        stagingDirectory: await validStaging(),
-        destination: destination,
-      ),
-      throwsA(isA<BackupDestinationExistsError>()),
-    );
+      await expectLater(
+        const VerifiedBackupPublisher(
+          publication: HardLinkChannelPublication(isAndroid: _android),
+        ).publish(
+          stagingDirectory: await validStaging(),
+          destination: destination,
+        ),
+        throwsA(isA<BackupDestinationExistsError>()),
+      );
 
-    expect(await destination.readAsBytes(), [7, 7, 7]);
-    await expectNoCandidates();
-  });
+      expect(await destination.readAsBytes(), [7, 7, 7]);
+      await expectNoCandidates();
+    },
+  );
 
   test('default publisher fails closed on the host platform', () async {
     final destination = File(path.join(root.path, 'host.sonusbackup'));

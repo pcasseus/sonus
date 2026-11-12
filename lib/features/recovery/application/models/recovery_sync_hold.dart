@@ -37,7 +37,8 @@ class RecoveryFingerprint {
 
     final digests = <String, String>{};
 
-    for (final entry in (json['tableDigests'] as Map<String, dynamic>).entries) {
+    for (final entry
+        in (json['tableDigests'] as Map<String, dynamic>).entries) {
       if (entry.value is! String) {
         throw const FormatException('Invalid recovery fingerprint digest.');
       }

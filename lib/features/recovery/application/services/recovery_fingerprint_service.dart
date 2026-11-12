@@ -88,11 +88,10 @@ class RecoveryFingerprintService {
   ) async {
     // Table names come from sqlite_master of this database.
     final columns = await executor.rawQuery('PRAGMA table_info("$table")');
-    final keys =
-        [
-          for (final column in columns)
-            if ((column['pk'] as int) > 0) column,
-        ]..sort((a, b) => (a['pk'] as int).compareTo(b['pk'] as int));
+    final keys = [
+      for (final column in columns)
+        if ((column['pk'] as int) > 0) column,
+    ]..sort((a, b) => (a['pk'] as int).compareTo(b['pk'] as int));
 
     final order = keys.isEmpty
         ? 'rowid'
@@ -111,7 +110,9 @@ class RecoveryFingerprintService {
 
       input.add(
         utf8.encode(
-          '${jsonEncode([for (final key in keys) [key, row[key]]])}\n',
+          '${jsonEncode([
+            for (final key in keys) [key, row[key]],
+          ])}\n',
         ),
       );
     }
