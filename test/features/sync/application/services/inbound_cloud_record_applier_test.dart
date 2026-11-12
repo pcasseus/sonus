@@ -6,6 +6,7 @@ import 'package:sonus_next/features/library/domain/entities/album_edition.dart';
 import 'package:sonus_next/features/library/domain/repositories/album_edition_track_repository.dart';
 import 'package:sonus_next/features/library/domain/entities/album_edition_track.dart';
 import 'package:sonus_next/features/library/domain/entities/artist.dart';
+import 'package:sonus_next/features/library/domain/entities/release_date.dart';
 import 'package:sonus_next/features/library/domain/entities/song.dart';
 import 'package:sonus_next/features/library/domain/metadata/metadata_field_state.dart';
 import 'package:sonus_next/features/library/domain/repositories/metadata_field_state_repository.dart';
@@ -262,6 +263,53 @@ void main() {
         DateTime.parse('2026-08-01T00:00:00.000Z').toUtc(),
       );
     });
+
+    test(
+      "SN-49 / REF-12b: a cloud update with the same date keeps this "
+      "device's precision; a changed date drops it, never borrowing it",
+      () async {
+        Future<AlbumEdition?> applied(String cloudDate) async {
+          final bundle = _TestContextBundle();
+          bundle.seedParents(edition: false);
+          bundle.edition.existing = AlbumEdition(
+            id: 'edition-1',
+            albumId: 'album-1',
+            title: 'Standard',
+            type: AlbumEditionType.standard,
+            isPrimary: true,
+            createdAt: DateTime.utc(2026, 9, 10),
+            updatedAt: DateTime.utc(2026, 9, 10),
+          ).withReleaseDate(ReleaseDate.of(2019));
+          await applier.apply(
+            record: _recordFromRow(CloudDataEntity.albumEdition, {
+              'id': 'edition-1',
+              'user_id': 'user-1',
+              'album_id': 'album-1',
+              'title': 'Standard',
+              'type': 'standard',
+              'is_primary': true,
+              'release_date': cloudDate,
+              'genre': null,
+              'artwork_id': null,
+              'created_at': '2026-09-10T10:00:00.000Z',
+              'updated_at': '2026-09-11T11:00:00.000Z',
+              'server_updated_at': '2026-09-12T12:00:00.000Z',
+              'deleted_at': null,
+            }),
+            context: bundle.context,
+          );
+          return bundle.edition.saved;
+        }
+
+        final same = await applied('2019-01-01T00:00:00.000Z');
+        expect(same?.releaseDateValue, ReleaseDate.of(2019));
+        expect(same?.releaseDatePrecision, ReleaseDatePrecision.year);
+
+        final changed = await applied('2019-03-15T00:00:00.000Z');
+        expect(changed?.releaseDatePrecision, isNull);
+        expect(changed?.releaseDateValue, ReleaseDate.of(2019, 3, 15));
+      },
+    );
 
     test('maps song fields including featured artists', () async {
       final bundle = _TestContextBundle();

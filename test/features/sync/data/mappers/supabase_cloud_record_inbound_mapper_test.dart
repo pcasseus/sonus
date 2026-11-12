@@ -232,6 +232,50 @@ void main() {
       );
     });
 
+    test('mixed versions: this build reads an edition from a server that '
+        'has the proposed precision and disc-name columns, ignoring them', () {
+      // supabase/proposed/20261113000001 (not deployed): an older Sonus
+      // must keep syncing after it is.
+      Map<String, Object?> row({Map<String, Object?> extra = const {}}) => {
+        'id': 'edition-1',
+        'user_id': 'user-1',
+        'album_id': 'album-1',
+        'title': 'Deluxe',
+        'type': 'deluxe',
+        'is_primary': false,
+        'release_date': '2019-01-01T00:00:00.000Z',
+        'genre': null,
+        'artwork_id': null,
+        'created_at': '2026-09-10T10:00:00.000Z',
+        'updated_at': '2026-09-11T11:00:00.000Z',
+        'server_updated_at': '2026-09-12T12:00:00.000Z',
+        'server_revision': 4,
+        'deleted_at': null,
+        ...extra,
+      };
+
+      final plain = SupabaseCloudRecordMapper.fromRow(
+        entityType: CloudDataEntity.albumEdition,
+        row: row(),
+      );
+      final extended = SupabaseCloudRecordMapper.fromRow(
+        entityType: CloudDataEntity.albumEdition,
+        row: row(
+          extra: {
+            'release_date_partial': '2019',
+            'disc_labels': {'2': 'Bonus Tracks'},
+          },
+        ),
+      );
+
+      final a = plain.record as CloudAlbumEditionRecord;
+      final b = extended.record as CloudAlbumEditionRecord;
+      expect(
+        (b.id, b.releaseDate, b.title, b.genre, extended.serverUpdatedAt),
+        (a.id, a.releaseDate, a.title, a.genre, plain.serverUpdatedAt),
+      );
+    });
+
     test('maps song row including Postgres text array', () {
       final item = SupabaseCloudRecordMapper.fromRow(
         entityType: CloudDataEntity.song,
