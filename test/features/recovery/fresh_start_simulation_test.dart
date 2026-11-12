@@ -371,6 +371,15 @@ void main() {
       });
     }
 
+    // A named disc (REF-13c).
+    await db.insert(DatabaseTables.albumEditionDiscLabels, {
+      'album_edition_id': deluxe,
+      'disc_number': 2,
+      'label': 'Bonus Tracks',
+      'created_at': _now.toIso8601String(),
+      'updated_at': _now.toIso8601String(),
+    });
+
     // Step 5: soundtrack collaborators and user edits.
     await db.insert(DatabaseTables.albumReleaseClassifications, {
       'album_id': soundtrack,
@@ -628,6 +637,12 @@ void main() {
         expect(path.isWithin(phoneB.support.path, restored.path), isTrue);
         expect(await restored.readAsBytes(), await original.readAsBytes());
       }
+
+      // The named disc comes back on its edition and disc.
+      final discLabels = await dbB.query(DatabaseTables.albumEditionDiscLabels);
+      expect(discLabels.single['album_edition_id'], ids['deluxe']);
+      expect(discLabels.single['disc_number'], 2);
+      expect(discLabels.single['label'], 'Bonus Tracks');
 
       // Crops and soundtrack organization by name, as a person would check.
       final crops = await dbB.query(DatabaseTables.artworkCrops);

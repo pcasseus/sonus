@@ -84,8 +84,9 @@ void main() {
       42,
       43,
       44,
+      45,
     });
-    expect(AppDatabase.databaseVersion, 44);
+    expect(AppDatabase.databaseVersion, 45);
   });
 
   test('the fixture is a real version 31 database', () async {
@@ -116,9 +117,10 @@ void main() {
     final v41 = await migrateTo(await copyOfV31('v41.db'), 41);
     final v42 = await migrateTo(await copyOfV31('v42.db'), 42);
     final v43 = await migrateTo(await copyOfV31('v43.db'), 43);
-    final v44 = AppDatabase(
+    final v44 = await migrateTo(await copyOfV31('v44.db'), 44);
+    final v45 = AppDatabase(
       databaseFactory: databaseFactoryFfi,
-      databasePath: await copyOfV31('v44.db'),
+      databasePath: await copyOfV31('v45.db'),
     );
     final fresh = AppDatabase(
       databaseFactory: databaseFactoryFfi,
@@ -140,7 +142,8 @@ void main() {
       expect(await userVersion(v41), 41);
       expect(await userVersion(v42), 42);
       expect(await userVersion(v43), 43);
-      expect(await userVersion(await v44.database), 44);
+      expect(await userVersion(v44), 44);
+      expect(await userVersion(await v45.database), 45);
       // Required tables are identical everywhere; an optional table is
       // identical wherever the version has it, apart from nullable columns
       // added later, which older backups may lack.
@@ -168,12 +171,14 @@ void main() {
       expectCompatible(await _portableSchema(v38));
       expectCompatible(await _portableSchema(v39));
       expectCompatible(await _portableSchema(v40));
-      // 42, 43 and 44 only changed device-local tables: portable tables
-      // are identical.
-      expect(await _portableSchema(v41), reference);
-      expect(await _portableSchema(v42), reference);
-      expect(await _portableSchema(v43), reference);
-      expect(await _portableSchema(await v44.database), reference);
+      // 42, 43 and 44 only changed device-local tables, and 45 added the
+      // optional disc names table: the older ones are compatible, and the
+      // current version is identical.
+      expectCompatible(await _portableSchema(v41));
+      expectCompatible(await _portableSchema(v42));
+      expectCompatible(await _portableSchema(v43));
+      expectCompatible(await _portableSchema(v44));
+      expect(await _portableSchema(await v45.database), reference);
     } finally {
       await v31.close();
       await v32.close();
@@ -189,6 +194,7 @@ void main() {
       await v42.close();
       await v43.close();
       await v44.close();
+      await v45.close();
       await fresh.close();
     }
   });
@@ -213,7 +219,8 @@ void main() {
       final db = await upgraded.database;
       final rowsAfter = await _allRows(db);
 
-      expect(await userVersion(db), 44);
+      expect(await userVersion(db), 45);
+      expect(rowsAfter[DatabaseTables.albumEditionDiscLabels], isEmpty);
       expect(rowsAfter[DatabaseTables.libraryDeletionLedger], isEmpty);
       expect(rowsAfter[DatabaseTables.deletedAudioSignatures], isEmpty);
       expect(rowsAfter[DatabaseTables.libraryDeletionJournal], isEmpty);
@@ -246,6 +253,7 @@ void main() {
         ..remove(DatabaseTables.albumReleaseClassifications)
         ..remove(DatabaseTables.artistProjectAssignments)
         ..remove(DatabaseTables.artworkCrops)
+        ..remove(DatabaseTables.albumEditionDiscLabels)
         ..remove(DatabaseTables.libraryDeletionLedger)
         ..remove(DatabaseTables.libraryDeletionJournal)
         ..remove(DatabaseTables.deletedAudioSignatures);

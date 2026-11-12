@@ -5,6 +5,7 @@ import 'package:sqflite/sqflite.dart';
 import '../identity/entity_id.dart';
 import '../identity/text_normalizer.dart';
 import 'database_tables.dart';
+import 'schema/album_edition_disc_label_schema.dart';
 import 'schema/artwork_crop_schema.dart';
 import 'schema/cloud_archive_schema.dart';
 import 'schema/deletion_schema.dart';
@@ -532,6 +533,12 @@ abstract final class DatabaseMigrations {
           columnName: MediaFileTagFingerprintColumn.name,
           definition: MediaFileTagFingerprintColumn.definition,
         );
+        return;
+
+      case 45:
+        // App Update 1.2, REF-13c: optional names for an edition's discs.
+        // One new table; every existing row is untouched.
+        await AlbumEditionDiscLabelSchema.create(db);
         return;
 
       default:

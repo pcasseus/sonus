@@ -78,6 +78,8 @@ class SqliteRestoreExecutor {
     DatabaseTables.albumReleaseClassifications,
     DatabaseTables.artistProjectAssignments,
     DatabaseTables.artworkCrops,
+    // Disc names (database version 45); a backup made before has none.
+    DatabaseTables.albumEditionDiscLabels,
   ];
 
   Future<void> apply({

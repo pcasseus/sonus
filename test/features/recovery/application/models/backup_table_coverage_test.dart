@@ -9,7 +9,7 @@ void main() {
     final tables = BackupCoverageContract.tables;
     final names = tables.map((entry) => entry.table).toSet();
 
-    expect(tables.length, 36);
+    expect(tables.length, 37);
     expect(names.length, tables.length);
     expect(names.every((name) => name.trim().isNotEmpty), isTrue);
   });
@@ -19,7 +19,7 @@ void main() {
         .map((entry) => entry.table)
         .toSet();
 
-    expect(names.length, 20);
+    expect(names.length, 21);
 
     expect(
       names,
@@ -58,6 +58,7 @@ void main() {
         DatabaseTables.albumReleaseClassifications,
         DatabaseTables.artistProjectAssignments,
         DatabaseTables.artworkCrops,
+        DatabaseTables.albumEditionDiscLabels,
       },
     );
     expect(

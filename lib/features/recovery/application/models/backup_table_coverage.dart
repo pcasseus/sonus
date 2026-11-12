@@ -151,6 +151,13 @@ abstract final class BackupCoverageContract {
       policy: BackupTablePolicy.portableData,
       requiredInEveryBackup: false,
     ),
+    // Disc names (database version 45). Backups made before restore
+    // without them.
+    BackupTableCoverage(
+      table: DatabaseTables.albumEditionDiscLabels,
+      policy: BackupTablePolicy.portableData,
+      requiredInEveryBackup: false,
+    ),
 
     // Never restore as another device's active sync/ownership state.
     BackupTableCoverage(

@@ -20,11 +20,13 @@ abstract final class BackupCompatibility {
   /// in a backup), and 43 only added audio identity columns to the
   /// device-local file bindings and the device-local table of deleted
   /// audio (neither in a backup), and 44 only added the tags' fingerprint
-  /// to the same device-local bindings, so backups from 31 onward
-  /// restore unchanged. Each entry must be proven by a migration test
-  /// before it is added; the schema validator still checks every payload
-  /// against the local columns. Listed explicitly so a schema bump fails
-  /// the compatibility tests until this set is reviewed.
+  /// to the same device-local bindings, and 45 only added the optional
+  /// disc names (a backup without them restores with none), so backups
+  /// from 31 onward restore unchanged. Each entry must be proven by a
+  /// migration test before it is added; the schema validator still checks
+  /// every payload against the local columns. Listed explicitly so a
+  /// schema bump fails the compatibility tests until this set is
+  /// reviewed.
   static const restorableDatabaseVersions = {
     31,
     32,
@@ -40,6 +42,7 @@ abstract final class BackupCompatibility {
     42,
     43,
     44,
+    45,
   };
 
   static bool canRestore(BackupManifest manifest) =>

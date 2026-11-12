@@ -1,6 +1,7 @@
 import '../../../library/data/repositories/sqlite_library_deletion_ledger.dart';
 import '../../../artwork/domain/repositories/artwork_asset_repository.dart';
 import '../../../library/domain/repositories/album_edition_repository.dart';
+import '../../../library/domain/repositories/album_edition_disc_label_repository.dart';
 import '../../../library/domain/repositories/album_edition_track_repository.dart';
 import '../../../library/domain/repositories/album_repository.dart';
 import '../../../library/domain/repositories/artist_repository.dart';
@@ -25,6 +26,7 @@ class SyncMutationContext {
     required this.albumRepository,
     required this.albumEditionRepository,
     required this.albumEditionTrackRepository,
+    this.albumEditionDiscLabelRepository,
     required this.songRepository,
     required this.songArtistCreditRepository,
     this.metadataFieldStateRepository,
@@ -48,6 +50,9 @@ class SyncMutationContext {
   final AlbumRepository albumRepository;
   final AlbumEditionRepository albumEditionRepository;
   final AlbumEditionTrackRepository albumEditionTrackRepository;
+
+  /// Disc names (REF-13c); null where a context has no database.
+  final AlbumEditionDiscLabelRepository? albumEditionDiscLabelRepository;
   final SongRepository songRepository;
   final SongArtistCreditRepository songArtistCreditRepository;
   final MetadataFieldStateRepository? metadataFieldStateRepository;
