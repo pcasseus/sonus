@@ -238,7 +238,7 @@ class JustAudioPlaybackEngine
             next != _state.queue.currentIndex &&
             _state.repeatMode != PlaybackRepeatMode.all) {
           await _audioPlayer.seek(Duration.zero, index: next);
-          await _audioPlayer.play();
+          _startPlaying();
           return;
         }
       }
@@ -248,11 +248,31 @@ class JustAudioPlaybackEngine
         return;
       }
 
-      await _audioPlayer.play();
+      _startPlaying();
     } catch (error) {
       _emitFailure(error);
       rethrow;
     }
+  }
+
+  /// Asks the player to play and returns at once (BUG-11).
+  ///
+  /// just_audio's play() Future completes only when playback later pauses,
+  /// stops, reaches the end of the queue or is replaced by another play
+  /// request; never when it starts. Awaiting it held the command queue
+  /// ([_inTurn]) for the whole song after a queue was loaded with autoplay,
+  /// so Shuffle, Repeat, Next, Previous and every queue edit waited until
+  /// the listener paused. Playback starting is reported by the player's
+  /// own state events; a failure, whenever it comes, is reported here.
+  void _startPlaying() {
+    unawaited(
+      _audioPlayer.play().then<void>(
+        (_) {},
+        onError: (Object error) {
+          if (!_disposed) _emitFailure(error);
+        },
+      ),
+    );
   }
 
   /// Whether the paused position was set by a seek, as a restored session
@@ -285,7 +305,7 @@ class JustAudioPlaybackEngine
     }
 
     await _audioPlayer.seek(Duration.zero);
-    await _audioPlayer.play();
+    _startPlaying();
   }
 
   @override
