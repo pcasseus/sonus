@@ -350,6 +350,18 @@ void main() {
     );
 
     expect(first.endReason, PlaybackSessionEndReason.completed);
+
+    // The next song's session starts with the state after the change
+    // (BUG-11 hardening: a song that fails to load leaves no listening).
+    expect(tracker.hasActiveSession, isFalse);
+    engine.emit(
+      state(
+        status: PlaybackStatus.playing,
+        track: track2,
+        position: const Duration(milliseconds: 200),
+      ),
+    );
+    await controller.settled;
     expect(tracker.currentSession!.songId, track2.songId);
   });
 
@@ -463,7 +475,22 @@ void main() {
 
     await controller.settled;
 
-    engine.emit(state(status: PlaybackStatus.playing, position: Duration.zero));
+    // The engine reports the song starting over by itself (Repeat One);
+    // the new listen opens with the next state (BUG-11 hardening).
+    engine.emit(
+      state(
+        status: PlaybackStatus.playing,
+        position: Duration.zero,
+        transitionCause: PlaybackTransitionCause.repeated,
+      ),
+    );
+    await controller.settled;
+    engine.emit(
+      state(
+        status: PlaybackStatus.playing,
+        position: const Duration(milliseconds: 200),
+      ),
+    );
 
     await controller.settled;
 

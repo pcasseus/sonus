@@ -242,7 +242,7 @@ class JustAudioPlaybackEngine
         if (next != null &&
             next != _state.queue.currentIndex &&
             _state.repeatMode != PlaybackRepeatMode.all) {
-          await _audioPlayer.seek(Duration.zero, index: next);
+          await _seekPlayer(Duration.zero, index: next);
           _startPlaying();
           return;
         }
@@ -309,7 +309,7 @@ class JustAudioPlaybackEngine
       await _audioPlayer.pause();
     }
 
-    await _audioPlayer.seek(Duration.zero);
+    await _seekPlayer(Duration.zero);
     _startPlaying();
   }
 
@@ -343,7 +343,7 @@ class JustAudioPlaybackEngine
 
     try {
       _pausedAtSeekedPosition = !_state.isPlaying;
-      await _audioPlayer.seek(clamped);
+      await _seekPlayer(clamped);
     } catch (error) {
       _emitFailure(error);
       rethrow;
@@ -373,7 +373,7 @@ class JustAudioPlaybackEngine
 
     try {
       if (repeatOneTarget != null) {
-        await _audioPlayer.seek(Duration.zero, index: repeatOneTarget);
+        await _seekPlayer(Duration.zero, index: repeatOneTarget);
       } else if (_state.repeatMode != PlaybackRepeatMode.one) {
         await _audioPlayer.seekToNext();
       }
@@ -419,7 +419,7 @@ class JustAudioPlaybackEngine
 
     try {
       if (repeatOneTarget != null) {
-        await _audioPlayer.seek(Duration.zero, index: repeatOneTarget);
+        await _seekPlayer(Duration.zero, index: repeatOneTarget);
       } else {
         await _audioPlayer.seekToPrevious();
       }
@@ -465,7 +465,7 @@ class JustAudioPlaybackEngine
         );
         await _audioPlayer.shuffle();
       }
-      await _audioPlayer.seek(Duration.zero, index: index);
+      await _seekPlayer(Duration.zero, index: index);
     } catch (error) {
       if (changesTrack &&
           _pendingTransitionCause == PlaybackTransitionCause.skipToIndex) {
@@ -782,8 +782,52 @@ class JustAudioPlaybackEngine
     await session.configure(const AudioSessionConfiguration.music());
   }
 
+  /// Seeks Sonus asked for that the player has not finished, and whether
+  /// the first position after the last one is still to come (BUG-11
+  /// hardening). Position jumps they cause are seeks, never the song
+  /// starting over.
+  int _seeksInFlight = 0;
+  bool _seekLanding = false;
+
+  /// The smallest backward jump that is taken as the song starting over.
+  static const _loopJump = Duration(seconds: 1);
+
+  Future<void> _seekPlayer(Duration position, {int? index}) async {
+    _seeksInFlight++;
+    try {
+      await _audioPlayer.seek(position, index: index);
+    } finally {
+      _seeksInFlight--;
+      _seekLanding = true;
+    }
+  }
+
+  /// Whether the playing entry starts over by itself when it ends: Repeat
+  /// One, or Repeat All over a single entry.
+  bool get _repeatsCurrentEntry =>
+      _state.repeatMode == PlaybackRepeatMode.one ||
+      (_state.repeatMode == PlaybackRepeatMode.all && _state.queue.length == 1);
+
   void _handlePositionChanged(Duration position) {
     if (_disposed) {
+      return;
+    }
+
+    if (_seeksInFlight > 0 || _seekLanding) {
+      // The seek arriving: the first position after it is where it went.
+      if (_seeksInFlight == 0) _seekLanding = false;
+    } else if (_repeatsCurrentEntry &&
+        _state.isPlaying &&
+        position + _loopJump < _state.position) {
+      // The song played to its end and started over (Repeat One), with no
+      // seek asked for: a new play of it, whatever position updates came
+      // before (they are sparse in the background).
+      _emit(
+        _state.copyWith(
+          position: position,
+          transitionCause: PlaybackTransitionCause.repeated,
+        ),
+      );
       return;
     }
 

@@ -328,5 +328,120 @@ void main() {
 
       expect(await playsOf('a'), 0);
     });
+
+    test('moving on into a song that cannot be read leaves no listening for '
+        'it, and the next readable song is recorded', () async {
+      await coordinator.playTracks([_song('a'), _song('bad')]);
+      await settle();
+      await listen(40);
+      await player.seek(Duration.zero, index: 1); // "a" ended on its own
+      player.failSource(); // "bad" cannot be read
+      await settle();
+      await listen(2);
+
+      expect(await sessionsOf('bad'), isEmpty);
+      expect((await sessionsOf('a')).single['end_reason'], 'completed');
+      expect(await playsOf('a'), 1);
+
+      await coordinator.playTracks([_song('c')]);
+      await settle();
+      await listen(35);
+      await coordinator.pause();
+      await settle();
+      expect(await playsOf('c'), 1);
+    });
+  });
+
+  group('listening intervals (policies)', () {
+    test('Stop, then Play, begins a new listen', () async {
+      await coordinator.playTracks([_song('a')]);
+      await settle();
+      await listen(20);
+      await coordinator.stop();
+      await settle();
+      await coordinator.play();
+      await settle();
+      await listen(35);
+      await coordinator.pause();
+      await settle();
+
+      final sessions = await sessionsOf('a');
+      expect(sessions, hasLength(2));
+      expect(sessions.first['end_reason'], 'stopped');
+      expect(await playsOf('a'), 1, reason: 'only the 35 s listen counts');
+    });
+
+    test('seeking back from the last seconds is the same listen', () async {
+      await coordinator.playTracks([_song('a')]);
+      await settle();
+      await coordinator.seek(const Duration(minutes: 2, seconds: 30));
+      await settle();
+      await listen(29); // 2:59
+      await coordinator.seek(const Duration(seconds: 1));
+      await settle();
+      await listen(10);
+      await coordinator.pause();
+      await settle();
+
+      expect(await sessionsOf('a'), hasLength(1));
+      expect(await playsOf('a'), 1);
+    });
+
+    test('under Repeat One too, a seek back is the same listen', () async {
+      await coordinator.setRepeatMode(PlaybackRepeatMode.one);
+      await coordinator.playTracks([_song('a')]);
+      await settle();
+      await coordinator.seek(const Duration(minutes: 2, seconds: 30));
+      await settle();
+      await listen(29);
+      await coordinator.seek(Duration.zero);
+      await settle();
+      await listen(10);
+      await coordinator.pause();
+      await settle();
+
+      expect(await sessionsOf('a'), hasLength(1));
+    });
+
+    test('a natural Repeat One loop is a new listen, even when position '
+        'updates are sparse (background, power saving)', () async {
+      await coordinator.setRepeatMode(PlaybackRepeatMode.one);
+      await coordinator.playTracks([_song('a')]);
+      await settle();
+      await listen(40);
+      // No updates for the last 2 minutes 20 s, then the song is heard
+      // again from its start: the next update is already 5 s in.
+      now = now.add(const Duration(minutes: 2, seconds: 25));
+      player.advanceTo(const Duration(seconds: 5));
+      await settle();
+      await listen(40);
+      await coordinator.pause();
+      await settle();
+
+      final sessions = await sessionsOf('a');
+      expect(sessions, hasLength(2));
+      expect(sessions.first['end_reason'], 'completed');
+      expect(await playsOf('a'), 2);
+    });
+
+    test(
+      'a skip before 30 s, and an interrupted start, are never streams',
+      () async {
+        await coordinator.playTracks([_song('a'), _song('b'), _song('c')]);
+        await settle();
+        await listen(25);
+        await coordinator.skipNext();
+        await settle();
+        await listen(5);
+        await coordinator.skipNext();
+        await settle();
+        await coordinator.stop();
+        await settle();
+
+        expect(await playsOf('a'), 0);
+        expect(await playsOf('b'), 0);
+        expect(await playsOf('c'), 0);
+      },
+    );
   });
 }
