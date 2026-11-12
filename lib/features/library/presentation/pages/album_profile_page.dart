@@ -1,4 +1,5 @@
 import 'dart:ui' show ImageFilter;
+import '../../domain/services/genre_catalog.dart';
 import '../../domain/entities/album_edition_disc_label.dart';
 import '../../domain/repositories/album_edition_disc_label_repository.dart';
 import '../../../../core/design/context/sonus_context_theme.dart';
@@ -1261,9 +1262,11 @@ class _AlbumHero extends StatelessWidget {
     }
 
     // Genre is shared by the release: the primary edition's (SN-50 A1).
-    final genre = album.genre?.trim();
+    // Shown under its canonical name when it is an exact alias (REF-14);
+    // the stored genre is not changed.
+    final genre = GenreCatalog.display(album.genre);
 
-    if (genre != null && genre.isNotEmpty) {
+    if (genre != null) {
       parts.add(genre);
     }
 

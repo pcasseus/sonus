@@ -27,6 +27,7 @@ import '../../domain/entities/album_edition_disc_label.dart';
 import '../../domain/entities/album_edition.dart';
 import '../../domain/entities/release_date.dart';
 import '../../domain/services/album_edition_track_order.dart';
+import '../../domain/services/genre_catalog.dart';
 import '../controllers/album_profile_controller.dart';
 import '../widgets/album_studio/album_studio_editions_section.dart';
 import '../widgets/album_studio/album_studio_release_type.dart';
@@ -312,9 +313,9 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
               _DetailRow(
                 key: const ValueKey<String>('release-studio-genre'),
                 label: 'Genre',
-                value: (album?.genre ?? '').trim().isEmpty
+                value: GenreCatalog.display(album?.genre) == null
                     ? 'Not set'
-                    : album!.genre!,
+                    : GenreCatalog.display(album!.genre)!,
                 onEdit: canEdit && !_isSavingDetails ? _editGenre : null,
               ),
             ],
@@ -550,12 +551,12 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
     final album = controller.album;
     if (album == null) return;
 
-    final genre = await _askForText(
-      title: 'Genre',
-      label: 'Genre',
-      initial: album.genre ?? '',
-      fieldKey: 'release-studio-genre-field',
-      saveKey: 'release-studio-save-genre',
+    final genre = await showDialog<String>(
+      context: context,
+      builder: (_) => _GenreDialog(
+        initial: album.genre ?? '',
+        known: [?album.genre, ..._differingEditionGenres],
+      ),
     );
     if (genre == null) return;
     await _saveDetails(
@@ -2601,6 +2602,110 @@ class _OwnerDialogState extends State<_OwnerDialog> {
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('Cancel'),
+        ),
+      ],
+    );
+  }
+}
+
+/// Choosing a genre (REF-14): type to search the canonical categories and
+/// the release's own genres, tap one to choose it, or save what is typed
+/// as a genre of its own. Saving it empty removes the genre.
+class _GenreDialog extends StatefulWidget {
+  const _GenreDialog({required this.initial, required this.known});
+
+  final String initial;
+  final List<String> known;
+
+  @override
+  State<_GenreDialog> createState() => _GenreDialogState();
+}
+
+class _GenreDialogState extends State<_GenreDialog> {
+  late final TextEditingController _text = TextEditingController(
+    text: widget.initial,
+  );
+
+  @override
+  void dispose() {
+    _text.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final suggestions = GenreCatalog.suggestionsFor(
+      _text.text,
+      known: widget.known,
+    );
+    final typed = _text.text.trim();
+
+    return AlertDialog(
+      key: const ValueKey<String>('release-studio-genre-dialog'),
+      title: const Text('Genre'),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            TextField(
+              key: const ValueKey<String>('release-studio-genre-field'),
+              controller: _text,
+              autofocus: true,
+              textInputAction: TextInputAction.done,
+              decoration: const InputDecoration(
+                labelText: 'Genre',
+                hintText: 'Search or type a genre',
+                prefixIcon: Icon(Icons.search_rounded),
+              ),
+              onChanged: (_) => setState(() {}),
+              onSubmitted: (value) => Navigator.of(context).pop(value.trim()),
+            ),
+            const SizedBox(height: 8),
+            Flexible(
+              child: ListView(
+                key: const ValueKey<String>('release-studio-genre-options'),
+                shrinkWrap: true,
+                children: [
+                  for (final (index, genre) in suggestions.indexed)
+                    ListTile(
+                      key: ValueKey<String>(
+                        'release-studio-genre-option-$index',
+                      ),
+                      minTileHeight: 48,
+                      title: Text(genre),
+                      trailing: genre == typed
+                          ? const Icon(Icons.check_rounded)
+                          : null,
+                      onTap: () => Navigator.of(context).pop(genre),
+                    ),
+                  if (suggestions.isEmpty && typed.isNotEmpty)
+                    ListTile(
+                      key: const ValueKey<String>(
+                        'release-studio-genre-custom',
+                      ),
+                      minTileHeight: 48,
+                      leading: const Icon(Icons.add_rounded),
+                      title: Text('Use "$typed"'),
+                      onTap: () => Navigator.of(context).pop(typed),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          key: const ValueKey<String>('release-studio-save-genre'),
+          // Read when pressed: what is in the field now.
+          onPressed: () => Navigator.of(context).pop(_text.text.trim()),
+          child: const Text('Save'),
         ),
       ],
     );

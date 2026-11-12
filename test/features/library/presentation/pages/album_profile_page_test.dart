@@ -1316,6 +1316,95 @@ void main() {
       expect(editingService.lastGenre, 'Ambient');
     });
 
+    group('REF-14: genre', () {
+      Future<FakeAlbumProfileEditingService> openGenre(
+        WidgetTester tester, {
+        String? genre,
+      }) async {
+        final editingService = FakeAlbumProfileEditingService();
+        await tester.pumpWidget(
+          buildSubject(
+            repository: FakeLibraryQueryRepository(
+              album: createAlbum(
+                primaryEditionId: 'edition-primary',
+                primaryEditionTitle: 'Standard',
+                primaryEditionType: AlbumEditionType.standard,
+                genre: genre,
+              ),
+            ),
+            albumProfileEditingService: editingService,
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const ValueKey<String>('album-profile-artwork-menu')),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Edit Release'));
+        await tester.pumpAndSettle();
+        return editingService;
+      }
+
+      testWidgets('typing an alias suggests its category; one tap saves it', (
+        tester,
+      ) async {
+        final editingService = await openGenre(tester);
+        await tester.tap(
+          find.byKey(const ValueKey<String>('release-studio-genre')),
+        );
+        await tester.pumpAndSettle();
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('release-studio-genre-field')),
+          'hip hop',
+        );
+        await tester.pump();
+
+        final first = find.byKey(
+          const ValueKey<String>('release-studio-genre-option-0'),
+        );
+        expect(
+          find.descendant(of: first, matching: find.text('Hip-Hop/Rap')),
+          findsOneWidget,
+        );
+        await tester.tap(first);
+        await tester.pumpAndSettle();
+
+        expect(editingService.updateCallCount, 1);
+        expect(editingService.lastGenre, 'Hip-Hop/Rap');
+      });
+
+      testWidgets('a genre of its own is saved as typed', (tester) async {
+        final editingService = await openGenre(tester);
+        await tester.tap(
+          find.byKey(const ValueKey<String>('release-studio-genre')),
+        );
+        await tester.pumpAndSettle();
+        await tester.enterText(
+          find.byKey(const ValueKey<String>('release-studio-genre-field')),
+          'Hyperpop',
+        );
+        await tester.pump();
+        await tester.tap(
+          find.byKey(const ValueKey<String>('release-studio-genre-custom')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(editingService.lastGenre, 'Hyperpop');
+      });
+
+      testWidgets('a stored alias is shown under its category and not '
+          'rewritten', (tester) async {
+        final editingService = await openGenre(tester, genre: 'hip hop');
+
+        final row = find.byKey(const ValueKey<String>('release-studio-genre'));
+        expect(
+          find.descendant(of: row, matching: find.text('Hip-Hop/Rap')),
+          findsOneWidget,
+        );
+        expect(editingService.updateCallCount, 0, reason: 'nothing saved');
+      });
+    });
+
     testWidgets('album editing remains unavailable without editing service', (
       tester,
     ) async {
