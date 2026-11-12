@@ -1123,15 +1123,14 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
   }
 
   /// Saves the edition laid out as [placements]: order, discs and
-  /// automatic numbering (REF-13). Numbers someone set by hand are only
-  /// changed with their agreement (SN-50 A-Q7A).
+  /// automatic numbering of the discs it changes (REF-13), without asking.
   Future<void> _arrange(List<EditionPlacement> placements) async {
     final edition = controller.selectedEdition;
     if (edition == null || _isSavingOrder) return;
     final messenger = ScaffoldMessenger.of(context);
     setState(() => _isSavingOrder = true);
     try {
-      final result = await controller.arrangeSelectedEdition(
+      await controller.arrangeSelectedEdition(
         userId: widget.userId,
         placements: placements,
       );
@@ -1141,9 +1140,6 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
       final added = _addedDiscs[edition.editionId];
       if (added != null) {
         setState(() => added.removeWhere(used.contains));
-      }
-      if (result != null && result.manualNumbersKept > 0) {
-        await _offerManualRenumber(edition, result.manualNumbersKept);
       }
     } catch (error, stackTrace) {
       developer.log(

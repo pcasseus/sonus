@@ -204,6 +204,73 @@ void main() {
     expect(key('album-studio-move-a'), findsOneWidget);
   });
 
+  testWidgets('opening Release Studio and its tracklist never renumbers '
+      'anything, however unusual the imported numbers', (tester) async {
+    await tester.runAsync(() async {
+      for (final (id, number) in [('a', 3), ('b', 7), ('c', 9), ('d', 12)]) {
+        await db.update(
+          DatabaseTables.albumEditionTracks,
+          {'track_number': number},
+          where: 'song_id = ?',
+          whereArgs: [id],
+        );
+      }
+    });
+    final listingBefore = await tester.runAsync(
+      () => db.query(DatabaseTables.albumEditionTracks, orderBy: 'song_id'),
+    );
+    final songsBefore = await tester.runAsync(
+      () => db.query(DatabaseTables.songs, orderBy: 'id'),
+    );
+
+    await openStudio(tester);
+    await reveal(tester, key('album-studio-move-d'));
+    await settle(tester);
+
+    expect(
+      await tester.runAsync(
+        () => db.query(DatabaseTables.albumEditionTracks, orderBy: 'song_id'),
+      ),
+      listingBefore,
+    );
+    expect(
+      await tester.runAsync(
+        () => db.query(DatabaseTables.songs, orderBy: 'id'),
+      ),
+      songsBefore,
+    );
+    expect(
+      await tester.runAsync(() => db.query(DatabaseTables.syncOutbox)),
+      isEmpty,
+    );
+  });
+
+  testWidgets('a drag renumbers without asking anything', (tester) async {
+    await tester.runAsync(
+      () => db.update(
+        DatabaseTables.albumEditionTracks,
+        {'track_number': 12, 'numbering_authority': 'manual'},
+        where: 'song_id = ?',
+        whereArgs: ['b'],
+      ),
+    );
+    await openStudio(tester);
+
+    // Shown by number while the order is automatic: a 1, c 3, d 4, b 12.
+    list(tester).onReorderItem!(3, 0); // b to the top
+    await tester.pump();
+    await settle(tester);
+    await saved(tester);
+
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(await tester.runAsync(stored), [
+      ('b', 1, 1),
+      ('a', 1, 2),
+      ('c', 1, 3),
+      ('d', 1, 4),
+    ]);
+  });
+
   testWidgets('dragging reorders, and the disc is numbered 1, 2, 3, 4', (
     tester,
   ) async {

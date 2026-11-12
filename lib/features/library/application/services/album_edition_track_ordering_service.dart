@@ -548,13 +548,15 @@ class AlbumEditionTrackOrderingService {
   /// the new order, each with the disc it is on.
   ///
   /// - The order is kept as given, and each song moves to its disc.
-  /// - Each disc is numbered 1, 2, 3... in that order. These numbers are
-  ///   automatic, so a later rearrangement renumbers them again.
-  /// - A number set by hand is kept unless the listener agrees to change it
-  ///   (SN-50 A-Q7A): it is counted in
-  ///   [AlbumEditionArrangeResult.manualNumbersKept], and Release Studio
-  ///   offers to renumber.
-  /// - On a song's home edition, the song's own disc and number follow.
+  /// - A disc this changes (songs added, removed or reordered) is numbered
+  ///   1, 2, 3... in its new order, without asking: the arrangement is the
+  ///   listener's deliberate edit, so it replaces any number on that disc,
+  ///   imported or typed, and the new numbers are the listener's own
+  ///   (manual), so file tags do not move them back.
+  /// - A disc this leaves as it was keeps its numbers exactly, however
+  ///   unusual (an imported 3, 7, 9 stays until that disc is edited).
+  /// - On a song's home edition, the song's own disc and number follow;
+  ///   nothing else about the song changes.
   /// - A disc left with no songs loses its name (REF-13c), so a new disc
   ///   with that number starts unnamed; other discs keep theirs.
   ///
@@ -613,10 +615,10 @@ class AlbumEditionTrackOrderingService {
         );
       }
 
+      final affected = _changedDiscs(memberships.values, placements);
       final nextByDisc = <int, int>{};
       final arranged = <AlbumEditionTrack>[];
       var changed = false;
-      var manualNumbersKept = 0;
 
       for (final (index, placement) in placements.indexed) {
         final membership = memberships[songIds[index]]!;
@@ -626,22 +628,28 @@ class AlbumEditionTrackOrderingService {
           (number) => number + 1,
           ifAbsent: () => 1,
         );
-        final keepsManualNumber =
-            membership.numberingAuthority ==
-                AlbumEditionTrackAuthority.manual &&
-            membership.trackNumber != target;
-        if (keepsManualNumber) manualNumbersKept++;
+        final renumbered = affected.contains(disc);
+        final moved =
+            renumbered ||
+            membership.discNumber != disc ||
+            membership.sortPosition != index;
 
-        final updated = membership.copyWith(
-          discNumber: disc,
-          trackNumber: keepsManualNumber ? membership.trackNumber : target,
-          sortPosition: index,
-          orderingAuthority: AlbumEditionTrackAuthority.manual,
-          updatedAt: timestamp,
-        );
+        final updated = moved
+            ? membership.copyWith(
+                discNumber: disc,
+                trackNumber: renumbered ? target : membership.trackNumber,
+                numberingAuthority: renumbered
+                    ? AlbumEditionTrackAuthority.manual
+                    : membership.numberingAuthority,
+                sortPosition: index,
+                orderingAuthority: AlbumEditionTrackAuthority.manual,
+                updatedAt: timestamp,
+              )
+            : membership;
         final membershipChanged =
             updated.discNumber != membership.discNumber ||
             updated.trackNumber != membership.trackNumber ||
+            updated.numberingAuthority != membership.numberingAuthority ||
             updated.sortPosition != membership.sortPosition ||
             updated.orderingAuthority != membership.orderingAuthority;
 
@@ -685,9 +693,41 @@ class AlbumEditionTrackOrderingService {
       return AlbumEditionArrangeResult(
         memberships: List<AlbumEditionTrack>.unmodifiable(arranged),
         changed: changed,
-        manualNumbersKept: manualNumbersKept,
       );
     });
+  }
+
+  /// The discs whose songs or order differ between [before] (by disc, in
+  /// stored order) and [placements].
+  static Set<int> _changedDiscs(
+    Iterable<AlbumEditionTrack> before,
+    List<EditionPlacement> placements,
+  ) {
+    final stored = before.toList()
+      ..sort((a, b) {
+        final byPosition = a.sortPosition.compareTo(b.sortPosition);
+        return byPosition != 0 ? byPosition : a.songId.compareTo(b.songId);
+      });
+    final old = <int, List<String>>{};
+    for (final m in stored) {
+      old.putIfAbsent(m.discNumber, () => []).add(m.songId);
+    }
+    final now = <int, List<String>>{};
+    for (final p in placements) {
+      now.putIfAbsent(p.discNumber, () => []).add(p.songId.trim());
+    }
+    bool same(List<String>? a, List<String>? b) {
+      if (a == null || b == null || a.length != b.length) return false;
+      for (var i = 0; i < a.length; i++) {
+        if (a[i] != b[i]) return false;
+      }
+      return true;
+    }
+
+    return {
+      for (final disc in {...old.keys, ...now.keys})
+        if (!same(old[disc], now[disc])) disc,
+    };
   }
 
   /// Names [discNumber] of an edition, or clears its name when [label] is
@@ -747,13 +787,8 @@ class AlbumEditionArrangeResult {
   const AlbumEditionArrangeResult({
     required this.memberships,
     required this.changed,
-    required this.manualNumbersKept,
   });
 
   final List<AlbumEditionTrack> memberships;
   final bool changed;
-
-  /// Hand-set numbers left as they were; renumbering them needs the
-  /// listener's approval.
-  final int manualNumbersKept;
 }

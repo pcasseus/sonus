@@ -2904,11 +2904,7 @@ class FakeAlbumEditionTrackOrderingService
     lastPlacements = List<EditionPlacement>.from(placements);
     lastOrderedSongIds = [for (final p in placements) p.songId];
 
-    return const AlbumEditionArrangeResult(
-      memberships: [],
-      changed: true,
-      manualNumbersKept: 0,
-    );
+    return const AlbumEditionArrangeResult(memberships: [], changed: true);
   }
 
   @override

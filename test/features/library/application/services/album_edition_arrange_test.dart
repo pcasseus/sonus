@@ -151,16 +151,15 @@ void main() {
       );
 
       expect(result.changed, isTrue);
-      expect(result.manualNumbersKept, 0);
       expect(await listing(standard), [
         ('C', 1, 1),
         ('A', 1, 2),
         ('D', 1, 3),
         ('B', 1, 4),
       ]);
-      // Automatic numbers, so the next arrangement renumbers them again.
+      // The listener's own numbers now, so file tags do not move them.
       expect(result.memberships.map((m) => m.numberingAuthority).toSet(), {
-        AlbumEditionTrackAuthority.inferred,
+        AlbumEditionTrackAuthority.manual,
       });
     },
   );
@@ -211,27 +210,115 @@ void main() {
     );
   });
 
-  test('a number set by hand is kept until the listener approves', () async {
+  Future<void> number(String title, int disc, int track, {bool? manual}) async {
     final db = await appDatabase.database;
     await db.update(
       DatabaseTables.albumEditionTracks,
-      {'numbering_authority': 'manual', 'track_number': 12},
+      {
+        'disc_number': disc,
+        'track_number': track,
+        if (manual != null)
+          'numbering_authority': manual ? 'manual' : 'inferred',
+      },
       where: 'song_id = ? AND album_edition_id = ?',
-      whereArgs: [songs['B']!.id, standard.id],
+      whereArgs: [songs[title]!.id, standard.id],
     );
+  }
 
-    final result = await service.arrangeEdition(
+  test('a deliberate reorder renumbers the disc without asking, a number '
+      'typed by hand included', () async {
+    await number('B', 1, 12, manual: true);
+
+    await service.arrangeEdition(
       albumEditionId: standard.id,
-      placements: [at('A', 1), at('B', 1), at('C', 1), at('D', 1)],
+      placements: [at('B', 1), at('A', 1), at('C', 1), at('D', 1)],
     );
 
-    expect(result.manualNumbersKept, 1);
     expect(await listing(standard), [
-      ('A', 1, 1),
-      ('B', 1, 12),
+      ('B', 1, 1),
+      ('A', 1, 2),
       ('C', 1, 3),
       ('D', 1, 4),
     ]);
+  });
+
+  test('a disc the arrangement leaves as it was keeps its unusual imported '
+      'numbers; only the changed discs are renumbered', () async {
+    // Imported: disc 1 numbered 3, 7; disc 2 numbered 5, 9.
+    await number('A', 1, 3);
+    await number('B', 1, 7);
+    await number('C', 2, 5);
+    await number('D', 2, 9);
+
+    // D moves up within disc 2; disc 1 is untouched.
+    await service.arrangeEdition(
+      albumEditionId: standard.id,
+      placements: [at('A', 1), at('B', 1), at('D', 2), at('C', 2)],
+    );
+
+    expect(await listing(standard), [
+      ('A', 1, 3),
+      ('B', 1, 7),
+      ('D', 2, 1),
+      ('C', 2, 2),
+    ]);
+    final db = await appDatabase.database;
+    final a = (await db.query(
+      DatabaseTables.albumEditionTracks,
+      where: 'song_id = ? AND album_edition_id = ?',
+      whereArgs: [songs['A']!.id, standard.id],
+    )).single;
+    expect(a['numbering_authority'], 'inferred');
+    expect(a['updated_at'], created.toIso8601String());
+  });
+
+  test(
+    'moving a song between discs renumbers both discs, and no other',
+    () async {
+      await service.arrangeEdition(
+        albumEditionId: standard.id,
+        placements: [at('A', 1), at('B', 1), at('C', 2), at('D', 3)],
+      );
+      await number('D', 3, 8); // an imported-looking number on disc 3
+
+      await service.arrangeEdition(
+        albumEditionId: standard.id,
+        placements: [at('B', 1), at('A', 2), at('C', 2), at('D', 3)],
+      );
+
+      expect(await listing(standard), [
+        ('B', 1, 1),
+        ('A', 2, 1),
+        ('C', 2, 2),
+        ('D', 3, 8),
+      ]);
+    },
+  );
+
+  test("only the song's placement follows; its title, duration, album and "
+      'other fields are unchanged', () async {
+    final db = await appDatabase.database;
+    Future<Map<String, Object?>> row() async => Map.of(
+      (await db.query(
+        DatabaseTables.songs,
+        where: 'id = ?',
+        whereArgs: [songs['C']!.id],
+      )).single,
+    );
+    final before = await row();
+
+    await service.arrangeEdition(
+      albumEditionId: standard.id,
+      placements: [at('A', 1), at('B', 1), at('D', 1), at('C', 2)],
+    );
+
+    final after = await row();
+    expect((after['disc_number'], after['track_number']), (2, 1));
+    for (final placement in ['disc_number', 'track_number', 'updated_at']) {
+      before.remove(placement);
+      after.remove(placement);
+    }
+    expect(after, before);
   });
 
   test('the same arrangement again changes nothing', () async {
