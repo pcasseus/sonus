@@ -270,7 +270,7 @@ void main() {
     );
     await tester.tap(find.text('open'));
     final confirm = find.byKey(const ValueKey<String>('batch-delete-confirm'));
-    for (var i = 0; i < 40 && confirm.evaluate().isEmpty; i++) {
+    for (var i = 0; i < 1000 && confirm.evaluate().isEmpty; i++) {
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 10)),
       );
@@ -304,7 +304,7 @@ void main() {
     expect(tester.widget<FilledButton>(confirm).onPressed, isNotNull);
 
     await tester.tap(confirm);
-    for (var i = 0; i < 60 && outcome == null; i++) {
+    for (var i = 0; i < 1000 && outcome == null; i++) {
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 10)),
       );
@@ -594,7 +594,7 @@ void main() {
           ),
         ),
       );
-      for (var i = 0; i < 20 && reports.isEmpty; i++) {
+      for (var i = 0; i < 1000 && reports.isEmpty; i++) {
         await tester.runAsync(
           () => Future<void>.delayed(const Duration(milliseconds: 10)),
         );

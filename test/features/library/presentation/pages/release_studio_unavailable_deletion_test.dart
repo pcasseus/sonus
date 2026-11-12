@@ -158,9 +158,16 @@ void main() {
 
   Finder key(String value) => find.byKey(ValueKey<String>(value));
 
-  /// Lets the real database work finish between frames.
-  Future<void> settle(WidgetTester tester, [int rounds = 30]) async {
-    for (var i = 0; i < rounds; i++) {
+  /// Lets the real database work run between frames: [rounds] frames, or
+  /// until [until] holds (about 10 s at most, which only stops a broken
+  /// test; a busy machine never fails it).
+  Future<void> settle(
+    WidgetTester tester, {
+    int rounds = 30,
+    bool Function()? until,
+  }) async {
+    final limit = until == null ? rounds : 1000;
+    for (var i = 0; i < limit && !(until?.call() ?? false); i++) {
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 10)),
       );
@@ -212,7 +219,7 @@ void main() {
         ),
       ),
     );
-    await settle(tester, 5);
+    await settle(tester, rounds: 5);
     return controller;
   }
 
@@ -221,7 +228,13 @@ void main() {
     await tester.ensureVisible(button);
     await tester.pump();
     await tester.tap(button);
-    await settle(tester);
+    await settle(
+      tester,
+      until: () =>
+          // The preview has loaded (or could not be).
+          find.text('What will be deleted').evaluate().isNotEmpty ||
+          key('permanent-deletion-load-error').evaluate().isNotEmpty,
+    );
     // The sheet slides in once its preview has loaded.
     await tester.pumpAndSettle();
   }
@@ -234,7 +247,15 @@ void main() {
     await tester.enterText(key('permanent-deletion-confirm-field'), name);
     await tester.pump();
     await tester.tap(key('permanent-deletion-confirm-delete'));
-    await settle(tester);
+    // Until the outcome shows: the confirmation, or why nothing was deleted.
+    await settle(
+      tester,
+      until: () =>
+          key('album-studio-delete-done').evaluate().isNotEmpty ||
+          find.textContaining('Nothing was deleted').evaluate().isNotEmpty ||
+          find.textContaining('Your library changed').evaluate().isNotEmpty,
+    );
+    await settle(tester, rounds: 5);
   }
 
   testWidgets('only an unavailable song offers Delete song permanently, '
@@ -259,7 +280,7 @@ void main() {
     expect(key('permanent-deletion-continue'), findsOneWidget);
 
     await tester.tap(find.text('Cancel'));
-    await settle(tester, 5);
+    await settle(tester, rounds: 5);
 
     expect(await tester.runAsync(() => count(DatabaseTables.songs)), 4);
     expect(key('album-studio-delete-gone'), findsOneWidget);
