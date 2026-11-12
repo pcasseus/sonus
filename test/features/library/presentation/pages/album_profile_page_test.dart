@@ -706,6 +706,72 @@ void main() {
       expect(top('two'), lessThan(top('bonus')));
     });
 
+    group('REF-12a / REF-15: editions keep their own date and tracks', () {
+      LibraryTrack track(String id, String edition) => createTrack(
+        songId: id,
+        title: 'Song $id',
+        albumEditionId: edition,
+        albumEditionTitle: edition,
+      );
+      FakeEditionAwareLibraryQueryRepository repository() =>
+          FakeEditionAwareLibraryQueryRepository(
+            // As in the app: the release's date is the primary edition's.
+            album: createAlbum(
+              primaryEditionId: 'standard',
+              primaryEditionTitle: 'Standard',
+              releaseDate: DateTime.utc(2015, 11, 13),
+            ),
+            editions: [
+              createLibraryEdition(
+                editionId: 'standard',
+                title: 'Standard',
+                type: AlbumEditionType.standard,
+                isPrimary: true,
+                releaseDate: DateTime.utc(2015, 11, 13),
+                releaseDatePrecision: ReleaseDatePrecision.year,
+              ),
+              createLibraryEdition(
+                editionId: 'deluxe',
+                title: 'Deluxe',
+                type: AlbumEditionType.deluxe,
+              ),
+            ],
+            editionTracks: {
+              'standard': [track('s1', 'standard'), track('s2', 'standard')],
+              'deluxe': [
+                track('s1', 'deluxe'),
+                track('s2', 'deluxe'),
+                track('d3', 'deluxe'),
+              ],
+            },
+          );
+
+      Finder summary() =>
+          find.byKey(const ValueKey<String>('album-profile-edition-summary'));
+
+      testWidgets('each edition shows its own date (or none) and its own '
+          'track count', (tester) async {
+        await tester.pumpWidget(buildSubject(repository: repository()));
+        await tester.pumpAndSettle();
+
+        // Year-only precision is kept.
+        expect(
+          tester.widget<Text>(summary()).data,
+          'Standard · 2015 · 2 tracks',
+        );
+
+        await tester.tap(find.text('Deluxe').first);
+        await tester.pumpAndSettle();
+
+        expect(
+          tester.widget<Text>(summary()).data,
+          'Deluxe · Date not set · 3 tracks',
+        );
+        // Deluxe never borrows Standard's date.
+        expect(find.textContaining('2015'), findsNothing);
+      });
+    });
+
     testWidgets('SN-50 C-Q10A: long-press selects tracks; Back leaves', (
       tester,
     ) async {
@@ -2493,6 +2559,7 @@ LibraryAlbumEdition createLibraryEdition({
   required AlbumEditionType type,
   bool isPrimary = false,
   DateTime? releaseDate,
+  ReleaseDatePrecision? releaseDatePrecision,
   String? genre,
   String? artworkId,
   String? artworkPath,
@@ -2504,6 +2571,7 @@ LibraryAlbumEdition createLibraryEdition({
     type: type,
     isPrimary: isPrimary,
     releaseDate: releaseDate,
+    releaseDatePrecision: releaseDatePrecision,
     genre: genre,
     artworkId: artworkId,
     artworkPath: artworkPath,

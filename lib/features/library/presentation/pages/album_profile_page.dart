@@ -407,7 +407,9 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
                           controller: controller,
                           atmosphere: atmosphere,
                         ),
-                        const SizedBox(height: 18),
+                        const SizedBox(height: 8),
+                        _EditionSummary(controller: controller),
+                        const SizedBox(height: 14),
                       ],
                       _PlaybackControls(
                         controller: controller,
@@ -1254,8 +1256,11 @@ class _AlbumHero extends StatelessWidget {
     final parts = <String>[];
     final selectedEdition = controller.selectedEdition;
 
-    final releaseDate =
-        selectedEdition?.releaseDateValue ?? album.releaseDateValue;
+    // An edition shows its own date only (REF-12a): one without a date
+    // never borrows another edition's, so Deluxe never shows Standard's.
+    final releaseDate = selectedEdition != null
+        ? selectedEdition.releaseDateValue
+        : album.releaseDateValue;
 
     if (releaseDate != null) {
       parts.add(releaseDate.label);
@@ -1444,6 +1449,36 @@ class _ArtworkFallback extends StatelessWidget {
 /// A segmented control when every edition fits on one line, otherwise
 /// wrapping choices, so long edition titles are never clipped or hidden off
 /// screen.
+/// The selected edition at a glance under the selector (REF-15): its name,
+/// its own date (or that it has none) and its own track count.
+class _EditionSummary extends StatelessWidget {
+  const _EditionSummary({required this.controller});
+
+  final AlbumProfileController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final edition = controller.selectedEdition;
+    if (edition == null) return const SizedBox.shrink();
+
+    final count = controller.tracks.where(_hasAvailableMedia).length;
+    final parts = [
+      _editionDisplayLabel(edition, controller.album?.title ?? ''),
+      edition.releaseDateValue?.label ?? 'Date not set',
+      count == 1 ? '1 track' : '$count tracks',
+    ];
+
+    return Text(
+      parts.join(' · '),
+      key: const ValueKey<String>('album-profile-edition-summary'),
+      textAlign: TextAlign.center,
+      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+        color: SonusTheme.of(context).colors.textSecondary,
+      ),
+    );
+  }
+}
+
 class _EditionSelector extends StatelessWidget {
   const _EditionSelector({required this.controller, required this.atmosphere});
 
