@@ -10,6 +10,8 @@
 // the real one does. A command that waits behind playback fails its
 // [_soon] deadline instead of hanging the suite.
 
+import 'dart:async';
+
 import 'package:audio_service/audio_service.dart' as media;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sonus_next/features/library/application/models/library_track.dart';
@@ -394,6 +396,107 @@ void main() {
       await _soon(handler.skipToPrevious());
       await _soon(handler.skipToQueueItem(4));
       expect(current(), 'e');
+    });
+
+    test('Play during a saved session that restores slowly is applied once '
+        'the session is back', () async {
+      final restore = Completer<void>();
+      final slow = SonusAudioHandler(
+        log: (message, {level = 800}) {},
+        readinessTimeout: const Duration(milliseconds: 20),
+      )..attach(coordinator, restored: restore.future);
+
+      await _soon(slow.play()); // times out: nothing is queued yet
+      expect(player.audible, isFalse);
+
+      // The restore loads the saved queue paused, as it always does.
+      await _soon(coordinator.playTracks(_album, autoPlay: false));
+      restore.complete();
+      await _settle();
+      await _settle();
+
+      expect(player.audible, isTrue, reason: 'the Play was kept');
+      expect(current(), 'a');
+    });
+
+    test('a Pause after that Play wins', () async {
+      final restore = Completer<void>();
+      final slow = SonusAudioHandler(
+        log: (message, {level = 800}) {},
+        readinessTimeout: const Duration(milliseconds: 20),
+      )..attach(coordinator, restored: restore.future);
+
+      await _soon(slow.play());
+      await _soon(slow.pause());
+      await _soon(coordinator.playTracks(_album, autoPlay: false));
+      restore.complete();
+      await _settle();
+      await _settle();
+
+      expect(player.audible, isFalse);
+    });
+  });
+
+  group('saved-session restore and the listener act at the same time', () {
+    test("the listener's song plays from its start, not the restored "
+        'position', () async {
+      // PlaybackRestorationController: load the saved queue paused, then
+      // seek to the saved position. The listener taps a song meanwhile.
+      final restore = () async {
+        await coordinator.playTracks(
+          [_song('saved1'), _song('saved2')],
+          startIndex: 1,
+          autoPlay: false,
+        );
+        await coordinator.seek(const Duration(minutes: 2));
+      }();
+      final tap = coordinator.playTracks(_album, startIndex: 2);
+      await _soon(Future.wait([restore, tap]));
+      await _settle();
+
+      expect(current(), 'c');
+      expect(state().position, Duration.zero);
+      expect(player.audible, isTrue);
+    });
+  });
+
+  group('the player goes away while commands wait', () {
+    test(
+      'commands queued before disposal are dropped without errors',
+      () async {
+        final local = SimulatedJustAudioPlayer();
+        final localEngine = JustAudioPlaybackEngine(
+          audioPlayer: local,
+          configureAudioSession: () async {},
+        );
+        final errors = <Object>[];
+
+        await runZonedGuarded(() async {
+          // A command in flight holds the turn while the others queue.
+          final load = localEngine.loadQueue([_track('a'), _track('b')]);
+          final queued = [
+            localEngine.setShuffleEnabled(true),
+            localEngine.skipNext(),
+            localEngine.appendTrack(_track('c')),
+          ];
+          await localEngine.dispose();
+          await load.catchError((Object _) {});
+          await _soon(Future.wait(queued));
+        }, (error, _) => errors.add(error));
+        await _settle();
+
+        expect(errors, isEmpty);
+      },
+    );
+
+    test('a command issued after disposal still fails', () async {
+      final localEngine = JustAudioPlaybackEngine(
+        audioPlayer: SimulatedJustAudioPlayer(),
+        configureAudioSession: () async {},
+      );
+      await localEngine.dispose();
+
+      await expectLater(localEngine.skipNext(), throwsStateError);
     });
   });
 }

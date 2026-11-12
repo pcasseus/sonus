@@ -60,13 +60,18 @@ class JustAudioPlaybackEngine
   /// each other and leave the engine's queue shorter than the player's.
   Future<void>? _inFlight;
 
-  Future<T> _inTurn<T>(Future<T> Function() command) {
+  ///
+  /// A command waiting for its turn when the engine is disposed is dropped
+  /// when that turn comes: it was valid when it was issued, and the player
+  /// it was for is gone (the playback scope is replaced, or Sonus closes).
+  /// A command issued after disposal still fails, as before.
+  Future<void> _inTurn(Future<void> Function() command) {
     final previous = _inFlight;
     // Idle: run now, so the command's first state change is synchronous,
     // exactly as before.
     final result = previous == null
         ? command()
-        : previous.then((_) => command());
+        : previous.then((_) => _disposed ? null : command());
     final done = result.then<void>((_) {}, onError: (Object _) {});
     _inFlight = done;
     unawaited(
