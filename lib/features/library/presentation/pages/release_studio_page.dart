@@ -8,10 +8,6 @@ import 'package:flutter/material.dart';
 import '../../../../core/design/sonus_theme.dart';
 import '../../../../core/design/sonus_text_scale.dart';
 import '../../../../core/design/widgets/sonus_artwork_frame.dart';
-import '../../../artwork/application/models/cover_art_archive_image.dart';
-import '../../../artwork/application/services/cover_art_album_edition_import_service.dart';
-import '../../../artwork/application/services/cover_art_candidate_discovery_service.dart';
-import '../../application/models/external_metadata_candidate.dart';
 import '../../application/models/external_metadata_search_query.dart';
 import '../../application/models/library_album_edition.dart';
 import '../../application/models/library_artist.dart';
@@ -38,8 +34,6 @@ import '../widgets/album_studio/release_date_editor.dart';
 import '../widgets/album_studio/release_studio_format.dart';
 import '../widgets/album_studio/release_studio_leaked.dart';
 import '../widgets/album_studio/release_studio_live.dart';
-import '../widgets/cover_art_album_search_dialog.dart';
-import '../widgets/cover_art_image_selection_dialog.dart';
 import '../widgets/musicbrainz_search_dialog.dart';
 import '../widgets/permanent_deletion/permanent_deletion_sheet.dart';
 
@@ -64,8 +58,6 @@ class ReleaseStudioPage extends StatefulWidget {
     this.onRepositionArtwork,
     this.onClearArtwork,
     this.metadataProvider,
-    this.coverArtCandidateDiscoveryService,
-    this.coverArtAlbumEditionImportService,
     this.externalMetadataApplicationService,
     this.externalMetadataProposalService,
     this.editionManagement,
@@ -86,8 +78,6 @@ class ReleaseStudioPage extends StatefulWidget {
   final Future<void> Function()? onRepositionArtwork;
   final Future<void> Function()? onClearArtwork;
   final MetadataProvider? metadataProvider;
-  final CoverArtCandidateDiscoveryService? coverArtCandidateDiscoveryService;
-  final CoverArtAlbumEditionImportService? coverArtAlbumEditionImportService;
   final ExternalMetadataApplicationService? externalMetadataApplicationService;
   final ExternalMetadataProposalService? externalMetadataProposalService;
 
@@ -125,7 +115,6 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
   /// (REF-13). A disc exists in the library once a song is moved onto it.
   final Map<String, Set<int>> _addedDiscs = {};
   bool _isApplyingMusicBrainz = false;
-  bool _isSearchingCoverArt = false;
   bool _isSorting = false;
   bool _isSavingDetails = false;
 
@@ -775,13 +764,6 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
 
   Widget _artwork(BuildContext context) {
     final edition = controller.selectedEdition;
-    final canSearch =
-        !_isSearchingCoverArt &&
-        widget.metadataProvider != null &&
-        widget.coverArtCandidateDiscoveryService != null &&
-        widget.coverArtAlbumEditionImportService != null &&
-        controller.album != null &&
-        edition != null;
     // Without editions the cover is the album's own.
     final hasOwnCover =
         edition == null || (edition.artworkPath ?? '').trim().isNotEmpty;
@@ -813,15 +795,8 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
                   subtitle: 'Reset to the full original image from here too.',
                   onTap: hasOwnCover ? widget.onRepositionArtwork : null,
                 ),
-              _ActionRow(
-                tileKey: const ValueKey<String>(
-                  'album-studio-search-cover-art',
-                ),
-                icon: Icons.image_search_rounded,
-                title: 'Find on Cover Art Archive',
-                subtitle: 'Covers published for this release online.',
-                onTap: canSearch ? _searchCoverArt : null,
-              ),
+              // REF-18: Cover Art Archive search is no longer offered here.
+              // Covers it supplied earlier stay, with their provenance.
               _ActionRow(
                 tileKey: const ValueKey<String>('album-studio-clear-artwork'),
                 icon: Icons.hide_image_outlined,
@@ -966,130 +941,6 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
       );
     } finally {
       if (mounted) setState(() => _isSorting = false);
-    }
-  }
-
-  Future<void> _searchCoverArt() async {
-    if (_isSearchingCoverArt) return;
-
-    final album = controller.album;
-    final selectedEditionId = controller.selectedEdition?.editionId;
-    final provider = widget.metadataProvider;
-    final discovery = widget.coverArtCandidateDiscoveryService;
-    final importService = widget.coverArtAlbumEditionImportService;
-
-    if (album == null ||
-        selectedEditionId == null ||
-        provider == null ||
-        discovery == null ||
-        importService == null) {
-      return;
-    }
-
-    setState(() {
-      _isSearchingCoverArt = true;
-    });
-
-    try {
-      final candidate = await showDialog<ExternalMetadataCandidate>(
-        context: context,
-        builder: (_) => CoverArtAlbumSearchDialog(
-          provider: provider,
-          query: ExternalMetadataSearchQuery(
-            entityKind: ExternalMetadataEntityKind.album,
-            title: album.title,
-            artistName: album.artistName,
-          ),
-        ),
-      );
-
-      if (!mounted || candidate == null) {
-        return;
-      }
-
-      try {
-        final images = await discovery.discover(candidate);
-
-        if (!mounted) return;
-
-        final image = await showDialog<CoverArtArchiveImage>(
-          context: context,
-          builder: (_) => CoverArtImageSelectionDialog(
-            images: images,
-            albumTitle: candidate.displayName,
-          ),
-        );
-
-        if (!mounted || image == null) return;
-
-        try {
-          final result = await importService.importImage(
-            albumEditionId: selectedEditionId,
-            image: image,
-            userId: widget.userId,
-          );
-
-          if (!mounted) return;
-
-          if (!result.applied) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                key: ValueKey<String>(
-                  'album-studio-cover-art-import-protected',
-                ),
-                content: Text(
-                  'Existing album artwork is protected and was not replaced.',
-                ),
-              ),
-            );
-            return;
-          }
-
-          if (result.changed) {
-            await controller.refresh();
-            if (!mounted) return;
-          }
-
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              key: ValueKey<String>(
-                result.changed
-                    ? 'album-studio-cover-art-import-success'
-                    : 'album-studio-cover-art-import-unchanged',
-              ),
-              content: Text(
-                result.changed
-                    ? 'Album artwork updated.'
-                    : 'Album artwork is already up to date.',
-              ),
-            ),
-          );
-        } catch (_) {
-          if (!mounted) return;
-
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              key: ValueKey<String>('album-studio-cover-art-import-error'),
-              content: Text('Could not import album artwork.'),
-            ),
-          );
-        }
-      } catch (_) {
-        if (!mounted) return;
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            key: ValueKey<String>('album-studio-cover-art-search-error'),
-            content: Text('Could not retrieve Cover Art Archive artwork.'),
-          ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isSearchingCoverArt = false;
-        });
-      }
     }
   }
 

@@ -235,11 +235,9 @@ void main() {
       expect(tool('change-artwork'), findsNothing);
 
       await toggleSection(tester, 'artwork');
-      for (final action in [
-        'change-artwork',
-        'search-cover-art',
-        'clear-artwork',
-      ]) {
+      // REF-18: no Cover Art Archive search.
+      expect(tool('search-cover-art'), findsNothing);
+      for (final action in ['change-artwork', 'clear-artwork']) {
         expect(
           find.descendant(
             of: key('release-studio-artwork'),
@@ -401,11 +399,6 @@ void main() {
       await tester.pumpAndSettle();
 
       expect((change, clear), (1, 1));
-      // Cover Art Archive needs its services; without them it is disabled.
-      expect(
-        tester.widget<ListTile>(tool('search-cover-art')).enabled,
-        isFalse,
-      );
     });
 
     testWidgets('an edition without its own cover has nothing to remove', (

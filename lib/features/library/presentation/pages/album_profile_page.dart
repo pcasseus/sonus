@@ -34,8 +34,6 @@ import '../../domain/repositories/song_artist_credit_repository.dart';
 import '../../../account/application/controllers/account_controller.dart';
 import '../../../artwork/application/services/artwork_assignment_service.dart';
 import '../../../artwork/application/services/artwork_file_picker.dart';
-import '../../../artwork/application/services/cover_art_candidate_discovery_service.dart';
-import '../../../artwork/application/services/cover_art_album_edition_import_service.dart';
 import '../../../player/application/controllers/playback_coordinator.dart';
 import '../../../playlists/presentation/widgets/add_to_playlist_sheet.dart';
 import '../../application/models/library_album.dart';
@@ -670,10 +668,6 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
       return;
     }
 
-    final coverArtCandidateDiscoveryService = context
-        .read<CoverArtCandidateDiscoveryService?>();
-    final coverArtAlbumEditionImportService = context
-        .read<CoverArtAlbumEditionImportService?>();
     final metadataProvider = context.read<MetadataProvider?>();
     final externalMetadataApplicationService = context
         .read<ExternalMetadataApplicationService?>();
@@ -687,10 +681,6 @@ class _AlbumProfilePageState extends State<AlbumProfilePage> {
             controller: controller,
             userId: userId,
             metadataProvider: metadataProvider,
-            coverArtAlbumEditionImportService:
-                coverArtAlbumEditionImportService,
-            coverArtCandidateDiscoveryService:
-                coverArtCandidateDiscoveryService,
             externalMetadataApplicationService:
                 externalMetadataApplicationService,
             externalMetadataProposalService: externalMetadataProposalService,
