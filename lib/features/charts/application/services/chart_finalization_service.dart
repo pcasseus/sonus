@@ -8,6 +8,7 @@ import '../../domain/models/chart_entity_snapshot.dart';
 import '../../domain/models/chart_type.dart';
 import '../../domain/models/chart_week.dart';
 import '../../domain/moments/chart_moment_artist_achievement_detector.dart';
+import '../../domain/moments/chart_history_evidence.dart';
 import '../../domain/moments/chart_moment_artist_dominance.dart';
 import '../../domain/moments/chart_moment_finalized_detector.dart';
 import '../../domain/moments/chart_moment_lifetime_stream_service.dart';
@@ -145,6 +146,7 @@ class ChartFinalizationService {
       weekEndUtc: snapshot.weekEndUtc,
       finalizedAt: snapshot.finalizedAt,
       revision: snapshot.revision,
+      provenance: snapshot.provenance,
       entries: [
         for (final entry in snapshot.entries)
           ChartEntry(
@@ -392,6 +394,7 @@ class ChartFinalizationService {
           snapshot: attributed,
           history: attributedHistory,
           createdAt: createdAt,
+          evidence: await _historyEvidence(snapshot, history),
         ),
       );
     }
@@ -438,6 +441,39 @@ class ChartFinalizationService {
     }
 
     return events;
+  }
+
+  /// What can be shown about the history behind [snapshot] (REF-19):
+  /// nothing unless the week itself is original; otherwise the history's
+  /// origin and every earlier week with plays but no finalized chart.
+  Future<ChartHistoryEvidence> _historyEvidence(
+    ChartSnapshot snapshot,
+    List<ChartSnapshot> history,
+  ) async {
+    if (snapshot.provenance != ChartSnapshotProvenance.original) {
+      return ChartHistoryEvidence.unverified;
+    }
+    final finalized = {
+      for (final week in history)
+        if (week.isFinalized && week.chartType == snapshot.chartType)
+          week.weekStartUtc.toUtc(),
+    };
+    final incomplete = <DateTime>{};
+    for (final play in await _qualifiedPlays.getAll(
+      qualifiedBefore: snapshot.weekStartUtc,
+    )) {
+      final week = _weekResolver.resolve(play.qualifiedAt.toLocal());
+      final start = week.startUtc.toUtc();
+      if (start.isBefore(snapshot.weekStartUtc.toUtc()) &&
+          !finalized.contains(start)) {
+        incomplete.add(start);
+      }
+    }
+    return ChartHistoryEvidence(
+      currentWeekOriginal: true,
+      historyOriginUtc: await _chartHistoryOriginUtc?.call(),
+      incompleteWeekStartsUtc: incomplete,
+    );
   }
 
   Future<bool> _dominanceApplies(ChartSnapshot snapshot) async {

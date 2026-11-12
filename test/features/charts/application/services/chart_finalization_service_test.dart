@@ -221,6 +221,72 @@ void main() {
     );
   });
 
+  group('REF-19: dominance history evidence flows from stored weeks', () {
+    final first = ChartWeek(
+      startUtc: DateTime.utc(2026, 9, 27),
+      endUtc: DateTime.utc(2026, 10, 4),
+    );
+    final second = ChartWeek(
+      startUtc: DateTime.utc(2026, 10, 4),
+      endUtc: DateTime.utc(2026, 10, 11),
+    );
+
+    /// Nova sweeps #1–3 in both weeks.
+    Future<List<String?>> secondWeekSources(DateTime? origin) async {
+      final moments = _RecordingMomentRepository();
+      final charts = _RecordingChartRepository();
+      final service = createService(
+        qualifiedPlays: _MutableQualifiedPlayRepository([
+          for (final week in [first, second])
+            for (final (i, id) in ['album-a', 'album-b', 'album-c'].indexed)
+              for (var n = 0; n <= 2 - i; n++)
+                play(
+                  id: '$id-$n-${week.startUtc.day}',
+                  songId: id == 'album-c' ? 'song-album-c' : 'song-${id[6]}',
+                  albumId: id,
+                  qualifiedAt: week.startUtc.add(Duration(days: 1, minutes: n)),
+                ),
+        ]),
+        charts: charts,
+        moments: moments,
+        momentsActivationWeekStartUtc: DateTime.utc(2026, 9, 1),
+        artistAttribution: () async => {
+          'song-a': 'nova',
+          'song-b': 'nova',
+          'song-album-c': 'nova',
+        },
+        dominanceFromUtc: () async => DateTime.utc(2026, 9, 1),
+        chartHistoryOriginUtc: () async => origin,
+        extraAlbums: const ['album-c'],
+      );
+      await service.reconcileCompletedWeek(first);
+      await service.reconcileCompletedWeek(second);
+      return [
+        for (final publication in moments.publications)
+          if (publication.weekStartUtc.toUtc() == second.startUtc)
+            for (final event in publication.events)
+              if (event.sourceId?.startsWith('dominance:') ?? false)
+                event.sourceId,
+      ];
+    }
+
+    test('two original weeks of the same sweep: told as a second straight '
+        'week', () async {
+      expect(await secondWeekSources(DateTime.utc(2026, 9, 1)), [
+        startsWith('dominance:sweep:3:streak2:'),
+      ]);
+    });
+
+    test('history that cannot be shown: the held sweep is quiet', () async {
+      expect(await secondWeekSources(null), isEmpty);
+      expect(
+        await secondWeekSources(DateTime.utc(2026, 9, 30)),
+        isEmpty,
+        reason: 'the first week was already under way at the origin',
+      );
+    });
+  });
+
   group('REF-19: each finalized week records where it came from', () {
     final week = ChartWeek(
       startUtc: DateTime.utc(2026, 9, 27),

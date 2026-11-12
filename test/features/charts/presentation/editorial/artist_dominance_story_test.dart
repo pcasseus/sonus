@@ -65,7 +65,12 @@ ChartMomentEvent _dominance(ArtistDominanceKind kind, int tier, int count) =>
     _simultaneous(
       threshold: kind.zoneFor(tier),
       count: count,
-      source: ArtistDominance.sourceIdFor(kind, tier, 'week'),
+      source: ArtistDominance.sourceIdFor(
+        kind,
+        tier,
+        DominanceContext.none,
+        'week',
+      ),
     );
 
 MomentFacts _facts({required int threshold, required int count}) => MomentFacts(

@@ -84,7 +84,7 @@ void main() {
     ]) => db.insert(DatabaseTables.chartMomentEvents, {
       'id': id,
       'deduplication_key': id,
-      'source_id': 'dominance:hot100:5:snapshot_songs',
+      'source_id': 'dominance:hot100:5:-:snapshot_songs',
       'chart_type': 'songs',
       'scope': 'finalized',
       'event_type': 'artistSimultaneousThresholdSongs',
