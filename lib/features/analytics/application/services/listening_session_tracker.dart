@@ -477,14 +477,18 @@ class ListeningSessionTracker {
       return;
     }
 
+    // The recording as stored now: a duplicate merge may have repointed
+    // this session while it was open, and the stream follows it.
+    final recording = await _playbackSessions.getById(session.id) ?? session;
+
     final play = QualifiedPlay(
       id: _qualifiedPlayIdGenerator(),
       playbackSessionId: session.id,
       userId: session.userId,
-      songId: session.songId,
-      artistId: session.artistId,
-      albumId: session.albumId,
-      albumEditionId: session.albumEditionId,
+      songId: recording.songId,
+      artistId: recording.artistId,
+      albumId: recording.albumId,
+      albumEditionId: recording.albumEditionId,
       qualifiedAt: qualifiedAt,
       listenedDuration: session.listenedDuration,
       trackDuration: session.trackDuration,

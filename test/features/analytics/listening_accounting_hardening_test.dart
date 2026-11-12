@@ -225,6 +225,44 @@ void main() {
     );
   });
 
+  group('A3: a duplicate merge while the duplicate is playing', () {
+    test('the session and its stream follow the kept recording', () async {
+      await coordinator.playTracks([_song('dup')]);
+      await settle();
+      await listen(10);
+
+      // DuplicateAlbumReconciliationService: listening history follows
+      // the kept recording (the same update it runs).
+      for (final table in [
+        DatabaseTables.playbackSessions,
+        DatabaseTables.qualifiedPlays,
+      ]) {
+        await db.update(
+          table,
+          {
+            'song_id': 'kept',
+            'album_id': 'kept_album',
+            'album_edition_id': 'kept_edition',
+          },
+          where: 'song_id = ?',
+          whereArgs: ['dup'],
+        );
+      }
+
+      await listen(30); // checkpoints, then the stream qualifies
+      await coordinator.pause();
+      await settle();
+
+      expect(await sessionsOf('dup'), isEmpty, reason: 'not written back');
+      final kept = (await sessionsOf('kept')).single;
+      expect(kept['album_id'], 'kept_album');
+      expect(kept['album_edition_id'], 'kept_edition');
+      expect(kept['listened_duration_ms'], greaterThanOrEqualTo(39000));
+      expect(await playsOf('dup'), 0);
+      expect(await playsOf('kept'), 1);
+    });
+  });
+
   group('A4: removing the playing song', () {
     test('the next song starts its own listen from 0:00, not as a finished '
         'restart', () async {
