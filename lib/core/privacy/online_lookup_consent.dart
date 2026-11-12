@@ -7,10 +7,17 @@ abstract interface class OnlineLookupConsent {
   Future<void> acceptOnlineLookup();
 }
 
-/// What an online lookup sends, shown before the first one.
+/// What online lookups do and what they send, shown before the first one.
+///
+/// Each statement matches the implementation: Artist, Release and Track
+/// Studio offer the lookups, an album lookup can propose a genre, nothing is
+/// applied until the user chooses, and an external value never replaces a
+/// manual one (`MetadataAuthorityPolicy`).
 const onlineLookupDisclosure =
-    'To find metadata, Sonus sends the search text (an artist, album or song '
+    'MusicBrainz can suggest artist, release and song information, and genres '
+    'for albums. Review the suggestions before applying them. Your manual '
+    'edits will not be replaced automatically.\n\n'
+    'To search, Sonus sends only the search text (an artist, album or song '
     'name, and for songs the album and length) to MusicBrainz. Nothing else '
-    'from your library '
-    'leaves this device, and nothing changes until you choose a result. '
-    'You can turn online lookups off in Settings.';
+    'from your library leaves this device. You can turn online lookups off in '
+    'Settings.';

@@ -95,6 +95,72 @@ void main() {
         expect(provider.searches, 1);
       });
 
+      testWidgets(
+        'the disclosure says what is suggested, what is sent and that '
+        'manual edits stay',
+        (tester) async {
+          await pump(
+            tester,
+            _Consent(isOnlineLookupAccepted: false),
+            build(_CountingProvider()),
+          );
+          await tester.pumpAndSettle();
+
+          final shown = tester
+              .widget<Text>(
+                find.descendant(
+                  of: find.byKey(
+                    const ValueKey<String>('online-lookup-disclosure'),
+                  ),
+                  matching: find.textContaining('MusicBrainz can suggest'),
+                ),
+              )
+              .data!;
+          for (final statement in [
+            'MusicBrainz can suggest artist, release and song information, '
+                'and genres for albums.',
+            'Review the suggestions before applying them.',
+            'Your manual edits will not be replaced automatically.',
+            'Sonus sends only the search text (an artist, album or song '
+                'name, and for songs the album and length) to MusicBrainz.',
+            'Nothing else from your library leaves this device.',
+            'You can turn online lookups off in Settings.',
+          ]) {
+            expect(shown, contains(statement));
+          }
+          expect(shown, isNot(contains('Cover Art Archive')));
+          expect(shown, isNot(contains('artwork')));
+        },
+      );
+
+      testWidgets('the disclosure fits a 320 px phone at large text', (
+        tester,
+      ) async {
+        tester.view.physicalSize = const Size(320, 640);
+        tester.view.devicePixelRatio = 1;
+        tester.platformDispatcher.textScaleFactorTestValue = 2;
+        addTearDown(tester.view.reset);
+        addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+
+        await pump(
+          tester,
+          _Consent(isOnlineLookupAccepted: false),
+          build(_CountingProvider()),
+        );
+        await tester.pumpAndSettle();
+
+        expect(tester.takeException(), isNull);
+        final accept = find.byKey(
+          const ValueKey<String>('online-lookup-accept'),
+        );
+        await tester.ensureVisible(accept);
+        await tester.pumpAndSettle();
+        expect(tester.getSize(accept).height, greaterThanOrEqualTo(40));
+        await tester.tap(accept);
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+      });
+
       testWidgets('searches at once after consent', (tester) async {
         final provider = _CountingProvider();
 
