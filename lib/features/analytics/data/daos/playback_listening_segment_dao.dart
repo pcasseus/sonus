@@ -1,6 +1,7 @@
 import 'package:sqflite/sqflite.dart';
 
 import '../../../../core/database/database_tables.dart';
+import '../../domain/models/listening_record_missing.dart';
 
 class PlaybackListeningSegmentDao {
   const PlaybackListeningSegmentDao(this.db);
@@ -22,7 +23,7 @@ class PlaybackListeningSegmentDao {
     );
 
     if (updated == 0) {
-      throw StateError('Playback listening segment not found: $id');
+      throw ListeningRecordMissing('Playback listening segment not found: $id');
     }
   }
 

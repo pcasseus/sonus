@@ -6,6 +6,7 @@ import '../../../../core/identity/entity_id.dart';
 import '../../domain/entities/playback_listening_segment.dart';
 import '../../domain/entities/playback_session.dart';
 import '../../domain/entities/qualified_play.dart';
+import '../../domain/models/listening_record_missing.dart';
 import '../../domain/repositories/playback_listening_segment_repository.dart';
 import '../../domain/repositories/playback_session_repository.dart';
 import '../../domain/repositories/qualified_play_repository.dart';
@@ -80,14 +81,30 @@ class ListeningSessionTracker {
 
   /// A restore that refuses a write may replace the library before this
   /// tracker runs again, so its in-memory state must never be written later.
+  ///
+  /// A session whose records were deleted while it was open (the song that
+  /// is playing was permanently deleted, which erases its listening) is
+  /// forgotten too. Otherwise every later update would try the missing
+  /// session again and fail, and no listening would be recorded again
+  /// until the app restarted (BUG-11 hardening).
   Future<T> _write<T>(Future<T> Function() write) async {
     try {
       return await write();
     } on LibraryMutationUnavailable {
       abandon();
       rethrow;
+    } on ListeningRecordMissing {
+      _erasedSongId = _session?.songId;
+      abandon();
+      rethrow;
     }
   }
+
+  /// The song whose open session was erased under the tracker (see
+  /// [_write]). Its listening was deleted on purpose, so none is recorded
+  /// for it again while it keeps playing; starting another song clears it.
+  String? get erasedSongId => _erasedSongId;
+  String? _erasedSongId;
 
   Future<void> attachCurrentSessionToUser(String userId) async {
     final normalizedUserId = userId.trim();
@@ -175,6 +192,7 @@ class ListeningSessionTracker {
     await _write(() => _playbackSessions.create(session));
 
     _session = session;
+    _erasedSongId = null;
     _listeningSegment = null;
     _hasQualified = false;
 

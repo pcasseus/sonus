@@ -258,6 +258,16 @@ class SimulatedJustAudioPlayer implements PlaybackAudioPlayer {
       _index = current - 1;
       _indexes.add(_index);
     }
+    // Removing the playing source moves on to the next one, from its start.
+    // The platform reports that position later, after the removal returns.
+    if (current != null && index == current) {
+      _position = Duration.zero;
+      unawaited(
+        Future<void>.delayed(Duration.zero, () {
+          if (!_positions.isClosed) _positions.add(_position);
+        }),
+      );
+    }
   }
 
   @override

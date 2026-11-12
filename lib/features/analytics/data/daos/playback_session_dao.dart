@@ -1,6 +1,7 @@
 import 'package:sqflite/sqflite.dart';
 
 import '../../../../core/database/database_tables.dart';
+import '../../domain/models/listening_record_missing.dart';
 
 class PlaybackSessionDao {
   const PlaybackSessionDao(this.db);
@@ -22,7 +23,7 @@ class PlaybackSessionDao {
     );
 
     if (updated == 0) {
-      throw StateError('Playback session not found: $id');
+      throw ListeningRecordMissing('Playback session not found: $id');
     }
   }
 

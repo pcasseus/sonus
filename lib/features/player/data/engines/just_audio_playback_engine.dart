@@ -583,6 +583,10 @@ class JustAudioPlaybackEngine
     }
 
     final updatedQueue = _state.queue.removeTrackAt(index);
+    // Removing the playing entry makes the next one current, from its
+    // start; it never inherits the removed song's position (which made the
+    // next song look as if it had just finished and restarted).
+    final removesCurrent = index == _state.queue.currentIndex;
 
     try {
       await _changeSources(() => _audioPlayer.removeAudioSourceAt(index));
@@ -590,7 +594,9 @@ class JustAudioPlaybackEngine
       _emit(
         _state.copyWith(
           queue: _withCurrentDisplay(updatedQueue),
-          position: updatedQueue.isEmpty ? Duration.zero : _state.position,
+          position: updatedQueue.isEmpty || removesCurrent
+              ? Duration.zero
+              : _state.position,
           duration: updatedQueue.currentTrack?.duration ?? Duration.zero,
           clearError: true,
         ),

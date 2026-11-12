@@ -152,7 +152,9 @@ class PlaybackAnalyticsController {
     if (_tracker.hasActiveSession) {
       final activeSongId = _tracker.currentSession!.songId;
 
-      if (track == null || track.songId != activeSongId) {
+      if (track == null ||
+          track.songId != activeSongId ||
+          _movedToAnotherEntry(previous, state)) {
         await _tracker.end(
           reason: _endReasonForTrackChange(previous, state),
           position:
@@ -178,7 +180,11 @@ class PlaybackAnalyticsController {
     }
 
     if (!_tracker.hasActiveSession) {
-      if (state.status == PlaybackStatus.playing) {
+      // A song whose open session was just erased (it was permanently
+      // deleted while playing) is not recorded again in the moments before
+      // it leaves the queue.
+      if (state.status == PlaybackStatus.playing &&
+          track.songId != _tracker.erasedSongId) {
         await _startForTrack(track, state);
       }
 
@@ -317,6 +323,16 @@ class PlaybackAnalyticsController {
 
     return PlaybackSessionEndReason.skipped;
   }
+
+  /// Playback moved to another queue entry of the same song: the same
+  /// song queued twice, played into or skipped to (BUG-11 hardening). Each
+  /// entry is its own listen, as two different songs are. The engine gives
+  /// a cause only to a real change of entry, never to an edit that merely
+  /// shifts the current entry's position.
+  bool _movedToAnotherEntry(PlaybackState? previous, PlaybackState current) =>
+      previous != null &&
+      current.transitionCause != null &&
+      current.queue.currentIndex != previous.queue.currentIndex;
 
   bool _looksLikeCompletedRestart(
     PlaybackState? previous,
