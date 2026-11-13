@@ -36,6 +36,8 @@ import '../widgets/album_studio/release_date_editor.dart';
 import '../widgets/album_studio/release_studio_format.dart';
 import '../widgets/album_studio/release_studio_leaked.dart';
 import '../widgets/album_studio/release_studio_live.dart';
+import '../widgets/album_studio/studio_disc_actions.dart';
+import '../../application/services/edition_disc_layout.dart';
 import '../widgets/musicbrainz_search_dialog.dart';
 import '../widgets/permanent_deletion/permanent_deletion_sheet.dart';
 
@@ -253,6 +255,7 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
             bonusSongIds: _bonusSongIds(),
             onArrange: _arrange,
             onRenameDisc: _renameDisc,
+            onDeleteDisc: _deleteDisc,
             onEditPlacement: _editPlacement,
             onDeletePermanently: _deleteUnavailableSong,
           ),
@@ -375,9 +378,8 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
           Text(
             'A match can fill in the name, release date, format, kind and '
             'Live. Anything you set yourself is kept.',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-              color: SonusTheme.of(context).colors.textSecondary,
-            ),
+            style: Theme.of(context).textTheme.bodySmall
+                ?.copyWith(color: SonusTheme.of(context).colors.textSecondary),
           ),
         ],
       ),
@@ -1122,11 +1124,241 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
     });
   }
 
-  /// Saves the edition laid out as [placements]: order, discs and
-  /// automatic numbering of the discs it changes (REF-13), without asking.
-  Future<void> _arrange(List<EditionPlacement> placements) async {
+  /// The selected edition as shown: each song, in order, on its disc.
+  List<EditionPlacement> _shownPlacements(String editionId) => _placementsOf(
+    _studioEntries(
+      controller.tracks,
+      extraDiscs: _addedDiscs[editionId] ?? const {},
+    ),
+  );
+
+  /// Every disc shown for [editionId], with or without songs.
+  List<int> _shownDiscs(String editionId) => {
+    for (final track in controller.tracks) shownDisc(track.discNumber),
+    ...?_addedDiscs[editionId],
+  }.toList()..sort();
+
+  /// The tracklist [placements] describes, disc by disc, for a preview.
+  List<DiscPreview> _preview(
+    List<EditionPlacement> placements,
+    Map<int, String> labels,
+  ) {
+    final titles = {
+      for (final track in controller.tracks) track.songId: track.displayTitle,
+    };
+    final discs = discsOf(placements);
+    return [
+      for (final disc in discs)
+        DiscPreview(
+          title: discs.length > 1
+              ? discTitle(disc, label: labels[disc])
+              : 'Tracks',
+          songs: [
+            for (final p in placements)
+              if (shownDisc(p.discNumber) == disc) titles[p.songId] ?? '',
+          ],
+        ),
+    ];
+  }
+
+  /// "Delete Disc" (PATCH-02). An empty disc goes after a confirmation. A
+  /// disc with songs asks first whether they move to another disc or
+  /// leave this edition, then shows the edition as it will be. Songs are
+  /// never deleted, and their history and playlists stay.
+  Future<void> _deleteDisc(int disc) async {
     final edition = controller.selectedEdition;
     if (edition == null || _isSavingOrder) return;
+    final editionId = edition.editionId;
+    final current = _shownPlacements(editionId);
+    final songIds = songsOnDisc(current, disc);
+    final discName = discTitle(disc, label: controller.discLabels[disc]);
+
+    int? moveTo;
+    var removing = <String>{};
+    if (songIds.isNotEmpty) {
+      final others = [
+        for (final d in _shownDiscs(editionId))
+          if (d != disc) d,
+      ];
+      final blocked = await _whyNotRemovable(editionId, songIds);
+      if (!mounted) return;
+      final choice = await chooseDiscDeletion(
+        context,
+        discName: discName,
+        songCount: songIds.length,
+        removeBlockedReason: blocked,
+      );
+      if (choice == null || !mounted) return;
+      if (choice is MoveDiscSongs) {
+        moveTo = others.length == 1
+            ? others.single
+            : await chooseDestinationDisc(
+                context,
+                count: songIds.length,
+                discs: others,
+                labels: controller.discLabels,
+              );
+        if (moveTo == null || !mounted) return;
+      } else {
+        removing = songIds.toSet();
+      }
+    }
+
+    final placements = afterDeletingDisc(current, disc, moveTo: moveTo);
+    final confirmed = await confirmDiscLayout(
+      context,
+      title: 'Delete $discName?',
+      confirmLabel: 'Delete Disc $disc',
+      discs: _preview(
+        placements,
+        labelsAfterDeletingDisc(controller.discLabels, disc),
+      ),
+      removed: [
+        for (final track in controller.tracks)
+          if (removing.contains(track.songId)) track.displayTitle,
+      ],
+    );
+    if (!confirmed || !mounted) return;
+
+    await _commitDiscDeletion(
+      editionId: editionId,
+      disc: disc,
+      placements: placements,
+      removing: removing,
+      moveTo: moveTo,
+    );
+  }
+
+  /// Why the songs of a disc cannot leave this edition, or null when they
+  /// can: each must stay on another edition, and the edition keeps a song.
+  Future<String?> _whyNotRemovable(
+    String editionId,
+    List<String> songIds,
+  ) async {
+    if (songIds.length == controller.tracks.length) {
+      return 'An edition keeps at least one song, so these can only be '
+          'moved.';
+    }
+    final Object? library = widget.library;
+    if (library is! AlbumEditionQueryRepository) {
+      return 'Sonus could not check the other editions, so these can only '
+          'be moved.';
+    }
+    try {
+      final elsewhere = <String>{};
+      for (final other in controller.editions) {
+        if (other.editionId == editionId) continue;
+        for (final track in await library.getTracksByAlbumEditionId(
+          other.editionId,
+        )) {
+          elsewhere.add(track.songId);
+        }
+      }
+      final onlyHere = songIds.where((id) => !elsewhere.contains(id)).length;
+      if (onlyHere == 0) return null;
+      return onlyHere == 1
+          ? '1 of these songs is on no other edition, and every song stays '
+                'on at least one. Move the songs instead.'
+          : '$onlyHere of these songs are on no other edition, and every '
+                'song stays on at least one. Move the songs instead.';
+    } catch (error, stackTrace) {
+      developer.log(
+        'Other editions could not be read (${error.runtimeType})',
+        name: 'sonus.library.release_studio',
+        level: 900,
+        error: error,
+        stackTrace: stackTrace,
+      );
+      return 'Sonus could not check the other editions, so these can only '
+          'be moved.';
+    }
+  }
+
+  Future<void> _commitDiscDeletion({
+    required String editionId,
+    required int disc,
+    required List<EditionPlacement> placements,
+    required Set<String> removing,
+    required int? moveTo,
+  }) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final later = _shownDiscs(editionId).any((d) => d > disc);
+    final named = controller.discLabels.containsKey(disc);
+    setState(() => _isSavingOrder = true);
+    try {
+      // An empty, unnamed disc with no disc after it exists only on this
+      // screen: there is nothing to save.
+      if (removing.isNotEmpty || moveTo != null || later || named) {
+        await controller.deleteSelectedEditionDisc(
+          disc: disc,
+          placements: placements,
+          removeSongIds: removing,
+          userId: widget.userId,
+        );
+      }
+      if (!mounted) return;
+      setState(() {
+        final added = _addedDiscs[editionId];
+        if (added != null) {
+          _addedDiscs[editionId] = {
+            for (final d in added)
+              if (d != disc) discAfterDeleting(d, disc),
+          };
+        }
+      });
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            removing.isNotEmpty
+                ? 'Disc $disc deleted. ${_songs(removing.length)} removed '
+                      'from this edition; they stay in your library.'
+                : moveTo != null
+                ? 'Disc $disc deleted. Its songs moved to Disc '
+                      '${discAfterDeleting(moveTo, disc)}.'
+                : 'Disc $disc deleted.',
+          ),
+        ),
+      );
+    } on DiscDeletionException catch (error) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(switch (error.refusal) {
+            DiscDeletionRefusal.songsOnlyOnThisEdition =>
+              '${_songs(error.songCount)} on no other edition, so the disc '
+                  'was not deleted. Move the songs instead.',
+            DiscDeletionRefusal.editionWouldBeEmpty =>
+              'An edition keeps at least one song. Nothing was changed.',
+            DiscDeletionRefusal.notOnDisc =>
+              'The tracklist changed meanwhile. Nothing was changed.',
+          }),
+        ),
+      );
+    } catch (error, stackTrace) {
+      developer.log(
+        'A disc could not be deleted (${error.runtimeType})',
+        name: 'sonus.library.release_studio',
+        level: 900,
+        error: error,
+        stackTrace: stackTrace,
+      );
+      messenger.showSnackBar(
+        const SnackBar(
+          content: Text('Could not delete the disc. Nothing was changed.'),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isSavingOrder = false);
+    }
+  }
+
+  static String _songs(int count) => count == 1 ? '1 song' : '$count songs';
+
+  /// Saves the edition laid out as [placements]: order, discs and
+  /// automatic numbering of the discs it changes (REF-13), without asking.
+  /// Whether it was saved.
+  Future<bool> _arrange(List<EditionPlacement> placements) async {
+    final edition = controller.selectedEdition;
+    if (edition == null || _isSavingOrder) return false;
     final messenger = ScaffoldMessenger.of(context);
     setState(() => _isSavingOrder = true);
     try {
@@ -1134,13 +1366,14 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
         userId: widget.userId,
         placements: placements,
       );
-      if (!mounted) return;
+      if (!mounted) return true;
       // A disc that now has songs no longer needs to be remembered here.
       final used = {for (final p in placements) p.discNumber};
       final added = _addedDiscs[edition.editionId];
       if (added != null) {
         setState(() => added.removeWhere(used.contains));
       }
+      return true;
     } catch (error, stackTrace) {
       developer.log(
         'Tracks could not be arranged (${error.runtimeType})',
@@ -1154,6 +1387,7 @@ class _ReleaseStudioPageState extends State<ReleaseStudioPage> {
           content: Text('Could not reorder tracks. Nothing was changed.'),
         ),
       );
+      return false;
     } finally {
       if (mounted) setState(() => _isSavingOrder = false);
     }
@@ -1718,9 +1952,14 @@ class _StudioTrackList extends StatelessWidget {
     required this.onArrange,
     required this.onRenameDisc,
     required this.onEditPlacement,
+    this.onDeleteDisc,
     this.onDeletePermanently,
     this.bonusSongIds = const {},
   });
+
+  /// "Delete Disc" on each disc heading (PATCH-02). Headings, and so this,
+  /// appear only when the edition has more than one disc.
+  final Future<void> Function(int disc)? onDeleteDisc;
 
   final List<LibraryTrack> tracks;
   final Set<int> extraDiscs;
@@ -1785,6 +2024,9 @@ class _StudioTrackList extends StatelessWidget {
               label: discLabels[entry.disc],
               isEmpty: entry.isEmpty,
               onRename: isBusy ? null : () => onRenameDisc(entry.disc),
+              onDelete: isBusy || onDeleteDisc == null
+                  ? null
+                  : () => onDeleteDisc!(entry.disc),
             ),
           );
         }
@@ -1828,23 +2070,10 @@ class _StudioTrackList extends StatelessWidget {
     final canGoUp = above >= 0 && !(above == 0 && entries[0] is _DiscEntry);
     final canGoDown = below < entries.length;
 
-    void toDisc(int target) {
-      final placements = [
-        for (final p in _placementsOf(entries))
-          if (p.songId != track.songId) p,
-      ];
-      // After the disc's last song; on an empty disc, where it begins.
-      var at = placements.lastIndexWhere((p) => p.discNumber == target) + 1;
-      if (at == 0) {
-        final later = placements.indexWhere((p) => p.discNumber > target);
-        at = later < 0 ? placements.length : later;
-      }
-      placements.insert(
-        at,
-        EditionPlacement(songId: track.songId, discNumber: target),
-      );
-      unawaited(onArrange(placements));
-    }
+    // After the disc's last song; on an empty disc, where it begins.
+    void toDisc(int target) => unawaited(
+      onArrange(movedToDisc(_placementsOf(entries), {track.songId}, target)),
+    );
 
     final allDiscs = {...discs, disc}.toList()..sort();
     final newDisc = (allDiscs.isEmpty ? 1 : allDiscs.last) + 1;
@@ -1866,12 +2095,14 @@ class _StudioDiscHeading extends StatelessWidget {
     required this.label,
     required this.isEmpty,
     required this.onRename,
+    this.onDelete,
   });
 
   final int disc;
   final String? label;
   final bool isEmpty;
   final VoidCallback? onRename;
+  final VoidCallback? onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -1911,6 +2142,12 @@ class _StudioDiscHeading extends StatelessWidget {
           tooltip: named ? 'Rename Disc $disc' : 'Name Disc $disc',
           onPressed: onRename,
           icon: const Icon(Icons.edit_outlined),
+        ),
+        IconButton(
+          key: ValueKey<String>('album-studio-delete-disc-$disc'),
+          tooltip: 'Delete Disc $disc',
+          onPressed: onDelete,
+          icon: const Icon(Icons.delete_outline_rounded),
         ),
       ],
     );
@@ -2378,9 +2615,8 @@ class _GenreReviewNote extends StatelessWidget {
             child: Text(
               'Editions have different genres: ${genres.join(', ')}. '
               'Pick one to use for the release.',
-              style: Theme.of(
-                context,
-              ).textTheme.bodyMedium?.copyWith(color: colors.textSecondary),
+              style: Theme.of(context).textTheme.bodyMedium
+                  ?.copyWith(color: colors.textSecondary),
             ),
           ),
         ],
@@ -2398,9 +2634,8 @@ class _SectionNote extends StatelessWidget {
   Widget build(BuildContext context) {
     return Text(
       text,
-      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-        color: SonusTheme.of(context).colors.textSecondary,
-      ),
+      style: Theme.of(context).textTheme.bodyMedium
+          ?.copyWith(color: SonusTheme.of(context).colors.textSecondary),
     );
   }
 }
@@ -2452,9 +2687,8 @@ class _CoverPreview extends StatelessWidget {
                         'Using the primary edition\'s cover.',
               key: const ValueKey<String>('release-studio-cover-caption'),
               textAlign: TextAlign.center,
-              style: Theme.of(
-                context,
-              ).textTheme.bodySmall?.copyWith(color: colors.textSecondary),
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(color: colors.textSecondary),
             ),
           ],
         );

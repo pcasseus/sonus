@@ -6,6 +6,8 @@ import '../../../sync/domain/models/sync_data_contract.dart';
 import '../../domain/entities/album_edition_disc_label.dart';
 import '../../domain/entities/album_edition_track.dart';
 import '../../domain/services/album_edition_track_order.dart';
+import 'album_edition_management_service.dart';
+import 'edition_disc_layout.dart';
 import 'edition_track_numbering.dart';
 
 class AlbumEditionReorderResult {
@@ -567,6 +569,26 @@ class AlbumEditionTrackOrderingService {
     String? userId,
     DateTime? now,
   }) {
+    final editionId = _editionIdOf(albumEditionId);
+    _checkPlacements(placements);
+    final timestamp = now ?? DateTime.now();
+
+    return mutationRunner.run((context) async {
+      final edition = await context.albumEditionRepository.getById(editionId);
+      if (edition == null) {
+        throw StateError('Album edition not found: $editionId');
+      }
+      return _arrange(
+        context,
+        editionId: editionId,
+        placements: placements,
+        userId: userId?.trim(),
+        timestamp: timestamp,
+      );
+    });
+  }
+
+  static String _editionIdOf(String albumEditionId) {
     final editionId = albumEditionId.trim();
     if (editionId.isEmpty) {
       throw ArgumentError.value(
@@ -575,6 +597,10 @@ class AlbumEditionTrackOrderingService {
         'Album edition id must not be blank.',
       );
     }
+    return editionId;
+  }
+
+  static void _checkPlacements(List<EditionPlacement> placements) {
     final songIds = [for (final p in placements) p.songId.trim()];
     if (songIds.any((id) => id.isEmpty) ||
         songIds.toSet().length != songIds.length) {
@@ -591,110 +617,292 @@ class AlbumEditionTrackOrderingService {
         'Disc numbers start at 1.',
       );
     }
+  }
 
+  /// [arrangeEdition]'s work, inside [context]'s transaction. With
+  /// [keepLabels] false the disc names are left to the caller.
+  static Future<AlbumEditionArrangeResult> _arrange(
+    SyncMutationContext context, {
+    required String editionId,
+    required List<EditionPlacement> placements,
+    required String? userId,
+    required DateTime timestamp,
+    bool keepLabels = true,
+  }) async {
+    final songIds = [for (final p in placements) p.songId.trim()];
+    final normalizedUserId = userId;
+    final memberships = {
+      for (final m in await context.albumEditionTrackRepository.getByEditionId(
+        editionId,
+      ))
+        m.songId: m,
+    };
+    if (memberships.length != songIds.length ||
+        !memberships.keys.toSet().containsAll(songIds)) {
+      throw StateError(
+        'The arrangement must list exactly the songs of $editionId.',
+      );
+    }
+
+    final affected = _changedDiscs(memberships.values, placements);
+    final nextByDisc = <int, int>{};
+    final arranged = <AlbumEditionTrack>[];
+    var changed = false;
+
+    for (final (index, placement) in placements.indexed) {
+      final membership = memberships[songIds[index]]!;
+      final disc = placement.discNumber;
+      final target = nextByDisc.update(
+        disc,
+        (number) => number + 1,
+        ifAbsent: () => 1,
+      );
+      final renumbered = affected.contains(disc);
+      final moved =
+          renumbered ||
+          membership.discNumber != disc ||
+          membership.sortPosition != index;
+
+      final updated = moved
+          ? membership.copyWith(
+              discNumber: disc,
+              trackNumber: renumbered ? target : membership.trackNumber,
+              numberingAuthority: renumbered
+                  ? AlbumEditionTrackAuthority.manual
+                  : membership.numberingAuthority,
+              sortPosition: index,
+              orderingAuthority: AlbumEditionTrackAuthority.manual,
+              updatedAt: timestamp,
+            )
+          : membership;
+      final membershipChanged =
+          updated.discNumber != membership.discNumber ||
+          updated.trackNumber != membership.trackNumber ||
+          updated.numberingAuthority != membership.numberingAuthority ||
+          updated.sortPosition != membership.sortPosition ||
+          updated.orderingAuthority != membership.orderingAuthority;
+
+      if (membershipChanged) {
+        await context.albumEditionTrackRepository.save(updated);
+        changed = true;
+      }
+
+      var songChanged = false;
+      final song = await context.songRepository.getById(updated.songId);
+      if (song != null &&
+          song.albumEditionId == editionId &&
+          (song.discNumber != updated.discNumber ||
+              song.trackNumber != updated.trackNumber)) {
+        await context.songRepository.save(
+          song.copyWith(
+            discNumber: updated.discNumber,
+            trackNumber: updated.trackNumber,
+            updatedAt: timestamp,
+          ),
+        );
+        songChanged = true;
+        changed = true;
+      }
+
+      if (membershipChanged || songChanged) {
+        await context.localSyncRepository.recordUpsert(
+          userId: normalizedUserId,
+          entityType: CloudDataEntity.song,
+          entityId: updated.songId,
+        );
+      }
+      arranged.add(updated);
+    }
+
+    if (keepLabels) {
+      await context.albumEditionDiscLabelRepository?.keepOnly(
+        editionId: editionId,
+        discs: nextByDisc.keys.toSet(),
+      );
+    }
+
+    return AlbumEditionArrangeResult(
+      memberships: List<AlbumEditionTrack>.unmodifiable(arranged),
+      changed: changed,
+    );
+  }
+
+  /// Deletes [discNumber] of an edition in Release Studio (App Update 1.2,
+  /// PATCH-02), in one transaction: all of it happens, or none.
+  ///
+  /// [placements] is the edition afterwards, from [afterDeletingDisc]: the
+  /// disc's songs moved to another disc, or left out and named in
+  /// [removeSongIds], whose listings on this edition are then removed. The
+  /// songs themselves, their files, listening history, Moments, charts and
+  /// playlist entries are never touched. Each changed disc is numbered as
+  /// [arrangeEdition] numbers it. Later discs move down one and keep their
+  /// names; the deleted disc's name goes.
+  ///
+  /// Refused, changing nothing ([DiscDeletionException]), when a song to
+  /// remove is not on that disc or is listed on no other edition (every
+  /// song stays on at least one edition), or when the edition would be
+  /// left with no songs.
+  Future<DiscDeletionResult> deleteDisc({
+    required String albumEditionId,
+    required int discNumber,
+    required List<EditionPlacement> placements,
+    Set<String> removeSongIds = const {},
+    String? userId,
+    DateTime? now,
+  }) {
+    final editionId = _editionIdOf(albumEditionId);
+    if (discNumber < 1) {
+      throw ArgumentError.value(discNumber, 'discNumber', 'Discs start at 1.');
+    }
+    _checkPlacements(placements);
+    final removing = {for (final id in removeSongIds) id.trim()};
+    if (placements.any((p) => removing.contains(p.songId.trim()))) {
+      throw ArgumentError.value(
+        removeSongIds,
+        'removeSongIds',
+        'A song cannot be both removed and placed.',
+      );
+    }
     final timestamp = now ?? DateTime.now();
-    final normalizedUserId = userId?.trim();
+    final owner = userId?.trim();
 
     return mutationRunner.run((context) async {
       final edition = await context.albumEditionRepository.getById(editionId);
       if (edition == null) {
         throw StateError('Album edition not found: $editionId');
       }
-
-      final memberships = {
+      final discOf = {
         for (final m
             in await context.albumEditionTrackRepository.getByEditionId(
               editionId,
             ))
-          m.songId: m,
+          m.songId: shownDisc(m.discNumber),
       };
-      if (memberships.length != songIds.length ||
-          !memberships.keys.toSet().containsAll(songIds)) {
-        throw StateError(
-          'The arrangement must list exactly the songs of $editionId.',
+      if (placements.isEmpty && discOf.isNotEmpty) {
+        throw const DiscDeletionException(
+          DiscDeletionRefusal.editionWouldBeEmpty,
+        );
+      }
+      if (removing.any((id) => discOf[id] != discNumber)) {
+        throw const DiscDeletionException(DiscDeletionRefusal.notOnDisc);
+      }
+      var onlyHere = 0;
+      for (final songId in removing) {
+        final listings = await context.albumEditionTrackRepository.getBySongId(
+          songId,
+        );
+        if (listings.every((m) => m.albumEditionId == editionId)) onlyHere++;
+      }
+      if (onlyHere > 0) {
+        throw DiscDeletionException(
+          DiscDeletionRefusal.songsOnlyOnThisEdition,
+          songCount: onlyHere,
         );
       }
 
-      final affected = _changedDiscs(memberships.values, placements);
-      final nextByDisc = <int, int>{};
-      final arranged = <AlbumEditionTrack>[];
-      var changed = false;
-
-      for (final (index, placement) in placements.indexed) {
-        final membership = memberships[songIds[index]]!;
-        final disc = placement.discNumber;
-        final target = nextByDisc.update(
-          disc,
-          (number) => number + 1,
-          ifAbsent: () => 1,
+      for (final songId in removing) {
+        await AlbumEditionManagementService.removeListing(
+          context,
+          edition,
+          songId,
+          owner,
+          timestamp,
         );
-        final renumbered = affected.contains(disc);
-        final moved =
-            renumbered ||
-            membership.discNumber != disc ||
-            membership.sortPosition != index;
-
-        final updated = moved
-            ? membership.copyWith(
-                discNumber: disc,
-                trackNumber: renumbered ? target : membership.trackNumber,
-                numberingAuthority: renumbered
-                    ? AlbumEditionTrackAuthority.manual
-                    : membership.numberingAuthority,
-                sortPosition: index,
-                orderingAuthority: AlbumEditionTrackAuthority.manual,
-                updatedAt: timestamp,
-              )
-            : membership;
-        final membershipChanged =
-            updated.discNumber != membership.discNumber ||
-            updated.trackNumber != membership.trackNumber ||
-            updated.numberingAuthority != membership.numberingAuthority ||
-            updated.sortPosition != membership.sortPosition ||
-            updated.orderingAuthority != membership.orderingAuthority;
-
-        if (membershipChanged) {
-          await context.albumEditionTrackRepository.save(updated);
-          changed = true;
-        }
-
-        var songChanged = false;
-        final song = await context.songRepository.getById(updated.songId);
-        if (song != null &&
-            song.albumEditionId == editionId &&
-            (song.discNumber != updated.discNumber ||
-                song.trackNumber != updated.trackNumber)) {
-          await context.songRepository.save(
-            song.copyWith(
-              discNumber: updated.discNumber,
-              trackNumber: updated.trackNumber,
-              updatedAt: timestamp,
-            ),
-          );
-          songChanged = true;
-          changed = true;
-        }
-
-        if (membershipChanged || songChanged) {
-          await context.localSyncRepository.recordUpsert(
-            userId: normalizedUserId,
-            entityType: CloudDataEntity.song,
-            entityId: updated.songId,
-          );
-        }
-        arranged.add(updated);
       }
-
-      await context.albumEditionDiscLabelRepository?.keepOnly(
+      final arranged = await _arrange(
+        context,
         editionId: editionId,
-        discs: nextByDisc.keys.toSet(),
+        placements: placements,
+        userId: owner,
+        timestamp: timestamp,
+        keepLabels: false,
       );
+      final labelsChanged = await _renumberLabels(
+        context,
+        editionId: editionId,
+        deletedDisc: discNumber,
+        discs: {for (final p in placements) p.discNumber},
+        timestamp: timestamp,
+      );
+      if (labelsChanged) {
+        await _queueEditionChange(context, editionId, owner, timestamp);
+      }
 
-      return AlbumEditionArrangeResult(
-        memberships: List<AlbumEditionTrack>.unmodifiable(arranged),
-        changed: changed,
+      final onDisc = discOf.values.where((disc) => disc == discNumber).length;
+      return DiscDeletionResult(
+        moved: onDisc - removing.length,
+        removed: removing.length,
+        changed: arranged.changed || removing.isNotEmpty || labelsChanged,
       );
     });
+  }
+
+  /// Disc names once [deletedDisc] is gone: its name goes, later discs keep
+  /// theirs under their new number, and a disc left with no songs loses
+  /// its name (REF-13c). Whether any name changed.
+  static Future<bool> _renumberLabels(
+    SyncMutationContext context, {
+    required String editionId,
+    required int deletedDisc,
+    required Set<int> discs,
+    required DateTime timestamp,
+  }) async {
+    final labels = context.albumEditionDiscLabelRepository;
+    if (labels == null) return false;
+    final before = await labels.getByEditionId(editionId);
+    final after = <int, AlbumEditionDiscLabel>{
+      for (final label in before)
+        if (label.discNumber != deletedDisc &&
+            discs.contains(discAfterDeleting(label.discNumber, deletedDisc)))
+          discAfterDeleting(label.discNumber, deletedDisc): label,
+    };
+    final unchanged =
+        before.length == after.length &&
+        after.entries.every((e) => e.key == e.value.discNumber);
+    if (unchanged) return false;
+
+    for (final label in before) {
+      await labels.delete(editionId: editionId, discNumber: label.discNumber);
+    }
+    for (final MapEntry(key: disc, value: label) in after.entries) {
+      // The name keeps the date it was first given.
+      await labels.save(
+        AlbumEditionDiscLabel(
+          albumEditionId: editionId,
+          discNumber: disc,
+          label: label.label,
+          createdAt: label.createdAt,
+          updatedAt: disc == label.discNumber ? label.updatedAt : timestamp,
+        ),
+      );
+    }
+    return true;
+  }
+
+  /// Disc names sync with their edition once the cloud has them: the
+  /// edition is marked changed and queued, as any edition edit is.
+  static Future<void> _queueEditionChange(
+    SyncMutationContext context,
+    String editionId,
+    String? userId,
+    DateTime timestamp,
+  ) async {
+    final owner = userId?.trim();
+    if (!SyncDataContract.editionMetadataExtensionsEnabled ||
+        owner == null ||
+        owner.isEmpty) {
+      return;
+    }
+    final edition = await context.albumEditionRepository.getById(editionId);
+    if (edition == null) return;
+    await context.albumEditionRepository.save(
+      edition.copyWith(updatedAt: timestamp),
+    );
+    await context.localSyncRepository.recordUpsert(
+      userId: owner,
+      entityType: CloudDataEntity.albumEdition,
+      entityId: editionId,
+    );
   }
 
   /// The discs whose songs or order differ between [before] (by disc, in
@@ -752,28 +960,8 @@ class AlbumEditionTrackOrderingService {
       if (labels == null) {
         throw StateError('Disc names are not available here.');
       }
-      // Disc names sync with their edition once the cloud has them: the
-      // edition is marked changed and queued, as any edition edit is.
-      Future<void> queueEdition() async {
-        final owner = userId?.trim();
-        if (!SyncDataContract.editionMetadataExtensionsEnabled ||
-            owner == null ||
-            owner.isEmpty) {
-          return;
-        }
-        final edition = await context.albumEditionRepository.getById(
-          albumEditionId,
-        );
-        if (edition == null) return;
-        await context.albumEditionRepository.save(
-          edition.copyWith(updatedAt: timestamp),
-        );
-        await context.localSyncRepository.recordUpsert(
-          userId: owner,
-          entityType: CloudDataEntity.albumEdition,
-          entityId: albumEditionId,
-        );
-      }
+      Future<void> queueEdition() =>
+          _queueEditionChange(context, albumEditionId, userId, timestamp);
 
       if (text.isEmpty) {
         await labels.delete(editionId: albumEditionId, discNumber: discNumber);
@@ -806,6 +994,47 @@ class EditionPlacement {
 
   final String songId;
   final int discNumber;
+}
+
+/// Why deleting a disc was refused. Nothing is changed when it is.
+enum DiscDeletionRefusal {
+  /// A song to remove is not on the disc being deleted.
+  notOnDisc,
+
+  /// Songs listed on no other edition cannot leave this one: every song
+  /// stays on at least one edition. They can be moved to another disc.
+  songsOnlyOnThisEdition,
+
+  /// An edition keeps at least one song.
+  editionWouldBeEmpty,
+}
+
+class DiscDeletionException implements Exception {
+  const DiscDeletionException(this.refusal, {this.songCount = 0});
+
+  final DiscDeletionRefusal refusal;
+
+  /// For [DiscDeletionRefusal.songsOnlyOnThisEdition]: how many.
+  final int songCount;
+
+  @override
+  String toString() => 'DiscDeletionException(${refusal.name})';
+}
+
+/// What deleting a disc did.
+class DiscDeletionResult {
+  const DiscDeletionResult({
+    required this.moved,
+    required this.removed,
+    required this.changed,
+  });
+
+  /// Songs moved to another disc.
+  final int moved;
+
+  /// Listings removed from the edition; the songs stay in the library.
+  final int removed;
+  final bool changed;
 }
 
 /// What arranging an edition did.

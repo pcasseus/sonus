@@ -928,6 +928,31 @@ class AlbumProfileController extends ChangeNotifier with PlaybackShuffleMode {
     return result.changed ? result : null;
   }
 
+  /// Deletes [disc] of the selected edition (PATCH-02): [placements] is
+  /// the edition afterwards and [removeSongIds] the listings it no longer
+  /// has. One transaction; null when editing is unavailable. Throws
+  /// [DiscDeletionException] when refused, with nothing changed.
+  Future<DiscDeletionResult?> deleteSelectedEditionDisc({
+    required int disc,
+    required List<EditionPlacement> placements,
+    Set<String> removeSongIds = const {},
+    String? userId,
+  }) async {
+    final service = _albumEditionTrackOrderingService;
+    final selectedEdition = _selectedEdition;
+    if (service == null || selectedEdition == null) return null;
+
+    final result = await service.deleteDisc(
+      albumEditionId: selectedEdition.editionId,
+      discNumber: disc,
+      placements: placements,
+      removeSongIds: removeSongIds,
+      userId: userId,
+    );
+    await refresh();
+    return result;
+  }
+
   /// Names [disc] of the selected edition, or clears its name when [label]
   /// is blank (REF-13c).
   Future<bool> setSelectedEditionDiscLabel({
